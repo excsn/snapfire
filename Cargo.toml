@@ -1,0 +1,10 @@
+[package]
+name = "snapfire"
+version = "0.0.0"
+description = "Ergonomic Tera templating and live reload for Actix Web."
+edition = "2024"
+
+authors = ["Norm O <normo.pub@gmail.com>"]
+license = "MPL-2.0"
+
+[dependencies]
