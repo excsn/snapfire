@@ -99,21 +99,15 @@ Create a `templates/` directory with an `index.html` file.
 ### 4. Run your app!
 
 ```sh
-# This will run with the default "devel" feature enabled.
-cargo run
+# This will run with the "devel" feature enabled.
+cargo run --features devel
 ```
 
 Now, open your browser to `http://127.0.0.1:3000`. Try changing your `index.html` file—the browser will instantly reload!
 
 ## Production Builds
 
-The live-reload functionality is enabled by a default Cargo feature called `devel`. To build your application for production, you must disable this feature to remove the file watcher, WebSocket server, and script injection middleware.
-
-Use the `--no-default-features` flag:
-
-```sh
-cargo build --release --no-default-features
-```
+The live-reload functionality is enabled by a Cargo feature called `devel`. To build your application for production, you must disable this feature to remove the file watcher, WebSocket server, and script injection middleware.
 
 Your `configure_routes` and `InjectSnapFireScript` calls are automatically compiled to no-ops in this case, so you don't need to add any `#[cfg]` attributes to your own code.
 

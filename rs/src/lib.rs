@@ -57,11 +57,10 @@
 //!
 //! ### Production Builds
 //!
-//! To build your application for production, use the `--no-default-features` flag
-//! to disable the `devel` feature:
+//! To build your application for production
 //!
 //! ```sh
-//! cargo build --release --no-default-features
+//! cargo build --release
 //! ```
 
 pub mod actix;
