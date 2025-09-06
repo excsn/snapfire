@@ -1,4 +1,4 @@
-use crate::error::{Result, SnapfireError};
+use crate::error::{Result, SnapFireError};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -47,6 +47,7 @@ impl DevReloader {
     let broadcaster_clone = broadcaster.clone();
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+      // ... event handler logic remains the same ...
       let event = match res {
         Ok(event) => event,
         Err(e) => {
@@ -55,7 +56,6 @@ impl DevReloader {
         }
       };
 
-      // Check if the event is for a file modification or creation.
       if !(event.kind.is_modify() || event.kind.is_create()) {
         return;
       }
@@ -64,20 +64,15 @@ impl DevReloader {
         match path.extension().and_then(|s| s.to_str()) {
           Some("html") | Some("tera") | Some("jinja") => {
             log::info!("📝 Template change detected: {:?}", path);
-            // Perform a blocking reload on the Tera instance.
             if let Err(e) = tera_clone.write().full_reload() {
               log::error!("Failed to reload templates: {}", e);
             }
-            // Notify clients to do a full page reload.
             let _ = broadcaster_clone.send(ReloadMessage::Reload);
-            // We found a template, no need to check other paths in this event.
             return;
           }
           Some("css") => {
             log::info!("🎨 CSS change detected: {:?}", path);
-            // Notify clients to only reload CSS.
             let _ = broadcaster_clone.send(ReloadMessage::ReloadCss);
-            // We found CSS, no need to check other paths in this event.
             return;
           }
           _ => (),
@@ -85,25 +80,19 @@ impl DevReloader {
       }
     })?;
 
-    // Watch the template directory/glob.
-    // We must watch the parent directory of the glob to detect new file creations.
-    let template_parent = std::path::Path::new(template_glob).parent().ok_or_else(|| {
-      SnapfireError::Watcher(
-        // This is a simplified way to create a compatible error
-        notify::Error::new(notify::ErrorKind::PathNotFound),
-      )
-    })?;
-
+    // Use our new, robust function to get the path to watch.
+    let template_watch_path = base_path_from_glob(template_glob);
+    log::debug!("Watching template path: {}", template_watch_path);
     watcher
-      .watch(template_parent, RecursiveMode::Recursive)
-      .map_err(SnapfireError::Watcher)?;
+      .watch(std::path::Path::new(template_watch_path), RecursiveMode::Recursive)
+      .map_err(SnapFireError::Watcher)?;
 
     // Watch all specified static asset paths.
     for path in &static_paths {
       if std::path::Path::new(path).exists() {
         watcher
           .watch(path.as_ref(), RecursiveMode::Recursive)
-          .map_err(SnapfireError::Watcher)?;
+          .map_err(SnapFireError::Watcher)?;
       } else {
         log::warn!("Static path to watch does not exist, skipping: {}", path);
       }
@@ -115,5 +104,35 @@ impl DevReloader {
       ws_path,
       auto_inject_script,
     })
+  }
+}
+
+/// Extracts the non-glob base path from a glob pattern.
+///
+/// This is necessary because `notify` cannot watch a glob pattern directly.
+/// We need to find the deepest parent directory that does not contain
+/// any special glob characters.
+fn base_path_from_glob(glob: &str) -> &str {
+  // Find the first occurrence of a glob character
+  if let Some(first_glob_char_index) = glob.find(&['*', '?', '{', '[']) {
+    // Take the slice of the string before that character
+    let before_glob = &glob[..first_glob_char_index];
+    // Find the last directory separator in that slice
+    if let Some(last_separator_index) = before_glob.rfind('/') {
+      // The base path is everything up to that separator
+      &glob[..last_separator_index]
+    } else {
+      // No separator found before the glob, so watch the current directory
+      "."
+    }
+  } else {
+    // No glob characters found, the whole string is a path.
+    // We still need to check if it's a file or directory.
+    let path = std::path::Path::new(glob);
+    if path.is_dir() {
+      glob
+    } else {
+      path.parent().map_or(".", |p| p.to_str().unwrap_or("."))
+    }
   }
 }

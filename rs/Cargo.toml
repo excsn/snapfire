@@ -1,0 +1,46 @@
+[package]
+name = "snapfire"
+version = "0.4.0"
+description = "High-productivity web templating library designed to accelerate development with an integrated, zero-configuration live-reload server. Provides first class integration with Tera and Actix Web."
+
+keywords = ["actix", "tera", "template", "reload", "web"]
+categories = ["web-programming::http-server", "template-engine"]
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire"
+readme = "README.md"
+
+edition = { workspace = true}
+authors = { workspace = true}
+license = { workspace = true}
+
+[dependencies]
+# Core dependencies
+actix = "^0.13"
+actix-web = "^4"
+anyhow = "^1"
+async-trait = "^0.1"
+futures-util = { version = "^0.3" }
+log = "^0.4"
+parking_lot = "^0.12"
+serde = { version = "^1", features = ["derive"] }
+tera = "^1"
+thiserror = "^2.0"
+tokio = { version = "^1", features = ["macros", "sync", "rt", "rt-multi-thread"] }
+
+# Dev-reload specific dependencies (optional)
+async-stream = { version = "0.3", optional = true }
+bytes = { version = "1", optional = true }
+notify = { version = "^6.0", optional = true }
+actix-ws = { version = "^0.3", optional = true }
+
+[dev-dependencies]
+actix-rt = "^2"
+actix-http = "^3.1"
+tempfile = "^3.21"
+tokio = { version = "^1", features = ["rt"] }
+tokio-tungstenite = "^0.27"
+url = "^2.5"
+
+[features]
+default = []
+devel = ["dep:notify", "dep:actix-ws", "dep:async-stream", "dep:bytes"]

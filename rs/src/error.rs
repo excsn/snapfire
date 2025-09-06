@@ -1,11 +1,11 @@
 use thiserror::Error;
 
 /// A specialized `Result` type for `snapfire` operations.
-pub type Result<T, E = SnapfireError> = std::result::Result<T, E>;
+pub type Result<T, E = SnapFireError> = std::result::Result<T, E>;
 
 /// The primary error type for all `snapfire` operations.
 #[derive(Debug, Error)]
-pub enum SnapfireError {
+pub enum SnapFireError {
   /// An error originating from the `tera` templating engine.
   #[error("Tera rendering error: {0}")]
   Tera(#[from] tera::Error),
@@ -18,8 +18,8 @@ pub enum SnapfireError {
   #[error("Context serialization error: {0}")]
   Serialization(String),
 
-  /// An error from the file watcher, only available with the `dev-reload` feature.
-  #[cfg(feature = "dev-reload")]
+  /// An error from the file watcher, only available with the `devel` feature.
+  #[cfg(feature = "devel")]
   #[error("File watcher error: {0}")]
   Watcher(#[from] notify::Error),
 }

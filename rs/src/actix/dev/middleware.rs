@@ -8,37 +8,39 @@ use bytes::{Bytes, BytesMut};
 use futures_util::future::{self, LocalBoxFuture};
 use std::{rc::Rc, task::Poll};
 
-const SCRIPT: &[u8] = include_bytes!("injected.js");
+const SCRIPT_TAG_START: &[u8] = b"<script data-snapfire-reload=\"true\">";
+const SCRIPT_CONTENT: &[u8] = include_bytes!("injected.js");
+const SCRIPT_TAG_END: &[u8] = b"</script>";
 const BODY_TAG: &[u8] = b"</body>";
 
 #[derive(Debug, Clone, Default)]
-pub struct InjectSnapfireScript;
+pub struct InjectSnapFireScript;
 
-impl<S, B> Transform<S, ServiceRequest> for InjectSnapfireScript
+impl<S, B> Transform<S, ServiceRequest> for InjectSnapFireScript
 where
   S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
   B: MessageBody + 'static,
 {
   type Response = ServiceResponse<BoxBody>;
   type Error = Error;
-  type Transform = InjectSnapfireScriptMiddleware<S>;
+  type Transform = InjectSnapFireScriptMiddleware<S>;
   type InitError = ();
   type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
   fn new_transform(&self, service: S) -> Self::Future {
-    future::ok(InjectSnapfireScriptMiddleware {
+    future::ok(InjectSnapFireScriptMiddleware {
       // Wrap the service in an Rc so it can be shared and owned by futures
       service: Rc::new(service),
     })
   }
 }
 
-pub struct InjectSnapfireScriptMiddleware<S> {
+pub struct InjectSnapFireScriptMiddleware<S> {
   // The service is now wrapped in an Rc
   service: Rc<S>,
 }
 
-impl<S, B> Service<ServiceRequest> for InjectSnapfireScriptMiddleware<S>
+impl<S, B> Service<ServiceRequest> for InjectSnapFireScriptMiddleware<S>
 where
   S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
   B: MessageBody + 'static,
@@ -57,7 +59,6 @@ where
     let service = self.service.clone();
 
     Box::pin(async move {
-      // `service` is now an owned Rc, not a borrow of `self`.
       let res = service.call(req).await?;
 
       let is_html = res
@@ -72,9 +73,10 @@ where
       let res = res.map_body(move |_head, body| {
         let body_fut = async move {
           let body_bytes = match actix_web::body::to_bytes(body).await {
-            Ok(bytes) => bytes,
-            Err(_) => {
-              log::error!("Failed to buffer response body for script injection. Response will be empty.");
+            Ok(bytes) => {
+              bytes
+            }
+            Err(_e) => {
               return Err(actix_web::error::ErrorInternalServerError(
                 "Failed to buffer response body",
               ));
@@ -82,15 +84,24 @@ where
           };
 
           let new_body = if let Some(body_end_index) = find_case_insensitive(&body_bytes, BODY_TAG) {
-            let mut new_body = BytesMut::with_capacity(body_bytes.len() + SCRIPT.len());
+            let new_body_len = body_bytes.len() + SCRIPT_TAG_START.len() + SCRIPT_CONTENT.len() + SCRIPT_TAG_END.len();
+            let mut new_body = BytesMut::with_capacity(new_body_len);
+
             new_body.extend_from_slice(&body_bytes[..body_end_index]);
-            new_body.extend_from_slice(SCRIPT);
+            new_body.extend_from_slice(SCRIPT_TAG_START);
+            new_body.extend_from_slice(SCRIPT_CONTENT);
+            new_body.extend_from_slice(SCRIPT_TAG_END);
             new_body.extend_from_slice(&body_bytes[body_end_index..]);
             new_body.freeze()
           } else {
-            let mut new_body = BytesMut::with_capacity(body_bytes.len() + SCRIPT.len());
+            // If no body tag, append it all at the end
+            let new_body_len = body_bytes.len() + SCRIPT_TAG_START.len() + SCRIPT_CONTENT.len() + SCRIPT_TAG_END.len();
+            let mut new_body = BytesMut::with_capacity(new_body_len);
+
             new_body.extend_from_slice(&body_bytes);
-            new_body.extend_from_slice(SCRIPT);
+            new_body.extend_from_slice(SCRIPT_TAG_START);
+            new_body.extend_from_slice(SCRIPT_CONTENT);
+            new_body.extend_from_slice(SCRIPT_TAG_END);
             new_body.freeze()
           };
 
@@ -98,7 +109,7 @@ where
         };
 
         actix_web::body::BodyStream::new(Box::pin(async_stream::stream! {
-            yield body_fut.await;
+          yield body_fut.await;
         }))
         .boxed()
       });

@@ -17,9 +17,9 @@ async fn test_render_in_actix_server() {
   fs::write(&template_path, template_content).unwrap();
   let glob_path = temp_dir.path().join("*.html").to_str().unwrap().to_string();
 
-  // 2. Setup: Build the Snapfire app state
+  // 2. Setup: Build the SnapFire app state
   let snapfire_app = TeraWeb::builder(&glob_path)
-    .add_global("site_name", "Snapfire App")
+    .add_global("site_name", "SnapFire App")
     .build()
     .unwrap();
 
@@ -41,6 +41,6 @@ async fn test_render_in_actix_server() {
   let body = test::read_body(resp).await;
   let body_str = std::str::from_utf8(&body).unwrap();
 
-  let expected_html = "<html><head><title>Snapfire App | Integration Test</title></head></html>";
+  let expected_html = "<html><head><title>SnapFire App | Integration Test</title></head></html>";
   assert_eq!(body_str, expected_html);
 }

@@ -1,18 +1,18 @@
-use crate::error::{Result, SnapfireError};
+use crate::error::{Result, SnapFireError};
 
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::sync::Arc;
 use tera::{Context, Tera};
 
-#[cfg(feature = "dev-reload")]
+#[cfg(feature = "devel")]
 use crate::core::reload::DevReloader;
 
 /// A framework-agnostic representation of a template to be rendered.
 ///
 /// This struct holds all the necessary information for a render operation.
 /// It is created by the `TeraWeb::render` method. Web framework integration
-/// layers can then use this struct to implement their native response traits.
+/// layers (like `snapfire::actix`) implement their native response traits on this struct.
 pub struct Template {
   // It remains pub(crate) to hide implementation details.
   pub(crate) app_state: TeraWeb,
@@ -20,18 +20,18 @@ pub struct Template {
   pub(crate) context: Context,
 }
 
-/// The primary application state for Snapfire, designed to be shared across threads.
+/// The primary application state for SnapFire, designed to be shared across threads.
 ///
 /// It holds the Tera templating engine and all configuration. It is created using
-/// the `TeraWeb::builder()` method.
+/// the `TeraWeb::builder()` method and shared with Actix handlers via `web::Data`.
 #[derive(Clone, Debug)]
 pub struct TeraWeb {
   /// The Tera instance, wrapped for thread-safe access and mutability (for reloads).
   pub(crate) tera: Arc<RwLock<Tera>>,
   /// The pre-built global context, shared across all requests.
   pub(crate) global_context: Arc<Context>,
-  /// The live-reload controller, present only when the `dev-reload` feature is enabled.
-  #[cfg(feature = "dev-reload")]
+  /// The live-reload controller, present only when the `devel` feature is enabled.
+  #[cfg(feature = "devel")]
   pub(crate) reloader: Arc<DevReloader>,
 }
 
@@ -62,13 +62,16 @@ impl TeraWeb {
     final_context.extend(user_context);
 
     // 3. Render.
-    let body = tera.render(tpl, &final_context).map_err(SnapfireError::Tera)?;
+    let body = tera.render(tpl, &final_context).map_err(SnapFireError::Tera)?;
 
     Ok(body)
   }
 
-  // The `render` method now lives in the CORE. It is a simple,
-  // synchronous constructor for the `Template` struct.
+  /// Prepares a template for rendering.
+  ///
+  /// This method is synchronous and returns a `Template` struct, which can then
+  /// be returned from an Actix handler. The actual rendering is performed
+  /// asynchronously by the framework when the response is being sent.
   pub fn render(&self, tpl: &str, context: Context) -> Template {
     Template {
       app_state: self.clone(),
@@ -77,7 +80,7 @@ impl TeraWeb {
     }
   }
 
-  #[cfg(feature = "dev-reload")]
+  #[cfg(feature = "devel")]
   pub(crate) fn get_reloader_broadcaster(&self) -> tokio::sync::broadcast::Sender<crate::core::reload::ReloadMessage> {
     self.reloader.broadcaster.clone()
   }
@@ -90,11 +93,8 @@ pub struct TeraWebBuilder {
   // A closure to run on the Tera instance for advanced configuration.
   // We use `Box<dyn...>` to store the closure in the struct.
   tera_configurator: Option<Box<dyn FnOnce(&mut Tera)>>,
-  #[cfg(feature = "dev-reload")]
   static_paths_to_watch: Vec<String>,
-  #[cfg(feature = "dev-reload")]
   ws_path: String,
-  #[cfg(feature = "dev-reload")]
   auto_inject_script: bool,
 }
 
@@ -105,18 +105,17 @@ impl TeraWebBuilder {
       templates_glob: templates_glob.to_string(),
       globals: Context::new(),
       tera_configurator: None,
-      #[cfg(feature = "dev-reload")]
       static_paths_to_watch: Vec::new(),
-      #[cfg(feature = "dev-reload")]
       ws_path: "/_snapfire/ws".to_string(),
-      #[cfg(feature = "dev-reload")]
       auto_inject_script: true,
     }
   }
 
-  /// Adds a global variable that will be available to all templates.
+  /// Adds a global variable that will be available to all templates rendered
+  /// by this `TeraWeb` instance.
   ///
-  /// This can be called multiple times to add multiple globals.
+  /// This can be called multiple times to add multiple globals. If a key is
+  /// added that already exists, the old value will be overwritten.
   ///
   /// # Arguments
   ///
@@ -139,10 +138,9 @@ impl TeraWebBuilder {
     self
   }
 
-  /// Sets the path for the dev-reload WebSocket endpoint.
+  /// Sets the path for the devel WebSocket endpoint.
   ///
   /// Defaults to `/_snapfire/ws`.
-  #[cfg(feature = "dev-reload")]
   pub fn ws_path(mut self, path: &str) -> Self {
     self.ws_path = path.to_string();
     self
@@ -153,7 +151,6 @@ impl TeraWebBuilder {
   ///
   /// Defaults to `true`. Set this to `false` if you want to manually
   /// include the script in your base template.
-  #[cfg(feature = "dev-reload")]
   pub fn auto_inject_script(mut self, enabled: bool) -> Self {
     self.auto_inject_script = enabled;
     self
@@ -162,7 +159,6 @@ impl TeraWebBuilder {
   /// Adds a path to a static directory to watch for changes.
   ///
   /// This is typically used for CSS files. Can be called multiple times.
-  #[cfg(feature = "dev-reload")]
   pub fn watch_static(mut self, path: &str) -> Self {
     self.static_paths_to_watch.push(path.to_string());
     self
@@ -170,7 +166,7 @@ impl TeraWebBuilder {
 
   /// Consumes the builder to construct the final `TeraWeb` application state.
   ///
-  /// This method will initialize the Tera engine and, if the `dev-reload` feature
+  /// This method will initialize the Tera engine and, if the `devel` feature
   /// is enabled, spawn the file watcher.
   pub fn build(self) -> Result<TeraWeb> {
     // 1. Create the initial Tera instance.
@@ -186,8 +182,8 @@ impl TeraWebBuilder {
 
     // 4. Construct the final TeraWeb state.
     Ok(TeraWeb {
-      // Conditionally start the reloader if the `dev-reload` feature is enabled.
-      #[cfg(feature = "dev-reload")]
+      // Conditionally start the reloader if the `devel` feature is enabled.
+      #[cfg(feature = "devel")]
       reloader: {
         let reloader = DevReloader::start(
           Arc::clone(&tera),
@@ -198,7 +194,7 @@ impl TeraWebBuilder {
         )?;
         Arc::new(reloader)
       },
-      // If `dev-reload` is not enabled, the `reloader` field does not exist.
+      // If `devel` is not enabled, the `reloader` field does not exist.
       // The code in the block above is not compiled.
       tera, // This moves the `tera` Arc into the struct
       global_context: Arc::new(self.globals),
@@ -229,13 +225,13 @@ mod tests {
 
   #[tokio::test]
   async fn test_render_with_global_context() {
-    let app = setup_test_app("site_name", "Snapfire Test", "Hello, {{ site_name }}!").await;
+    let app = setup_test_app("site_name", "SnapFire Test", "Hello, {{ site_name }}!").await;
     let user_context = Context::new(); // Empty user context
 
     let result = app.render_with_context("index.html", user_context);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), "Hello, Snapfire Test!");
+    assert_eq!(result.unwrap(), "Hello, SnapFire Test!");
   }
 
   #[tokio::test]
@@ -262,19 +258,28 @@ mod tests {
     assert_eq!(result.unwrap(), "Title: Page Title");
   }
 
-  #[tokio::test]
-  async fn test_render_fails_when_template_not_found() {
-    // Tera::new() succeeds even with a bad glob, as it loads lazily.
-    let app = TeraWeb::builder("/invalid/path/that/does/not/exist/**/*.html")
-      .build()
-      .unwrap(); // This should NOT fail.
+  #[test]
+  fn test_bad_glob_behavior() {
+    let builder = TeraWeb::builder("/invalid/path/that/does/not/exist/*.html");
 
-    let user_context = Context::new();
-    // The error should happen here, when we try to render a non-existent template.
-    let result = app.render_with_context("non_existent.html", user_context);
+    // The behavior is different depending on whether the watcher is active.
+    #[cfg(feature = "devel")]
+    {
+      // In dev mode, the watcher needs to watch the template directory's parent.
+      // If the path is totally invalid, build() itself should fail.
+      let result = builder.build();
+      assert!(result.is_err());
+      assert!(matches!(result.unwrap_err(), SnapFireError::Watcher(_)));
+    }
 
-    assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), SnapfireError::Tera(_)));
+    #[cfg(not(feature = "devel"))]
+    {
+      // In release mode, Tera::new() succeeds even with a bad glob.
+      let app = builder.build().unwrap();
+      // The error should only occur when we try to render.
+      let result = app.render_with_context("non_existent.html", Context::new());
+      assert!(matches!(result.unwrap_err(), SnapFireError::Tera(_)));
+    }
   }
 
   #[test]

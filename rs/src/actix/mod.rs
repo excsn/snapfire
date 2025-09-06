@@ -8,7 +8,6 @@ use actix_web::{
 };
 use futures_util::stream;
 
-#[cfg(feature = "dev-reload")]
 pub mod dev;
 
 impl Responder for Template {
@@ -37,16 +36,16 @@ impl Responder for Template {
 }
 
 // This block adds the `configure_routes` method.
-// It is gated by the `dev-reload` feature.
-#[cfg(feature = "dev-reload")]
+// It is gated by the `devel` feature.
+#[cfg(feature = "devel")]
 impl TeraWeb {
-  /// Configures Actix services needed by Snapfire for development.
+  /// Configures Actix services needed by SnapFire for development.
   ///
   /// Currently, this adds the WebSocket route handler for live reloading.
   /// The route is determined by the `ws_path` set in the builder.
   pub fn configure_routes(&self, cfg: &mut ServiceConfig) {
     log::info!(
-      "🔥 Snapfire dev-reload enabled. Attaching WebSocket at {}",
+      "🔥 SnapFire devel enabled. Attaching WebSocket at {}",
       self.reloader.ws_path
     );
 
@@ -62,7 +61,7 @@ impl TeraWeb {
   }
 }
 
-#[cfg(not(feature = "dev-reload"))]
+#[cfg(not(feature = "devel"))]
 impl TeraWeb {
   /// In release builds, this is a no-op that allows user code to compile
   /// without having to add `#[cfg]` attributes.
