@@ -1,14 +1,11 @@
-pub fn add(left: u64, right: u64) -> u64 {
-  left + right
-}
+// TODO: Crate-level documentation will go here.
 
-#[cfg(test)]
-mod tests {
-  use super::*;
+pub mod core;
+pub mod error;
 
-  #[test]
-  fn it_works() {
-    let result = add(2, 2);
-    assert_eq!(result, 4);
-  }
-}
+// The entire actix module is compiled only when the feature is enabled.
+// For now, we assume an implicit 'actix' feature that is always on.
+pub mod actix;
+
+pub use crate::core::app::{Template, TeraWeb, TeraWebBuilder};
+pub use crate::error::{Result, SnapfireError};
