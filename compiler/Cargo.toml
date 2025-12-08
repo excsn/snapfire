@@ -1,0 +1,58 @@
+[package]
+name = "snapfire_compiler"
+version = "0.9.0"
+description = "Compile TypeScript for the browser. No Node JS required. Fast, native, opinionated."
+
+keywords = ["typescript", "compiler", "swc", "css", "browser"]
+categories = ["command-line-utilities", "development-tools::build-utils", "web-programming"]
+exclude = ["/tests/fixtures", "/input"]
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire/compiler"
+readme = "README.md"
+
+edition = { workspace = true}
+authors = { workspace = true}
+license = { workspace = true}
+
+[[bin]]
+name = "snapfirec"
+path = "src/main.rs"
+
+[dependencies]
+# Error handling
+anyhow = "1.0"
+
+# CLI Argument parsing
+clap = { version = "4.4", features = ["derive"] }
+
+# Configuration parsing (for tsconfig.json)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# File system traversal
+walkdir = "2.4"
+
+# CSS Processing
+lightningcss = { version = "1.0.0-alpha.54", features = ["browserslist"] }
+browserslist-rs = "0.19.0"
+
+# TypeScript Compiler Infrastructure (SWC)
+# We select specific features to keep build times reasonable
+[dependencies.swc_core]
+version = "50"
+features = [
+  "common",
+  "ecma_ast",
+  "ecma_parser",
+  "ecma_codegen",
+  "ecma_visit",
+  "ecma_transforms_typescript"
+]
+
+[dev-dependencies]
+# For creating temporary directories for each test
+tempfile = "3.8"
+# For easier assertions on command-line tools
+assert_cmd = "2.0"
+# For easier file system assertions (e.g., checking if a file exists)
+predicates = "3.0"

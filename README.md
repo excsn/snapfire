@@ -11,8 +11,6 @@ The core goal is to provide a seamless and productive "hot reload" development e
 
 ## Implementations
 
-This repository may contain rust implementation of the SnapFire project.
-
 ### **Rust Implementation**
 
 The primary and most complete implementation is written in Rust. It features a deep integration with the **Tera** templating engine and the **Actix Web** framework.

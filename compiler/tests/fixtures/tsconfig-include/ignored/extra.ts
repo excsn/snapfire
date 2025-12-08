@@ -1,0 +1,1 @@
+export const message = "This file should NOT be compiled.";

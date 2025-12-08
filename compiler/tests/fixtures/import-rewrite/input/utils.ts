@@ -1,0 +1,1 @@
+export const helper = () => "I am a helper function.";

@@ -1,0 +1,12 @@
+/*
+  This is a test comment that should be stripped.
+*/
+body {
+  font-family: sans-serif;
+  
+  /* Test nesting */
+  .container {
+    padding: 20px;
+    margin: 0 auto;
+  }
+}

@@ -1,0 +1,48 @@
+:root {
+  --sonner-gap: 16px;
+  --sonner-bg: #ffffff;
+  --sonner-border: #e2e8f0;
+  --sonner-text: #171717;
+  --sonner-radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sonner-bg: #0a0a0a;
+    --sonner-border: #262626;
+    --sonner-text: #ededed;
+  }
+}
+
+.sonner-toaster {
+  position: fixed;
+  bottom: var(--sonner-gap);
+  right: var(--sonner-gap);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  font-family: system-ui, sans-serif;
+
+  /* LightningCSS handles this modern nesting syntax automatically */
+  & .sonner-toast {
+    background: var(--sonner-bg);
+    color: var(--sonner-text);
+    border: 1px solid var(--sonner-border);
+    padding: 16px;
+    border-radius: var(--sonner-radius);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    width: 356px;
+    font-size: 14px;
+
+    &:hover {
+      transform: scale(1.02);
+    }
+
+    &[data-type="error"] {
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+  }
+}
