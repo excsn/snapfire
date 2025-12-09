@@ -7,7 +7,7 @@ keywords = ["typescript", "compiler", "swc", "css", "browser"]
 categories = ["command-line-utilities", "development-tools::build-utils", "web-programming"]
 exclude = ["/tests/fixtures", "/input"]
 repository = "https://github.com/excsn/snapfire"
-homepage = "https://github.com/excsn/snapfire/compiler"
+homepage = "https://github.com/excsn/snapfire/tree/main/compiler"
 readme = "README.md"
 
 edition = { workspace = true}
