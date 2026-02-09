@@ -1,6 +1,6 @@
 [package]
 name = "snapfire"
-version = "0.4.0"
+version = "0.4.1"
 description = "High-productivity web templating library designed to accelerate development with an integrated, zero-configuration live-reload server. Provides first class integration with Tera and Actix Web."
 
 keywords = ["actix", "tera", "template", "reload", "web"]
@@ -16,7 +16,7 @@ license = { workspace = true}
 [dependencies]
 # Core dependencies
 actix = "^0.13"
-actix-web = "^4"
+actix-web = { version = "^4", default-features = false }
 anyhow = "^1"
 async-trait = "^0.1"
 futures-util = { version = "^0.3" }
