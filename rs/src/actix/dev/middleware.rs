@@ -4,15 +4,39 @@ use actix_web::{
   dev::{Service, ServiceRequest, ServiceResponse, Transform},
   http::header::CONTENT_TYPE,
 };
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures_util::future::{self, LocalBoxFuture};
 use std::{rc::Rc, task::Poll};
 
+use crate::core::app::{DEFAULT_WS_PATH, TeraWeb};
+use crate::core::reload::client_script;
+
 const SCRIPT_TAG_START: &[u8] = b"<script data-snapfire-reload=\"true\">";
-const SCRIPT_CONTENT: &[u8] = include_bytes!("injected.js");
 const SCRIPT_TAG_END: &[u8] = b"</script>";
 const BODY_TAG: &[u8] = b"</body>";
 
+/// Actix middleware that inserts the live-reload script into HTML responses.
+///
+/// The script is placed immediately before the closing `</body>` tag, or appended when
+/// the response has no such tag. Responses whose `Content-Type` is not `text/html` pass
+/// through untouched.
+///
+/// The WebSocket URL written into the script is read from the [`TeraWeb`] registered as
+/// Actix app data, so it follows [`TeraWebBuilder::ws_path`]. Without that app data the
+/// default path is used.
+///
+/// [`TeraWebBuilder::ws_path`]: crate::TeraWebBuilder::ws_path
+///
+/// # Examples
+///
+/// ```no_run
+/// # use actix_web::{App, web};
+/// # let app_state: snapfire::TeraWeb = unimplemented!();
+/// App::new()
+///   .app_data(web::Data::new(app_state))
+///   .wrap(snapfire::actix::dev::InjectSnapFireScript::default())
+/// # ;
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct InjectSnapFireScript;
 
@@ -36,7 +60,6 @@ where
 }
 
 pub struct InjectSnapFireScriptMiddleware<S> {
-  // The service is now wrapped in an Rc
   service: Rc<S>,
 }
 
@@ -54,9 +77,13 @@ where
   }
 
   fn call(&self, req: ServiceRequest) -> Self::Future {
-    // Clone the Rc to get an owned handle to the service.
-    // This handle can be moved into the async block.
     let service = self.service.clone();
+
+    let state = req.app_data::<actix_web::web::Data<TeraWeb>>();
+    let script = state.is_none_or(|state| state.auto_inject_script).then(|| {
+      let ws_path = state.map_or(DEFAULT_WS_PATH, |state| state.reloader.ws_path.as_str());
+      client_script(ws_path)
+    });
 
     Box::pin(async move {
       let res = service.call(req).await?;
@@ -64,13 +91,14 @@ where
       let is_html = res
         .headers()
         .get(CONTENT_TYPE)
-        .map_or(false, |val| val.to_str().unwrap_or("").contains("text/html"));
+        .is_some_and(|val| val.to_str().unwrap_or("").contains("text/html"));
 
-      if !is_html {
+      let Some(script) = script.filter(|_| is_html) else {
         return Ok(res.map_into_boxed_body());
-      }
+      };
 
       let res = res.map_body(move |_head, body| {
+        let script = script.into_bytes();
         let body_fut = async move {
           let body_bytes = match actix_web::body::to_bytes(body).await {
             Ok(bytes) => {
@@ -83,24 +111,23 @@ where
             }
           };
 
+          let new_body_len = body_bytes.len() + SCRIPT_TAG_START.len() + script.len() + SCRIPT_TAG_END.len();
+
           let new_body = if let Some(body_end_index) = find_case_insensitive(&body_bytes, BODY_TAG) {
-            let new_body_len = body_bytes.len() + SCRIPT_TAG_START.len() + SCRIPT_CONTENT.len() + SCRIPT_TAG_END.len();
             let mut new_body = BytesMut::with_capacity(new_body_len);
 
             new_body.extend_from_slice(&body_bytes[..body_end_index]);
             new_body.extend_from_slice(SCRIPT_TAG_START);
-            new_body.extend_from_slice(SCRIPT_CONTENT);
+            new_body.extend_from_slice(&script);
             new_body.extend_from_slice(SCRIPT_TAG_END);
             new_body.extend_from_slice(&body_bytes[body_end_index..]);
             new_body.freeze()
           } else {
-            // If no body tag, append it all at the end
-            let new_body_len = body_bytes.len() + SCRIPT_TAG_START.len() + SCRIPT_CONTENT.len() + SCRIPT_TAG_END.len();
             let mut new_body = BytesMut::with_capacity(new_body_len);
 
             new_body.extend_from_slice(&body_bytes);
             new_body.extend_from_slice(SCRIPT_TAG_START);
-            new_body.extend_from_slice(SCRIPT_CONTENT);
+            new_body.extend_from_slice(&script);
             new_body.extend_from_slice(SCRIPT_TAG_END);
             new_body.freeze()
           };

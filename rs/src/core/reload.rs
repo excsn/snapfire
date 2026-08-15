@@ -5,6 +5,15 @@ use std::sync::Arc;
 use tera::Tera;
 use tokio::sync::broadcast;
 
+const CLIENT_SCRIPT: &str = include_str!("../../resources/injected.js");
+const WS_PATH_PLACEHOLDER: &str = "__SNAPFIRE_WS_PATH__";
+
+/// Returns the browser-side live-reload client, with `ws_path` substituted for the
+/// placeholder the script ships with.
+pub(crate) fn client_script(ws_path: &str) -> String {
+  CLIENT_SCRIPT.replace(WS_PATH_PLACEHOLDER, ws_path)
+}
+
 /// A message sent from the reloader to all connected clients.
 #[derive(Debug, Clone)]
 pub(crate) enum ReloadMessage {
@@ -20,14 +29,10 @@ pub(crate) enum ReloadMessage {
 /// broadcast channel to send messages to connected clients.
 #[derive(Debug)]
 pub(crate) struct DevReloader {
-  // We only store the sender. Receivers are created on demand.
   pub(crate) broadcaster: broadcast::Sender<ReloadMessage>,
-  // The watcher is held in the struct to keep it alive. When `DevReloader`
-  // is dropped, the watcher is dropped, and the background task will exit.
+  // Held only to keep the watcher alive: dropping it stops the background task.
   _watcher: RecommendedWatcher,
-  // Publicly expose the configuration for the Actix layer to use.
   pub(crate) ws_path: String,
-  pub(crate) auto_inject_script: bool,
 }
 
 impl DevReloader {
@@ -37,17 +42,14 @@ impl DevReloader {
     template_glob: &str,
     static_paths: Vec<String>,
     ws_path: String,
-    auto_inject_script: bool,
   ) -> Result<Self> {
     let (tx, _rx) = broadcast::channel(16);
     let broadcaster = tx.clone();
 
-    // The watcher needs its own clones to move into the event handler.
     let tera_clone = tera.clone();
     let broadcaster_clone = broadcaster.clone();
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-      // ... event handler logic remains the same ...
       let event = match res {
         Ok(event) => event,
         Err(e) => {
@@ -80,14 +82,12 @@ impl DevReloader {
       }
     })?;
 
-    // Use our new, robust function to get the path to watch.
     let template_watch_path = base_path_from_glob(template_glob);
     log::debug!("Watching template path: {}", template_watch_path);
     watcher
       .watch(std::path::Path::new(template_watch_path), RecursiveMode::Recursive)
       .map_err(SnapFireError::Watcher)?;
 
-    // Watch all specified static asset paths.
     for path in &static_paths {
       if std::path::Path::new(path).exists() {
         watcher
@@ -102,7 +102,6 @@ impl DevReloader {
       broadcaster,
       _watcher: watcher,
       ws_path,
-      auto_inject_script,
     })
   }
 }
@@ -113,21 +112,14 @@ impl DevReloader {
 /// We need to find the deepest parent directory that does not contain
 /// any special glob characters.
 fn base_path_from_glob(glob: &str) -> &str {
-  // Find the first occurrence of a glob character
   if let Some(first_glob_char_index) = glob.find(&['*', '?', '{', '[']) {
-    // Take the slice of the string before that character
     let before_glob = &glob[..first_glob_char_index];
-    // Find the last directory separator in that slice
     if let Some(last_separator_index) = before_glob.rfind('/') {
-      // The base path is everything up to that separator
       &glob[..last_separator_index]
     } else {
-      // No separator found before the glob, so watch the current directory
       "."
     }
   } else {
-    // No glob characters found, the whole string is a path.
-    // We still need to check if it's a file or directory.
     let path = std::path::Path::new(glob);
     if path.is_dir() {
       glob

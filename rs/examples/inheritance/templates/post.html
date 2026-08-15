@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <article>
+    <h2>{{ post.title }}</h2>
+    <p>{{ post.body }}</p>
+  </article>
+{% endblock content %}
+
+{% block footer %}
+  <p><a href="/">Back to all posts</a></p>
+{% endblock footer %}

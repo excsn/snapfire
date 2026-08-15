@@ -1,0 +1,3 @@
+{% component price_tag(name, cents) %}
+<li><strong>{{ name | upcase }}</strong> &mdash; {{ cents | money(symbol="£") }}</li>
+{% endcomponent price_tag %}

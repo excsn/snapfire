@@ -12,4 +12,4 @@ actix-web = "4"
 env_logger = "0.11"
 log = "^0.4"
 serde = { version = "1", features = ["derive"] }
-tera = "1"
+tera = "2"

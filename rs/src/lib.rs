@@ -63,8 +63,12 @@
 //! cargo build --release
 //! ```
 
+/// Actix Web integration: the `Responder` implementation for [`Template`] and the
+/// development middleware.
 pub mod actix;
+/// Framework-agnostic application state and live reload.
 pub mod core;
+/// The crate's error type and `Result` alias.
 pub mod error;
 
 pub use crate::core::app::{Template, TeraWeb, TeraWebBuilder};

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ site_name }} | {{ page_title }}</title>
+</head>
+<body>
+  <h1>{{ site_name | upcase }}</h1>
+  <ul>
+    {% for product in products %}
+      {{ <price_tag name={product.name} cents={product.cents}/> }}
+    {% endfor %}
+  </ul>
+  <p>Total: {{ total(of=products) | money }}</p>
+</body>
+</html>

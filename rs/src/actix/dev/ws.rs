@@ -1,6 +1,6 @@
 use crate::core::reload::ReloadMessage;
 use actix_web::{HttpRequest, HttpResponse};
-use actix_ws::{AggregatedMessage, Message, MessageStream, Session};
+use actix_ws::{AggregatedMessage, MessageStream, Session};
 use futures_util::StreamExt;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -22,17 +22,15 @@ pub(crate) async fn websocket_handler(
 
   let (response, session, msg_stream) = actix_ws::handle(&req, body)?;
 
-  // Spawn a new task to handle the WebSocket session.
   actix_web::rt::spawn(handle_connection(session, msg_stream, broadcaster.subscribe()));
 
-  // Return the response that finishes the WebSocket handshake.
   Ok(response)
 }
 
 /// Handles the lifecycle of a single WebSocket connection.
 async fn handle_connection(
   mut session: Session,
-  mut msg_stream: MessageStream,
+  msg_stream: MessageStream,
   mut reloader_rx: broadcast::Receiver<ReloadMessage>,
 ) {
   let mut last_heartbeat = Instant::now();
@@ -41,20 +39,16 @@ async fn handle_connection(
   let mut msg_stream = msg_stream.aggregate_continuations();
   let close_reason = loop {
     tokio::select! {
-      // Heartbeat timer tick
       _ = interval.tick() => {
-        // Check if the client has timed out
         if Instant::now().duration_since(last_heartbeat) > CLIENT_TIMEOUT {
           log::info!("WebSocket client heartbeat failed, disconnecting!");
           break None;
         }
-        // Send a ping to the client
         if session.ping(b"").await.is_err() {
           break None;
         };
       }
 
-      // An incoming message from the browser client
       Some(Ok(msg)) = msg_stream.next() => {
         match msg {
           AggregatedMessage::Ping(bytes) => {
@@ -75,7 +69,6 @@ async fn handle_connection(
         }
       }
 
-      // An outgoing message from our `DevReloader` broadcaster
       Ok(reload_msg) = reloader_rx.recv() => {
         let message_text = match reload_msg {
           ReloadMessage::Reload => "reload",
@@ -84,7 +77,6 @@ async fn handle_connection(
         log::debug!("Broadcasting WebSocket message: {}", message_text);
 
         if session.text(message_text).await.is_err() {
-          // The client has disconnected, stop trying to send messages.
           break None;
         }
       }
@@ -94,6 +86,5 @@ async fn handle_connection(
     }
   };
 
-  // Attempt to close the connection gracefully.
   let _ = session.close(close_reason).await;
 }

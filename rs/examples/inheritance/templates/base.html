@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ site_name }} | {{ page_title }}</title>
+</head>
+<body>
+  <header>
+    <a href="/"><h1>{{ site_name }}</h1></a>
+  </header>
+  <main>
+    {% block content %}{% endblock content %}
+  </main>
+  <footer>
+    {% block footer %}<p>Built with SnapFire v{{ version }}</p>{% endblock footer %}
+  </footer>
+</body>
+</html>

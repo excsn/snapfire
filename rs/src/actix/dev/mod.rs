@@ -1,8 +1,3 @@
-// This file now controls what `InjectSnapFireScript` is.
-
-// === REAL IMPLEMENTATION ===
-// When `devel` is enabled, we declare the real implementation
-// modules and publicly export the real middleware struct.
 #[cfg(feature = "devel")]
 mod middleware;
 #[cfg(feature = "devel")]
@@ -10,14 +5,16 @@ pub(crate) mod ws;
 #[cfg(feature = "devel")]
 pub use middleware::InjectSnapFireScript;
 
-// === DUMMY IMPLEMENTATION ===
-// When `devel` is NOT enabled, we provide a dummy struct
-// and a no-op Transform implementation.
 #[cfg(not(feature = "devel"))]
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 #[cfg(not(feature = "devel"))]
 use std::future::{Ready, ready};
 
+/// The release-build form of the live-reload middleware, which passes every response
+/// through unchanged.
+///
+/// It exists so that an `App::wrap` call compiles with or without the `devel` feature.
+/// See the `devel` build of this type for what the middleware actually does.
 #[cfg(not(feature = "devel"))]
 #[derive(Debug, Clone, Default)]
 pub struct InjectSnapFireScript;

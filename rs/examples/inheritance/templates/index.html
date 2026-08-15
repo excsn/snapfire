@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>{{ page_title }}</h2>
+  <ul>
+    {% for post in posts %}
+      <li><a href="/posts/{{ post.slug }}">{{ post.title }}</a></li>
+    {% endfor %}
+  </ul>
+{% endblock content %}

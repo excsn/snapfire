@@ -1,10 +1,12 @@
+#![cfg(feature = "devel")]
+
 mod common;
 
 use std::time::Duration;
 use std::{collections::HashSet, fs};
 
 use actix_web::{App, HttpResponse, HttpServer, rt, test, web};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use snapfire::{TeraWeb, actix::dev::InjectSnapFireScript};
 use tempfile::tempdir;
 use tokio::net::TcpStream;
@@ -13,7 +15,6 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungsten
 
 use crate::common::test_handler;
 
-// Helper to create a fully configured dev-mode server for testing
 async fn setup_dev_server() -> (
   impl actix_web::dev::Service<actix_http::Request, Response = actix_web::dev::ServiceResponse, Error = actix_web::Error>,
   String,            // base_url
@@ -51,7 +52,6 @@ async fn setup_dev_server() -> (
   (server, base_url, temp_dir)
 }
 
-// Helper function for the websocket test to get the next meaningful message
 async fn get_next_text_message(ws_stream: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> String {
   loop {
     let msg = timeout(Duration::from_secs(2), ws_stream.next())
@@ -78,7 +78,6 @@ async fn test_middleware_injects_script() {
   let temp_dir = tempdir().unwrap();
   let glob_path = temp_dir.path().join("*.html").to_str().unwrap().to_string();
 
-  // Pass the valid path to the builder.
   let snapfire_app = TeraWeb::builder(&glob_path).build().unwrap();
 
   let app = test::init_service(
@@ -102,19 +101,94 @@ async fn test_middleware_injects_script() {
   println!("Received Body Length: {} bytes", body.len());
   println!("--- END TEST DEBUG ---");
 
-  // Check that the original content is still there, split by the injection.
   assert!(body_str.starts_with("<html><head></head><body>Hello"));
   assert!(body_str.ends_with("</body></html>"));
-
-  // Check that the SCRIPT TAG is now present.
   assert!(body_str.contains("<script data-snapfire-reload=\"true\">"));
   assert!(body_str.contains("</script>"));
-
-  // Check for a snippet of the JS content inside the tag.
   assert!(body_str.contains("window.location.reload()"));
 }
 
-// This helper now collects all available text messages for a short duration.
+#[actix_rt::test]
+async fn test_injected_script_uses_configured_ws_path() {
+  let temp_dir = tempdir().unwrap();
+  let glob_path = temp_dir.path().join("*.html").to_str().unwrap().to_string();
+
+  let snapfire_app = TeraWeb::builder(&glob_path).ws_path("/_dev/socket").build().unwrap();
+
+  let app = test::init_service(
+    App::new()
+      .app_data(web::Data::new(snapfire_app))
+      .wrap(InjectSnapFireScript::default())
+      .route("/", web::get().to(simple_html_handler)),
+  )
+  .await;
+
+  let req = test::TestRequest::get().uri("/").to_request();
+  let resp = test::call_service(&app, req).await;
+  let body = test::read_body(resp).await;
+  let body_str = std::str::from_utf8(&body).unwrap();
+
+  assert!(body_str.contains("${window.location.host}/_dev/socket`"));
+  assert!(!body_str.contains("/_snapfire/ws"));
+  assert!(!body_str.contains("__SNAPFIRE_WS_PATH__"));
+}
+
+#[actix_rt::test]
+async fn test_auto_inject_script_false_leaves_the_body_alone() {
+  let temp_dir = tempdir().unwrap();
+  let glob_path = temp_dir.path().join("*.html").to_str().unwrap().to_string();
+
+  let snapfire_app = TeraWeb::builder(&glob_path)
+    .auto_inject_script(false)
+    .build()
+    .unwrap();
+
+  let app = test::init_service(
+    App::new()
+      .app_data(web::Data::new(snapfire_app))
+      .wrap(InjectSnapFireScript::default())
+      .route("/", web::get().to(simple_html_handler)),
+  )
+  .await;
+
+  let req = test::TestRequest::get().uri("/").to_request();
+  let resp = test::call_service(&app, req).await;
+  assert!(resp.status().is_success());
+
+  let body = test::read_body(resp).await;
+  let body_str = std::str::from_utf8(&body).unwrap();
+
+  assert_eq!(body_str, "<html><head></head><body>Hello</body></html>");
+  assert!(!body_str.contains("data-snapfire-reload"));
+}
+
+#[actix_rt::test]
+async fn test_reload_script_matches_what_the_middleware_injects() {
+  let temp_dir = tempdir().unwrap();
+  let glob_path = temp_dir.path().join("*.html").to_str().unwrap().to_string();
+
+  let snapfire_app = TeraWeb::builder(&glob_path).ws_path("/_dev/socket").build().unwrap();
+  let script = snapfire_app.reload_script();
+
+  assert!(script.contains("${window.location.host}/_dev/socket`"));
+  assert!(!script.contains("__SNAPFIRE_WS_PATH__"));
+  assert!(!script.contains("<script"));
+
+  let app = test::init_service(
+    App::new()
+      .app_data(web::Data::new(snapfire_app))
+      .wrap(InjectSnapFireScript::default())
+      .route("/", web::get().to(simple_html_handler)),
+  )
+  .await;
+
+  let req = test::TestRequest::get().uri("/").to_request();
+  let body = test::read_body(test::call_service(&app, req).await).await;
+  let body_str = std::str::from_utf8(&body).unwrap();
+
+  assert!(body_str.contains(&script));
+}
+
 async fn collect_ws_messages(
   ws_stream: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
   duration: Duration,
@@ -131,7 +205,7 @@ async fn collect_ws_messages(
         Some(_) => {
           // Ignore other message types (pings, etc.)
         }
-        None => break, // Stream closed
+        None => break,
       }
     }
   })
@@ -142,7 +216,6 @@ async fn collect_ws_messages(
 
 #[actix_rt::test]
 async fn test_full_reload_pipeline() {
-  // 1. Setup server and templates
   let temp_dir = tempdir().unwrap();
   let template_path = temp_dir.path().join("index.html");
   fs::write(&template_path, "<html><body>Hello</body></html>").unwrap();
@@ -182,21 +255,16 @@ async fn test_full_reload_pipeline() {
   rt::spawn(server);
   rt::time::sleep(Duration::from_millis(200)).await; // Give watcher a bit more time
 
-  // 2. Connect WebSocket client
   let ws_url = format!("{}/_snapfire/ws", base_url).replace("http", "ws");
   let (mut ws_stream, _) = connect_async(&ws_url).await.expect("Failed to connect");
 
-  // 3. Trigger both reloads in quick succession
   fs::write(&template_path, "new content").unwrap();
   fs::write(&css_path, "new css").unwrap();
 
-  // 4. Collect all messages received over a short period
   let messages = collect_ws_messages(&mut ws_stream, Duration::from_secs(1)).await;
 
-  // 5. Assert that both expected messages were received, ignoring order.
   assert!(messages.contains("reload"));
   assert!(messages.contains("reload-css"));
 
-  // 6. Shutdown server
   server_handle.stop(true).await;
 }

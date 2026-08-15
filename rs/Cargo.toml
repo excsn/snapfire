@@ -1,7 +1,7 @@
 [package]
 name = "snapfire"
-version = "0.4.1"
-description = "High-productivity web templating library designed to accelerate development with an integrated, zero-configuration live-reload server. Provides first class integration with Tera and Actix Web."
+version = "0.5.0"
+description = "High-productivity web templating library designed to accelerate development with an integrated, zero-configuration live-reload server. Provides first class integration with Tera 2 and Actix Web."
 
 keywords = ["actix", "tera", "template", "reload", "web"]
 categories = ["web-programming::http-server", "template-engine"]
@@ -13,33 +13,40 @@ edition = { workspace = true}
 authors = { workspace = true}
 license = { workspace = true}
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 # Core dependencies
-actix = "^0.13"
-actix-web = { version = "^4", default-features = false }
-anyhow = "^1"
-async-trait = "^0.1"
-futures-util = { version = "^0.3" }
-log = "^0.4"
-parking_lot = "^0.12"
-serde = { version = "^1", features = ["derive"] }
-tera = "^1"
-thiserror = "^2.0"
-tokio = { version = "^1", features = ["macros", "sync", "rt", "rt-multi-thread"] }
+actix-web = { version = "4", default-features = false }
+futures-util = { version = "0.3" }
+log = "0.4"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+tera = { version = "2", features = ["glob_fs", "fast"] }
+thiserror = "2.0"
+tokio = { version = "1", features = ["macros", "sync", "rt", "rt-multi-thread"] }
 
 # Dev-reload specific dependencies (optional)
 async-stream = { version = "0.3", optional = true }
 bytes = { version = "1", optional = true }
-notify = { version = "^6.0", optional = true }
-actix-ws = { version = "^0.3", optional = true }
+notify = { version = "6.0", optional = true }
+actix-ws = { version = "0.3", optional = true }
 
 [dev-dependencies]
-actix-rt = "^2"
-actix-http = "^3.1"
-tempfile = "^3.21"
-tokio = { version = "^1", features = ["rt"] }
-tokio-tungstenite = "^0.27"
-url = "^2.5"
+actix-rt = "2"
+actix-http = "3.1"
+actix-files = "0.6"
+actix-web = { version = "4", features = ["macros"] }
+env_logger = "0.11"
+tempfile = "3.21"
+tokio = { version = "1", features = ["rt", "time"] }
+tokio-tungstenite = "0.27"
+
+[[example]]
+name = "live_reload"
+path = "examples/live_reload/main.rs"
+required-features = ["devel"]
 
 [features]
 default = []

@@ -6,9 +6,8 @@
 
   function connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // The ws_path will be replaced by the build script or configured by the user.
-    // For now, we hardcode the default.
-    const wsUrl = `${protocol}//${window.location.host}/_snapfire/ws`;
+    // __SNAPFIRE_WS_PATH__ is substituted by the injecting middleware.
+    const wsUrl = `${protocol}//${window.location.host}__SNAPFIRE_WS_PATH__`;
 
     ws = new WebSocket(wsUrl);
 
