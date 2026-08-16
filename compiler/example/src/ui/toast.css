@@ -1,0 +1,13 @@
+.sonner-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  & span {
+    flex: 1;
+  }
+
+  &[data-type="error"] {
+    color: #ef4444;
+  }
+}

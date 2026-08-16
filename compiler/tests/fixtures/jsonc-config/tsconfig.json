@@ -1,0 +1,9 @@
+{
+  // Where the build lands.
+  "compilerOptions": {
+    "outDir": "dist",
+    "target": "es2020",
+  },
+  /* Sources to walk. */
+  "include": ["input",],
+}

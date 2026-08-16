@@ -1,0 +1,4 @@
+{
+  "imports": {},
+  "scopes": { "/assets/": { "lit": "/v/lit.js" } }
+}

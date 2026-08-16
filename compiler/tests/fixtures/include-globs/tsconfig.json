@@ -1,0 +1,5 @@
+{
+  "compilerOptions": { "outDir": "dist", "rootDir": "." },
+  "include": ["src/**/*.ts", "vendor/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}

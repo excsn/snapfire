@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "lit-html": "https://cdn.jsdelivr.net/npm/lit-html@3/lit-html.js"
+  }
+}

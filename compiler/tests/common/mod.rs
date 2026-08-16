@@ -1,11 +1,14 @@
+// Every integration test binary compiles this module in full, so whatever a given binary does not
+// call reads as dead code to that binary alone.
+#![allow(dead_code)]
+
 use assert_cmd::assert::Assert;
 use assert_cmd::cargo_bin;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use tempfile::{TempDir, tempdir};
 
-// Helper to locate the snapfirec binary
 pub fn get_snapfirec_cmd() -> Command {
   Command::new(cargo_bin!("snapfirec"))
 }
@@ -14,23 +17,23 @@ pub struct Fixture {
   // We keep the TempDir object in scope so it doesn't get dropped (and deleted)
   // until the Fixture itself is dropped.
   _temp_dir: TempDir,
-  pub path: PathBuf,
 }
 
 impl Fixture {
   /// Creates a new test fixture by copying a directory from `tests/fixtures`
   /// into a new temporary directory.
   pub fn new(fixture_name: &str) -> Self {
+    Self::from_path(&Path::new("tests/fixtures").join(fixture_name))
+  }
+
+  /// Copies any directory, so the shipped example can be exercised without being moved into
+  /// `tests/fixtures` where nobody would read it.
+  pub fn from_path(source: &Path) -> Self {
     let temp_dir = tempdir().expect("Failed to create temp directory");
-    let fixture_path = Path::new("tests/fixtures").join(fixture_name);
 
-    // Copy the fixture directory contents to the temp directory
-    copy_dir_all(&fixture_path, temp_dir.path()).expect("Failed to copy fixture");
+    copy_dir_all(source, temp_dir.path()).unwrap_or_else(|e| panic!("Failed to copy {source:?}: {e}"));
 
-    Fixture {
-      _temp_dir: temp_dir,
-      path: PathBuf::from(fixture_path), // We can refine this later if needed
-    }
+    Fixture { _temp_dir: temp_dir }
   }
 
   /// Returns the absolute path to the temporary fixture directory.
@@ -39,7 +42,6 @@ impl Fixture {
   }
 }
 
-// A simple recursive directory copy function.
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
   fs::create_dir_all(dst)?;
   for entry in fs::read_dir(src)? {

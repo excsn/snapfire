@@ -1,36 +1,55 @@
 use predicates::prelude::*;
 use std::fs;
 
-// Declare the common module
 mod common;
 use common::Fixture;
 
 use crate::common::{get_snapfirec_cmd, run_snapfirec};
 
 #[test]
-fn test_css_is_minified() {
-  // 1. Setup
+fn test_nesting_is_flattened() {
   let fixture = Fixture::new("css-processing");
 
-  // 2. Action
   let mut cmd = get_snapfirec_cmd();
   run_snapfirec(cmd.arg("--root").arg(fixture.root()));
 
-  // 3. Assertion
   let output_file = fixture.root().join("dist/styles.css");
   assert!(predicate::path::exists().eval(&output_file));
 
   let content = fs::read_to_string(output_file).unwrap();
 
-  // The expected output after minification and nesting is flattened.
-  let expected_content = "body{font-family:sans-serif}body .container{padding:20px;margin:0 auto}";
-
-  // We need to normalize the output slightly because lightningcss might change property order.
-  // For this simple case, a direct comparison is fine. For more complex CSS,
-  // we might need a more sophisticated comparison.
-  assert_eq!(content.trim(), expected_content);
-
-  // Also verify that comments and newlines are gone.
+  assert!(content.contains("body .container"));
   assert!(!content.contains("/*"));
-  assert!(!content.contains('\n'));
+}
+
+#[test]
+fn test_plain_css_output_is_readable() {
+  let fixture = Fixture::new("css-processing");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()));
+
+  let content = fs::read_to_string(fixture.root().join("dist/styles.css")).unwrap();
+
+  assert!(content.contains('\n'));
+  assert!(content.contains("  padding: 20px;"));
+  assert!(!predicate::path::exists().eval(&fixture.root().join("dist/styles.min.css")));
+}
+
+#[test]
+fn test_minified_css_is_an_additional_file() {
+  let fixture = Fixture::new("css-processing");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--minify"));
+
+  let readable = fs::read_to_string(fixture.root().join("dist/styles.css")).unwrap();
+  let minified = fs::read_to_string(fixture.root().join("dist/styles.min.css")).unwrap();
+
+  assert!(readable.contains('\n'));
+  // Minification normalises declaration order, so `margin` overtakes `padding` here.
+  assert_eq!(
+    minified.trim(),
+    "body{font-family:sans-serif}body .container{margin:0 auto;padding:20px}"
+  );
 }

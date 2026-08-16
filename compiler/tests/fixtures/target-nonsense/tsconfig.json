@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "outDir": "dist", "target": "es20200" },
+  "include": ["input"]
+}

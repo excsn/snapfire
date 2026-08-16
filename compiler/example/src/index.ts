@@ -1,8 +1,11 @@
-import { something } from './utils'; // No .js extension
-export const hello = (name: string) => `Hello ${name}`;
+import config from './data/config.json' with { type: 'json' };
+import { toast } from './ui/toast';
+import { formatCount } from './utils';
+import './style.css';
 
-document.getElementById('btn-default').addEventListener('click', () => {
-  console.log('Default button was clicked!'); // This should be stripped
-  console.debug('Some debug info.'); // This should also be stripped
-  something();
-});
+export const ready = (count: number): void => {
+  console.debug('booting', config.name);
+  toast(`${config.name}: ${formatCount(count)}`);
+};
+
+export const loadEditor = () => import('./editor');

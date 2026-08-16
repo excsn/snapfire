@@ -1,73 +1,107 @@
 # Snapfire Compiler (`snapfirec`)
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+![Crates.io](https://img.shields.io/crates/v/snapfire_compiler?style=flat-square)
+![Docs.rs](https://img.shields.io/docsrs/snapfire_compiler?style=flat-square)
 
 A bespoke, high-performance *typescript to browser* build tool written in Rust.
 
-`Snapfire Compiler` replaces the traditional Node.js build chain (TypeScript, Vite/Rollup, PostCSS, Babel) with a single binary. It is designed to compile TypeScript libraries into browser-native ES Modules and standard CSS without requiring a `package.json` or `node_modules` folder.
+`Snapfire Compiler` replaces the traditional Node.js build chain (TypeScript, Vite/Rollup, PostCSS, Babel) with a single binary. It is designed to compile TypeScript libraries into browser-native ES Modules and standard CSS without requiring a `package.json` or `node_modules` folder. Task-by-task instructions live in the [usage guide](README.USAGE.md).
 
 ## Philosophy
 
 -   **No Node.js:** The build process should not require a JavaScript runtime.
 -   **Browser Native:** Output files are ES Modules ready to be imported directly by browsers (`<script type="module">`).
--   **Standards Compliant:** Respects `tsconfig.json` and `.browserslistrc`.
+-   **Standards Compliant:** Reads `tsconfig.json` the way `tsc` does, so the same file can drive type checking and your editor without the three disagreeing.
 -   **Opinionated:** Includes specific transforms (like import rewriting) to make the "TypeScript to Browser" workflow seamless.
 
-## Features
-
--   **TypeScript Compilation:** Uses [SWC](https://swc.rs) to strip types and output modern JavaScript.
--   **CSS Processing:** Uses [LightningCSS](https://lightningcss.dev) to flatten nested CSS, handle vendor prefixing, and minify output.
--   **Import Rewriting:** Automatically rewrites relative imports (e.g., `import './state'`) to include extensions (`import './state.js'`), which is required for native browser modules.
--   **Console Stripping:** Optional flags to strip `console.log` and `console.debug` statements from the output using AST transformations.
--   **Targeting:** Reads `.browserslistrc` to determine CSS transpilation targets.
-
-## Installation
-
-Since this is a local toolchain, install it from the source:
+## Install
 
 ```bash
-# Inside the compiler directory
+cargo install snapfire_compiler
+```
+
+```bash
 cargo install --path .
 ```
 
-## Usage
+| Feature | Adds |
+| :--- | :--- |
+| *(default)* | Everything below, with `--minify` doing codegen compaction |
+| `minify` | `--minify=full`: mangling, inlining and dead code elimination via `swc_ecma_minifier`. Larger dependency, longer build |
 
-Run the compiler pointing at your project root. It will look for a `tsconfig.json` to determine input directories and output paths.
+## Try it
+
+`example/` is a small project using most of what the compiler does: a nested source tree, an external resolved through an import map, a JSON asset imported by a module, a dynamically imported chunk and nested CSS.
 
 ```bash
-snapfirec --root ./example
+snapfirec --root ./example --strip-log --minify --source-map --import-map importmap.json
 ```
 
-Inspect the example/dist directory for final output.
+```text
+   Compiling TS: "index.ts"
+   Compiling CSS: "ui/toast.css"
+   Copying: "data/config.json"
+   Externals: 'lit-html'
+   All externals resolve through "importmap.json"
+   Preload manifest: "dist/preload-manifest.json"
+```
 
-### CLI Arguments
+Then read `example/dist`, which is what a browser would be served.
+
+## What to reach for
+
+| You want to | Reach for |
+| :--- | :--- |
+| Compile a project | `snapfirec --root ./my-lib` |
+| Choose which files are in it | `include`, `exclude` and `files` in `tsconfig.json` |
+| Control where output lands | `compilerOptions.rootDir` and `outDir`, or `--out-dir` |
+| Debug the emitted code | `--source-map`, or `sourceMap` in `tsconfig.json` |
+| Ship smaller files | `--minify`, which adds a `.min` graph beside the readable one |
+| Get fonts and images into `dist` | `--copy-assets` |
+| Know which packages the page must supply | The `Externals:` line the build prints |
+| Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |
+| Kill the module-discovery waterfall | `dist/preload-manifest.json`, written every build |
+| Rebuild as you edit | `--watch` |
+| Strip development logging | `--strip-log --strip-debug` |
+| Pick browser targets | `.browserslistrc` in the project root |
+
+## CLI Arguments
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
 | `--root <PATH>` | The root directory of the project to build. | `.` (Current Directory) |
-| `--config <PATH>` | Path to the `tsconfig.json` file. | `tsconfig.json` |
+| `-c`, `--config <PATH>` | Path to the `tsconfig.json` file. | `tsconfig.json` |
 | `-d`, `--out-dir <PATH>` | Override the output directory. | Read from `tsconfig` or `dist` |
 | `--strip-log` | Removes all `console.log` statements from output. | `false` |
 | `--strip-debug` | Removes all `console.debug` statements from output. | `false` |
-| `-w`, `--watch` | Watch for file changes (Not yet implemented). | `false` |
+| `--copy-assets` | Copies every selected file the compiler does not compile. | `false` |
+| `--source-map` | Emits a `.map` beside each output. | `sourceMap` |
+| `--inline-source-map` | Embeds each map in its output as a data URI. | `inlineSourceMap` |
+| `--minify[=compact\|full]` | Additionally emits a minified `.min` graph. | off |
+| `--public-path <PREFIX>` | URL prefix the output is served under, used for the preload manifest. | paths, not URLs |
+| `--import-map <PATH>` | Fails the build if an external is not resolved by this map. | off |
+| `-w`, `--watch` | Rebuilds whenever a source changes. | `false` |
 
 ## Configuration
 
-### TypeScript
-`snapfirec` reads the `compilerOptions.outDir` and `include` arrays from your `tsconfig.json`.
+`snapfirec` reads `tsconfig.json` as JSONC, so comments and trailing commas are accepted. These keys are used and the rest are ignored:
 
 ```json
 {
   "compilerOptions": {
     "outDir": "dist",
-    "target": "es2020"
+    "rootDir": "src",
+    "sourceMap": true
   },
-  "include": ["src"]
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts"]
 }
 ```
 
-### CSS Targeting
-To ensure your CSS works in specific browsers (and to control how nesting is flattened), add a `.browserslistrc` file to your project root.
+`compilerOptions.target` is `tsc`'s to act on; set it as your project needs. `snapfirec` only refuses a value below `es2017`, since no engine that old can load an ES module, and reports one that is not a real edition. Nothing is downlevelled here, so emitted syntax follows the source and browser support is governed by `.browserslistrc`.
+
+To control CSS transpilation and how nesting is flattened, add a `.browserslistrc` to your project root:
 
 ```text
 last 2 versions
@@ -75,34 +109,18 @@ not dead
 > 0.2%
 ```
 
-## Transforms
+## Status
 
-### Import Rewriting
-TypeScript allows importing files without extensions, but browsers throw 404s. `snapfirec` parses the AST and rewrites these paths automatically.
-
-**Input (`src/index.ts`):**
-```typescript
-import { state } from './state';
-```
-
-**Output (`dist/index.js`):**
-```javascript
-import { state } from "./state.js";
-```
-
-### Console Stripping
-When using `--strip-log` or `--strip-debug`, the compiler removes the specific console statement entirely, ensuring clean production builds without leaving empty lines or semi-colons.
+Active. The output layout follows `tsc`'s `rootDir` rules, so upgrading from a version before that changed where files land: set `rootDir` explicitly to pin it.
 
 ## Development & Testing
 
-This project uses integration tests to validate the CLI and compiler logic.
-
 ```bash
-# Run the test suite
 cargo test
+cargo test --features minify
 ```
 
-The tests create temporary directories, generate fixture files, run the compiler, and assert on the actual file system output.
+The tests create temporary directories, copy in fixtures, run the compiler, and assert on the actual file system output.
 
 ## License
 
