@@ -17,6 +17,12 @@ The primary and most complete implementation is written in Rust. It features a d
 
 **➡️ For detailed information, usage instructions, and the source code, please see the Rust project directory: [`/rs`](./rs)**
 
+### **Build Tool**
+
+The other half of the project is `snapfirec`, a TypeScript and CSS compiler that produces browser-native ES Modules without Node.js or a `node_modules` folder. It pairs with the templating engine through the filesystem: compile into the directory the server watches, and a rebuild becomes a live reload.
+
+**➡️ See the compiler directory: [`/compiler`](./compiler)**
+
 ## Core Principles
 
 -   **High Developer Experience:** The primary goal is to make the development feedback loop as fast and seamless as possible.
