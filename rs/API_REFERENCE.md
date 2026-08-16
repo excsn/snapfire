@@ -32,8 +32,8 @@ The primary application state for SnapFire.
 
 **Trait Implementations**
 
-*   `Clone` – Cloning shares one engine and one global context between all clones; this is how the state reaches every Actix worker.
-*   `Debug` – Reports the global context and, under `devel`, the reloader. The Tera engine and the loaded templates are omitted and the output is non-exhaustive.
+*   `Clone` - Cloning shares one engine and one global context between all clones; this is how the state reaches every Actix worker.
+*   `Debug` - Reports the global context and, under `devel`, the reloader. The Tera engine and the loaded templates are omitted and the output is non-exhaustive.
 
 **Public Methods**
 
@@ -41,14 +41,14 @@ The primary application state for SnapFire.
     *   **Signature:** `pub fn builder(templates_glob: &str) -> TeraWebBuilder`
     *   **Description:** Creates a new `TeraWebBuilder` to configure and build a `TeraWeb` instance. This is the main entry point for using the library.
     *   **Parameters:**
-        *   `templates_glob`: `&str` – A glob pattern used by `tera` to discover template files. Example: `"templates/**/*.html"`.
+        *   `templates_glob`: `&str` - A glob pattern used by `tera` to discover template files. Example: `"templates/**/*.html"`.
 
 *   **`render`**
     *   **Signature:** `pub fn render(&self, tpl: &str, context: tera::Context) -> Template`
     *   **Description:** Prepares a template for rendering by returning a `Template` struct. This method is synchronous.
     *   **Parameters:**
-        *   `tpl`: `&str` – The name of the template file to render, relative to the templates directory. Example: `"pages/index.html"`.
-        *   `context`: `tera::Context` – The `tera::Context` object containing the variables for this specific render.
+        *   `tpl`: `&str` - The name of the template file to render, relative to the templates directory. Example: `"pages/index.html"`.
+        *   `context`: `tera::Context` - The `tera::Context` object containing the variables for this specific render.
 
 *   **`reload_script`**
     *   **Signature:** `pub fn reload_script(&self) -> String`
@@ -60,7 +60,7 @@ The primary application state for SnapFire.
     *   **Signature:** `#[cfg(feature = "devel")] pub fn configure_routes(&self, cfg: &mut actix_web::ServiceConfig)`
     *   **Description:** Configures Actix application routes required for `snapfire`'s development features (specifically, the live-reload WebSocket). In release builds (without the `devel` feature), this method is a no-op.
     *   **Parameters:**
-        *   `cfg`: `&mut actix_web::ServiceConfig` – The mutable Actix service configuration that the WebSocket route will be added to.
+        *   `cfg`: `&mut actix_web::ServiceConfig` - The mutable Actix service configuration that the WebSocket route will be added to.
 
 ### **Struct: `snapfire::TeraWebBuilder`**
 
@@ -72,32 +72,32 @@ A builder used to configure and create a `TeraWeb` instance.
     *   **Signature:** `pub fn add_global<S: Into<String>, T: serde::Serialize>(mut self, key: S, value: T) -> Self`
     *   **Description:** Adds a variable to the global context, making it available to all templates rendered by this instance.
     *   **Parameters:**
-        *   `key`: `S` where `S: Into<String>` – The name of the variable as it will be used in templates.
-        *   `value`: `T` where `T: serde::Serialize` – Any value that implements the `serde::Serialize` trait.
+        *   `key`: `S` where `S: Into<String>` - The name of the variable as it will be used in templates.
+        *   `value`: `T` where `T: serde::Serialize` - Any value that implements the `serde::Serialize` trait.
 
 *   **`configure_tera`**
     *   **Signature:** `pub fn configure_tera<F>(mut self, configurator: F) -> Self where F: FnOnce(&mut tera::Tera) + 'static`
     *   **Description:** Provides a closure for advanced, direct manipulation of the `tera::Tera` instance. Use this to register custom filters, functions, tests and components. The closure runs before the template glob is loaded, because Tera resolves those names at parse time and errors on an unknown name.
     *   **Parameters:**
-        *   `configurator`: `F` where `F: FnOnce(&mut tera::Tera) + 'static` – A closure that receives a mutable reference to the empty `tera::Tera` instance.
+        *   `configurator`: `F` where `F: FnOnce(&mut tera::Tera) + 'static` - A closure that receives a mutable reference to the empty `tera::Tera` instance.
 
 *   **`watch_static`**
     *   **Signature:** `pub fn watch_static(mut self, path: &str) -> Self`
     *   **Description:** Adds a static asset directory path for the live-reload watcher to monitor for changes. The method exists in every build so that call sites need no `#[cfg]`; without the `devel` feature the path is recorded and never used.
     *   **Parameters:**
-        *   `path`: `&str` – The path to a directory to watch. Example: `"static/css"`.
+        *   `path`: `&str` - The path to a directory to watch. Example: `"static/css"`.
 
 *   **`ws_path`**
     *   **Signature:** `pub fn ws_path(mut self, path: &str) -> Self`
     *   **Description:** Customizes the URL path for the live-reload WebSocket endpoint. The method exists in every build so that call sites need no `#[cfg]`; without the `devel` feature no route is mounted. The path is used both for the route added by `configure_routes` and for the URL written into the injected client script.
     *   **Parameters:**
-        *   `path`: `&str` – The URL path. Defaults to `"/_snapfire/ws"`.
+        *   `path`: `&str` - The URL path. Defaults to `"/_snapfire/ws"`.
 
 *   **`auto_inject_script`**
     *   **Signature:** `pub fn auto_inject_script(mut self, enabled: bool) -> Self`
     *   **Description:** Controls whether `InjectSnapFireScript` rewrites `text/html` responses to carry the live-reload client. Read by the middleware from the `TeraWeb` registered as Actix app data; with no such app data the middleware injects. Without the `devel` feature nothing is injected regardless.
     *   **Parameters:**
-        *   `enabled`: `bool` – Set to `false` to disable injection. Defaults to `true`.
+        *   `enabled`: `bool` - Set to `false` to disable injection. Defaults to `true`.
     *   **Why it exists:** Injection is unconditional on `Content-Type: text/html`, always targets the end of `<body>`, appends to the end when there is no such tag, emits an inline `<script>` with no CSP `nonce`, and buffers the whole response body to find the insertion point. Any of those can be wrong for a given application, most commonly a strict Content-Security-Policy or a fragment endpoint that would otherwise ship a reload client with every partial.
     *   **What `false` leaves running:** The file watcher and the WebSocket route are unaffected, so the server half of live reload still works and it is the page's job to connect. Embed `TeraWeb::reload_script` to place the stock client yourself, or open `ws_path` directly and handle the two broadcast messages, `reload` and `reload-css`.
 

@@ -23,21 +23,21 @@ This guide covers building a `TeraWeb` application state, rendering Tera 2 templ
 
 ## Core Concepts
 
-* **`TeraWeb`** – The application state. Holds the Tera engine and the global context, is cheap to `clone` and is shared with handlers through `web::Data`.
-* **`TeraWebBuilder`** – The only way to construct a `TeraWeb`. Created by `TeraWeb::builder(glob)`.
-* **Templates glob** – The pattern Tera expands to find template files, for example `templates/**/*.html`. A template's name is its path relative to the non-glob part of that pattern.
-* **`Template`** – What `TeraWeb::render` returns. It records the template name and context and implements Actix's `Responder`; the render itself happens when Actix builds the response.
-* **Global context** – Values added with `add_global`, merged into every render.
-* **Request context** – The `tera::Context` you pass to `render`. Its keys win over globals of the same name.
-* **`configure_tera`** – The escape hatch that hands you `&mut tera::Tera` to register filters, functions, tests and components.
-* **Parse-time resolution** – Tera 2 resolves every name a template references while parsing it. Registration must therefore happen before templates load, which is why `configure_tera` runs first and why an unknown name fails `build()` rather than a later render.
-* **Filter** – `fn(Arg, Kwargs, &State) -> Res`, applied with `{{ value | name }}`.
-* **Function** – `fn(Kwargs, &State) -> Res`, called with `{{ name(arg=1) }}`.
-* **Test** – `fn(Arg, Kwargs, &State) -> bool`, used with `{% if value is name %}`.
-* **Component** – Tera 2's replacement for macros. Defined in a template with `{% component %}` and called with `{{ <name/> }}`.
-* **`devel` feature** – Compiles in the file watcher, the WebSocket route and the script-injecting middleware. Off by default, so release builds carry none of it.
-* **Reload script** – A small JavaScript snippet the middleware inserts before `</body>` on HTML responses. It opens the reload WebSocket.
-* **Static watch path** – A directory registered with `watch_static`. A `.css` change there swaps stylesheets in place; anything else triggers a full page reload.
+* **`TeraWeb`** - The application state. Holds the Tera engine and the global context, is cheap to `clone` and is shared with handlers through `web::Data`.
+* **`TeraWebBuilder`** - The only way to construct a `TeraWeb`. Created by `TeraWeb::builder(glob)`.
+* **Templates glob** - The pattern Tera expands to find template files, for example `templates/**/*.html`. A template's name is its path relative to the non-glob part of that pattern.
+* **`Template`** - What `TeraWeb::render` returns. It records the template name and context and implements Actix's `Responder`; the render itself happens when Actix builds the response.
+* **Global context** - Values added with `add_global`, merged into every render.
+* **Request context** - The `tera::Context` you pass to `render`. Its keys win over globals of the same name.
+* **`configure_tera`** - The escape hatch that hands you `&mut tera::Tera` to register filters, functions, tests and components.
+* **Parse-time resolution** - Tera 2 resolves every name a template references while parsing it. Registration must therefore happen before templates load, which is why `configure_tera` runs first and why an unknown name fails `build()` rather than a later render.
+* **Filter** - `fn(Arg, Kwargs, &State) -> Res`, applied with `{{ value | name }}`.
+* **Function** - `fn(Kwargs, &State) -> Res`, called with `{{ name(arg=1) }}`.
+* **Test** - `fn(Arg, Kwargs, &State) -> bool`, used with `{% if value is name %}`.
+* **Component** - Tera 2's replacement for macros. Defined in a template with `{% component %}` and called with `{{ <name/> }}`.
+* **`devel` feature** - Compiles in the file watcher, the WebSocket route and the script-injecting middleware. Off by default, so release builds carry none of it.
+* **Reload script** - A small JavaScript snippet the middleware inserts before `</body>` on HTML responses. It opens the reload WebSocket.
+* **Static watch path** - A directory registered with `watch_static`. A `.css` change there swaps stylesheets in place; anything else triggers a full page reload.
 
 ## Quick Start
 
