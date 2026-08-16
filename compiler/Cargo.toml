@@ -5,7 +5,7 @@ description = "Compile TypeScript for the browser. No NodeJS required. Fast, nat
 
 keywords = ["typescript", "compiler", "swc", "css", "browser"]
 categories = ["command-line-utilities", "development-tools::build-utils", "web-programming"]
-exclude = ["/tests", "/input"]
+exclude = ["/tests"]
 repository = "https://github.com/excsn/snapfire"
 homepage = "https://github.com/excsn/snapfire/tree/main/compiler"
 readme = "README.md"
