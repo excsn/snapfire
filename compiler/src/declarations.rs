@@ -68,7 +68,7 @@ fn module_source<'a, 'ast>(statement: &'a mut Statement<'ast>) -> Option<&'a mut
   match statement {
     Statement::ImportDeclaration(declaration) => Some(&mut declaration.source),
     Statement::ExportAllDeclaration(declaration) => Some(&mut declaration.source),
-    Statement::ExportNamedDeclaration(declaration) => declaration.source.as_mut(),
+    Statement::ExportFromDeclaration(declaration) => Some(&mut declaration.source),
     _ => None,
   }
 }
