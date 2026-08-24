@@ -1,4 +1,4 @@
-use crate::compiler::{Compiler, Dialect, MapRequest, Minify, Output};
+use crate::compiler::{Compiler, Dialect, MapRequest, Markup, Minify, Output};
 use crate::config::{MapMode, MapOptions, TsConfig};
 use crate::graph::Graph;
 use crate::importmap::ImportMap;
@@ -60,7 +60,11 @@ pub struct Build {
 
 #[derive(Clone, Copy)]
 enum Asset {
-  Script { dialect: Dialect, out_ext: &'static str },
+  Script {
+    dialect: Dialect,
+    markup: Markup,
+    out_ext: &'static str,
+  },
   Style,
 }
 
@@ -78,16 +82,24 @@ fn asset(path: &Path) -> Option<Asset> {
   let ext = path.extension()?.to_str()?.to_ascii_lowercase();
 
   match ext.as_str() {
-    "ts" | "tsx" => Some(Asset::Script {
+    "ts" => Some(Asset::Script {
       dialect: Dialect::TypeScript,
+      markup: Markup::Denied,
+      out_ext: "js",
+    }),
+    "tsx" => Some(Asset::Script {
+      dialect: Dialect::TypeScript,
+      markup: Markup::Allowed,
       out_ext: "js",
     }),
     "js" | "jsx" => Some(Asset::Script {
       dialect: Dialect::JavaScript,
+      markup: Markup::Allowed,
       out_ext: "js",
     }),
     "mjs" => Some(Asset::Script {
       dialect: Dialect::JavaScript,
+      markup: Markup::Allowed,
       out_ext: "mjs",
     }),
     "css" => Some(Asset::Style),
@@ -380,14 +392,22 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
 
   let (label, compiled) = match (job.emit, job.asset) {
     (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source).map(Output::text)),
-    (emit, Asset::Script { dialect, .. }) => {
+    (emit, Asset::Script { dialect, markup, .. }) => {
       let label = match dialect {
         Dialect::TypeScript => "TS",
         Dialect::JavaScript => "JS",
       };
       (
         label,
-        compiler.compile_script(&job.source, dialect, opts.strip_log, opts.strip_debug, emit.minify(), map),
+        compiler.compile_script(
+          &job.source,
+          dialect,
+          markup,
+          opts.strip_log,
+          opts.strip_debug,
+          emit.minify(),
+          map,
+        ),
       )
     }
     (emit, Asset::Style) => ("CSS", compiler.compile_css(&job.source, emit.minify().is_some(), map)),

@@ -35,16 +35,16 @@ base64 = "0.23"
 notify = "8"
 rayon = "1.12.0"
 
-oxc_allocator = "0.135"
-oxc_ast = "0.135"
-oxc_diagnostics = "0.135"
-oxc_parser = "0.135"
-oxc_span = "0.135"
-oxc_codegen = "0.135"
-oxc_isolated_declarations = "0.135"
+oxc_allocator = "0.139"
+oxc_ast = "0.139"
+oxc_diagnostics = "0.139"
+oxc_parser = "0.139"
+oxc_span = "0.139"
+oxc_codegen = "0.139"
+oxc_isolated_declarations = "0.139"
 
 [dependencies.swc_core]
-version = "50"
+version = "77"
 features = [
   "common",
   "common_sourcemap",

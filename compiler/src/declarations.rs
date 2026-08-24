@@ -24,8 +24,8 @@ pub fn declare(path: &Path) -> Result<String> {
 
   let parsed = Parser::new(&allocator, &source_text, source_type).parse();
 
-  if !parsed.errors.is_empty() {
-    return Err(anyhow!("{}", describe(&parsed.errors, path, &source_text)));
+  if !parsed.diagnostics.is_empty() {
+    return Err(anyhow!("{}", describe(&parsed.diagnostics, path, &source_text)));
   }
 
   let built = IsolatedDeclarations::new(
@@ -34,8 +34,8 @@ pub fn declare(path: &Path) -> Result<String> {
   )
   .build(&parsed.program);
 
-  if !built.errors.is_empty() {
-    return Err(anyhow!("{}", describe(&built.errors, path, &source_text)));
+  if !built.diagnostics.is_empty() {
+    return Err(anyhow!("{}", describe(&built.diagnostics, path, &source_text)));
   }
 
   let mut program = built.program;
@@ -79,11 +79,7 @@ fn describe(diagnostics: &[oxc_diagnostics::OxcDiagnostic], path: &Path, source:
   diagnostics
     .iter()
     .map(|diagnostic| {
-      let offset = diagnostic
-        .labels
-        .as_ref()
-        .and_then(|labels| labels.first())
-        .map(|label| label.offset());
+      let offset = diagnostic.labels.first().map(|label| label.offset() as usize);
 
       match offset.map(|offset| position(source, offset)) {
         Some((line, column)) => format!("{}:{}:{}: {}", path.display(), line, column, diagnostic.message),

@@ -23,6 +23,16 @@ pub enum Dialect {
   JavaScript,
 }
 
+/// Whether the angle-bracket forms in a file are markup or type syntax.
+///
+/// The extension decides, as it does for `tsc`: in a `.ts` file `<T>(x: T) => x`
+/// is a generic arrow, and parsing it as TSX reads the `<T>` as an unclosed tag.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Markup {
+  Allowed,
+  Denied,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
 pub enum Minify {
   /// Strip whitespace at codegen. Identifiers survive, so stack traces stay readable.
@@ -86,6 +96,7 @@ impl Compiler {
     &self,
     path: &Path,
     dialect: Dialect,
+    markup: Markup,
     strip_log: bool,
     strip_debug: bool,
     minify: Option<Minify>,
@@ -103,15 +114,17 @@ impl Compiler {
       let fm = cm.new_source_file(Lrc::new(FileName::Real(path.to_path_buf())), content);
 
       let is_ts = dialect == Dialect::TypeScript;
+      let markup = markup == Markup::Allowed;
+
       let syntax = if is_ts {
         Syntax::Typescript(TsSyntax {
-          tsx: true,
+          tsx: markup,
           decorators: true,
           ..Default::default()
         })
       } else {
         Syntax::Es(EsSyntax {
-          jsx: true,
+          jsx: markup,
           decorators: true,
           ..Default::default()
         })
