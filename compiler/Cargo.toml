@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_compiler"
-version = "0.10.1"
+version = "0.10.2"
 description = "Compile TypeScript for the browser. No NodeJS required. Fast, native, opinionated."
 
 keywords = ["typescript", "compiler", "swc", "css", "browser"]
