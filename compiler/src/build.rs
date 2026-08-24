@@ -13,13 +13,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Records what this build produced so the next one can remove what it no longer produces. Only
-/// paths listed here are ever deleted, so an output directory shared with hand-written files stays
-/// safe.
-const MANIFEST: &str = ".snapfirec-manifest";
+/// Emitted for a packager to consume: what this build produced, in the output directory's own
+/// terms. Every field is something already resolved during the build, so a tool reading it never
+/// has to reparse the output to rediscover it.
+const BUILD_FACTS: &str = ".snapfire-build.json";
 
-/// Emitted for the page to consume, listing what each entry point statically depends on.
-const PRELOAD_MANIFEST: &str = "preload-manifest.json";
+/// The suffix a minified twin carries, which `with_min` inserts before the extension.
+const MIN_SUFFIX: &str = ".min";
 
 pub struct Options {
   pub root: PathBuf,
@@ -257,11 +257,17 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     }
   }
 
-  write_manifest(opts, &mut build);
+  // Read before the new facts overwrite them, and claim the file before pruning so this build
+  // does not delete what it is about to write.
+  let previous = previous_outputs(&build.out_dir);
+  let facts = build.out_dir.join(BUILD_FACTS);
+  build.claimed.insert(facts.clone(), facts);
 
   if !build.has_error {
-    prune_stale(opts, &build)?;
+    prune_stale(opts, &build, &previous)?;
   }
+
+  write_build_facts(opts, &mut build);
 
   Ok(build)
 }
@@ -774,18 +780,46 @@ fn check_externals(opts: &Options, build: &mut Build, path: &Path) -> Result<()>
   Ok(())
 }
 
-/// Records what each entry point pulls in, so the page can preload the graph in one round trip
-/// instead of discovering it one hop at a time.
-fn write_manifest(opts: &Options, build: &mut Build) {
-  let Some(body) = build.graph.manifest(&build.out_dir, opts.public_path.as_deref()) else {
-    return;
-  };
+/// What this build produced, for a packager rather than for a page.
+///
+/// A tool that vendors this output would otherwise recover all of it by parsing the emitted
+/// JavaScript: which files are entry points, which specifiers stayed bare, what imports what. The
+/// compiler already resolved every one of those, so it writes them down instead.
+///
+/// Paths are relative to the output directory and never carry `--public-path`, because where the
+/// files are served is the application's business and one build can be mounted anywhere.
+fn write_build_facts(opts: &Options, build: &mut Build) {
+  // The minified twins are entry points too, and `minified` already states the rule that derives
+  // them. Listing both would make a consumer pair them back up by name.
+  let entries: Vec<String> = relative_all(build.graph.entry_points(), &build.out_dir)
+    .into_iter()
+    .filter(|entry| !is_minified(entry))
+    .collect();
 
-  let path = build.out_dir.join(PRELOAD_MANIFEST);
-  build.claimed.insert(path.clone(), path.clone());
+  let path = build.out_dir.join(BUILD_FACTS);
+
+  let mut body = String::from("{\n  \"version\": 1,\n");
+
+  push_list(&mut body, "entries", &entries);
+  push_list(&mut body, "externals", &build.externals);
+  push_list(&mut body, "outputs", &outputs(build));
+
+  if opts.minify.is_some() {
+    body.push_str(&format!("  \"minified\": \"{MIN_SUFFIX}\",\n"));
+  }
+
+  if let Some(public_path) = &opts.public_path {
+    body.push_str(&format!("  \"publicPath\": \"{}\",\n", escape(public_path)));
+  }
+
+  let graph = build.graph.manifest(&build.out_dir, None).unwrap_or_else(|| "{}".to_string());
+
+  body.push_str("  \"graph\": ");
+  body.push_str(&graph.trim_end().replace('\n', "\n  "));
+  body.push_str("\n}\n");
 
   match fs::write(&path, body) {
-    Ok(()) => println!("   Preload manifest: {}", display(&path, &opts.root)),
+    Ok(()) => println!("   Build facts: {}", display(&path, &opts.root)),
     Err(e) => {
       eprintln!("❌ Error writing {}: {}", display(&path, &opts.root), e);
       build.has_error = true;
@@ -793,42 +827,96 @@ fn write_manifest(opts: &Options, build: &mut Build) {
   }
 }
 
-fn prune_stale(opts: &Options, build: &Build) -> Result<()> {
-  let manifest_path = build.out_dir.join(MANIFEST);
+/// Whether a path is the minified twin of another, by the suffix `with_min` inserts.
+fn is_minified(path: &str) -> bool {
+  Path::new(path)
+    .file_stem()
+    .and_then(|stem| stem.to_str())
+    .is_some_and(|stem| stem.ends_with(MIN_SUFFIX))
+}
 
-  if let Ok(previous) = fs::read_to_string(&manifest_path) {
-    for line in previous.lines().filter(|l| !l.is_empty()) {
-      let stale = build.out_dir.join(line);
+fn relative_all(paths: Vec<&Path>, out_dir: &Path) -> Vec<String> {
+  paths
+    .into_iter()
+    .filter_map(|path| path.strip_prefix(out_dir).ok())
+    .filter_map(|path| path.to_str())
+    .map(|path| path.replace('\\', "/"))
+    .collect()
+}
 
-      if build.claimed.contains_key(&stale) || !stale.is_file() {
-        continue;
-      }
-
-      match fs::remove_file(&stale) {
-        Ok(()) => println!("   Removed: {}", display(&stale, &opts.root)),
-        Err(e) => eprintln!("⚠️  Could not remove {}: {}", display(&stale, &opts.root), e),
-      }
-    }
-  }
-
+/// Every file this build claims, which is what `prune_stale` records and what a packager should
+/// vendor. Sorted, so the file is stable between builds that produced the same thing.
+fn outputs(build: &Build) -> Vec<String> {
   let mut listed: Vec<String> = build
     .claimed
     .keys()
-    .filter_map(|p| p.strip_prefix(&build.out_dir).ok())
-    .map(|p| p.to_string_lossy().replace('\\', "/"))
+    .filter_map(|path| path.strip_prefix(&build.out_dir).ok())
+    .map(|path| path.to_string_lossy().replace('\\', "/"))
     .collect();
-  listed.sort();
 
-  fs::write(&manifest_path, listed.join("\n")).with_context(|| format!("Failed to write {:?}", manifest_path))
+  listed.sort();
+  listed
+}
+
+fn push_list(body: &mut String, key: &str, values: &[String]) {
+  let listed: Vec<String> = values.iter().map(|value| format!("\"{}\"", escape(value))).collect();
+
+  body.push_str(&format!("  \"{key}\": [{}],\n", listed.join(", ")));
+}
+
+fn escape(value: &str) -> String {
+  value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Removes what the last build produced and this one did not. Only paths the previous facts
+/// listed are ever deleted, so an output directory shared with hand-written files stays safe.
+fn prune_stale(opts: &Options, build: &Build, previous: &[String]) -> Result<()> {
+  for name in previous {
+    let stale = build.out_dir.join(name);
+
+    if build.claimed.contains_key(&stale) || !stale.is_file() {
+      continue;
+    }
+
+    match fs::remove_file(&stale) {
+      Ok(()) => println!("   Removed: {}", display(&stale, &opts.root)),
+      Err(e) => eprintln!("⚠️  Could not remove {}: {}", display(&stale, &opts.root), e),
+    }
+  }
+
+  Ok(())
+}
+
+/// The `outputs` of the previous build, read back from the facts file this one is about to
+/// replace. A missing or unreadable file prunes nothing, which is the safe direction.
+fn previous_outputs(out_dir: &Path) -> Vec<String> {
+  let Ok(text) = fs::read_to_string(out_dir.join(BUILD_FACTS)) else {
+    return Vec::new();
+  };
+
+  let Some(rest) = text.split_once("\"outputs\": [") else {
+    return Vec::new();
+  };
+
+  let Some((listed, _)) = rest.1.split_once(']') else {
+    return Vec::new();
+  };
+
+  listed
+    .split(',')
+    .map(|value| value.trim().trim_matches('"'))
+    .filter(|value| !value.is_empty())
+    .map(str::to_string)
+    .collect()
 }
 
 fn with_min(path: &Path) -> PathBuf {
   let Some(ext) = path.extension().map(|e| e.to_os_string()) else {
-    return with_suffix(path, ".min");
+    return with_suffix(path, MIN_SUFFIX);
   };
 
   let stem = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-  path.with_file_name(format!("{}.min.{}", stem, ext.to_string_lossy()))
+  path.with_file_name(format!("{}{}.{}", stem, MIN_SUFFIX, ext.to_string_lossy()))
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {

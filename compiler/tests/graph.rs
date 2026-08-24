@@ -7,7 +7,18 @@ mod common;
 use common::{Fixture, get_snapfirec_cmd, run_snapfirec};
 
 fn manifest(root: &Path) -> String {
-  fs::read_to_string(root.join("dist/preload-manifest.json")).expect("no preload manifest")
+  fs::read_to_string(root.join("dist/.snapfire-build.json")).expect("no build facts")
+}
+
+/// The `graph` record for one module. `entries` names the same modules, so a plain substring
+/// search would find that line first and report every entry as a dependency of every other.
+fn graph_line<'a>(facts: &'a str, module: &str) -> &'a str {
+  let key = format!("\"{module}\":");
+
+  facts
+    .lines()
+    .find(|line| line.trim_start().starts_with(&key))
+    .unwrap_or_else(|| panic!("no graph record for {module} in {facts}"))
 }
 
 #[test]
@@ -32,7 +43,7 @@ fn test_transitive_dependencies_are_listed() {
   run_snapfirec(cmd.arg("--root").arg(fixture.root()));
 
   let manifest = manifest(fixture.root());
-  let line = manifest.lines().find(|l| l.contains("\"index.js\"")).unwrap();
+  let line = graph_line(&manifest, "index.js");
 
   assert!(line.contains("deep/a.js"), "the direct import is missing");
   assert!(line.contains("deep/b.js"), "the transitive import is missing");
@@ -46,7 +57,7 @@ fn test_a_cycle_does_not_hang_the_walk() {
   run_snapfirec(cmd.arg("--root").arg(fixture.root()));
 
   let line = manifest(fixture.root());
-  let line = line.lines().find(|l| l.contains("\"index.js\"")).unwrap();
+  let line = graph_line(&line, "index.js").to_string();
 
   assert_eq!(line.matches("deep/a.js").count(), 1);
   assert_eq!(line.matches("deep/b.js").count(), 1);
@@ -60,7 +71,7 @@ fn test_dynamic_imports_are_not_preloaded() {
   run_snapfirec(cmd.arg("--root").arg(fixture.root()));
 
   let manifest = manifest(fixture.root());
-  let entry = manifest.lines().find(|l| l.contains("\"index.js\"")).unwrap();
+  let entry = graph_line(&manifest, "index.js");
 
   assert!(!entry.contains("deferred.js"), "a deferred import was preloaded");
   assert!(manifest.contains("\"deferred.js\""), "it is still an entry of its own");
@@ -73,11 +84,19 @@ fn test_stylesheets_are_not_module_preloads() {
   let mut cmd = get_snapfirec_cmd();
   run_snapfirec(cmd.arg("--root").arg(fixture.root()));
 
-  assert!(!manifest(fixture.root()).contains(".css"));
+  // `outputs` names every emitted file, stylesheets included. The graph is what a page preloads
+  // from, and a stylesheet needs a different `rel`, so listing one there produces dead markup.
+  let facts = manifest(fixture.root());
+  let preloaded: String = facts
+    .lines()
+    .filter(|line| !line.trim_start().starts_with(r#""outputs""#))
+    .collect();
+
+  assert!(!preloaded.contains(".css"), "a stylesheet reached the graph: {facts}");
 }
 
 #[test]
-fn test_without_a_public_path_the_manifest_stays_relative() {
+fn test_the_facts_stay_in_the_output_directorys_own_terms() {
   let fixture = Fixture::new("graph");
 
   let mut cmd = get_snapfirec_cmd();
@@ -89,15 +108,19 @@ fn test_without_a_public_path_the_manifest_stays_relative() {
 }
 
 #[test]
-fn test_a_public_path_prefixes_every_url() {
+fn test_a_public_path_is_recorded_and_never_baked_into_the_paths() {
   let fixture = Fixture::new("graph");
 
   let mut cmd = get_snapfirec_cmd();
-  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--public-path").arg("/assets"));
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--public-path").arg("/assets/"));
 
   let manifest = manifest(fixture.root());
-  assert!(manifest.contains("\"/assets/index.js\""));
-  assert!(manifest.contains("\"/assets/deep/a.js\""));
+
+  // One build is mountable anywhere, so where it is served is a field rather than a prefix on
+  // every path. A consumer joins the two; a packager that mounts it elsewhere ignores the field.
+  assert!(manifest.contains("\"publicPath\": \"/assets/\""));
+  assert!(manifest.contains("\"index.js\""));
+  assert!(!manifest.contains("\"/assets/index.js\""));
 }
 
 #[test]

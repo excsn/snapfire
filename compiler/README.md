@@ -45,7 +45,7 @@ snapfirec --root ./example --strip-log --minify --source-map --import-map import
    Copying: "data/config.json"
    Externals: 'lit-html'
    All externals resolve through "importmap.json"
-   Preload manifest: "dist/preload-manifest.json"
+   Build facts: "dist/.snapfire-build.json"
 ```
 
 Then read `example/dist`, which is what a browser would be served.
@@ -64,7 +64,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Know which packages the page must supply | The `Externals:` line the build prints |
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |
 | Catch a relative import that points at nothing | Nothing to pass; every build checks it |
-| Kill the module-discovery waterfall | `dist/preload-manifest.json`, written every build |
+| Kill the module-discovery waterfall | `dist/.snapfire-build.json`, written every build |
 | Rebuild as you edit | `--watch` |
 | Strip development logging | `--strip-log --strip-debug` |
 | Pick browser targets | `.browserslistrc` in the project root |

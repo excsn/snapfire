@@ -9,7 +9,7 @@ use common::{Fixture, get_snapfirec_cmd, run_snapfirec};
 /// Compiled artefacts only. The tracking manifest and the preload manifest are build metadata, so
 /// they are not what these assertions are about.
 fn emitted(root: &Path) -> Vec<String> {
-  const METADATA: [&str; 1] = ["preload-manifest.json"];
+  const METADATA: [&str; 1] = [".snapfire-build.json"];
 
   let dist = root.join("dist");
   let mut found = Vec::new();
