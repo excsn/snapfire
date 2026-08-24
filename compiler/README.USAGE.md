@@ -288,7 +288,7 @@ snapfirec --out-dir build                     # 1. the flag, relative to the roo
 dist                                          # 3. the fallback
 ```
 
-It is created if missing and excluded from the source walk, so building into a directory inside a source tree does not feed output back in as input.
+It is excluded from the source walk, so building into a directory inside a source tree does not feed output back in as input. It is created when the build has something to write, so a run that matches no inputs fails without leaving a directory behind.
 
 ### Selecting Source Files
 

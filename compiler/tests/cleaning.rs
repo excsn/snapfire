@@ -11,6 +11,18 @@ fn build(fixture: &Fixture) {
 }
 
 #[test]
+fn test_a_build_with_no_inputs_leaves_the_tree_alone() {
+  let fixture = Fixture::new("no-inputs");
+
+  let mut cmd = get_snapfirec_cmd();
+  cmd.arg("--root").arg(fixture.root()).assert().failure();
+
+  // Reporting that there was nothing to do, after creating an output directory
+  // and a manifest to record it, would be a build failure that still littered.
+  assert!(!predicate::path::exists().eval(&fixture.root().join("dist")));
+}
+
+#[test]
 fn test_a_manifest_records_what_was_emitted() {
   let fixture = Fixture::new("computed-root");
   build(&fixture);

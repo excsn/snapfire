@@ -130,10 +130,14 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     (None, None) => opts.root.join("dist"),
   };
 
-  fs::create_dir_all(&out_dir).with_context(|| format!("Failed to create {:?}", out_dir))?;
-  let out_dir = out_dir
-    .canonicalize()
-    .context("Failed to resolve absolute path of output directory")?;
+  // Resolving the output directory must not create it, so a run with nothing to
+  // compile leaves the tree as it found it. A directory that is not there yet
+  // excludes nothing from the source walk, which is all `select` wants it for.
+  let out_dir = match out_dir.canonicalize() {
+    Ok(resolved) => resolved,
+    Err(_) => std::path::absolute(&out_dir)
+      .with_context(|| format!("Failed to resolve absolute path of {:?}", out_dir))?,
+  };
 
   let selection = sources::select(sources::Request {
     config_dir: &config_dir,
@@ -194,6 +198,25 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     emitted: 0,
     has_error: false,
   };
+
+  // `select` matches every file, compilable or not, so an output directory is
+  // earned by what this build would actually write: something to compile, or
+  // something to copy when `--copy-assets` asks for it. A referenced asset
+  // cannot arrive on its own, since only a compiled module can name one.
+  let produces = if opts.copy_assets {
+    !build.files.is_empty()
+  } else {
+    build.files.iter().any(|path| classify(path))
+  };
+
+  // Nothing to write and no previous output: nothing to create, clean or
+  // record. The caller reports it, and `--watch` still starts, since waiting
+  // for files that are not there yet is the whole point of watching.
+  if !produces && !build.out_dir.exists() {
+    return Ok(build);
+  }
+
+  fs::create_dir_all(&build.out_dir).with_context(|| format!("Failed to create {:?}", build.out_dir))?;
 
   let jobs = plan(opts, &mut build);
 
