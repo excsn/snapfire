@@ -65,3 +65,36 @@ fn test_the_minified_graph_is_checked_against_itself() {
   let mut cmd = get_snapfirec_cmd();
   run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--minify"));
 }
+
+#[test]
+fn test_importing_a_name_the_target_does_not_export_fails() {
+  let fixture = Fixture::new("missing-export");
+
+  let mut cmd = get_snapfirec_cmd();
+
+  cmd
+    .arg("--root")
+    .arg(fixture.root())
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+      "imports 'notExported' from './real.js', which does not export it",
+    ));
+}
+
+#[test]
+fn test_a_name_reached_through_a_star_re_export_is_offered() {
+  let fixture = Fixture::new("missing-export");
+
+  let mut cmd = get_snapfirec_cmd();
+
+  // `barrel.ts` carries `alsoReal` only by way of `export * from './real.js'`,
+  // so reporting it would mean the star was not followed.
+  cmd
+    .arg("--root")
+    .arg(fixture.root())
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("alsoReal").not())
+    .stderr(predicate::str::contains("'own'").not());
+}

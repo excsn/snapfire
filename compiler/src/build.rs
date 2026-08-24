@@ -9,7 +9,7 @@ use base64::Engine;
 use browserslist::{Opts, execute};
 use lightningcss::targets::Browsers;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -58,6 +58,7 @@ pub struct Build {
   /// named it. Collected rather than checked in place, because whether a target
   /// was produced is only knowable once every job and every asset has landed.
   pub references: Vec<(PathBuf, Import)>,
+  surfaces: HashMap<PathBuf, Surface>,
   pub emitted: usize,
   pub has_error: bool,
 }
@@ -200,6 +201,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     externals: Vec::new(),
     graph: Graph::default(),
     references: Vec::new(),
+    surfaces: HashMap::new(),
     emitted: 0,
     has_error: false,
   };
@@ -240,7 +242,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   }
 
   copy_assets(opts, &mut build, referenced);
-  check_references(opts, &mut build);
+  check_graph(opts, &mut build);
 
   build.externals.sort();
   build.externals.dedup();
@@ -278,7 +280,7 @@ pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
     report(build, result, &mut referenced);
   }
 
-  check_references(opts, build);
+  check_graph(opts, build);
 }
 
 /// What one job emits from its source. The minified graph and the declarations are both further
@@ -314,8 +316,18 @@ struct JobResult {
   referenced: Vec<PathBuf>,
   externals: Vec<String>,
   imports: Vec<Import>,
+  surface: Surface,
   dest: PathBuf,
   written: bool,
+}
+
+/// What one emitted module offers importers, with `export *` left as edges to
+/// follow rather than names, since the target may not have been compiled yet.
+#[derive(Default, Clone)]
+struct Surface {
+  names: BTreeSet<String>,
+  stars: Vec<PathBuf>,
+  open: bool,
 }
 
 /// Resolves every output path, registers it and creates its directory. Serial on purpose: this is
@@ -456,6 +468,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
         referenced: Vec::new(),
         externals: Vec::new(),
         imports: Vec::new(),
+        surface: Surface::default(),
         dest: job.dest.clone(),
         written: false,
       };
@@ -466,6 +479,16 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   let externals = output.externals.clone();
   let imports = std::mem::take(&mut output.imports);
 
+  let directory = job.dest.parent().unwrap_or(&job.dest).to_path_buf();
+  let surface = Surface {
+    names: std::mem::take(&mut output.exports).into_iter().collect(),
+    stars: std::mem::take(&mut output.star_sources)
+      .iter()
+      .map(|specifier| crate::graph::normalise(&directory.join(specifier)))
+      .collect(),
+    open: output.open_exports,
+  };
+
   match write_variant(map_options, &job.dest, &job.asset, output) {
     Ok(()) => JobResult {
       emit: job.emit,
@@ -474,6 +497,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       referenced,
       externals,
       imports,
+      surface: surface.clone(),
       dest: job.dest.clone(),
       written: true,
     },
@@ -484,6 +508,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       referenced,
       externals,
       imports,
+      surface: surface.clone(),
       dest: job.dest.clone(),
       written: false,
     },
@@ -499,6 +524,8 @@ fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
     build
     .references
     .extend(result.imports.iter().map(|import| (result.dest.clone(), import.clone())));
+
+  build.surfaces.insert(result.dest.clone(), result.surface);
 
   build.graph.add(&result.dest, &result.imports);
   }
@@ -541,23 +568,96 @@ fn write_variant(map_options: MapOptions, dest: &Path, asset: &Asset, output: Ou
   fs::write(dest, code).with_context(|| format!("Failed to write {:?}", dest))
 }
 
-/// A relative specifier naming something the build did not produce is a 404 in
-/// the browser, and the emitted module cannot report it for itself.
-fn check_references(opts: &Options, build: &mut Build) {
-  for (module, import) in std::mem::take(&mut build.references) {
+/// Two failures the emitted graph cannot report for itself, over one pass of
+/// every specifier the output carries.
+///
+/// A specifier naming something the build did not produce is a 404. A name the
+/// target does not export is a `SyntaxError` raised before either module runs,
+/// and it survives a rename that the exporting module compiled cleanly through.
+///
+/// `export *` defers to another module, so the names a module offers are the
+/// fixed point of following those edges. A star from a bare specifier leaves the
+/// set open, since only the page supplying that module knows what it carries.
+fn check_graph(opts: &Options, build: &mut Build) {
+  let references = std::mem::take(&mut build.references);
+  let offered = resolve_surfaces(&build.surfaces);
+
+  for (module, import) in references {
     let dir = module.parent().unwrap_or(&build.out_dir).to_path_buf();
     let target = crate::graph::normalise(&dir.join(&import.specifier));
 
-    if build.claimed.contains_key(&target) || target.is_file() {
+    if !build.claimed.contains_key(&target) && !target.is_file() {
+      eprintln!(
+        "❌ {} imports '{}', which resolves to nothing",
+        display(&module, &opts.root),
+        import.specifier
+      );
+      build.has_error = true;
       continue;
     }
 
-    eprintln!(
-      "❌ {} imports '{}', which resolves to nothing",
-      display(&module, &opts.root),
-      import.specifier
-    );
-    build.has_error = true;
+    let Some((names, open)) = offered.get(&target) else {
+      continue;
+    };
+
+    if *open {
+      continue;
+    }
+
+    for name in &import.names {
+      if names.contains(name) {
+        continue;
+      }
+
+      eprintln!(
+        "❌ {} imports '{}' from '{}', which does not export it",
+        display(&module, &opts.root),
+        name,
+        import.specifier
+      );
+      build.has_error = true;
+    }
+  }
+}
+
+/// Follows every `export *` to a fixed point. Modules may import each other in a
+/// cycle, so this repeats until nothing new arrives rather than recursing.
+fn resolve_surfaces(surfaces: &HashMap<PathBuf, Surface>) -> HashMap<PathBuf, (BTreeSet<String>, bool)> {
+  let mut offered: HashMap<PathBuf, (BTreeSet<String>, bool)> = surfaces
+    .iter()
+    .map(|(path, surface)| (path.clone(), (surface.names.clone(), surface.open)))
+    .collect();
+
+  loop {
+    let mut changed = false;
+
+    for (path, surface) in surfaces {
+      for star in &surface.stars {
+        // A star at something this build did not compile is another module's
+        // business, and its names cannot be enumerated from here.
+        let Some((names, open)) = offered.get(star).cloned() else {
+          let entry = offered.get_mut(path).expect("every surface is seeded");
+          changed |= !entry.1;
+          entry.1 = true;
+          continue;
+        };
+
+        let entry = offered.get_mut(path).expect("every surface is seeded");
+
+        for name in names {
+          changed |= entry.0.insert(name);
+        }
+
+        if open && !entry.1 {
+          entry.1 = true;
+          changed = true;
+        }
+      }
+    }
+
+    if !changed {
+      return offered;
+    }
   }
 }
 

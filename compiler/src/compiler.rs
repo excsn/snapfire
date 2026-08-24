@@ -9,7 +9,7 @@ use std::rc::Rc;
 use swc_core::common::source_map::SourceMapGenConfig;
 use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap, Spanned, sync::Lrc};
 use swc_core::ecma::{
-  ast::{EsVersion, Program},
+  ast::{Decl, EsVersion, ExportSpecifier, ModuleDecl, ModuleItem, ObjectPatProp, Pat, Program},
   codegen::{Config as CodegenConfig, Emitter, text_writer::JsWriter},
   parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, error::Error as ParserError, lexer::Lexer},
   transforms::base::{fixer::fixer, hygiene::hygiene, resolver},
@@ -56,6 +56,13 @@ pub struct Output {
   pub referenced: Vec<PathBuf>,
   pub externals: Vec<String>,
   pub imports: Vec<Import>,
+  /// Names this module exports under its own roof.
+  pub exports: Vec<String>,
+  /// Specifiers of `export * from`, which contribute whatever the target exports.
+  pub star_sources: Vec<String>,
+  /// Set by an `export *` from a bare specifier, whose contribution only the page
+  /// that supplies it can know.
+  pub open_exports: bool,
 }
 
 impl Output {
@@ -67,7 +74,98 @@ impl Output {
       referenced: Vec::new(),
       externals: Vec::new(),
       imports: Vec::new(),
+      exports: Vec::new(),
+      star_sources: Vec::new(),
+      open_exports: false,
     }
+  }
+}
+
+/// What a module offers importers: the names it declares, and the modules an
+/// `export *` defers to.
+#[derive(Default)]
+struct Surface {
+  names: Vec<String>,
+  stars: Vec<String>,
+  open: bool,
+}
+
+fn exported(program: &Program) -> Surface {
+  let mut surface = Surface::default();
+
+  let Some(module) = program.as_module() else {
+    return surface;
+  };
+
+  for item in &module.body {
+    let ModuleItem::ModuleDecl(declaration) = item else {
+      continue;
+    };
+
+    match declaration {
+      ModuleDecl::ExportDecl(export) => bound(&export.decl, &mut surface.names),
+      ModuleDecl::ExportDefaultDecl(_) | ModuleDecl::ExportDefaultExpr(_) => {
+        surface.names.push("default".to_string());
+      }
+      ModuleDecl::ExportNamed(export) => {
+        for specifier in &export.specifiers {
+          match specifier {
+            ExportSpecifier::Named(named) => surface
+              .names
+              .push(crate::transforms::export_name(named.exported.as_ref().unwrap_or(&named.orig))),
+            ExportSpecifier::Namespace(namespace) => {
+              surface.names.push(crate::transforms::export_name(&namespace.name))
+            }
+            ExportSpecifier::Default(default) => surface.names.push(default.exported.sym.to_string()),
+          }
+        }
+      }
+      ModuleDecl::ExportAll(export) => {
+        let source = export.src.value.to_string_lossy().into_owned();
+
+        if source.starts_with('.') {
+          surface.stars.push(source);
+        } else {
+          surface.open = true;
+        }
+      }
+      _ => {}
+    }
+  }
+
+  surface
+}
+
+/// Every name a declaration binds, so `export const { a, b } = x` counts as two.
+fn bound(declaration: &Decl, into: &mut Vec<String>) {
+  match declaration {
+    Decl::Class(class) => into.push(class.ident.sym.to_string()),
+    Decl::Fn(function) => into.push(function.ident.sym.to_string()),
+    Decl::Var(var) => {
+      for declarator in &var.decls {
+        pattern(&declarator.name, into);
+      }
+    }
+    _ => {}
+  }
+}
+
+fn pattern(pat: &Pat, into: &mut Vec<String>) {
+  match pat {
+    Pat::Ident(ident) => into.push(ident.id.sym.to_string()),
+    Pat::Array(array) => array.elems.iter().flatten().for_each(|element| pattern(element, into)),
+    Pat::Object(object) => {
+      for property in &object.props {
+        match property {
+          ObjectPatProp::KeyValue(entry) => pattern(&entry.value, into),
+          ObjectPatProp::Assign(entry) => into.push(entry.key.sym.to_string()),
+          ObjectPatProp::Rest(rest) => pattern(&rest.arg, into),
+        }
+      }
+    }
+    Pat::Assign(assign) => pattern(&assign.left, into),
+    Pat::Rest(rest) => pattern(&rest.arg, into),
+    _ => {}
   }
 }
 
@@ -171,6 +269,11 @@ impl Compiler {
         fixer(None),
       );
       let program = program.apply(&mut passes);
+
+      // Read before compression, which is free to rename anything that is not
+      // part of the module's public surface.
+      let surface = exported(&program);
+
       let program = compress(program, minify, unresolved_mark, top_level_mark);
 
       let mut buf = vec![];
@@ -215,6 +318,9 @@ impl Compiler {
         referenced: referenced.borrow().clone(),
         externals: externals.borrow().clone(),
         imports: imports.take(),
+        exports: surface.names,
+        star_sources: surface.stars,
+        open_exports: surface.open,
       })
     })
   }
@@ -276,6 +382,9 @@ impl Compiler {
       referenced: Vec::new(),
       externals: Vec::new(),
       imports: Vec::new(),
+      exports: Vec::new(),
+      star_sources: Vec::new(),
+      open_exports: false,
     })
   }
 }

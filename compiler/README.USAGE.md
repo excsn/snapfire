@@ -939,6 +939,14 @@ Nothing enables this and nothing turns it off. It needs no type information, onl
 
 Both graphs are checked against themselves, so a `.min.js` naming an unminified sibling is reported too. Copied assets count as produced, so a stylesheet or a font the build delivers resolves.
 
+A named import is checked against what the target actually exports, which catches the other half of a rename:
+
+```text
+❌ "dist/index.js" imports 'notExported' from './real.js', which does not export it
+```
+
+`export *` is followed, so a name a barrel offers only by re-export resolves normally. A star at a bare specifier is the one case that cannot be settled here, since only the page supplying that module knows what it carries; the importing module's names go unchecked rather than reported wrongly.
+
 ### Checking Against an Import Map
 
 Point the build at the map the page serves and a missing entry becomes a build failure rather than a console error in production:

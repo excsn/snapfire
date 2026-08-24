@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use swc_core::ecma::ast::{
-  CallExpr, Callee, Expr, ExprStmt, Lit, MemberExpr, MemberProp, ModuleItem, Stmt, Str,
+  CallExpr, Callee, Expr, ExprStmt, ExportSpecifier, ImportSpecifier, Lit, MemberExpr, MemberProp,
+  ModuleExportName, ModuleItem, Stmt, Str,
 };
 use swc_core::ecma::visit::{Fold, FoldWith};
 
@@ -20,6 +21,9 @@ const BROWSER_READY: [&str; 3] = ["js", "mjs", "cjs"];
 pub struct Import {
   pub specifier: String,
   pub dynamic: bool,
+  /// Names taken from the target, as the target spells them. A namespace or
+  /// dynamic import takes none, since neither names anything at the import.
+  pub names: Vec<String>,
 }
 
 pub struct ImportRewriter {
@@ -49,7 +53,7 @@ impl ImportRewriter {
     }
   }
 
-  fn rewrite(&self, src: &mut Str, dynamic: bool) {
+  fn rewrite(&self, src: &mut Str, dynamic: bool, names: Vec<String>) {
     let specifier = src.value.to_string_lossy();
 
     if !specifier.starts_with('.') {
@@ -70,6 +74,7 @@ impl ImportRewriter {
     self.imports.borrow_mut().push(Import {
       specifier: resolved.clone(),
       dynamic,
+      names,
     });
 
     if resolved == specifier {
@@ -112,6 +117,15 @@ pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
   }
 }
 
+/// A name as the exporting module spells it, whether written as an identifier or
+/// as a string literal.
+pub fn export_name(name: &ModuleExportName) -> String {
+  match name {
+    ModuleExportName::Ident(ident) => ident.sym.to_string(),
+    ModuleExportName::Str(literal) => literal.value.to_string_lossy().into_owned(),
+  }
+}
+
 /// A specifier only a package resolver can satisfy, which in a browser means an import map. A URL
 /// or a root-relative path resolves natively and is nobody's problem.
 fn is_bare(specifier: &str) -> bool {
@@ -133,19 +147,43 @@ fn minified_name(specifier: &str) -> String {
 
 impl Fold for ImportRewriter {
   fn fold_import_decl(&mut self, mut n: swc_core::ecma::ast::ImportDecl) -> swc_core::ecma::ast::ImportDecl {
-    self.rewrite(&mut n.src, false);
+    let names = n
+      .specifiers
+      .iter()
+      .filter_map(|specifier| match specifier {
+        ImportSpecifier::Named(named) if !named.is_type_only => Some(match &named.imported {
+          Some(imported) => export_name(imported),
+          None => named.local.sym.to_string(),
+        }),
+        ImportSpecifier::Default(_) => Some("default".to_string()),
+        // A namespace binding names nothing, so there is nothing to check.
+        ImportSpecifier::Namespace(_) | ImportSpecifier::Named(_) => None,
+      })
+      .collect();
+
+    self.rewrite(&mut n.src, false, names);
     n
   }
 
   fn fold_named_export(&mut self, mut n: swc_core::ecma::ast::NamedExport) -> swc_core::ecma::ast::NamedExport {
     if let Some(src) = &mut n.src {
-      self.rewrite(src, false);
+      let names = n
+        .specifiers
+        .iter()
+        .filter_map(|specifier| match specifier {
+          ExportSpecifier::Named(named) if !named.is_type_only => Some(export_name(&named.orig)),
+          ExportSpecifier::Default(default) => Some(default.exported.sym.to_string()),
+          ExportSpecifier::Namespace(_) | ExportSpecifier::Named(_) => None,
+        })
+        .collect();
+
+      self.rewrite(src, false, names);
     }
     n
   }
 
   fn fold_export_all(&mut self, mut n: swc_core::ecma::ast::ExportAll) -> swc_core::ecma::ast::ExportAll {
-    self.rewrite(&mut n.src, false);
+    self.rewrite(&mut n.src, false, Vec::new());
     n
   }
 
@@ -157,7 +195,7 @@ impl Fold for ImportRewriter {
       && arg.spread.is_none()
       && let Expr::Lit(Lit::Str(src)) = &mut *arg.expr
     {
-      self.rewrite(src, true);
+      self.rewrite(src, true, Vec::new());
     }
 
     n
