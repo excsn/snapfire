@@ -94,11 +94,17 @@ fn test_declarations_are_not_preloaded() {
   let mut cmd = get_snapfirec_cmd();
   run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--declaration"));
 
-  let manifest = fs::read_to_string(fixture.root().join("dist/preload-manifest.json")).unwrap();
+  let facts = fs::read_to_string(fixture.root().join("dist/.snapfire-build.json")).unwrap();
 
-  // A declaration is never fetched, so naming one as a preload would tell the browser to load a
-  // file it cannot use.
-  assert!(!manifest.contains(".d.ts"), "a declaration reached the manifest: {manifest}");
+  // `outputs` names every emitted file, declarations included. The graph and its entry points are
+  // what a page preloads from, and a declaration is never fetched, so naming one there would tell
+  // the browser to load a file it cannot use.
+  let preloaded: String = facts
+    .lines()
+    .filter(|line| !line.trim_start().starts_with(r#""outputs""#))
+    .collect();
+
+  assert!(!preloaded.contains(".d.ts"), "a declaration reached the graph: {facts}");
 }
 
 #[test]

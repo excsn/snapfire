@@ -82,8 +82,8 @@ fn test_the_example_defers_its_dynamic_import() {
   let mut cmd = get_snapfirec_cmd();
   run_snapfirec(cmd.arg("--root").arg(fixture.root()));
 
-  let manifest = fs::read_to_string(fixture.root().join("dist/preload-manifest.json")).unwrap();
-  let entry = manifest.lines().find(|l| l.contains("\"index.js\"")).unwrap();
+  let manifest = fs::read_to_string(fixture.root().join("dist/.snapfire-build.json")).unwrap();
+  let entry = manifest.lines().find(|l| l.trim_start().starts_with("\"index.js\":")).unwrap();
 
   assert!(!entry.contains("editor.js"), "a deferred chunk was preloaded");
   assert!(manifest.contains("\"editor.js\""), "it is still an entry of its own");

@@ -54,7 +54,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **Public path** - The URL prefix the output directory is served under. Optional, and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
 * **Declaration** - The `.d.ts` describing one module's exported types. Emitted per file from that file alone, so an export whose type only inference across files could supply is an error rather than a guess.
 * **Minified graph** - The parallel set of `.min` files `--minify` adds. Its specifiers point only at other `.min` files, so loading the minified entry never pulls an unminified dependency.
-* **Manifest** - `.snapfirec-manifest` in the output directory, listing what the build produced so the next build can remove what it no longer produces.
+* **Build facts** - `.snapfire-build.json` in the output directory, recording the entry points, the module graph, the bare specifiers the output carries and every file it produced. A page preloads from it; a packager vendors from it; the next build prunes from it.
 * **`.browserslistrc`** - Sets which browsers the CSS is compiled for, searched for from the root upward.
 
 ## Quick Start
@@ -998,15 +998,26 @@ snapfirec --import-map ./static/importmap.json --public-path /assets/
 
 Unbundled modules are discovered one hop at a time: the browser cannot ask for `state.js` until it has fetched and parsed the module that imports it. Deep graphs turn into serialised round trips, and that is what bundling is usually bought to avoid.
 
-Every build writes `preload-manifest.json` naming what each entry point needs, so the page can ask for all of it at once instead:
+Every build writes `.snapfire-build.json`, whose `graph` names what each entry point needs, so the page can ask for all of it at once instead:
 
 ```json
 {
-  "index.js": ["deep/a.js", "deep/b.js"],
-  "deferred.js": [],
-  "standalone.js": []
+  "version": 1,
+  "entries": ["index.js", "deferred.js", "standalone.js"],
+  "externals": ["markdown-it"],
+  "outputs": [".snapfire-build.json", "index.js", "deep/a.js", "deep/b.js"],
+  "minified": ".min",
+  "graph": {
+    "index.js": ["deep/a.js", "deep/b.js"],
+    "deferred.js": [],
+    "standalone.js": []
+  }
 }
 ```
+
+One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `outputs`, `externals` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript, and the compiler already resolved every one of them.
+
+Paths stay in the output directory's own terms. `--public-path` is recorded as `publicPath` rather than prefixed onto every path, so one build is mountable anywhere and a consumer joins the two.
 
 An entry point is a module nothing else statically imports, which the build works out for itself. Dependencies are transitive, cycles are walked once, and stylesheets are left out because `modulepreload` is the wrong `rel` for them.
 
@@ -1037,11 +1048,11 @@ Consuming it from a Tera template keeps the base path where it already lives, on
 <script type="module" src="{{ asset_base }}{{ entry }}"></script>
 ```
 
-With `--minify` the minified graph is walked separately, so `index.min.js` gets a manifest entry listing `.min` dependencies and never mixes the two.
+With `--minify` the minified graph is walked separately, so `index.min.js` gets a `graph` record listing `.min` dependencies and never mixes the two. It is not listed in `entries`, because `minified` states the suffix that derives it and naming both would make a consumer pair them back up.
 
 ## Keeping the Output Directory Clean
 
-Each build writes `.snapfirec-manifest` listing what it produced. The next build removes anything in that list it no longer produces, and touches nothing else:
+`outputs` in `.snapfire-build.json` lists what the build produced. The next build removes anything in that list it no longer produces, and touches nothing else:
 
 ```bash
 snapfirec                                     # dist/{button.js, panel.js}

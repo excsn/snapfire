@@ -27,12 +27,10 @@ fn test_a_manifest_records_what_was_emitted() {
   let fixture = Fixture::new("computed-root");
   build(&fixture);
 
-  let manifest = fs::read_to_string(fixture.root().join("dist/.snapfirec-manifest")).unwrap();
-  let mut listed: Vec<&str> = manifest.lines().collect();
-  listed.sort();
+  let facts = fs::read_to_string(fixture.root().join("dist/.snapfire-build.json")).unwrap();
 
-  // The preload manifest is an output too, so it is tracked and therefore prunable.
-  assert_eq!(listed, vec!["button.js", "panel.js", "preload-manifest.json"]);
+  // The facts file is an output too, so it tracks itself and is therefore prunable.
+  assert!(facts.contains(r#""outputs": [".snapfire-build.json", "button.js", "panel.js"]"#));
 }
 
 #[test]
