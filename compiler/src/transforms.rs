@@ -16,6 +16,7 @@ const BROWSER_READY: [&str; 3] = ["js", "mjs", "cjs"];
 ///
 /// A dynamic import is deliberately deferred by the author, so it is an edge for dependency
 /// purposes but never something to preload.
+#[derive(Clone)]
 pub struct Import {
   pub specifier: String,
   pub dynamic: bool,

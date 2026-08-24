@@ -25,6 +25,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Annotating Exports for It](#annotating-exports-for-it)
 * [Delivering Assets](#delivering-assets)
 * [Resolving Externals](#resolving-externals)
+  * [Checking Relative Specifiers](#checking-relative-specifiers)
   * [Checking Against an Import Map](#checking-against-an-import-map)
 * [Preloading the Module Graph](#preloading-the-module-graph)
 * [Keeping the Output Directory Clean](#keeping-the-output-directory-clean)
@@ -926,6 +927,18 @@ import { html } from './vendor/lit-core.js';
 
 Nothing is reported when a build has no externals, so a quiet line means the output is self-contained.
 
+### Checking Relative Specifiers
+
+Every build resolves each relative specifier against what it produced, and a target that was never emitted fails the build:
+
+```text
+❌ "dist/index.js" imports './nope.js', which resolves to nothing
+```
+
+Nothing enables this and nothing turns it off. It needs no type information, only the output paths the build already resolved, so it catches the case a rename leaves behind: the module compiles, the output looks right, and the browser 404s on a specifier nobody re-read. A dynamic `import()` with a literal argument is checked the same way, since deferring the fetch only moves when the 404 happens.
+
+Both graphs are checked against themselves, so a `.min.js` naming an unminified sibling is reported too. Copied assets count as produced, so a stylesheet or a font the build delivers resolves.
+
 ### Checking Against an Import Map
 
 Point the build at the map the page serves and a missing entry becomes a build failure rather than a console error in production:
@@ -1144,7 +1157,7 @@ cargo build --release
 
 | Not this tool's job | Why, and what covers it |
 | :--- | :--- |
-| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files. Declaration *emit* is here, since isolated declarations is per-file too; checking those types is not |
+| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files. Declaration *emit* is here, since isolated declarations is per-file too, and so is the graph check below, since resolving a specifier needs no types. Checking those types is not |
 | Bundling | Output is browser-native ES modules by design. An import map resolves the bare specifiers, and the `Externals:` line names them |
 | Downlevelling | Every engine that can load an ES module is already ES2017 or later, so there is no lower target worth emitting for. `target` is checked for satisfiability and otherwise left to `tsc` |
 | `@import` inlining | Bundling again, for stylesheets. Each input `.css` stays a separate output the browser fetches |
@@ -1180,6 +1193,12 @@ echo $?
 | :--- | :--- | :--- |
 | `❌` | A file failed to compile, write or copy, or two sources collide | Yes |
 | `⚠️` | A pattern matched nothing, a path could not be read, or no browser targets resolved | No |
+
+A relative specifier naming something the build did not produce is reported with the same `❌` prefix, after every file has been compiled:
+
+```text
+❌ "dist/index.js" imports './nope.js', which resolves to nothing
+```
 
 A compile error names the file, the line and the column:
 

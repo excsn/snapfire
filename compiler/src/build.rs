@@ -54,6 +54,10 @@ pub struct Build {
   /// page has to supply an import map covering every one of them.
   pub externals: Vec<String>,
   pub graph: Graph,
+  /// Every relative specifier the output carries, paired with the module that
+  /// named it. Collected rather than checked in place, because whether a target
+  /// was produced is only knowable once every job and every asset has landed.
+  pub references: Vec<(PathBuf, Import)>,
   pub emitted: usize,
   pub has_error: bool,
 }
@@ -195,6 +199,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     claimed: HashMap::new(),
     externals: Vec::new(),
     graph: Graph::default(),
+    references: Vec::new(),
     emitted: 0,
     has_error: false,
   };
@@ -235,6 +240,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   }
 
   copy_assets(opts, &mut build, referenced);
+  check_references(opts, &mut build);
 
   build.externals.sort();
   build.externals.dedup();
@@ -271,6 +277,8 @@ pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
     let result = run(&build.compiler, opts, build.map_options, job);
     report(build, result, &mut referenced);
   }
+
+  check_references(opts, build);
 }
 
 /// What one job emits from its source. The minified graph and the declarations are both further
@@ -488,7 +496,11 @@ fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   build.externals.extend(result.externals);
   // A declaration is never fetched by a browser, so it is not a node in the graph a page preloads.
   if result.emit != Emit::Declaration {
-    build.graph.add(&result.dest, &result.imports);
+    build
+    .references
+    .extend(result.imports.iter().map(|import| (result.dest.clone(), import.clone())));
+
+  build.graph.add(&result.dest, &result.imports);
   }
 
   if let Some(failure) = result.failure {
@@ -527,6 +539,26 @@ fn write_variant(map_options: MapOptions, dest: &Path, asset: &Asset, output: Ou
   }
 
   fs::write(dest, code).with_context(|| format!("Failed to write {:?}", dest))
+}
+
+/// A relative specifier naming something the build did not produce is a 404 in
+/// the browser, and the emitted module cannot report it for itself.
+fn check_references(opts: &Options, build: &mut Build) {
+  for (module, import) in std::mem::take(&mut build.references) {
+    let dir = module.parent().unwrap_or(&build.out_dir).to_path_buf();
+    let target = crate::graph::normalise(&dir.join(&import.specifier));
+
+    if build.claimed.contains_key(&target) || target.is_file() {
+      continue;
+    }
+
+    eprintln!(
+      "❌ {} imports '{}', which resolves to nothing",
+      display(&module, &opts.root),
+      import.specifier
+    );
+    build.has_error = true;
+  }
 }
 
 fn copy_assets(opts: &Options, build: &mut Build, referenced: Vec<PathBuf>) {

@@ -119,7 +119,7 @@ fn url_for(path: &Path, out_dir: &Path, public_path: Option<&str>) -> Option<Str
 
 /// Resolves `.` and `..` without touching the filesystem, since a dependency may legitimately not
 /// have been written yet when the edge is recorded.
-fn normalise(path: &Path) -> PathBuf {
+pub(crate) fn normalise(path: &Path) -> PathBuf {
   let mut out = PathBuf::new();
 
   for component in path.components() {

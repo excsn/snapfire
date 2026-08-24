@@ -63,6 +63,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Get fonts and images into `dist` | `--copy-assets` |
 | Know which packages the page must supply | The `Externals:` line the build prints |
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |
+| Catch a relative import that points at nothing | Nothing to pass; every build checks it |
 | Kill the module-discovery waterfall | `dist/preload-manifest.json`, written every build |
 | Rebuild as you edit | `--watch` |
 | Strip development logging | `--strip-log --strip-debug` |
