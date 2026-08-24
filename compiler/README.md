@@ -13,6 +13,7 @@ A bespoke, high-performance *typescript to browser* build tool written in Rust.
 -   **No Node.js:** The build process should not require a JavaScript runtime.
 -   **Browser Native:** Output files are ES Modules ready to be imported directly by browsers (`<script type="module">`).
 -   **Standards Compliant:** Reads `tsconfig.json` the way `tsc` does, so the same file can drive type checking and your editor without the three disagreeing.
+-   **Types Travel With The Code:** A library can emit its own `.d.ts`, so a TypeScript consumer of the built output is not left importing `any`.
 -   **Opinionated:** Includes specific transforms (like import rewriting) to make the "TypeScript to Browser" workflow seamless.
 
 ## Install
@@ -58,6 +59,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Control where output lands | `compilerOptions.rootDir` and `outDir`, or `--out-dir` |
 | Debug the emitted code | `--source-map`, or `sourceMap` in `tsconfig.json` |
 | Ship smaller files | `--minify`, which adds a `.min` graph beside the readable one |
+| Ship types with the library | `--declaration`, or `declaration` in `tsconfig.json` |
 | Get fonts and images into `dist` | `--copy-assets` |
 | Know which packages the page must supply | The `Externals:` line the build prints |
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |
@@ -79,6 +81,7 @@ Then read `example/dist`, which is what a browser would be served.
 | `--source-map` | Emits a `.map` beside each output. | `sourceMap` |
 | `--inline-source-map` | Embeds each map in its output as a data URI. | `inlineSourceMap` |
 | `--minify[=compact\|full]` | Additionally emits a minified `.min` graph. | off |
+| `--declaration` | Emits a `.d.ts` beside each TypeScript output. | `declaration` |
 | `--public-path <PREFIX>` | URL prefix the output is served under, used for the preload manifest. | paths, not URLs |
 | `--import-map <PATH>` | Fails the build if an external is not resolved by this map. | off |
 | `-w`, `--watch` | Rebuilds whenever a source changes. | `false` |
@@ -92,7 +95,8 @@ Then read `example/dist`, which is what a browser would be served.
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "sourceMap": true
+    "sourceMap": true,
+    "declaration": true
   },
   "include": ["src/**/*"],
   "exclude": ["**/*.test.ts"]

@@ -80,22 +80,32 @@ impl ImportRewriter {
   }
 
   fn resolve(&self, specifier: &str) -> String {
-    let extension = Path::new(specifier)
-      .extension()
-      .and_then(|e| e.to_str())
-      .map(|e| e.to_ascii_lowercase());
+    resolve_specifier(&self.dir, specifier)
+  }
+}
 
-    match extension.as_deref() {
-      Some(ext) if COMPILED_TO_JS.contains(&ext) => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
-      Some(ext) if BROWSER_READY.contains(&ext) => specifier.to_string(),
-      Some(_) => specifier.to_string(),
-      None => {
-        let trimmed = specifier.trim_end_matches('/');
-        if self.dir.join(trimmed).is_dir() {
-          format!("{trimmed}/index.js")
-        } else {
-          format!("{specifier}.js")
-        }
+/// What a relative specifier becomes in the emitted graph, resolved against the directory the
+/// importing file sits in.
+///
+/// Declaration emit resolves specifiers with this too, so a `.d.ts` names what its `.js` names and
+/// TypeScript reaches the sibling declaration through the same path the browser uses for the
+/// module.
+pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
+  let extension = Path::new(specifier)
+    .extension()
+    .and_then(|e| e.to_str())
+    .map(|e| e.to_ascii_lowercase());
+
+  match extension.as_deref() {
+    Some(ext) if COMPILED_TO_JS.contains(&ext) => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
+    Some(ext) if BROWSER_READY.contains(&ext) => specifier.to_string(),
+    Some(_) => specifier.to_string(),
+    None => {
+      let trimmed = specifier.trim_end_matches('/');
+      if dir.join(trimmed).is_dir() {
+        format!("{trimmed}/index.js")
+      } else {
+        format!("{specifier}.js")
       }
     }
   }

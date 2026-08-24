@@ -18,6 +18,7 @@ pub struct CompilerOptions {
   pub source_map: Option<bool>,
   pub inline_source_map: Option<bool>,
   pub inline_sources: Option<bool>,
+  pub declaration: Option<bool>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

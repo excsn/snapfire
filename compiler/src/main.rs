@@ -1,6 +1,7 @@
 mod build;
 mod compiler;
 mod config;
+mod declarations;
 mod graph;
 mod importmap;
 mod sources;
@@ -51,6 +52,10 @@ struct Args {
   #[arg(long)]
   inline_source_map: bool,
 
+  /// Emit a .d.ts beside each TypeScript output
+  #[arg(long)]
+  declaration: bool,
+
   /// Additionally emit a minified `.min` graph
   #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "compact")]
   minify: Option<Minify>,
@@ -85,6 +90,7 @@ fn main() -> Result<()> {
     source_map: args.source_map,
     inline_source_map: args.inline_source_map,
     minify: args.minify,
+    declaration: args.declaration,
     public_path: args.public_path.map(|p| if p.ends_with('/') { p } else { format!("{p}/") }),
     import_map: args.import_map,
   };

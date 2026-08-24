@@ -21,6 +21,8 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Targeting Browsers](#targeting-browsers)
 * [Emitting Source Maps](#emitting-source-maps)
 * [Emitting a Minified Graph](#emitting-a-minified-graph)
+* [Emitting Declarations](#emitting-declarations)
+  * [Annotating Exports for It](#annotating-exports-for-it)
 * [Delivering Assets](#delivering-assets)
 * [Resolving Externals](#resolving-externals)
   * [Checking Against an Import Map](#checking-against-an-import-map)
@@ -49,6 +51,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **External** - A bare specifier the finished output carries. A URL or a root-relative path is not one, since the browser resolves those unaided.
 * **Entry point** - A module nothing else statically imports, worked out from the graph rather than declared. What a page loads directly.
 * **Public path** - The URL prefix the output directory is served under. Optional, and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
+* **Declaration** - The `.d.ts` describing one module's exported types. Emitted per file from that file alone, so an export whose type only inference across files could supply is an error rather than a guess.
 * **Minified graph** - The parallel set of `.min` files `--minify` adds. Its specifiers point only at other `.min` files, so loading the minified entry never pulls an unminified dependency.
 * **Manifest** - `.snapfirec-manifest` in the output directory, listing what the build produced so the next build can remove what it no longer produces.
 * **`.browserslistrc`** - Sets which browsers the CSS is compiled for, searched for from the root upward.
@@ -771,6 +774,73 @@ dist/
   index.min.js   index.min.js.map
 ```
 
+## Emitting Declarations
+
+`--declaration`, or `declaration` in `tsconfig.json`, writes a `.d.ts` beside each compiled TypeScript file:
+
+```bash
+snapfirec --root ./my-lib --declaration
+```
+
+```text
+   Compiling TS: "state.ts"
+   Compiling TS (dts): "state.ts"
+```
+
+```text
+dist/state.js
+dist/state.d.ts
+```
+
+Declarations describe types, which the minified graph shares, so `--minify --declaration` still emits one set. There is no `index.min.d.ts` and no `.d.ts.map`.
+
+Specifiers are resolved exactly as they are in the modules, so a declaration reaches its sibling declaration by the path the browser uses for the module:
+
+```typescript
+// src/index.ts
+import { state } from './state';
+export const current: number = state.count;
+```
+
+```typescript
+// dist/index.d.ts
+import { state } from "./state.js";
+export declare const current: number;
+```
+
+`"./state.js"` resolves to `state.d.ts` because that substitution is TypeScript's own, which is what lets one set of specifiers serve both graphs. Bare specifiers are left alone, since a type-only import needs no import map entry.
+
+### Annotating Exports for It
+
+Emit is per file, with no dependency graph, for the same reason type stripping is. That is what keeps a build free of `node_modules`, and it is the whole bargain: an export the compiler would have to look in another file to describe is an error rather than a guess.
+
+```typescript
+export const inferred = build();          // ❌ TS9010
+export function double(x: number) {       // ❌ TS9007
+  return x * 2;
+}
+
+export const annotated: Shape = build();  // ✅
+export function halve(x: number): number { // ✅
+  return x / 2;
+}
+```
+
+```text
+❌ Error compiling "/my-lib/src/bad.ts": /my-lib/src/bad.ts:3:14: TS9010: Variable must have an explicit type annotation with --isolatedDeclarations.
+```
+
+This is TypeScript's own `isolatedDeclarations` contract, so setting `"isolatedDeclarations": true` in `tsconfig.json` makes `tsc --noEmit` report the same thing in the same terms. `snapfirec` does not read that key, since emit here is always isolated, but a project that sets it gets the errors from its editor rather than from a build.
+
+A class keeps its private members without describing them, so nothing internal has to be annotated for the sake of the declaration:
+
+```typescript
+export declare class Toaster extends HTMLElement {
+	private list;
+	connectedCallback(): void;
+}
+```
+
 ## Delivering Assets
 
 A module that names a file the compiler does not produce would resolve to nothing in the browser, so those files are copied whether or not you ask:
@@ -1074,7 +1144,7 @@ cargo build --release
 
 | Not this tool's job | Why, and what covers it |
 | :--- | :--- |
-| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files |
+| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files. Declaration *emit* is here, since isolated declarations is per-file too; checking those types is not |
 | Bundling | Output is browser-native ES modules by design. An import map resolves the bare specifiers, and the `Externals:` line names them |
 | Downlevelling | Every engine that can load an ES module is already ES2017 or later, so there is no lower target worth emitting for. `target` is checked for satisfiability and otherwise left to `tsc` |
 | `@import` inlining | Bundling again, for stylesheets. Each input `.css` stays a separate output the browser fetches |

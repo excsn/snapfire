@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "outDir": "dist", "declaration": true },
+  "include": ["input"]
+}

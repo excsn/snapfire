@@ -48,6 +48,19 @@ pub struct Output {
   pub imports: Vec<Import>,
 }
 
+impl Output {
+  /// An emit that is only text: no map, and nothing for the caller to deliver or resolve.
+  pub fn text(code: String) -> Self {
+    Self {
+      code,
+      map: None,
+      referenced: Vec::new(),
+      externals: Vec::new(),
+      imports: Vec::new(),
+    }
+  }
+}
+
 /// How a map should name the file it came from, relative to where the map itself will be written.
 pub struct MapRequest<'a> {
   pub options: MapOptions,

@@ -31,6 +31,7 @@ pub struct Options {
   pub source_map: bool,
   pub inline_source_map: bool,
   pub minify: Option<Minify>,
+  pub declaration: bool,
   /// Prefix for the URLs the preload manifest names. Absent keeps the manifest in the output
   /// directory's own terms, which is what keeps a build usable at any mount point.
   pub public_path: Option<String>,
@@ -45,6 +46,8 @@ pub struct Build {
   pub search_bases: Vec<PathBuf>,
   pub include_patterns: Vec<String>,
   pub map_options: MapOptions,
+  /// Whether a `.d.ts` is emitted beside each TypeScript output, from the flag or from `tsconfig`.
+  pub declaration: bool,
   pub compiler: Compiler,
   pub claimed: HashMap<PathBuf, PathBuf>,
   /// Bare specifiers the emitted modules carry. A browser cannot resolve these on its own, so the
@@ -99,6 +102,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   crate::config::check_target(compiler_options.target.as_deref())?;
 
   let map_options = MapOptions::resolve(&compiler_options, opts.source_map, opts.inline_source_map)?;
+  let declaration = opts.declaration || compiler_options.declaration.unwrap_or(false);
 
   let config_dir = opts
     .config_path
@@ -170,6 +174,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     search_bases: selection.search_bases,
     include_patterns: selection.include_patterns,
     map_options,
+    declaration,
     compiler: Compiler::new(targets),
     claimed: HashMap::new(),
     externals: Vec::new(),
@@ -233,16 +238,34 @@ pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
   }
 }
 
+/// What one job emits from its source. The minified graph and the declarations are both further
+/// outputs of a single input, so each is a variant of a job rather than a pass of its own.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Emit {
+  Code(Option<Minify>),
+  Declaration,
+}
+
+impl Emit {
+  fn minify(self) -> Option<Minify> {
+    match self {
+      Self::Code(level) => level,
+      Self::Declaration => None,
+    }
+  }
+}
+
 struct Job {
   source: PathBuf,
   relative: PathBuf,
   dest: PathBuf,
   asset: Asset,
-  minify: Option<Minify>,
+  emit: Emit,
   source_name: String,
 }
 
 struct JobResult {
+  emit: Emit,
   log: String,
   failure: Option<String>,
   referenced: Vec<PathBuf>,
@@ -276,14 +299,28 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
     dest.set_extension(out_ext);
   }
 
-  let mut variants = vec![(dest.clone(), None)];
+  let mut variants = vec![(dest.clone(), Emit::Code(None))];
+
   if let Some(level) = opts.minify {
-    variants.push((with_min(&dest), Some(level)));
+    variants.push((with_min(&dest), Emit::Code(Some(level))));
+  }
+
+  // Declarations describe types, which the minified graph shares, so one file's worth is emitted
+  // whatever else is asked for.
+  if build.declaration
+    && let Asset::Script {
+      dialect: Dialect::TypeScript,
+      ..
+    } = asset
+  {
+    let mut declaration = dest.clone();
+    declaration.set_extension("d.ts");
+    variants.push((declaration, Emit::Declaration));
   }
 
   let mut jobs = Vec::new();
 
-  for (dest, minify) in variants {
+  for (dest, emit) in variants {
     if check_collisions
       && let Some(previous) = build.claimed.insert(dest.clone(), path.to_path_buf())
       && previous != path
@@ -298,7 +335,7 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
       continue;
     }
 
-    if build.map_options.mode == MapMode::External {
+    if build.map_options.mode == MapMode::External && emit != Emit::Declaration {
       build.claimed.insert(with_suffix(&dest, ".map"), path.to_path_buf());
     }
 
@@ -321,7 +358,7 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
       relative: relative.clone(),
       dest,
       asset,
-      minify,
+      emit,
       source_name,
     });
   }
@@ -335,20 +372,25 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
     source_name: &job.source_name,
   };
 
-  let suffix = if job.minify.is_some() { " (min)" } else { "" };
+  let suffix = match job.emit {
+    Emit::Code(Some(_)) => " (min)",
+    Emit::Code(None) => "",
+    Emit::Declaration => " (dts)",
+  };
 
-  let (label, compiled) = match job.asset {
-    Asset::Script { dialect, .. } => {
+  let (label, compiled) = match (job.emit, job.asset) {
+    (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source).map(Output::text)),
+    (emit, Asset::Script { dialect, .. }) => {
       let label = match dialect {
         Dialect::TypeScript => "TS",
         Dialect::JavaScript => "JS",
       };
       (
         label,
-        compiler.compile_script(&job.source, dialect, opts.strip_log, opts.strip_debug, job.minify, map),
+        compiler.compile_script(&job.source, dialect, opts.strip_log, opts.strip_debug, emit.minify(), map),
       )
     }
-    Asset::Style => ("CSS", compiler.compile_css(&job.source, job.minify.is_some(), map)),
+    (emit, Asset::Style) => ("CSS", compiler.compile_css(&job.source, emit.minify().is_some(), map)),
   };
 
   let log = format!("   Compiling {}{}: {:?}", label, suffix, job.relative);
@@ -357,6 +399,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
     Ok(output) => output,
     Err(e) => {
       return JobResult {
+        emit: job.emit,
         log,
         failure: Some(format!("❌ Error compiling {:?}: {:?}", job.source, e)),
         referenced: Vec::new(),
@@ -374,6 +417,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
 
   match write_variant(map_options, &job.dest, &job.asset, output) {
     Ok(()) => JobResult {
+      emit: job.emit,
       log,
       failure: None,
       referenced,
@@ -383,6 +427,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       written: true,
     },
     Err(e) => JobResult {
+      emit: job.emit,
       log,
       failure: Some(format!("❌ Error writing {}: {}", display(&job.dest, &opts.root), e)),
       referenced,
@@ -398,7 +443,10 @@ fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   println!("{}", result.log);
   referenced.extend(result.referenced);
   build.externals.extend(result.externals);
-  build.graph.add(&result.dest, &result.imports);
+  // A declaration is never fetched by a browser, so it is not a node in the graph a page preloads.
+  if result.emit != Emit::Declaration {
+    build.graph.add(&result.dest, &result.imports);
+  }
 
   if let Some(failure) = result.failure {
     eprintln!("{}", failure);
