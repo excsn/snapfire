@@ -154,7 +154,7 @@ fabric.properties
 **/coverage
 **/dist
 **/npm-*
-**/package-lock.json`
+**/package-lock.json
 
 # Logs
 logs
