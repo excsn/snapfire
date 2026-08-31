@@ -1,6 +1,7 @@
 use crate::config::{MapMode, MapOptions};
 use crate::transforms::{Import, ImportRewriter, StripConsole};
 use anyhow::{Context, Result, anyhow};
+use lightningcss::rules::CssRule;
 use lightningcss::stylesheet::{MinifyOptions, ParserFlags, ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::targets::{Browsers, Targets};
 use std::cell::RefCell;
@@ -346,6 +347,8 @@ impl Compiler {
           ..Default::default()
         })
         .map_err(|e| anyhow!("Failed to minify CSS: {}", e))?;
+
+      point_imports_at_minified(&mut stylesheet.rules.0);
     }
 
     let mut built = parcel_sourcemap::SourceMap::new("/");
@@ -387,6 +390,46 @@ impl Compiler {
       open_exports: false,
     })
   }
+}
+
+/// Points a minified stylesheet's `@import`s at the minified siblings.
+///
+/// The JavaScript graph gets this from `transforms::minified_name` as it folds
+/// the module, but a stylesheet never reaches that fold: LightningCSS parses and
+/// prints it whole. Without this the minified entry imports the unminified
+/// files, so loading `x.min.css` pulls the full graph and the two builds are not
+/// separable, which is the same defect `minified_name` exists to prevent for
+/// modules.
+///
+/// Only relative targets are moved. A bare specifier is an external the consumer
+/// supplies and has no minified twin here, and an absolute URL is fetched by the
+/// browser unaided.
+fn point_imports_at_minified(rules: &mut [CssRule<'_>]) {
+  for rule in rules {
+    let CssRule::Import(import) = rule else {
+      continue;
+    };
+
+    if let Some(minified) = minified_import(import.url.as_ref()) {
+      import.url = minified.into();
+    }
+  }
+}
+
+fn minified_import(specifier: &str) -> Option<String> {
+  let relative = specifier.starts_with("./") || specifier.starts_with("../") || specifier.starts_with('/');
+
+  if !relative || specifier.starts_with("//") {
+    return None;
+  }
+
+  let stem = specifier.strip_suffix(".css")?;
+
+  if stem.ends_with(".min") {
+    return None;
+  }
+
+  Some(format!("{stem}.min.css"))
 }
 
 #[cfg(feature = "minify")]
