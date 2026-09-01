@@ -1,1 +1,1 @@
-<section><h1>{{ params.section }}</h1><table>{% for s in servers %}<tr><td>{{ s.name }}</td><td>{{ s.load }}</td></tr>{% endfor %}</table>{{ island(module="components/ServerChart.tsx#default", props=chart) }}{{ slot(name="chart") }}</section>
+<section><h1>{{ params.section }}</h1><p class="segment-render">this segment rendered at page render {{ renders }}</p><table>{% for s in servers %}<tr><td>{{ s.name }}</td><td>{{ s.load }}</td></tr>{% endfor %}</table>{{ island(module="components/ServerChart.tsx#default", props=chart) }}{{ slot(name="chart") }}</section>

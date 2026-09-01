@@ -4,6 +4,7 @@ use snapfire_fsr_core::{TypedArray, Value, ValueMap};
 use snapfire_fsr_runtime::{DataSources, LoadError};
 
 use crate::services::fleet;
+use crate::state::Renders;
 
 fn series(points: Vec<f64>) -> Value {
   let mut map = ValueMap::new();
@@ -22,7 +23,7 @@ async fn fetch_servers(
   ctx.services.call(fleet::NAME, fleet::LIST, args).await
 }
 
-pub fn register(sources: &mut DataSources, chart_delay: Duration) {
+pub fn register(sources: &mut DataSources, chart_delay: Duration, renders: Renders) {
   sources.insert_fn("meta_loader", move |ctx| async move {
     let section = ctx.params.get("section").cloned().unwrap_or_default();
     let count = match ctx.services.call(fleet::NAME, fleet::COUNT, ValueMap::new()).await {
@@ -34,7 +35,10 @@ pub fn register(sources: &mut DataSources, chart_delay: Duration) {
     Ok(data)
   });
 
-  sources.insert_fn("layout_loader", |ctx| async move {
+  let layout_renders = renders.clone();
+  sources.insert_fn("layout_loader", move |ctx| {
+    let renders = layout_renders.clone();
+    async move {
     let visits = match ctx.session.get("visits") {
       Some(Value::Int(n)) => n + 1,
       _ => 1,
@@ -43,10 +47,15 @@ pub fn register(sources: &mut DataSources, chart_delay: Duration) {
     let mut data = ValueMap::new();
     data.insert("nav_label".to_owned(), Value::str("Snapfire FSR"));
     data.insert("visits".to_owned(), Value::Int(visits));
+    data.insert("renders".to_owned(), Value::int(renders.get() as i64));
     Ok(data)
+    }
   });
 
-  sources.insert_fn("servers_loader", move |ctx| async move {
+  let page_renders = renders;
+  sources.insert_fn("servers_loader", move |ctx| {
+    let renders = page_renders.clone();
+    async move {
     let servers = fetch_servers(&ctx).await.map_err(|e| LoadError {
       source_id: "servers_loader".into(),
       message: e.message,
@@ -54,7 +63,9 @@ pub fn register(sources: &mut DataSources, chart_delay: Duration) {
     let mut data = ValueMap::new();
     data.insert("servers".to_owned(), servers);
     data.insert("chart".to_owned(), series(vec![12.0, 15.5, 9.25]));
+    data.insert("renders".to_owned(), Value::int(renders.get() as i64));
     Ok(data)
+    }
   });
 
   sources.insert_fn("slow_chart_loader", move |_ctx| async move {

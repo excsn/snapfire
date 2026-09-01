@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -28,5 +29,21 @@ impl Fleet {
     }
     servers.push((name, load));
     Ok(servers.len())
+  }
+}
+
+/// Server renders since boot, so a page can show what a navigation cost. The
+/// edge bumps it once per assembly, before the eager wave, so every loader in
+/// one render reads the same number.
+#[derive(Clone, Default)]
+pub struct Renders(Arc<AtomicU64>);
+
+impl Renders {
+  pub fn next(&self) -> u64 {
+    self.0.fetch_add(1, Ordering::Relaxed) + 1
+  }
+
+  pub fn get(&self) -> u64 {
+    self.0.load(Ordering::Relaxed)
   }
 }
