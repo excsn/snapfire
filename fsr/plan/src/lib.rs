@@ -27,6 +27,10 @@ pub enum PlanError {
 pub struct Manifest {
   pub version: u32,
   pub routes: Vec<RouteEntry>,
+  /// The action ids the application expects to exist. Declared so an
+  /// unanswered action is a boot error rather than a 404 at request time.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,7 +149,12 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes }
+    Self { version: FORMAT_VERSION, routes, actions: Vec::new() }
+  }
+
+  pub fn with_actions(mut self, actions: Vec<String>) -> Self {
+    self.actions = actions;
+    self
   }
 
   pub fn from_json(source: &str) -> Result<Self, PlanError> {

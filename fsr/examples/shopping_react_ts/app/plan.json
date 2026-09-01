@@ -36,6 +36,28 @@
           }
         ]
       }
+    },
+    {
+      "pattern": "/cart",
+      "plan": {
+        "id": 0,
+        "module": "shell#document",
+        "children": [
+          {
+            "slot": "content",
+            "node": {
+              "id": 1,
+              "module": "app/main.tsx#Cart",
+              "source": "cart_loader",
+              "error": "app/main.tsx#Failed"
+            }
+          }
+        ]
+      }
     }
+  ],
+  "actions": [
+    "add_to_cart",
+    "checkout"
   ]
 }

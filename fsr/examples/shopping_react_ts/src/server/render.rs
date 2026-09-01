@@ -1,8 +1,10 @@
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
 use snapfire_fsr_core::Node;
+use snapfire_fsr_core::Value;
 use snapfire_fsr_runtime::{
-  assemble, html_stream, wire_stream, AssembleError, Matcher, RequestCtx, Resolver, SessionCell,
+  assemble, html_stream, wire_stream, ActionError, AssembleError, Matcher, RequestCtx, Resolver,
+  SessionCell,
 };
 
 use crate::server::AppCore;
@@ -55,6 +57,23 @@ pub async fn respond_with(
     RenderMode::Html => Box::pin(html_stream(assembly)),
     RenderMode::Payload => Box::pin(wire_stream(assembly)),
   })
+}
+
+/// The action edge. An action is a stable id, so the browser holds a
+/// reference rather than a URL.
+pub async fn call_action(
+  app: &AppCore,
+  id: &str,
+  session: SessionCell,
+  input: Value,
+) -> Result<Value, ActionError> {
+  let ctx = RequestCtx {
+    params: Default::default(),
+    session,
+    csrf: None,
+    services: app.services.bind_anonymous(),
+  };
+  app.actions.dispatch(id, ctx, input).await
 }
 
 pub async fn render(app: &AppCore, path: &str, mode: RenderMode) -> Result<String, AppError> {

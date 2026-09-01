@@ -32,6 +32,8 @@ pub enum BindError {
   OverridesNothing { name: String },
   #[error("`{module}` is not a module id, which is `path#export`")]
   Module { module: String },
+  #[error("the plan declares action `{id}`, which nothing answers")]
+  UnboundAction { id: String },
 }
 
 /// Who answers a name.
@@ -101,6 +103,7 @@ impl std::fmt::Debug for App {
 
 pub struct AppBuilder {
   routes: Routes,
+  declared_actions: Vec<String>,
   sources: DataSources,
   claimed: Vec<(String, Owner)>,
   overrides: Vec<String>,
@@ -114,6 +117,7 @@ impl App {
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
       routes,
+      declared_actions: Vec::new(),
       sources: DataSources::new(),
       claimed: Vec::new(),
       overrides: Vec::new(),
@@ -126,7 +130,10 @@ impl App {
 
   /// The stock entry point: a plan file and nothing else.
   pub fn from_manifest(manifest: &str) -> Result<AppBuilder, BindError> {
-    Ok(Self::builder(Routes::from_manifest(manifest)?))
+    let parsed = snapfire_fsr_plan::Manifest::from_json(manifest)?;
+    let mut builder = Self::builder(Routes::from_manifest(manifest)?);
+    builder.declared_actions = parsed.actions;
+    Ok(builder)
   }
 }
 
@@ -231,6 +238,13 @@ impl AppBuilder {
       match owner {
         Some(owner) => sources.push((name.clone(), owner)),
         None => return Err(BindError::Unbound { name: name.clone() }),
+      }
+    }
+
+    let bound_actions = self.actions.ids();
+    for id in &self.declared_actions {
+      if !bound_actions.contains(id) {
+        return Err(BindError::UnboundAction { id: id.clone() });
       }
     }
 

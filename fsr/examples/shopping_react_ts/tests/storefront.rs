@@ -99,7 +99,7 @@ fn routes_come_from_the_plan_file_and_from_rust() {
     .unwrap()
     .add("/about", shopping_react_ts::server::routes::about_plan());
 
-  assert_eq!(routes.patterns(), vec!["/", "/product/{id}", "/about"]);
+  assert_eq!(routes.patterns(), vec!["/", "/product/{id}", "/cart", "/about"]);
   assert!(routes.build().is_ok());
 }
 
@@ -123,7 +123,8 @@ fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
   let manifest = snapfire_fsr_plan::Manifest::from_json(shopping_react_ts::server::routes::PLAN).unwrap();
-  assert_eq!(manifest.sources(), vec!["catalog_loader", "product_loader"]);
+  assert_eq!(manifest.sources(), vec!["catalog_loader", "product_loader", "cart_loader"]);
+  assert_eq!(manifest.actions, vec!["add_to_cart", "checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"app/main.tsx#Catalog".to_owned()));
   assert!(manifest.modules().contains(&"app/main.tsx#Failed".to_owned()), "error modules count");
 }
@@ -134,4 +135,108 @@ fn a_route_added_in_rust_renders_like_any_other() {
   let html = block_on(render(&app, "/about", RenderMode::Html)).unwrap();
   assert!(html.contains("app/main.tsx#About"));
   assert!(html.contains("<!doctype html>"));
+}
+
+#[test]
+fn adding_to_the_cart_holds_it_in_the_session() {
+  use snapfire_fsr_runtime::SessionCell;
+
+  let app = app_over(Arc::new(MockTransport::new()));
+  let session = SessionCell::default();
+
+  let mut input = ValueMap::new();
+  input.insert("product_id".to_owned(), Value::int(1i64));
+  input.insert("quantity".to_owned(), Value::int(2i64));
+  block_on(shopping_react_ts::server::call_action(&app, "add_to_cart", session.clone(), Value::Map(input)))
+    .unwrap();
+
+  let held = shopping_react_ts::server::cart::lines(&session);
+  assert_eq!(held.get("1"), Some(&Value::Int(2)));
+}
+
+#[test]
+fn the_cart_page_names_and_prices_what_the_session_holds() {
+  use snapfire_fsr_runtime::SessionCell;
+
+  let transport = Arc::new(
+    MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)])),
+  );
+  let app = app_over(transport);
+  let session = SessionCell::default();
+  shopping_react_ts::server::cart::add(&session, 1, 3);
+
+  let chunks: Vec<String> = block_on(async {
+    use futures_util::StreamExt;
+    shopping_react_ts::server::respond_with(&app, "/cart", RenderMode::Html, session)
+      .await
+      .unwrap()
+      .collect()
+      .await
+  });
+  let html = chunks.concat();
+
+  assert!(html.contains("app/main.tsx#Cart"));
+  assert!(html.contains("Filament"), "the name came from the catalog, not the cart");
+  assert!(html.contains("2400"), "so did the price");
+}
+
+#[test]
+fn checkout_places_the_order_and_empties_the_cart() {
+  use snapfire_fsr_runtime::SessionCell;
+
+  let mut order = ValueMap::new();
+  order.insert("id".to_owned(), Value::int(5001i64));
+  order.insert("total_cents".to_owned(), Value::int(4800i64));
+  order.insert("lines".to_owned(), Value::Seq(vec![]));
+
+  let transport = Arc::new(MockTransport::new().returns("shopping.placeOrder", Value::Map(order)));
+  let app = app_over(transport.clone());
+  let session = SessionCell::default();
+  shopping_react_ts::server::cart::add(&session, 1, 2);
+
+  let placed = block_on(shopping_react_ts::server::call_action(
+    &app,
+    "checkout",
+    session.clone(),
+    Value::Map(ValueMap::new()),
+  ))
+  .unwrap();
+
+  assert!(matches!(placed, Value::Map(_)));
+  assert!(shopping_react_ts::server::cart::lines(&session).is_empty(), "a placed order empties the cart");
+  let (path, args, _) = transport.calls().into_iter().next().unwrap();
+  assert_eq!(path, "shopping.placeOrder");
+  assert!(matches!(args.get("lines"), Some(Value::Seq(lines)) if lines.len() == 1));
+}
+
+#[test]
+fn checking_out_an_empty_cart_never_reaches_the_backend() {
+  use snapfire_fsr_runtime::{FailureKind, SessionCell};
+
+  let transport = Arc::new(MockTransport::new());
+  let app = app_over(transport.clone());
+
+  let err = block_on(shopping_react_ts::server::call_action(
+    &app,
+    "checkout",
+    SessionCell::default(),
+    Value::Map(ValueMap::new()),
+  ))
+  .unwrap_err();
+
+  assert_eq!(err.kind, FailureKind::Invalid);
+  assert!(transport.calls().is_empty());
+}
+
+#[test]
+fn a_declared_action_nothing_answers_refuses_to_start() {
+  let manifest = r#"{"version":1,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document"}}],
+    "actions":["never_bound"]}"#;
+  let err = snapfire_fsr::App::from_manifest(manifest)
+    .unwrap()
+    .evaluator(|_: &snapfire_fsr_core::ModuleId| true, Arc::new(snapfire_fsr_runtime::NullEvaluator))
+    .build()
+    .unwrap_err();
+
+  assert_eq!(err, snapfire_fsr::BindError::UnboundAction { id: "never_bound".into() });
 }
