@@ -206,7 +206,9 @@ These `tsconfig.json` keys are read, and everything else in the file is ignored:
     "target": "es2022",
     "sourceMap": true,
     "inlineSourceMap": false,
-    "inlineSources": false
+    "inlineSources": false,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   },
   "files": [],
   "include": ["src/**/*"],
@@ -448,7 +450,7 @@ export var Shapes;
 
 ### Compiling TSX
 
-`.tsx` files are parsed as TSX and written to `.js`, with the JSX left in place rather than lowered to function calls:
+What JSX becomes is `jsx` in `tsconfig.json`, the same key `tsc` reads. Set it to `"react-jsx"` and JSX is lowered through the automatic runtime:
 
 ```tsx
 // src/component.tsx
@@ -457,10 +459,31 @@ export const Hello = (props: { name: string }) => <div>Hello, {props.name}</div>
 
 ```javascript
 // dist/component.js
-export const Hello = (props)=><div>Hello, {props.name}</div>;
+import { jsx as _jsx } from "react/jsx-runtime";
+export const Hello = (props)=>_jsx("div", {
+        children: [
+            "Hello, ",
+            props.name
+        ]
+    });
 ```
 
-No browser runs that file as-is. TSX is only useful here as input to something downstream that understands JSX.
+The runtime import is injected, never written by hand, and it is an ordinary bare import afterwards: `--import-map` fails the build when nothing resolves `react/jsx-runtime`, so a missing entry surfaces at build time instead of in the browser.
+
+| `jsx` | Output |
+| --- | --- |
+| unset, or `"preserve"` | JSX written through untouched. No browser runs that file as-is; it is input for another tool. |
+| `"react-jsx"` | Automatic runtime, importing `jsx`, `jsxs` and `Fragment` from `<jsxImportSource>/jsx-runtime`. |
+| `"react-jsxdev"` | Automatic runtime against `<jsxImportSource>/jsx-dev-runtime`. |
+| `"react"`, `"react-native"` | Refused. The classic runtime needs a `React` binding snapfirec does not inject. |
+
+`jsxImportSource` picks the package the runtime comes from, defaulting to `react`. It is what points the same lowering at another library:
+
+```json
+{ "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" } }
+```
+
+An import referenced only by an element name (`import { Badge } from "./badge.js"` used as `<Badge/>`) is kept, so type stripping cannot leave a dangling reference.
 
 ### Compiling JavaScript
 

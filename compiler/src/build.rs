@@ -1,5 +1,5 @@
 use crate::compiler::{Compiler, Dialect, MapRequest, Markup, Minify, Output};
-use crate::config::{MapMode, MapOptions, TsConfig};
+use crate::config::{Jsx, MapMode, MapOptions, TsConfig};
 use crate::graph::Graph;
 use crate::importmap::ImportMap;
 use crate::sources;
@@ -119,6 +119,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   crate::config::check_target(compiler_options.target.as_deref())?;
 
   let map_options = MapOptions::resolve(&compiler_options, opts.source_map, opts.inline_source_map)?;
+  let jsx = Jsx::resolve(&compiler_options)?;
   let declaration = opts.declaration || compiler_options.declaration.unwrap_or(false);
 
   let config_dir = opts
@@ -196,7 +197,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include_patterns: selection.include_patterns,
     map_options,
     declaration,
-    compiler: Compiler::new(targets),
+    compiler: Compiler::new(targets, jsx),
     claimed: HashMap::new(),
     externals: Vec::new(),
     graph: Graph::default(),

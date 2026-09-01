@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "outDir": "dist", "jsx": "react-jsx" },
+  "include": ["input"]
+}
