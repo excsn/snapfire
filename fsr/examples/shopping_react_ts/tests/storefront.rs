@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::executor::block_on;
-use shopping_react_ts::server::{build_app_over, render, services, RenderMode};
+use shopping_react_ts::server::{build_app_over, clients, render, RenderMode};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_service::{MockTransport, Services};
 
@@ -16,7 +16,7 @@ fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
 }
 
 fn app_over(transport: Arc<MockTransport>) -> shopping_react_ts::server::AppCore {
-  let imported = services::import();
+  let imported = clients::shopping::import();
   let services = Services::builder()
     .contract(imported.contract)
     .default_transport(transport)
@@ -26,11 +26,11 @@ fn app_over(transport: Arc<MockTransport>) -> shopping_react_ts::server::AppCore
 
 #[test]
 fn the_published_document_is_the_only_client_description() {
-  let imported = services::import();
+  let imported = clients::shopping::import();
   let contract = &imported.contract;
 
   for method in ["listProducts", "getProduct", "placeOrder"] {
-    assert!(contract.method(services::SHOPPING, method).is_some(), "{method} was imported");
+    assert!(contract.method(clients::shopping::NAME, method).is_some(), "{method} was imported");
   }
   assert_eq!(imported.routes.len(), 3, "every operation carries its transport shape");
 }
