@@ -8,6 +8,7 @@ members = [
   "fsr/examples/advanced_tera_app",
   "fsr/examples/shopping_react_ts",
   "fsr/payload",
+  "fsr/plan",
   "fsr/runtime",
   "fsr/service",
   "fsr/session",

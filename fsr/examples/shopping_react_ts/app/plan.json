@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "pattern": "/",
+      "plan": {
+        "id": 0,
+        "module": "shell#document",
+        "children": [
+          {
+            "slot": "content",
+            "node": {
+              "id": 1,
+              "module": "app/main.tsx#Catalog",
+              "source": "catalog_loader",
+              "error": "app/main.tsx#Failed"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "pattern": "/product/{id}",
+      "plan": {
+        "id": 0,
+        "module": "shell#document",
+        "children": [
+          {
+            "slot": "content",
+            "node": {
+              "id": 1,
+              "module": "app/main.tsx#Product",
+              "source": "product_loader",
+              "error": "app/main.tsx#Failed"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
