@@ -154,6 +154,16 @@ async fn route(req: &HttpRequest, app: &AppCore, opened: &Opened, body: Bytes) -
   if req.path() == "/auth/callback" && req.method() == actix_web::http::Method::POST {
     return handle_callback(app, opened, body).await;
   }
+  if req.path() == "/login" {
+    let back = req
+      .headers()
+      .get(header::REFERER)
+      .and_then(|v| v.to_str().ok())
+      .filter(|r| !r.ends_with("/login"))
+      .map(str::to_owned)
+      .unwrap_or_else(|| "/dash/servers".to_owned());
+    app.auth.ensure_flow(opened, &back).await;
+  }
 
   let query = req.query_string();
   let mode = if query_param(query, "__payload").is_some() || query.split('&').any(|p| p == "__payload") {

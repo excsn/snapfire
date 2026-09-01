@@ -77,3 +77,15 @@ fn a_down_backend_degrades_the_segment_never_the_page() {
   assert!(html.contains("the servers backend is unreachable"));
   assert!(!html.contains("<td>web-1</td>"), "no partial data leaks into the failed segment");
 }
+
+#[test]
+fn the_index_lists_the_routes_and_the_dev_credentials() {
+  let app = build_app(Duration::ZERO);
+  let html = block_on(render(&app, "/", RenderMode::Html)).unwrap();
+
+  for route in ["/dash/servers", "/slow/servers", "/dash/down", "/login"] {
+    assert!(html.contains(&format!("href=\"{route}\"")), "the index links {route}: {html}");
+  }
+  assert!(html.contains("alice"), "the dev credentials are on the page: {html}");
+  assert!(html.contains("<nav>Snapfire FSR "), "the index sits in the layout");
+}

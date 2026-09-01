@@ -56,6 +56,7 @@ fn templates() -> tera::Tera {
       ("chart_loading.tera", include_str!("../templates/chart_loading.tera")),
       ("error_section.tera", include_str!("../templates/error_section.tera")),
       ("login.tera", include_str!("../templates/login.tera")),
+      ("index.tera", include_str!("../templates/index.tera")),
     ])
     .expect("templates parse");
   tera

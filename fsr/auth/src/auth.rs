@@ -27,6 +27,14 @@ impl Auth {
     begin.redirect
   }
 
+  /// Seeds flow state when none is in progress, so a login page reached by a
+  /// typed URL or a direct link can still post to the callback.
+  pub async fn ensure_flow(&self, opened: &Opened, return_to: &str) {
+    if opened.tokens.get(FLOW_STATE_KEY).is_none() {
+      self.login(opened, return_to).await;
+    }
+  }
+
   pub async fn callback(&self, opened: &Opened, params: ValueMap) -> Result<String, AuthError> {
     let state = match opened.tokens.remove(FLOW_STATE_KEY) {
       Some(Value::Map(state)) => state,
