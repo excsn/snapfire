@@ -24,6 +24,16 @@ async fn fetch_servers(
 }
 
 pub fn register(sources: &mut DataSources, chart_delay: Duration, renders: Renders) {
+  let chrome_renders = renders.clone();
+  sources.insert_fn("chrome_loader", move |_ctx| {
+    let renders = chrome_renders.clone();
+    async move {
+      let mut data = ValueMap::new();
+      data.insert("renders".to_owned(), Value::int(renders.get() as i64));
+      Ok(data)
+    }
+  });
+
   sources.insert_fn("meta_loader", move |ctx| async move {
     let section = ctx.params.get("section").cloned().unwrap_or_default();
     let count = match ctx.services.call(fleet::NAME, fleet::COUNT, ValueMap::new()).await {
@@ -40,10 +50,9 @@ pub fn register(sources: &mut DataSources, chart_delay: Duration, renders: Rende
     let renders = layout_renders.clone();
     async move {
     let visits = match ctx.session.get("visits") {
-      Some(Value::Int(n)) => n + 1,
-      _ => 1,
+      Some(Value::Int(n)) => n,
+      _ => 0,
     };
-    ctx.session.insert("visits", Value::Int(visits));
     let mut data = ValueMap::new();
     data.insert("nav_label".to_owned(), Value::str("Snapfire FSR"));
     data.insert("visits".to_owned(), Value::Int(visits));

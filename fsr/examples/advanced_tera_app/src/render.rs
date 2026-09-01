@@ -99,6 +99,15 @@ pub async fn respond_with(
     .resolve(matched.entry, &matched.params)
     .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
   app.renders.next();
+  // A visit is a page the browser loaded. A payload request is the same page
+  // navigating, so it renders without counting.
+  if mode == RenderMode::Html {
+    let visits = match incoming.session.get("visits") {
+      Some(Value::Int(n)) => n + 1,
+      _ => 1,
+    };
+    incoming.session.insert("visits", Value::Int(visits));
+  }
   let services = app.services.bind(incoming.session.identity(), incoming.credentials);
   let ctx = RequestCtx {
     params: matched.params,
