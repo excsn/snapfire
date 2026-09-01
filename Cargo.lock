@@ -3774,6 +3774,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hmac",
+ "parking_lot",
  "rand 0.8.7",
  "sha2",
  "snapfire_fsr_core",
