@@ -1,0 +1,20 @@
+[package]
+name = "snapfire_fsr_session"
+version = "0.1.0"
+description = "Sessions for Snapfire FSR: signed cookies, the session store and CSRF."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_runtime = { path = "../runtime" }
+fibre_cache = "0.4"
+futures-util = "0.3"
+hmac = "0.12"
+rand = "0.8"
+sha2 = "0.10"
+
+[dev-dependencies]
+futures = "0.3"
