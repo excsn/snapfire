@@ -28,6 +28,7 @@ pub struct AppCore {
   pub(crate) sessions: Sessions,
   pub(crate) auth: Auth,
   pub(crate) services: Arc<Services>,
+  pub(crate) renders: state::Renders,
 }
 
 impl AppCore {
@@ -66,9 +67,10 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
   let fleet = state::Fleet::seed();
 
   let services = services::build(fleet.clone());
+  let renders = state::Renders::default();
 
   let mut sources = DataSources::new();
-  loaders::register(&mut sources, chart_delay);
+  loaders::register(&mut sources, chart_delay, renders.clone());
 
   let mut evaluators = Evaluators::new();
   evaluators.register(
@@ -101,5 +103,6 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
     sessions,
     auth,
     services,
+    renders,
   }
 }

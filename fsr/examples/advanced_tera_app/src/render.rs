@@ -98,6 +98,7 @@ pub async fn respond_with(
     .resolver
     .resolve(matched.entry, &matched.params)
     .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
+  app.renders.next();
   let services = app.services.bind(incoming.session.identity(), incoming.credentials);
   let ctx = RequestCtx {
     params: matched.params,

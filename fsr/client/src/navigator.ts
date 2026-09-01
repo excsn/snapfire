@@ -10,6 +10,12 @@ interface Region {
   end: Comment;
 }
 
+/** A key is `module` or `module?params`; the module half decides whether two segments are the same kind of thing. */
+function moduleOf(key: string): string {
+  const q = key.indexOf("?");
+  return q === -1 ? key : key.slice(0, q);
+}
+
 /** Finds the comment pair delimiting a segment's region, respecting nesting. */
 function findRegion(key: string): Region | null {
   const open = `sf-g:${escapeKey(key)}`;
@@ -58,7 +64,17 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode): boolean {
     const region = findRegion(oldSeg.k);
     return region ? replaceRegion(region, renderSegment(newNode, newSeg, ids)) : false;
   };
-  if (oldSeg.k !== newSeg.k) return swap();
+  if (oldSeg.k !== newSeg.k) {
+    if (swap()) return true;
+    // A region that cannot be replaced is the root, whose delimiters are
+    // children of the document. Same module means the same chrome, so the
+    // change is below it: retag the delimiter and descend rather than
+    // demanding a full load.
+    if (moduleOf(oldSeg.k) !== moduleOf(newSeg.k)) return false;
+    const region = findRegion(oldSeg.k);
+    if (!region) return false;
+    region.start.data = `sf-g:${escapeKey(newSeg.k)}`;
+  }
   const oldChildren = oldSeg.c.filter((c) => c.s === undefined);
   const newChildren = newSeg.c.filter((c) => c.s === undefined);
   if (oldChildren.length !== newChildren.length) return swap();
