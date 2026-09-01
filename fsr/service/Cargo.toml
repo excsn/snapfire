@@ -1,0 +1,18 @@
+[package]
+name = "snapfire_fsr_service"
+version = "0.1.0"
+description = "The typed service boundary for Snapfire FSR: the contract artifact, the registry and transports."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+
+[dev-dependencies]
+futures = "0.3"

@@ -8,6 +8,7 @@ members = [
   "fsr/examples/advanced_tera_app",
   "fsr/payload",
   "fsr/runtime",
+  "fsr/service",
   "fsr/session",
   "fsr/tera",
   "rs"

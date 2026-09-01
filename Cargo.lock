@@ -241,6 +241,7 @@ dependencies = [
  "futures-util",
  "parking_lot",
  "serde_json",
+ "snapfire_fsr_auth",
  "snapfire_fsr_core",
  "snapfire_fsr_payload",
  "snapfire_fsr_runtime",
@@ -3777,6 +3778,18 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "xxhash-rust",
+]
+
+[[package]]
+name = "snapfire_fsr_service"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "snapfire_fsr_core",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
