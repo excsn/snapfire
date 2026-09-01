@@ -3730,6 +3730,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "snapfire_fsr_auth"
+version = "0.1.0"
+dependencies = [
+ "form_urlencoded",
+ "futures",
+ "futures-util",
+ "rand 0.8.7",
+ "snapfire_fsr_core",
+ "snapfire_fsr_runtime",
+ "snapfire_fsr_session",
+]
+
+[[package]]
 name = "snapfire_fsr_core"
 version = "0.1.0"
 dependencies = [
