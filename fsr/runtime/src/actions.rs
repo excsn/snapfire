@@ -99,6 +99,11 @@ impl ActionRegistry {
     self.insert(id, Arc::new(FnHandler(f)));
   }
 
+  /// Every registered id, in registration order. What a host reports at boot.
+  pub fn ids(&self) -> Vec<String> {
+    self.actions.keys().cloned().collect()
+  }
+
   pub fn dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>> {
     tracing::debug!(target: "fsr::action", id, "dispatch");
     match self.actions.get(id) {

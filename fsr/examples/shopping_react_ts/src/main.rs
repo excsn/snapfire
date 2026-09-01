@@ -12,6 +12,7 @@ async fn main() -> std::io::Result<()> {
   let catalog = backend::Catalog::seed();
   let app = Arc::new(server::build_app(&format!("http://{}:{}", backend_addr.0, backend_addr.1)));
 
+  print!("{}", app.report);
   println!("shopping backend on http://{}:{}/products", backend_addr.0, backend_addr.1);
   println!("fsr server on http://{}:{}/", fsr_addr.0, fsr_addr.1);
 

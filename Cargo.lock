@@ -3888,6 +3888,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "snapfire_fsr",
  "snapfire_fsr_core",
  "snapfire_fsr_payload",
  "snapfire_fsr_plan",
@@ -4013,6 +4014,21 @@ dependencies = [
  "swc_core",
  "tempfile",
  "walkdir",
+]
+
+[[package]]
+name = "snapfire_fsr"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "futures-util",
+ "snapfire_fsr_core",
+ "snapfire_fsr_payload",
+ "snapfire_fsr_plan",
+ "snapfire_fsr_runtime",
+ "snapfire_fsr_service",
+ "snapfire_fsr_session",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
