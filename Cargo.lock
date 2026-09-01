@@ -4306,6 +4306,7 @@ dependencies = [
  "snapfire_fsr_core",
  "snapfire_fsr_payload",
  "snapfire_fsr_runtime",
+ "snapfire_fsr_session",
  "snapfire_fsr_tera",
  "tera",
  "thiserror 2.0.20",

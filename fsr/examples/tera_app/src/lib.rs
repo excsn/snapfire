@@ -12,6 +12,7 @@ use snapfire_fsr_core::ModuleId;
 use snapfire_fsr_runtime::{
   ActionRegistry, DataSources, Evaluators, FibreCache, MatchitMatcher, Runtime, TableResolver,
 };
+use snapfire_fsr_session::{MemorySessionStore, SessionConfig, Sessions};
 use snapfire_fsr_tera::TeraEvaluator;
 
 pub use render::{call_action, negotiate_encoding, render, respond, respond_with, AppError, RenderMode};
@@ -21,6 +22,13 @@ pub struct AppCore {
   pub(crate) resolver: TableResolver,
   pub(crate) runtime: Arc<Runtime>,
   pub(crate) actions: ActionRegistry,
+  pub(crate) sessions: Sessions,
+}
+
+impl AppCore {
+  pub fn sessions(&self) -> &Sessions {
+    &self.sessions
+  }
 }
 
 fn templates() -> tera::Tera {
@@ -54,6 +62,12 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
   let mut action_registry = ActionRegistry::new();
   actions::register(&mut action_registry, fleet);
 
+  let sessions = Sessions::new(
+    Arc::new(MemorySessionStore::new(4096, Duration::from_secs(8 * 3600))),
+    b"tera-app-dev-signing-key-not-a-secret",
+    SessionConfig::default(),
+  );
+
   AppCore {
     matcher: routes::matcher(),
     resolver: routes::resolver(),
@@ -63,5 +77,6 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
       .cache(Arc::new(FibreCache::bounded(1024, Duration::from_secs(300))))
       .build(),
     actions: action_registry,
+    sessions,
   }
 }
