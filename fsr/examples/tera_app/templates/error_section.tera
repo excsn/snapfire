@@ -1,0 +1,1 @@
+<section class="error"><h2>Backend unavailable</h2><p>{{ error }}</p></section>

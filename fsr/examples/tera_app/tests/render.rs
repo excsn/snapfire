@@ -65,3 +65,15 @@ fn island_props_round_trip_through_the_degraded_tera_context() {
   };
   assert_eq!(series, &vec![12.0, 15.5, 9.25]);
 }
+
+#[test]
+fn a_down_backend_degrades_the_segment_never_the_page() {
+  let app = build_app(Duration::ZERO);
+  let html = block_on(render(&app, "/dash/down", RenderMode::Html)).unwrap();
+
+  assert!(html.contains("<nav>Snapfire FSR "), "the layout survives the failure");
+  assert!(html.contains("<title>down (2 servers) - Snapfire FSR</title>"), "metadata still computes");
+  assert!(html.contains("<h2>Backend unavailable</h2>"), "the route's error partial renders: {html}");
+  assert!(html.contains("the servers backend is unreachable"));
+  assert!(!html.contains("<td>web-1</td>"), "no partial data leaks into the failed segment");
+}

@@ -20,6 +20,10 @@ pub struct PlanNode {
   pub deferred: bool,
   /// The segment's loading module, rendered from params alone.
   pub fallback: Option<ModuleId>,
+  /// The segment's error module, rendered with params plus the failure
+  /// message when this segment's data source fails. Absent means the
+  /// built-in error node.
+  pub error: Option<ModuleId>,
   pub cache_key: Option<CacheKey>,
   pub children: Vec<(SlotName, PlanNode)>,
 }
@@ -32,6 +36,7 @@ impl PlanNode {
       data_source: None,
       deferred: false,
       fallback: None,
+      error: None,
       cache_key: None,
       children: Vec::new(),
     }

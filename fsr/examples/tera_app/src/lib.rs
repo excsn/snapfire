@@ -33,6 +33,7 @@ fn templates() -> tera::Tera {
       ("stream_page.tera", include_str!("../templates/stream_page.tera")),
       ("chart_section.tera", include_str!("../templates/chart_section.tera")),
       ("chart_loading.tera", include_str!("../templates/chart_loading.tera")),
+      ("error_section.tera", include_str!("../templates/error_section.tera")),
     ])
     .expect("templates parse");
   tera
