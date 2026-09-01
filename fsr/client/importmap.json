@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "react": "/static/js/vendor/react/react.js",
+    "react-dom/client": "/static/js/vendor/react/react-dom-client.js"
+  }
+}

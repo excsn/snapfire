@@ -1,0 +1,19 @@
+[package]
+name = "snapfire_fsr_core"
+version = "0.1.0"
+description = "Vocabulary types for Snapfire FSR: the payload tree, the render plan and the value model."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+indexmap = "2"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "fingerprint"
+harness = false

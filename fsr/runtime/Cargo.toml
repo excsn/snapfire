@@ -1,0 +1,24 @@
+[package]
+name = "snapfire_fsr_runtime"
+version = "0.1.0"
+description = "Request blocks for Snapfire FSR: matching, resolution, data sources, evaluation and assembly."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_payload = { path = "../payload" }
+futures-util = "0.3"
+fibre_cache = "0.4"
+indexmap = "2"
+matchit = "0.8"
+parking_lot = "0.12"
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tracing = "0.1"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[dev-dependencies]
+futures = "0.3"

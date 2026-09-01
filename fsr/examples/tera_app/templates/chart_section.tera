@@ -1,0 +1,1 @@
+<section class="chart-late"><h2>Latency</h2>{{ island(module="components/LatencyChart.tsx#default", props=latency) }}</section>

@@ -3,6 +3,11 @@ resolver = "2"
 members = [
   "compiler",
   "examples/basic_site",
+  "fsr/core",
+  "fsr/examples/tera_app",
+  "fsr/payload",
+  "fsr/runtime",
+  "fsr/tera",
   "rs"
 ]
 exclude = [

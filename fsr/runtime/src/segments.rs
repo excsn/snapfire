@@ -1,0 +1,38 @@
+use snapfire_fsr_core::{Params, PlanNode};
+
+/// Comparable segment identity for navigation. Same key across two responses
+/// means the segment's DOM and island state survive; different key means the
+/// region is replaced from that point down. Content changes are not identity
+/// changes: revalidation is a separate mechanism.
+pub trait SegmentKeyer: Send + Sync {
+  fn key(&self, plan: &PlanNode, params: &Params) -> String;
+}
+
+/// Module plus every matched param. A custom resolver with narrower param
+/// dependencies pairs with a narrower keyer.
+pub struct DefaultKeyer;
+
+impl SegmentKeyer for DefaultKeyer {
+  fn key(&self, plan: &PlanNode, params: &Params) -> String {
+    let mut key = plan.module.to_string();
+    if !params.is_empty() {
+      let mut pairs: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+      pairs.sort_unstable();
+      key.push('?');
+      key.push_str(&pairs.join("&"));
+    }
+    key
+  }
+}
+
+/// The sidecar the assembler emits beside the payload tree. `path` locates the
+/// segment's subtree relative to its parent segment's node ([] means the whole
+/// node, [i] means child i of a Seq). A deferred segment is slot-addressed
+/// instead and carries no path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentInfo {
+  pub key: String,
+  pub path: Vec<u32>,
+  pub slot: Option<u32>,
+  pub children: Vec<SegmentInfo>,
+}
