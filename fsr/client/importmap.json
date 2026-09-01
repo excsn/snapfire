@@ -1,6 +1,7 @@
 {
   "imports": {
     "react": "/static/js/vendor/react/react.js",
-    "react-dom/client": "/static/js/vendor/react/react-dom-client.js"
+    "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
+    "react/jsx-runtime": "/static/js/vendor/react/react-jsx-runtime.js"
   }
 }
