@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use advanced_tera_app::{build_app, render, services, RenderMode};
+use advanced_tera_app::services::{self, fleet};
+use advanced_tera_app::{build_app, render, RenderMode};
 use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::FailureKind;
@@ -17,7 +18,7 @@ fn a_loader_reaches_the_backend_through_the_bound_handle() {
 
   let mut args = ValueMap::new();
   args.insert("section".to_owned(), Value::str("servers"));
-  let Value::Seq(servers) = block_on(handle.call(services::FLEET, "list", args)).unwrap() else {
+  let Value::Seq(servers) = block_on(handle.call(fleet::NAME, fleet::LIST, args)).unwrap() else {
     panic!("list returns a sequence")
   };
   assert_eq!(servers.len(), 2);
@@ -28,12 +29,12 @@ fn a_call_outside_the_contract_never_reaches_the_backend() {
   let app = build_app(Duration::ZERO);
   let handle = app.services().bind_anonymous();
 
-  let err = block_on(handle.call(services::FLEET, "purge", ValueMap::new())).unwrap_err();
+  let err = block_on(handle.call(fleet::NAME, "purge", ValueMap::new())).unwrap_err();
   assert_eq!(err.kind, FailureKind::NotFound);
 
   let mut wrong = ValueMap::new();
   wrong.insert("section".to_owned(), Value::Int(1));
-  let err = block_on(handle.call(services::FLEET, "list", wrong)).unwrap_err();
+  let err = block_on(handle.call(fleet::NAME, fleet::LIST, wrong)).unwrap_err();
   assert_eq!(err.kind, FailureKind::Invalid);
 }
 

@@ -3,6 +3,8 @@ use std::time::Duration;
 use snapfire_fsr_core::{TypedArray, Value, ValueMap};
 use snapfire_fsr_runtime::{DataSources, LoadError};
 
+use crate::services::fleet;
+
 fn series(points: Vec<f64>) -> Value {
   let mut map = ValueMap::new();
   map.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(points)));
@@ -17,13 +19,13 @@ async fn fetch_servers(
     "section".to_owned(),
     Value::Str(ctx.params.get("section").cloned().unwrap_or_default()),
   );
-  ctx.services.call(crate::services::FLEET, "list", args).await
+  ctx.services.call(fleet::NAME, fleet::LIST, args).await
 }
 
 pub fn register(sources: &mut DataSources, chart_delay: Duration) {
   sources.insert_fn("meta_loader", move |ctx| async move {
     let section = ctx.params.get("section").cloned().unwrap_or_default();
-    let count = match ctx.services.call(crate::services::FLEET, "count", ValueMap::new()).await {
+    let count = match ctx.services.call(fleet::NAME, fleet::COUNT, ValueMap::new()).await {
       Ok(Value::Int(count)) => count,
       _ => 0,
     };
