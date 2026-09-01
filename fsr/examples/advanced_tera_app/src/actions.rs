@@ -1,7 +1,7 @@
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{ActionError, ActionRegistry, FailureKind};
 
-use crate::services::FLEET;
+use crate::services::fleet;
 
 pub fn register(actions: &mut ActionRegistry) {
   actions.insert_fn("add_server", move |ctx, input| async move {
@@ -26,7 +26,7 @@ pub fn register(actions: &mut ActionRegistry) {
     args.insert("load".to_owned(), Value::F64(load));
     ctx
       .services
-      .call(FLEET, "add", args)
+      .call(fleet::NAME, fleet::ADD, args)
       .await
       .map_err(|e| ActionError::new(e.kind, e.message))
   });
