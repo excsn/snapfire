@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "react": "/static/js/vendor/react/react.js",
+    "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
+    "@snapfire/fsr-client": "/static/js/fsr/index.js",
+    "@snapfire/fsr-client/react": "/static/js/fsr/react.js"
+  }
+}

@@ -1,0 +1,90 @@
+use futures_util::stream::BoxStream;
+use futures_util::StreamExt;
+use snapfire_fsr_core::{Node, Value};
+use snapfire_fsr_runtime::{
+  assemble, html_stream, wire_stream, ActionError, AssembleError, Matcher, Resolver,
+};
+
+use crate::AppCore;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderMode {
+  Html,
+  Payload,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AppError {
+  #[error("no route matches `{0}`")]
+  NotFound(String),
+  #[error("unsupported payload encoding `{0}`")]
+  UnsupportedEncoding(String),
+  #[error(transparent)]
+  Assemble(#[from] AssembleError),
+}
+
+/// The response's V row names what it got; a request may name what it wants.
+/// Only the JSON pair exists so far.
+pub fn negotiate_encoding(requested: Option<&str>) -> Result<&'static str, AppError> {
+  match requested {
+    None | Some("json") => Ok("json"),
+    Some(other) => Err(AppError::UnsupportedEncoding(other.to_owned())),
+  }
+}
+
+fn escape_title(raw: &str) -> String {
+  raw.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn head_node(title: &str) -> Node {
+  let mut head = format!("<title>{}</title>", escape_title(title));
+  head.push_str("<script type=\"importmap\">");
+  head.push_str(include_str!("../js/importmap.json"));
+  head.push_str("</script><script type=\"module\" src=\"/static/js/app/main.js\"></script>");
+  Node::raw(head)
+}
+
+async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, params: &snapfire_fsr_core::Params) -> String {
+  let fallback = "Snapfire FSR".to_owned();
+  let Some(source_id) = crate::routes::metadata_source(entry) else { return fallback };
+  let Some(source) = app.runtime.sources.get(&source_id) else { return fallback };
+  match source.load(params).await {
+    Ok(data) => match data.get("title") {
+      Some(Value::Str(title)) => title.clone(),
+      _ => fallback,
+    },
+    Err(_) => fallback,
+  }
+}
+
+/// The response as a stream of chunks: one chunk for a fully-eager page, more
+/// as deferred slots resolve.
+pub async fn respond(
+  app: &AppCore,
+  path: &str,
+  mode: RenderMode,
+) -> Result<BoxStream<'static, String>, AppError> {
+  let matched = app
+    .matcher
+    .match_path(path)
+    .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
+  let plan = app
+    .resolver
+    .resolve(matched.entry, &matched.params)
+    .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
+  let title = compute_title(app, matched.entry, &matched.params).await;
+  let assembly = assemble(&app.runtime, &plan, &matched.params, &head_node(&title)).await?;
+  Ok(match mode {
+    RenderMode::Html => Box::pin(html_stream(assembly)),
+    RenderMode::Payload => Box::pin(wire_stream(assembly)),
+  })
+}
+
+pub async fn render(app: &AppCore, path: &str, mode: RenderMode) -> Result<String, AppError> {
+  let chunks: Vec<String> = respond(app, path, mode).await?.collect().await;
+  Ok(chunks.concat())
+}
+
+pub async fn call_action(app: &AppCore, id: &str, input: Value) -> Result<Value, ActionError> {
+  app.actions.dispatch(id, input).await
+}

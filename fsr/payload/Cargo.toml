@@ -1,0 +1,20 @@
+[package]
+name = "snapfire_fsr_payload"
+version = "0.1.0"
+description = "Payload encodings for Snapfire FSR: the JSON pair and the HTML serializer."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+serde_json = { version = "1", features = ["preserve_order"] }
+base64 = "0.22"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "encode"
+harness = false
