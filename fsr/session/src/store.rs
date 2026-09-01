@@ -10,6 +10,7 @@ use crate::SessionId;
 pub struct SessionRecord {
   pub data: ValueMap,
   pub identity: Option<Identity>,
+  pub tokens: ValueMap,
 }
 
 pub trait SessionStore: Send + Sync {

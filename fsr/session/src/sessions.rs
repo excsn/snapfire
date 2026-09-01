@@ -5,6 +5,7 @@ use snapfire_fsr_runtime::SessionCell;
 
 use crate::codec::{CookieCodec, HmacCodec};
 use crate::store::{SessionRecord, SessionStore};
+use crate::tokens::TokenCell;
 use crate::SessionId;
 
 pub struct SessionConfig {
@@ -20,10 +21,12 @@ impl Default for SessionConfig {
 }
 
 /// One request's session as the layer sees it. `cell` is what flows into
-/// `RequestCtx`; `fresh` means no valid cookie arrived.
+/// `RequestCtx`; `tokens` never does, which is the custody boundary from
+/// AUTH.md; `fresh` means no valid cookie arrived.
 pub struct Opened {
   pub id: SessionId,
   pub cell: SessionCell,
+  pub tokens: TokenCell,
   pub fresh: bool,
 }
 
@@ -55,12 +58,13 @@ impl Sessions {
         return Opened {
           id,
           cell: SessionCell::new(record.data, record.identity),
+          tokens: TokenCell::new(record.tokens),
           fresh: false,
         };
       }
-      return Opened { id, cell: SessionCell::default(), fresh: false };
+      return Opened { id, cell: SessionCell::default(), tokens: TokenCell::default(), fresh: false };
     }
-    Opened { id: SessionId::generate(), cell: SessionCell::default(), fresh: true }
+    Opened { id: SessionId::generate(), cell: SessionCell::default(), tokens: TokenCell::default(), fresh: true }
   }
 
   fn set_cookie(&self, id: &SessionId) -> String {
@@ -78,11 +82,12 @@ impl Sessions {
   /// needs. A fresh session that stored nothing sets no cookie, so crawlers
   /// never mint sessions.
   pub async fn persist(&self, opened: &Opened) -> Option<String> {
-    if !opened.cell.is_dirty() {
+    if !opened.cell.is_dirty() && !opened.tokens.is_dirty() {
       return None;
     }
     let (data, identity) = opened.cell.snapshot();
-    self.store.save(&opened.id, SessionRecord { data, identity }).await;
+    let tokens = opened.tokens.snapshot();
+    self.store.save(&opened.id, SessionRecord { data, identity, tokens }).await;
     opened.fresh.then(|| self.set_cookie(&opened.id))
   }
 

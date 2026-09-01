@@ -87,3 +87,40 @@ fn csrf_tokens_bind_to_the_session() {
   assert!(!layer.verify_csrf(&b, &token), "a token never validates for another session");
   assert!(!layer.verify_csrf(&a, "deadbeef"));
 }
+
+#[test]
+fn tokens_round_trip_but_never_reach_the_cell() {
+  let layer = sessions();
+
+  let opened = block_on(layer.open(None));
+  opened.tokens.set("access_token", Value::Str("secret-abc".into()));
+  let cookie = block_on(layer.persist(&opened)).expect("a token-only write persists and sets the cookie");
+
+  let header = cookie.split(';').next().unwrap().to_owned();
+  let back = block_on(layer.open(Some(&header)));
+  assert_eq!(back.tokens.get("access_token"), Some(Value::Str("secret-abc".into())));
+  assert_eq!(back.cell.get("access_token"), None, "custody: the cell cannot see tokens");
+
+  let ctx = snapfire_fsr_runtime::RequestCtx {
+    params: Default::default(),
+    session: back.cell.clone(),
+    csrf: None,
+  };
+  assert_eq!(ctx.session.get("access_token"), None, "loaders and actions cannot reach tokens");
+  let (data, _) = back.cell.snapshot();
+  assert!(data.is_empty());
+}
+
+#[test]
+fn destroy_forgets_tokens() {
+  let layer = sessions();
+  let opened = block_on(layer.open(None));
+  opened.tokens.set("refresh_token", Value::Str("secret-r".into()));
+  let cookie = block_on(layer.persist(&opened)).unwrap();
+  let header = cookie.split(';').next().unwrap().to_owned();
+
+  let back = block_on(layer.open(Some(&header)));
+  block_on(layer.destroy(&back));
+  let after = block_on(layer.open(Some(&header)));
+  assert_eq!(after.tokens.get("refresh_token"), None, "the record and its tokens are gone");
+}
