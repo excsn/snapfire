@@ -33,9 +33,15 @@ pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) 
     }
   });
 
-  sources.insert_fn("layout_loader", |_ctx| async {
+  sources.insert_fn("layout_loader", |ctx| async move {
+    let visits = match ctx.session.get("visits") {
+      Some(Value::Int(n)) => n + 1,
+      _ => 1,
+    };
+    ctx.session.insert("visits", Value::Int(visits));
     let mut data = ValueMap::new();
     data.insert("nav_label".to_owned(), Value::str("Snapfire FSR"));
+    data.insert("visits".to_owned(), Value::Int(visits));
     Ok(data)
   });
 

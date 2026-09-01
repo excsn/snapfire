@@ -6,15 +6,17 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use futures_util::StreamExt;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
+use snapfire_fsr_runtime::RequestCtx;
+use snapfire_fsr_session::Opened;
 
-use crate::render::{call_action, negotiate_encoding, respond, AppError, RenderMode};
+use crate::render::{call_action, negotiate_encoding, respond_with, AppError, RenderMode};
 use crate::AppCore;
 
 fn query_param<'q>(query: &'q str, key: &str) -> Option<&'q str> {
   query.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('='))
 }
 
-async fn handle_action(req: &HttpRequest, app: &AppCore, body: Bytes) -> HttpResponse {
+async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: Bytes) -> HttpResponse {
   let id = req.path().trim_start_matches("/_sf/action/");
   let is_form = req
     .headers()
@@ -27,6 +29,13 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, body: Bytes) -> HttpRes
     for (k, v) in form_urlencoded::parse(&body) {
       map.insert(k.into_owned(), Value::Str(v.into_owned()));
     }
+    let token = match map.shift_remove("_csrf") {
+      Some(Value::Str(token)) => token,
+      _ => String::new(),
+    };
+    if !app.sessions.verify_csrf(&opened.id, &token) {
+      return HttpResponse::Forbidden().body("csrf verification failed");
+    }
     Value::Map(map)
   } else {
     match serde_json::from_slice(&body)
@@ -38,7 +47,13 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, body: Bytes) -> HttpRes
     }
   };
 
-  match call_action(app, id, snapfire_fsr_runtime::RequestCtx::default(), input).await {
+  let ctx = RequestCtx {
+    params: Default::default(),
+    session: opened.cell.clone(),
+    csrf: None,
+  };
+
+  match call_action(app, id, ctx, input).await {
     Ok(_) if is_form => {
       let back = req
         .headers()
@@ -56,8 +71,25 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, body: Bytes) -> HttpRes
 }
 
 async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpResponse {
+  let cookie_header = req
+    .headers()
+    .get(header::COOKIE)
+    .and_then(|v| v.to_str().ok())
+    .map(str::to_owned);
+  let opened = app.sessions.open(cookie_header.as_deref()).await;
+
+  let mut response = route(&req, &app, &opened, body).await;
+  if let Some(set_cookie) = app.sessions.persist(&opened).await {
+    if let Ok(value) = header::HeaderValue::from_str(&set_cookie) {
+      response.headers_mut().append(header::SET_COOKIE, value);
+    }
+  }
+  response
+}
+
+async fn route(req: &HttpRequest, app: &AppCore, opened: &Opened, body: Bytes) -> HttpResponse {
   if req.path().starts_with("/_sf/action/") && req.method() == actix_web::http::Method::POST {
-    return handle_action(&req, &app, body).await;
+    return handle_action(req, app, opened, body).await;
   }
 
   let query = req.query_string();
@@ -73,7 +105,8 @@ async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpR
   }
 
   tracing::info!(target: "fsr::http", path = req.path(), payload = (mode == RenderMode::Payload), "request");
-  match respond(&app, req.path(), mode).await {
+  let csrf = app.sessions.csrf_token(&opened.id);
+  match respond_with(app, req.path(), mode, opened.cell.clone(), Some(csrf)).await {
     Ok(chunks) => {
       let content_type = match mode {
         RenderMode::Html => "text/html; charset=utf-8",
