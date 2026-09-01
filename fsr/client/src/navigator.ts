@@ -84,6 +84,30 @@ function apply(payload: Payload): void {
   scan(document);
 }
 
+/** Revalidation after a mutation: re-fetches the current route's payload and force-replaces the top-level child segments, so the layout's DOM survives while mutated content refreshes. */
+export async function refresh(): Promise<void> {
+  const bail = () => window.location.reload();
+  if (!current) return bail();
+  const search = window.location.search;
+  const res = await fetch(`${window.location.pathname}${search}${search ? "&" : "?"}__payload`);
+  if (!res.ok) return bail();
+  const payload = parsePayload(await res.text());
+  if (!payload.segments) return bail();
+  const oldChildren = current.c.filter((c) => c.s === undefined);
+  const newChildren = payload.segments.c.filter((c) => c.s === undefined);
+  if (oldChildren.length !== newChildren.length) return bail();
+  for (let i = 0; i < newChildren.length; i++) {
+    const region = findRegion(oldChildren[i].k);
+    if (!region) return bail();
+    replaceRegion(region, renderSegment(subtreeAt(payload.tree, newChildren[i].p ?? []), newChildren[i], ids));
+  }
+  current = payload.segments;
+  for (const r of payload.resolutions) {
+    fillSlot(r.slot, r.node);
+  }
+  scan(document);
+}
+
 export async function navigate(href: string, push = true): Promise<void> {
   const url = new URL(href, window.location.href);
   const fetchUrl = `${url.pathname}${url.search}${url.search ? "&" : "?"}__payload`;
