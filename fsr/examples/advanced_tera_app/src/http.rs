@@ -9,7 +9,7 @@ use snapfire_fsr_payload::{json_to_value, value_to_json};
 use snapfire_fsr_runtime::RequestCtx;
 use snapfire_fsr_session::Opened;
 
-use crate::render::{call_action, negotiate_encoding, respond_with, AppError, RenderMode};
+use crate::render::{call_action, negotiate_encoding, respond_with, AppError, Incoming, RenderMode};
 use crate::AppCore;
 
 fn query_param<'q>(query: &'q str, key: &str) -> Option<&'q str> {
@@ -103,7 +103,7 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: 
     params: Default::default(),
     session: opened.cell.clone(),
     csrf: None,
-    services: Default::default(),
+    services: app.services.bind(opened.cell.identity(), Arc::new(opened.tokens.clone())),
   };
 
   match call_action(app, id, ctx, input).await {
@@ -169,7 +169,8 @@ async fn route(req: &HttpRequest, app: &AppCore, opened: &Opened, body: Bytes) -
 
   tracing::info!(target: "fsr::http", path = req.path(), payload = (mode == RenderMode::Payload), "request");
   let csrf = app.sessions.csrf_token(&opened.id);
-  match respond_with(app, req.path(), mode, opened.cell.clone(), Some(csrf)).await {
+  let incoming = Incoming::new(opened.cell.clone(), Some(csrf), Arc::new(opened.tokens.clone()));
+  match respond_with(app, req.path(), mode, incoming).await {
     Ok(chunks) => {
       let content_type = match mode {
         RenderMode::Html => "text/html; charset=utf-8",

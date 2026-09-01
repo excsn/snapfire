@@ -3,6 +3,7 @@ pub mod http;
 pub mod loaders;
 pub mod render;
 pub mod routes;
+pub mod services;
 pub mod state;
 
 use std::sync::Arc;
@@ -13,10 +14,11 @@ use snapfire_fsr_core::ModuleId;
 use snapfire_fsr_runtime::{
   ActionRegistry, DataSources, Evaluators, FibreCache, MatchitMatcher, Runtime, TableResolver,
 };
+use snapfire_fsr_service::Services;
 use snapfire_fsr_session::{MemorySessionStore, SessionConfig, Sessions};
 use snapfire_fsr_tera::TeraEvaluator;
 
-pub use render::{call_action, negotiate_encoding, render, respond, respond_with, AppError, RenderMode};
+pub use render::{call_action, negotiate_encoding, render, respond, respond_with, AppError, Incoming, RenderMode};
 
 pub struct AppCore {
   pub(crate) matcher: MatchitMatcher,
@@ -25,6 +27,7 @@ pub struct AppCore {
   pub(crate) actions: ActionRegistry,
   pub(crate) sessions: Sessions,
   pub(crate) auth: Auth,
+  pub(crate) services: Arc<Services>,
 }
 
 impl AppCore {
@@ -34,6 +37,10 @@ impl AppCore {
 
   pub fn auth(&self) -> &Auth {
     &self.auth
+  }
+
+  pub fn services(&self) -> &Arc<Services> {
+    &self.services
   }
 }
 
@@ -57,8 +64,10 @@ fn templates() -> tera::Tera {
 pub fn build_app(chart_delay: Duration) -> AppCore {
   let fleet = state::Fleet::seed();
 
+  let services = services::build(fleet.clone());
+
   let mut sources = DataSources::new();
-  loaders::register(&mut sources, fleet.clone(), chart_delay);
+  loaders::register(&mut sources, chart_delay);
 
   let mut evaluators = Evaluators::new();
   evaluators.register(
@@ -67,7 +76,7 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
   );
 
   let mut action_registry = ActionRegistry::new();
-  actions::register(&mut action_registry, fleet);
+  actions::register(&mut action_registry);
 
   let sessions = Sessions::new(
     Arc::new(MemorySessionStore::new(4096, Duration::from_secs(8 * 3600))),
@@ -90,5 +99,6 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
     actions: action_registry,
     sessions,
     auth,
+    services,
   }
 }
