@@ -6,6 +6,7 @@ members = [
   "fsr/core",
   "fsr/auth",
   "fsr/examples/advanced_tera_app",
+  "fsr/examples/shopping_react_ts",
   "fsr/payload",
   "fsr/runtime",
   "fsr/service",
