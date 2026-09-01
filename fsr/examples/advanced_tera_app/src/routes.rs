@@ -41,11 +41,15 @@ fn layout_over(content: PlanNode) -> PlanNode {
 }
 
 fn index_plan() -> PlanNode {
-  layout_over(PlanNode::new(NodeId(4), ModuleId::new("index.tera", "default")))
+  let mut page = PlanNode::new(NodeId(4), ModuleId::new("index.tera", "default"));
+  page.data_source = Some(DataSourceId("chrome_loader".into()));
+  layout_over(page)
 }
 
 fn login_plan() -> PlanNode {
-  layout_over(PlanNode::new(NodeId(3), ModuleId::new("login.tera", "default")))
+  let mut page = PlanNode::new(NodeId(3), ModuleId::new("login.tera", "default"));
+  page.data_source = Some(DataSourceId("chrome_loader".into()));
+  layout_over(page)
 }
 
 fn dash_plan() -> PlanNode {
