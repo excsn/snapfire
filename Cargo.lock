@@ -230,6 +230,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "advanced_tera_app"
+version = "0.1.0"
+dependencies = [
+ "actix-files",
+ "actix-web",
+ "fibre_logging",
+ "form_urlencoded",
+ "futures",
+ "futures-util",
+ "parking_lot",
+ "serde_json",
+ "snapfire_fsr_core",
+ "snapfire_fsr_payload",
+ "snapfire_fsr_runtime",
+ "snapfire_fsr_session",
+ "snapfire_fsr_tera",
+ "tera",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4289,28 +4311,6 @@ dependencies = [
  "pulldown-cmark-escape",
  "serde",
  "walkdir",
-]
-
-[[package]]
-name = "tera_app"
-version = "0.1.0"
-dependencies = [
- "actix-files",
- "actix-web",
- "fibre_logging",
- "form_urlencoded",
- "futures",
- "futures-util",
- "parking_lot",
- "serde_json",
- "snapfire_fsr_core",
- "snapfire_fsr_payload",
- "snapfire_fsr_runtime",
- "snapfire_fsr_session",
- "snapfire_fsr_tera",
- "tera",
- "thiserror 2.0.20",
- "tracing",
 ]
 
 [[package]]

@@ -3,7 +3,7 @@ use std::time::Duration;
 use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{ActionErrorKind, RequestCtx};
-use tera_app::{build_app, call_action, negotiate_encoding, render, AppError, RenderMode};
+use advanced_tera_app::{build_app, call_action, negotiate_encoding, render, AppError, RenderMode};
 
 fn input(pairs: &[(&str, Value)]) -> Value {
   let mut map = ValueMap::new();

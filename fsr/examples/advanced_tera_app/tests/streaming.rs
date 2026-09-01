@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use futures_util::StreamExt;
-use tera_app::{build_app, respond, RenderMode};
+use advanced_tera_app::{build_app, respond, RenderMode};
 
 fn chunks(path: &str, mode: RenderMode) -> Vec<String> {
   let app = build_app(Duration::ZERO);
