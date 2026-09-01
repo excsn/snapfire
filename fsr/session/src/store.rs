@@ -25,13 +25,34 @@ pub struct MemorySessionStore {
 
 impl MemorySessionStore {
   pub fn new(capacity: u64, ttl: Duration) -> Self {
-    let cache = fibre_cache::CacheBuilder::default()
-      .capacity(capacity)
-      .time_to_idle(ttl)
-      .build()
-      .expect("session cache build");
+    Self::with_cache(idle_cache(capacity, ttl, None))
+  }
+
+  /// `shards` is rounded up to the next power of two by `fibre_cache`, whose
+  /// own default is derived from the CPU count. Capacity is accounted across
+  /// all shards, so this trades lock contention against the fixed per-shard
+  /// policy and timer structures, never against usable capacity.
+  pub fn sharded(capacity: u64, ttl: Duration, shards: usize) -> Self {
+    Self::with_cache(idle_cache(capacity, ttl, Some(shards)))
+  }
+
+  /// The escape hatch, for an eviction listener, a hasher or a timer preset
+  /// the constructors above do not reach.
+  pub fn with_cache(cache: fibre_cache::Cache<String, SessionRecord>) -> Self {
     Self { cache }
   }
+}
+
+fn idle_cache(
+  capacity: u64,
+  ttl: Duration,
+  shards: Option<usize>,
+) -> fibre_cache::Cache<String, SessionRecord> {
+  let mut builder = fibre_cache::CacheBuilder::default().capacity(capacity).time_to_idle(ttl);
+  if let Some(shards) = shards {
+    builder = builder.shards(shards);
+  }
+  builder.build().expect("session cache build")
 }
 
 impl SessionStore for MemorySessionStore {

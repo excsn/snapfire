@@ -5,7 +5,7 @@ use futures::executor::block_on;
 use snapfire_fsr_core::Value;
 use snapfire_fsr_runtime::Identity;
 use snapfire_fsr_session::{
-  CookieCodec, HmacCodec, MemorySessionStore, SessionConfig, SessionId, Sessions,
+  CookieCodec, HmacCodec, MemorySessionStore, SessionConfig, SessionId, SessionStore, Sessions,
 };
 
 const KEY: &[u8] = b"test-signing-key-32-bytes-long!!";
@@ -122,4 +122,38 @@ fn destroy_forgets_tokens() {
   block_on(layer.destroy(&back));
   let after = block_on(layer.open(Some(&header)));
   assert_eq!(after.tokens.get("refresh_token"), None, "the record and its tokens are gone");
+}
+
+#[test]
+fn a_store_can_be_tuned_or_supplied_whole() {
+  let supplied = MemorySessionStore::with_cache(
+    fibre_cache::CacheBuilder::default()
+      .capacity(32)
+      .time_to_idle(Duration::from_secs(60))
+      .shards(2)
+      .build()
+      .unwrap(),
+  );
+
+  for store in [MemorySessionStore::sharded(32, Duration::from_secs(60), 4), supplied] {
+    let layer = Sessions::new(Arc::new(store), KEY, SessionConfig::default());
+    let opened = block_on(layer.open(None));
+    opened.cell.insert("visits", Value::int(1i64));
+    let cookie = block_on(layer.persist(&opened)).unwrap();
+
+    let header = cookie.split(';').next().unwrap().to_owned();
+    let back = block_on(layer.open(Some(&header)));
+    assert_eq!(back.cell.get("visits"), Some(Value::Int(1)));
+  }
+}
+
+#[test]
+fn capacity_is_accounted_across_shards_not_divided_by_them() {
+  let store = MemorySessionStore::new(64, Duration::from_secs(60));
+  let ids: Vec<SessionId> = (0..64).map(|_| SessionId::generate()).collect();
+  for id in &ids {
+    block_on(store.save(id, Default::default()));
+  }
+  let resident = ids.iter().filter(|id| block_on(store.load(id)).is_some()).count();
+  assert_eq!(resident, 64, "a small store under the default shard count keeps everything");
 }
