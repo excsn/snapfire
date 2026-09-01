@@ -1,0 +1,19 @@
+[package]
+name = "snapfire_fsr_auth"
+version = "0.1.0"
+description = "Auth for Snapfire FSR: the IdentityProvider seam, flow state and the dev provider."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_runtime = { path = "../runtime" }
+snapfire_fsr_session = { path = "../session" }
+form_urlencoded = "1"
+futures-util = "0.3"
+rand = "0.8"
+
+[dev-dependencies]
+futures = "0.3"
