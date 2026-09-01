@@ -2,10 +2,10 @@ use snapfire_fsr::AppBuilder;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{LoadError, RequestCtx};
 
-use crate::server::services::SHOPPING;
+use crate::server::clients::shopping;
 
 async fn call(ctx: &RequestCtx, method: &str, args: ValueMap, source: &str) -> Result<Value, LoadError> {
-  ctx.services.call(SHOPPING, method, args).await.map_err(|e| LoadError {
+  ctx.services.call(shopping::NAME, method, args).await.map_err(|e| LoadError {
     source_id: source.to_owned(),
     message: e.message,
   })

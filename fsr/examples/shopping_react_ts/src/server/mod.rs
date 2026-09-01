@@ -1,7 +1,7 @@
 pub mod loaders;
 pub mod render;
 pub mod routes;
-pub mod services;
+pub mod clients;
 pub mod shell;
 
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub struct AppCore {
 }
 
 pub fn build_app(backend_url: &str) -> AppCore {
-  build_app_over(services::build(backend_url))
+  build_app_over(clients::build(backend_url))
 }
 
 /// The seam the tests use: the same application over a transport that answers
