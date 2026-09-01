@@ -7,13 +7,21 @@ use advanced_tera_app::{build_app, respond_with, RenderMode};
 fn render_with(app: &advanced_tera_app::AppCore, opened: &snapfire_fsr_session::Opened) -> String {
   let csrf = app.sessions().csrf_token(&opened.id);
   block_on(async {
-    let chunks: Vec<String> = respond_with(app, "/dash/servers", RenderMode::Html, opened.cell.clone(), Some(csrf))
+    let chunks: Vec<String> = respond_with(app, "/dash/servers", RenderMode::Html, incoming(opened, csrf))
       .await
       .unwrap()
       .collect()
       .await;
     chunks.concat()
   })
+}
+
+fn incoming(opened: &snapfire_fsr_session::Opened, csrf: String) -> advanced_tera_app::Incoming {
+  advanced_tera_app::Incoming::new(
+    opened.cell.clone(),
+    Some(csrf),
+    std::sync::Arc::new(opened.tokens.clone()),
+  )
 }
 
 #[test]

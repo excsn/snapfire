@@ -12,6 +12,7 @@ snapfire_fsr_auth = { path = "../../auth" }
 snapfire_fsr_core = { path = "../../core" }
 snapfire_fsr_payload = { path = "../../payload" }
 snapfire_fsr_runtime = { path = "../../runtime" }
+snapfire_fsr_service = { path = "../../service" }
 snapfire_fsr_session = { path = "../../session" }
 snapfire_fsr_tera = { path = "../../tera" }
 actix-web = "4"

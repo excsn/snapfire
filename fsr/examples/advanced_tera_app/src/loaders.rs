@@ -1,16 +1,7 @@
 use std::time::Duration;
 
 use snapfire_fsr_core::{TypedArray, Value, ValueMap};
-use snapfire_fsr_runtime::DataSources;
-
-use crate::state::Fleet;
-
-fn server(name: &str, load: f64) -> Value {
-  let mut map = ValueMap::new();
-  map.insert("name".to_owned(), Value::str(name));
-  map.insert("load".to_owned(), Value::F64(load));
-  Value::Map(map)
-}
+use snapfire_fsr_runtime::{DataSources, LoadError};
 
 fn series(points: Vec<f64>) -> Value {
   let mut map = ValueMap::new();
@@ -18,19 +9,27 @@ fn series(points: Vec<f64>) -> Value {
   Value::Map(map)
 }
 
-pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) {
-  let meta_fleet = fleet.clone();
-  sources.insert_fn("meta_loader", move |ctx| {
-    let fleet = meta_fleet.clone();
-    async move {
-      let section = ctx.params.get("section").cloned().unwrap_or_default();
-      let mut data = ValueMap::new();
-      data.insert(
-        "title".to_owned(),
-        Value::Str(format!("{section} ({} servers) - Snapfire FSR", fleet.list().len())),
-      );
-      Ok(data)
-    }
+async fn fetch_servers(
+  ctx: &snapfire_fsr_runtime::RequestCtx,
+) -> Result<Value, snapfire_fsr_runtime::ServiceError> {
+  let mut args = ValueMap::new();
+  args.insert(
+    "section".to_owned(),
+    Value::Str(ctx.params.get("section").cloned().unwrap_or_default()),
+  );
+  ctx.services.call(crate::services::FLEET, "list", args).await
+}
+
+pub fn register(sources: &mut DataSources, chart_delay: Duration) {
+  sources.insert_fn("meta_loader", move |ctx| async move {
+    let section = ctx.params.get("section").cloned().unwrap_or_default();
+    let count = match ctx.services.call(crate::services::FLEET, "count", ValueMap::new()).await {
+      Ok(Value::Int(count)) => count,
+      _ => 0,
+    };
+    let mut data = ValueMap::new();
+    data.insert("title".to_owned(), Value::Str(format!("{section} ({count} servers) - Snapfire FSR")));
+    Ok(data)
   });
 
   sources.insert_fn("layout_loader", |ctx| async move {
@@ -45,21 +44,15 @@ pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) 
     Ok(data)
   });
 
-  sources.insert_fn("servers_loader", move |ctx| {
-    let fleet = fleet.clone();
-    async move {
-      if ctx.params.get("section").map(String::as_str) == Some("down") {
-        return Err(snapfire_fsr_runtime::LoadError {
-          source_id: "servers_loader".into(),
-          message: "the servers backend is unreachable".into(),
-        });
-      }
-      let mut data = ValueMap::new();
-      let servers = fleet.list().iter().map(|(name, load)| server(name, *load)).collect();
-      data.insert("servers".to_owned(), Value::Seq(servers));
-      data.insert("chart".to_owned(), series(vec![12.0, 15.5, 9.25]));
-      Ok(data)
-    }
+  sources.insert_fn("servers_loader", move |ctx| async move {
+    let servers = fetch_servers(&ctx).await.map_err(|e| LoadError {
+      source_id: "servers_loader".into(),
+      message: e.message,
+    })?;
+    let mut data = ValueMap::new();
+    data.insert("servers".to_owned(), servers);
+    data.insert("chart".to_owned(), series(vec![12.0, 15.5, 9.25]));
+    Ok(data)
   });
 
   sources.insert_fn("slow_chart_loader", move |_ctx| async move {

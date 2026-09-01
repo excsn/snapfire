@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
 use snapfire_fsr_core::{Node, Value};
@@ -5,6 +7,7 @@ use snapfire_fsr_runtime::{
   assemble, html_stream, wire_stream, ActionError, AssembleError, Matcher, RequestCtx, Resolver,
   SessionCell,
 };
+use snapfire_fsr_service::{Credentials, NoCredentials};
 
 use crate::AppCore;
 
@@ -58,14 +61,34 @@ async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, ctx:
   }
 }
 
+/// What the HTTP edge knows before a route is matched. `credentials` is the
+/// request's token custody, which the service layer reads and application code
+/// cannot.
+pub struct Incoming {
+  pub session: SessionCell,
+  pub csrf: Option<String>,
+  pub credentials: Arc<dyn Credentials>,
+}
+
+impl Default for Incoming {
+  fn default() -> Self {
+    Self { session: SessionCell::default(), csrf: None, credentials: Arc::new(NoCredentials) }
+  }
+}
+
+impl Incoming {
+  pub fn new(session: SessionCell, csrf: Option<String>, credentials: Arc<dyn Credentials>) -> Self {
+    Self { session, csrf, credentials }
+  }
+}
+
 /// The response as a stream of chunks: one chunk for a fully-eager page, more
 /// as deferred slots resolve.
 pub async fn respond_with(
   app: &AppCore,
   path: &str,
   mode: RenderMode,
-  session: SessionCell,
-  csrf: Option<String>,
+  incoming: Incoming,
 ) -> Result<BoxStream<'static, String>, AppError> {
   let matched = app
     .matcher
@@ -75,7 +98,13 @@ pub async fn respond_with(
     .resolver
     .resolve(matched.entry, &matched.params)
     .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
-  let ctx = RequestCtx { params: matched.params, session, csrf, services: Default::default() };
+  let services = app.services.bind(incoming.session.identity(), incoming.credentials);
+  let ctx = RequestCtx {
+    params: matched.params,
+    session: incoming.session,
+    csrf: incoming.csrf,
+    services,
+  };
   let title = compute_title(app, matched.entry, &ctx).await;
   let assembly = assemble(&app.runtime, &plan, &ctx, &head_node(&title)).await?;
   Ok(match mode {
@@ -89,7 +118,7 @@ pub async fn respond(
   path: &str,
   mode: RenderMode,
 ) -> Result<BoxStream<'static, String>, AppError> {
-  respond_with(app, path, mode, SessionCell::default(), None).await
+  respond_with(app, path, mode, Incoming::default()).await
 }
 
 pub async fn render(app: &AppCore, path: &str, mode: RenderMode) -> Result<String, AppError> {

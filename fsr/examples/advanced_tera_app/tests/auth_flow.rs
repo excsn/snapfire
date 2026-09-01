@@ -9,7 +9,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 fn render_at(app: &advanced_tera_app::AppCore, opened: &snapfire_fsr_session::Opened, path: &str) -> String {
   let csrf = app.sessions().csrf_token(&opened.id);
   block_on(async {
-    let chunks: Vec<String> = respond_with(app, path, RenderMode::Html, opened.cell.clone(), Some(csrf))
+    let chunks: Vec<String> = respond_with(app, path, RenderMode::Html, incoming(opened, csrf))
       .await
       .unwrap()
       .collect()
@@ -23,6 +23,14 @@ fn creds(user: &str, password: &str) -> ValueMap {
   params.insert("user".to_owned(), Value::Str(user.to_owned()));
   params.insert("password".to_owned(), Value::Str(password.to_owned()));
   params
+}
+
+fn incoming(opened: &snapfire_fsr_session::Opened, csrf: String) -> advanced_tera_app::Incoming {
+  advanced_tera_app::Incoming::new(
+    opened.cell.clone(),
+    Some(csrf),
+    std::sync::Arc::new(opened.tokens.clone()),
+  )
 }
 
 #[test]
