@@ -3785,11 +3785,16 @@ name = "snapfire_fsr_service"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "futures-util",
  "indexmap",
+ "parking_lot",
  "serde",
  "serde_json",
  "snapfire_fsr_core",
+ "snapfire_fsr_runtime",
+ "snapfire_fsr_session",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

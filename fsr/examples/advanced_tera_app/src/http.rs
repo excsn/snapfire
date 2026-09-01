@@ -103,6 +103,7 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: 
     params: Default::default(),
     session: opened.cell.clone(),
     csrf: None,
+    services: Default::default(),
   };
 
   match call_action(app, id, ctx, input).await {

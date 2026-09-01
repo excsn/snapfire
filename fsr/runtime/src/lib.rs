@@ -7,9 +7,10 @@ pub mod evaluator;
 pub mod matcher;
 pub mod resolver;
 pub mod segments;
+pub mod services;
 pub mod stream;
 
-pub use actions::{ActionError, ActionErrorKind, ActionHandler, ActionRegistry};
+pub use actions::{ActionError, ActionHandler, ActionRegistry, FailureKind};
 pub use assembler::{
   assemble, Assembly, AssembleError, Evaluators, PendingResolution, Resolved, Runtime,
   RuntimeBuilder,
@@ -21,4 +22,5 @@ pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use matcher::{EntryId, Matcher, MatchitMatcher, RouteMatch};
 pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
+pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use stream::{html_stream, segments_to_json, wire_stream, FILL_SCRIPT};
