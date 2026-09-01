@@ -16,6 +16,61 @@ fn query_param<'q>(query: &'q str, key: &str) -> Option<&'q str> {
   query.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('='))
 }
 
+fn form_params(body: &Bytes) -> ValueMap {
+  let mut map = ValueMap::new();
+  for (k, v) in form_urlencoded::parse(body) {
+    map.insert(k.into_owned(), Value::Str(v.into_owned()));
+  }
+  map
+}
+
+fn see_other(location: &str) -> HttpResponse {
+  HttpResponse::SeeOther().insert_header((header::LOCATION, location.to_owned())).finish()
+}
+
+async fn handle_login(req: &HttpRequest, app: &AppCore, opened: &Opened) -> HttpResponse {
+  let return_to: String = form_urlencoded::parse(req.query_string().as_bytes())
+    .find_map(|(k, v)| (k == "return_to").then(|| v.into_owned()))
+    .or_else(|| {
+      req
+        .headers()
+        .get(header::REFERER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
+    })
+    .unwrap_or_else(|| "/".to_owned());
+  let redirect = app.auth.login(opened, &return_to).await;
+  see_other(&redirect)
+}
+
+async fn handle_callback(app: &AppCore, opened: &Opened, body: Bytes) -> HttpResponse {
+  match app.auth.callback(opened, form_params(&body)).await {
+    Ok(destination) => see_other(&destination),
+    Err(e) => HttpResponse::build(
+      actix_web::http::StatusCode::from_u16(e.http_status()).unwrap(),
+    )
+    .body(e.to_string()),
+  }
+}
+
+async fn handle_logout(app: &AppCore, opened: &Opened, body: Bytes) -> HttpResponse {
+  let mut params = form_params(&body);
+  let token = match params.shift_remove("_csrf") {
+    Some(Value::Str(token)) => token,
+    _ => String::new(),
+  };
+  if !app.sessions.verify_csrf(&opened.id, &token) {
+    return HttpResponse::Forbidden().body("csrf verification failed");
+  }
+  app.auth.logout(opened);
+  let expire = app.sessions.destroy(opened).await;
+  let mut response = see_other("/");
+  if let Ok(value) = header::HeaderValue::from_str(&expire) {
+    response.headers_mut().append(header::SET_COOKIE, value);
+  }
+  response
+}
+
 async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: Bytes) -> HttpResponse {
   let id = req.path().trim_start_matches("/_sf/action/");
   let is_form = req
@@ -25,10 +80,7 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: 
     .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
 
   let input = if is_form {
-    let mut map = ValueMap::new();
-    for (k, v) in form_urlencoded::parse(&body) {
-      map.insert(k.into_owned(), Value::Str(v.into_owned()));
-    }
+    let mut map = form_params(&body);
     let token = match map.shift_remove("_csrf") {
       Some(Value::Str(token)) => token,
       _ => String::new(),
@@ -78,6 +130,10 @@ async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpR
     .map(str::to_owned);
   let opened = app.sessions.open(cookie_header.as_deref()).await;
 
+  if req.path() == "/auth/logout" && req.method() == actix_web::http::Method::POST {
+    return handle_logout(&app, &opened, body).await;
+  }
+
   let mut response = route(&req, &app, &opened, body).await;
   if let Some(set_cookie) = app.sessions.persist(&opened).await {
     if let Ok(value) = header::HeaderValue::from_str(&set_cookie) {
@@ -90,6 +146,12 @@ async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpR
 async fn route(req: &HttpRequest, app: &AppCore, opened: &Opened, body: Bytes) -> HttpResponse {
   if req.path().starts_with("/_sf/action/") && req.method() == actix_web::http::Method::POST {
     return handle_action(req, app, opened, body).await;
+  }
+  if req.path() == "/auth/login" {
+    return handle_login(req, app, opened).await;
+  }
+  if req.path() == "/auth/callback" && req.method() == actix_web::http::Method::POST {
+    return handle_callback(app, opened, body).await;
   }
 
   let query = req.query_string();

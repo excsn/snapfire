@@ -8,6 +8,7 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
+snapfire_fsr_auth = { path = "../../auth" }
 snapfire_fsr_core = { path = "../../core" }
 snapfire_fsr_payload = { path = "../../payload" }
 snapfire_fsr_runtime = { path = "../../runtime" }
