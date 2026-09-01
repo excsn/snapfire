@@ -30,14 +30,18 @@ function findRegion(key: string): Region | null {
   return null;
 }
 
-function replaceRegion(region: Region, html: string): void {
+/** Fails when the region's parent cannot hold the replacement. The root segment's delimiters are children of the document, which admits no text nodes. Inserting before deleting keeps a refusal from emptying the page. */
+function replaceRegion(region: Region, html: string): boolean {
+  const parent = region.start.parentNode;
+  if (!(parent instanceof Element)) return false;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  parent.insertBefore(template.content, region.start);
   const range = document.createRange();
   range.setStartBefore(region.start);
   range.setEndAfter(region.end);
   range.deleteContents();
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  range.insertNode(template.content);
+  return true;
 }
 
 function fillSlot(slot: number, node: SfNode): void {
@@ -49,39 +53,31 @@ function fillSlot(slot: number, node: SfNode): void {
 }
 
 /** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. Slot-addressed children resolve through S rows instead. */
-function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode): void {
-  if (oldSeg.k !== newSeg.k) {
+function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode): boolean {
+  const swap = () => {
     const region = findRegion(oldSeg.k);
-    if (!region) {
-      window.location.reload();
-      return;
-    }
-    replaceRegion(region, renderSegment(newNode, newSeg, ids));
-    return;
-  }
+    return region ? replaceRegion(region, renderSegment(newNode, newSeg, ids)) : false;
+  };
+  if (oldSeg.k !== newSeg.k) return swap();
   const oldChildren = oldSeg.c.filter((c) => c.s === undefined);
   const newChildren = newSeg.c.filter((c) => c.s === undefined);
-  if (oldChildren.length !== newChildren.length) {
-    const region = findRegion(oldSeg.k);
-    if (region) replaceRegion(region, renderSegment(newNode, newSeg, ids));
-    return;
-  }
+  if (oldChildren.length !== newChildren.length) return swap();
   for (let i = 0; i < newChildren.length; i++) {
-    diff(oldChildren[i], newChildren[i], subtreeAt(newNode, newChildren[i].p ?? []));
+    if (!diff(oldChildren[i], newChildren[i], subtreeAt(newNode, newChildren[i].p ?? []))) return false;
   }
+  return true;
 }
 
-function apply(payload: Payload): void {
-  if (!current || !payload.segments) {
-    window.location.reload();
-    return;
-  }
-  diff(current, payload.segments, payload.tree);
+/** False when the payload could not be patched in place, which leaves the caller to fall back to a full load. */
+function apply(payload: Payload): boolean {
+  if (!current || !payload.segments) return false;
+  if (!diff(current, payload.segments, payload.tree)) return false;
   current = payload.segments;
   for (const r of payload.resolutions) {
     fillSlot(r.slot, r.node);
   }
   scan(document);
+  return true;
 }
 
 /** Revalidation after a mutation: re-fetches the current route's payload and force-replaces the top-level child segments, so the layout's DOM survives while mutated content refreshes. */
@@ -99,7 +95,9 @@ export async function refresh(): Promise<void> {
   for (let i = 0; i < newChildren.length; i++) {
     const region = findRegion(oldChildren[i].k);
     if (!region) return bail();
-    replaceRegion(region, renderSegment(subtreeAt(payload.tree, newChildren[i].p ?? []), newChildren[i], ids));
+    if (!replaceRegion(region, renderSegment(subtreeAt(payload.tree, newChildren[i].p ?? []), newChildren[i], ids))) {
+      return bail();
+    }
   }
   current = payload.segments;
   for (const r of payload.resolutions) {
@@ -116,7 +114,16 @@ export async function navigate(href: string, push = true): Promise<void> {
     window.location.assign(href);
     return;
   }
-  apply(parsePayload(await res.text()));
+  let patched = false;
+  try {
+    patched = apply(parsePayload(await res.text()));
+  } catch {
+    patched = false;
+  }
+  if (!patched) {
+    window.location.assign(href);
+    return;
+  }
   if (push) history.pushState(null, "", href);
   window.scrollTo(0, 0);
 }
@@ -132,7 +139,7 @@ export function enableNavigation(): void {
       return;
     }
     const anchor = (event.target as Element).closest?.("a[href]");
-    if (!anchor) return;
+    if (!anchor || anchor.hasAttribute("data-sf-native")) return;
     const href = anchor.getAttribute("href") ?? "";
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
