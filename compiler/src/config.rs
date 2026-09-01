@@ -19,6 +19,52 @@ pub struct CompilerOptions {
   pub inline_source_map: Option<bool>,
   pub inline_sources: Option<bool>,
   pub declaration: Option<bool>,
+  pub jsx: Option<String>,
+  pub jsx_import_source: Option<String>,
+}
+
+/// How JSX is lowered. `Preserve` writes the markup through untouched, which is
+/// only useful as input to another tool.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Jsx {
+  Preserve,
+  Automatic { import_source: String, development: bool },
+}
+
+impl Jsx {
+  /// tsc's `jsx` key, restricted to what snapfirec emits. The classic runtime
+  /// is rejected rather than silently preserved, since its output needs a
+  /// `React` binding this compiler does not inject.
+  pub fn resolve(options: &CompilerOptions) -> Result<Self> {
+    let import_source = || {
+      options
+        .jsx_import_source
+        .clone()
+        .unwrap_or_else(|| "react".to_owned())
+    };
+
+    match options.jsx.as_deref() {
+      None | Some("preserve") => Ok(Jsx::Preserve),
+      Some("react-jsx") => Ok(Jsx::Automatic { import_source: import_source(), development: false }),
+      Some("react-jsxdev") => Ok(Jsx::Automatic { import_source: import_source(), development: true }),
+      Some(mode @ ("react" | "react-native")) => bail!(
+        "'jsx': {:?} is not supported. snapfirec lowers JSX through the automatic runtime only: set 'jsx' to \"react-jsx\".",
+        mode
+      ),
+      Some(mode) => bail!("'jsx': {:?} is not a recognised mode.", mode),
+    }
+  }
+
+  /// The module the runtime is imported from, which an import map has to name.
+  pub fn runtime_specifier(&self) -> Option<String> {
+    match self {
+      Jsx::Preserve => None,
+      Jsx::Automatic { import_source, development } => Some(format!(
+        "{import_source}/jsx-{}runtime",
+        if *development { "dev-" } else { "" }
+      )),
+    }
+  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -60,6 +60,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Debug the emitted code | `--source-map`, or `sourceMap` in `tsconfig.json` |
 | Ship smaller files | `--minify`, which adds a `.min` graph beside the readable one |
 | Ship types with the library | `--declaration`, or `declaration` in `tsconfig.json` |
+| Turn JSX into calls a browser runs | `"jsx": "react-jsx"` in `tsconfig.json` |
 | Get fonts and images into `dist` | `--copy-assets` |
 | Know which packages the page must supply | The `Externals:` line the build prints |
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |

@@ -52,6 +52,7 @@ features = [
   "ecma_parser",
   "ecma_codegen",
   "ecma_visit",
+  "ecma_transforms_react",
   "ecma_transforms_typescript"
 ]
 

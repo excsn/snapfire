@@ -1,4 +1,4 @@
-use crate::config::{MapMode, MapOptions};
+use crate::config::{Jsx, MapMode, MapOptions};
 use crate::transforms::{Import, ImportRewriter, StripConsole};
 use anyhow::{Context, Result, anyhow};
 use lightningcss::rules::CssRule;
@@ -8,13 +8,15 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use swc_core::common::source_map::SourceMapGenConfig;
+use swc_core::common::comments::SingleThreadedComments;
 use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap, Spanned, sync::Lrc};
 use swc_core::ecma::{
   ast::{Decl, EsVersion, ExportSpecifier, ModuleDecl, ModuleItem, ObjectPatProp, Pat, Program},
   codegen::{Config as CodegenConfig, Emitter, text_writer::JsWriter},
   parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, error::Error as ParserError, lexer::Lexer},
   transforms::base::{fixer::fixer, hygiene::hygiene, resolver},
-  transforms::typescript::strip,
+  transforms::react::{Options as ReactOptions, Runtime as ReactRuntime, react},
+  transforms::typescript::{strip, tsx},
   visit::fold_pass,
 };
 
@@ -184,11 +186,12 @@ impl MapRequest<'_> {
 
 pub struct Compiler {
   targets: Option<Browsers>,
+  jsx: Jsx,
 }
 
 impl Compiler {
-  pub fn new(targets: Option<Browsers>) -> Self {
-    Self { targets }
+  pub fn new(targets: Option<Browsers>, jsx: Jsx) -> Self {
+    Self { targets, jsx }
   }
 
   pub fn compile_script(
@@ -211,6 +214,7 @@ impl Compiler {
 
     GLOBALS.set(&globals, || {
       let fm = cm.new_source_file(Lrc::new(FileName::Real(path.to_path_buf())), content);
+      let comments = SingleThreadedComments::default();
 
       let is_ts = dialect == Dialect::TypeScript;
       let markup = markup == Markup::Allowed;
@@ -253,9 +257,42 @@ impl Compiler {
       let unresolved_mark = Mark::new();
       let top_level_mark = Mark::new();
 
+      let program = program.apply(&mut resolver(unresolved_mark, top_level_mark, is_ts));
+
+      // TSX stripping tracks JSX identifier usage, so an import referenced only
+      // by an element name survives. Plain `strip` would drop it.
+      let program = match (is_ts, markup) {
+        (true, true) => program.apply(&mut tsx(
+          cm.clone(),
+          Default::default(),
+          Default::default(),
+          &comments,
+          unresolved_mark,
+          top_level_mark,
+        )),
+        (true, false) => program.apply(&mut strip(unresolved_mark, top_level_mark)),
+        (false, _) => program,
+      };
+
+      // Before the rewriter, so the runtime import it injects is resolved and
+      // checked like any other bare specifier.
+      let program = match (&self.jsx, markup) {
+        (Jsx::Automatic { import_source, development }, true) => program.apply(&mut react(
+          cm.clone(),
+          Some(&comments),
+          ReactOptions {
+            runtime: Some(ReactRuntime::Automatic),
+            import_source: Some(import_source.as_str().into()),
+            development: Some(*development),
+            ..Default::default()
+          },
+          top_level_mark,
+          unresolved_mark,
+        )),
+        _ => program,
+      };
+
       let mut passes = (
-        resolver(unresolved_mark, top_level_mark, is_ts),
-        strip(unresolved_mark, top_level_mark),
         fold_pass(StripConsole { strip_log, strip_debug }),
         fold_pass(ImportRewriter::new(
           path,
