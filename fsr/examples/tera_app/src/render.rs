@@ -2,7 +2,8 @@ use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
 use snapfire_fsr_core::{Node, Value};
 use snapfire_fsr_runtime::{
-  assemble, html_stream, wire_stream, ActionError, AssembleError, Matcher, Resolver,
+  assemble, html_stream, wire_stream, ActionError, AssembleError, Matcher, RequestCtx, Resolver,
+  SessionCell,
 };
 
 use crate::AppCore;
@@ -44,11 +45,11 @@ fn head_node(title: &str) -> Node {
   Node::raw(head)
 }
 
-async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, params: &snapfire_fsr_core::Params) -> String {
+async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, ctx: &RequestCtx) -> String {
   let fallback = "Snapfire FSR".to_owned();
   let Some(source_id) = crate::routes::metadata_source(entry) else { return fallback };
   let Some(source) = app.runtime.sources.get(&source_id) else { return fallback };
-  match source.load(params).await {
+  match source.load(ctx).await {
     Ok(data) => match data.get("title") {
       Some(Value::Str(title)) => title.clone(),
       _ => fallback,
@@ -59,10 +60,12 @@ async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, para
 
 /// The response as a stream of chunks: one chunk for a fully-eager page, more
 /// as deferred slots resolve.
-pub async fn respond(
+pub async fn respond_with(
   app: &AppCore,
   path: &str,
   mode: RenderMode,
+  session: SessionCell,
+  csrf: Option<String>,
 ) -> Result<BoxStream<'static, String>, AppError> {
   let matched = app
     .matcher
@@ -72,12 +75,21 @@ pub async fn respond(
     .resolver
     .resolve(matched.entry, &matched.params)
     .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
-  let title = compute_title(app, matched.entry, &matched.params).await;
-  let assembly = assemble(&app.runtime, &plan, &matched.params, &head_node(&title)).await?;
+  let ctx = RequestCtx { params: matched.params, session, csrf };
+  let title = compute_title(app, matched.entry, &ctx).await;
+  let assembly = assemble(&app.runtime, &plan, &ctx, &head_node(&title)).await?;
   Ok(match mode {
     RenderMode::Html => Box::pin(html_stream(assembly)),
     RenderMode::Payload => Box::pin(wire_stream(assembly)),
   })
+}
+
+pub async fn respond(
+  app: &AppCore,
+  path: &str,
+  mode: RenderMode,
+) -> Result<BoxStream<'static, String>, AppError> {
+  respond_with(app, path, mode, SessionCell::default(), None).await
 }
 
 pub async fn render(app: &AppCore, path: &str, mode: RenderMode) -> Result<String, AppError> {
@@ -85,6 +97,6 @@ pub async fn render(app: &AppCore, path: &str, mode: RenderMode) -> Result<Strin
   Ok(chunks.concat())
 }
 
-pub async fn call_action(app: &AppCore, id: &str, input: Value) -> Result<Value, ActionError> {
-  app.actions.dispatch(id, input).await
+pub async fn call_action(app: &AppCore, id: &str, ctx: RequestCtx, input: Value) -> Result<Value, ActionError> {
+  app.actions.dispatch(id, ctx, input).await
 }

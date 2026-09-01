@@ -9,6 +9,7 @@ use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, SlotId, Value, V
 use snapfire_fsr_core::Fingerprint;
 
 use crate::cache::{CacheEntry, NoCache, NodeCache};
+use crate::ctx::RequestCtx;
 use crate::data::{DataSources, LoadError};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
@@ -187,7 +188,7 @@ fn params_value(params: &Params) -> Value {
 
 struct Session {
   runtime: Arc<Runtime>,
-  params: Params,
+  ctx: RequestCtx,
   head: Node,
   next_slot: AtomicU32,
 }
@@ -240,10 +241,10 @@ impl Session {
       let node_id = *node_id;
       let source = self.runtime.sources.get(source_id);
       let source_name = source_id.0.clone();
-      let params = &self.params;
+      let ctx = &self.ctx;
       async move {
         let source = source.ok_or(AssembleError::MissingDataSource(source_name))?;
-        Ok::<_, AssembleError>((node_id, source.load(params).await))
+        Ok::<_, AssembleError>((node_id, source.load(ctx).await))
       }
     });
 
@@ -267,7 +268,7 @@ impl Session {
   async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
     let Some(module) = &node.error else { return Ok(error_node(&failure.to_string())) };
     let mut props = ValueMap::new();
-    props.insert("params".to_owned(), params_value(&self.params));
+    self.inject_ctx_props(&mut props);
     props.insert("error".to_owned(), Value::Str(failure.to_string()));
     let chunks: Vec<Chunk> = self
       .runtime
@@ -289,7 +290,7 @@ impl Session {
   async fn fallback_node(&self, child: &PlanNode) -> Result<Node, AssembleError> {
     let Some(module) = &child.fallback else { return Ok(Node::raw("")) };
     let mut props = ValueMap::new();
-    props.insert("params".to_owned(), params_value(&self.params));
+    self.inject_ctx_props(&mut props);
     let chunks: Vec<Chunk> = self
       .runtime
       .evaluators
@@ -336,14 +337,26 @@ impl Session {
       return None;
     }
     let data = &loaded.data;
-    let mut pairs: Vec<String> = self.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut pairs: Vec<String> = self.ctx.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
+    let subject = self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned());
     Some(format!(
-      "{}|{}|{:016x}",
+      "{}|{}|ident={}|{:016x}",
       plan_key.0,
       pairs.join("&"),
+      subject,
       subtree_data_fingerprint(node, data)
     ))
+  }
+
+  fn inject_ctx_props(&self, props: &mut Data) {
+    props.insert("params".to_owned(), params_value(&self.ctx.params));
+    if let Some(identity) = self.ctx.identity_value() {
+      props.insert("identity".to_owned(), identity);
+    }
+    if let Some(csrf) = &self.ctx.csrf {
+      props.insert("csrf_token".to_owned(), Value::Str(csrf.clone()));
+    }
   }
 
   fn build<'a>(
@@ -367,7 +380,7 @@ impl Session {
       }
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
-      props.insert("params".to_owned(), params_value(&self.params));
+      self.inject_ctx_props(&mut props);
 
       let chunks: Vec<Chunk> = self
         .runtime
@@ -394,7 +407,7 @@ impl Session {
               .find(|(name, _)| *name == slot)
               .map(|(_, child)| child)
               .ok_or_else(|| AssembleError::MissingSlot { node: node.id.0, slot: slot.0.clone() })?;
-            let key = self.runtime.keyer.key(child, &self.params);
+            let key = self.runtime.keyer.key(child, &self.ctx.params);
             if child.deferred {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
               let fallback = self.fallback_node(child).await?;
@@ -443,18 +456,18 @@ impl Session {
 pub async fn assemble(
   runtime: &Arc<Runtime>,
   plan: &PlanNode,
-  params: &Params,
+  ctx: &RequestCtx,
   head: &Node,
 ) -> Result<Assembly, AssembleError> {
   let session = Arc::new(Session {
     runtime: Arc::clone(runtime),
-    params: params.clone(),
+    ctx: ctx.clone(),
     head: head.clone(),
     next_slot: AtomicU32::new(1),
   });
   let (tree, pending, children) = session.resolve_subtree(plan).await?;
   let segments = SegmentInfo {
-    key: runtime.keyer.key(plan, params),
+    key: runtime.keyer.key(plan, &ctx.params),
     path: Vec::new(),
     slot: None,
     children,

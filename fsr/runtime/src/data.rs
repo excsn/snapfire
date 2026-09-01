@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use indexmap::IndexMap;
-use snapfire_fsr_core::{Data, DataSourceId, Params};
+use snapfire_fsr_core::{Data, DataSourceId};
+
+use crate::ctx::RequestCtx;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("data source {source_id}: {message}")]
@@ -13,18 +15,18 @@ pub struct LoadError {
 }
 
 pub trait DataSource: Send + Sync {
-  fn load(&self, params: &Params) -> BoxFuture<'static, Result<Data, LoadError>>;
+  fn load(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Data, LoadError>>;
 }
 
 struct FnSource<F>(F);
 
 impl<F, Fut> DataSource for FnSource<F>
 where
-  F: Fn(Params) -> Fut + Send + Sync,
+  F: Fn(RequestCtx) -> Fut + Send + Sync,
   Fut: Future<Output = Result<Data, LoadError>> + Send + 'static,
 {
-  fn load(&self, params: &Params) -> BoxFuture<'static, Result<Data, LoadError>> {
-    Box::pin((self.0)(params.clone()))
+  fn load(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Data, LoadError>> {
+    Box::pin((self.0)(ctx.clone()))
   }
 }
 
@@ -44,7 +46,7 @@ impl DataSources {
 
   pub fn insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)
   where
-    F: Fn(Params) -> Fut + Send + Sync + 'static,
+    F: Fn(RequestCtx) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Data, LoadError>> + Send + 'static,
   {
     self.insert(id, Arc::new(FnSource(f)));

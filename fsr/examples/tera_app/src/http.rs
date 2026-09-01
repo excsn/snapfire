@@ -38,7 +38,7 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, body: Bytes) -> HttpRes
     }
   };
 
-  match call_action(app, id, input).await {
+  match call_action(app, id, snapfire_fsr_runtime::RequestCtx::default(), input).await {
     Ok(_) if is_form => {
       let back = req
         .headers()
