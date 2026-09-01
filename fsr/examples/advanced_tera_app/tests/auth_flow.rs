@@ -46,6 +46,7 @@ fn the_login_journey_end_to_end() {
 
   let login_page = render_at(&app, &opened, "/login");
   assert!(login_page.contains("action=\"/auth/callback\""), "the login page is an ordinary route: {login_page}");
+  assert!(login_page.contains("alice"), "the login page names the dev accounts: {login_page}");
 
   let destination = block_on(app.auth().callback(&opened, creds("alice", "wonder"))).unwrap();
   assert_eq!(destination, "/dash/servers");

@@ -86,3 +86,18 @@ fn logout_forgets_identity_and_custody() {
   assert_eq!(opened.tokens.get("access_token"), None);
   assert!(opened.cell.is_dirty(), "logout persists as a write");
 }
+
+#[test]
+fn ensure_flow_seeds_only_when_none_is_in_progress() {
+  let auth = auth();
+  let opened = block_on(layer().open(None));
+
+  block_on(auth.ensure_flow(&opened, "/dash/servers"));
+  let destination = block_on(auth.callback(&opened, creds("alice", "wonder"))).unwrap();
+  assert_eq!(destination, "/dash/servers", "a page reached directly can still finish the flow");
+
+  begin(&auth, &opened, "/first");
+  block_on(auth.ensure_flow(&opened, "/second"));
+  let destination = block_on(auth.callback(&opened, creds("alice", "wonder"))).unwrap();
+  assert_eq!(destination, "/first", "an existing flow is left alone");
+}

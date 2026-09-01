@@ -4,6 +4,7 @@ use snapfire_fsr_runtime::{EntryId, MatchitMatcher, TableResolver};
 pub const DASH: EntryId = EntryId(0);
 pub const SLOW: EntryId = EntryId(1);
 pub const LOGIN: EntryId = EntryId(2);
+pub const INDEX: EntryId = EntryId(3);
 
 /// Metadata is data on the route: each entry names the source whose data the
 /// head is computed from, before rendering starts.
@@ -19,6 +20,7 @@ pub fn matcher() -> MatchitMatcher {
   matcher.insert("/dash/{section}", DASH).expect("route pattern");
   matcher.insert("/slow/{section}", SLOW).expect("route pattern");
   matcher.insert("/login", LOGIN).expect("route pattern");
+  matcher.insert("/", INDEX).expect("route pattern");
   matcher
 }
 
@@ -27,6 +29,7 @@ pub fn resolver() -> TableResolver {
   resolver.insert(DASH, dash_plan());
   resolver.insert(SLOW, slow_plan());
   resolver.insert(LOGIN, login_plan());
+  resolver.insert(INDEX, index_plan());
   resolver
 }
 
@@ -35,6 +38,10 @@ fn layout_over(content: PlanNode) -> PlanNode {
   layout.data_source = Some(DataSourceId("layout_loader".into()));
   layout.children.push((SlotName("content".into()), content));
   layout
+}
+
+fn index_plan() -> PlanNode {
+  layout_over(PlanNode::new(NodeId(4), ModuleId::new("index.tera", "default")))
 }
 
 fn login_plan() -> PlanNode {
