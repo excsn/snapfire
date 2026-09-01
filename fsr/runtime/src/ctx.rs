@@ -3,6 +3,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
 
+use crate::services::ServiceHandle;
+
 /// Who the request is, resolved by the session layer before anything loads.
 /// Application code reads it; it never sees a token.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,18 +78,20 @@ impl SessionCell {
 }
 
 /// Everything a loader or action may know about the request: matched params,
-/// the session and the CSRF token the page should embed. Serializable values
-/// only, per the boundary rules.
+/// the session, the CSRF token the page should embed and the bound service
+/// handle. Serializable values only, per the boundary rules, plus the handle,
+/// which is callable but carries nothing readable.
 #[derive(Clone, Default)]
 pub struct RequestCtx {
   pub params: Params,
   pub session: SessionCell,
   pub csrf: Option<String>,
+  pub services: ServiceHandle,
 }
 
 impl RequestCtx {
   pub fn anonymous(params: Params) -> Self {
-    Self { params, session: SessionCell::default(), csrf: None }
+    Self { params, session: SessionCell::default(), csrf: None, services: ServiceHandle::default() }
   }
 
   pub fn identity_value(&self) -> Option<Value> {

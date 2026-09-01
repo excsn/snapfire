@@ -10,7 +10,7 @@ use crate::ctx::RequestCtx;
 /// The failure shapes a UI has to render, so no application re-invents the
 /// mapping. Kinds correspond to HTTP statuses at the transport edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActionErrorKind {
+pub enum FailureKind {
   Unauthorized,
   NotFound,
   Invalid,
@@ -20,7 +20,7 @@ pub enum ActionErrorKind {
   Internal,
 }
 
-impl ActionErrorKind {
+impl FailureKind {
   pub fn as_str(&self) -> &'static str {
     match self {
       Self::Unauthorized => "unauthorized",
@@ -49,12 +49,12 @@ impl ActionErrorKind {
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("action failed ({}): {message}", kind.as_str())]
 pub struct ActionError {
-  pub kind: ActionErrorKind,
+  pub kind: FailureKind,
   pub message: String,
 }
 
 impl ActionError {
-  pub fn new(kind: ActionErrorKind, message: impl Into<String>) -> Self {
+  pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
     Self { kind, message: message.into() }
   }
 }
@@ -105,7 +105,7 @@ impl ActionRegistry {
       Some(handler) => handler.call(ctx, input),
       None => {
         let id = id.to_owned();
-        Box::pin(async move { Err(ActionError::new(ActionErrorKind::NotFound, format!("no action `{id}`"))) })
+        Box::pin(async move { Err(ActionError::new(FailureKind::NotFound, format!("no action `{id}`"))) })
       }
     }
   }

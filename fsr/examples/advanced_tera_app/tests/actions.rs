@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_runtime::{ActionErrorKind, RequestCtx};
+use snapfire_fsr_runtime::{FailureKind, RequestCtx};
 use advanced_tera_app::{build_app, call_action, negotiate_encoding, render, AppError, RenderMode};
 
 fn input(pairs: &[(&str, Value)]) -> Value {
@@ -54,10 +54,10 @@ fn action_failures_are_typed() {
   let app = build_app(Duration::ZERO);
 
   let missing = block_on(call_action(&app, "nope", RequestCtx::default(), Value::Map(ValueMap::new()))).unwrap_err();
-  assert_eq!(missing.kind, ActionErrorKind::NotFound);
+  assert_eq!(missing.kind, FailureKind::NotFound);
 
   let invalid = block_on(call_action(&app, "add_server", RequestCtx::default(), Value::Map(ValueMap::new()))).unwrap_err();
-  assert_eq!(invalid.kind, ActionErrorKind::Invalid);
+  assert_eq!(invalid.kind, FailureKind::Invalid);
 
   block_on(call_action(
     &app,
@@ -73,7 +73,7 @@ fn action_failures_are_typed() {
     input(&[("name", Value::str("dup")), ("load", Value::F64(0.2))]),
   ))
   .unwrap_err();
-  assert_eq!(conflict.kind, ActionErrorKind::Conflict);
+  assert_eq!(conflict.kind, FailureKind::Conflict);
 }
 
 #[test]

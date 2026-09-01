@@ -199,7 +199,7 @@ fn identity_is_part_of_the_key() {
   let user = |subject: &str| {
     let cell = SessionCell::default();
     cell.set_identity(Some(Identity { subject: subject.to_owned(), claims: ValueMap::new() }));
-    RequestCtx { params: Params::new(), session: cell, csrf: None }
+    RequestCtx { params: Params::new(), session: cell, ..Default::default() }
   };
 
   block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();

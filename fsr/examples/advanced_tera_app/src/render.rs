@@ -75,7 +75,7 @@ pub async fn respond_with(
     .resolver
     .resolve(matched.entry, &matched.params)
     .ok_or_else(|| AppError::NotFound(path.to_owned()))?;
-  let ctx = RequestCtx { params: matched.params, session, csrf };
+  let ctx = RequestCtx { params: matched.params, session, csrf, services: Default::default() };
   let title = compute_title(app, matched.entry, &ctx).await;
   let assembly = assemble(&app.runtime, &plan, &ctx, &head_node(&title)).await?;
   Ok(match mode {
