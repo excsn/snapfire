@@ -11,6 +11,11 @@ registerIsland("app/main.tsx#Product", {
   mount: reactMounter,
 });
 
+registerIsland("app/main.tsx#About", {
+  loader: () => import("./About.js").then((m) => m.default),
+  mount: reactMounter,
+});
+
 registerIsland("app/main.tsx#Failed", {
   loader: () => import("./Failed.js").then((m) => m.default),
   mount: reactMounter,

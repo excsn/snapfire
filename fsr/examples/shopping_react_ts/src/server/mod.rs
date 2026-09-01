@@ -33,6 +33,12 @@ pub fn build_app(backend_url: &str) -> AppCore {
 /// The seam the tests use: the same application over a transport that answers
 /// without a backend.
 pub fn build_app_over(services: Arc<Services>) -> AppCore {
+  let (matcher, resolver) = routes::Routes::from_manifest(routes::PLAN)
+    .expect("the plan file parses")
+    .add("/about", routes::about_plan())
+    .build()
+    .expect("the routes bind");
+
   let mut sources = DataSources::new();
   loaders::register(&mut sources);
 
@@ -41,8 +47,8 @@ pub fn build_app_over(services: Arc<Services>) -> AppCore {
   evaluators.register(|_: &ModuleId| true, Arc::new(NullEvaluator));
 
   AppCore {
-    matcher: routes::matcher(),
-    resolver: routes::resolver(),
+    matcher,
+    resolver,
     runtime: Runtime::builder()
       .sources(sources)
       .evaluators(evaluators)

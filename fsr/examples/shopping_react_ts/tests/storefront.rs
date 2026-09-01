@@ -92,3 +92,47 @@ fn an_unmatched_path_is_not_found() {
   let app = app_over(Arc::new(MockTransport::new()));
   assert!(block_on(render(&app, "/nope", RenderMode::Html)).is_err());
 }
+
+#[test]
+fn routes_come_from_the_plan_file_and_from_rust() {
+  let routes = shopping_react_ts::server::routes::Routes::from_manifest(
+    shopping_react_ts::server::routes::PLAN,
+  )
+  .unwrap()
+  .add("/about", shopping_react_ts::server::routes::about_plan());
+
+  assert_eq!(routes.patterns(), vec!["/", "/product/{id}", "/about"]);
+  assert!(routes.build().is_ok());
+}
+
+#[test]
+fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
+  use shopping_react_ts::server::routes::{about_plan, Routes, PLAN};
+
+  let clash = Routes::from_manifest(PLAN).unwrap().add("/", about_plan()).build();
+  let message = match clash {
+    Ok(_) => panic!("the plan file already claims /"),
+    Err(e) => e.to_string(),
+  };
+  assert!(message.contains("mark the Rust one as an override"), "{message}");
+
+  let deliberate = Routes::from_manifest(PLAN).unwrap().replace("/", about_plan()).build();
+  assert!(deliberate.is_ok(), "an override is allowed");
+  drop(deliberate);
+}
+
+#[test]
+fn the_plan_file_names_what_a_host_must_bind() {
+  let manifest = snapfire_fsr_plan::Manifest::from_json(shopping_react_ts::server::routes::PLAN).unwrap();
+  assert_eq!(manifest.sources(), vec!["catalog_loader", "product_loader"]);
+  assert!(manifest.modules().contains(&"app/main.tsx#Catalog".to_owned()));
+  assert!(manifest.modules().contains(&"app/main.tsx#Failed".to_owned()), "error modules count");
+}
+
+#[test]
+fn a_route_added_in_rust_renders_like_any_other() {
+  let app = app_over(Arc::new(MockTransport::new()));
+  let html = block_on(render(&app, "/about", RenderMode::Html)).unwrap();
+  assert!(html.contains("app/main.tsx#About"));
+  assert!(html.contains("<!doctype html>"));
+}

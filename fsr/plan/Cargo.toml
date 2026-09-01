@@ -1,0 +1,14 @@
+[package]
+name = "snapfire_fsr_plan"
+version = "0.1.0"
+description = "The plan file for Snapfire FSR: routes and their plans as a build artifact."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
