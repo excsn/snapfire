@@ -4,7 +4,7 @@ use snapfire_fsr_runtime::{ActionError, ActionErrorKind, ActionRegistry};
 use crate::state::Fleet;
 
 pub fn register(actions: &mut ActionRegistry, fleet: Fleet) {
-  actions.insert_fn("add_server", move |input| {
+  actions.insert_fn("add_server", move |_ctx, input| {
     let fleet = fleet.clone();
     async move {
       let Value::Map(fields) = input else {

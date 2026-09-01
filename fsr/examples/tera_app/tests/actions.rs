@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_runtime::ActionErrorKind;
+use snapfire_fsr_runtime::{ActionErrorKind, RequestCtx};
 use tera_app::{build_app, call_action, negotiate_encoding, render, AppError, RenderMode};
 
 fn input(pairs: &[(&str, Value)]) -> Value {
@@ -23,6 +23,7 @@ fn the_write_loop_closes() {
   let result = block_on(call_action(
     &app,
     "add_server",
+    RequestCtx::default(),
     input(&[("name", Value::str("web-3")), ("load", Value::F64(0.12))]),
   ))
   .unwrap();
@@ -40,6 +41,7 @@ fn form_shaped_string_input_coerces() {
   block_on(call_action(
     &app,
     "add_server",
+    RequestCtx::default(),
     input(&[("name", Value::str("web-9")), ("load", Value::str("0.5"))]),
   ))
   .unwrap();
@@ -51,21 +53,23 @@ fn form_shaped_string_input_coerces() {
 fn action_failures_are_typed() {
   let app = build_app(Duration::ZERO);
 
-  let missing = block_on(call_action(&app, "nope", Value::Map(ValueMap::new()))).unwrap_err();
+  let missing = block_on(call_action(&app, "nope", RequestCtx::default(), Value::Map(ValueMap::new()))).unwrap_err();
   assert_eq!(missing.kind, ActionErrorKind::NotFound);
 
-  let invalid = block_on(call_action(&app, "add_server", Value::Map(ValueMap::new()))).unwrap_err();
+  let invalid = block_on(call_action(&app, "add_server", RequestCtx::default(), Value::Map(ValueMap::new()))).unwrap_err();
   assert_eq!(invalid.kind, ActionErrorKind::Invalid);
 
   block_on(call_action(
     &app,
     "add_server",
+    RequestCtx::default(),
     input(&[("name", Value::str("dup")), ("load", Value::F64(0.1))]),
   ))
   .unwrap();
   let conflict = block_on(call_action(
     &app,
     "add_server",
+    RequestCtx::default(),
     input(&[("name", Value::str("dup")), ("load", Value::F64(0.2))]),
   ))
   .unwrap_err();

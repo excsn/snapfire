@@ -14,7 +14,7 @@ use snapfire_fsr_runtime::{
 };
 use snapfire_fsr_tera::TeraEvaluator;
 
-pub use render::{call_action, negotiate_encoding, render, respond, AppError, RenderMode};
+pub use render::{call_action, negotiate_encoding, render, respond, respond_with, AppError, RenderMode};
 
 pub struct AppCore {
   pub(crate) matcher: MatchitMatcher,

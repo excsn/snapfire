@@ -7,6 +7,7 @@ use snapfire_fsr_core::{
   Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap,
 };
 use snapfire_fsr_runtime::{
+  RequestCtx,
   assemble, html_stream, wire_stream, Chunk, DataSources, Evaluator, Evaluators, NodeChunks,
   Runtime,
 };
@@ -85,7 +86,7 @@ fn a_deferred_slot_streams_its_resolution_row() {
     sources,
   );
 
-  let assembly = block_on(assemble(&runtime, &plan, &Params::new(), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   assert_eq!(assembly.pending.len(), 1);
 
   let rows = collect(wire_stream(assembly));
@@ -118,7 +119,7 @@ fn nested_deferral_introduces_new_slots_from_a_resolution() {
     DataSources::new(),
   );
 
-  let assembly = block_on(assemble(&runtime, &plan, &Params::new(), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   let rows = collect(wire_stream(assembly));
 
   assert_eq!(rows.len(), 3, "tree, outer resolution, inner resolution: {rows:?}");
@@ -147,7 +148,7 @@ fn a_failed_deferred_loader_resolves_to_its_error_node() {
     sources,
   );
 
-  let assembly = block_on(assemble(&runtime, &plan, &Params::new(), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   let rows = collect(wire_stream(assembly));
   assert_eq!(rows.len(), 2);
   assert!(rows[1].contains("data-sf-error"), "segment error node, not a dead response: {}", rows[1]);
@@ -195,7 +196,7 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
     DataSources::new(),
   );
 
-  let assembly = block_on(assemble(&runtime, &plan, &Params::new(), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   let chunks = collect(html_stream(assembly));
 
   assert_eq!(chunks.len(), 2);

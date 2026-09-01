@@ -6,6 +6,7 @@ use snapfire_fsr_core::{
   Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap,
 };
 use snapfire_fsr_runtime::{
+  RequestCtx,
   assemble, AssembleError, Chunk, DataSources, Evaluator, Evaluators, NodeChunks, Runtime,
 };
 
@@ -44,7 +45,7 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
   let head = Node::raw("<title>t</title>");
   let runtime = shell_runtime(DataSources::new());
 
-  let assembly = block_on(assemble(&runtime, &plan, &Params::new(), &head)).unwrap();
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &head)).unwrap();
   assert!(assembly.pending.is_empty());
 
   let Node::Seq(parts) = assembly.tree else { panic!("shell output is a Seq") };
@@ -63,7 +64,7 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
 fn a_slot_with_no_child_is_an_error() {
   let plan = shell_plan(Vec::new());
   let runtime = shell_runtime(DataSources::new());
-  let err = block_on(assemble(&runtime, &plan, &Params::new(), &Node::raw(""))).unwrap_err();
+  let err = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap_err();
   assert!(matches!(err, AssembleError::MissingSlot { slot, .. } if slot == "content"));
 }
 
@@ -72,7 +73,7 @@ fn a_missing_data_source_is_an_error() {
   let mut plan = shell_plan(Vec::new());
   plan.data_source = Some(DataSourceId("nowhere".into()));
   let runtime = shell_runtime(DataSources::new());
-  let err = block_on(assemble(&runtime, &plan, &Params::new(), &Node::raw(""))).unwrap_err();
+  let err = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap_err();
   assert!(matches!(err, AssembleError::MissingDataSource(id) if id == "nowhere"));
 }
 
@@ -109,6 +110,6 @@ fn loader_data_reaches_props_and_params_ride_along() {
   let mut params = Params::new();
   params.insert("section".to_owned(), "servers".to_owned());
 
-  let assembly = block_on(assemble(&runtime, &plan, &params, &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(params), &Node::raw(""))).unwrap();
   assert_eq!(assembly.tree, Node::text("hello servers"));
 }

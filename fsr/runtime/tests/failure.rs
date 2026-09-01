@@ -8,6 +8,7 @@ use snapfire_fsr_core::{
   ValueMap,
 };
 use snapfire_fsr_runtime::{
+  RequestCtx,
   assemble, AssembleError, Chunk, DataSources, Evaluator, Evaluators, LoadError, MemoryCache,
   NodeChunks, Runtime,
 };
@@ -78,7 +79,7 @@ fn failing_sources() -> DataSources {
 #[test]
 fn an_eager_loader_failure_degrades_one_segment_never_the_page() {
   let rt = Runtime::new(failing_sources(), evaluators());
-  let assembly = block_on(assemble(&rt, &plan_with_page(false), &Params::new(), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&rt, &plan_with_page(false), &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
 
   let Node::Seq(parts) = &assembly.tree else { panic!() };
   assert_eq!(parts[0], Node::raw("<layout>"), "the layout still renders");
@@ -91,7 +92,7 @@ fn an_eager_loader_failure_degrades_one_segment_never_the_page() {
 #[test]
 fn the_plan_error_module_renders_with_the_failure_message() {
   let rt = Runtime::new(failing_sources(), evaluators());
-  let assembly = block_on(assemble(&rt, &plan_with_page(true), &Params::new(), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(&rt, &plan_with_page(true), &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   let Node::Seq(parts) = &assembly.tree else { panic!() };
   let rendered = format!("{:?}", parts[1]);
   assert!(rendered.contains("<oops>"), "custom error partial rendered: {rendered}");
@@ -101,7 +102,7 @@ fn the_plan_error_module_renders_with_the_failure_message() {
 #[test]
 fn a_missing_data_source_stays_a_hard_error() {
   let rt = Runtime::new(DataSources::new(), evaluators());
-  let err = block_on(assemble(&rt, &plan_with_page(false), &Params::new(), &Node::raw(""))).unwrap_err();
+  let err = block_on(assemble(&rt, &plan_with_page(false), &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap_err();
   assert!(matches!(err, AssembleError::MissingDataSource(_)), "misconfiguration is not a runtime degrade");
 }
 
@@ -132,11 +133,11 @@ fn a_failed_subtree_is_never_cached() {
     .cache(Arc::new(MemoryCache::new()))
     .build();
 
-  let broken = block_on(assemble(&rt, &plan, &Params::new(), &Node::raw(""))).unwrap();
+  let broken = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   assert!(format!("{:?}", broken.tree).contains("data-sf-error"));
 
   healthy.store(true, Ordering::Relaxed);
-  let recovered = block_on(assemble(&rt, &plan, &Params::new(), &Node::raw(""))).unwrap();
+  let recovered = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
   assert!(
     format!("{:?}", recovered.tree).contains("recovered"),
     "no poisoned cache entry survives the failure: {:?}",

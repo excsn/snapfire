@@ -5,6 +5,8 @@ use futures_util::future::BoxFuture;
 use indexmap::IndexMap;
 use snapfire_fsr_core::Value;
 
+use crate::ctx::RequestCtx;
+
 /// The failure shapes a UI has to render, so no application re-invents the
 /// mapping. Kinds correspond to HTTP statuses at the transport edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,18 +60,18 @@ impl ActionError {
 }
 
 pub trait ActionHandler: Send + Sync {
-  fn call(&self, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>;
+  fn call(&self, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>;
 }
 
 struct FnHandler<F>(F);
 
 impl<F, Fut> ActionHandler for FnHandler<F>
 where
-  F: Fn(Value) -> Fut + Send + Sync,
+  F: Fn(RequestCtx, Value) -> Fut + Send + Sync,
   Fut: Future<Output = Result<Value, ActionError>> + Send + 'static,
 {
-  fn call(&self, input: Value) -> BoxFuture<'static, Result<Value, ActionError>> {
-    Box::pin((self.0)(input))
+  fn call(&self, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>> {
+    Box::pin((self.0)(ctx, input))
   }
 }
 
@@ -91,16 +93,16 @@ impl ActionRegistry {
 
   pub fn insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)
   where
-    F: Fn(Value) -> Fut + Send + Sync + 'static,
+    F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Value, ActionError>> + Send + 'static,
   {
     self.insert(id, Arc::new(FnHandler(f)));
   }
 
-  pub fn dispatch(&self, id: &str, input: Value) -> BoxFuture<'static, Result<Value, ActionError>> {
+  pub fn dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>> {
     tracing::debug!(target: "fsr::action", id, "dispatch");
     match self.actions.get(id) {
-      Some(handler) => handler.call(input),
+      Some(handler) => handler.call(ctx, input),
       None => {
         let id = id.to_owned();
         Box::pin(async move { Err(ActionError::new(ActionErrorKind::NotFound, format!("no action `{id}`"))) })

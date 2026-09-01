@@ -20,10 +20,10 @@ fn series(points: Vec<f64>) -> Value {
 
 pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) {
   let meta_fleet = fleet.clone();
-  sources.insert_fn("meta_loader", move |params| {
+  sources.insert_fn("meta_loader", move |ctx| {
     let fleet = meta_fleet.clone();
     async move {
-      let section = params.get("section").cloned().unwrap_or_default();
+      let section = ctx.params.get("section").cloned().unwrap_or_default();
       let mut data = ValueMap::new();
       data.insert(
         "title".to_owned(),
@@ -33,16 +33,16 @@ pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) 
     }
   });
 
-  sources.insert_fn("layout_loader", |_params| async {
+  sources.insert_fn("layout_loader", |_ctx| async {
     let mut data = ValueMap::new();
     data.insert("nav_label".to_owned(), Value::str("Snapfire FSR"));
     Ok(data)
   });
 
-  sources.insert_fn("servers_loader", move |params| {
+  sources.insert_fn("servers_loader", move |ctx| {
     let fleet = fleet.clone();
     async move {
-      if params.get("section").map(String::as_str) == Some("down") {
+      if ctx.params.get("section").map(String::as_str) == Some("down") {
         return Err(snapfire_fsr_runtime::LoadError {
           source_id: "servers_loader".into(),
           message: "the servers backend is unreachable".into(),
@@ -56,7 +56,7 @@ pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) 
     }
   });
 
-  sources.insert_fn("slow_chart_loader", move |_params| async move {
+  sources.insert_fn("slow_chart_loader", move |_ctx| async move {
     if !chart_delay.is_zero() {
       actix_web::rt::time::sleep(chart_delay).await;
     }
