@@ -4,6 +4,7 @@ members = [
   "compiler",
   "examples/basic_site",
   "fsr/core",
+  "fsr/app",
   "fsr/auth",
   "fsr/examples/advanced_tera_app",
   "fsr/examples/shopping_react_ts",

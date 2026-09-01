@@ -10,10 +10,9 @@ use std::time::Duration;
 use actix_web::web::{Bytes, Data};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use futures_util::StreamExt;
+use snapfire_fsr::{App as FsrApp, Routes};
 use snapfire_fsr_core::ModuleId;
-use snapfire_fsr_runtime::{
-  DataSources, Evaluators, FibreCache, MatchitMatcher, NullEvaluator, Runtime, TableResolver,
-};
+use snapfire_fsr_runtime::{FibreCache, MatchitMatcher, NullEvaluator, Runtime, TableResolver};
 use snapfire_fsr_service::Services;
 
 pub use render::{render, respond_with, AppError, RenderMode};
@@ -24,6 +23,7 @@ pub struct AppCore {
   pub(crate) resolver: TableResolver,
   pub(crate) runtime: Arc<Runtime>,
   pub(crate) services: Arc<Services>,
+  pub report: snapfire_fsr::Report,
 }
 
 pub fn build_app(backend_url: &str) -> AppCore {
@@ -33,28 +33,21 @@ pub fn build_app(backend_url: &str) -> AppCore {
 /// The seam the tests use: the same application over a transport that answers
 /// without a backend.
 pub fn build_app_over(services: Arc<Services>) -> AppCore {
-  let (matcher, resolver) = routes::Routes::from_manifest(routes::PLAN)
-    .expect("the plan file parses")
-    .add("/about", routes::about_plan())
+  let routes = Routes::from_manifest(routes::PLAN).expect("the plan file parses");
+  let app = loaders::bind(FsrApp::builder(routes).route("/about", routes::about_plan()))
+    .evaluator(|m: &ModuleId| m.path == SHELL, Arc::new(ShellEvaluator))
+    .evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator))
+    .cache(Arc::new(FibreCache::bounded(512, Duration::from_secs(30))))
+    .services(services)
     .build()
-    .expect("the routes bind");
-
-  let mut sources = DataSources::new();
-  loaders::register(&mut sources);
-
-  let mut evaluators = Evaluators::new();
-  evaluators.register(|m: &ModuleId| m.path == SHELL, Arc::new(ShellEvaluator));
-  evaluators.register(|_: &ModuleId| true, Arc::new(NullEvaluator));
+    .expect("every name the plan file declares is bound");
 
   AppCore {
-    matcher,
-    resolver,
-    runtime: Runtime::builder()
-      .sources(sources)
-      .evaluators(evaluators)
-      .cache(Arc::new(FibreCache::bounded(512, Duration::from_secs(30))))
-      .build(),
-    services,
+    matcher: app.matcher,
+    resolver: app.resolver,
+    runtime: app.runtime,
+    services: app.services,
+    report: app.report,
   }
 }
 

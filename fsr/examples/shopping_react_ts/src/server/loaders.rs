@@ -1,5 +1,6 @@
+use snapfire_fsr::AppBuilder;
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_runtime::{DataSources, LoadError, RequestCtx};
+use snapfire_fsr_runtime::{LoadError, RequestCtx};
 
 use crate::server::services::SHOPPING;
 
@@ -10,20 +11,22 @@ async fn call(ctx: &RequestCtx, method: &str, args: ValueMap, source: &str) -> R
   })
 }
 
-pub fn register(sources: &mut DataSources) {
-  sources.insert_fn("catalog_loader", |ctx| async move {
+/// Every name the plan file declares, answered in Rust. A TypeScript loader
+/// would claim the same names.
+pub fn bind(builder: AppBuilder) -> AppBuilder {
+  builder
+    .source("catalog_loader", |ctx: RequestCtx| async move {
     let mut args = ValueMap::new();
     if let Some(tag) = ctx.params.get("tag") {
       args.insert("tag".to_owned(), Value::Str(tag.clone()));
     }
     let products = call(&ctx, "listProducts", args, "catalog_loader").await?;
 
-    let mut data = ValueMap::new();
-    data.insert("products".to_owned(), products);
-    Ok(data)
-  });
-
-  sources.insert_fn("product_loader", |ctx| async move {
+      let mut data = ValueMap::new();
+      data.insert("products".to_owned(), products);
+      Ok(data)
+    })
+    .source("product_loader", |ctx: RequestCtx| async move {
     let id = ctx
       .params
       .get("id")
@@ -37,8 +40,8 @@ pub fn register(sources: &mut DataSources) {
     args.insert("id".to_owned(), Value::int(id));
     let product = call(&ctx, "getProduct", args, "product_loader").await?;
 
-    let mut data = ValueMap::new();
-    data.insert("product".to_owned(), product);
-    Ok(data)
-  });
+      let mut data = ValueMap::new();
+      data.insert("product".to_owned(), product);
+      Ok(data)
+    })
 }

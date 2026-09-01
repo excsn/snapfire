@@ -95,11 +95,9 @@ fn an_unmatched_path_is_not_found() {
 
 #[test]
 fn routes_come_from_the_plan_file_and_from_rust() {
-  let routes = shopping_react_ts::server::routes::Routes::from_manifest(
-    shopping_react_ts::server::routes::PLAN,
-  )
-  .unwrap()
-  .add("/about", shopping_react_ts::server::routes::about_plan());
+  let routes = snapfire_fsr::Routes::from_manifest(shopping_react_ts::server::routes::PLAN)
+    .unwrap()
+    .add("/about", shopping_react_ts::server::routes::about_plan());
 
   assert_eq!(routes.patterns(), vec!["/", "/product/{id}", "/about"]);
   assert!(routes.build().is_ok());
@@ -107,7 +105,8 @@ fn routes_come_from_the_plan_file_and_from_rust() {
 
 #[test]
 fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
-  use shopping_react_ts::server::routes::{about_plan, Routes, PLAN};
+  use shopping_react_ts::server::routes::{about_plan, PLAN};
+  use snapfire_fsr::Routes;
 
   let clash = Routes::from_manifest(PLAN).unwrap().add("/", about_plan()).build();
   let message = match clash {
