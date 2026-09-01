@@ -38,6 +38,7 @@ fn dash_plan() -> PlanNode {
   let mut page = PlanNode::new(NodeId(1), ModuleId::new("page.tera", "default"));
   page.data_source = Some(DataSourceId("servers_loader".into()));
   page.cache_key = Some(CacheKey("dash_page".into()));
+  page.error = Some(ModuleId::new("error_section.tera", "default"));
   layout_over(page)
 }
 

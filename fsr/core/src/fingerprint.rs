@@ -230,6 +230,14 @@ impl Fingerprint for PlanNode {
         write_str(h, &m.export);
       }
     }
+    match &self.error {
+      None => h.update(&[0]),
+      Some(m) => {
+        h.update(&[1]);
+        write_str(h, &m.path);
+        write_str(h, &m.export);
+      }
+    }
     match &self.cache_key {
       None => h.update(&[0]),
       Some(k) => {

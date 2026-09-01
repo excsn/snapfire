@@ -39,9 +39,15 @@ pub fn register(sources: &mut DataSources, fleet: Fleet, chart_delay: Duration) 
     Ok(data)
   });
 
-  sources.insert_fn("servers_loader", move |_params| {
+  sources.insert_fn("servers_loader", move |params| {
     let fleet = fleet.clone();
     async move {
+      if params.get("section").map(String::as_str) == Some("down") {
+        return Err(snapfire_fsr_runtime::LoadError {
+          source_id: "servers_loader".into(),
+          message: "the servers backend is unreachable".into(),
+        });
+      }
       let mut data = ValueMap::new();
       let servers = fleet.list().iter().map(|(name, load)| server(name, *load)).collect();
       data.insert("servers".to_owned(), Value::Seq(servers));

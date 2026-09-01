@@ -161,12 +161,20 @@ impl std::fmt::Debug for Assembly {
   }
 }
 
-fn error_node(err: &AssembleError) -> Node {
+fn error_node(message: &str) -> Node {
   Node::Seq(vec![
     Node::raw("<div data-sf-error>"),
-    Node::text(err.to_string()),
+    Node::text(message.to_owned()),
     Node::raw("</div>"),
   ])
+}
+
+/// Everything the eager wave produced: resolved data per node and, separately,
+/// the loads that failed. A failure never aborts the wave; the segment it
+/// belongs to degrades to its error node instead.
+struct Loaded {
+  data: HashMap<u32, Data>,
+  failed: HashMap<u32, LoadError>,
 }
 
 fn params_value(params: &Params) -> Value {
@@ -204,6 +212,10 @@ fn has_deferred_descendant(node: &PlanNode) -> bool {
   node.children.iter().any(|(_, c)| c.deferred || has_deferred_descendant(c))
 }
 
+fn subtree_has_failure(node: &PlanNode, failed: &HashMap<u32, LoadError>) -> bool {
+  failed.contains_key(&node.id.0) || node.children.iter().any(|(_, c)| subtree_has_failure(c, failed))
+}
+
 fn subtree_data_fingerprint(node: &PlanNode, data: &HashMap<u32, Data>) -> u64 {
   fn walk(node: &PlanNode, data: &HashMap<u32, Data>, h: &mut xxhash_rust::xxh3::Xxh3) {
     h.update(&node.id.0.to_le_bytes());
@@ -220,7 +232,7 @@ fn subtree_data_fingerprint(node: &PlanNode, data: &HashMap<u32, Data>) -> u64 {
 }
 
 impl Session {
-  async fn load_eager(&self, plan: &PlanNode) -> Result<HashMap<u32, Data>, AssembleError> {
+  async fn load_eager(&self, plan: &PlanNode) -> Result<Loaded, AssembleError> {
     let mut wanted = Vec::new();
     collect_loads(plan, true, &mut wanted);
 
@@ -231,11 +243,47 @@ impl Session {
       let params = &self.params;
       async move {
         let source = source.ok_or(AssembleError::MissingDataSource(source_name))?;
-        let data = source.load(params).await?;
-        Ok::<_, AssembleError>((node_id, data))
+        Ok::<_, AssembleError>((node_id, source.load(params).await))
       }
     });
-    Ok(try_join_all(loads).await?.into_iter().collect())
+
+    let mut loaded = Loaded { data: HashMap::new(), failed: HashMap::new() };
+    for (node_id, result) in try_join_all(loads).await? {
+      match result {
+        Ok(data) => {
+          loaded.data.insert(node_id, data);
+        }
+        Err(e) => {
+          tracing::warn!(target: "fsr::load", node = node_id, error = %e, "segment loader failed");
+          loaded.failed.insert(node_id, e);
+        }
+      }
+    }
+    Ok(loaded)
+  }
+
+  /// The degraded rendering of a segment whose loader failed: the plan's error
+  /// module with params plus the message, or the built-in error node.
+  async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
+    let Some(module) = &node.error else { return Ok(error_node(&failure.to_string())) };
+    let mut props = ValueMap::new();
+    props.insert("params".to_owned(), params_value(&self.params));
+    props.insert("error".to_owned(), Value::Str(failure.to_string()));
+    let chunks: Vec<Chunk> = self
+      .runtime
+      .evaluators
+      .select(module)
+      .evaluate(module, &props)
+      .try_collect()
+      .await?;
+    let mut parts = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+      match chunk {
+        Chunk::Node(n) => parts.push(n),
+        Chunk::Slot(_) => return Err(AssembleError::SlotInFallback(module.to_string())),
+      }
+    }
+    Ok(if parts.len() == 1 { parts.pop().unwrap() } else { Node::Seq(parts) })
   }
 
   async fn fallback_node(&self, child: &PlanNode) -> Result<Node, AssembleError> {
@@ -266,7 +314,7 @@ impl Session {
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
           Ok((node, pending, _segments)) => Resolved { slot, node, pending },
-          Err(e) => Resolved { slot, node: error_node(&e), pending: Vec::new() },
+          Err(e) => Resolved { slot, node: error_node(&e.to_string()), pending: Vec::new() },
         }
       }),
     }
@@ -276,17 +324,18 @@ impl Session {
     self: &Arc<Self>,
     plan: &PlanNode,
   ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>), AssembleError> {
-    let data = self.load_eager(plan).await?;
+    let loaded = self.load_eager(plan).await?;
     let mut pending = Vec::new();
-    let (node, children, _used_head) = self.build(plan, &data, &mut pending).await?;
+    let (node, children, _used_head) = self.build(plan, &loaded, &mut pending).await?;
     Ok((node, pending, children))
   }
 
-  fn cache_key_for(&self, node: &PlanNode, data: &HashMap<u32, Data>) -> Option<String> {
+  fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded) -> Option<String> {
     let plan_key = node.cache_key.as_ref()?;
-    if has_deferred_descendant(node) {
+    if has_deferred_descendant(node) || subtree_has_failure(node, &loaded.failed) {
       return None;
     }
+    let data = &loaded.data;
     let mut pairs: Vec<String> = self.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
     Some(format!(
@@ -300,11 +349,15 @@ impl Session {
   fn build<'a>(
     self: &'a Arc<Self>,
     node: &'a PlanNode,
-    data: &'a HashMap<u32, Data>,
+    loaded: &'a Loaded,
     out_pending: &'a mut Vec<PendingResolution>,
   ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool), AssembleError>> {
     Box::pin(async move {
-      let cache_key = self.cache_key_for(node, data);
+      if let Some(failure) = loaded.failed.get(&node.id.0) {
+        return Ok((self.error_segment(node, failure).await?, Vec::new(), false));
+      }
+      let data = &loaded.data;
+      let cache_key = self.cache_key_for(node, loaded);
       if let Some(key) = &cache_key {
         if let Some(entry) = self.runtime.cache.get(key).await {
           tracing::debug!(target: "fsr::cache", key = %key, "hit");
@@ -350,7 +403,7 @@ impl Session {
               segments.push((usize::MAX, SegmentInfo { key, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new() }));
             } else {
               let (child_node, grandchildren, child_used_head) =
-                self.build(child, data, out_pending).await?;
+                self.build(child, loaded, out_pending).await?;
               used_head |= child_used_head;
               let idx = parts.len();
               parts.push(child_node);
