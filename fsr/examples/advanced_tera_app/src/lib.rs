@@ -8,6 +8,7 @@ pub mod state;
 use std::sync::Arc;
 use std::time::Duration;
 
+use snapfire_fsr_auth::{Auth, DevProvider};
 use snapfire_fsr_core::ModuleId;
 use snapfire_fsr_runtime::{
   ActionRegistry, DataSources, Evaluators, FibreCache, MatchitMatcher, Runtime, TableResolver,
@@ -23,11 +24,16 @@ pub struct AppCore {
   pub(crate) runtime: Arc<Runtime>,
   pub(crate) actions: ActionRegistry,
   pub(crate) sessions: Sessions,
+  pub(crate) auth: Auth,
 }
 
 impl AppCore {
   pub fn sessions(&self) -> &Sessions {
     &self.sessions
+  }
+
+  pub fn auth(&self) -> &Auth {
+    &self.auth
   }
 }
 
@@ -42,6 +48,7 @@ fn templates() -> tera::Tera {
       ("chart_section.tera", include_str!("../templates/chart_section.tera")),
       ("chart_loading.tera", include_str!("../templates/chart_loading.tera")),
       ("error_section.tera", include_str!("../templates/error_section.tera")),
+      ("login.tera", include_str!("../templates/login.tera")),
     ])
     .expect("templates parse");
   tera
@@ -68,6 +75,10 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
     SessionConfig::default(),
   );
 
+  let auth = Auth::new(Arc::new(
+    DevProvider::new("/login").user("alice", "wonder").user("bob", "builder"),
+  ));
+
   AppCore {
     matcher: routes::matcher(),
     resolver: routes::resolver(),
@@ -78,5 +89,6 @@ pub fn build_app(chart_delay: Duration) -> AppCore {
       .build(),
     actions: action_registry,
     sessions,
+    auth,
   }
 }
