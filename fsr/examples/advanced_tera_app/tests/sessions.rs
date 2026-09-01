@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use futures_util::StreamExt;
-use tera_app::{build_app, respond_with, RenderMode};
+use advanced_tera_app::{build_app, respond_with, RenderMode};
 
-fn render_with(app: &tera_app::AppCore, opened: &snapfire_fsr_session::Opened) -> String {
+fn render_with(app: &advanced_tera_app::AppCore, opened: &snapfire_fsr_session::Opened) -> String {
   let csrf = app.sessions().csrf_token(&opened.id);
   block_on(async {
     let chunks: Vec<String> = respond_with(app, "/dash/servers", RenderMode::Html, opened.cell.clone(), Some(csrf))
@@ -44,7 +44,7 @@ fn the_form_embeds_the_session_csrf_token() {
 #[test]
 fn anonymous_render_still_works_without_a_session_layer() {
   let app = build_app(Duration::ZERO);
-  let html = block_on(tera_app::render(&app, "/dash/servers", RenderMode::Html)).unwrap();
+  let html = block_on(advanced_tera_app::render(&app, "/dash/servers", RenderMode::Html)).unwrap();
   assert!(html.contains("visits 1"), "an anonymous cell still counts from one");
   assert!(html.contains("name=\"_csrf\" value=\"\""), "no token without a session layer, form still renders");
 }

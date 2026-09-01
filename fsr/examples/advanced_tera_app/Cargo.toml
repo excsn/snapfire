@@ -1,5 +1,5 @@
 [package]
-name = "tera_app"
+name = "advanced_tera_app"
 version = "0.1.0"
 publish = false
 

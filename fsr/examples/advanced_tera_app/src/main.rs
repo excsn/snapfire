@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tera_app::{build_app, http};
+use advanced_tera_app::{build_app, http};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -11,6 +11,6 @@ async fn main() -> std::io::Result<()> {
     .map_err(|e| eprintln!("logging disabled: {e}"))
     .ok();
   let app = Arc::new(build_app(Duration::from_millis(1500)));
-  println!("tera_app on http://127.0.0.1:8080/dash/servers and /slow/servers");
+  println!("advanced_tera_app on http://127.0.0.1:8080/dash/servers and /slow/servers");
   http::serve(app, ("127.0.0.1", 8080)).await
 }

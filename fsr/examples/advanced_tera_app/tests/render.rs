@@ -1,7 +1,7 @@
 use futures::executor::block_on;
 use std::time::Duration;
 
-use tera_app::{build_app, render, AppError, RenderMode};
+use advanced_tera_app::{build_app, render, AppError, RenderMode};
 
 #[test]
 fn html_serves_the_walked_page_shape() {
