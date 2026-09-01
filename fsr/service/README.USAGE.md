@@ -44,7 +44,7 @@ How to declare a contract, build the service registry, bind it to a request and 
 * **TypeDef** is a definition a `Named` reference resolves to, either a record with fields or a union with variants.
 * **Checking** is the strict comparison of a `Value` against a `Type` at a named position. Unknown record fields are errors, missing non-optional fields are errors and the error carries the path that failed.
 * **Services** is the per-process registry: one contract, one interceptor list, a transport per service and an optional default transport.
-* **ServiceHandle** is what application code holds. It exposes exactly one operation, `call(service, method, args)`, and comes from `snapfire_fsr_runtime`.
+* **ServiceHandle** is what application code holds. It exposes exactly one operation, `call(service, method, args)`. It comes from `snapfire_fsr_runtime`.
 * **Bind** turns the registry into a handle for one request by fixing that request's identity and credentials into it.
 * **Call** is one outbound invocation as it travels the chain: service, method, arguments, identity, metadata and credentials.
 * **Metadata** is the string-keyed side channel interceptors write and a transport interprets. The HTTP transport turns each string entry into a request header.
@@ -165,7 +165,7 @@ assert_eq!(e.describe(), "array<f64>");
 
 ### Records
 
-A record is an ordered list of named fields. Fields whose type is `Optional` may be absent from a value; every other field must be present, and a field the record does not declare is an error.
+A record is an ordered list of named fields. Fields whose type is `Optional` may be absent from a value; every other field must be present. A field the record does not declare is an error.
 
 ```rust
 use snapfire_fsr_service::{Contract, Field, Type};
@@ -194,7 +194,7 @@ let contract = Contract::new()
   .union("Pet", vec![Variant::with("dog", Type::named("Dog")), Variant::with("cat", Type::named("Cat"))]);
 ```
 
-A union projects onto `Value::Variant { tag, payload }`. A unit arm with a payload attached fails, and so does a payload arm with none.
+A union projects onto `Value::Variant { tag, payload }`. A unit arm with a payload attached fails and so does a payload arm with none.
 
 ### Integer Widths
 
@@ -295,7 +295,7 @@ The encoding is externally tagged, so a scalar is a bare string and a container 
 }
 ```
 
-`types`, `services`, `methods` and `params` all default to empty when absent, and a unit variant omits its `type` key entirely.
+`types`, `services`, `methods` and `params` all default to empty when absent; a unit variant omits its `type` key entirely.
 
 ## Validating the Reference Graph
 
@@ -340,7 +340,7 @@ assert_eq!(
 );
 ```
 
-The second call passes because `list` declares `limit` as `Optional`, and an optional parameter may be omitted. An argument the method does not declare is a `ContractError::UnknownField`.
+The second call passes because `list` declares `limit` as `Optional`; an optional parameter may be omitted. An argument the method does not declare is a `ContractError::UnknownField`.
 
 ## Checking a Response
 
@@ -435,7 +435,7 @@ For a request with no signed-in user, `bind_anonymous` is the same call with no 
 let handle = services.bind_anonymous();
 ```
 
-A `ServiceHandle` clones freely, and a default-constructed one is unbound: `is_bound` returns false and every call fails with `FailureKind::Unavailable` rather than pretending to succeed.
+A `ServiceHandle` clones freely and a default-constructed one is unbound: `is_bound` returns false and every call fails with `FailureKind::Unavailable` rather than pretending to succeed.
 
 ## Implementing a Method in Process
 
@@ -490,7 +490,7 @@ A 2xx response with a body is parsed as JSON and converted through `snapfire_fsr
 
 ### Shaping the Route
 
-`route` overrides one `service.method` with a verb and a path template. A `{name}` segment takes the argument of that name, and that argument is then not repeated in the body.
+`route` overrides one `service.method` with a verb and a path template. A `{name}` segment takes the argument of that name; that argument is then not repeated in the body.
 
 ```rust
 use snapfire_fsr_service::{HttpTransport, Route};
@@ -557,7 +557,7 @@ Three ship with the crate. Each writes one metadata key.
 | `CredentialInterceptor` | `authorization` | the named credential prefixed with `Bearer `, only when custody holds it as a string |
 | `TraceInterceptor` | `x-sf-request-id` | a 16-digit hex counter, only when the key is not already set |
 
-Each key is overridable, and `CredentialInterceptor` also takes a different scheme.
+Each key is overridable and `CredentialInterceptor` also takes a different scheme.
 
 ```rust
 use snapfire_fsr_service::{CredentialInterceptor, IdentityInterceptor, TraceInterceptor};
@@ -639,7 +639,7 @@ tokens.set("access_token", Value::str("secret-abc"));
 let handle = services.bind(Some(identity), Arc::new(tokens));
 ```
 
-The `Arc<dyn Credentials>` lives on the `Call`, which only interceptors and transports ever see. What comes back from `bind` is a `ServiceHandle`, and a `ServiceHandle` has no accessor for it. That is the whole custody claim: application code never sees a token because there is no method that would return one.
+The `Arc<dyn Credentials>` lives on the `Call`, which only interceptors and transports ever see. What comes back from `bind` is a `ServiceHandle`; a `ServiceHandle` has no accessor for it. That is the whole custody claim: application code never sees a token because there is no method that would return one.
 
 ## Testing Against a Mock
 
@@ -695,7 +695,7 @@ pub fn build(fleet: Fleet) -> Arc<Services> {
 }
 ```
 
-Bind per request where the `RequestCtx` is assembled, and application code reads it off the context.
+Bind per request where the `RequestCtx` is assembled. Application code reads it off the context.
 
 ```rust
 let ctx = RequestCtx {
@@ -750,7 +750,7 @@ pub mod fleet {
 
 ## Why the Contract Is Neutral Data
 
-The artifact speaks the value model, so neither language at either end owns it. A Rust type would make Rust the source of truth and force the TypeScript half to follow; a TypeScript interface would do the reverse, and neither can express a `u64` that a JSON number cannot hold. Keeping the artifact in its own vocabulary lets three front ends produce the same file: a TypeScript subset extracted by the compiler, a Rust derive export and a proto or OpenAPI import. None of those three is built. Today a contract is written in Rust with the builder methods, which is why the guide shows nothing else.
+The artifact speaks the value model, so neither language at either end owns it. A Rust type would make Rust the source of truth and force the TypeScript half to follow; a TypeScript interface would do the reverse. Neither can express a `u64` that a JSON number cannot hold. Keeping the artifact in its own vocabulary lets three front ends produce the same file: a TypeScript subset extracted by the compiler, a Rust derive export and a proto or OpenAPI import. None of those three is built. Today a contract is written in Rust with the builder methods, which is why the guide shows nothing else.
 
 What exists and is worth using now is the artifact, its JSON serialisation and the checking over it. The type vocabulary was designed to receive a proto3 message or an OpenAPI `oneOf` without a redesign, since a brownfield shop imports contracts it already maintains: an enum lands as a union of unit variants, a `oneof` lands as a union of record payloads, a `map<string, T>` lands as `Type::map` and a `bytes` field lands as `Type::Bytes`. Both shapes are pinned by tests.
 
@@ -758,7 +758,7 @@ The checking is strict in both directions on purpose. Accepting an unknown field
 
 ## Error Handling
 
-Two error types meet here. `ContractError` comes from checking and never leaves the crate unwrapped; `ServiceError` is what a caller sees, and it carries a `FailureKind` the UI can render.
+Two error types meet here. `ContractError` comes from checking and never leaves the crate unwrapped; `ServiceError` is what a caller sees and it carries a `FailureKind` the UI can render.
 
 `ContractError`, from `validate`, `check_call`, `check_return` and `check_value`:
 

@@ -15,7 +15,7 @@ path
 response
 ```
 
-Data resolves before rendering starts, and deferral is declared in the plan rather than discovered mid-render, so an evaluation is a plain `(module, props)` call and a cache hit never reaches an engine at all.
+Data resolves before rendering starts and deferral is declared in the plan rather than discovered mid-render, so an evaluation is a plain `(module, props)` call; a cache hit never reaches an engine at all.
 
 ## Install
 
@@ -61,4 +61,4 @@ The crate has no cargo features. Everything below is always compiled.
 
 ## Status
 
-Pre-release and unpublished: version 0.1.0, edition 2024, MPL-2.0, no crates.io release. The public surface is not stable. It carries 20 integration tests across `tests/assembler.rs`, `tests/cache.rs`, `tests/failure.rs` and `tests/streaming.rs`, and it is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which serves matched routes, a cached page, a deferred chart and a service-backed action off this crate.
+Pre-release and unpublished: version 0.1.0, edition 2024, MPL-2.0, no crates.io release. The public surface is not stable. It carries 20 integration tests across `tests/assembler.rs`, `tests/cache.rs`, `tests/failure.rs` and `tests/streaming.rs`. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which serves matched routes, a cached page, a deferred chart and a service-backed action off this crate.

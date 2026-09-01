@@ -57,7 +57,7 @@ The element kind of a `Value::TypedArray`. Also `Copy`.
 
 ### Type
 
-The contract type vocabulary. Every variant projects onto exactly one shape of the value model, and the integer widths are what stop a `u64` being silently truncated at 2^53 on the way to TypeScript.
+The contract type vocabulary. Every variant projects onto exactly one shape of the value model; the integer widths are what stop a `u64` being silently truncated at 2^53 on the way to TypeScript.
 
 * `Null` `Bool` `I32` `I64` `I128` `U32` `U64` `U128` `F32` `F64` `Str` `Bytes`
 * `Array(ScalarKind)`
@@ -93,7 +93,7 @@ What each variant accepts when checked against a `Value`:
 | `Map(t)` | `Value::Map`, every entry value checked against `t` |
 | `Named(n)` | `Value::Map` when `n` is a record, `Value::Variant` when `n` is a union |
 
-There is no numeric coercion in either direction: an integer offered where `F64` is declared is a mismatch, and a float offered where `I64` is declared is a mismatch.
+There is no numeric coercion in either direction: an integer offered where `F64` is declared is a mismatch; a float offered where `I64` is declared is a mismatch.
 
 ### Field
 
@@ -151,7 +151,7 @@ The neutral artifact. Also `Default`. Both maps are `IndexMap`s and both default
 * `fn method(&self, service: &str, method: &str) -> Option<&Method>`
 * `fn validate(&self) -> Result<(), ContractError>` checks that every `Named` in every record field, variant payload, parameter and return type resolves. Fails on the first unresolved reference with `ContractError::UnknownType`, whose `path` reads `Type.field`, `Service.method.param` or `Service.method()`.
 * `fn check_value(&self, ty: &Type, value: &Value, path: &str) -> Result<(), ContractError>` checks one value at a caller-supplied path. Descending appends `[i]` for a list index, `.tag` for a variant payload and `.key` for a record field or a map key.
-* `fn check_call(&self, service: &str, method: &str, args: &ValueMap) -> Result<(), ContractError>` checks arguments against a method's parameters at path `service.method`. A parameter typed `Optional` may be absent; any other absent parameter is `MissingField`, and any argument the method does not declare is `UnknownField`.
+* `fn check_call(&self, service: &str, method: &str, args: &ValueMap) -> Result<(), ContractError>` checks arguments against a method's parameters at path `service.method`. A parameter typed `Optional` may be absent; any other absent parameter is `MissingField`. Any argument the method does not declare is `UnknownField`.
 * `fn check_return(&self, service: &str, method: &str, value: &Value) -> Result<(), ContractError>` checks a value against a method's return type at path `service.method()`.
 
 Record checking is strict in both directions: an absent non-optional field is `MissingField` and a field the record does not declare is `UnknownField`. Union checking requires the tag to be declared, a unit arm to carry no payload and a payload arm to carry one.
@@ -201,7 +201,7 @@ One outbound call as it travels the chain. Interceptors read the identity and wr
 
 ### Credentials
 
-Read and write access to the request's backend credentials. `Send + Sync`. `snapfire_fsr_session::TokenCell` implements it, and a write through `set` marks that cell dirty so the session persists it.
+Read and write access to the request's backend credentials. `Send + Sync`. `snapfire_fsr_session::TokenCell` implements it; a write through `set` marks that cell dirty so the session persists it.
 
 * `fn get(&self, key: &str) -> Option<Value>`
 * `fn set(&self, key: &str, value: Value)`
@@ -224,7 +224,7 @@ Module `interceptor`, re-exported at the crate root. The chain is an ordered lis
 
 The rest of the chain. Constructed only by the registry; an interceptor receives one and either consumes it or drops it.
 
-* `fn run(self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>>` invokes the next interceptor, or the transport when the list is exhausted. Not calling it short-circuits, and nothing downstream, transport included, runs.
+* `fn run(self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>>` invokes the next interceptor (the transport when the list is exhausted). Not calling it short-circuits; nothing downstream, transport included, runs.
 
 ### IdentityInterceptor
 
@@ -252,7 +252,7 @@ A request id that survives the whole fanout. Also `Default`.
 * `fn new() -> Self` with key `x-sf-request-id` and a counter starting at 1
 * `fn key(self, key: impl Into<String>) -> Self`
 
-Writes a zero-padded 16-digit lowercase hex counter under that key, and only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`.
+Writes a zero-padded 16-digit lowercase hex counter under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`.
 
 ## 5. Transports
 

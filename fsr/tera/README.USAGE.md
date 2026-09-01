@@ -194,7 +194,7 @@ layout.children.push((SlotName("content".into()), content));
 
 Slot names may hold ASCII letters, digits, `_` and `-`; an empty name or any other character fails the render. A slot with no matching plan child fails assembly rather than rendering empty, so the two sides stay in step.
 
-A template can hold several slots, and a deferred child's slot is the one that streams in later:
+A template can hold several slots; a deferred child's slot is the one that streams in later:
 
 ```jinja
 {{ island(module="components/ServerChart.tsx#default", props=chart) }}{{ slot(name="chart") }}
@@ -264,7 +264,7 @@ A template cannot iterate that, but it can hand it straight to an island, where 
 {{ island(module="components/ServerChart.tsx#default", props=chart) }}
 ```
 
-So the rule is: shape data for the template when the template reads it, and leave it in its native `Value` form when it is only passing through to a client component.
+So the rule is: shape data for the template when the template reads it; leave it in its native `Value` form when it is only passing through to a client component.
 
 ## Writing Fallback and Error Templates
 
@@ -274,7 +274,7 @@ A deferred child's fallback renders immediately, before its loader has finished:
 <div class="skl">loading latency</div>
 ```
 
-An error module renders in place of a segment whose loader failed, and receives the failure message as `error`:
+An error module renders in place of a segment whose loader failed. It receives the failure message as `error`:
 
 ```jinja
 <section class="error"><h2>Backend unavailable</h2><p>{{ error }}</p></section>
@@ -315,7 +315,7 @@ The stream is chunking of complete output, not incremental rendering: the templa
 
 ## Why Marker and Split
 
-The seam an evaluator has to satisfy is one method returning a stream of chunks. Nothing in it assumes a component tree, a hydration boundary, a virtual DOM or a JavaScript runtime, and this crate is the demonstration: Tera renders a string, three functions leave tokens in it, one split turns the string into chunks. That is the entire adapter.
+The seam an evaluator has to satisfy is one method returning a stream of chunks. Nothing in it assumes a component tree, a hydration boundary, a virtual DOM or a JavaScript runtime. This crate is the demonstration: Tera renders a string, three functions leave tokens in it, one split turns the string into chunks. That is the entire adapter.
 
 The token design follows from wanting the split to be unambiguous:
 
@@ -351,4 +351,4 @@ match assemble(&runtime, &plan, &ctx, &head).await {
 }
 ```
 
-Failures split by when they happen. Tera raises the first group while rendering, and the evaluator forwards the message: an unknown template name, a missing `module` argument on `island`, a slot name that is not `[A-Za-z0-9_-]+`, props that will not serialise. The evaluator raises the second group while splitting, and every message there means a malformed token: unbalanced delimiters, invalid base64, invalid JSON, a missing or unparseable island module id, island props that are not a map, an unrecognised token prefix. The [API reference](API_REFERENCE.md) lists the exact messages.
+Failures split by when they happen. Tera raises the first group while rendering. The evaluator forwards the message: an unknown template name, a missing `module` argument on `island`, a slot name that is not `[A-Za-z0-9_-]+`, props that will not serialise. The evaluator raises the second group while splitting. Every message there means a malformed token: unbalanced delimiters, invalid base64, invalid JSON, a missing or unparseable island module id, island props that are not a map, an unrecognised token prefix. The [API reference](API_REFERENCE.md) lists the exact messages.

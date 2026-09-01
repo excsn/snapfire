@@ -71,7 +71,7 @@ One value in the model.
 
 * `Null`
 * `Bool(bool)`
-* `Int(i128)` - every signed integer, and every unsigned one that fits.
+* `Int(i128)` - every signed integer and every unsigned one that fits.
 * `UInt(u128)` - only for magnitudes above `i128::MAX`. Constructing it below that bound produces a value that is `!=` its `Int` form while fingerprinting identically to it.
 * `F32(f32)`
 * `F64(f64)` - a distinct variant from `F32`, with a distinct fingerprint. Nothing widens `F32` to `F64`.
@@ -110,7 +110,7 @@ A numeric series held as one `Vec`, mirroring the JavaScript `TypedArray` elemen
 
 * `I8(Vec<i8>)`, `U8(Vec<u8>)`, `I16(Vec<i16>)`, `U16(Vec<u16>)`, `I32(Vec<i32>)`, `U32(Vec<u32>)`, `I64(Vec<i64>)`, `U64(Vec<u64>)`, `F32(Vec<f32>)`, `F64(Vec<f64>)`
 * Derives `Debug`, `Clone` and `PartialEq`.
-* The element kind is part of the value's identity: `F32(vec![1.0])` and `F64(vec![1.0])` fingerprint differently, and neither matches a `Seq` of the same numbers.
+* The element kind is part of the value's identity: `F32(vec![1.0])` and `F64(vec![1.0])` fingerprint differently and neither matches a `Seq` of the same numbers.
 * Integer elements are never normalized between kinds. `U8` and `I8` holding the same numbers are different values.
 
 ## 3. The Payload Tree
@@ -176,7 +176,7 @@ Names the data source a plan node waits on.
 
 ### CacheKey
 
-The cacheability tag for a subtree, and the tag invalidation matches on.
+The cacheability tag for a subtree. Invalidation matches on this tag.
 
 * `pub struct CacheKey(pub String)`
 * Not the stored key. The runtime composes that from this tag plus the matched params, the identity and the subtree's data fingerprint.
@@ -228,7 +228,7 @@ Canonical rules, each of which a caller can violate silently by assuming otherwi
 * **`UInt` normalizes on the way into the hash.** A `UInt` whose value fits `i128` produces the byte string of its `Int` form, so a value that skipped `Value::uint` still matches one that did not.
 * **Lengths are prefixed.** Every string, byte string, sequence, map and typed array writes its length as an 8-byte little-endian `u64` first, so no re-cutting of the same bytes across a boundary collides.
 * **Every variant carries a distinct type tag.** `Str` and `Bytes` of the same bytes never collide; nor do a `TypedArray` and a `Seq` of the same numbers; nor an `Int` and an `F64` of the same magnitude; nor the two `RefKind`s under one id.
-* **Optional fields write a presence byte**, so an absent `Variant` payload differs from a `Null` one, and an absent `ssr`, `data_source`, `fallback`, `error` or `cache_key` differs from a present one.
+* **Optional fields write a presence byte**, so an absent `Variant` payload differs from a `Null` one; an absent `ssr`, `data_source`, `fallback`, `error` or `cache_key` differs from a present one.
 * **`Value::Map` and `ValueMap` do not agree.** `Value::Map(m).fingerprint()` writes the `Map` type tag before the entries; `m.fingerprint()` writes the entries alone. Choose one form per key and stay with it.
 * **`PlanNode` and `ValueMap` write no leading type tag**, unlike `Value` and `Node`, whose byte strings always open with one.
 * **`NodeId` is inside a plan's digest** and `SlotId` is inside a `Pending` node's digest, so renumbering changes a fingerprint even when nothing else did.

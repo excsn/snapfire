@@ -30,7 +30,7 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * **Session id** is a random opaque `SessionId`, sixteen bytes rendered as thirty-two hex characters, meaningless anywhere off the box that stores the record.
 * **Cookie** carries the signed session id and nothing else: no session data, no identity, no credential.
 * **Signed value** is what `HmacCodec` produces, `{id}.{hex hmac}`, verified constant-time through the mac.
-* **Session cell** is `SessionCell` from `snapfire_fsr_runtime`, the application-visible half: data plus the resolved `Identity`, and it is the field `RequestCtx::session`.
+* **Session cell** is `SessionCell` from `snapfire_fsr_runtime`, the application-visible half: data plus the resolved `Identity`; it is the field `RequestCtx::session`.
 * **Token cell** is `TokenCell`, the custody half: backend credentials and auth flow state, reachable by the session, auth and service layers only.
 * **Custody boundary** is the rule that keeps them apart: everything a loader, action or evaluator can reach goes in the cell, everything else goes in the tokens.
 * **Opened** is one request's session as the layer sees it: the id, both cells and whether the request arrived without a valid cookie.
@@ -41,7 +41,7 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * **Codec** is the `CookieCodec` trait, encode an id to a cookie value and decode one back; `HmacCodec` is the implementation `Sessions` uses.
 * **Open** happens before route matching, **persist** when the response starts, **destroy** on logout.
 * **CSRF token** is an hmac over `csrf:{id}`, bound to one session id, stable for that session's life.
-* **Value and ValueMap** come from `snapfire_fsr_core`; `ValueMap` is an `IndexMap<String, Value>`, and both cells store their contents in one.
+* **Value and ValueMap** come from `snapfire_fsr_core`; `ValueMap` is an `IndexMap<String, Value>`. Both cells store their contents in one.
 
 ## Quick Start
 
@@ -156,7 +156,7 @@ let flow_state = opened.tokens.remove("_sf_auth");
 opened.tokens.merge(outcome.tokens);
 ```
 
-`clear` empties custody without touching the cell, and the reverse holds too.
+`clear` empties custody without touching the cell; the reverse holds too.
 
 ```rust
 opened.tokens.clear();
@@ -172,7 +172,7 @@ assert_eq!(back.cell.get("access_token"), None);
 
 ### Handing Custody to the Service Layer
 
-The service registry is bound per request with the identity from the cell and the tokens as `Arc<dyn Credentials>`. `snapfire_fsr_service` implements `Credentials` for `TokenCell`, so a refresh inside an interceptor writes back through `set` and `persist` picks it up.
+The service registry is bound per request with the identity from the cell and the tokens as `Arc<dyn Credentials>`. `snapfire_fsr_service` implements `Credentials` for `TokenCell`, so a refresh inside an interceptor writes back through `set`; `persist` picks it up.
 
 ```rust
 use snapfire_fsr_runtime::RequestCtx;
@@ -189,7 +189,7 @@ What comes back from `bind` only calls, so handing it to application code hands 
 
 ## Persisting at the Response
 
-`persist` saves the record when either cell is dirty, and returns a `Set-Cookie` value only when the session is also fresh.
+`persist` saves the record when either cell is dirty. It returns a `Set-Cookie` value only when the session is also fresh.
 
 ```rust
 if let Some(set_cookie) = sessions.persist(&opened).await {
@@ -197,7 +197,7 @@ if let Some(set_cookie) = sessions.persist(&opened).await {
 }
 ```
 
-A token-only write is enough to save, and to set the cookie when the session is also fresh, so an auth flow that has stored nothing readable still survives the redirect.
+A token-only write is enough to save and to set the cookie when the session is also fresh, so an auth flow that has stored nothing readable still survives the redirect.
 
 ```rust
 opened.tokens.set("access_token", Value::Str("secret-abc".to_owned()));
@@ -253,7 +253,7 @@ if !sessions.verify_csrf(&opened.id, &submitted) {
 }
 ```
 
-A token never validates for another session, and a wrong or non-hex token returns `false` rather than panicking.
+A token never validates for another session. A wrong or non-hex token returns `false` rather than panicking.
 
 ```rust
 assert!(sessions.verify_csrf(&a, &token));
@@ -288,7 +288,7 @@ async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpR
 }
 ```
 
-Inside the route, the cell and the CSRF token go into the render, and the tokens go only to the service binding.
+Inside the route, the cell and the CSRF token go into the render; the tokens go only to the service binding.
 
 ```rust
 let csrf = app.sessions.csrf_token(&opened.id);
@@ -352,7 +352,7 @@ It is a single-process store. Two app instances behind a load balancer do not sh
 
 ### Tuning the Shard Count
 
-`sharded` adds an explicit shard count for lock contention. `fibre_cache` rounds the count up to the next power of two, and its own default is derived from the CPU count.
+`sharded` adds an explicit shard count for lock contention. `fibre_cache` rounds the count up to the next power of two; its own default is derived from the CPU count.
 
 ```rust
 let store = MemorySessionStore::sharded(4096, Duration::from_secs(8 * 3600), 4);
@@ -428,7 +428,7 @@ let sessions = Sessions::new(Arc::new(RedisSessionStore::new(pool)), key, Sessio
 
 ## Signing and Verifying the Cookie Value
 
-`HmacCodec` is HMAC-SHA256 over the id, rendered as `{id}.{hex hmac}`. It accepts a key of any length, and verification runs constant-time through the mac.
+`HmacCodec` is HMAC-SHA256 over the id, rendered as `{id}.{hex hmac}`. It accepts a key of any length; verification runs constant-time through the mac.
 
 ```rust
 use snapfire_fsr_session::{CookieCodec, HmacCodec, SessionId};
@@ -463,7 +463,7 @@ let ctx = RequestCtx { session: opened.cell.clone(), ..Default::default() };
 assert_eq!(ctx.session.get("access_token"), None);
 ```
 
-The same split explains where auth flow state lives. A login's provider state is not the application's business and must be bound to the session that began the flow, so it rides custody under `_sf_auth` and the callback consumes it from there.
+The same split explains where auth flow state lives. A login's provider state is not the application's business and must be bound to the session that began the flow, so it rides custody under `_sf_auth`; the callback consumes it from there.
 
 ```rust
 opened.tokens.set("_sf_auth", Value::Map(state));
@@ -497,4 +497,4 @@ Three things behave in ways worth knowing before they surprise you.
 * `MemorySessionStore::new` and `sharded` panic if `fibre_cache` refuses the builder. Build the cache yourself and pass it to `with_cache` when you want to handle that.
 * `HmacCodec::new` accepts any key length without complaint, so a short key is a silent weakness rather than an error. Use thirty-two bytes or more.
 
-Errors raised further out belong to their own crates: `snapfire_fsr_auth` returns `AuthError` from the login callback, and the service layer's failures surface through `snapfire_fsr_service`.
+Errors raised further out belong to their own crates: `snapfire_fsr_auth` returns `AuthError` from the login callback; the service layer's failures surface through `snapfire_fsr_service`.

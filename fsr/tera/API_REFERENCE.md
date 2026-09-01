@@ -78,7 +78,7 @@ An `Evaluator` backed by an owned Tera instance.
 
 * `pub fn new(tera: Tera) -> Self` takes ownership and calls `register_markers` on the instance. That registration reaches only templates added afterwards; templates already loaded were parsed before it.
 * `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks` renders the template named `module.path` and splits the result. `module.export` takes no part in template lookup; it is carried only inside island module ids.
-* The returned stream is built from a fully rendered string: the template completes before the first chunk is yielded, and the stream never blocks. On failure the stream holds exactly one `Err(EvalError)`.
+* The returned stream is built from a fully rendered string: the template completes before the first chunk is yielded and the stream never blocks. On failure the stream holds exactly one `Err(EvalError)`.
 * Every chunk is `Chunk::Node` or `Chunk::Slot`. This evaluator never produces `Node::Pending`; deferral belongs to the assembler.
 * `TeraEvaluator: Send + Sync` through the `Evaluator` bound, so one instance serves concurrent requests behind an `Arc`.
 
@@ -103,7 +103,7 @@ The island payload is JSON with two keys: `m` is the module id string and `p` is
 
 Every key of the `Data` map passed to `evaluate` becomes a top-level Tera variable of the same name, converted with `snapfire_fsr_payload::value_to_json`.
 
-The assembler injects three before calling the evaluator, and they are present in fallback and error modules too:
+The assembler injects three before calling the evaluator; they are present in fallback and error modules too:
 
 | Variable | Type | Present when |
 | --- | --- | --- |
@@ -145,7 +145,7 @@ Each of these is silent or late unless the caller knows about it.
 
 ## 8. Error Handling
 
-Failures divide by phase. Tera raises the first group while rendering, and `evaluate` forwards the message unchanged inside an `EvalError`. The split raises the second group after rendering succeeded.
+Failures divide by phase. Tera raises the first group while rendering; `evaluate` forwards the message unchanged inside an `EvalError`. The split raises the second group after rendering succeeded.
 
 ### EvalError
 

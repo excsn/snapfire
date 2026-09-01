@@ -314,7 +314,7 @@ sources.insert_fn("servers_loader", |_ctx| async {
 });
 ```
 
-A `LoadError` degrades that one segment to its error module and the rest of the page still renders. A plan node naming a source that was never registered is `AssembleError::MissingDataSource` and fails the whole assembly, because misconfiguration is not a runtime condition to degrade around.
+A `LoadError` degrades that one segment to its error module. The rest of the page still renders. A plan node naming a source that was never registered is `AssembleError::MissingDataSource` and fails the whole assembly, because misconfiguration is not a runtime condition to degrade around.
 
 For a source held elsewhere, implement the trait and insert it directly:
 
@@ -335,7 +335,7 @@ sources.insert("static", Arc::new(Static));
 
 ## Writing an Evaluator
 
-An evaluator receives a module id and the props for one node, and returns a stream of chunks. It has no access to the plan, the tree or the request, and it cannot produce a `Pending`: holes belong to the assembler.
+An evaluator receives a module id and the props for one node, returning a stream of chunks. It has no access to the plan, the tree or the request. It cannot produce a `Pending`: holes belong to the assembler.
 
 ```rust
 use futures_util::stream;
@@ -359,14 +359,14 @@ impl Evaluator for Layout {
 }
 ```
 
-Registration is by predicate over the module id, and the first rule that matches wins, so register narrow rules before broad ones:
+Registration is by predicate over the module id. The first rule that matches wins, so register narrow rules before broad ones:
 
 ```rust
 let mut evaluators = Evaluators::new();
 evaluators.register(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())));
 ```
 
-A module no rule matches goes to `NullEvaluator`, which emits `Node::Client { module, props, children: [], ssr: None }`: the browser mounts it and the props ride along. Registering nothing at all is therefore a working configuration, and it is the one where the server runs no JavaScript.
+A module no rule matches goes to `NullEvaluator`, which emits `Node::Client { module, props, children: [], ssr: None }`: the browser mounts it and the props ride along. Registering nothing at all is therefore a working configuration and it is the one where the server runs no JavaScript.
 
 The props an evaluator sees are the node's loaded data with three request keys written over the top, in this order:
 
@@ -376,7 +376,7 @@ The props an evaluator sees are the node's loaded data with three request keys w
 
 A loader that writes a key called `params`, `identity` or `csrf_token` has it replaced.
 
-`Chunk::Slot(SlotName("head"))` is reserved: the assembler substitutes the head node passed to `assemble` and marks the subtree as head-using, which makes it ineligible for caching. Any other slot name must match a plan child, or assembly fails with `AssembleError::MissingSlot`.
+`Chunk::Slot(SlotName("head"))` is reserved: the assembler substitutes the head node passed to `assemble` and marks the subtree as head-using, which makes it ineligible for caching. Any other slot name must match a plan child; otherwise assembly fails with `AssembleError::MissingSlot`.
 
 ## Assembling the Payload
 
@@ -405,7 +405,7 @@ let title = match source.load(&ctx).await {
 let assembly = assemble(&runtime, &plan, &ctx, &head_node(&title)).await?;
 ```
 
-One shape to know: a node whose evaluator emitted exactly one chunk collapses to that node rather than a one-element `Node::Seq`, and its child segments then carry an empty `path`, meaning the whole node. With two or more chunks the tree is a `Seq` and each child segment carries `path: [index]`.
+One shape to know: a node whose evaluator emitted exactly one chunk collapses to that node rather than a one-element `Node::Seq`; its child segments then carry an empty `path`, meaning the whole node. With two or more chunks the tree is a `Seq`; each child segment carries `path: [index]`.
 
 ## Deferring a Segment
 
@@ -428,7 +428,7 @@ Deferral nests. A resolution runs the whole subtree, so a deferred grandchild pr
 let rows = wire_stream(assembly).collect::<Vec<_>>().await;
 ```
 
-Row `S 1` then carries `["p",2,...]` for the inner hole and row `S 2` follows it.
+Row `S 1` then carries `["p",2,...]` for the inner hole; row `S 2` follows it.
 
 Resolutions never fail. A failed loader or a failed evaluation inside a deferred subtree resolves the slot to an error node, so the response is always complete.
 
@@ -482,7 +482,7 @@ The first item is three rows in one string:
 * `N <row json>`, the payload tree.
 * `G <segment json>`, the segment sidecar.
 
-Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order. The sidecar encoding is compact: `k` is the segment key, `c` holds the children and the position is either `p`, the path, or `s`, the slot id, when the segment is deferred.
+Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order. The sidecar encoding is compact: `k` is the segment key and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
 
 ```rust
 use snapfire_fsr_runtime::segments_to_json;
@@ -519,7 +519,7 @@ So a request for `/dash/servers` as `alice`, whose loader returned the fingerpri
 dash_page|section=servers|ident=alice|3f2a9c1d40b7e558
 ```
 
-Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another, and an anonymous request keys on `-`. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
+Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another; an anonymous request keys on `-`. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
 
 Three things disqualify a subtree from caching:
 
@@ -535,7 +535,7 @@ Arc::new(MemoryCache::new())                               // unbounded, no expi
 Arc::new(FibreCache::bounded(1024, Duration::from_secs(300)))  // bounded and TTL-expiring
 ```
 
-`FibreCache::bounded_sharded(capacity, ttl, shards)` tunes lock contention. Shards are rounded up to the next power of two and capacity is accounted across all of them, so a higher shard count trades fixed per-shard structures against contention, never against usable capacity. For a cache you configure yourself, build the `fibre_cache::Cache` and pass it:
+`FibreCache::bounded_sharded(capacity, ttl, shards)` tunes lock contention. Shards are rounded up to the next power of two; capacity is accounted across all of them, so a higher shard count trades fixed per-shard structures against contention, never against usable capacity. For a cache you configure yourself, build the `fibre_cache::Cache` and pass it:
 
 ```rust
 let cache = FibreCache::new(
@@ -550,7 +550,7 @@ let cache = FibreCache::new(
 
 ## Invalidating What Changed
 
-Invalidation takes the plan's `cache_key`, not a composed key, and drops every entry that key produced across all params and all identities.
+Invalidation takes the plan's `cache_key`, not a composed key. It drops every entry that key produced across all params and all identities.
 
 ```rust
 runtime.cache.invalidate("dash_page").await;
@@ -623,7 +623,7 @@ For a test or a request with no session at all:
 let ctx = RequestCtx::anonymous(Params::new());
 ```
 
-`SessionCell` is shared by every loader and action on the request, and every mutation marks it dirty so the session layer knows to persist when the response starts:
+`SessionCell` is shared by every loader and action on the request. Every mutation marks it dirty so the session layer knows to persist when the response starts:
 
 ```rust
 ctx.session.insert("visits", Value::Int(4));   // dirty
@@ -635,7 +635,7 @@ assert!(ctx.session.is_dirty());
 let (data, identity) = ctx.session.snapshot();
 ```
 
-Identity is a subject plus claims, and it reaches evaluators as props rather than being read from the context by templates:
+Identity is a subject plus claims. It reaches evaluators as props rather than being read from the context by templates:
 
 ```rust
 let ctx_identity = ctx.session.identity();       // Option<Identity>
@@ -727,11 +727,11 @@ match result {
 }
 ```
 
-`FailureKind` is shared with the service layer, which is why `ActionError::new(e.kind, e.message)` above needs no translation table: a `Conflict` raised deep in a service is still a `Conflict` at the edge, and still a 409.
+`FailureKind` is shared with the service layer, which is why `ActionError::new(e.kind, e.message)` above needs no translation table: a `Conflict` raised deep in a service is still a `Conflict` at the edge and still a 409.
 
 ## Degrading a Failed Segment
 
-Give a plan node an `error` module and a failed loader renders that module in place of the segment:
+Give a plan node an `error` module; a failed loader renders that module in place of the segment:
 
 ```rust
 page.error = Some(ModuleId::new("error_section.tera", "default"));
@@ -782,7 +782,7 @@ The cache events carry the full composed key, which is the fastest way to find o
 
 ## Error Handling
 
-Six error types, and the split between them is the design. `LoadError` and a failed evaluation inside a segment degrade that segment. `AssembleError` fails the request. `ActionError` and `ServiceError` carry a `FailureKind` to the edge.
+Six error types. The split between them is the design. `LoadError` and a failed evaluation inside a segment degrade that segment. `AssembleError` fails the request. `ActionError` and `ServiceError` carry a `FailureKind` to the edge.
 
 | Type | Raised by | Consequence |
 | :--- | :--- | :--- |

@@ -2,7 +2,7 @@
 
 MPL-2.0. Pre-release, version 0.1.0, not published to crates.io.
 
-The session layer for Snapfire FSR: it opens a request's session from the `Cookie` header, keeps two separate cells for it, saves them when the response starts and issues the CSRF tokens forms carry. The two cells are the point of the crate. `SessionCell` holds application-visible data and the resolved `Identity`, and it flows into `RequestCtx` where loaders, actions and evaluators read it. `TokenCell` holds backend credentials and auth flow state, it lives only on `Opened` and it never enters `RequestCtx`, so the only things that can reach it are the session layer, the auth flow and the service layer's outbound call chain. The cookie itself carries a signed opaque session id, never session data and never a credential. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+The session layer for Snapfire FSR: it opens a request's session from the `Cookie` header, keeps two separate cells for it, saves them when the response starts and issues the CSRF tokens forms carry. The two cells are the point of the crate. `SessionCell` holds application-visible data and the resolved `Identity`; it flows into `RequestCtx` where loaders, actions and evaluators read it. `TokenCell` holds backend credentials and auth flow state; it lives only on `Opened` and it never enters `RequestCtx`, so the only things that can reach it are the session layer, the auth flow and the service layer's outbound call chain. The cookie itself carries a signed opaque session id, never session data and never a credential. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -11,7 +11,7 @@ The session layer for Snapfire FSR: it opens a request's session from the `Cooki
 snapfire_fsr_session = { path = "../session" }
 ```
 
-The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `SessionCell` and `Identity`, and it brings in `fibre_cache` for the in-process store, `hmac` and `sha2` for cookie signing, `rand` for id generation and `parking_lot` for the token cell's lock.
+The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `SessionCell` and `Identity`; it brings in `fibre_cache` for the in-process store, `hmac` and `sha2` for cookie signing, `rand` for id generation and `parking_lot` for the token cell's lock.
 
 ## What to reach for
 

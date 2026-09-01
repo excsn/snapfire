@@ -11,7 +11,7 @@ The encoding layer of Snapfire FSR. It turns the `Value` and `Node` vocabulary o
 snapfire_fsr_payload = { path = "../payload" }
 ```
 
-The crate declares no Cargo features. `serde_json` is pulled in with `preserve_order`, so the key order of a `ValueMap` survives encoding, and `base64` carries the standard alphabet used for bytes and typed arrays.
+The crate declares no Cargo features. `serde_json` is pulled in with `preserve_order`, so the key order of a `ValueMap` survives encoding. `base64` carries the standard alphabet used for bytes and typed arrays.
 
 ## What to reach for
 
