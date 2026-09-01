@@ -1,3 +1,4 @@
+import { refresh } from "./navigator.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 export class ActionFailure extends Error {
@@ -10,8 +11,8 @@ export class ActionFailure extends Error {
   }
 }
 
-/** A callable for a stable action id. The client holds references, not URLs. */
-export function action(id: string): (input?: SfValue) => Promise<SfValue> {
+/** A callable for a stable action id. The client holds references, not URLs. A successful call revalidates the current route by default, so mutated segments refresh in place. */
+export function action(id: string, opts?: { revalidate?: boolean }): (input?: SfValue) => Promise<SfValue> {
   return async (input: SfValue = {}) => {
     const res = await fetch(`/_sf/action/${encodeURIComponent(id)}`, {
       method: "POST",
@@ -22,6 +23,10 @@ export function action(id: string): (input?: SfValue) => Promise<SfValue> {
     if (!res.ok) {
       throw new ActionFailure(body.kind ?? "internal", body.message ?? res.statusText);
     }
-    return decodeValue(body);
+    const result = decodeValue(body);
+    if (opts?.revalidate !== false) {
+      await refresh();
+    }
+    return result;
   };
 }
