@@ -42,16 +42,16 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **`tsconfig.json`** - The project file, read as JSONC and interpreted the way `tsc` interprets it, so the same file can drive `tsc --noEmit` and your editor without the three disagreeing. Keys `snapfirec` does not use are `tsc`'s business and are left alone.
 * **Config directory** - The directory holding `tsconfig.json`. `include`, `exclude`, `files`, `outDir` and `rootDir` all resolve against it, not against the root.
 * **`include`** - Glob patterns naming the project's files. An entry with no glob character names a directory and stands for everything under it. Defaults to `**/*`.
-* **`exclude`** - Glob patterns removed from what `include` matched. Defaults to `node_modules`, `bower_components` and `jspm_packages`, and an explicit `exclude` replaces that default rather than adding to it.
+* **`exclude`** - Glob patterns removed from what `include` matched. Defaults to `node_modules`, `bower_components` and `jspm_packages`. An explicit `exclude` replaces that default rather than adding to it.
 * **`files`** - An explicit list of inputs. `exclude` does not apply to it.
-* **`rootDir`** - The directory output paths are mirrored against. Set it explicitly, or let it be computed as the longest common prefix of the compilable inputs.
-* **Compilable file** - `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.css`. `.d.ts` files are skipped, and anything else is an asset.
+* **`rootDir`** - The directory output paths are mirrored against. Set it explicitly or let it be computed as the longest common prefix of the compilable inputs.
+* **Compilable file** - `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.css`. `.d.ts` files are skipped and anything else is an asset.
 * **Type stripping** - SWC removes type annotations without checking them. `snapfirec` is not a type checker; it never reports a type error.
-* **Import resolution** - Rewriting a relative specifier into one a browser can fetch: renaming a `.ts` extension to `.js`, appending `.js`, or expanding a directory to its `index.js`.
-* **Bare specifier** - An import a package resolver would have to satisfy, such as `import x from "lit"`. Left untouched, and reported at the end of the build as an external, because the page has to resolve it.
+* **Import resolution** - Rewriting a relative specifier into one a browser can fetch: renaming a `.ts` extension to `.js`, appending `.js` or expanding a directory to its `index.js`.
+* **Bare specifier** - An import a package resolver would have to satisfy, such as `import x from "lit"`. Left untouched and reported at the end of the build as an external, because the page has to resolve it.
 * **External** - A bare specifier the finished output carries. A URL or a root-relative path is not one, since the browser resolves those unaided.
 * **Entry point** - A module nothing else statically imports, worked out from the graph rather than declared. What a page loads directly.
-* **Public path** - The URL prefix the output directory is served under. Optional, and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
+* **Public path** - The URL prefix the output directory is served under. Optional and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
 * **Declaration** - The `.d.ts` describing one module's exported types. Emitted per file from that file alone, so an export whose type only inference across files could supply is an error rather than a guess.
 * **Minified graph** - The parallel set of `.min` files `--minify` adds. Its specifiers point only at other `.min` files, so loading the minified entry never pulls an unminified dependency.
 * **Build facts** - `.snapfire-build.json` in the output directory, recording the entry points, the module graph, the bare specifiers the output carries and every file it produced. A page preloads from it; a packager vendors from it; the next build prunes from it.
@@ -196,7 +196,7 @@ snapfirec
 | `--import-map <PATH>` | Fail the build if an external is not in this map | off |
 | `-w`, `--watch` | Rebuild whenever a source changes | off |
 
-These `tsconfig.json` keys are read, and everything else in the file is ignored:
+These `tsconfig.json` keys are read; everything else in the file is ignored:
 
 ```json
 {
@@ -228,7 +228,7 @@ The file is JSONC, so comments and trailing commas are fine:
 }
 ```
 
-`target` belongs to `tsc` and `tsc` acts on it, so set it as your project needs. `snapfirec` only checks that it is satisfiable, because nothing is downlevelled here: the emitted syntax is whatever the source used, and browser support is governed by `.browserslistrc`.
+`target` belongs to `tsc` and `tsc` acts on it, so set it as your project needs. `snapfirec` only checks that it is satisfiable, because nothing is downlevelled here: the emitted syntax is whatever the source used; browser support is governed by `.browserslistrc`.
 
 Anything below `es2017` is refused, since no engine that old can load an ES module at all:
 
@@ -254,7 +254,7 @@ snapfirec --root ./my-lib
 cd ./my-lib && snapfirec
 ```
 
-`--out-dir` is relative to the root, and a relative path beginning with `..` escapes it, which is how several libraries land in one place:
+`--out-dir` is relative to the root; a relative path beginning with `..` escapes it, which is how several libraries land in one place:
 
 ```bash
 snapfirec --root ./packages/ui   --out-dir ../../public/assets/ui
@@ -344,7 +344,7 @@ The build only fails if that leaves nothing at all to compile, which is what cat
 Error: No inputs were found in "tsconfig.json". Specified 'include' paths were ["srcc"].
 ```
 
-With neither `include` nor `files`, every file under the config directory is taken, and the build says so:
+With neither `include` nor `files`, every file under the config directory is taken and the build says so:
 
 ```text
    Sources:  ["**/*"]
@@ -393,7 +393,7 @@ Two inputs that would produce one output fail rather than silently overwriting e
 
 ## Compiling TypeScript
 
-Every `.ts` and `.tsx` file is parsed, stripped of types and written as `.js` at the mirrored path. Decorators parse without a flag, and `.d.ts` files are skipped rather than emitted as empty modules.
+Every `.ts` and `.tsx` file is parsed, stripped of types and written as `.js` at the mirrored path. Decorators parse without a flag; `.d.ts` files are skipped rather than emitted as empty modules.
 
 ```typescript
 // src/greet.ts
@@ -468,11 +468,11 @@ export const Hello = (props)=>_jsx("div", {
     });
 ```
 
-The runtime import is injected, never written by hand, and it is an ordinary bare import afterwards: `--import-map` fails the build when nothing resolves `react/jsx-runtime`, so a missing entry surfaces at build time instead of in the browser.
+The runtime import is injected, never written by hand. It is an ordinary bare import afterwards: `--import-map` fails the build when nothing resolves `react/jsx-runtime`, so a missing entry surfaces at build time instead of in the browser.
 
 | `jsx` | Output |
 | --- | --- |
-| unset, or `"preserve"` | JSX written through untouched. No browser runs that file as-is; it is input for another tool. |
+| unset or `"preserve"` | JSX written through untouched. No browser runs that file as-is; it is input for another tool. |
 | `"react-jsx"` | Automatic runtime, importing `jsx`, `jsxs` and `Fragment` from `<jsxImportSource>/jsx-runtime`. |
 | `"react-jsxdev"` | Automatic runtime against `<jsxImportSource>/jsx-dev-runtime`. |
 | `"react"`, `"react-native"` | Refused. The classic runtime needs a `React` binding snapfirec does not inject. |
@@ -677,7 +677,7 @@ If nothing resolves, the build says so and continues with no downlevelling and n
 
 ## Emitting Source Maps
 
-Off by default. The `tsconfig.json` keys are the ones `tsc` defines, and the flags override them:
+Off by default. The `tsconfig.json` keys are the ones `tsc` defines; the flags override them:
 
 ```bash
 snapfirec --source-map                        # sourceMap
@@ -762,7 +762,7 @@ export const lazy = ()=>import("./state.js");
 import{state}from"./state.min.js";import{widget}from"./widgets/index.min.js";import{pkg}from"some-package";import"./theme.min.css";export const lazy=()=>import("./state.min.js");
 ```
 
-Bare specifiers stay bare, and assets with no minified counterpart stay shared between the two graphs:
+Bare specifiers stay bare; assets with no minified counterpart stay shared between the two graphs:
 
 ```javascript
 import data from './data.json' with { type: 'json' };   // same file in both graphs
@@ -780,7 +780,7 @@ export const compute=input=>{const aVeryLongLocalName=input*2;const anotherVeryL
 const n=n=>2*n+1;export{n as compute};
 ```
 
-That one needs a binary built with the `minify` feature, and says so rather than quietly giving you compaction:
+That one needs a binary built with the `minify` feature and says so rather than quietly giving you compaction:
 
 ```text
 Error: '--minify=full' needs a binary built with the 'minify' feature: cargo install snapfire_compiler --features minify
@@ -800,7 +800,7 @@ dist/
 
 ## Emitting Declarations
 
-`--declaration`, or `declaration` in `tsconfig.json`, writes a `.d.ts` beside each compiled TypeScript file:
+`--declaration` (or `declaration` in `tsconfig.json`) writes a `.d.ts` beside each compiled TypeScript file:
 
 ```bash
 snapfirec --root ./my-lib --declaration
@@ -836,7 +836,7 @@ export declare const current: number;
 
 ### Annotating Exports for It
 
-Emit is per file, with no dependency graph, for the same reason type stripping is. That is what keeps a build free of `node_modules`, and it is the whole bargain: an export the compiler would have to look in another file to describe is an error rather than a guess.
+Emit is per file, with no dependency graph, for the same reason type stripping is. That is what keeps a build free of `node_modules` and it is the whole bargain: an export the compiler would have to look in another file to describe is an error rather than a guess.
 
 ```typescript
 export const inferred = build();          // ❌ TS9010
@@ -918,7 +918,7 @@ A browser cannot resolve those on its own, so the build lists them once it knows
    These need an import map in the page; nothing in the output resolves them.
 ```
 
-Read it as a checklist for the page. Every name on that line has to appear in an import map, and a name that does not is a runtime failure rather than a build one:
+Read it as a checklist for the page. Every name on that line has to appear in an import map; a name that does not is a runtime failure rather than a build one:
 
 ```html
 <script type="importmap">
@@ -942,7 +942,7 @@ import { cdn } from 'https://cdn.example.com/mod.js';   // a URL
 import { local } from '/assets/vendor.js';              // root-relative
 ```
 
-The third option is to avoid externals altogether. Drop a package's ESM build into your source tree and import it relatively, and it stops being external: `snapfirec` compiles it as an ordinary input, rewrites its imports, folds it into the `.min` graph and caches it with everything else.
+The third option is to avoid externals altogether. Drop a package's ESM build into your source tree and import it relatively. It stops being external: `snapfirec` compiles it as an ordinary input, rewrites its imports, folds it into the `.min` graph and caches it with everything else.
 
 ```typescript
 import { html } from './vendor/lit-core.js';
@@ -952,13 +952,13 @@ Nothing is reported when a build has no externals, so a quiet line means the out
 
 ### Checking Relative Specifiers
 
-Every build resolves each relative specifier against what it produced, and a target that was never emitted fails the build:
+Every build resolves each relative specifier against what it produced; a target that was never emitted fails the build:
 
 ```text
 ❌ "dist/index.js" imports './nope.js', which resolves to nothing
 ```
 
-Nothing enables this and nothing turns it off. It needs no type information, only the output paths the build already resolved, so it catches the case a rename leaves behind: the module compiles, the output looks right, and the browser 404s on a specifier nobody re-read. A dynamic `import()` with a literal argument is checked the same way, since deferring the fetch only moves when the 404 happens.
+Nothing enables this and nothing turns it off. It needs no type information, only the output paths the build already resolved, so it catches the case a rename leaves behind: the module compiles, the output looks right and the browser 404s on a specifier nobody re-read. A dynamic `import()` with a literal argument is checked the same way, since deferring the fetch only moves when the 404 happens.
 
 Both graphs are checked against themselves, so a `.min.js` naming an unminified sibling is reported too. Copied assets count as produced, so a stylesheet or a font the build delivers resolves.
 
@@ -999,7 +999,7 @@ Resolution follows the spec rather than matching keys, so a trailing-slash key c
    All externals resolve through "./static/importmap.json"
 ```
 
-Scopes are the exception, because a scope selects a mapping by the URL of the module doing the importing, and a build with no public path has only paths. Say where the output will be served and they can be evaluated:
+Scopes are the exception. A scope selects a mapping by the URL of the module doing the importing; a build with no public path has only paths. Say where the output will be served and they can be evaluated:
 
 ```bash
 snapfirec --import-map ./static/importmap.json
@@ -1019,7 +1019,7 @@ snapfirec --import-map ./static/importmap.json --public-path /assets/
 
 ## Preloading the Module Graph
 
-Unbundled modules are discovered one hop at a time: the browser cannot ask for `state.js` until it has fetched and parsed the module that imports it. Deep graphs turn into serialised round trips, and that is what bundling is usually bought to avoid.
+Unbundled modules are discovered one hop at a time: the browser cannot ask for `state.js` until it has fetched and parsed the module that imports it. Deep graphs turn into serialised round trips and that is what bundling is usually bought to avoid.
 
 Every build writes `.snapfire-build.json`, whose `graph` names what each entry point needs, so the page can ask for all of it at once instead:
 
@@ -1038,11 +1038,11 @@ Every build writes `.snapfire-build.json`, whose `graph` names what each entry p
 }
 ```
 
-One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `outputs`, `externals` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript, and the compiler already resolved every one of them.
+One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `outputs`, `externals` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript; the compiler already resolved every one of them.
 
 Paths stay in the output directory's own terms. `--public-path` is recorded as `publicPath` rather than prefixed onto every path, so one build is mountable anywhere and a consumer joins the two.
 
-An entry point is a module nothing else statically imports, which the build works out for itself. Dependencies are transitive, cycles are walked once, and stylesheets are left out because `modulepreload` is the wrong `rel` for them.
+An entry point is a module nothing else statically imports, which the build works out for itself. Dependencies are transitive, cycles are walked once and stylesheets are left out because `modulepreload` is the wrong `rel` for them.
 
 Dynamic imports are edges but never preloads, since deferring them is the point of writing one:
 
@@ -1075,7 +1075,7 @@ With `--minify` the minified graph is walked separately, so `index.min.js` gets 
 
 ## Keeping the Output Directory Clean
 
-`outputs` in `.snapfire-build.json` lists what the build produced. The next build removes anything in that list it no longer produces, and touches nothing else:
+`outputs` in `.snapfire-build.json` lists what the build produced. The next build removes anything in that list it no longer produces and touches nothing else:
 
 ```bash
 snapfirec                                     # dist/{button.js, panel.js}
@@ -1121,7 +1121,7 @@ snapfirec --watch
 👀 watching "src"; press Ctrl-C to stop
 ```
 
-Editing a file already in the build recompiles that file alone. Adding or deleting one, or editing `tsconfig.json` or `.browserslistrc`, rebuilds everything, because any of those can change which files are selected and where they land:
+Editing a file already in the build recompiles that file alone. Adding or deleting one rebuilds everything, as does editing `tsconfig.json` or `.browserslistrc`, because any of those can change which files are selected and where they land:
 
 ```text
    Compiling TS: "button.ts"                  edit, one file
@@ -1149,7 +1149,7 @@ The output is ES modules and plain CSS, served as static files. Nothing else is 
 <script type="module" src="/assets/index.js"></script>
 ```
 
-Bare specifiers that survived the build have to be resolved by the page, and the build's `Externals:` line tells you exactly which:
+Bare specifiers that survived the build have to be resolved by the page; the build's `Externals:` line tells you exactly which:
 
 ```html
 <script type="importmap">
@@ -1171,7 +1171,7 @@ Point production at the minified graph and it stays minified all the way down:
 
 ## Wiring the Build into a Snapfire Site
 
-Compile into the directory the `snapfire` crate serves and watches, and a rebuild becomes a live reload:
+Compile into the directory the `snapfire` crate serves and watches; a rebuild becomes a live reload:
 
 ```rust
 let app_state = TeraWeb::builder("templates/**/*.html")
@@ -1197,17 +1197,17 @@ cargo build --release
 
 `snapfirec` compiles files. These jobs belong to something else, mostly on purpose:
 
-| Not this tool's job | Why, and what covers it |
+| Not this tool's job | Why and what covers it |
 | :--- | :--- |
-| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files. Declaration *emit* is here, since isolated declarations is per-file too, and so is the graph check below, since resolving a specifier needs no types. Checking those types is not |
-| Bundling | Output is browser-native ES modules by design. An import map resolves the bare specifiers, and the `Externals:` line names them |
+| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files. Declaration *emit* is here, since isolated declarations is per-file too; so is the graph check below, since resolving a specifier needs no types. Checking those types is not |
+| Bundling | Output is browser-native ES modules by design. An import map resolves the bare specifiers; the `Externals:` line names them |
 | Downlevelling | Every engine that can load an ES module is already ES2017 or later, so there is no lower target worth emitting for. `target` is checked for satisfiability and otherwise left to `tsc` |
 | `@import` inlining | Bundling again, for stylesheets. Each input `.css` stays a separate output the browser fetches |
 | Content hashing | Not a principled exclusion, just not built. Cache busting usually belongs to whatever serves the files |
 
-Bundling is the one worth a second look, because the reason it is usually reached for is latency rather than bundling itself, and [Preloading the Module Graph](#preloading-the-module-graph) addresses that directly. What stays out of reach without it is tree shaking and cross-module mangling, both of which need the whole program in one place.
+Bundling is the one worth a second look, because the reason it is usually reached for is latency rather than bundling itself. [Preloading the Module Graph](#preloading-the-module-graph) addresses that directly. What stays out of reach without it is tree shaking and cross-module mangling, both of which need the whole program in one place.
 
-A production pipeline therefore has more than one step in it, and each step is a tool that does one thing:
+A production pipeline therefore has more than one step in it; each step is a tool that does one thing:
 
 ```bash
 tsc --noEmit                                              # types
@@ -1220,7 +1220,7 @@ Two consequences are worth stating outright rather than leaving to be discovered
 
 Nothing stops you shipping code that does not type check, so the `tsc --noEmit` step is load-bearing rather than optional. It is only sound because the file selection matches: both tools read the same `include`, `exclude`, `files` and `rootDir`, so neither can be looking at a file the other ignores.
 
-And without bundling there is no tree shaking and no cross-module mangling, so `--minify=full` can only rename within a single file. That costs little for code you wrote and imported deliberately, and a great deal if you ever start pulling in large third-party packages, which is the point at which this set of trade-offs stops being the right one.
+And without bundling there is no tree shaking and no cross-module mangling, so `--minify=full` can only rename within a single file. That costs little for code you wrote and imported deliberately. It costs a great deal if you ever start pulling in large third-party packages, which is the point at which this set of trade-offs stops being the right one.
 
 ## Error Handling
 
@@ -1233,8 +1233,8 @@ echo $?
 
 | Prefix | Meaning | Fatal |
 | :--- | :--- | :--- |
-| `❌` | A file failed to compile, write or copy, or two sources collide | Yes |
-| `⚠️` | A pattern matched nothing, a path could not be read, or no browser targets resolved | No |
+| `❌` | A file failed to compile, write or copy; two sources collide | Yes |
+| `⚠️` | A pattern matched nothing, a path could not be read or no browser targets resolved | No |
 
 A relative specifier naming something the build did not produce is reported with the same `❌` prefix, after every file has been compiled:
 
@@ -1251,9 +1251,9 @@ Error: Build failed due to compilation errors.
 
 Errors the parser recovers from are reported too rather than compiled into subtly wrong output, so one file can produce several lines before the build gives up.
 
-The build does not stop at the first bad file. Every input is attempted and every failure reported, then the process exits `1` once. That makes a fix-and-rerun loop cheap, and it means the output directory holds a partial build after a failure, so treat a non-zero exit as "do not ship this directory".
+The build does not stop at the first bad file. Every input is attempted and every failure reported, then the process exits `1` once. That makes a fix-and-rerun loop cheap and it means the output directory holds a partial build after a failure, so treat a non-zero exit as "do not ship this directory".
 
-Failures before compilation starts abort immediately with no prefix: a malformed `tsconfig.json`, a `--root` that does not exist, a `files` entry naming a missing file, an input outside an explicit `rootDir`, or a `target` below `es2017`.
+Failures before compilation starts abort immediately with no prefix: a malformed `tsconfig.json`, a `--root` that does not exist, a `files` entry naming a missing file, an input outside an explicit `rootDir` or a `target` below `es2017`.
 
 ```text
 Error: Failed to set working directory to "./nope"

@@ -62,7 +62,7 @@ Not re-exported from either entry, though the modules define them: `IdAlloc`, `e
 
 ## 2. Values
 
-The value model as JavaScript sees it, and the pair of functions that move it across the boundary.
+The value model as JavaScript sees it and the pair of functions that move it across the boundary.
 
 ### SfValue
 
@@ -81,7 +81,7 @@ A reference to a server action or a client module.
 * `readonly kind: "action" | "module"`
 * `readonly id: string`
 
-Frozen, and branded with `Symbol.for("sf.ref")`. Test with `isRef`, not by shape.
+Frozen and branded with `Symbol.for("sf.ref")`. Test with `isRef`, not by shape.
 
 ### VariantValue
 
@@ -90,7 +90,7 @@ A tagged union arm, with an optional payload.
 * `readonly tag: string`
 * `readonly payload?: SfValue`
 
-Frozen, and branded with `Symbol.for("sf.variant")`. The `payload` key is absent, not `undefined`, for a payload-free variant.
+Frozen and branded with `Symbol.for("sf.variant")`. The `payload` key is absent, not `undefined`, for a payload-free variant.
 
 ### Constructors and Guards
 
@@ -115,7 +115,7 @@ A tagged integer (`i`, `u`) becomes a `number` when it lies within `Number.MIN_S
 
 Produces the tagged JSON the server decodes. The mapping is not symmetric with `decodeValue`, because JavaScript has one number type:
 
-* A finite `number` is emitted bare, and the server reads an integral one as an integer and a fractional one as an `f64`.
+* A finite `number` is emitted bare; the server reads an integral one as an integer and a fractional one as an `f64`.
 * `NaN`, `Infinity` and `-Infinity` are emitted as `{ $: "f", v: "nan" | "inf" | "-inf" }`.
 * A `bigint` in the `i128` range is emitted as `i`, one above it and within `u128` as `u`. Outside both it throws `bigint outside the value model's integer range`.
 * `Uint8Array` is emitted as bytes (`b`), never as a `u8` typed array. `Uint8ClampedArray` is not part of the model and falls through to object encoding.
@@ -183,7 +183,7 @@ Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m,
 
 * `parsePayload(text: string): Payload`
 
-Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G` or `S`, and when no `N` row was present.
+Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G` or `S`. Throws when no `N` row was present.
 
 ### Row Grammar
 
@@ -196,7 +196,7 @@ Each row is a tag character, a space, then its body, terminated by a newline.
 | `G` | one segment object | The segment sidecar |
 | `S` | slot id, a space, then a node row | One resolved slot |
 
-`S` rows arrive in completion order, not slot order, and a resolution may introduce further slots that arrive later in the same stream.
+`S` rows arrive in completion order, not slot order; a resolution may introduce further slots that arrive later in the same stream.
 
 ## 4. Rendering
 
@@ -234,7 +234,7 @@ Registration, timing and the scan that mounts markers.
 
 * `type MountTiming = "load" | "visible" | "idle"`
 
-`"load"` mounts as soon as the marker is scanned. `"visible"` observes the element with an `IntersectionObserver` and mounts on the first intersection, disconnecting immediately. `"idle"` mounts in `requestIdleCallback` where the browser provides it, and in a 1ms `setTimeout` where it does not.
+`"load"` mounts as soon as the marker is scanned. `"visible"` observes the element with an `IntersectionObserver` and mounts on the first intersection, disconnecting immediately. `"idle"` mounts in `requestIdleCallback` where the browser provides it and in a 1ms `setTimeout` where it does not.
 
 ### IslandEntry
 
@@ -248,7 +248,7 @@ What a module id is registered with.
 
 * `registerIsland(moduleId: string, entry: IslandEntry): void`
 
-Registers, or replaces, the entry for a module id in the process-wide registry. `moduleId` must equal the marker's `data-sf-module` exactly. Registration only affects markers scanned afterwards.
+Registers or replaces the entry for a module id in the process-wide registry. `moduleId` must equal the marker's `data-sf-module` exactly. Registration only affects markers scanned afterwards.
 
 ### scan
 

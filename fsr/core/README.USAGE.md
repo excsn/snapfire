@@ -32,16 +32,16 @@ This guide covers building values in the FSR value model, assembling a payload `
 
 * **Value model** - The closed roster of types that may cross the server/browser boundary. `Value` is the Rust half of it.
 * **Sovereign** - The model decides what can exist and encodings are ranked projections of it. An encoding is lossless over the model or a declared degradation, never a silent one, so the model never shrinks to suit a format.
-* **`ValueMap`** - An `IndexMap<String, Value>`, insertion-ordered for serialization. Aliased as `Props` for what goes into an island, and as `Data` for what a loader returns.
+* **`ValueMap`** - An `IndexMap<String, Value>`, insertion-ordered for serialization. Aliased as `Props` for what goes into an island and as `Data` for what a loader returns.
 * **`Params`** - An `IndexMap<String, String>`, the matched route parameters. Strings, not values.
-* **Normalization** - An unsigned integer that fits `i128` belongs in `Value::Int`. `Value::uint` enforces it, and `UInt` exists only for magnitudes above `i128::MAX`.
+* **Normalization** - An unsigned integer that fits `i128` belongs in `Value::Int`. `Value::uint` enforces it; `UInt` exists only for magnitudes above `i128::MAX`.
 * **Typed array** - `Value::TypedArray`, a numeric series held as one Rust `Vec` rather than one `Value` per element, mirroring the JavaScript `TypedArray` element set.
 * **Variant** - `Value::Variant`, a tag plus an optional payload. A Rust enum with data arrives in TypeScript as a discriminated union because the model carries the shape, not a map-shaped convention.
 * **Ref** - `Value::Ref`, a closed pair of kind and id. `RefKind::Action` names a server action, `RefKind::Module` names a client module.
 * **`Node`** - The payload tree, what a response renders to. Exactly five variants: `Text`, `Raw`, `Seq`, `Client` and `Pending`.
 * **`Html`** - A newtype over `String` holding trusted markup. It is serialized without escaping, so nothing untrusted may be put inside it.
 * **Island** - A `Node::Client`, a hydratable component named by `ModuleId` and carrying its props. `ssr` holds the evaluator's output when one ran.
-* **Slot** - A hole in the payload. `Node::Pending` carries a `SlotId` and an inline fallback, and a later stream row fills it.
+* **Slot** - A hole in the payload. `Node::Pending` carries a `SlotId` and an inline fallback; a later stream row fills it.
 * **`PlanNode`** - The render plan, a tree naming a module, an optional data source and named child slots, decided before any data is loaded.
 * **Deferral** - `PlanNode::deferred`, declared in the plan rather than discovered mid-render, which is what makes streaming plannable.
 * **`ModuleId`** - Source path plus export name, `components/ServerChart.tsx#default`. The content hash lives in the build manifest, never here.
@@ -122,7 +122,7 @@ let list = Value::Seq(vec![Value::int(1), Value::int(2)]);
 
 ### Choosing an Integer Variant
 
-Use `Value::int` for anything signed and `Value::uint` for anything unsigned. `uint` normalizes: a value that fits `i128` comes back as `Int`, and `UInt` is reached only above `i128::MAX`.
+Use `Value::int` for anything signed and `Value::uint` for anything unsigned. `uint` normalizes: a value that fits `i128` comes back as `Int`; `UInt` is reached only above `i128::MAX`.
 
 ```rust
 use snapfire_fsr_core::Value;
@@ -176,7 +176,7 @@ let record = Value::Map(row);
 
 ## Carrying Bytes and Numeric Arrays
 
-`Value::Bytes` is an opaque byte string; `Value::TypedArray` is a numeric series whose element type is part of the value. Both avoid one `Value` per element, and they never collide with each other or with a `Seq` of scalars.
+`Value::Bytes` is an opaque byte string; `Value::TypedArray` is a numeric series whose element type is part of the value. Both avoid one `Value` per element and they never collide with each other or with a `Seq` of scalars.
 
 ```rust
 use snapfire_fsr_core::{Fingerprint, TypedArray, Value};
@@ -338,7 +338,7 @@ layout.children.push((SlotName("content".into()), page));
 
 ### Declaring Deferral
 
-Setting `deferred` says this segment streams: its loader does not block the first response, and `fallback` names the loading module rendered from params alone. Deferral is declared here, never discovered mid-render.
+Setting `deferred` says this segment streams: its loader does not block the first response; `fallback` names the loading module rendered from params alone. Deferral is declared here, never discovered mid-render.
 
 ```rust
 use snapfire_fsr_core::{DataSourceId, ModuleId, NodeId, PlanNode, SlotName};
@@ -384,7 +384,7 @@ ba.insert("a".to_owned(), Value::int(1));
 assert_eq!(Value::Map(ab).fingerprint(), Value::Map(ba).fingerprint());
 ```
 
-Three rules do the work, and each one is a place a naive hash would report a false difference. Map entries hash in sorted key order, so insertion order never shows. Every NaN collapses to one bit pattern, in a scalar and inside a typed array alike. An unsigned value that fits `i128` hashes as its signed form, so a value that skipped `Value::uint` still matches.
+Three rules do the work and each one is a place a naive hash would report a false difference. Map entries hash in sorted key order, so insertion order never shows. Every NaN collapses to one bit pattern, in a scalar and inside a typed array alike. An unsigned value that fits `i128` hashes as its signed form, so a value that skipped `Value::uint` still matches.
 
 ```rust
 use snapfire_fsr_core::{Fingerprint, TypedArray, Value};
@@ -410,7 +410,7 @@ assert_ne!(a.fingerprint(), b.fingerprint());
 
 ### Fingerprinting a Node or a Plan
 
-The same trait covers both trees, so a payload and the plan that produced it are each hashable in one call. A `Node` fingerprint tracks island props, and a `PlanNode` fingerprint tracks deferral.
+The same trait covers both trees, so a payload and the plan that produced it are each hashable in one call. A `Node` fingerprint tracks island props; a `PlanNode` fingerprint tracks deferral.
 
 ```rust
 use snapfire_fsr_core::{Fingerprint, ModuleId, NodeId, PlanNode};
@@ -457,19 +457,19 @@ Compare fingerprints when the question is "same content", which is what caching 
 
 ## Why the Model Is Shaped This Way
 
-The model is sovereign and encodings are ranked projections of it. Admitting a type is a decision about what can exist, and an encoding then either carries it losslessly or degrades in a way it declares. That is why `Value` holds `i128`, `u128`, `f32` beside `f64`, raw bytes and typed arrays: JSON pays the price of tagging what it cannot spell, rather than the model shrinking to what JSON spells natively.
+The model is sovereign and encodings are ranked projections of it. Admitting a type is a decision about what can exist. An encoding then either carries it losslessly or degrades in a way it declares. That is why `Value` holds `i128`, `u128`, `f32` beside `f64`, raw bytes and typed arrays: JSON pays the price of tagging what it cannot spell, rather than the model shrinking to what JSON spells natively.
 
-Typed arrays are a variant rather than a `Seq` of numbers because the element type is information the browser needs, and because a ten-thousand-point series should be one `Vec`, not ten thousand `Value`s. Variants are a model type rather than a map-shaped convention so that codegen, every encoding and the fingerprint agree on one representation. `undefined` does not exist; an absent key is the only absence.
+Typed arrays are a variant rather than a `Seq` of numbers because the element type is information the browser needs and because a ten-thousand-point series should be one `Vec`, not ten thousand `Value`s. Variants are a model type rather than a map-shaped convention so that codegen, every encoding and the fingerprint agree on one representation. `undefined` does not exist; an absent key is the only absence.
 
 `Node` stops at five variants because composition happens at plan-node boundaries. The runtime stitches there and a framework composes freely inside one plan node, so nothing manipulates the inside of a node's output and the HTML AST is work nobody owes. Islands are absent from the plan for the mirror reason: whether one renders can depend on loader data, so the plan carries may-use and the payload carries does-use.
 
-The fingerprint is canonical because it is a cache key. Insertion order, NaN bit patterns and an unnormalized `UInt` are all differences in construction history rather than in content, and a hash that reported them would evict entries that were still correct. Length prefixes are the other half: without them, adjacent strings could be re-cut into the same byte stream and two different values would collide.
+The fingerprint is canonical because it is a cache key. Insertion order, NaN bit patterns and an unnormalized `UInt` are all differences in construction history rather than in content; a hash that reported them would evict entries that were still correct. Length prefixes are the other half: without them, adjacent strings could be re-cut into the same byte stream and two different values would collide.
 
 ## Error Handling
 
-The crate has one fallible operation, parsing a `ModuleId`, and one error type. Everything else is total: constructors cannot fail and fingerprinting cannot fail.
+The crate has one fallible operation (parsing a `ModuleId`) and one error type. Everything else is total: constructors cannot fail and fingerprinting cannot fail.
 
-`ParseModuleIdError` is a unit struct carrying no data. It implements `Debug`, `Display`, `Clone`, `PartialEq`, `Eq` and `std::error::Error`, and it is returned when the string has no `#`, an empty path or an empty export.
+`ParseModuleIdError` is a unit struct carrying no data. It implements `Debug`, `Display`, `Clone`, `PartialEq`, `Eq` and `std::error::Error`. It is returned when the string has no `#`, an empty path or an empty export.
 
 ```rust
 use std::str::FromStr;

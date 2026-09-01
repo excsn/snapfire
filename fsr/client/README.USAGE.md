@@ -32,13 +32,13 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Value model**: the set of things that can cross the boundary. It is wider than JSON, so the encoding tags whatever JSON cannot spell natively.
 * **Tagged JSON**: an object carrying a `$` key names a value the plain JSON grammar cannot carry, such as a wide integer, a typed array or a variant. Untagged JSON passes through untouched.
 * **Node**: one entry in the payload tree. Its five kinds are `text`, `raw`, `seq`, `client` and `pending`.
-* **Island**: a `client` node. The server renders it inside an `<sf-i>` marker with its props in a sibling JSON script tag, and the browser mounts a component over that markup.
+* **Island**: a `client` node. The server renders it inside an `<sf-i>` marker with its props in a sibling JSON script tag; the browser mounts a component over that markup.
 * **Module id**: the string that names a component, source path plus export, for example `components/ServerChart.tsx#default`. It is the key `registerIsland` is called with and the value of the marker's `data-sf-module`.
 * **Mounter**: the function that turns a loaded module plus props into a mounted component in an element. React has one in the `/react` entry; every other framework plugs in the same way.
 * **Hydration timing**: per island, `"load"`, `"visible"` or `"idle"`. It decides when the loader runs, not whether the island exists.
 * **Slot**: a hole a deferred segment fills later. It renders as `<div data-sf-slot="N">` holding a fallback until its content arrives.
 * **Segment**: a region of the page with a comparable key, delimited in the HTML by `<!--sf-g:key-->` and `<!--/sf-g-->` comments. Same key across two responses means the region survives navigation.
-* **Segment sidecar**: the `G` row, or the `script[data-sf-segments]` tag in an HTML response, carrying the segment tree the navigator diffs against.
+* **Segment sidecar**: the `G` row or the `script[data-sf-segments]` tag in an HTML response, carrying the segment tree the navigator diffs against.
 * **Payload response**: the line-oriented wire format, requested by adding `__payload` to a route's query string. One `V` row, one `N` row, an optional `G` row and one `S` row per resolved slot.
 * **Action**: a server function with a stable id. The client holds the id, never a URL shape.
 * **Revalidation**: re-fetching the current route after a mutation and replacing the top-level segment regions, so the layout's DOM and its island state survive.
@@ -146,7 +146,7 @@ sf: no island registered for components/ServerChart.tsx#default
 
 ## Choosing When an Island Hydrates
 
-`when` is per island, not per page, and defaults to `"load"`:
+`when` is per island, not per page; it defaults to `"load"`:
 
 ```ts
 registerIsland("components/ServerChart.tsx#default", {
@@ -214,7 +214,7 @@ import { boot } from "@snapfire/fsr-client";
 boot();
 ```
 
-`scan` is what does the work, and it is idempotent: it only matches `sf-i` markers without `data-sf-mounted`, and it stamps that attribute before scheduling. Call it directly for markup you inserted yourself:
+`scan` is what does the work. It is idempotent: it only matches `sf-i` markers without `data-sf-mounted` and it stamps that attribute before scheduling. Call it directly for markup you inserted yourself:
 
 ```ts
 import { scan } from "@snapfire/fsr-client";
@@ -236,7 +236,7 @@ import { enableNavigation } from "@snapfire/fsr-client";
 enableNavigation();
 ```
 
-A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. When the sidecar is missing, or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
+A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
 ## Navigating and Refreshing From Code
 
@@ -255,7 +255,7 @@ await navigate("/servers/eu", false);
 await refresh();
 ```
 
-Both request the payload form of the current URL by appending `__payload` to the query string, and both fall back to a full reload when the response is not usable.
+Both request the payload form of the current URL by appending `__payload` to the query string; both fall back to a full reload when the response is not usable.
 
 ## Calling an Action
 
@@ -315,7 +315,7 @@ The narrowing rule is the safe-integer range: a tagged integer inside it becomes
 
 ### Typed Arrays and Bytes
 
-A `ta` tag becomes the matching typed array and a `b` tag becomes a `Uint8Array`:
+A `ta` tag becomes the matching typed array; a `b` tag becomes a `Uint8Array`:
 
 ```ts
 const props = decodeValue(json) as { series: Float64Array; blob: Uint8Array };
@@ -326,7 +326,7 @@ The kinds map one to one: `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, 
 
 ### Variants and References
 
-A variant is a tag with an optional payload, and a reference names an action or a module. Both are branded, so test them with the guards rather than by shape:
+A variant is a tag with an optional payload; a reference names an action or a module. Both are branded, so test them with the guards rather than by shape:
 
 ```ts
 import { isRef, isVariant } from "@snapfire/fsr-client";
@@ -444,7 +444,7 @@ try {
 
 The kinds are the server's `FailureKind` spellings: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` and `internal`. A response whose body is not the JSON failure shape rejects with the parse error instead, so rethrow anything that is not an `ActionFailure`, as the block above does, rather than treating every rejection as one.
 
-The rest of the package reports differently. Mount problems never reject anything the caller can see: an unregistered module id and a loader or mounter that throws are both logged with `console.warn`, and the island stays as the server rendered it. Navigation degrades instead of throwing: a non-ok payload response, a missing sidecar or a segment region that cannot be found in the DOM all fall back to a full page load. The two decoders do throw, on an unknown value tag, an unknown typed array kind, an unknown node row kind, an unknown row tag or a body with no `N` row:
+The rest of the package reports differently. Mount problems never reject anything the caller can see: an unregistered module id and a loader or mounter that throws are both logged with `console.warn`; the island stays as the server rendered it. Navigation degrades instead of throwing: a non-ok payload response, a missing sidecar or a segment region that cannot be found in the DOM all fall back to a full page load. The two decoders do throw, on an unknown value tag, an unknown typed array kind, an unknown node row kind, an unknown row tag or a body with no `N` row:
 
 ```ts
 try {

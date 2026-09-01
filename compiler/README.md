@@ -56,10 +56,10 @@ Then read `example/dist`, which is what a browser would be served.
 | :--- | :--- |
 | Compile a project | `snapfirec --root ./my-lib` |
 | Choose which files are in it | `include`, `exclude` and `files` in `tsconfig.json` |
-| Control where output lands | `compilerOptions.rootDir` and `outDir`, or `--out-dir` |
-| Debug the emitted code | `--source-map`, or `sourceMap` in `tsconfig.json` |
+| Control where output lands | `compilerOptions.rootDir` and `outDir` (or `--out-dir`) |
+| Debug the emitted code | `--source-map` or `sourceMap` in `tsconfig.json` |
 | Ship smaller files | `--minify`, which adds a `.min` graph beside the readable one |
-| Ship types with the library | `--declaration`, or `declaration` in `tsconfig.json` |
+| Ship types with the library | `--declaration` or `declaration` in `tsconfig.json` |
 | Turn JSX into calls a browser runs | `"jsx": "react-jsx"` in `tsconfig.json` |
 | Get fonts and images into `dist` | `--copy-assets` |
 | Know which packages the page must supply | The `Externals:` line the build prints |
@@ -105,7 +105,7 @@ Then read `example/dist`, which is what a browser would be served.
 }
 ```
 
-`compilerOptions.target` is `tsc`'s to act on; set it as your project needs. `snapfirec` only refuses a value below `es2017`, since no engine that old can load an ES module, and reports one that is not a real edition. Nothing is downlevelled here, so emitted syntax follows the source and browser support is governed by `.browserslistrc`.
+`compilerOptions.target` is `tsc`'s to act on; set it as your project needs. `snapfirec` only refuses a value below `es2017` (no engine that old can load an ES module) and reports one that is not a real edition. Nothing is downlevelled here, so emitted syntax follows the source; browser support is governed by `.browserslistrc`.
 
 To control CSS transpilation and how nesting is flattened, add a `.browserslistrc` to your project root:
 
@@ -126,7 +126,7 @@ cargo test
 cargo test --features minify
 ```
 
-The tests create temporary directories, copy in fixtures, run the compiler, and assert on the actual file system output.
+The tests create temporary directories, copy in fixtures, run the compiler and assert on the actual file system output.
 
 ## License
 

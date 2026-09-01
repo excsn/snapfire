@@ -207,12 +207,12 @@ pub async fn assemble(
 Turns a plan plus a request into a payload. The order is fixed: every eager data source resolves to completion, then evaluation begins.
 
 * **Eager loads.** The walk collects `data_source` from the subtree root and every descendant, stopping at any node with `deferred` set that is not the root. The collected sources run concurrently under one `try_join_all`.
-* **Load outcomes.** A missing registration aborts with `AssembleError::MissingDataSource`. A `LoadError` is recorded against its node id and the wave continues.
-* **Failure degradation.** A node with a recorded failure renders its `error` module, or the built-in error node when it has none, and its children are not built.
+* **Load outcomes.** A missing registration aborts with `AssembleError::MissingDataSource`. A `LoadError` is recorded against its node id; the wave continues.
+* **Failure degradation.** A node with a recorded failure renders its `error` module or the built-in error node when it has none. Its children are not built.
 * **Head.** `Chunk::Slot(SlotName("head"))` substitutes the `head` argument and marks the subtree head-using, which propagates to ancestors through non-deferred children.
-* **Slots.** Any other slot name must match a child in `PlanNode::children`, or the call fails with `AssembleError::MissingSlot`.
-* **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props alone, or `Node::raw("")` when it has none, and `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`.
-* **Collapse.** A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq`, and each non-deferred child segment records `path: [index]`.
+* **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
+* **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props alone or `Node::raw("")` when it has none. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`.
+* **Collapse.** A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq` and each non-deferred child segment records `path: [index]`.
 
 Cache lookup and store happen per plan node that carries a `cache_key`. The composed key is:
 
@@ -222,14 +222,14 @@ Cache lookup and store happen per plan node that carries a `cache_key`. The comp
 
 * `cache_key` is `PlanNode::cache_key`, the plan's own tag.
 * The params are every entry of `ctx.params`, formatted `k=v`, sorted, joined by `&`. No params means an empty field.
-* `subject` is the subject from `ctx.session.identity()` when the session resolved one and `-` when it did not.
+* `subject` is the subject from `ctx.session.identity()` when the session resolved one; it is `-` when it did not.
 * The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing each node id followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
 
 No key is composed at all, so neither `get` nor `put` runs, when the node has no `cache_key`, when the subtree contains a `deferred` descendant or when any node in the subtree has a recorded load failure. A key that was composed is always looked up, but it is written back only if the subtree did not use the head slot.
 
 ### `Assembly`
 
-What one call produced. `Debug` (which prints `pending` as a count); not `Clone`, and both streaming functions consume it by value.
+What one call produced. `Debug` (which prints `pending` as a count); not `Clone`. Both streaming functions consume it by value.
 
 * `pub tree: Node`
 * `pub pending: Vec<PendingResolution>`
@@ -262,7 +262,7 @@ Segment information produced inside a resolution is discarded; a deferred subtre
 
 Module plus every matched param. Unit struct.
 
-* `fn key(&self, plan: &PlanNode, params: &Params) -> String`: `plan.module` displayed as `path#export`, and when params are present a `?` followed by `k=v` pairs sorted and joined by `&`, for example `page.tera#default?section=servers`.
+* `fn key(&self, plan: &PlanNode, params: &Params) -> String`: `plan.module` displayed as `path#export`; when params are present a `?` followed by `k=v` pairs sorted and joined by `&`, for example `page.tera#default?section=servers`.
 
 ### `SegmentInfo`
 
@@ -288,7 +288,7 @@ What a hit restores. `Debug + Clone + PartialEq`.
 
 * `fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>`: `key` is the composed key from [`assemble`](#assemble).
 * `fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()>`
-* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()>`: takes the plan's `cache_key`, not a composed key, and must remove every composed key derived from it, across all params and identities.
+* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities.
 
 ### `NoCache`
 
@@ -362,7 +362,7 @@ Cloning a context shares the session cell and the service handle; only `params` 
 
 ### `ServiceHandle`
 
-`ctx.services`. `Clone + Default`, and the default is unbound.
+`ctx.services`. `Clone + Default`; the default is unbound.
 
 * `pub fn new(caller: Arc<dyn ServiceCaller>) -> Self`
 * `pub fn is_bound(&self) -> bool`
@@ -462,7 +462,7 @@ A data source failed. `Debug + Clone + thiserror::Error`, displayed as ``data so
 * `pub source_id: String`
 * `pub message: String`
 
-Raised by a `DataSource`. In assembly it degrades one segment to its error module rather than failing the request, and it disqualifies the whole enclosing subtree from being cached. Its display string is the `error` prop the error module receives. It is not a hard error unless a caller converts it into `AssembleError::Load` itself.
+Raised by a `DataSource`. In assembly it degrades one segment to its error module rather than failing the request. It disqualifies the whole enclosing subtree from being cached. Its display string is the `error` prop the error module receives. It is not a hard error unless a caller converts it into `AssembleError::Load` itself.
 
 ### `EvalError`
 

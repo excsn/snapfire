@@ -102,7 +102,7 @@ assert!(wire.contains("N [\"q\","));
 
 ## Encoding Values to JSON
 
-`value_to_json` writes plain JSON wherever plain JSON is exact, and a tagged object wherever it is not.
+`value_to_json` writes plain JSON wherever plain JSON is exact and a tagged object wherever it is not.
 
 ```rust
 use snapfire_fsr_core::Value;
@@ -129,11 +129,11 @@ Every tag the encoder can emit, with the shape it carries:
 | `var` | `Value::Variant` | `{"$":"var","t":"Down"}`, `{"$":"var","t":"Retrying","p":3}` |
 | `ref` | `Value::Ref` | `{"$":"ref","k":"action","id":"saveServer"}` |
 
-The `$` key is always written first, and the remaining keys follow in the order listed above, so the output is byte-stable.
+The `$` key is always written first and the remaining keys follow in the order listed above, so the output is byte-stable.
 
 ## Decoding JSON to Values
 
-`json_to_value` reads the tags back, and reads JSON that carries no tags at all.
+`json_to_value` reads the tags back and reads JSON that carries no tags at all.
 
 ```rust
 use snapfire_fsr_core::Value;
@@ -179,7 +179,7 @@ assert_eq!(
 
 ## Carrying Floats and Non-Finite Values
 
-`f64` reaches the wire as a bare number only when it is finite with a non-zero fraction. An integral `f64` is tagged so it does not come back as an integer, and the three non-finite values ride as symbols.
+`f64` reaches the wire as a bare number only when it is finite with a non-zero fraction. An integral `f64` is tagged so it does not come back as an integer. The three non-finite values ride as symbols.
 
 ```rust
 use snapfire_fsr_core::Value;
@@ -225,7 +225,7 @@ use snapfire_fsr_payload::value_to_json;
 assert_eq!(value_to_json(&Value::Bytes(vec![0, 1, 2, 255])).to_string(), "{\"$\":\"b\",\"v\":\"AAEC/w==\"}");
 ```
 
-A typed array goes out under `ta`, with `k` naming the element kind and `v` holding the elements as little-endian bytes in base64. The kind is one of `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32` or `f64`, and the browser maps each onto the matching `TypedArray` constructor.
+A typed array goes out under `ta`, with `k` naming the element kind and `v` holding the elements as little-endian bytes in base64. The kind is one of `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32` or `f64`. The browser maps each onto the matching `TypedArray` constructor.
 
 ```rust
 use snapfire_fsr_core::{TypedArray, Value};
@@ -235,7 +235,7 @@ let json = value_to_json(&Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])
 assert_eq!(json.to_string(), "{\"$\":\"ta\",\"k\":\"f64\",\"v\":\"AAAAAAAA8D8AAAAAAAAEQAAAAAAAAAhA\"}");
 ```
 
-Decoding rejects a byte length that is not a whole number of elements, and it rejects a kind it does not know.
+Decoding rejects a byte length that is not a whole number of elements and it rejects a kind it does not know.
 
 ## Escaping a Map With a Dollar Key
 
@@ -275,7 +275,7 @@ let retrying = Value::Variant { tag: "Retrying".into(), payload: Some(Box::new(V
 assert_eq!(value_to_json(&retrying).to_string(), "{\"$\":\"var\",\"t\":\"Retrying\",\"p\":3}");
 ```
 
-A ref carries its kind under `k`, either `action` or `module`, and its identifier under `id`. These are how a server hands the browser a callable action or a mountable module inside props.
+A ref carries its kind under `k` (either `action` or `module`) and its identifier under `id`. These are how a server hands the browser a callable action or a mountable module inside props.
 
 ```rust
 use snapfire_fsr_core::{RefKind, Value};
@@ -320,7 +320,7 @@ assert!(html_serialize(&node).starts_with(
 ));
 ```
 
-Props are encoded with `value_to_json` and every `<` in the result is rewritten as the JSON escape `\u003c`, so a string prop cannot close the script tag it sits in. Nothing else in the props JSON is altered, and a reader gets the `<` back when it parses the script body.
+Props are encoded with `value_to_json` and every `<` in the result is rewritten as the JSON escape `\u003c`, so a string prop cannot close the script tag it sits in. Nothing else in the props JSON is altered and a reader gets the `<` back when it parses the script body.
 
 ```rust
 use snapfire_fsr_core::{ModuleId, Node, Value, ValueMap};
@@ -393,7 +393,7 @@ let later = session.serialize(&resolved_slot_tree);
 | `c` | `Node::Client` | `["c", {"m": "path#export", "p": {...props}, "ch": [ ...child rows ], "s": null}]` |
 | `p` | `Node::Pending` | `["p", 1, ...fallback row]` |
 
-A `c` row carries the module id in its `Display` form, path then `#` then export. Its `p` field is the props map through `value_to_json`, so every tag above can appear inside it. Its `ch` field is the children, and its `s` field is the server-rendered tree or `null`.
+A `c` row carries the module id in its `Display` form, path then `#` then export. Its `p` field is the props map through `value_to_json`, so every tag above can appear inside it. Its `ch` field is the children; its `s` field is the server-rendered tree or `null`.
 
 ```rust
 use snapfire_fsr_core::{ModuleId, Node, ValueMap};
@@ -424,7 +424,7 @@ assert_eq!(wire, "V {\"fmt\":1,\"enc\":\"json\"}\nN [\"t\",\"hi\"]\n");
 
 ## Decoding Wire Rows Back to Nodes
 
-`row_json_to_node` is the inverse, and is what a Rust-side reader or a test uses to check a tree survived.
+`row_json_to_node` is the inverse and is what a Rust-side reader or a test uses to check a tree survived.
 
 ```rust
 use snapfire_fsr_core::{Fingerprint, ModuleId, Node, SlotId, Value, ValueMap};
@@ -454,7 +454,7 @@ Decoding a `c` row is the strict part: `m` must parse as `path#export`, `p` must
 
 ## Streaming Slot Resolutions
 
-`serialize_page` covers a response with nothing deferred. When slots resolve after the tree has gone out, the reader expects one `S` row per resolution, carrying the slot id then the row for its content. `snapfire_fsr_runtime` writes these, and it also inserts a `G` sidecar row between `N` and the first `S` for the navigator; this crate emits only `V` and `N`.
+`serialize_page` covers a response with nothing deferred. When slots resolve after the tree has gone out, the reader expects one `S` row per resolution, carrying the slot id then the row for its content. `snapfire_fsr_runtime` writes these and it also inserts a `G` sidecar row between `N` and the first `S` for the navigator; this crate emits only `V` and `N`.
 
 ```rust
 use serde_json::json;
@@ -468,7 +468,7 @@ for resolved in resolutions {
 }
 ```
 
-The HTML equivalent sends each resolution as an inert template the page script moves into the slot, and it is here that one `HtmlSession` has to span the whole response.
+The HTML equivalent sends each resolution as an inert template the page script moves into the slot. It is here that one `HtmlSession` has to span the whole response.
 
 ```rust
 use snapfire_fsr_payload::HtmlSession;
@@ -484,7 +484,7 @@ for resolved in resolutions {
 
 ## Checking the Format Version
 
-`FORMAT_VERSION` is the integer written into the `V` row, and a reader compares against it before trusting the rows that follow.
+`FORMAT_VERSION` is the integer written into the `V` row; a reader compares against it before trusting the rows that follow.
 
 ```rust
 use snapfire_fsr_payload::FORMAT_VERSION;
@@ -497,7 +497,7 @@ The `V` row also carries `enc`, which is `json` for the row protocol described h
 
 ## Choosing Between HTML and Rows
 
-Both encodings carry the same tree, and the choice is about who consumes it. Serve HTML when the browser has no client runtime yet, when the response has to be readable without JavaScript or when the first paint matters more than the handoff; islands boot from the `data-sf-props` scripts afterwards. Serve rows when the client runtime is already live, for instance a navigation the navigator handles, since the reader can build the tree directly instead of parsing markup and re-reading props out of the DOM.
+Both encodings carry the same tree; the choice is about who consumes it. Serve HTML when the browser has no client runtime yet, when the response has to be readable without JavaScript or when the first paint matters more than the handoff; islands boot from the `data-sf-props` scripts afterwards. Serve rows when the client runtime is already live, for instance a navigation the navigator handles, since the reader can build the tree directly instead of parsing markup and re-reading props out of the DOM.
 
 ```rust
 use snapfire_fsr_payload::{html_serialize, serialize_page};
@@ -505,11 +505,11 @@ use snapfire_fsr_payload::{html_serialize, serialize_page};
 let body = if wants_wire { serialize_page(&tree) } else { html_serialize(&tree) };
 ```
 
-The two encodings share `value_to_json` for props, so a value behaves the same either way, and the golden tests pin both byte for byte against the same tree.
+The two encodings share `value_to_json` for props, so a value behaves the same either way. The golden tests pin both byte for byte against the same tree.
 
 ## Error Handling
 
-Encoding cannot fail. Decoding returns `Result<_, DecodeError>`, and `DecodeError` is a newtype over the message, so the message is the whole of the information.
+Encoding cannot fail. Decoding returns `Result<_, DecodeError>`; `DecodeError` is a newtype over the message, so the message is the whole of the information.
 
 ```rust
 use snapfire_fsr_payload::{row_json_to_node, DecodeError};

@@ -67,7 +67,7 @@ Not `Clone`. Passed by reference to `persist` and `destroy`.
 
 ### Sessions
 
-The session layer facade. Holds the store, an `HmacCodec` built from the key and the config.
+The session layer facade. Holds the store, the config and an `HmacCodec` built from the key.
 
 * `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`. Any key length is accepted.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
@@ -94,7 +94,7 @@ Server-side custody for backend credentials and auth flow state. `Arc`-backed be
 * `fn is_dirty(&self) -> bool`.
 * `fn snapshot(&self) -> ValueMap` clones the map; it does not clear the dirty flag.
 
-Implements `Clone` and `Default`. There is no method that hands the cell to `RequestCtx`, which is the custody boundary. `snapfire_fsr_service` implements its `Credentials` trait for this type, so an interceptor that refreshes a credential writes back through `set` and the next `persist` stores it.
+Implements `Clone` and `Default`. There is no method that hands the cell to `RequestCtx`, which is the custody boundary. `snapfire_fsr_service` implements its `Credentials` trait for this type, so an interceptor that refreshes a credential writes back through `set`; the next `persist` stores it.
 
 ## 4. The Store
 
@@ -156,7 +156,7 @@ HMAC-SHA256 over the session id.
 {session id}.{hex hmac-sha256 of the session id}
 ```
 
-The id is thirty-two hex characters as generated, and the mac is sixty-four lowercase hex characters. Nothing else is encoded in the cookie.
+The id is thirty-two hex characters as generated; the mac is sixty-four lowercase hex characters. Nothing else is encoded in the cookie.
 
 ### Set-Cookie header
 
@@ -186,7 +186,7 @@ The layer's signing key is used, so the token is stable for the life of the sess
 
 ### Session record
 
-`SessionRecord` is a plain Rust struct with no encoding of its own. `MemorySessionStore` holds it as a value in memory. Any store that leaves the process must supply its own serialisation, and that serialisation covers `tokens`, which is credential material.
+`SessionRecord` is a plain Rust struct with no encoding of its own. `MemorySessionStore` holds it as a value in memory. Any store that leaves the process must supply its own serialisation; that serialisation covers `tokens`, which is credential material.
 
 ## 7. Types From Other Crates
 
@@ -216,7 +216,7 @@ The layer's signing key is used, so the token is stable for the life of the sess
 
 ## 8. Error Handling
 
-The crate defines no error type and no method returns a `Result`.
+The crate defines no error type; no method returns a `Result`.
 
 | Failure | How it surfaces |
 | --- | --- |

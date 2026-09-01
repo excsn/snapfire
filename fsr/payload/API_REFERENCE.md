@@ -129,7 +129,7 @@ Holds the island id counter for one response, so ids stay unique across chunks t
 
 Constraints:
 
-* Ids are allocated in depth-first tree order, starting at `0` for a fresh session, and take the form `sf-i{n}`.
+* Ids are allocated in depth-first tree order, starting at `0` for a fresh session. They take the form `sf-i{n}`.
 * One session per response. Serializing two chunks of the same response through two sessions emits `sf-i0` twice.
 * The counter is `u32` and only increases; a session is never rewound.
 
@@ -219,7 +219,7 @@ The `p` field of a `c` row is the props map through `value_to_json`, so every fo
 | `G` | the segment sidecar for the navigator | `snapfire_fsr_runtime` |
 | `S` | a slot id, a space, then the row resolving it | `snapfire_fsr_runtime` |
 
-`S` lines arrive in completion order, not slot order, and a resolution may itself contain further `p` rows whose slots resolve in later lines.
+`S` lines arrive in completion order, not slot order. A resolution may itself contain further `p` rows whose slots resolve in later lines.
 
 ## 5. Error Handling
 
