@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 use std::sync::Arc;
 
 use futures::executor::block_on;
@@ -8,8 +9,8 @@ use snapfire_fsr_core::{
   Value, ValueMap,
 };
 use snapfire_fsr_runtime::{
-  assemble, Chunk, DataSources, Evaluator, Evaluators, Identity, MemoryCache, NodeChunks,
-  RequestCtx, Runtime, SessionCell,
+  assemble, CacheEntry, Chunk, DataSources, Evaluator, Evaluators, FibreCache, Identity,
+  MemoryCache, NodeCache, NodeChunks, RequestCtx, Runtime, SessionCell,
 };
 
 struct CountingEval(Arc<AtomicU32>);
@@ -208,4 +209,25 @@ fn identity_is_part_of_the_key() {
   block_on(assemble(&rt, &plan, &user("alice"), &Node::raw(""))).unwrap();
 
   assert_eq!(evals.load(Ordering::Relaxed), 3, "anon, alice and bob each evaluate once; alice repeats hit");
+}
+
+#[test]
+fn a_tuned_shard_count_changes_nothing_a_caller_can_observe() {
+  let entry = CacheEntry { node: Node::raw("<p>one</p>"), segments: Vec::new() };
+  let tuned = FibreCache::bounded_sharded(64, Duration::from_secs(60), 4);
+  let custom = FibreCache::new(
+    fibre_cache::CacheBuilder::default()
+      .capacity(64)
+      .time_to_live(Duration::from_secs(60))
+      .shards(2)
+      .build()
+      .unwrap(),
+  );
+
+  for cache in [&tuned, &custom] {
+    block_on(cache.put("page|a".to_owned(), entry.clone()));
+    assert_eq!(block_on(cache.get("page|a")), Some(entry.clone()));
+    block_on(cache.invalidate("page"));
+    assert_eq!(block_on(cache.get("page|a")), None);
+  }
 }

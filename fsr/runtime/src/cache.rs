@@ -86,13 +86,28 @@ impl FibreCache {
   }
 
   pub fn bounded(capacity: u64, ttl: Duration) -> Self {
-    let cache = fibre_cache::CacheBuilder::default()
-      .capacity(capacity)
-      .time_to_live(ttl)
-      .build()
-      .expect("fibre_cache build");
-    Self::new(cache)
+    Self::new(bounded_cache(capacity, ttl, None))
   }
+
+  /// `shards` is rounded up to the next power of two by `fibre_cache`, whose
+  /// own default is derived from the CPU count. Capacity is accounted across
+  /// all shards, so this trades lock contention against the fixed per-shard
+  /// policy and timer structures, never against usable capacity.
+  pub fn bounded_sharded(capacity: u64, ttl: Duration, shards: usize) -> Self {
+    Self::new(bounded_cache(capacity, ttl, Some(shards)))
+  }
+}
+
+fn bounded_cache(
+  capacity: u64,
+  ttl: Duration,
+  shards: Option<usize>,
+) -> fibre_cache::Cache<String, CacheEntry> {
+  let mut builder = fibre_cache::CacheBuilder::default().capacity(capacity).time_to_live(ttl);
+  if let Some(shards) = shards {
+    builder = builder.shards(shards);
+  }
+  builder.build().expect("fibre_cache build")
 }
 
 fn plan_key_of(composed: &str) -> &str {
