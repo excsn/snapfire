@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::executor::block_on;
-use shopping_react_ts::server::routes::about_plan;
+use shopping_react_ts::routes::about_plan;
 use snapfire_fsr_host::{Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_core::{Value, ValueMap};
@@ -133,9 +133,9 @@ fn an_unmatched_path_is_not_found() {
 
 #[test]
 fn routes_come_from_the_plan_file_and_from_rust() {
-  let routes = snapfire_fsr::Routes::from_manifest(&shopping_react_ts::server::routes::plan())
+  let routes = snapfire_fsr::Routes::from_manifest(&shopping_react_ts::routes::plan())
     .unwrap()
-    .add("/about", shopping_react_ts::server::routes::about_plan());
+    .add("/about", shopping_react_ts::routes::about_plan());
 
   assert_eq!(routes.patterns(), vec!["/", "/cart", "/product/{id}", "/about"]);
   assert!(routes.build().is_ok());
@@ -143,7 +143,7 @@ fn routes_come_from_the_plan_file_and_from_rust() {
 
 #[test]
 fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
-  use shopping_react_ts::server::routes::{about_plan, plan};
+  use shopping_react_ts::routes::{about_plan, plan};
   use snapfire_fsr::Routes;
 
   let clash = Routes::from_manifest(&plan()).unwrap().add("/", about_plan()).build();
@@ -160,7 +160,7 @@ fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
 
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
-  let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::server::routes::plan()).unwrap();
+  let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::routes::plan()).unwrap();
   assert_eq!(manifest.sources(), vec!["index", "cart", "product"]);
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));

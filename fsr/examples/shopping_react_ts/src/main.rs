@@ -1,6 +1,7 @@
+use std::path::Path;
 use std::sync::Arc;
 
-use shopping_react_ts::{backend, server::routes};
+use shopping_react_ts::{backend, routes};
 use snapfire_fsr_host::Host;
 
 /// One application, two servers: the shopping service the browser never talks
@@ -8,6 +9,11 @@ use snapfire_fsr_host::Host;
 /// one route added here in Rust is the graduation path, not the norm.
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+  let logging = Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let _logging = fibre_logging::init::init_from_file(&logging)
+    .map_err(|e| eprintln!("logging disabled: {e}"))
+    .ok();
+
   let backend_addr = ("127.0.0.1", 8081);
   let inventory_addr: std::net::SocketAddr = "127.0.0.1:8082".parse().unwrap();
   let fsr_addr = ("127.0.0.1", 8080);

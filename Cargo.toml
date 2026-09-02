@@ -8,7 +8,6 @@ members = [
   "fsr/auth",
   "fsr/cli",
   "fsr/examples/advanced_tera_app",
-  "fsr/examples/shopping_react_ts",
   "fsr/host",
   "fsr/ir",
   "fsr/lower",
@@ -21,6 +20,8 @@ members = [
   "rs"
 ]
 exclude = [
+  # Its own workspace, so it builds the way a consumer's crate would.
+  "fsr/examples/shopping_react_ts",
 ]
 
 [workspace.package]

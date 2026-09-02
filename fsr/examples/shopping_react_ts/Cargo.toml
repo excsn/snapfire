@@ -1,25 +1,21 @@
+[workspace]
+
 [package]
 name = "shopping_react_ts"
 version = "0.1.0"
 publish = false
-
-edition = { workspace = true }
-authors = { workspace = true }
-license = { workspace = true }
+edition = "2024"
+license = "MPL-2.0"
+authors = ["Norm O <normo.pub@gmail.com>"]
 
 [dependencies]
 snapfire_fsr = { path = "../../app" }
 snapfire_fsr_host = { path = "../../host", features = ["actix"] }
-snapfire_fsr_core = { path = "../../core" }
-snapfire_fsr_plan = { path = "../../plan" }
-snapfire_fsr_runtime = { path = "../../runtime" }
-snapfire_fsr_service = { path = "../../service" }
 actix-web = "4"
 fibre_logging = "0.5"
 futures-util = "0.3"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order"] }
 prost = "0.14"
 tonic = "0.14"
 tonic-prost = "0.14"
@@ -32,5 +28,9 @@ protox = "0.9"
 tonic-prost-build = "0.14"
 
 [dev-dependencies]
+snapfire_fsr_core = { path = "../../core" }
+snapfire_fsr_plan = { path = "../../plan" }
+snapfire_fsr_runtime = { path = "../../runtime" }
+snapfire_fsr_service = { path = "../../service", features = ["grpc"] }
 futures = "0.3"
-futures-util = "0.3"
+serde_json = "1"
