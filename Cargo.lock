@@ -230,30 +230,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "advanced_tera_app"
-version = "0.1.0"
-dependencies = [
- "actix-files",
- "actix-web",
- "fibre_logging",
- "form_urlencoded",
- "futures",
- "futures-util",
- "parking_lot",
- "serde_json",
- "snapfire_fsr_auth",
- "snapfire_fsr_core",
- "snapfire_fsr_payload",
- "snapfire_fsr_runtime",
- "snapfire_fsr_service",
- "snapfire_fsr_session",
- "snapfire_fsr_tera",
- "tera",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
 name = "aead"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -921,10 +897,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
- "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -1649,29 +1622,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fibre_logging"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "294b418d020638b35f3364123855fddcaa7c7d3916cf25036c6e7ecf1d8c6624"
-dependencies = [
- "chrono",
- "fibre",
- "flate2",
- "humantime",
- "log",
- "once_cell",
- "parking_lot",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.20",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2167,12 +2117,6 @@ name = "httpdate"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
-
-[[package]]
-name = "humantime"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15cdd26707701c53297e2fa6afb323d55fbc1d0810c3aec078ae3ef0424c3c15"
 
 [[package]]
 name = "hybrid-array"

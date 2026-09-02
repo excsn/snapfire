@@ -1,12 +1,11 @@
-[workspace]
-
 [package]
 name = "shopping_react_ts"
 version = "0.1.0"
 publish = false
-edition = "2024"
-license = "MPL-2.0"
-authors = ["Norm O <normo.pub@gmail.com>"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
 
 [dependencies]
 snapfire_fsr = { path = "../../app" }

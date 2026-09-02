@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+  "advanced_tera_app",
+  "shopping_react_ts",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MPL-2.0"
+authors = ["Norm O <normo.pub@gmail.com>"]
