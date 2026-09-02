@@ -172,9 +172,9 @@ impl Service {
 /// Rust traits, the plan-file validation and the runtime marshalling all read.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Contract {
-  #[serde(default)]
+  #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
   pub types: IndexMap<String, TypeDef>,
-  #[serde(default)]
+  #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
   pub services: IndexMap<String, Service>,
 }
 
@@ -211,5 +211,23 @@ impl Contract {
 
   pub fn method(&self, service: &str, method: &str) -> Option<&Method> {
     self.services.get(service)?.methods.get(method)
+  }
+
+  /// Takes every type and service of `other`, refusing a name this contract
+  /// already defines; `file` names `other` in the error.
+  pub fn merge(&mut self, other: Contract, file: &str) -> Result<(), crate::ContractError> {
+    for (name, def) in other.types {
+      if self.types.contains_key(&name) {
+        return Err(crate::ContractError::DuplicateType { name, file: file.to_owned() });
+      }
+      self.types.insert(name, def);
+    }
+    for (name, service) in other.services {
+      if self.services.contains_key(&name) {
+        return Err(crate::ContractError::DuplicateService { name, file: file.to_owned() });
+      }
+      self.services.insert(name, service);
+    }
+    Ok(())
   }
 }

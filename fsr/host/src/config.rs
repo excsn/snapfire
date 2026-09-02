@@ -49,13 +49,14 @@ pub struct ServerConfig {
   pub listen: String,
   #[serde(default = "default_plan")]
   pub plan: String,
-  #[serde(default = "default_contract")]
-  pub contract: String,
+  /// The directory of contract files `fsr build` writes, merged at boot in name order.
+  #[serde(default = "default_contracts")]
+  pub contracts: String,
 }
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contract: default_contract() }
+    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts() }
   }
 }
 
@@ -92,7 +93,9 @@ pub struct SessionSection {
 }
 
 /// A service the application calls. `document` defaults to
-/// `clients/<name>.openapi.json` under the app directory.
+/// `clients/<name>.openapi.json` under the app directory, or
+/// `clients/<name>.proto` when that is the file present; a `.proto` document
+/// is reached over gRPC, anything else over HTTP.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientConfig {
@@ -117,10 +120,10 @@ fn default_listen() -> String {
   "127.0.0.1:8080".to_owned()
 }
 fn default_plan() -> String {
-  "plan.json".to_owned()
+  "generated/plan.json".to_owned()
 }
-fn default_contract() -> String {
-  "generated/contract.json".to_owned()
+fn default_contracts() -> String {
+  "generated/contracts".to_owned()
 }
 fn default_shell() -> String {
   "shell#document".to_owned()
@@ -135,7 +138,7 @@ fn default_capacity() -> u64 {
   4096
 }
 
-/// The deployment axes, read from the same variables xs_core's applications use: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (no default).
+/// The deployment axes, read from the environment: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (no default).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Deployment {
   pub release_env: String,
@@ -347,7 +350,9 @@ impl Config {
     }
     for (name, client) in clients.iter_mut() {
       if client.document.is_none() {
-        client.document = Some(format!("clients/{name}.openapi.json"));
+        let openapi = format!("clients/{name}.openapi.json");
+        let proto = format!("clients/{name}.proto");
+        client.document = Some(if !app.join(&openapi).is_file() && app.join(&proto).is_file() { proto } else { openapi });
         inferred.push(format!("clients.{name}.document from clients/"));
       }
     }

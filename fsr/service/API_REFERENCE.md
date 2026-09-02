@@ -35,16 +35,21 @@ The typed service boundary for Snapfire FSR: the contract artifact, its checking
   * [Route](#route)
   * [HttpTransport](#httptransport)
   * [kind_for_status](#kind_for_status)
-* [7. The Runtime Seam](#7-the-runtime-seam)
+* [7. Protobuf and gRPC](#7-protobuf-and-grpc)
+  * [import_proto](#import_proto)
+  * [ImportedProto](#importedproto)
+  * [GrpcTransport](#grpctransport)
+  * [kind_for_code](#kind_for_code)
+* [8. The Runtime Seam](#8-the-runtime-seam)
   * [ServiceHandle](#servicehandle)
   * [ServiceCaller](#servicecaller)
   * [Identity](#identity)
   * [FailureKind](#failurekind)
   * [ServiceError](#serviceerror)
-* [8. TypeScript Declarations](#8-typescript-declarations)
+* [9. TypeScript Declarations](#9-typescript-declarations)
   * [declarations](#declarations)
   * [type_name](#type_name)
-* [9. Error Handling](#9-error-handling)
+* [10. Error Handling](#10-error-handling)
   * [ContractError](#contracterror)
 
 ## 1. The Contract Artifact
@@ -151,6 +156,7 @@ The neutral artifact. Also `Default`. Both maps are `IndexMap`s and both default
 * `fn service(self, name: impl Into<String>, service: Service) -> Self`
 * `fn to_json(&self) -> String` writes pretty JSON; panics only if serialisation itself fails
 * `fn from_json(source: &str) -> Result<Self, serde_json::Error>`
+* `fn merge(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: takes every type and service of `other`; a name this contract already defines is `DuplicateType` or `DuplicateService` naming `file`.
 * `fn method(&self, service: &str, method: &str) -> Option<&Method>`
 * `fn validate(&self) -> Result<(), ContractError>` checks that every `Named` in every record field, variant payload, parameter and return type resolves. Fails on the first unresolved reference with `ContractError::UnknownType`, whose `path` reads `Type.field`, `Service.method.param` or `Service.method()`.
 * `fn check_value(&self, ty: &Type, value: &Value, path: &str) -> Result<(), ContractError>` checks one value at a caller-supplied path. Descending appends `[i]` for a list index, `.tag` for a variant payload and `.key` for a record field or a map key.
@@ -348,7 +354,34 @@ Response handling:
 
 The named statuses are matched before the 4xx range.
 
-## 7. The Runtime Seam
+## 7. Protobuf and gRPC
+
+Modules `proto` and `grpc`, behind the `grpc` feature, re-exported at the crate root. protox compiles the file, prost-reflect holds the descriptors and encodes the messages, tonic carries them.
+
+### import_proto
+
+* `fn import_proto(path: &Path, default_service: &str) -> Result<ImportedProto, ImportError>`: compiles the file with its directory and the Google well-known types as include paths.
+* `fn import_proto_source(name: &str, source: &str, default_service: &str) -> Result<ImportedProto, ImportError>`: the same over source text; only the well-known types can be imported.
+* One service in the file is named `default_service`; several keep their proto names. Method names go lowerCamel. Parameters are the request message's fields; `google.protobuf.Empty` is no parameters or a `Null` return. A streaming method, a map keyed by anything but `string` and `Any`, `Struct`, `Value`, `ListValue` or `FieldMask` are `ImportError::Unsupported`; a file that does not compile is `Malformed`.
+* Types: `int32`, `sint32`, `sfixed32` to `I32`; `int64`, `sint64`, `sfixed64` to `I64`; `uint32`, `fixed32` to `U32`; `uint64`, `fixed64` to `U64`; `float`, `double`, `bool`, `string`, `bytes` to their scalars; `repeated` to `List`; `map<string, T>` to `Map`; an enum to `Str`; a message field, a proto3 `optional` or a `oneof` member to `Optional`; `Outer.Inner` to the record `OuterInner` with the package dropped; `Timestamp` and `Duration` to `Str`; the wrapper types to `Optional` of their scalar.
+
+### ImportedProto
+
+* `pub struct ImportedProto { pub contract: Contract, pub pool: prost_reflect::DescriptorPool, pub methods: Vec<(String, GrpcMethod)> }`, the key being `service.method` as the contract names them.
+* `pub struct GrpcMethod { pub path: String, pub input: String, pub output: String }`: the request path `/pkg.Service/Method` and the full names of the request and response messages in `pool`.
+
+### GrpcTransport
+
+* `fn new(base: &str, imported: &ImportedProto) -> Result<Self, String>`: `base` is `http://host:port` or `https://`; the channel opens lazily on the first call, so construction needs no runtime.
+* `fn with_channel(channel: tonic::transport::Channel, imported: &ImportedProto) -> Self`
+* `impl Transport`: the arguments become the request message field by field (`grpc::encode_request`), the response message becomes a value with every field present, unset messages and presence-tracking fields as `Null`, enums as their value names, `Timestamp` and `Duration` as strings (`grpc::decode_response`, `grpc::from_message`). Metadata entries with string values become request metadata.
+* Errors: an argument the message lacks or one outside its width is `Invalid` before the call; a method not in `methods` is `NotFound`; a channel that cannot be opened is `Unavailable`; a gRPC status maps through `kind_for_code` with the status message; a response that does not decode is `Internal`.
+
+### kind_for_code
+
+* `fn kind_for_code(code: tonic::Code) -> FailureKind`: `NotFound` to `NotFound`; `InvalidArgument`, `OutOfRange`, `FailedPrecondition` to `Invalid`; `Unauthenticated`, `PermissionDenied` to `Unauthorized`; `AlreadyExists`, `Aborted` to `Conflict`; `DeadlineExceeded` to `Timeout`; `Unavailable` to `Unavailable`; anything else to `Internal`.
+
+## 8. The Runtime Seam
 
 These types come from `snapfire_fsr_runtime` and are not re-exported here, but they appear in this crate's signatures.
 
@@ -393,7 +426,7 @@ The failure taxonomy every error at this boundary carries.
 
 `Display` reads `{service}.{method} failed ({kind}): {message}`.
 
-## 8. TypeScript Declarations
+## 9. TypeScript Declarations
 
 ### declarations
 
@@ -405,7 +438,7 @@ The failure taxonomy every error at this boundary carries.
 * `pub fn typescript::type_name(ty: &Type) -> String`
 * Every integer width is `bigint`; `F32` and `F64` are `number`; `Str` is `string`; `Bytes` is `Uint8Array`; `Array(kind)` is the matching typed array; `Optional(T)` is `T | null`; `List(T)` is `T[]`, parenthesised when `T` is optional; `Map(T)` is `Record<string, T>`; `Named(n)` is `n`.
 
-## 9. Error Handling
+## 10. Error Handling
 
 ### ContractError
 
@@ -421,6 +454,8 @@ UnknownField { path, field }               {path}: unknown field `{field}`
 MissingField { path, field }               {path}: missing field `{field}`
 UnknownVariant { path, tag, expected }     {path}: unknown variant `{tag}`, expected one of {expected}
 Mismatch { path, expected, found }         {path}: expected {expected}, found {found}
+DuplicateType { name, file }               type `{name}` is already defined and `{file}` defines it again
+DuplicateService { name, file }            service `{name}` is already defined and `{file}` defines it again
 ```
 
 In `UnknownVariant`, `expected` is the union's declared tags joined with a comma and a space. In `Mismatch`, `expected` is `Type::describe` and `found` names the value's own shape, with integers carrying their value:

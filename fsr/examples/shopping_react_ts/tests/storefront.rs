@@ -30,6 +30,16 @@ fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
   Value::Map(map)
 }
 
+fn stock(id: i64) -> Value {
+  let mut map = ValueMap::new();
+  map.insert("product_id".to_owned(), Value::int(id));
+  map.insert("on_hand".to_owned(), Value::int(12));
+  map.insert("reserved".to_owned(), Value::int(0));
+  map.insert("warehouse".to_owned(), Value::str("north"));
+  map.insert("bins".to_owned(), Value::Seq(vec![Value::str("N-01")]));
+  Value::Map(map)
+}
+
 fn cart_lines(session: &snapfire_fsr_runtime::SessionCell) -> ValueMap {
   match session.get("cart") {
     Some(Value::Map(map)) => map,
@@ -54,7 +64,7 @@ fn app_over(transport: Arc<MockTransport>) -> Host {
 
 #[test]
 fn the_published_document_is_the_only_client_description() {
-  let imported = snapfire_fsr_service::import(shopping_react_ts::backend::openapi::DOCUMENT, "shopping").unwrap();
+  let imported = snapfire_fsr_service::import(shopping_react_ts::backend::shopping::DOCUMENT, "shopping").unwrap();
   let contract = &imported.contract;
 
   for method in ["listProducts", "getProduct", "placeOrder"] {
@@ -80,7 +90,7 @@ fn a_route_ships_data_and_a_client_module_with_no_server_javascript() {
 #[test]
 fn the_payload_carries_the_widths_the_document_declared() {
   let transport = Arc::new(
-    MockTransport::new().returns("shopping.getProduct", product(1, "Filament", 2400, 12)),
+    MockTransport::new().returns("shopping.getProduct", product(1, "Filament", 2400, 12)).returns("inventory.getStock", stock(1)),
   );
   let app = app_over(transport);
   let payload = block_on(app.render_to_string("/product/1", RenderMode::Payload, SessionCell::default())).unwrap();
@@ -107,7 +117,7 @@ fn a_failing_call_degrades_to_the_error_component() {
 
 #[test]
 fn a_call_the_contract_rejects_never_reaches_the_backend() {
-  let transport = Arc::new(MockTransport::new().returns("shopping.getProduct", Value::Null));
+  let transport = Arc::new(MockTransport::new().returns("shopping.getProduct", Value::Null).returns("inventory.getStock", stock(0)));
   let app = app_over(transport.clone());
 
   let html = block_on(app.render_to_string("/product/notanumber", RenderMode::Html, SessionCell::default())).unwrap();
@@ -123,7 +133,7 @@ fn an_unmatched_path_is_not_found() {
 
 #[test]
 fn routes_come_from_the_plan_file_and_from_rust() {
-  let routes = snapfire_fsr::Routes::from_manifest(shopping_react_ts::server::routes::PLAN)
+  let routes = snapfire_fsr::Routes::from_manifest(&shopping_react_ts::server::routes::plan())
     .unwrap()
     .add("/about", shopping_react_ts::server::routes::about_plan());
 
@@ -133,24 +143,24 @@ fn routes_come_from_the_plan_file_and_from_rust() {
 
 #[test]
 fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
-  use shopping_react_ts::server::routes::{about_plan, PLAN};
+  use shopping_react_ts::server::routes::{about_plan, plan};
   use snapfire_fsr::Routes;
 
-  let clash = Routes::from_manifest(PLAN).unwrap().add("/", about_plan()).build();
+  let clash = Routes::from_manifest(&plan()).unwrap().add("/", about_plan()).build();
   let message = match clash {
     Ok(_) => panic!("the plan file already claims /"),
     Err(e) => e.to_string(),
   };
   assert!(message.contains("mark the Rust one as an override"), "{message}");
 
-  let deliberate = Routes::from_manifest(PLAN).unwrap().replace("/", about_plan()).build();
+  let deliberate = Routes::from_manifest(&plan()).unwrap().replace("/", about_plan()).build();
   assert!(deliberate.is_ok(), "an override is allowed");
   drop(deliberate);
 }
 
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
-  let manifest = snapfire_fsr_plan::Manifest::from_json(shopping_react_ts::server::routes::PLAN).unwrap();
+  let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::server::routes::plan()).unwrap();
   assert_eq!(manifest.sources(), vec!["index", "cart", "product"]);
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));

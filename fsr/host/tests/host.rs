@@ -44,10 +44,10 @@ const CONTRACT: &str = r#"{
 
 fn app_dir() -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr-host-test-{}-{}", std::process::id(), rand_suffix()));
-  std::fs::create_dir_all(dir.join("generated")).unwrap();
+  std::fs::create_dir_all(dir.join("generated/contracts")).unwrap();
   std::fs::create_dir_all(dir.join("public")).unwrap();
-  std::fs::write(dir.join("plan.json"), PLAN).unwrap();
-  std::fs::write(dir.join("generated/contract.json"), CONTRACT).unwrap();
+  std::fs::write(dir.join("generated/plan.json"), PLAN).unwrap();
+  std::fs::write(dir.join("generated/contracts/shop.json"), CONTRACT).unwrap();
   std::fs::write(dir.join("public/app.js"), "console.log('hello')").unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   std::fs::write(
@@ -243,15 +243,15 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
   let root = std::env::temp_dir().join(format!("fsr-host-root-{}-{}", std::process::id(), rand_suffix()));
   let app = root.join("app");
   std::fs::create_dir_all(root.join("config")).unwrap();
-  std::fs::create_dir_all(app.join("generated")).unwrap();
+  std::fs::create_dir_all(app.join("generated/contracts")).unwrap();
   std::fs::create_dir_all(app.join("dist/src")).unwrap();
   std::fs::create_dir_all(app.join("vendor/react")).unwrap();
   std::fs::create_dir_all(app.join("clients")).unwrap();
   std::fs::create_dir_all(app.join("styles")).unwrap();
   std::fs::write(app.join("styles/app.css"), "body{}").unwrap();
   std::fs::write(app.join("styles/notes.txt"), "not a sheet").unwrap();
-  std::fs::write(app.join("plan.json"), PLAN).unwrap();
-  std::fs::write(app.join("generated/contract.json"), CONTRACT).unwrap();
+  std::fs::write(app.join("generated/plan.json"), PLAN).unwrap();
+  std::fs::write(app.join("generated/contracts/shop.json"), CONTRACT).unwrap();
   std::fs::write(app.join("dist/src/main.js"), "boot()").unwrap();
   std::fs::write(app.join("dist/.snapfire-build.json"), r#"{"version":1,"entries":["src/main.js"],"publicPath":"/static/js/app/","outputs":[],"externals":[],"graph":{}}"#).unwrap();
   std::fs::write(app.join("vendor/react/react.js"), "react").unwrap();

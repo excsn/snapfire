@@ -1,10 +1,10 @@
 {
   "imports": {
-    "react": "/static/js/vendor/react/react.js",
-    "react/jsx-runtime": "/static/js/vendor/react/react-jsx-runtime.js",
-    "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
     "@snapfire/fsr-client": "/static/js/fsr/index.js",
     "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
-    "sweetalert2": "/static/js/vendor/sweetalert2/index.js"
+    "react": "/static/js/vendor/react/react.bundle.mjs",
+    "sweetalert2": "/static/js/vendor/sweetalert2/sweetalert2.bundle.mjs",
+    "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
+    "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs"
   }
 }

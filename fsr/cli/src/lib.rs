@@ -3,6 +3,9 @@
 //! `build` and `write`.
 
 pub mod infer;
+pub mod types;
+pub mod vendor;
+pub mod xwpm;
 
 use std::fmt;
 use std::fmt::Write as _;
@@ -31,6 +34,16 @@ pub enum BuildError {
   Contract(#[from] ContractError),
   #[error("action `{action}` names input type `{name}`, which no schema under schemas/ declares")]
   UnknownInput { action: String, name: String },
+  #[error("`{0}` is not a package spec; write `name@version` or `name@version/subpath`")]
+  Spec(String),
+  #[error("{0}: {1}")]
+  Http(String, String),
+  #[error("{0}: {1}")]
+  Manifest(PathBuf, String),
+  #[error("`{package}` imports `{wants}`, a package outside its bundle; vendor that package and name it with --external")]
+  Dependency { package: String, wants: String },
+  #[error("{0}")]
+  Xwpm(String),
 }
 
 /// What `build` found and emitted, in the order the report prints it.
@@ -41,28 +54,40 @@ pub struct Report {
   pub actions: Vec<(String, String)>,
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
+  pub types: Vec<(String, String)>,
 }
 
 impl fmt::Display for Report {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    let mut section = |label: &str, rows: &[(String, String)], owner: &str| -> fmt::Result {
-      for (i, (a, b)) in rows.iter().enumerate() {
-        let label = if i == 0 { label } else { "" };
-        if owner.is_empty() {
-          writeln!(f, "{label:<9} {a:<22} {b}")?;
-        } else {
-          writeln!(f, "{label:<9} {a:<22} {owner:<11} {b}")?;
-        }
-      }
-      Ok(())
-    };
-    section("routes", &self.routes, "")?;
-    section("sources", &self.sources, "lowered")?;
-    section("actions", &self.actions, "lowered")?;
-    section("services", &self.services, "http")?;
-    section("schemas", &self.schemas, "")
+    section(f, "routes", &self.routes, "")?;
+    section(f, "sources", &self.sources, "lowered")?;
+    section(f, "actions", &self.actions, "lowered")?;
+    for (i, (service, document)) in self.services.iter().enumerate() {
+      let label = if i == 0 { "services" } else { "" };
+      let kind = if document.ends_with(".proto") { "grpc" } else { "http" };
+      writeln!(f, "{label:<9} {service:<22} {kind:<11} {document}")?;
+    }
+    section(f, "schemas", &self.schemas, "")?;
+    section(f, "types", &self.types, "")
   }
 }
+
+fn section(f: &mut fmt::Formatter<'_>, label: &str, rows: &[(String, String)], owner: &str) -> fmt::Result {
+  for (i, (a, b)) in rows.iter().enumerate() {
+    let label = if i == 0 { label } else { "" };
+    if owner.is_empty() {
+      writeln!(f, "{label:<9} {a:<22} {b}")?;
+    } else {
+      writeln!(f, "{label:<9} {a:<22} {owner:<11} {b}")?;
+    }
+  }
+  Ok(())
+}
+
+/// Where the build writes one contract file per client document plus `schemas.json`; the host merges the directory.
+pub const CONTRACTS_DIR: &str = "generated/contracts";
+/// Where the build writes the plan file.
+pub const PLAN_FILE: &str = "generated/plan.json";
 
 pub struct Options {
   /// The module the document renders through; every route's root node.
@@ -111,6 +136,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let mut report = Report::default();
   let mut contract = Contract::new();
+  let mut contracts: Vec<(String, Contract)> = Vec::new();
   let mut session_import: Option<String> = None;
   let mut defaults = SessionDefaults::new();
 
@@ -120,18 +146,25 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     let text = std::fs::read_to_string(&document).map_err(|e| BuildError::Io(document.clone(), e))?;
     let imported = snapfire_fsr_service::import(&text, &name)
       .map_err(|error| BuildError::Import { document: format!("clients/{file}"), error })?;
-    for (type_name, def) in imported.contract.types {
-      if contract.types.contains_key(&type_name) {
-        return Err(BuildError::DuplicateType { name: type_name, first: "an earlier document".to_owned(), second: format!("clients/{file}") });
-      }
-      contract.types.insert(type_name, def);
-    }
-    for (service, def) in imported.contract.services {
+    for service in imported.contract.services.keys() {
       report.services.push((service.clone(), format!("clients/{file}")));
-      contract.services.insert(service, def);
     }
+    contract.merge(imported.contract.clone(), &format!("clients/{file}"))?;
+    contracts.push((format!("{CONTRACTS_DIR}/{name}.json"), imported.contract));
+  }
+  for document in sorted_files(&app.join("clients"), ".proto")? {
+    let file = document.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = file.trim_end_matches(".proto").to_owned();
+    let imported = snapfire_fsr_service::import_proto(&document, &name)
+      .map_err(|error| BuildError::Import { document: format!("clients/{file}"), error })?;
+    for service in imported.contract.services.keys() {
+      report.services.push((service.clone(), format!("clients/{file}")));
+    }
+    contract.merge(imported.contract.clone(), &format!("clients/{file}"))?;
+    contracts.push((format!("{CONTRACTS_DIR}/{name}.json"), imported.contract));
   }
 
+  let mut schemas = Contract::new();
   for schema in sorted_files(&app.join("schemas"), ".ts")? {
     let file = schema.file_name().unwrap_or_default().to_string_lossy().to_string();
     let rel = format!("schemas/{file}");
@@ -145,9 +178,11 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         defaults = read_session_defaults(&rel, &text)?;
       }
       report.schemas.push((ty.name.clone(), rel.clone()));
-      contract.types.insert(ty.name, ty.def);
+      schemas.types.insert(ty.name, ty.def);
     }
   }
+  contract.merge(schemas.clone(), "schemas/")?;
+  contracts.push((format!("{CONTRACTS_DIR}/schemas.json"), schemas));
   contract.validate()?;
 
   let mut routes = Vec::new();
@@ -249,19 +284,34 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
 
-  let files = vec![
-    ("plan.json".to_owned(), manifest.to_json() + "\n"),
-    ("generated/contract.json".to_owned(), contract.to_json() + "\n"),
+  let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];
+  files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
+  files.extend([
     ("generated/services.d.ts".to_owned(), typescript::declarations(&contract)),
     ("generated/fsr.ts".to_owned(), ctx_module(&routes, session_import.as_deref())),
     ("generated/islands.ts".to_owned(), islands_module(&islands, options)),
     ("generated/client.ts".to_owned(), client),
-  ];
+    ("tsconfig.json".to_owned(), types::tsconfig(app)?),
+    ("tsconfig.build.json".to_owned(), types::tsconfig_build()),
+  ]);
+  let mut report = report;
+  report.types = types::status(app)?;
   Ok(Built { manifest, contract, report, files })
 }
 
-/// Writes every generated file under `<app>` and returns their paths.
+/// Writes every generated file under `<app>` and returns their paths. The
+/// contracts directory is emptied first, so a client that was removed leaves
+/// no file behind for the host to merge.
 pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
+  let contracts = app.join(CONTRACTS_DIR);
+  if contracts.is_dir() {
+    for entry in std::fs::read_dir(&contracts).map_err(|e| BuildError::Io(contracts.clone(), e))?.flatten() {
+      let path = entry.path();
+      if path.extension().is_some_and(|x| x == "json") {
+        std::fs::remove_file(&path).map_err(|e| BuildError::Io(path, e))?;
+      }
+    }
+  }
   let mut written = Vec::new();
   for (rel, content) in &built.files {
     let path = app.join(rel);

@@ -1,8 +1,0 @@
-{
-  "name": "shopping-react-ts-app",
-  "private": true,
-  "type": "module",
-  "devDependencies": {
-    "@types/react": "^19"
-  }
-}

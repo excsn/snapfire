@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_host
 
-The stock host: `app.toml` plus the build's artifacts as a `tower::Service` over `http` types.
+The stock host: `config/` plus the build's artifacts as a `tower::Service` over `http` types.
 
 ## Contents
 
@@ -68,7 +68,7 @@ The stock host: `app.toml` plus the build's artifacts as a `tower::Service` over
 
 ### ServerConfig
 
-* `listen` (default `127.0.0.1:8080`), `plan` (default `plan.json`), `contract` (default `generated/contract.json`).
+* `listen` (default `127.0.0.1:8080`), `plan` (default `generated/plan.json`), `contracts` (default `generated/contracts`), a directory whose `*.json` files are merged in name order at boot.
 
 ### DocumentConfig
 
@@ -80,7 +80,7 @@ The stock host: `app.toml` plus the build's artifacts as a `tower::Service` over
 
 ### ClientConfig
 
-* `document: Option<String>`, inferred as `clients/<name>.openapi.json` when absent; `base_url: String`. The table key is the service name.
+* `document: Option<String>`, inferred as `clients/<name>.openapi.json` when absent, falling back to `clients/<name>.proto` when only that file exists; `base_url: String`. A `.proto` document is reached with `GrpcTransport`, anything else with `HttpTransport`. The table key is the service name.
 
 ### StaticRoot
 
@@ -94,7 +94,7 @@ The stock host: `app.toml` plus the build's artifacts as a `tower::Service` over
 
 ### Host::from
 
-* `Host::from(path: impl AsRef<Path>) -> Result<HostBuilder, HostError>` locates and loads the configuration per `locate`, then the plan file and the contract when the contract file exists.
+* `Host::from(path: impl AsRef<Path>) -> Result<HostBuilder, HostError>` locates and loads the configuration per `locate`, then the plan file and the contracts directory when it exists, merged with `Contract::merge` file by file.
 * `Host::from_cwd() -> Result<HostBuilder, HostError>` is `Host::from(".")`.
 * `Host::from_located(located: config::Located) -> Result<HostBuilder, HostError>` is `Host::from_config(Config::load_located(located)?)`.
 * `Host::from_config(config: Config) -> Result<HostBuilder, HostError>`.
@@ -127,8 +127,8 @@ The stock host: `app.toml` plus the build's artifacts as a `tower::Service` over
 
 ### HostReport
 
-* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String)>, pub statics: Vec<(String, PathBuf)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
-* `Display` prints the app's report, then `services` rows as `http <base url>`, `static` rows, `config` sources and `inferred` lines.
+* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
+* `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
 
 ### Body
 
@@ -173,6 +173,7 @@ Behind the `actix` feature.
 * `Value(String, String)`, a setting and the value that did not parse.
 * `Bind(BindError)`, transparent.
 * `Import { document: String, error: ImportError }`
-* `Contract(serde_json::Error)`
+* `Transport(String, String)`, the client name and why its transport could not be built.
+* `Contract(PathBuf, String)`, a contract file that did not parse or defines a type or service an earlier file already defined.
 * `NotFound(String)`
 * `Assemble(AssembleError)`, transparent.

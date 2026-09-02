@@ -26,6 +26,9 @@ How to declare a contract, build the service registry, bind it to a request and 
   * [Shaping the Route](#shaping-the-route)
   * [Metadata Becomes Headers](#metadata-becomes-headers)
   * [Statuses Become Failure Kinds](#statuses-become-failure-kinds)
+* [Importing a Proto and Calling over gRPC](#importing-a-proto-and-calling-over-grpc)
+  * [What a Proto Becomes](#what-a-proto-becomes)
+  * [Codes Become Failure Kinds](#codes-become-failure-kinds)
 * [Adding an Interceptor](#adding-an-interceptor)
   * [The Built-In Three](#the-built-in-three)
   * [Writing Your Own](#writing-your-own)
@@ -542,6 +545,60 @@ assert_eq!(kind_for_status(409), FailureKind::Conflict);
 assert_eq!(kind_for_status(422), FailureKind::Invalid);
 assert_eq!(kind_for_status(500), FailureKind::Internal);
 ```
+
+## Importing a Proto and Calling over gRPC
+
+With the `grpc` feature, `import_proto` compiles a `.proto` file with protox rather than protoc and returns the contract plus the descriptors the transport encodes with. `GrpcTransport::new` takes the server's URL and that import; nothing connects until the first call and no client code is generated on this side.
+
+```rust
+use std::path::Path;
+use std::sync::Arc;
+
+use snapfire_fsr_service::{import_proto, GrpcTransport, Services};
+
+let imported = import_proto(Path::new("clients/inventory.proto"), "inventory")?;
+let services = Services::builder()
+  .contract(imported.contract.clone())
+  .transport("inventory", Arc::new(GrpcTransport::new("http://127.0.0.1:8082", &imported)?))
+  .build();
+```
+
+`import_proto_source` takes the source text instead of a path, for a proto held in memory; it can import only the Google well-known types.
+
+### What a Proto Becomes
+
+A file with one service takes the name you pass; with several, each keeps its own. Methods go lowerCamel, so `GetStock` is `getStock`, while the request path keeps the proto name. A method's parameters are its request message's fields, the way an OpenAPI body spreads; `google.protobuf.Empty` in is no parameters and out is `null`. Streaming methods are refused.
+
+| Proto | Contract |
+| --- | --- |
+| `int32`, `sint32`, `sfixed32` | `I32` |
+| `int64`, `sint64`, `sfixed64` | `I64`, a `bigint` in TypeScript |
+| `uint32`, `fixed32`, `uint64`, `fixed64` | `U32`, `U64` |
+| `float`, `double`, `bool`, `string`, `bytes` | `F32`, `F64`, `Bool`, `Str`, `Bytes` |
+| `repeated T` | `List<T>` |
+| `map<string, T>` | `Map<T>`; any other key is refused |
+| an enum | `Str`, the value's name |
+| a message field, a proto3 `optional` or a `oneof` member | `Optional<..>`, since each may be absent |
+| a nested message `Outer.Inner` | the record `OuterInner`; the package drops |
+| `Timestamp`, `Duration` | `Str`, RFC 3339 or `1.5s` |
+| the wrapper types | `Optional` of the scalar |
+| `Any`, `Struct`, `Value`, `ListValue`, `FieldMask` | refused |
+
+On the wire the arguments become the request message field by field and the response comes back with every field present, an unset message or `optional` as `null` and an unset scalar at its default. Integers are checked against their width before they leave.
+
+### Codes Become Failure Kinds
+
+| Code | Kind |
+| --- | --- |
+| `NotFound` | `NotFound` |
+| `InvalidArgument`, `OutOfRange`, `FailedPrecondition` | `Invalid` |
+| `Unauthenticated`, `PermissionDenied` | `Unauthorized` |
+| `AlreadyExists`, `Aborted` | `Conflict` |
+| `DeadlineExceeded` | `Timeout` |
+| `Unavailable` | `Unavailable` |
+| anything else | `Internal` |
+
+An argument the message has no field for or one outside its width is `Invalid` before the call leaves; a method the import did not see is `NotFound`. Metadata entries with string values become request metadata, the same rule as headers over HTTP.
 
 ## Adding an Interceptor
 

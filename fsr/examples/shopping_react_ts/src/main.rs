@@ -9,6 +9,7 @@ use snapfire_fsr_host::Host;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
   let backend_addr = ("127.0.0.1", 8081);
+  let inventory_addr: std::net::SocketAddr = "127.0.0.1:8082".parse().unwrap();
   let fsr_addr = ("127.0.0.1", 8080);
 
   let catalog = backend::Catalog::seed();
@@ -19,8 +20,13 @@ async fn main() -> std::io::Result<()> {
 
   print!("{}", host.report);
   println!("shopping backend on http://{}:{}/products", backend_addr.0, backend_addr.1);
+  println!("inventory grpc on http://{inventory_addr}");
   println!("fsr server on http://{}:{}/", fsr_addr.0, fsr_addr.1);
 
-  futures_util::try_join!(backend::serve(catalog, backend_addr), snapfire_fsr_host::actix::serve(host, fsr_addr))?;
+  futures_util::try_join!(
+    backend::shopping::serve(catalog, backend_addr),
+    backend::inventory::serve(inventory_addr),
+    snapfire_fsr_host::actix::serve(host, fsr_addr)
+  )?;
   Ok(())
 }

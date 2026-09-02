@@ -11,6 +11,9 @@ ttl = "1h"
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
 
+[clients.inventory]
+base_url = "http://127.0.0.1:8082"
+
 [[static]]
 route = "/static/js/fsr"
 dir = "../../../client/dist"

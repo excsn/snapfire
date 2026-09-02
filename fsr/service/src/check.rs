@@ -18,6 +18,10 @@ pub enum ContractError {
   UnknownVariant { path: String, tag: String, expected: String },
   #[error("{path}: expected {expected}, found {found}")]
   Mismatch { path: String, expected: String, found: String },
+  #[error("type `{name}` is already defined and `{file}` defines it again")]
+  DuplicateType { name: String, file: String },
+  #[error("service `{name}` is already defined and `{file}` defines it again")]
+  DuplicateService { name: String, file: String },
 }
 
 fn kind_of(value: &Value) -> String {
