@@ -71,7 +71,7 @@ fn order_ids_advance() {
 #[test]
 fn the_published_document_describes_what_the_server_serves() {
   let doc: serde_json::Value =
-    serde_json::from_str(shopping_react_ts::backend::openapi::DOCUMENT).unwrap();
+    serde_json::from_str(shopping_react_ts::backend::shopping::DOCUMENT).unwrap();
 
   for path in ["/products", "/products/{id}", "/orders"] {
     assert!(doc["paths"].get(path).is_some(), "{path} is documented");

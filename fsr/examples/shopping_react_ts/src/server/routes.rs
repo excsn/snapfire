@@ -1,12 +1,18 @@
+use std::path::PathBuf;
+
 use snapfire_fsr::Plan;
 
-/// The build artifact `fsr build app` writes: routes, lowered loaders and
-/// lowered actions. Nothing here describes a route or a body; the file does.
-pub const PLAN: &str = include_str!("../../app/plan.json");
+/// Where `fsr build app` writes the plan file: routes, lowered loaders and
+/// lowered actions. `build.rs` runs that build, so the file exists whenever
+/// the crate compiles.
+pub fn plan_path() -> PathBuf {
+  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("app/generated/plan.json")
+}
 
-/// The contract the same build writes: the imported shopping service plus the
-/// session and input types declared under `app/schemas/`.
-pub const CONTRACT: &str = include_str!("../../app/generated/contract.json");
+pub fn plan() -> String {
+  let path = plan_path();
+  std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}; run `fsr build app`", path.display()))
+}
 
 /// A route the file system convention does not describe, added in Rust beside
 /// the ones the plan file carries.

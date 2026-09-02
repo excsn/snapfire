@@ -14,6 +14,10 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Reading the Generated Types](#reading-the-generated-types)
 * [Registering the Islands](#registering-the-islands)
 * [Typing Pages and Calling Actions](#typing-pages-and-calling-actions)
+* [Vendoring a Package](#vendoring-a-package)
+* [Fetching Declarations](#fetching-declarations)
+* [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
+* [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
 * [Reading the Report](#reading-the-report)
 * [Reading the Plan File](#reading-the-plan-file)
@@ -24,7 +28,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 
 ## Core Concepts
 
-* **App directory** is the directory that holds `routes/`; `fsr` writes `plan.json` beside it.
+* **App directory** is the directory that holds `routes/`; `fsr` writes `generated/` under it.
 * **Route** is a directory under `routes/` that holds `page.tsx`.
 * **Pattern** comes from the directory path: `index` is `/`, `[id]` is `{id}`, `[...rest]` is `{*rest}`.
 * **Source id** is the route's static segments joined with `.`, `index` for the root; it names the loader.
@@ -34,9 +38,12 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page.
 * **Loading module** is a route's `loading.tsx`; its presence marks the node deferred with that fallback.
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
-* **Client** is an OpenAPI document under `clients/`, `<name>.openapi.json`, imported as the service `<name>`.
+* **Client** is a document under `clients/`, `<name>.openapi.json` or `<name>.proto`, imported as the service `<name>`; the host reaches the first over HTTP and the second over gRPC.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
-* **Generated** is `generated/`, rewritten on every build: `services.d.ts`, `fsr.ts`, `contract.json`, `islands.ts` and `client.ts`. The app's `tsconfig.json` maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
+* **Generated** is `generated/`, rewritten on every build: `plan.json`, `services.d.ts`, `fsr.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
+* **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.
+* **Types** is `types/`, gitignored: the declarations of every package the import map names, one directory per package, written by `fsr types` and path-mapped by the generated tsconfig. Never served, never load-bearing.
+* **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; an `xwpm.wmf` in the app names its own.
 
 ## Quick Start
 
@@ -67,8 +74,9 @@ actions   cart.addToCart         lowered     routes/cart/actions.ts
 services  shopping               http        clients/shopping.openapi.json
 schemas   AddToCart              schemas/cart.ts
           Session                schemas/session.ts
-wrote app/plan.json
-wrote app/generated/contract.json
+wrote app/generated/plan.json
+wrote app/generated/contracts/shopping.json
+wrote app/generated/contracts/schemas.json
 wrote app/generated/services.d.ts
 wrote app/generated/fsr.ts
 ```
@@ -210,9 +218,67 @@ export const actions = {
 
 A return the inference cannot settle prints as `unknown`. The file carries runtime code, so `tsconfig.build.json` lists it.
 
+## Vendoring a Package
+
+`fsr add` fetches a package from esm.sh as ES modules with its dependencies bundled in, writes each entry under `vendor/<package>/`, records the version in `vendor/.fsr-vendor.json` and points the import map at the file. Name a version always; name a subpath for an entry other than the package's main. `--external` lists the packages a bundle must import bare rather than carry, which is how two entries share one React.
+
+```sh
+fsr add app react@18.3.1 sweetalert2@11.6.15
+fsr add app react@18.3.1/jsx-runtime react-dom@18.3.1/client --external react
+```
+
+```
+added     react                        react/react.bundle.mjs  8715 bytes
+added     sweetalert2                  sweetalert2/sweetalert2.bundle.mjs  64908 bytes
+added     react/jsx-runtime            react/jsx-runtime.bundle.mjs  2192 bytes
+added     react-dom/client             react-dom/client.bundle.mjs  136190 bytes
+```
+
+A module that imports a package outside its bundle stops the command naming it; vendor that package and repeat with it in `--external`. The host serves `vendor/` at `/static/js/vendor` by convention, which is the prefix the import map entries carry.
+
+## Fetching Declarations
+
+`fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes `types`, else `@types/<package>` from DefinitelyTyped, plus the dependencies a DefinitelyTyped package declares. A package `fsr add` vendored is fetched at the same major. The fsr packages, `@snapfire/fsr-client` and `@snapfire/fsr-authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`.
+
+```sh
+fsr types app
+```
+
+```
+types     @snapfire/fsr-authoring      fsr 0.1.0
+types     @snapfire/fsr-client         fsr 0.1.0
+types     react                        @types/react 18.3.31
+types     react-dom                    @types/react-dom 18.3.7
+types     sweetalert2                  sweetalert2 11.26.25
+types     prop-types                   @types/prop-types 15.7.15
+types     csstype                      csstype 3.2.3
+```
+
+A package with nothing to fetch is reported `missing` and the build goes on; its imports are `any` in the editor and errors under `strict`. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit`, never shipped, so a fresh checkout runs `fsr types` once rather than committing them.
+
+## Reading the Generated tsconfig
+
+`fsr build` writes `tsconfig.json` from the layout: `@snapfire/fsr` to the generated context module, every package under `types/` to its declaration entry, `<package>/*` to its directory so a subpath such as `react/jsx-runtime` resolves; an entry that is a script of `declare module` blocks is included rather than mapped. It is the whole editor configuration, so there is nothing to keep in step by hand.
+
+```json
+"paths": {
+  "@snapfire/fsr": ["./generated/fsr"],
+  "react": ["./types/react/index.d.ts"],
+  "react/*": ["./types/react/*"],
+  "sweetalert2/*": ["./types/sweetalert2/*"]
+},
+"include": ["src/**/*", "routes/**/*", "schemas/**/*", "generated/**/*", "types/sweetalert2/sweetalert2.d.ts"]
+```
+
+`tsconfig.build.json` is the browser half for snapfirec: `src/`, the pages, the island registry and the client module, so the server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
+
+## Using xwpm Instead
+
+An `xwpm.wmf` in the app directory marks it as an application xwpm manages. `fsr add` then runs `xwpm add <package>@<version>` for each spec, `fsr types` runs `xwpm restore` and `xwpm types` and writes only the fsr packages' declarations; the build reads `vendor`, `base`, `importmap` and `types` from the file's root records for the import map, the report and the tsconfig. xwpm carries dependencies and converts packages itself, so `--external` is not used under it. xwpm must be on `PATH`; a missing binary is an error naming the file that asked for it.
+
 ## Building
 
-`build` writes `plan.json` and `generated/`; `check` prints the report and writes nothing. Both exit non-zero on residue, a parse error, a missing `load`, a document that does not import, a duplicate type name or an action input no schema declares.
+`build` writes `generated/` and the two tsconfigs; `check` prints the report and writes nothing. Both exit non-zero on residue, a parse error, a missing `load`, a document that does not import, a duplicate type name or an action input no schema declares.
 
 ```sh
 fsr build app
@@ -221,7 +287,7 @@ fsr check app
 
 ## Reading the Report
 
-Five sections, each row naming what was found and where it came from. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document and schemas their file.
+Six sections, each row naming what was found and where it came from. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
 ## Reading the Plan File
 
@@ -232,7 +298,7 @@ Five sections, each row naming what was found and where it came from. Every sour
   "body": [ { "let": { "name": "lines", "expr": { "map": [ ... ] } } }, ... ] }
 ```
 
-The host reads it with `snapfire_fsr::App::from_manifest`, which binds every lowered row unless Rust overrides the name. It takes `generated/contract.json` through `contract()` so a lowered action's input is checked before its body runs.
+The host reads it with `snapfire_fsr::App::from_manifest`, which binds every lowered row unless Rust overrides the name. It takes the merged `generated/contracts/` through `contract()` so a lowered action's input is checked before its body runs.
 
 ## Naming the Shell
 
@@ -254,7 +320,28 @@ Two answers: rewrite the body inside the IR or keep the file and bind the name i
 
 ## Building From Rust
 
-The library half runs the same build without the binary.
+The library half runs the same build without the binary. A crate that serves the app calls it from `build.rs`, so the generated files never need checking in and `cargo build` on a fresh checkout is enough.
+
+```rust
+// build.rs
+fn main() {
+  let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("app");
+  for watched in ["routes", "schemas", "clients", "importmap.json", "types"] {
+    println!("cargo:rerun-if-changed={}", app.join(watched).display());
+  }
+  let built = snapfire_fsr_cli::build(&app, &snapfire_fsr_cli::Options::default()).unwrap_or_else(|e| panic!("fsr build app: {e}"));
+  snapfire_fsr_cli::write(&app, &built).unwrap_or_else(|e| panic!("fsr build app: {e}"));
+}
+```
+
+```
+# .gitignore
+app/generated/
+app/tsconfig.json
+app/tsconfig.build.json
+app/types/
+app/dist/
+```
 
 ```rust
 use std::path::Path;
@@ -267,7 +354,7 @@ write(Path::new("app"), &built)?;
 
 ## Error Handling
 
-`BuildError` is what `build` and `write` return. `Lower` wraps the recogniser's error, which is the residue case; `Import` names a document that did not import; `DuplicateType` names a type declared twice; `Contract` is a contract that does not hold together; `UnknownInput` is an action naming a type no schema declares; `Segment` names a directory whose name is not a route segment; `NoRoutes` and `Io` are what they say.
+`BuildError` is what `build`, `write`, `vendor::add` and `types::fetch` return. `Lower` wraps the recogniser's error, which is the residue case; `Import` names a document that did not import; `DuplicateType` names a type declared twice; `Contract` is a contract that does not hold together; `UnknownInput` is an action naming a type no schema declares; `Segment` names a directory whose name is not a route segment; `Spec` is an `fsr add` argument without a version; `Http` names the URL and what went wrong; `Manifest` a vendor, types or import map file that did not parse; `Dependency` a bundle importing a package it does not carry; `Xwpm` an `xwpm` invocation that failed or could not start; `NoRoutes` and `Io` are what they say.
 
 ```rust
 use snapfire_fsr_cli::BuildError;

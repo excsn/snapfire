@@ -25,10 +25,10 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **Project root** is the directory holding `config/`; `Host::from` takes it, a `config/` directory or one file.
 * **App directory** is `[app] dir` under the project root, `app` by default; every path in the configuration and everything inferred resolves against it.
 * **Config directory** is `config/`. The host loads a fixed ladder out of it through c5store, `app.toml` first and the deployment overlays after it, later files overriding earlier ones, then `C5_` environment variables over all of them. A file the ladder does not name is not read.
-* **Deployment** is the three variables xs_core applications already set: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (unset by default). Each names an overlay file.
-* **Plan file** is `plan.json`, written by `fsr build`, with routes and lowered bodies.
-* **Contract** is `generated/contract.json`, the same build's output; the host checks a lowered action's input against it.
-* **Client** is a `[clients.<name>]` entry: an OpenAPI document and a base URL, imported into one service registry with an HTTP transport per client.
+* **Deployment** is three environment variables: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (unset by default). Each names an overlay file.
+* **Plan file** is `generated/plan.json`, written by `fsr build`, with routes and lowered bodies.
+* **Contracts** are `generated/contracts/*.json`, the same build's output, one file per client document plus `schemas.json`; the host merges them at boot, refusing a type or service two files define, then checks a lowered action's input against the result.
+* **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document and gRPC for a `.proto`.
 * **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.
 * **Head** is what the stock shell puts in `<head>`: the title, a `<link>` per stylesheet, the inlined import map and the entry module from `[document]`.
 * **Static root** is a `[[static]]` entry, a route prefix served from a directory by `tower-http`'s `ServeDir`, checked before any route.
@@ -58,7 +58,7 @@ shopping/
   config/
     app.toml               # deployment facts
     local.toml             # the APP_ENV overlay, loaded after app.toml
-  app/                     # routes, schemas, clients, plan.json, generated/, dist/, vendor/
+  app/                     # routes, schemas, clients, generated/, dist/, vendor/
   src/main.rs              # optional: the backend, a Rust route, an override
 ```
 
@@ -94,7 +94,7 @@ From the app directory, each reported at boot under `inferred`:
 | `document.import_map` | `importmap.json` in the app directory |
 | a `/static/js/vendor` root | `vendor/` in the app directory |
 | a `/static/css` root and `document.styles` | `styles/` in the app directory, every `.css` in it linked from the head in name order |
-| `clients.<name>.document` | `clients/<name>.openapi.json` |
+| `clients.<name>.document` | `clients/<name>.openapi.json`, or `clients/<name>.proto` when only that exists |
 
 Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.
 
@@ -168,7 +168,7 @@ A route the file system convention does not describe, beside the ones the plan f
 ```rust
 use snapfire_fsr::Plan;
 
-let host = Host::from("app/app.toml")?
+let host = Host::from(".")?
   .route("/about", Plan::of("shell#document").slot("content", Plan::of("src/About.tsx#default")))
   .build()?;
 ```
@@ -178,7 +178,7 @@ let host = Host::from("app/app.toml")?
 The binding rule from `snapfire_fsr` applies unchanged. A lowered source or action is a default; Rust replaces it with an override. The report says `rust override`.
 
 ```rust
-let host = Host::from("app/app.toml")?
+let host = Host::from(".")?
   .source_override("pricing", |ctx| async move { pricing::load(ctx).await })
   .action_override("cart.checkout", |ctx, input| async move { checkout::run(ctx, input).await })
   .build()?;
@@ -191,7 +191,7 @@ Binding a lowered name with plain `source` or `action` is refused, since the fil
 The stock shell emits the doctype, the head slot and `<div id="app">` with the content slot. Give another evaluator for the document module to change the document.
 
 ```rust
-let host = Host::from("app/app.toml")?.shell(Arc::new(MyShell)).build()?;
+let host = Host::from(".")?.shell(Arc::new(MyShell)).build()?;
 ```
 
 ## Testing Over a Mock Transport
@@ -204,7 +204,7 @@ use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_service::MockTransport;
 
 let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", products));
-let host = Host::from("app/app.toml")?.services_over(transport.clone()).build()?;
+let host = Host::from(env!("CARGO_MANIFEST_DIR"))?.services_over(transport.clone()).build()?;
 
 let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await?;
 let session = SessionCell::default();
@@ -237,7 +237,7 @@ inferred  static /static/js/app from dist/.snapfire-build.json
 ```rust
 use snapfire_fsr_host::HostError;
 
-match Host::from("app/app.toml").and_then(|b| b.build()) {
+match Host::from(".").and_then(|b| b.build()) {
   Ok(host) => host,
   Err(HostError::Bind(e)) => return refuse(format!("the plan and the Rust disagree: {e}")),
   Err(e) => return refuse(e.to_string()),

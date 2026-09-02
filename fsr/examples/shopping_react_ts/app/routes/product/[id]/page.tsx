@@ -9,7 +9,7 @@ import { stockLine } from "../../../src/ui/ProductCard";
 import { Stars } from "../../../src/ui/Stars";
 import { Thumb } from "../../../src/ui/Thumb";
 
-export default function ProductPage({ product, inCart, cartCount }: ProductProps) {
+export default function ProductPage({ product, stock: level, inCart, cartCount }: ProductProps) {
   const [quantity, setQuantity] = useState(1);
   const stock = Number(product.stock);
   const line = stockLine(product.stock);
@@ -117,6 +117,10 @@ export default function ProductPage({ product, inCart, cartCount }: ProductProps
                 {held} in your cart. <a href="/cart">View cart</a>
               </p>
             ) : null}
+            <p className="buy-note">
+              {Number(level.on_hand)} on hand in the {level.warehouse} warehouse, bin {level.bins.join(", ")}
+              {Number(level.reserved) > 0 ? `, ${Number(level.reserved)} reserved` : ""}.
+            </p>
             <p className="buy-note">Ships from snapfire.shop. Sold by {product.brand}.</p>
           </aside>
         </div>

@@ -20,6 +20,16 @@ futures-util = "0.3"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+prost = "0.14"
+tonic = "0.14"
+tonic-prost = "0.14"
+tokio = { version = "1", features = ["net"] }
+tokio-stream = { version = "0.1.19", features = ["net"] }
+
+[build-dependencies]
+snapfire_fsr_cli = { path = "../../cli" }
+protox = "0.9"
+tonic-prost-build = "0.14"
 
 [dev-dependencies]
 futures = "0.3"

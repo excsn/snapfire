@@ -1,4 +1,4 @@
-//! The stock host: `app.toml`, `plan.json` and `generated/contract.json`
+//! The stock host: `config/`, `generated/plan.json` and `generated/contracts/`
 //! become a `tower::Service` over `http` types. hyper serves it, axum nests
 //! it, actix reaches it through the `actix` feature's shim.
 
@@ -52,8 +52,10 @@ pub enum HostError {
   Bind(#[from] BindError),
   #[error("{document}: {error}")]
   Import { document: String, error: snapfire_fsr_service::ImportError },
-  #[error("the contract does not parse: {0}")]
-  Contract(serde_json::Error),
+  #[error("clients.{0}: {1}")]
+  Transport(String, String),
+  #[error("{0}: {1}")]
+  Contract(PathBuf, String),
   #[error("no route matches `{0}`")]
   NotFound(String),
   #[error(transparent)]
@@ -71,7 +73,8 @@ pub enum RenderMode {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostReport {
   pub app: Report,
-  pub services: Vec<(String, String)>,
+  /// Service, `http` or `grpc`, base URL.
+  pub services: Vec<(String, String, String)>,
   pub statics: Vec<(String, PathBuf)>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
@@ -80,9 +83,9 @@ pub struct HostReport {
 impl std::fmt::Display for HostReport {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.app)?;
-    for (i, (service, url)) in self.services.iter().enumerate() {
+    for (i, (service, kind, url)) in self.services.iter().enumerate() {
       let label = if i == 0 { "services" } else { "" };
-      writeln!(f, "{label:<9} {service:<22} http        {url}")?;
+      writeln!(f, "{label:<9} {service:<22} {kind:<11} {url}")?;
     }
     for (i, (route, dir)) in self.statics.iter().enumerate() {
       let label = if i == 0 { "static" } else { "" };
@@ -127,6 +130,29 @@ impl std::fmt::Debug for HostBuilder {
   }
 }
 
+/// Every `*.json` in `dir` in name order, merged into one contract; `None`
+/// when there is no such directory. A type or service defined twice names the
+/// file that repeats it.
+fn read_contracts(dir: &std::path::Path) -> Result<Option<Contract>, HostError> {
+  if !dir.is_dir() {
+    return Ok(None);
+  }
+  let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+    .map_err(|e| HostError::Io(dir.to_path_buf(), e))?
+    .flatten()
+    .map(|e| e.path())
+    .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "json"))
+    .collect();
+  files.sort();
+  let mut contract = Contract::new();
+  for path in files {
+    let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
+    let part = Contract::from_json(&text).map_err(|e| HostError::Contract(path.clone(), e.to_string()))?;
+    contract.merge(part, &path.file_name().unwrap_or_default().to_string_lossy()).map_err(|e| HostError::Contract(path.clone(), e.to_string()))?;
+  }
+  Ok(Some(contract))
+}
+
 impl Host {
   /// The stock entry point: a project root holding `config/`, a `config/`
   /// directory or one configuration file. Everything else is inferred from
@@ -149,12 +175,7 @@ impl Host {
   pub fn from_config(config: Config) -> Result<HostBuilder, HostError> {
     let plan_path = config.resolve(&config.server.plan);
     let plan = std::fs::read_to_string(&plan_path).map_err(|e| HostError::Io(plan_path, e))?;
-    let contract_path = config.resolve(&config.server.contract);
-    let contract = match std::fs::read_to_string(&contract_path) {
-      Ok(text) => Some(Contract::from_json(&text).map_err(HostError::Contract)?),
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-      Err(e) => return Err(HostError::Io(contract_path, e)),
-    };
+    let contract = read_contracts(&config.resolve(&config.server.contracts))?;
     let app = App::from_manifest(&plan)?;
     Ok(HostBuilder {
       config,
@@ -454,6 +475,17 @@ impl HostBuilder {
         for (name, client) in &config.clients {
           let document = client.document.clone().unwrap_or_else(|| format!("clients/{name}.openapi.json"));
           let path = config.resolve(&document);
+          if document.ends_with(".proto") {
+            let imported = snapfire_fsr_service::import_proto(&path, name).map_err(|error| HostError::Import { document, error })?;
+            contract.types.extend(imported.contract.types.clone());
+            contract.services.extend(imported.contract.services.clone());
+            if self.transport_override.is_none() {
+              let transport = snapfire_fsr_service::GrpcTransport::new(&client.base_url, &imported).map_err(|e| HostError::Transport(name.clone(), e))?;
+              transports.push((name.clone(), Arc::new(transport)));
+            }
+            service_rows.push((name.clone(), "grpc".to_owned(), client.base_url.clone()));
+            continue;
+          }
           let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
           let imported = snapfire_fsr_service::import(&text, name)
             .map_err(|error| HostError::Import { document, error })?;
@@ -464,7 +496,7 @@ impl HostBuilder {
             transport = transport.route(path.clone(), route.clone());
           }
           transports.push((name.clone(), Arc::new(transport)));
-          service_rows.push((name.clone(), client.base_url.clone()));
+          service_rows.push((name.clone(), "http".to_owned(), client.base_url.clone()));
         }
         let mut builder = Services::builder()
           .contract(contract)
