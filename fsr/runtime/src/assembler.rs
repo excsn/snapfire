@@ -407,7 +407,7 @@ impl Session {
               .find(|(name, _)| *name == slot)
               .map(|(_, child)| child)
               .ok_or_else(|| AssembleError::MissingSlot { node: node.id.0, slot: slot.0.clone() })?;
-            let key = self.runtime.keyer.key(child, &self.ctx.params);
+            let key = self.runtime.keyer.key(child, &self.ctx.params, &self.ctx.query);
             if child.deferred {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
               let fallback = self.fallback_node(child).await?;
@@ -467,7 +467,7 @@ pub async fn assemble(
   });
   let (tree, pending, children) = session.resolve_subtree(plan).await?;
   let segments = SegmentInfo {
-    key: runtime.keyer.key(plan, &ctx.params),
+    key: runtime.keyer.key(plan, &ctx.params, &ctx.query),
     path: Vec::new(),
     slot: None,
     children,

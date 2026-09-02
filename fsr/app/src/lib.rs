@@ -9,11 +9,12 @@ use std::future::Future;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId};
+use snapfire_fsr_ir::{IrAction, IrSource};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   LoadError, MatchitMatcher, NodeCache, RequestCtx, Runtime, TableResolver,
 };
-use snapfire_fsr_service::Services;
+use snapfire_fsr_service::{Contract, Services, Type};
 
 pub use plan::{IntoPlan, Plan};
 pub use routes::Routes;
@@ -24,6 +25,10 @@ pub enum BindError {
   Plan(#[from] snapfire_fsr_plan::PlanError),
   #[error("`{0}` is claimed by the plan file and by Rust; mark the Rust one as an override")]
   Claimed(String),
+  #[error("action `{0}` is lowered by the plan file and bound in Rust; mark the Rust one as an override")]
+  ActionClaimed(String),
+  #[error("action `{id}` is marked an override but the plan lowers no such action")]
+  ActionOverridesNothing { id: String },
   #[error("`{pattern}` is not a route pattern: {message}")]
   Pattern { pattern: String, message: String },
   #[error("the plan names data source `{name}`, which nothing answers")]
@@ -34,12 +39,17 @@ pub enum BindError {
   Module { module: String },
   #[error("the plan declares action `{id}`, which nothing answers")]
   UnboundAction { id: String },
+  #[error("action `{id}` names input type `{input}` but the host holds no contract; pass one with `contract`")]
+  NoContract { id: String, input: String },
+  #[error("action `{id}` names input type `{input}`, which the contract does not define")]
+  UnknownInput { id: String, input: String },
 }
 
 /// Who answers a name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
   PlanFile,
+  Lowered,
   Rust,
   RustOverride,
 }
@@ -48,6 +58,7 @@ impl Owner {
   pub fn as_str(&self) -> &'static str {
     match self {
       Self::PlanFile => "plan file",
+      Self::Lowered => "lowered",
       Self::Rust => "rust",
       Self::RustOverride => "rust override",
     }
@@ -60,7 +71,7 @@ impl Owner {
 pub struct Report {
   pub routes: Vec<(String, Owner)>,
   pub sources: Vec<(String, Owner)>,
-  pub actions: Vec<String>,
+  pub actions: Vec<(String, Owner)>,
 }
 
 impl std::fmt::Display for Report {
@@ -73,9 +84,9 @@ impl std::fmt::Display for Report {
       let label = if i == 0 { "sources" } else { "" };
       writeln!(f, "{label:<9} {source:<22} {}", owner.as_str())?;
     }
-    for (i, action) in self.actions.iter().enumerate() {
+    for (i, (action, owner)) in self.actions.iter().enumerate() {
       let label = if i == 0 { "actions" } else { "" };
-      writeln!(f, "{label:<9} {action:<22} rust")?;
+      writeln!(f, "{label:<9} {action:<22} {}", owner.as_str())?;
     }
     Ok(())
   }
@@ -104,11 +115,16 @@ impl std::fmt::Debug for App {
 pub struct AppBuilder {
   routes: Routes,
   declared_actions: Vec<String>,
+  lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
+  lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
+  contract: Option<Arc<Contract>>,
   sources: DataSources,
   claimed: Vec<(String, Owner)>,
   overrides: Vec<String>,
   evaluators: Evaluators,
   actions: ActionRegistry,
+  action_claims: Vec<(String, Owner)>,
+  action_overrides: Vec<String>,
   services: Option<Arc<Services>>,
   cache: Option<Arc<dyn NodeCache>>,
 }
@@ -118,21 +134,36 @@ impl App {
     AppBuilder {
       routes,
       declared_actions: Vec::new(),
+      lowered_sources: Vec::new(),
+      lowered_actions: Vec::new(),
+      contract: None,
       sources: DataSources::new(),
       claimed: Vec::new(),
       overrides: Vec::new(),
       evaluators: Evaluators::new(),
       actions: ActionRegistry::new(),
+      action_claims: Vec::new(),
+      action_overrides: Vec::new(),
       services: None,
       cache: None,
     }
   }
 
-  /// The stock entry point: a plan file and nothing else.
+  /// The stock entry point: a plan file and nothing else. Every lowered row
+  /// in the file is bound here as a default; Rust takes a name back with
+  /// `source_override` or `action_override`.
   pub fn from_manifest(manifest: &str) -> Result<AppBuilder, BindError> {
     let parsed = snapfire_fsr_plan::Manifest::from_json(manifest)?;
     let mut builder = Self::builder(Routes::from_manifest(manifest)?);
-    builder.declared_actions = parsed.actions;
+    builder.declared_actions = parsed.action_ids();
+    builder.lowered_sources = parsed
+      .lowered_sources()
+      .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body)))
+      .collect();
+    builder.lowered_actions = parsed
+      .lowered_actions()
+      .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
+      .collect();
     Ok(builder)
   }
 }
@@ -183,17 +214,42 @@ impl AppBuilder {
     F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
   {
+    let id = id.into();
+    self.action_claims.push((id.clone(), Owner::Rust));
+    self.actions.insert_fn(id, f);
+    self
+  }
+
+  /// Takes an action the plan file lowered. Overriding one it did not lower
+  /// is an error, since it means a rename left it dangling.
+  pub fn action_override<F, Fut>(mut self, id: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+  {
+    let id = id.into();
+    self.action_overrides.push(id.clone());
+    self.action_claims.push((id.clone(), Owner::RustOverride));
     self.actions.insert_fn(id, f);
     self
   }
 
   pub fn action_impl(mut self, id: impl Into<String>, handler: Arc<dyn ActionHandler>) -> Self {
+    let id = id.into();
+    self.action_claims.push((id.clone(), Owner::Rust));
     self.actions.insert(id, handler);
     self
   }
 
   pub fn services(mut self, services: Arc<Services>) -> Self {
     self.services = Some(services);
+    self
+  }
+
+  /// The contract a lowered action's input is checked against before its
+  /// body runs. Required when any lowered action names an input type.
+  pub fn contract(mut self, contract: Contract) -> Self {
+    self.contract = Some(Arc::new(contract));
     self
   }
 
@@ -214,12 +270,49 @@ impl AppBuilder {
 
   /// Refuses rather than serving a plan nothing can answer: every data source
   /// the plan names must be bound, and every override must name something.
-  pub fn build(self) -> Result<App, BindError> {
+  pub fn build(mut self) -> Result<App, BindError> {
     let declared: Vec<String> = self.routes.plans().flat_map(declared_sources).collect();
 
     for name in &self.overrides {
       if !declared.contains(name) {
         return Err(BindError::OverridesNothing { name: name.clone() });
+      }
+    }
+
+    for (name, body) in std::mem::take(&mut self.lowered_sources) {
+      match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
+        Some(Owner::RustOverride) => {}
+        Some(_) => return Err(BindError::Claimed(name)),
+        None => {
+          self.claimed.push((name.clone(), Owner::Lowered));
+          self.sources.insert(name.clone(), Arc::new(IrSource::new(name, body)));
+        }
+      }
+    }
+
+    for id in &self.action_overrides {
+      if !self.lowered_actions.iter().any(|(lowered, _, _)| lowered == id) {
+        return Err(BindError::ActionOverridesNothing { id: id.clone() });
+      }
+    }
+    for (id, input, body) in std::mem::take(&mut self.lowered_actions) {
+      match self.action_claims.iter().rev().find(|(claimed, _)| *claimed == id).map(|(_, o)| *o) {
+        Some(Owner::RustOverride) => {}
+        Some(_) => return Err(BindError::ActionClaimed(id)),
+        None => {
+          let handler: Arc<dyn ActionHandler> = match input {
+            None => Arc::new(IrAction::new(body)),
+            Some(input) => {
+              let contract = self.contract.clone().ok_or_else(|| BindError::NoContract { id: id.clone(), input: input.clone() })?;
+              if !contract.types.contains_key(&input) {
+                return Err(BindError::UnknownInput { id: id.clone(), input });
+              }
+              Arc::new(CheckedInput { input, contract, inner: IrAction::new(body) })
+            }
+          };
+          self.action_claims.push((id.clone(), Owner::Lowered));
+          self.actions.insert(id, handler);
+        }
       }
     }
 
@@ -249,10 +342,25 @@ impl AppBuilder {
     }
 
     let resolved = self.routes.resolved()?;
+    let actions = self
+      .actions
+      .ids()
+      .into_iter()
+      .map(|id| {
+        let owner = self
+          .action_claims
+          .iter()
+          .rev()
+          .find(|(claimed, _)| *claimed == id)
+          .map(|(_, o)| *o)
+          .unwrap_or(Owner::Rust);
+        (id, owner)
+      })
+      .collect();
     let mut report = Report {
       routes: resolved.iter().map(|(p, _, owner)| (p.clone(), *owner)).collect(),
       sources,
-      actions: self.actions.ids(),
+      actions,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -279,6 +387,24 @@ impl AppBuilder {
       actions: self.actions,
       report,
     })
+  }
+}
+
+/// A lowered action whose input is checked against its declared type before
+/// the body runs, so the body only ever sees a value of that shape.
+struct CheckedInput {
+  input: String,
+  contract: Arc<Contract>,
+  inner: IrAction,
+}
+
+impl ActionHandler for CheckedInput {
+  fn call(&self, ctx: RequestCtx, input: snapfire_fsr_core::Value) -> futures_util::future::BoxFuture<'static, Result<snapfire_fsr_core::Value, ActionError>> {
+    if let Err(e) = self.contract.check_value(&Type::Named(self.input.clone()), &input, "input") {
+      let error = ActionError::new(snapfire_fsr_runtime::FailureKind::Invalid, e.to_string());
+      return Box::pin(async move { Err(error) });
+    }
+    self.inner.call(ctx, input)
   }
 }
 

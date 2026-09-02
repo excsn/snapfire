@@ -1,0 +1,21 @@
+[package]
+name = "snapfire_fsr_ir"
+version = "0.1.0"
+description = "The lowered form of a loader or action body for Snapfire FSR, and the interpreter that runs it over the value model."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_runtime = { path = "../runtime" }
+futures-util = "0.3"
+indexmap = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+
+[dev-dependencies]
+parking_lot = "0.12"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

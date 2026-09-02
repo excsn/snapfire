@@ -41,7 +41,7 @@ How to wire a request through the runtime: matching a path, resolving a plan, lo
 * **Segment**: a region of the page with its own identity, cacheability and error boundary, one per plan node reached through a slot.
 * **Segment key**: the comparable identity of a segment across two responses, produced by a `SegmentKeyer`. Same key means the DOM and island state survive a navigation.
 * **Composed cache key**: the string the assembler builds from the plan's `cache_key`, the matched params, the identity subject and the subtree's data fingerprint.
-* **Request context** (`RequestCtx`): everything a loader or action may know about the request. Serializable values plus a service handle, nothing else.
+* **Request context** (`RequestCtx`): everything a loader or action may know about the request: route params, the decoded query string, the session, the CSRF token and a service handle, nothing else.
 * **Identity**: a subject string plus claims, resolved by the session layer before anything loads. Application code never sees a token.
 * **Failure kind** (`FailureKind`): the one failure vocabulary shared by actions and services, mapping to HTTP statuses at the edge.
 
@@ -589,7 +589,7 @@ use snapfire_fsr_runtime::SegmentKeyer;
 struct SectionKeyer;
 
 impl SegmentKeyer for SectionKeyer {
-  fn key(&self, plan: &PlanNode, params: &Params) -> String {
+  fn key(&self, plan: &PlanNode, params: &Params, _query: &Params) -> String {
     match params.get("section") {
       Some(section) => format!("{}?section={section}", plan.module),
       None => plan.module.to_string(),

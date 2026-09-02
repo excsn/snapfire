@@ -1,4 +1,4 @@
-use shopping_react_ts::backend::catalog::{Catalog, OrderError, OrderLine, OrderRequest};
+use shopping_react_ts::backend::catalog::{Catalog, Filter, OrderError, OrderLine, OrderRequest, CATEGORIES};
 
 fn order(lines: &[(u64, u32)]) -> OrderRequest {
   OrderRequest {
@@ -7,12 +7,28 @@ fn order(lines: &[(u64, u32)]) -> OrderRequest {
 }
 
 #[test]
-fn the_catalog_lists_and_filters_by_tag() {
+fn the_catalog_lists_and_filters_by_tag_category_and_search() {
   let catalog = Catalog::seed();
-  assert_eq!(catalog.list(None).len(), 5);
-  assert_eq!(catalog.list(Some("tools")).len(), 2);
-  assert!(catalog.list(Some("nothing")).is_empty());
-  assert_eq!(catalog.get(1).unwrap().name, "Filament, PLA 1kg");
+  let all = catalog.list(&Filter::default());
+  assert_eq!(all.len(), 14);
+  assert!(all.iter().all(|p| CATEGORIES.contains(&p.category.as_str())), "every product sits in a known category");
+  assert!(all.iter().all(|p| !p.description.is_empty() && !p.attributes.is_empty()), "every product is described");
+
+  assert_eq!(catalog.list(&Filter { tag: Some("tools"), ..Filter::default() }).len(), 2);
+  assert_eq!(catalog.list(&Filter { category: Some("books"), ..Filter::default() }).len(), 3);
+  assert!(catalog.list(&Filter { tag: Some("nothing"), ..Filter::default() }).is_empty());
+
+  let coffee = catalog.list(&Filter { q: Some("Espresso"), ..Filter::default() });
+  assert_eq!(coffee.len(), 1, "search is case-insensitive over the name");
+  assert_eq!(coffee[0].id, 6);
+  let kleppmann = catalog.list(&Filter { q: Some("kleppmann"), ..Filter::default() });
+  assert_eq!(kleppmann.len(), 1, "search reaches attribute values");
+  let wireless_tech = catalog.list(&Filter { q: Some("wireless"), category: Some("tech"), ..Filter::default() });
+  assert_eq!(wireless_tech.len(), 2);
+  assert!(catalog.list(&Filter { q: Some("wireless"), category: Some("food"), ..Filter::default() }).is_empty());
+  assert_eq!(catalog.list(&Filter { q: Some("  "), category: Some(""), ..Filter::default() }).len(), 14, "blank filters are no filter");
+
+  assert_eq!(catalog.get(1).unwrap().name, "PLA filament, 1 kg spool");
   assert!(catalog.get(99).is_none());
 }
 
@@ -62,7 +78,7 @@ fn the_published_document_describes_what_the_server_serves() {
   }
   assert_eq!(doc["paths"]["/products"]["get"]["operationId"], "listProducts");
   assert_eq!(doc["paths"]["/orders"]["post"]["operationId"], "placeOrder");
-  for schema in ["Product", "OrderLine", "OrderRequest", "PlacedLine", "Order"] {
+  for schema in ["Attribute", "Image", "Product", "OrderLine", "OrderRequest", "PlacedLine", "Order"] {
     assert!(doc["components"]["schemas"].get(schema).is_some(), "{schema} is defined");
   }
 }

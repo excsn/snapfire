@@ -72,7 +72,7 @@ fn the_report_says_who_answers_what() {
     app.report.sources,
     vec![("catalog".to_owned(), Owner::Rust), ("cart".to_owned(), Owner::RustOverride)]
   );
-  assert_eq!(app.report.actions, vec!["checkout".to_owned()]);
+  assert_eq!(app.report.actions, vec![("checkout".to_owned(), Owner::Rust)]);
 
   let printed = app.report.to_string();
   assert!(printed.contains("cart"), "{printed}");
@@ -165,4 +165,78 @@ fn a_plan_node_built_by_hand_is_still_accepted() {
     .build()
     .unwrap();
   assert_eq!(app.report.routes, vec![("/raw".to_owned(), Owner::Rust)]);
+}
+
+const LOWERED: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/", "plan": { "id": 0, "module": "app#Catalog", "source": "catalog" } }
+  ],
+  "sources": [
+    { "id": "catalog", "owner": "lowered", "module": "app/routes/index/loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ] }
+  ],
+  "actions": [
+    { "id": "checkout", "owner": "lowered", "module": "app/routes/cart/actions.ts",
+      "body": [ { "return": { "lit": { "str": "order-1" } } } ] }
+  ]
+}"#;
+
+#[test]
+fn a_lowered_row_binds_itself_and_the_report_says_so() {
+  let app = App::from_manifest(LOWERED)
+    .unwrap()
+    .evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator))
+    .build()
+    .unwrap();
+
+  assert_eq!(app.report.sources, vec![("catalog".to_owned(), Owner::Lowered)]);
+  assert_eq!(app.report.actions, vec![("checkout".to_owned(), Owner::Lowered)]);
+  assert!(app.report.to_string().contains("lowered"), "{}", app.report);
+
+  use snapfire_fsr_runtime::{assemble, EntryId, Resolver};
+  let ctx = snapfire_fsr_runtime::RequestCtx::anonymous(Default::default());
+  let plan = app.resolver.resolve(EntryId(0), &ctx.params).unwrap();
+  let assembly = futures::executor::block_on(assemble(&app.runtime, &plan, &ctx, &snapfire_fsr_core::Node::raw(""))).unwrap();
+  let printed = format!("{:?}", assembly.tree);
+  assert!(printed.contains("products"), "the lowered body answered the source: {printed}");
+
+  let order = futures::executor::block_on(app.actions.dispatch("checkout", ctx, snapfire_fsr_core::Value::Null)).unwrap();
+  assert_eq!(order, snapfire_fsr_core::Value::str("order-1"));
+}
+
+#[test]
+fn rust_takes_a_lowered_name_back_only_as_an_override() {
+  let err = App::from_manifest(LOWERED)
+    .unwrap()
+    .source("catalog", |_ctx| async { Ok(ValueMap::new()) })
+    .build()
+    .unwrap_err();
+  assert_eq!(err, BindError::Claimed("catalog".into()));
+
+  let err = App::from_manifest(LOWERED)
+    .unwrap()
+    .action("checkout", |_ctx, input| async move { Ok(input) })
+    .build()
+    .unwrap_err();
+  assert_eq!(err, BindError::ActionClaimed("checkout".into()));
+
+  let app = App::from_manifest(LOWERED)
+    .unwrap()
+    .source_override("catalog", |_ctx| async { Ok(ValueMap::new()) })
+    .action_override("checkout", |_ctx, input| async move { Ok(input) })
+    .evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator))
+    .build()
+    .unwrap();
+  assert_eq!(app.report.sources, vec![("catalog".to_owned(), Owner::RustOverride)]);
+  assert_eq!(app.report.actions, vec![("checkout".to_owned(), Owner::RustOverride)]);
+}
+
+#[test]
+fn an_action_override_that_names_nothing_refuses_to_start() {
+  let err = bound()
+    .action_override("checkout", |_ctx, input| async move { Ok(input) })
+    .build()
+    .unwrap_err();
+  assert_eq!(err, BindError::ActionOverridesNothing { id: "checkout".into() });
 }

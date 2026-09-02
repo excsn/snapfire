@@ -5,19 +5,23 @@ use snapfire_fsr_core::{Params, PlanNode};
 /// region is replaced from that point down. Content changes are not identity
 /// changes: revalidation is a separate mechanism.
 pub trait SegmentKeyer: Send + Sync {
-  fn key(&self, plan: &PlanNode, params: &Params) -> String;
+  fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String;
 }
 
-/// Module plus every matched param. A custom resolver with narrower param
-/// dependencies pairs with a narrower keyer.
+/// Module plus every matched param and every query pair, since a loader may
+/// read either. A custom resolver with narrower dependencies pairs with a
+/// narrower keyer.
 pub struct DefaultKeyer;
 
 impl SegmentKeyer for DefaultKeyer {
-  fn key(&self, plan: &PlanNode, params: &Params) -> String {
+  fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String {
     let mut key = plan.module.to_string();
-    if !params.is_empty() {
-      let mut pairs: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
-      pairs.sort_unstable();
+    let mut pairs: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    pairs.sort_unstable();
+    let mut query_pairs: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    query_pairs.sort_unstable();
+    pairs.extend(query_pairs);
+    if !pairs.is_empty() {
       key.push('?');
       key.push_str(&pairs.join("&"));
     }

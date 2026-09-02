@@ -1,0 +1,19 @@
+[package]
+name = "snapfire_fsr_cli"
+version = "0.1.0"
+description = "fsr: discovers an application's routes, lowers its loaders and actions and emits the plan file."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[[bin]]
+name = "fsr"
+path = "src/main.rs"
+
+[dependencies]
+snapfire_fsr_ir = { path = "../ir" }
+snapfire_fsr_lower = { path = "../lower" }
+snapfire_fsr_plan = { path = "../plan" }
+snapfire_fsr_service = { path = "../service" }
+thiserror = "2"

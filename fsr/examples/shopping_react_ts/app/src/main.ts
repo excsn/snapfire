@@ -1,28 +1,11 @@
 import { boot, enableNavigation, registerIsland } from "@snapfire/fsr-client";
 import { reactMounter } from "@snapfire/fsr-client/react";
+import { registerIslands } from "../generated/islands.js";
 
-registerIsland("app/main.tsx#Catalog", {
-  loader: () => import("./Catalog.js").then((m) => m.default),
-  mount: reactMounter,
-});
+registerIslands();
 
-registerIsland("app/main.tsx#Product", {
-  loader: () => import("./Product.js").then((m) => m.default),
-  mount: reactMounter,
-});
-
-registerIsland("app/main.tsx#Cart", {
-  loader: () => import("./Cart.js").then((m) => m.default),
-  mount: reactMounter,
-});
-
-registerIsland("app/main.tsx#About", {
+registerIsland("src/About.tsx#default", {
   loader: () => import("./About.js").then((m) => m.default),
-  mount: reactMounter,
-});
-
-registerIsland("app/main.tsx#Failed", {
-  loader: () => import("./Failed.js").then((m) => m.default),
   mount: reactMounter,
 });
 
