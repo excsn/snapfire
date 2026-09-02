@@ -101,6 +101,7 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: 
 
   let ctx = RequestCtx {
     params: Default::default(),
+    query: Default::default(),
     session: opened.cell.clone(),
     csrf: None,
     services: app.services.bind(opened.cell.identity(), Arc::new(opened.tokens.clone())),

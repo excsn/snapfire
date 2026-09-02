@@ -1,7 +1,7 @@
 use snapfire_fsr_service::openapi::{import, ImportError};
 use snapfire_fsr_service::{Type, TypeDef};
 
-const SHOPPING: &str = include_str!("../../examples/shopping_react_ts/openapi.json");
+const SHOPPING: &str = include_str!("../../examples/shopping_react_ts/app/clients/shopping.openapi.json");
 
 fn doc(paths: &str, schemas: &str) -> String {
   format!(
@@ -15,8 +15,9 @@ fn a_real_document_lowers_to_a_contract_and_its_routes() {
   let contract = &imported.contract;
 
   let list = contract.method("shopping", "listProducts").unwrap();
-  assert_eq!(list.params.len(), 1);
-  assert_eq!(list.params[0].name, "tag");
+  assert_eq!(list.params.len(), 3);
+  assert_eq!(list.params[0].name, "q");
+  assert_eq!(list.params[2].name, "tag");
   assert_eq!(list.params[0].ty, Type::optional(Type::Str), "an optional query param");
   assert_eq!(list.returns, Type::list(Type::named("Product")));
 
@@ -32,8 +33,11 @@ fn a_real_document_lowers_to_a_contract_and_its_routes() {
 
   let Some(TypeDef::Record { fields }) = contract.types.get("Product") else { panic!("Product") };
   assert_eq!(fields[0].ty, Type::I64, "int64 keeps its width");
-  assert_eq!(fields[3].ty, Type::I32, "int32 keeps its width");
-  assert_eq!(fields[4].ty, Type::list(Type::Str));
+  assert_eq!(fields[5].ty, Type::optional(Type::I64), "a property outside `required` is optional");
+  assert_eq!(fields[6].ty, Type::I32, "int32 keeps its width");
+  assert_eq!(fields[7].ty, Type::F64, "double is a float");
+  assert_eq!(fields[10].ty, Type::list(Type::Str));
+  assert_eq!(fields[11].ty, Type::list(Type::named("Attribute")));
 
   let routes: Vec<(String, String, String)> = imported
     .routes

@@ -32,6 +32,7 @@ The crate declares no cargo features, so everything described in the guide and t
 | Reach a backend over HTTP | `HttpTransport`, `Route` |
 | Run the whole application with no backend | `MockTransport` |
 | Hold a token application code cannot read | `Credentials`, `TokenCell` |
+| Print the contract as server-side TypeScript declarations | `typescript::declarations` |
 
 ## Status
 

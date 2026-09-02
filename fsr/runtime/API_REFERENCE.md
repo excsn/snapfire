@@ -256,13 +256,13 @@ Segment information produced inside a resolution is discarded; a deferred subtre
 
 `pub trait SegmentKeyer: Send + Sync`.
 
-* `fn key(&self, plan: &PlanNode, params: &Params) -> String`: the comparable identity of a segment across responses. Equal keys mean the client keeps the region's DOM and island state; different keys mean it is replaced from that point down. Content changes are not identity changes.
+* `fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String`: the comparable identity of a segment across responses. Equal keys mean the client keeps the region's DOM and island state; different keys mean it is replaced from that point down. Content changes are not identity changes.
 
 ### `DefaultKeyer`
 
-Module plus every matched param. Unit struct.
+Module plus every matched param and every query pair. Unit struct.
 
-* `fn key(&self, plan: &PlanNode, params: &Params) -> String`: `plan.module` displayed as `path#export`; when params are present a `?` followed by `k=v` pairs sorted and joined by `&`, for example `page.tera#default?section=servers`.
+* `fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String`: `plan.module` displayed as `path#export`; when params or query pairs are present a `?` followed by the param `k=v` pairs sorted, then the query pairs sorted, joined by `&`, for example `page.tera#default?section=servers` or `page.tsx#default?q=wireless`.
 
 ### `SegmentInfo`
 
@@ -347,7 +347,9 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub session: SessionCell`
 * `pub csrf: Option<String>`
 * `pub services: ServiceHandle`
-* `pub fn anonymous(params: Params) -> Self`: empty session, no CSRF token, unbound service handle.
+* `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
+* `pub fn anonymous(params: Params) -> Self`: empty session, no CSRF token, unbound service handle. `query` is empty.
+* `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.
 
 Cloning a context shares the session cell and the service handle; only `params` and `csrf` are copied.

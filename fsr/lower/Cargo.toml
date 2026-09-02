@@ -1,0 +1,17 @@
+[package]
+name = "snapfire_fsr_lower"
+version = "0.1.0"
+description = "The recogniser for Snapfire FSR: reads a TypeScript loader or actions module and lowers each body to the IR, naming the line that stops it."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_ir = { path = "../ir" }
+snapfire_fsr_service = { path = "../service" }
+thiserror = "2"
+
+[dependencies.swc_core]
+version = "77"
+features = ["common", "ecma_ast", "ecma_parser"]

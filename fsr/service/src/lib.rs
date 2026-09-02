@@ -6,6 +6,7 @@ pub mod interceptor;
 pub mod openapi;
 pub mod registry;
 pub mod transport;
+pub mod typescript;
 
 pub use call::{Call, Credentials, NoCredentials};
 pub use check::ContractError;

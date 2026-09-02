@@ -9,21 +9,17 @@ license = { workspace = true }
 
 [dependencies]
 snapfire_fsr = { path = "../../app" }
+snapfire_fsr_host = { path = "../../host", features = ["actix"] }
 snapfire_fsr_core = { path = "../../core" }
-snapfire_fsr_payload = { path = "../../payload" }
 snapfire_fsr_plan = { path = "../../plan" }
 snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_service = { path = "../../service" }
-snapfire_fsr_session = { path = "../../session" }
 actix-web = "4"
-actix-files = "0.6"
 fibre_logging = "0.5"
 futures-util = "0.3"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-thiserror = "2"
-tracing = "0.1"
 
 [dev-dependencies]
 futures = "0.3"

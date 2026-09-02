@@ -41,7 +41,10 @@ The typed service boundary for Snapfire FSR: the contract artifact, its checking
   * [Identity](#identity)
   * [FailureKind](#failurekind)
   * [ServiceError](#serviceerror)
-* [8. Error Handling](#8-error-handling)
+* [8. TypeScript Declarations](#8-typescript-declarations)
+  * [declarations](#declarations)
+  * [type_name](#type_name)
+* [9. Error Handling](#9-error-handling)
   * [ContractError](#contracterror)
 
 ## 1. The Contract Artifact
@@ -390,7 +393,19 @@ The failure taxonomy every error at this boundary carries.
 
 `Display` reads `{service}.{method} failed ({kind}): {message}`.
 
-## 8. Error Handling
+## 8. TypeScript Declarations
+
+### declarations
+
+* `pub fn typescript::declarations(contract: &Contract) -> String`
+* One `export interface` per record, one `export type` per union with arms `{ tag: "x" }` or `{ tag: "x"; payload: T }`, then `export interface Services` with one nested object per service and one method per contract method. A method with no params takes no argument; one whose params are all optional takes `args?`. Optional fields print as `name?: T | null`. Names that are not identifiers are quoted.
+
+### type_name
+
+* `pub fn typescript::type_name(ty: &Type) -> String`
+* Every integer width is `bigint`; `F32` and `F64` are `number`; `Str` is `string`; `Bytes` is `Uint8Array`; `Array(kind)` is the matching typed array; `Optional(T)` is `T | null`; `List(T)` is `T[]`, parenthesised when `T` is optional; `Map(T)` is `Record<string, T>`; `Named(n)` is `n`.
+
+## 9. Error Handling
 
 ### ContractError
 

@@ -9,11 +9,13 @@ license = { workspace = true }
 
 [dependencies]
 snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_ir = { path = "../ir" }
 snapfire_fsr_payload = { path = "../payload" }
 snapfire_fsr_plan = { path = "../plan" }
 snapfire_fsr_runtime = { path = "../runtime" }
 snapfire_fsr_service = { path = "../service" }
 snapfire_fsr_session = { path = "../session" }
+futures-util = "0.3"
 thiserror = "2"
 
 [dev-dependencies]

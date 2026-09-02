@@ -1,0 +1,245 @@
+# Usage Guide: snapfire_fsr_host
+
+How to write `config/app.toml`, what the host infers so the file stays short, how to override a setting per deployment, start the host, serve it with hyper, axum or actix, take a name back in Rust and test an application without its backend.
+
+## Table of Contents
+
+* [Core Concepts](#core-concepts)
+* [Quick Start](#quick-start)
+* [Laying Out the Project](#laying-out-the-project)
+* [Writing config/app.toml](#writing-configapptoml)
+* [What the Host Infers](#what-the-host-infers)
+* [Overriding per Deployment](#overriding-per-deployment)
+* [Serving with hyper](#serving-with-hyper)
+* [Mounting in axum](#mounting-in-axum)
+* [Serving with actix](#serving-with-actix)
+* [Adding a Route in Rust](#adding-a-route-in-rust)
+* [Taking a Name Back](#taking-a-name-back)
+* [Replacing the Shell](#replacing-the-shell)
+* [Testing Over a Mock Transport](#testing-over-a-mock-transport)
+* [Reading the Report](#reading-the-report)
+* [Error Handling](#error-handling)
+
+## Core Concepts
+
+* **Project root** is the directory holding `config/`; `Host::from` takes it, a `config/` directory or one file.
+* **App directory** is `[app] dir` under the project root, `app` by default; every path in the configuration and everything inferred resolves against it.
+* **Config directory** is `config/`. The host loads a fixed ladder out of it through c5store, `app.toml` first and the deployment overlays after it, later files overriding earlier ones, then `C5_` environment variables over all of them. A file the ladder does not name is not read.
+* **Deployment** is the three variables xs_core applications already set: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (unset by default). Each names an overlay file.
+* **Plan file** is `plan.json`, written by `fsr build`, with routes and lowered bodies.
+* **Contract** is `generated/contract.json`, the same build's output; the host checks a lowered action's input against it.
+* **Client** is a `[clients.<name>]` entry: an OpenAPI document and a base URL, imported into one service registry with an HTTP transport per client.
+* **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.
+* **Head** is what the stock shell puts in `<head>`: the title, a `<link>` per stylesheet, the inlined import map and the entry module from `[document]`.
+* **Static root** is a `[[static]]` entry, a route prefix served from a directory by `tower-http`'s `ServeDir`, checked before any route.
+* **Session** is opened from the cookie on every request and persisted into the response when it changed, through `snapfire_fsr_session`.
+* **Edge** is `Host::handle`: one `http::Request<Bytes>` in, one streaming `http::Response` out, covering static roots, `/_sf/action/<id>` and pages in either mode.
+* **Service** is `Host::service`, the same edge as a `tower::Service`, so any tower stack drives it.
+
+## Quick Start
+
+```rust
+use std::sync::Arc;
+use snapfire_fsr_host::Host;
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+  let host = Host::from_cwd().and_then(|b| b.build()).map_err(std::io::Error::other)?;
+  print!("{}", host.report);
+  let listen = host.listen().to_owned();
+  Arc::new(host).serve(&listen).await
+}
+```
+
+## Laying Out the Project
+
+```
+shopping/
+  config/
+    app.toml               # deployment facts
+    local.toml             # the APP_ENV overlay, loaded after app.toml
+  app/                     # routes, schemas, clients, plan.json, generated/, dist/, vendor/
+  src/main.rs              # optional: the backend, a Rust route, an override
+```
+
+## Writing config/app.toml
+
+Only what cannot be inferred: where to listen, how to sign sessions, where each service lives.
+
+```toml
+[server]
+listen = "127.0.0.1:8080"
+
+[document]
+title = "Shopping"
+
+[session]
+key = "a signing key"             # required
+ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
+
+[clients.shopping]
+base_url = "http://127.0.0.1:8081"
+```
+
+A key the host does not know is an error naming the key. So is a section it does not know, so a typo cannot silently do nothing.
+
+## What the Host Infers
+
+From the app directory, each reported at boot under `inferred`:
+
+| Setting | Inferred from |
+| --- | --- |
+| the bundle's static route | `dist/.snapfire-build.json`'s `publicPath`, serving `dist` there |
+| `document.entry` | the same file's `src/main.js` entry under that path |
+| `document.import_map` | `importmap.json` in the app directory |
+| a `/static/js/vendor` root | `vendor/` in the app directory |
+| a `/static/css` root and `document.styles` | `styles/` in the app directory, every `.css` in it linked from the head in name order |
+| `clients.<name>.document` | `clients/<name>.openapi.json` |
+
+Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.
+
+## Overriding per Deployment
+
+The files in `config/` load in this order, each `.toml` then `.yaml`, skipping the ones that do not exist:
+
+| File | Named by |
+| --- | --- |
+| `app` | always |
+| `<RELEASE_ENV>` | `RELEASE_ENV`, default `development` |
+| `<APP_ENV>` | `APP_ENV`, default `local` |
+| `<APP_REGION>` | `APP_REGION`, no default |
+| `<APP_ENV>-<APP_REGION>` | both |
+
+So `config/production.toml` is read when `APP_ENV=production` and ignored otherwise; `config/local.toml` is a developer's machine by default. A file with any other name is never read. Every key is also reachable from the environment with the `C5_` prefix and `__` between levels, so a container sets the listen address without a file:
+
+```sh
+APP_ENV=production C5_SERVER__LISTEN=0.0.0.0:80 C5_SESSION__KEY=... ./shop
+```
+
+A file the ladder does not name, a path from a flag or a secrets file mounted elsewhere, goes on the end with `Located::extra`; a relative path resolves against the config directory.
+
+```rust
+use snapfire_fsr_host::config::locate;
+
+let located = locate(Path::new("."))?.extra("/run/secrets/shop.toml");
+let host = Host::from_located(located)?.build()?;
+```
+
+The report prints which files were read in order and what was inferred.
+
+## Serving with hyper
+
+`serve` binds the address and runs HTTP/1 connections on it; `serve_listener` takes a listener you bound, which is how a test picks port zero.
+
+```rust
+let host = Arc::new(host);
+host.clone().serve("127.0.0.1:8080").await?;
+
+let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+host.serve_listener(listener).await?;
+```
+
+## Mounting in axum
+
+The host is a `tower::Service`, so an existing router nests it under a prefix and keeps its own middleware.
+
+```rust
+use axum::Router;
+
+let app = Router::new().nest_service("/shop", host.service());
+```
+
+## Serving with actix
+
+With the `actix` feature, `actix::serve` runs the host on its own. `actix::handle` is a handler for an existing `App`'s default service.
+
+```rust
+snapfire_fsr_host::actix::serve(host, ("127.0.0.1", 8080)).await?;
+```
+
+```rust
+App::new().app_data(Data::new(host.clone())).default_service(web::to(snapfire_fsr_host::actix::handle))
+```
+
+## Adding a Route in Rust
+
+A route the file system convention does not describe, beside the ones the plan file carries. A pattern the plan already claims is refused unless `route_override` says so.
+
+```rust
+use snapfire_fsr::Plan;
+
+let host = Host::from("app/app.toml")?
+  .route("/about", Plan::of("shell#document").slot("content", Plan::of("src/About.tsx#default")))
+  .build()?;
+```
+
+## Taking a Name Back
+
+The binding rule from `snapfire_fsr` applies unchanged. A lowered source or action is a default; Rust replaces it with an override. The report says `rust override`.
+
+```rust
+let host = Host::from("app/app.toml")?
+  .source_override("pricing", |ctx| async move { pricing::load(ctx).await })
+  .action_override("cart.checkout", |ctx, input| async move { checkout::run(ctx, input).await })
+  .build()?;
+```
+
+Binding a lowered name with plain `source` or `action` is refused, since the file already answers it.
+
+## Replacing the Shell
+
+The stock shell emits the doctype, the head slot and `<div id="app">` with the content slot. Give another evaluator for the document module to change the document.
+
+```rust
+let host = Host::from("app/app.toml")?.shell(Arc::new(MyShell)).build()?;
+```
+
+## Testing Over a Mock Transport
+
+`services_over` keeps the contract the configuration names and answers every call from the given transport, so a test needs no backend.
+
+```rust
+use snapfire_fsr_host::{Host, RenderMode};
+use snapfire_fsr_runtime::SessionCell;
+use snapfire_fsr_service::MockTransport;
+
+let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", products));
+let host = Host::from("app/app.toml")?.services_over(transport.clone()).build()?;
+
+let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await?;
+let session = SessionCell::default();
+let out = host.call_action("cart.addToCart", session.clone(), input).await?;
+assert_eq!(transport.calls().len(), 1);
+```
+
+`handle` drives the whole edge, cookies included, without a socket.
+
+## Reading the Report
+
+`Host::report` is the application's report plus the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
+
+```
+routes    /                      plan file
+          /about                 rust
+sources   index                  lowered
+actions   cart.checkout          lowered
+services  shopping               http        http://127.0.0.1:8081
+static    /static/js/app         /srv/shop/app/dist
+config    /srv/shop/config
+inferred  static /static/js/app from dist/.snapfire-build.json
+          document.entry from dist/.snapfire-build.json
+```
+
+## Error Handling
+
+`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches.
+
+```rust
+use snapfire_fsr_host::HostError;
+
+match Host::from("app/app.toml").and_then(|b| b.build()) {
+  Ok(host) => host,
+  Err(HostError::Bind(e)) => return refuse(format!("the plan and the Rust disagree: {e}")),
+  Err(e) => return refuse(e.to_string()),
+}
+```

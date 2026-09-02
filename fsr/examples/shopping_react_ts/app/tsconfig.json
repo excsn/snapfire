@@ -1,10 +1,20 @@
 {
   "compilerOptions": {
     "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "sourceMap": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "strict": true,
+    "paths": {
+      "@snapfire/fsr": ["./generated/fsr"],
+      "@snapfire/fsr-authoring": ["../../../authoring"],
+      "@snapfire/fsr-client": ["../../../client/dist/index"],
+      "@snapfire/fsr-client/react": ["../../../client/dist/react"]
+    }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "routes/**/*", "schemas/**/*", "generated/**/*"]
 }

@@ -1,0 +1,224 @@
+use serde::{Deserialize, Serialize};
+
+/// A body is a statement list. A loader body ends in a `return` of an object;
+/// an action body may return anything or nothing.
+pub type Body = Vec<Stmt>;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stmt {
+  Let { name: String, expr: Expr },
+  If { cond: Expr, then: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] r#else: Body },
+  ForOf { name: String, over: Expr, body: Body },
+  Return(Expr),
+  /// `if (cond) fail(kind, message)`. The kind is a `FailureKind` name.
+  Guard { cond: Expr, kind: String, message: String },
+  SessionSet { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr>, value: Expr },
+  SessionDelete { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr> },
+  Expr(Expr),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Expr {
+  Param(String),
+  Query(String),
+  Session(String),
+  Identity(Vec<String>),
+  Input,
+  Now,
+  Var(String),
+  Lit(Lit),
+  Object(Vec<Entry>),
+  Array(Vec<Entry>),
+  Field(Box<Expr>, String),
+  Index(Box<Expr>, Box<Expr>),
+  Arith(ArithOp, Box<Expr>, Box<Expr>),
+  Compare(CompareOp, Box<Expr>, Box<Expr>),
+  Logic(LogicOp, Box<Expr>, Box<Expr>),
+  Not(Box<Expr>),
+  Coalesce(Box<Expr>, Box<Expr>),
+  Ternary(Box<Expr>, Box<Expr>, Box<Expr>),
+  Template(Vec<Expr>),
+  /// `await services.<service>.<method>(args)`. An argument whose value is
+  /// `null` is omitted, the way an absent optional argument is in TypeScript.
+  Call { service: String, method: String, #[serde(default)] args: Vec<(String, Expr)> },
+  Lambda { params: Vec<String>, body: Box<Expr> },
+  Map(Box<Expr>, Box<Expr>),
+  Filter(Box<Expr>, Box<Expr>),
+  Reduce(Box<Expr>, Box<Expr>, Box<Expr>),
+  Find(Box<Expr>, Box<Expr>),
+  Some(Box<Expr>, Box<Expr>),
+  Every(Box<Expr>, Box<Expr>),
+  Entries(Box<Expr>),
+  Keys(Box<Expr>),
+  Values(Box<Expr>),
+  Length(Box<Expr>),
+  Str(Box<Expr>),
+  Num(Box<Expr>),
+  BigInt(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Entry {
+  Field(String, Expr),
+  /// `{ [key]: value }`; the key must evaluate to a string.
+  Computed(Expr, Expr),
+  Item(Expr),
+  Spread(Expr),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lit {
+  Null,
+  Bool(bool),
+  Int(i128),
+  Float(f64),
+  Str(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArithOp {
+  Add,
+  Sub,
+  Mul,
+  Div,
+  Rem,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompareOp {
+  Eq,
+  Ne,
+  Lt,
+  Le,
+  Gt,
+  Ge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogicOp {
+  And,
+  Or,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("malformed IR: {0}")]
+pub struct ParseError(#[from] serde_json::Error);
+
+pub fn from_json(text: &str) -> Result<Body, ParseError> {
+  Ok(serde_json::from_str(text)?)
+}
+
+pub fn to_json(body: &Body) -> String {
+  serde_json::to_string_pretty(body).expect("the IR serialises")
+}
+
+impl Expr {
+  pub fn lit_str(s: impl Into<String>) -> Self {
+    Expr::Lit(Lit::Str(s.into()))
+  }
+
+  pub fn lit_int(n: impl Into<i128>) -> Self {
+    Expr::Lit(Lit::Int(n.into()))
+  }
+
+  pub fn var(name: impl Into<String>) -> Self {
+    Expr::Var(name.into())
+  }
+
+  pub fn field(self, name: impl Into<String>) -> Self {
+    Expr::Field(Box::new(self), name.into())
+  }
+
+  pub fn index(self, key: Expr) -> Self {
+    Expr::Index(Box::new(self), Box::new(key))
+  }
+
+  pub fn call(service: impl Into<String>, method: impl Into<String>, args: Vec<(&str, Expr)>) -> Self {
+    Expr::Call {
+      service: service.into(),
+      method: method.into(),
+      args: args.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
+    }
+  }
+
+  pub fn lambda(params: &[&str], body: Expr) -> Self {
+    Expr::Lambda { params: params.iter().map(|p| (*p).to_owned()).collect(), body: Box::new(body) }
+  }
+
+  pub fn object(entries: Vec<(&str, Expr)>) -> Self {
+    Expr::Object(entries.into_iter().map(|(k, v)| Entry::Field(k.to_owned(), v)).collect())
+  }
+
+  /// Every `Var` name the expression reads that it does not bind itself.
+  pub fn free_vars(&self, out: &mut Vec<String>) {
+    match self {
+      Expr::Var(name) => {
+        if !out.contains(name) {
+          out.push(name.clone());
+        }
+      }
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => {}
+      Expr::Object(entries) | Expr::Array(entries) => {
+        for entry in entries {
+          match entry {
+            Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.free_vars(out),
+            Entry::Computed(k, v) => {
+              k.free_vars(out);
+              v.free_vars(out);
+            }
+          }
+        }
+      }
+      Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
+      | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.free_vars(out),
+      Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Some(a, b) | Expr::Every(a, b) => {
+        a.free_vars(out);
+        b.free_vars(out);
+      }
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => {
+        a.free_vars(out);
+        b.free_vars(out);
+        c.free_vars(out);
+      }
+      Expr::Template(parts) => parts.iter().for_each(|p| p.free_vars(out)),
+      Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
+      Expr::Lambda { params, body } => {
+        let mut inner = Vec::new();
+        body.free_vars(&mut inner);
+        for name in inner {
+          if !params.contains(&name) && !out.contains(&name) {
+            out.push(name);
+          }
+        }
+      }
+    }
+  }
+
+  pub fn has_call(&self) -> bool {
+    match self {
+      Expr::Call { .. } => true,
+      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => false,
+      Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
+        Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
+        Entry::Computed(k, v) => k.has_call() || v.has_call(),
+      }),
+      Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
+      | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.has_call(),
+      Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Some(a, b) | Expr::Every(a, b) => a.has_call() || b.has_call(),
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.has_call() || b.has_call() || c.has_call(),
+      Expr::Template(parts) => parts.iter().any(Expr::has_call),
+      Expr::Lambda { body, .. } => body.has_call(),
+    }
+  }
+}

@@ -84,6 +84,9 @@ impl SessionCell {
 #[derive(Clone, Default)]
 pub struct RequestCtx {
   pub params: Params,
+  /// The query string, decoded, one value per key with the last repeat
+  /// winning. Keys starting with `__` are the runtime's own and are dropped.
+  pub query: Params,
   pub session: SessionCell,
   pub csrf: Option<String>,
   pub services: ServiceHandle,
@@ -91,7 +94,7 @@ pub struct RequestCtx {
 
 impl RequestCtx {
   pub fn anonymous(params: Params) -> Self {
-    Self { params, session: SessionCell::default(), csrf: None, services: ServiceHandle::default() }
+    Self { params, query: Params::new(), session: SessionCell::default(), csrf: None, services: ServiceHandle::default() }
   }
 
   pub fn identity_value(&self) -> Option<Value> {
@@ -102,4 +105,46 @@ impl RequestCtx {
       Value::Map(map)
     })
   }
+}
+
+/// Decodes a query string into `Params`: `+` and `%XX` decoded, empty keys and
+/// keys starting with `__` dropped, a repeated key keeping its last value.
+pub fn parse_query(raw: &str) -> Params {
+  let mut out = Params::new();
+  for pair in raw.split('&') {
+    if pair.is_empty() {
+      continue;
+    }
+    let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+    let key = percent_decode(key);
+    if key.is_empty() || key.starts_with("__") {
+      continue;
+    }
+    out.insert(key, percent_decode(value));
+  }
+  out
+}
+
+fn percent_decode(raw: &str) -> String {
+  let bytes = raw.as_bytes();
+  let mut out = Vec::with_capacity(bytes.len());
+  let mut i = 0;
+  while i < bytes.len() {
+    match bytes[i] {
+      b'+' => out.push(b' '),
+      b'%' => {
+        let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+        match (bytes.get(i + 1).copied().and_then(hex), bytes.get(i + 2).copied().and_then(hex)) {
+          (Some(hi), Some(lo)) => {
+            out.push(hi * 16 + lo);
+            i += 2;
+          }
+          _ => out.push(b'%'),
+        }
+      }
+      b => out.push(b),
+    }
+    i += 1;
+  }
+  String::from_utf8_lossy(&out).into_owned()
 }

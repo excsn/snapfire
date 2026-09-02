@@ -16,7 +16,7 @@ pub use assembler::{
   RuntimeBuilder,
 };
 pub use cache::{CacheEntry, FibreCache, MemoryCache, NoCache, NodeCache};
-pub use ctx::{Identity, RequestCtx, SessionCell};
+pub use ctx::{parse_query, Identity, RequestCtx, SessionCell};
 pub use data::{DataSource, DataSources, LoadError};
 pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use matcher::{EntryId, Matcher, MatchitMatcher, RouteMatch};

@@ -1,0 +1,41 @@
+[package]
+name = "snapfire_fsr_host"
+version = "0.1.0"
+description = "The stock host for Snapfire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[features]
+default = []
+actix = ["dep:actix-web"]
+
+[dependencies]
+snapfire_fsr = { path = "../app" }
+snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_payload = { path = "../payload" }
+snapfire_fsr_runtime = { path = "../runtime" }
+snapfire_fsr_service = { path = "../service" }
+snapfire_fsr_session = { path = "../session" }
+bytes = "1"
+c5store = { version = "^0", features = ["toml"] }
+futures-util = "0.3"
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = ["net", "rt", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tracing = "0.1"
+actix-web = { version = "4", optional = true }
+
+[dev-dependencies]
+axum = "0.8"
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

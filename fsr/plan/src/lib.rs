@@ -2,17 +2,23 @@
 //! its own format rather than serde on the runtime types, so the file can gain
 //! a field without the vocabulary crate gaining a dependency.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use snapfire_fsr_core::{CacheKey, DataSourceId, ModuleId, NodeId, PlanNode, SlotName};
+use snapfire_fsr_ir::Body;
 
-pub const FORMAT_VERSION: u32 = 1;
+/// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
+/// with bare action ids and no sources, still reads.
+pub const FORMAT_VERSION: u32 = 2;
+const OLDEST_READABLE: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
   #[error("the plan file is not JSON: {0}")]
   Malformed(String),
-  #[error("plan file version {found}, expected {FORMAT_VERSION}")]
+  #[error("plan file version {found}, expected {OLDEST_READABLE} to {FORMAT_VERSION}")]
   Version { found: u32 },
+  #[error("source row `{id}` is `lowered` but carries no body")]
+  NoBody { id: String },
   #[error("{at}: `{module}` is not a module id, which is `path#export`")]
   Module { at: String, module: String },
   #[error("{at}: node id {id} appears twice in one route")]
@@ -27,10 +33,160 @@ pub enum PlanError {
 pub struct Manifest {
   pub version: u32,
   pub routes: Vec<RouteEntry>,
-  /// The action ids the application expects to exist. Declared so an
-  /// unanswered action is a boot error rather than a 404 at request time.
+  /// One row per data source the build knows about. A row with a body is a
+  /// default the host binds unless Rust overrides the name; a row without one
+  /// is a declaration Rust must answer.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub actions: Vec<String>,
+  pub sources: Vec<SourceEntry>,
+  /// The actions the application expects to exist. Declared so an unanswered
+  /// action is a boot error rather than a 404 at request time.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub actions: Vec<ActionEntry>,
+}
+
+/// Who a row says answers it. The host may replace `lowered` with a Rust
+/// override; `rust` is a declaration and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowOwner {
+  Lowered,
+  Engine,
+  Rust,
+}
+
+impl RowOwner {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+      Self::Lowered => "lowered",
+      Self::Engine => "engine",
+      Self::Rust => "rust",
+    }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceEntry {
+  pub id: String,
+  pub owner: RowOwner,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub export: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub body: Option<Body>,
+}
+
+impl SourceEntry {
+  pub fn lowered(id: impl Into<String>, module: impl Into<String>, body: Body) -> Self {
+    Self {
+      id: id.into(),
+      owner: RowOwner::Lowered,
+      module: Some(module.into()),
+      export: None,
+      reason: None,
+      body: Some(body),
+    }
+  }
+
+  pub fn rust(id: impl Into<String>) -> Self {
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None }
+  }
+}
+
+/// An action row. A format 1 file lists bare ids, which read as `rust` rows.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ActionEntry {
+  pub id: String,
+  pub owner: RowOwner,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub export: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub input: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub body: Option<Body>,
+}
+
+impl ActionEntry {
+  pub fn lowered(id: impl Into<String>, module: impl Into<String>, body: Body) -> Self {
+    Self {
+      id: id.into(),
+      owner: RowOwner::Lowered,
+      module: Some(module.into()),
+      export: None,
+      input: None,
+      reason: None,
+      body: Some(body),
+    }
+  }
+
+  pub fn rust(id: impl Into<String>) -> Self {
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, input: None, reason: None, body: None }
+  }
+
+  pub fn with_input(mut self, input: impl Into<String>) -> Self {
+    self.input = Some(input.into());
+    self
+  }
+}
+
+#[derive(Deserialize)]
+struct ActionRow {
+  id: String,
+  #[serde(default = "rust_owner")]
+  owner: RowOwner,
+  #[serde(default)]
+  module: Option<String>,
+  #[serde(default)]
+  export: Option<String>,
+  #[serde(default)]
+  input: Option<String>,
+  #[serde(default)]
+  reason: Option<String>,
+  #[serde(default)]
+  body: Option<Body>,
+}
+
+fn rust_owner() -> RowOwner {
+  RowOwner::Rust
+}
+
+impl<'de> Deserialize<'de> for ActionEntry {
+  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+      type Value = ActionEntry;
+
+      fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("an action id or an action row")
+      }
+
+      fn visit_str<E: serde::de::Error>(self, id: &str) -> Result<ActionEntry, E> {
+        Ok(ActionEntry::rust(id))
+      }
+
+      fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<ActionEntry, A::Error> {
+        let row = ActionRow::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+        Ok(ActionEntry {
+          id: row.id,
+          owner: row.owner,
+          module: row.module,
+          export: row.export,
+          input: row.input,
+          reason: row.reason,
+          body: row.body,
+        })
+      }
+    }
+
+    deserializer.deserialize_any(Visitor)
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,21 +305,50 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, actions: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new() }
   }
 
-  pub fn with_actions(mut self, actions: Vec<String>) -> Self {
+  pub fn with_actions(mut self, actions: Vec<ActionEntry>) -> Self {
     self.actions = actions;
+    self
+  }
+
+  pub fn with_sources(mut self, sources: Vec<SourceEntry>) -> Self {
+    self.sources = sources;
     self
   }
 
   pub fn from_json(source: &str) -> Result<Self, PlanError> {
     let manifest: Manifest =
       serde_json::from_str(source).map_err(|e| PlanError::Malformed(e.to_string()))?;
-    if manifest.version != FORMAT_VERSION {
+    if !(OLDEST_READABLE..=FORMAT_VERSION).contains(&manifest.version) {
       return Err(PlanError::Version { found: manifest.version });
     }
+    for row in &manifest.sources {
+      if row.owner == RowOwner::Lowered && row.body.is_none() {
+        return Err(PlanError::NoBody { id: row.id.clone() });
+      }
+    }
+    for row in &manifest.actions {
+      if row.owner == RowOwner::Lowered && row.body.is_none() {
+        return Err(PlanError::NoBody { id: row.id.clone() });
+      }
+    }
     Ok(manifest)
+  }
+
+  /// The source rows that carry a body, which the host binds unless Rust
+  /// overrides the name.
+  pub fn lowered_sources(&self) -> impl Iterator<Item = &SourceEntry> {
+    self.sources.iter().filter(|row| row.owner == RowOwner::Lowered)
+  }
+
+  pub fn lowered_actions(&self) -> impl Iterator<Item = &ActionEntry> {
+    self.actions.iter().filter(|row| row.owner == RowOwner::Lowered)
+  }
+
+  pub fn action_ids(&self) -> Vec<String> {
+    self.actions.iter().map(|row| row.id.clone()).collect()
   }
 
   pub fn to_json(&self) -> String {

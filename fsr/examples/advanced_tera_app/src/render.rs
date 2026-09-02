@@ -111,6 +111,7 @@ pub async fn respond_with(
   let services = app.services.bind(incoming.session.identity(), incoming.credentials);
   let ctx = RequestCtx {
     params: matched.params,
+    query: Default::default(),
     session: incoming.session,
     csrf: incoming.csrf,
     services,

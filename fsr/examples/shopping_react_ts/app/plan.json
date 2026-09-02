@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "routes": [
     {
       "pattern": "/",
@@ -11,27 +11,9 @@
             "slot": "content",
             "node": {
               "id": 1,
-              "module": "app/main.tsx#Catalog",
-              "source": "catalog_loader",
-              "error": "app/main.tsx#Failed"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "pattern": "/product/{id}",
-      "plan": {
-        "id": 0,
-        "module": "shell#document",
-        "children": [
-          {
-            "slot": "content",
-            "node": {
-              "id": 1,
-              "module": "app/main.tsx#Product",
-              "source": "product_loader",
-              "error": "app/main.tsx#Failed"
+              "module": "routes/index/page.tsx#default",
+              "source": "index",
+              "error": "routes/error.tsx#default"
             }
           }
         ]
@@ -47,17 +29,903 @@
             "slot": "content",
             "node": {
               "id": 1,
-              "module": "app/main.tsx#Cart",
-              "source": "cart_loader",
-              "error": "app/main.tsx#Failed"
+              "module": "routes/cart/page.tsx#default",
+              "source": "cart",
+              "error": "routes/error.tsx#default"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "pattern": "/product/{id}",
+      "plan": {
+        "id": 0,
+        "module": "shell#document",
+        "children": [
+          {
+            "slot": "content",
+            "node": {
+              "id": 1,
+              "module": "routes/product/[id]/page.tsx#default",
+              "source": "product",
+              "error": "routes/error.tsx#default"
             }
           }
         ]
       }
     }
   ],
+  "sources": [
+    {
+      "id": "index",
+      "owner": "lowered",
+      "module": "routes/index/loader.ts",
+      "body": [
+        {
+          "let": {
+            "name": "products",
+            "expr": {
+              "call": {
+                "service": "shopping",
+                "method": "listProducts",
+                "args": [
+                  [
+                    "q",
+                    {
+                      "query": "q"
+                    }
+                  ],
+                  [
+                    "category",
+                    {
+                      "query": "category"
+                    }
+                  ],
+                  [
+                    "tag",
+                    {
+                      "query": "tag"
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "let": {
+            "name": "cartCount",
+            "expr": {
+              "reduce": [
+                {
+                  "values": {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "n",
+                      "q"
+                    ],
+                    "body": {
+                      "arith": [
+                        "add",
+                        {
+                          "var": "n"
+                        },
+                        {
+                          "var": "q"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "return": {
+            "object": [
+              {
+                "field": [
+                  "products",
+                  {
+                    "var": "products"
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "q",
+                  {
+                    "query": "q"
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "category",
+                  {
+                    "query": "category"
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "cartCount",
+                  {
+                    "var": "cartCount"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "cart",
+      "owner": "lowered",
+      "module": "routes/cart/loader.ts",
+      "body": [
+        {
+          "let": {
+            "name": "catalog",
+            "expr": {
+              "call": {
+                "service": "shopping",
+                "method": "listProducts",
+                "args": []
+              }
+            }
+          }
+        },
+        {
+          "let": {
+            "name": "lines",
+            "expr": {
+              "map": [
+                {
+                  "filter": [
+                    {
+                      "var": "catalog"
+                    },
+                    {
+                      "lambda": {
+                        "params": [
+                          "p"
+                        ],
+                        "body": {
+                          "index": [
+                            {
+                              "coalesce": [
+                                {
+                                  "session": "cart"
+                                },
+                                {
+                                  "object": []
+                                }
+                              ]
+                            },
+                            {
+                              "str": {
+                                "field": [
+                                  {
+                                    "var": "p"
+                                  },
+                                  "id"
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "p"
+                    ],
+                    "body": {
+                      "object": [
+                        {
+                          "spread": {
+                            "var": "p"
+                          }
+                        },
+                        {
+                          "field": [
+                            "quantity",
+                            {
+                              "index": [
+                                {
+                                  "coalesce": [
+                                    {
+                                      "session": "cart"
+                                    },
+                                    {
+                                      "object": []
+                                    }
+                                  ]
+                                },
+                                {
+                                  "str": {
+                                    "field": [
+                                      {
+                                        "var": "p"
+                                      },
+                                      "id"
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "let": {
+            "name": "cartCount",
+            "expr": {
+              "reduce": [
+                {
+                  "values": {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "n",
+                      "q"
+                    ],
+                    "body": {
+                      "arith": [
+                        "add",
+                        {
+                          "var": "n"
+                        },
+                        {
+                          "var": "q"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "return": {
+            "object": [
+              {
+                "field": [
+                  "lines",
+                  {
+                    "var": "lines"
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "cartCount",
+                  {
+                    "var": "cartCount"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "product",
+      "owner": "lowered",
+      "module": "routes/product/[id]/loader.ts",
+      "body": [
+        {
+          "let": {
+            "name": "product",
+            "expr": {
+              "call": {
+                "service": "shopping",
+                "method": "getProduct",
+                "args": [
+                  [
+                    "id",
+                    {
+                      "big_int": {
+                        "param": "id"
+                      }
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "let": {
+            "name": "inCart",
+            "expr": {
+              "coalesce": [
+                {
+                  "index": [
+                    {
+                      "coalesce": [
+                        {
+                          "session": "cart"
+                        },
+                        {
+                          "object": []
+                        }
+                      ]
+                    },
+                    {
+                      "param": "id"
+                    }
+                  ]
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "let": {
+            "name": "cartCount",
+            "expr": {
+              "reduce": [
+                {
+                  "values": {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "n",
+                      "q"
+                    ],
+                    "body": {
+                      "arith": [
+                        "add",
+                        {
+                          "var": "n"
+                        },
+                        {
+                          "var": "q"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "return": {
+            "object": [
+              {
+                "field": [
+                  "product",
+                  {
+                    "var": "product"
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "inCart",
+                  {
+                    "var": "inCart"
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "cartCount",
+                  {
+                    "var": "cartCount"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
   "actions": [
-    "add_to_cart",
-    "checkout"
+    {
+      "id": "cart.addToCart",
+      "owner": "lowered",
+      "module": "routes/cart/actions.ts",
+      "export": "addToCart",
+      "input": "AddToCart",
+      "body": [
+        {
+          "let": {
+            "name": "key",
+            "expr": {
+              "str": {
+                "field": [
+                  "input",
+                  "product_id"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "let": {
+            "name": "wanted",
+            "expr": {
+              "arith": [
+                "add",
+                {
+                  "coalesce": [
+                    {
+                      "index": [
+                        {
+                          "coalesce": [
+                            {
+                              "session": "cart"
+                            },
+                            {
+                              "object": []
+                            }
+                          ]
+                        },
+                        {
+                          "var": "key"
+                        }
+                      ]
+                    },
+                    {
+                      "lit": {
+                        "int": 0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "field": [
+                    "input",
+                    "quantity"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "cond": {
+              "compare": [
+                "le",
+                {
+                  "var": "wanted"
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                }
+              ]
+            },
+            "then": [
+              {
+                "session_delete": {
+                  "key": "cart",
+                  "path": [
+                    {
+                      "var": "key"
+                    }
+                  ]
+                }
+              }
+            ],
+            "else": [
+              {
+                "session_set": {
+                  "key": "cart",
+                  "value": {
+                    "object": [
+                      {
+                        "spread": {
+                          "coalesce": [
+                            {
+                              "session": "cart"
+                            },
+                            {
+                              "object": []
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "computed": [
+                          {
+                            "var": "key"
+                          },
+                          {
+                            "var": "wanted"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "let": {
+            "name": "count",
+            "expr": {
+              "reduce": [
+                {
+                  "values": {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "n",
+                      "q"
+                    ],
+                    "body": {
+                      "arith": [
+                        "add",
+                        {
+                          "var": "n"
+                        },
+                        {
+                          "var": "q"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "return": {
+            "object": [
+              {
+                "field": [
+                  "lines",
+                  {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "count",
+                  {
+                    "var": "count"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "cart.removeFromCart",
+      "owner": "lowered",
+      "module": "routes/cart/actions.ts",
+      "export": "removeFromCart",
+      "input": "RemoveFromCart",
+      "body": [
+        {
+          "let": {
+            "name": "key",
+            "expr": {
+              "str": {
+                "field": [
+                  "input",
+                  "product_id"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "session_delete": {
+            "key": "cart",
+            "path": [
+              {
+                "var": "key"
+              }
+            ]
+          }
+        },
+        {
+          "let": {
+            "name": "count",
+            "expr": {
+              "reduce": [
+                {
+                  "values": {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                },
+                {
+                  "lit": {
+                    "int": 0
+                  }
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "n",
+                      "q"
+                    ],
+                    "body": {
+                      "arith": [
+                        "add",
+                        {
+                          "var": "n"
+                        },
+                        {
+                          "var": "q"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "return": {
+            "object": [
+              {
+                "field": [
+                  "lines",
+                  {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "field": [
+                  "count",
+                  {
+                    "var": "count"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "cart.checkout",
+      "owner": "lowered",
+      "module": "routes/cart/actions.ts",
+      "export": "checkout",
+      "body": [
+        {
+          "let": {
+            "name": "lines",
+            "expr": {
+              "map": [
+                {
+                  "entries": {
+                    "coalesce": [
+                      {
+                        "session": "cart"
+                      },
+                      {
+                        "object": []
+                      }
+                    ]
+                  }
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "$0"
+                    ],
+                    "body": {
+                      "object": [
+                        {
+                          "field": [
+                            "product_id",
+                            {
+                              "big_int": {
+                                "index": [
+                                  {
+                                    "var": "$0"
+                                  },
+                                  {
+                                    "lit": {
+                                      "float": 0.0
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "field": [
+                            "quantity",
+                            {
+                              "index": [
+                                {
+                                  "var": "$0"
+                                },
+                                {
+                                  "lit": {
+                                    "float": 1.0
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "guard": {
+            "cond": {
+              "compare": [
+                "eq",
+                {
+                  "length": {
+                    "var": "lines"
+                  }
+                },
+                {
+                  "lit": {
+                    "float": 0.0
+                  }
+                }
+              ]
+            },
+            "kind": "invalid",
+            "message": "the cart is empty"
+          }
+        },
+        {
+          "let": {
+            "name": "order",
+            "expr": {
+              "call": {
+                "service": "shopping",
+                "method": "placeOrder",
+                "args": [
+                  [
+                    "lines",
+                    {
+                      "var": "lines"
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "session_set": {
+            "key": "cart",
+            "value": {
+              "object": []
+            }
+          }
+        },
+        {
+          "return": {
+            "var": "order"
+          }
+        }
+      ]
+    }
   ]
 }

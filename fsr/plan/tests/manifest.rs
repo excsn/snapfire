@@ -66,7 +66,7 @@ fn the_file_names_every_source_and_module_a_host_must_bind() {
 fn a_version_the_runtime_does_not_know_is_refused() {
   let json = r#"{"version":99,"routes":[]}"#;
   assert_eq!(Manifest::from_json(json).unwrap_err(), PlanError::Version { found: 99 });
-  assert_eq!(FORMAT_VERSION, 1);
+  assert_eq!(FORMAT_VERSION, 2);
 }
 
 #[test]
@@ -122,4 +122,39 @@ fn a_hand_written_file_reads_the_way_it_looks() {
   let (slot, child) = &plan.children[0];
   assert_eq!(slot.0, "content");
   assert_eq!(child.data_source, Some(DataSourceId("product".into())));
+}
+
+#[test]
+fn a_format_one_file_still_reads_with_bare_action_ids() {
+  let json = r#"{"version":1,"routes":[],"actions":["add_to_cart","checkout"]}"#;
+  let manifest = Manifest::from_json(json).unwrap();
+  assert_eq!(manifest.action_ids(), vec!["add_to_cart", "checkout"]);
+  assert!(manifest.actions.iter().all(|row| row.owner == snapfire_fsr_plan::RowOwner::Rust));
+  assert!(manifest.sources.is_empty());
+}
+
+#[test]
+fn lowered_rows_round_trip_with_their_bodies() {
+  use snapfire_fsr_ir::{Expr, Stmt};
+  use snapfire_fsr_plan::{ActionEntry, SourceEntry};
+
+  let body = vec![Stmt::Return(Expr::object(vec![("products", Expr::Array(vec![]))]))];
+  let manifest = Manifest::new(vec![])
+    .with_sources(vec![SourceEntry::lowered("catalog", "app/routes/index/loader.ts", body.clone()), SourceEntry::rust("pricing")])
+    .with_actions(vec![ActionEntry::lowered("checkout", "app/routes/cart/actions.ts", body).with_input("Empty")]);
+
+  let json = manifest.to_json();
+  assert_eq!(manifest.version, FORMAT_VERSION);
+  let back = Manifest::from_json(&json).unwrap();
+  assert_eq!(back, manifest);
+  assert_eq!(back.lowered_sources().count(), 1);
+  assert_eq!(back.lowered_actions().count(), 1);
+  assert_eq!(back.action_ids(), vec!["checkout"]);
+}
+
+#[test]
+fn a_lowered_row_without_a_body_is_refused() {
+  let json = r#"{"version":2,"routes":[],"sources":[{"id":"catalog","owner":"lowered"}]}"#;
+  let err = Manifest::from_json(json).unwrap_err();
+  assert_eq!(err, PlanError::NoBody { id: "catalog".into() });
 }

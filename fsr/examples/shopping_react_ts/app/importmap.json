@@ -4,6 +4,7 @@
     "react/jsx-runtime": "/static/js/vendor/react/react-jsx-runtime.js",
     "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
     "@snapfire/fsr-client": "/static/js/fsr/index.js",
-    "@snapfire/fsr-client/react": "/static/js/fsr/react.js"
+    "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
+    "sweetalert2": "/static/js/vendor/sweetalert2/index.js"
   }
 }

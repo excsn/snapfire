@@ -6,10 +6,12 @@ use actix_web::{App, HttpResponse, HttpServer};
 use serde::Deserialize;
 
 pub use catalog::Catalog;
-use catalog::OrderRequest;
+use catalog::{Filter, OrderRequest};
 
 #[derive(Deserialize)]
 struct ListQuery {
+  q: Option<String>,
+  category: Option<String>,
   tag: Option<String>,
   /// The example's failure switch: the catalogue answers 503 so one segment
   /// can degrade while the rest of the page renders.
@@ -20,7 +22,8 @@ async fn list_products(catalog: Data<Catalog>, query: Query<ListQuery>) -> HttpR
   if query.fail.is_some_and(|f| f != 0) {
     return HttpResponse::ServiceUnavailable().body("catalog is unreachable");
   }
-  HttpResponse::Ok().json(catalog.list(query.tag.as_deref()))
+  let filter = Filter { q: query.q.as_deref(), category: query.category.as_deref(), tag: query.tag.as_deref() };
+  HttpResponse::Ok().json(catalog.list(&filter))
 }
 
 async fn get_product(catalog: Data<Catalog>, id: Path<u64>) -> HttpResponse {
