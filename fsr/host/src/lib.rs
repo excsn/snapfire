@@ -176,6 +176,12 @@ impl Host {
     let plan_path = config.resolve(&config.server.plan);
     let plan = std::fs::read_to_string(&plan_path).map_err(|e| HostError::Io(plan_path, e))?;
     let contract = read_contracts(&config.resolve(&config.server.contracts))?;
+    Self::from_config_with(config, plan, contract)
+  }
+
+  /// `from_config` over a plan file and a contract already in memory, for a
+  /// tool that built them and never wrote them.
+  pub fn from_config_with(config: Config, plan: String, contract: Option<Contract>) -> Result<HostBuilder, HostError> {
     let app = App::from_manifest(&plan)?;
     Ok(HostBuilder {
       config,

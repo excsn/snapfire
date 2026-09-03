@@ -122,9 +122,25 @@ globalThis.__sf = {
   },
 };
 
-globalThis.location = { href: "http://localhost/", origin: "http://localhost", protocol: "http:", host: "localhost", hostname: "localhost", port: "", pathname: "/", search: "", hash: "", reload() {}, assign() {}, replace() {} };
+globalThis.location = { href: "http://localhost/", origin: "http://localhost", protocol: "http:", host: "localhost", hostname: "localhost", port: "", pathname: "/", search: "", hash: "", reload() {}, assign(url) { globalThis.__sf_location(url); }, replace(url) { globalThis.__sf_location(url); } };
+globalThis.__sf_location = (url) => {
+  const u = new URL(String(url), location.href);
+  Object.assign(location, { href: u.href, origin: u.origin, protocol: u.protocol, host: u.host, hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash });
+};
 globalThis.navigator = { userAgent: "fsr-test", language: "en" };
-globalThis.history = { pushState() {}, replaceState() {}, state: null, length: 1 };
+globalThis.history = {
+  pushState(state, _title, url) {
+    this.state = state;
+    this.length++;
+    if (url != null) globalThis.__sf_location(url);
+  },
+  replaceState(state, _title, url) {
+    this.state = state;
+    if (url != null) globalThis.__sf_location(url);
+  },
+  state: null,
+  length: 1,
+};
 globalThis.CSS = { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") };
 globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(now), 16);
 globalThis.cancelAnimationFrame = cancel;

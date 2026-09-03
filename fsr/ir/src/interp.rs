@@ -299,7 +299,258 @@ impl Env {
     Ok(Flow::Next)
   }
 
+  /// `eval` for an expression with no service call in it: a component body,
+  /// a render, a test's assertion. One plain recursion and no future per node.
+  pub(crate) fn eval_sync(&mut self, expr: &Expr) -> Result<Value, Fail> {
+    match expr {
+      Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
+      Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
+      Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Identity(path) => {
+        let mut current = self.identity.clone().unwrap_or(Value::Null);
+        for step in path {
+          current = get_field(&current, step);
+        }
+        Ok(current)
+      }
+      Expr::Input => Ok(self.input.clone()),
+      Expr::Now => Ok(Value::Int(self.clock.now())),
+      Expr::Var(name) => self.lookup(name),
+      Expr::Lit(lit) => Ok(match lit {
+        Lit::Null => Value::Null,
+        Lit::Bool(b) => Value::Bool(*b),
+        Lit::Int(n) => Value::Int(*n),
+        Lit::Float(f) => Value::F64(*f),
+        Lit::Str(s) => Value::Str(s.clone()),
+      }),
+      Expr::Object(entries) => {
+        let mut map = ValueMap::new();
+        for entry in entries {
+          match entry {
+            Entry::Field(name, e) => {
+              let v = self.eval_sync(e)?;
+              map.insert(name.clone(), v);
+            }
+            Entry::Computed(k, e) => {
+              let key = match self.eval_sync(k)? {
+                Value::Str(s) => s,
+                other => return Err(type_error("a computed key", "a string", &other)),
+              };
+              let v = self.eval_sync(e)?;
+              map.insert(key, v);
+            }
+            Entry::Spread(e) => match self.eval_sync(e)? {
+              Value::Map(inner) => map.extend(inner),
+              Value::Null => {}
+              other => return Err(type_error("spread into an object", "an object", &other)),
+            },
+            Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
+          }
+        }
+        Ok(Value::Map(map))
+      }
+      Expr::Array(entries) => {
+        let mut items = Vec::new();
+        for entry in entries {
+          match entry {
+            Entry::Item(e) => items.push(self.eval_sync(e)?),
+            Entry::Spread(e) => match self.eval_sync(e)? {
+              Value::Seq(inner) => items.extend(inner),
+              Value::Null => {}
+              other => return Err(type_error("spread into an array", "an array", &other)),
+            },
+            Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
+          }
+        }
+        Ok(Value::Seq(items))
+      }
+      Expr::Field(target, name) => Ok(get_field(&self.eval_sync(target)?, name)),
+      Expr::Index(target, key) => {
+        let target = self.eval_sync(target)?;
+        let key = self.eval_sync(key)?;
+        index(&target, &key)
+      }
+      Expr::Arith(op, l, r) => {
+        let l = self.eval_sync(l)?;
+        let r = self.eval_sync(r)?;
+        arith(*op, l, r)
+      }
+      Expr::Compare(op, l, r) => {
+        let l = self.eval_sync(l)?;
+        let r = self.eval_sync(r)?;
+        compare(*op, &l, &r).map(Value::Bool)
+      }
+      Expr::Logic(op, l, r) => {
+        let l = self.eval_sync(l)?;
+        match (op, truthy(&l)) {
+          (LogicOp::And, false) | (LogicOp::Or, true) => Ok(l),
+          _ => self.eval_sync(r),
+        }
+      }
+      Expr::Not(e) => Ok(Value::Bool(!truthy(&self.eval_sync(e)?))),
+      Expr::Coalesce(l, r) => match self.eval_sync(l)? {
+        Value::Null => self.eval_sync(r),
+        v => Ok(v),
+      },
+      Expr::Ternary(c, t, e) => {
+        if truthy(&self.eval_sync(c)?) {
+          self.eval_sync(t)
+        } else {
+          self.eval_sync(e)
+        }
+      }
+      Expr::Template(parts) => {
+        let mut out = String::new();
+        for part in parts {
+          out.push_str(&stringify(&self.eval_sync(part)?)?);
+        }
+        Ok(Value::Str(out))
+      }
+      Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
+      Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+      Expr::Apply { f, args } => {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+          values.push(self.eval_sync(arg)?);
+        }
+        self.apply_sync(f, values)
+      }
+      Expr::Builtin { name, args } => {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+          values.push(self.eval_sync(arg)?);
+        }
+        builtin(*name, values)
+      }
+      Expr::Map(over, f) => {
+        let items = self.seq_sync(over, "map")?;
+        let mut out = Vec::with_capacity(items.len());
+        for (i, item) in items.into_iter().enumerate() {
+          out.push(self.apply_sync(f, vec![item, Value::F64(i as f64)])?);
+        }
+        Ok(Value::Seq(out))
+      }
+      Expr::Filter(over, f) => {
+        let items = self.seq_sync(over, "filter")?;
+        let mut out = Vec::new();
+        for (i, item) in items.into_iter().enumerate() {
+          if truthy(&self.apply_sync(f, vec![item.clone(), Value::F64(i as f64)])?) {
+            out.push(item);
+          }
+        }
+        Ok(Value::Seq(out))
+      }
+      Expr::Reduce(over, init, f) => {
+        let items = self.seq_sync(over, "reduce")?;
+        let mut acc = self.eval_sync(init)?;
+        for item in items {
+          acc = self.apply_sync(f, vec![acc, item])?;
+        }
+        Ok(acc)
+      }
+      Expr::Find(over, f) => {
+        let items = self.seq_sync(over, "find")?;
+        for (i, item) in items.into_iter().enumerate() {
+          if truthy(&self.apply_sync(f, vec![item.clone(), Value::F64(i as f64)])?) {
+            return Ok(item);
+          }
+        }
+        Ok(Value::Null)
+      }
+      Expr::Some(over, f) => {
+        let items = self.seq_sync(over, "some")?;
+        for item in items {
+          if truthy(&self.apply_sync(f, vec![item])?) {
+            return Ok(Value::Bool(true));
+          }
+        }
+        Ok(Value::Bool(false))
+      }
+      Expr::Every(over, f) => {
+        let items = self.seq_sync(over, "every")?;
+        for item in items {
+          if !truthy(&self.apply_sync(f, vec![item])?) {
+            return Ok(Value::Bool(false));
+          }
+        }
+        Ok(Value::Bool(true))
+      }
+      Expr::Entries(e) => match self.eval_sync(e)? {
+        Value::Map(map) => Ok(Value::Seq(
+          map.into_iter().map(|(k, v)| Value::Seq(vec![Value::Str(k), v])).collect(),
+        )),
+        other => Err(type_error("Object.entries", "an object", &other)),
+      },
+      Expr::Keys(e) => match self.eval_sync(e)? {
+        Value::Map(map) => Ok(Value::Seq(map.into_keys().map(Value::Str).collect())),
+        other => Err(type_error("Object.keys", "an object", &other)),
+      },
+      Expr::Values(e) => match self.eval_sync(e)? {
+        Value::Map(map) => Ok(Value::Seq(map.into_values().collect())),
+        other => Err(type_error("Object.values", "an object", &other)),
+      },
+      Expr::Length(e) => match self.eval_sync(e)? {
+        Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
+        Value::Str(s) => Ok(Value::F64(s.chars().count() as f64)),
+        Value::Map(map) => Ok(Value::F64(map.len() as f64)),
+        other => Err(type_error("length", "an array, a string or an object", &other)),
+      },
+      Expr::Str(e) => stringify(&self.eval_sync(e)?).map(Value::Str),
+      Expr::Num(e) => match self.eval_sync(e)? {
+        Value::Int(n) => Ok(Value::F64(n as f64)),
+        Value::UInt(n) => Ok(Value::F64(n as f64)),
+        v @ (Value::F32(_) | Value::F64(_)) => Ok(v),
+        Value::Bool(b) => Ok(Value::F64(if b { 1.0 } else { 0.0 })),
+        Value::Str(s) => s
+          .trim()
+          .parse::<f64>()
+          .map(Value::F64)
+          .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not a number"))),
+        other => Err(type_error("Number", "a number, a string or a boolean", &other)),
+      },
+      Expr::BigInt(e) => match self.eval_sync(e)? {
+        v @ Value::Int(_) => Ok(v),
+        Value::UInt(n) => Ok(Value::Int(n as i128)),
+        Value::F64(f) if f.fract() == 0.0 => Ok(Value::Int(f as i128)),
+        Value::F32(f) if f.fract() == 0.0 => Ok(Value::Int(f as i128)),
+        Value::Bool(b) => Ok(Value::Int(i128::from(b))),
+        Value::Str(s) => s
+          .trim()
+          .parse::<i128>()
+          .map(Value::Int)
+          .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not an integer"))),
+        other => Err(type_error("BigInt", "an integer, an integral number or a string", &other)),
+      },
+    }
+  }
+
+  fn seq_sync(&mut self, over: &Expr, what: &str) -> Result<Vec<Value>, Fail> {
+    match self.eval_sync(over)? {
+      Value::Seq(items) => Ok(items),
+      other => Err(type_error(what, "an array", &other)),
+    }
+  }
+
+  pub(crate) fn apply_sync(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
+    let Expr::Lambda { params, body } = f else {
+      return Err(Fail::internal("a builtin takes a lambda"));
+    };
+    let depth = self.scope.len();
+    for (param, arg) in params.iter().zip(args) {
+      self.scope.push((param.clone(), arg));
+    }
+    let result = self.eval_sync(body);
+    self.scope.truncate(depth);
+    result
+  }
+
+  /// An expression with a service call somewhere in it suspends on the call;
+  /// one without goes through `eval_sync` and never allocates a future.
   pub(crate) fn eval<'a>(&'a mut self, expr: &'a Expr) -> BoxFuture<'a, Result<Value, Fail>> {
+    if !expr.has_call() {
+      let result = self.eval_sync(expr);
+      return Box::pin(async move { result });
+    }
     Box::pin(async move {
       match expr {
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
@@ -794,6 +1045,17 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::Range => {
       let n = number(&what, arg(0)?)?.max(0.0) as i64;
       Value::Seq((0..n).map(|i| Value::F64(i as f64)).collect())
+    }
+    Builtin::Omit => {
+      let mut map = match arg(0)? {
+        Value::Map(map) => map.clone(),
+        Value::Null => ValueMap::new(),
+        other => return Err(type_error(&what, "an object", other)),
+      };
+      for key in args.iter().skip(1) {
+        map.shift_remove(text(&what, key)?);
+      }
+      Value::Map(map)
     }
   })
 }

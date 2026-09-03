@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { registeredIslands } from "./boot.js";
+import { boot, registeredIslands } from "./boot.js";
+import { enableNavigation } from "./navigator.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 /** What `fsr test` installs before a spec file loads. */
@@ -11,6 +12,7 @@ interface Sf {
   session(id: number): string;
   calls(id: number): string;
   render(module: string, props: string): string | null;
+  load(html: string, url: string): void;
   idle(): Promise<void>;
   advance(ms: number): Promise<void>;
 }
@@ -223,6 +225,18 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
       container.remove();
     },
   };
+}
+
+/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
+export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<void> {
+  sf().use(options.ctx?.id ?? 0);
+  const res = await fetch(path);
+  const html = await res.text();
+  if (!res.ok) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
+  sf().load(html, path);
+  boot();
+  enableNavigation();
+  await settle();
 }
 
 type Matcher = string | RegExp;

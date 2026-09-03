@@ -8,7 +8,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures_util::future::BoxFuture;
 use snapfire_fsr_core::{Value, ValueMap};
 
 use crate::ast::{Component, Entry, Stmt, Tmpl};
@@ -79,33 +78,31 @@ struct Slot {
 
 impl Interpreter {
   /// Renders `component` with `props` bound as `$props`.
-  pub async fn render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<String, Fail> {
+  pub fn render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<String, Fail> {
     let mut env = Env::detached(self.clock(), vec![("$props".to_owned(), Value::Map(props.clone()))]);
     let mut out = Out::default();
     let mut slots = Vec::new();
-    render_component(&mut env, component, library, &mut slots, &mut out).await?;
+    render_component(&mut env, component, library, &mut slots, &mut out)?;
     Ok(out.html)
   }
 }
 
-fn render_component<'a>(env: &'a mut Env, component: &'a Component, library: &'a Components, slots: &'a mut Vec<Slot>, out: &'a mut Out) -> BoxFuture<'a, Result<(), Fail>> {
-  Box::pin(async move {
-    let depth = env.scope.len();
-    for stmt in &component.body {
-      let Stmt::Let { name, expr } = stmt else {
-        return Err(Fail::internal("a component body is `let`s only"));
-      };
-      let value = env.eval(expr).await?;
-      env.scope.push((name.clone(), value));
-    }
-    render(env, &component.render, library, slots, out).await?;
-    env.scope.truncate(depth);
-    Ok(())
-  })
+fn render_component(env: &mut Env, component: &Component, library: &Components, slots: &mut Vec<Slot>, out: &mut Out) -> Result<(), Fail> {
+  let depth = env.scope.len();
+  for stmt in &component.body {
+    let Stmt::Let { name, expr } = stmt else {
+      return Err(Fail::internal("a component body is `let`s only"));
+    };
+    let value = env.eval_sync(expr)?;
+    env.scope.push((name.clone(), value));
+  }
+  render(env, &component.render, library, slots, out)?;
+  env.scope.truncate(depth);
+  Ok(())
 }
 
 /// Evaluates attribute or prop entries into one map in order, later entries winning; attributes are keyed by HTML spelling so a spread's `className` and a literal `class` are one key.
-async fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(String, Value)>, Fail> {
+fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(String, Value)>, Fail> {
   let mut out: Vec<(String, Value)> = Vec::new();
   let mut put = |name: String, value: Value| {
     let name = if attrs { html_attr_name(&name).to_owned() } else { name };
@@ -117,8 +114,8 @@ async fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(S
   };
   for entry in entries {
     match entry {
-      Entry::Field(name, expr) => put(name.clone(), env.eval(expr).await?),
-      Entry::Spread(expr) => match env.eval(expr).await? {
+      Entry::Field(name, expr) => put(name.clone(), env.eval_sync(expr)?),
+      Entry::Spread(expr) => match env.eval_sync(expr)? {
         Value::Map(map) => {
           for (name, value) in map {
             put(name, value);
@@ -128,8 +125,8 @@ async fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(S
         other => return Err(crate::interp::type_error("spread", "an object", &other)),
       },
       Entry::Computed(key, expr) => {
-        let key = stringify(&env.eval(key).await?)?;
-        put(key, env.eval(expr).await?);
+        let key = stringify(&env.eval_sync(key)?)?;
+        put(key, env.eval_sync(expr)?);
       }
       Entry::Item(_) => return Err(Fail::internal("an item entry among attributes")),
     }
@@ -137,103 +134,101 @@ async fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(S
   Ok(out)
 }
 
-fn render<'a>(env: &'a mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &'a mut Vec<Slot>, out: &'a mut Out) -> BoxFuture<'a, Result<(), Fail>> {
-  Box::pin(async move {
-    match tmpl {
-      Tmpl::Text(text) => out.text(text),
-      Tmpl::Expr(expr) => {
-        let value = env.eval(expr).await?;
-        interpolate(&value, out)?;
+fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot>, out: &mut Out) -> Result<(), Fail> {
+  match tmpl {
+    Tmpl::Text(text) => out.text(text),
+    Tmpl::Expr(expr) => {
+      let value = env.eval_sync(expr)?;
+      interpolate(&value, out)?;
+    }
+    Tmpl::Element { tag, attrs, children } => {
+      let mut open = format!("<{tag}");
+      for (name, value) in entries(env, attrs, true)? {
+        if skipped_attr(&name) {
+          continue;
+        }
+        attribute(&name, &value, &mut open)?;
       }
-      Tmpl::Element { tag, attrs, children } => {
-        let mut open = format!("<{tag}");
-        for (name, value) in entries(env, attrs, true).await? {
-          if skipped_attr(&name) {
-            continue;
-          }
-          attribute(&name, &value, &mut open)?;
-        }
-        if VOID.contains(&tag.as_str()) {
-          open.push_str("/>");
-          out.markup(&open);
-          return Ok(());
-        }
-        open.push('>');
+      if VOID.contains(&tag.as_str()) {
+        open.push_str("/>");
         out.markup(&open);
-        for child in children {
-          render(env, child, library, slots, out).await?;
-        }
-        out.markup(&format!("</{tag}>"));
+        return Ok(());
       }
-      Tmpl::Fragment(children) => {
-        for child in children {
-          render(env, child, library, slots, out).await?;
-        }
+      open.push('>');
+      out.markup(&open);
+      for child in children {
+        render(env, child, library, slots, out)?;
       }
-      Tmpl::If { cond, then, r#else } => {
-        let value = env.eval(cond).await?;
-        if truthy(&value) {
-          render(env, then, library, slots, out).await?;
-        } else if let Some(other) = r#else {
-          render(env, other, library, slots, out).await?;
-        }
-      }
-      Tmpl::For { over, params, body } => {
-        let items = match env.eval(over).await? {
-          Value::Seq(items) => items,
-          other => return Err(crate::interp::type_error("map", "an array", &other)),
-        };
-        let depth = env.scope.len();
-        for (i, item) in items.into_iter().enumerate() {
-          env.scope.truncate(depth);
-          for (param, value) in params.iter().zip([item, Value::F64(i as f64)]) {
-            env.scope.push((param.clone(), value));
-          }
-          render(env, body, library, slots, out).await?;
-        }
-        env.scope.truncate(depth);
-      }
-      Tmpl::Let { name, expr, then } => {
-        let value = env.eval(expr).await?;
-        let depth = env.scope.len();
-        env.scope.push((name.clone(), value));
-        render(env, then, library, slots, out).await?;
-        env.scope.truncate(depth);
-      }
-      Tmpl::Component { module, props, children } => {
-        let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
-        let mut map = ValueMap::new();
-        for (name, value) in entries(env, props, false).await? {
-          if name != "children" {
-            map.insert(name, value);
-          }
-        }
-        let depth = env.scope.len();
-        let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]);
-        slots.push(Slot { children: children.clone(), scope: outer.clone() });
-        let result = render_component(env, &component, library, slots, out).await;
-        slots.pop();
-        env.scope = outer;
-        env.scope.truncate(depth);
-        result?;
-      }
-      Tmpl::Slot => {
-        let Some(slot) = slots.pop() else { return Ok(()) };
-        let inner = std::mem::replace(&mut env.scope, slot.scope.clone());
-        let mut result = Ok(());
-        for child in &slot.children {
-          result = render(env, child, library, slots, out).await;
-          if result.is_err() {
-            break;
-          }
-        }
-        env.scope = inner;
-        slots.push(slot);
-        result?;
+      out.markup(&format!("</{tag}>"));
+    }
+    Tmpl::Fragment(children) => {
+      for child in children {
+        render(env, child, library, slots, out)?;
       }
     }
-    Ok(())
-  })
+    Tmpl::If { cond, then, r#else } => {
+      let value = env.eval_sync(cond)?;
+      if truthy(&value) {
+        render(env, then, library, slots, out)?;
+      } else if let Some(other) = r#else {
+        render(env, other, library, slots, out)?;
+      }
+    }
+    Tmpl::For { over, params, body } => {
+      let items = match env.eval_sync(over)? {
+        Value::Seq(items) => items,
+        other => return Err(crate::interp::type_error("map", "an array", &other)),
+      };
+      let depth = env.scope.len();
+      for (i, item) in items.into_iter().enumerate() {
+        env.scope.truncate(depth);
+        for (param, value) in params.iter().zip([item, Value::F64(i as f64)]) {
+          env.scope.push((param.clone(), value));
+        }
+        render(env, body, library, slots, out)?;
+      }
+      env.scope.truncate(depth);
+    }
+    Tmpl::Let { name, expr, then } => {
+      let value = env.eval_sync(expr)?;
+      let depth = env.scope.len();
+      env.scope.push((name.clone(), value));
+      render(env, then, library, slots, out)?;
+      env.scope.truncate(depth);
+    }
+    Tmpl::Component { module, props, children } => {
+      let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+      let mut map = ValueMap::new();
+      for (name, value) in entries(env, props, false)? {
+        if name != "children" {
+          map.insert(name, value);
+        }
+      }
+      let depth = env.scope.len();
+      let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]);
+      slots.push(Slot { children: children.clone(), scope: outer.clone() });
+      let result = render_component(env, &component, library, slots, out);
+      slots.pop();
+      env.scope = outer;
+      env.scope.truncate(depth);
+      result?;
+    }
+    Tmpl::Slot => {
+      let Some(slot) = slots.pop() else { return Ok(()) };
+      let inner = std::mem::replace(&mut env.scope, slot.scope.clone());
+      let mut result = Ok(());
+      for child in &slot.children {
+        result = render(env, child, library, slots, out);
+        if result.is_err() {
+          break;
+        }
+      }
+      env.scope = inner;
+      slots.push(slot);
+      result?;
+    }
+  }
+  Ok(())
 }
 
 /// CSS properties React leaves unitless; every other number gets `px`.
@@ -356,10 +351,6 @@ fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
 mod tests {
   use super::*;
   use crate::ast::{Builtin, Expr, Lit, Stmt};
-  fn block_on<F: std::future::Future>(f: F) -> F::Output {
-    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(f)
-  }
-
   fn props(entries: &[(&str, Value)]) -> ValueMap {
     entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect()
   }
@@ -378,7 +369,7 @@ mod tests {
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
       },
     };
-    let html = block_on(Interpreter::default().render(&component, &props(&[("items", Value::Seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap();
+    let html = (Interpreter::default().render(&component, &props(&[("items", Value::Seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap();
     assert_eq!(html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
   }
 
@@ -405,7 +396,7 @@ mod tests {
       },
     };
     let lines = Value::Seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
-    let html = block_on(Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap();
+    let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap();
     assert_eq!(html, "<ul><li data-i=\"0\">1</li><li data-i=\"1\">3<b>many</b></li></ul>");
   }
 
@@ -428,7 +419,7 @@ mod tests {
       render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new() }, Tmpl::Expr(p("product").field("name"))]),
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
-    let html = block_on(Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap();
+    let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap();
     assert_eq!(html, "<span title=\"4.5 out of 5\">★★★★★</span>Filament");
   }
 
@@ -468,7 +459,7 @@ mod tests {
     attrs.insert("onClick".to_owned(), Value::str("handler"));
     attrs.insert("hidden".to_owned(), Value::Bool(true));
     let items = Value::Seq(vec![Value::Map(props(&[("name", Value::str("A")), ("attrs", Value::Map(attrs))])), Value::Map(props(&[("name", Value::str("B")), ("attrs", Value::Null)]))]);
-    let html = block_on(Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap();
+    let html = (Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap();
     assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p></div></main>");
   }
 
@@ -483,7 +474,7 @@ mod tests {
         Tmpl::Expr(Expr::Lit(Lit::Null)),
       ]),
     };
-    let html = block_on(Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
+    let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
     assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
   }
 
@@ -503,7 +494,7 @@ mod tests {
     ];
     for (expr, expected) in cases {
       let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()) };
-      let html = block_on(Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
+      let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
       assert_eq!(html, expected, "{expr:?}");
     }
   }

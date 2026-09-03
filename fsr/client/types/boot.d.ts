@@ -15,5 +15,5 @@ export declare function registerIsland(moduleId: string, entry: IslandEntry): vo
 export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 /** Mounts every unmounted island marker under `root`, honoring each island's timing. Idempotent. */
 export declare function scan(root: ParentNode): void;
-/** Scans the document and keeps scanning as streamed slots fill in. */
+/** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export declare function boot(): void;

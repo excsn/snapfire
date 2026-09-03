@@ -85,6 +85,8 @@ pub enum Builtin {
   LocaleNumber,
   /// `Array.from({ length: n })`: the integers `0..n`.
   Range,
+  /// An object without the named keys: the rest of a destructuring.
+  Omit,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

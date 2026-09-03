@@ -121,10 +121,7 @@ impl Evaluator for IrEvaluator {
     Box::pin(stream::once(async move {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
-      let html = interpreter
-        .render(&component, &props, &components)
-        .await
-        .map_err(|fail| EvalError { module: id, message: fail.message })?;
+      let html = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
       Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(html))) }))
     }))
   }
