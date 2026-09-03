@@ -2,7 +2,7 @@
 
 A storefront built the way Snapfire FSR expects an application to be built: the loaders and actions are TypeScript, lowered at build time and run by the Rust host; the pages are React islands hydrated in the browser; the services it calls are described only by the documents they publish, one OpenAPI and one `.proto`.
 
-It is its own cargo workspace, so it builds the way a crate outside this repository would.
+`fsr/examples/` is its own cargo workspace, separate from the one that builds the framework, so both examples resolve the way a crate outside this repository would.
 
 ## Run it
 
