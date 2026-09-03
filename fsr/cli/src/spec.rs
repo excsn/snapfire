@@ -36,14 +36,19 @@ const DEV_BUILDS: &[&str] = &["react", "react/jsx-runtime", "react-dom/client"];
 const TESTING_SPECIFIER: &str = "@snapfire/fsr-client/testing";
 const TESTING_URL: &str = "/static/js/fsr/testing.js";
 
-/// Runs every spec file under `app` whose name matches `filter`, adding to `summary`.
-pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&str>, runtime: &tokio::runtime::Runtime, summary: &mut Summary) -> Result<(), BuildError> {
+/// The app compiled for the engine: where the modules landed, how a specifier reaches a file and the DOM bundle.
+pub struct Prepared {
+  pub app: PathBuf,
+  pub test_dir: PathBuf,
+  pub dist: PathBuf,
+  pub resolution: Resolution,
+  pub dom: PathBuf,
+  pub boot: PathBuf,
+}
+
+/// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
+pub fn prepare(app: &Path) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
-  let mut files = Vec::new();
-  discover(&app, &app, &mut files)?;
-  if files.is_empty() {
-    return Ok(());
-  }
   let layout = Layout::of(&app)?;
   let test_dir = app.join(TEST_DIR);
   std::fs::create_dir_all(&test_dir).map_err(|e| BuildError::Io(test_dir.clone(), e))?;
@@ -54,12 +59,44 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
-  let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), ("/static/js/app".to_owned(), test_dir.join("dist"))];
+  let dist = test_dir.join("dist");
+  let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), ("/static/js/app".to_owned(), dist.clone())];
   roots.extend(static_roots(&app)?);
   let resolution = Resolution { import_map, roots, overrides: overrides.into_iter().filter(|(k, _)| k != "linkedom").collect() };
 
   let boot = test_dir.join("boot.js");
   std::fs::write(&boot, "import { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n").map_err(|e| BuildError::Io(boot.clone(), e))?;
+  Ok(Prepared { app, test_dir, dist, resolution, dom, boot })
+}
+
+/// Fetches one more esm.sh build into `.fsr-test/vendor`, for a bench or a tool that needs a module the specs do not; cached by specifier and version.
+pub fn test_bundle(app: &Path, specifier: &str, version: &str, url: &str) -> Result<PathBuf, BuildError> {
+  let dir = app.join(TEST_DIR).join("vendor");
+  let manifest_path = dir.join("manifest.json");
+  let mut manifest: TestVendor = std::fs::read_to_string(&manifest_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+  if let Some((have, file)) = manifest.entries.get(specifier) {
+    let path = dir.join(file);
+    if have == version && path.is_file() {
+      return Ok(path);
+    }
+  }
+  let client = vendor::client()?;
+  let file = fetch_bundle(&client, url, &dir, specifier)?;
+  manifest.entries.insert(specifier.to_owned(), (version.to_owned(), file.clone()));
+  let text = serde_json::to_string_pretty(&manifest).expect("serialisable");
+  std::fs::write(&manifest_path, text).map_err(|e| BuildError::Io(manifest_path.clone(), e))?;
+  Ok(dir.join(file))
+}
+
+/// Runs every spec file under `app` whose name matches `filter`, adding to `summary`.
+pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&str>, runtime: &tokio::runtime::Runtime, summary: &mut Summary) -> Result<(), BuildError> {
+  let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
+  let mut files = Vec::new();
+  discover(&app, &app, &mut files)?;
+  if files.is_empty() {
+    return Ok(());
+  }
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app)?;
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
   let actions: HashMap<String, Arc<Body>> = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), Arc::new(b)))).collect();

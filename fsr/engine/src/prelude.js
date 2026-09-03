@@ -266,3 +266,69 @@ class URL {
 
 globalThis.URL = URL;
 globalThis.URLSearchParams = URLSearchParams;
+
+class TextEncoder {
+  get encoding() {
+    return "utf-8";
+  }
+  encode(input = "") {
+    const text = String(input);
+    const out = [];
+    for (let i = 0; i < text.length; i++) {
+      let c = text.charCodeAt(i);
+      if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+        const d = text.charCodeAt(i + 1);
+        if (d >= 0xdc00 && d <= 0xdfff) {
+          c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00);
+          i++;
+        }
+      }
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+    return Uint8Array.from(out);
+  }
+  encodeInto(input, dest) {
+    const bytes = this.encode(input);
+    const n = Math.min(bytes.length, dest.length);
+    dest.set(bytes.subarray(0, n));
+    return { read: String(input).length, written: n };
+  }
+}
+
+class TextDecoder {
+  constructor(label = "utf-8") {
+    this.encoding = String(label).toLowerCase();
+  }
+  decode(input) {
+    if (input === undefined) return "";
+    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input.buffer ?? input);
+    let out = "";
+    for (let i = 0; i < bytes.length; ) {
+      const b = bytes[i];
+      let c;
+      let n;
+      if (b < 0x80) {
+        c = b;
+        n = 1;
+      } else if (b >= 0xf0) {
+        c = ((b & 0x07) << 18) | ((bytes[i + 1] & 0x3f) << 12) | ((bytes[i + 2] & 0x3f) << 6) | (bytes[i + 3] & 0x3f);
+        n = 4;
+      } else if (b >= 0xe0) {
+        c = ((b & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f);
+        n = 3;
+      } else {
+        c = ((b & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
+        n = 2;
+      }
+      out += String.fromCodePoint(c);
+      i += n;
+    }
+    return out;
+  }
+}
+
+globalThis.TextEncoder = TextEncoder;
+globalThis.TextDecoder = TextDecoder;

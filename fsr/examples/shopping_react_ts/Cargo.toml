@@ -27,9 +27,18 @@ protox = "0.9"
 tonic-prost-build = "0.14"
 
 [dev-dependencies]
+snapfire_fsr_cli = { path = "../../cli" }
 snapfire_fsr_core = { path = "../../core" }
+snapfire_fsr_engine = { path = "../../engine" }
+snapfire_fsr_ir = { path = "../../ir" }
+snapfire_fsr_payload = { path = "../../payload" }
 snapfire_fsr_plan = { path = "../../plan" }
 snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_service = { path = "../../service", features = ["grpc"] }
+criterion = "0.5"
 futures = "0.3"
 serde_json = "1"
+
+[[bench]]
+name = "render"
+harness = false
