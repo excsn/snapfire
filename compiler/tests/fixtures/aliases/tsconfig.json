@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "paths": {
+      "@src/*": ["./src/*"],
+      "@lib": ["./src/lib/index"]
+    }
+  },
+  "include": ["src/**/*", "pages/**/*"]
+}

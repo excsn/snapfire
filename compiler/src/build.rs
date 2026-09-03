@@ -130,6 +130,8 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     .canonicalize()
     .with_context(|| format!("Failed to resolve the directory holding {:?}", opts.config_path))?;
 
+  let aliases = crate::config::Aliases::resolve(&config_dir, &compiler_options)?;
+
   let out_dir = match (&opts.out_dir_flag, compiler_options.out_dir) {
     (Some(flag), _) => opts.root.join(flag),
     (None, Some(configured)) => config_dir.join(configured),
@@ -197,7 +199,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include_patterns: selection.include_patterns,
     map_options,
     declaration,
-    compiler: Compiler::new(targets, jsx),
+    compiler: Compiler::new(targets, jsx, aliases),
     claimed: HashMap::new(),
     externals: Vec::new(),
     graph: Graph::default(),
@@ -441,7 +443,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   };
 
   let (label, compiled) = match (job.emit, job.asset) {
-    (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source).map(Output::text)),
+    (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source, compiler.aliases()).map(Output::text)),
     (emit, Asset::Script { dialect, markup, .. }) => {
       let label = match dialect {
         Dialect::TypeScript => "TS",

@@ -1,6 +1,8 @@
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
+
+use crate::config::Aliases;
 
 use swc_core::ecma::ast::{
   CallExpr, Callee, Expr, ExprStmt, ExportSpecifier, ImportSpecifier, Lit, MemberExpr, MemberProp,
@@ -28,6 +30,7 @@ pub struct Import {
 
 pub struct ImportRewriter {
   dir: PathBuf,
+  aliases: Aliases,
   referenced: Rc<RefCell<Vec<PathBuf>>>,
   externals: Rc<RefCell<Vec<String>>>,
   imports: Rc<RefCell<Vec<Import>>>,
@@ -39,6 +42,7 @@ pub struct ImportRewriter {
 impl ImportRewriter {
   pub fn new(
     source: &Path,
+    aliases: Aliases,
     referenced: Rc<RefCell<Vec<PathBuf>>>,
     externals: Rc<RefCell<Vec<String>>>,
     imports: Rc<RefCell<Vec<Import>>>,
@@ -46,6 +50,7 @@ impl ImportRewriter {
   ) -> Self {
     Self {
       dir: source.parent().unwrap_or_else(|| Path::new(".")).to_path_buf(),
+      aliases,
       referenced,
       externals,
       imports,
@@ -54,16 +59,23 @@ impl ImportRewriter {
   }
 
   fn rewrite(&self, src: &mut Str, dynamic: bool, names: Vec<String>) {
-    let specifier = src.value.to_string_lossy();
+    let written = src.value.to_string_lossy();
 
-    if !specifier.starts_with('.') {
-      if is_bare(&specifier) {
-        self.externals.borrow_mut().push(specifier.into_owned());
+    let specifier: String = if written.starts_with('.') {
+      written.into_owned()
+    } else {
+      match self.aliases.expand(&written) {
+        Some(target) => relative_specifier(&self.dir, &target),
+        None => {
+          if is_bare(&written) {
+            self.externals.borrow_mut().push(written.into_owned());
+          }
+          return;
+        }
       }
-      return;
-    }
+    };
 
-    self.referenced.borrow_mut().push(self.dir.join(specifier.as_ref()));
+    self.referenced.borrow_mut().push(self.dir.join(&specifier));
 
     let mut resolved = self.resolve(&specifier);
 
@@ -77,7 +89,7 @@ impl ImportRewriter {
       names,
     });
 
-    if resolved == specifier {
+    if resolved == src.value.to_string_lossy() {
       return;
     }
 
@@ -115,6 +127,26 @@ pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
       }
     }
   }
+}
+
+/// `target` as a relative specifier from `dir`, with the `./` a browser needs to
+/// tell a path from a package. Pure path arithmetic, so both should be absolute.
+pub fn relative_specifier(dir: &Path, target: &Path) -> String {
+  let (dir, target) = (crate::graph::normalise(dir), crate::graph::normalise(target));
+  let from: Vec<Component> = dir.components().collect();
+  let to: Vec<Component> = target.components().collect();
+  let shared = from.iter().zip(to.iter()).take_while(|(a, b)| a == b).count();
+  let mut parts: Vec<String> = Vec::new();
+  for _ in shared..from.len() {
+    parts.push("..".to_owned());
+  }
+  for component in &to[shared..] {
+    parts.push(component.as_os_str().to_string_lossy().into_owned());
+  }
+  if parts.first().is_some_and(|p| p != "..") {
+    parts.insert(0, ".".to_owned());
+  }
+  parts.join("/")
 }
 
 /// A name as the exporting module spells it, whether written as an identifier or
@@ -253,5 +285,18 @@ impl Fold for StripConsole {
         _ => true,
       })
       .collect()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_relative_specifier_walks_up_then_down_with_a_dot_when_it_stays_below() {
+    assert_eq!(relative_specifier(Path::new("/app/routes/index"), Path::new("/app/src/ui/Header")), "../../src/ui/Header");
+    assert_eq!(relative_specifier(Path::new("/app/src/ui"), Path::new("/app/src/ui/Stars")), "./Stars");
+    assert_eq!(relative_specifier(Path::new("/app/src"), Path::new("/app/src/ui/Stars")), "./ui/Stars");
+    assert_eq!(relative_specifier(Path::new("/app/src/ui"), Path::new("/app/generated/client")), "../../generated/client");
   }
 }

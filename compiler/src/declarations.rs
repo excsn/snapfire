@@ -8,7 +8,8 @@ use oxc_isolated_declarations::{IsolatedDeclarations, IsolatedDeclarationsOption
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
-use crate::transforms::resolve_specifier;
+use crate::config::Aliases;
+use crate::transforms::{relative_specifier, resolve_specifier};
 
 /// Emits the `.d.ts` for one TypeScript file.
 ///
@@ -16,7 +17,7 @@ use crate::transforms::resolve_specifier;
 /// without the rest of the program. That is the same per-file bargain the rest of the compiler makes
 /// and the reason this needs no `node_modules`, but it does mean an export whose type can only be
 /// inferred across files is an error here rather than something to guess at.
-pub fn declare(path: &Path) -> Result<String> {
+pub fn declare(path: &Path, aliases: &Aliases) -> Result<String> {
   let source_text = std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
 
   let allocator = Allocator::default();
@@ -46,11 +47,17 @@ pub fn declare(path: &Path) -> Result<String> {
       continue;
     };
 
-    if !source.value.as_str().starts_with('.') {
-      continue;
-    }
+    let written = source.value.as_str().to_owned();
+    let relative = if written.starts_with('.') {
+      written.clone()
+    } else {
+      match aliases.expand(&written) {
+        Some(target) => relative_specifier(dir, &target),
+        None => continue,
+      }
+    };
 
-    let resolved = resolve_specifier(dir, source.value.as_str());
+    let resolved = resolve_specifier(dir, &relative);
 
     if resolved == source.value.as_str() {
       continue;
