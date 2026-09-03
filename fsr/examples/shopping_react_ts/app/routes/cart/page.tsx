@@ -32,8 +32,8 @@ export default function Cart({ lines, cartCount }: CartProps) {
     if (!(await confirmOrder(items, subtotal))) return;
     try {
       const order = await actions.cart.checkout();
-      orderPlaced(order.id, order.total_cents, order.lines.length);
-      void navigate("/");
+      await orderPlaced(order.id, order.total_cents, order.lines.length);
+      void navigate(`/order/${String(order.id)}`);
     } catch (e) {
       failed(e);
     }

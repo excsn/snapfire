@@ -1,5 +1,5 @@
 import Cart from "@routes/cart/page";
-import { assert, ctx, fireEvent, render, screen, test } from "@snapfire/fsr-client/testing";
+import { advance, assert, ctx, fireEvent, render, screen, test } from "@snapfire/fsr-client/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: null, image: { color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "", tags: [], attributes: [], quantity: 2n };
 
@@ -30,18 +30,19 @@ test("checkout places the order through the mocked service", async () => {
     services: {
       shopping: {
         placeOrder: (args: { lines: { product_id: bigint; quantity: bigint }[] }) => ({ id: 7n, total_cents: 4800n, lines: args.lines.map((l) => ({ ...l, name: "PLA filament", line_cents: 4800n })) }),
-        listProducts: () => [],
+        getOrder: ({ id }: { id: bigint }) => ({ id, total_cents: 4800n, lines: [{ product_id: 1n, name: "PLA filament", quantity: 2, line_cents: 4800n }] }),
       },
     },
   });
   await render(<Cart lines={[filament]} cartCount={2n} />, { ctx: c });
   await fireEvent.click(screen.getByText("Proceed to checkout"));
   await fireEvent.click(screen.getByText("Place order"));
-  assert.equal(
-    c.trace.calls.map((call) => call.method),
-    ["placeOrder", "listProducts"],
-    "the order, then the catalog the page navigates home to",
-  );
+  assert.equal(c.trace.calls.map((call) => call.method), ["placeOrder"]);
   assert.equal(c.trace.calls[0].args, { lines: [{ product_id: 1, quantity: 2 }] });
   assert.equal(c.session.cart, {});
+  assert.ok(screen.getByText("Order #7 placed"), "the toast is the intermission");
+  assert.equal(location.pathname, "/", "nothing moves while it shows");
+  await advance(2000);
+  assert.equal(location.pathname, "/order/7", "then the page goes to the order");
+  assert.equal(c.trace.calls.map((call) => call.method), ["placeOrder", "getOrder"]);
 });
