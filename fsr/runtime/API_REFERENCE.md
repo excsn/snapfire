@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_runtime
 
-The request blocks of Snapfire FSR: matching, resolution, data sources, evaluation, assembly, caching, the request context, the service seam, actions and streaming.
+The request blocks of SnapFire FSR: matching, resolution, data sources, evaluation, assembly, caching, the request context, the service seam, actions and streaming.
 
 ## Contents
 
@@ -305,12 +305,15 @@ The default. Unit struct. `get` is always `None`, `put` and `invalidate` do noth
 
 `fibre_cache`-backed: sharded, TinyLFU-bounded, TTL-expiring. A side index maps each plan `cache_key` to the composed keys stored under it, so invalidation is exact without iterating the cache.
 
-* `pub fn new(cache: fibre_cache::Cache<String, CacheEntry>) -> Self`: for a cache configured by the caller.
-* `pub fn bounded(capacity: u64, ttl: Duration) -> Self`
-* `pub fn bounded_sharded(capacity: u64, ttl: Duration, shards: usize) -> Self`: `shards` is rounded up to the next power of two by `fibre_cache`, whose own default is derived from the CPU count. Capacity is accounted across all shards, so this trades lock contention against the fixed per-shard policy and timer structures, never against usable capacity.
+* `pub fn new(cache: fibre_cache::Cache<String, CacheEntry>) -> Self`: for a cache configured by the caller; with no listener on it, the index shrinks only on `invalidate`.
+* `pub fn listener() -> (Index, impl EvictionListener<String, CacheEntry> + 'static)`: an index and the listener that keeps it exact, for `CacheBuilder::eviction_listener`; `Index` is `Arc<parking_lot::Mutex<HashMap<String, HashSet<String>>>>`.
+* `pub fn with_index(cache: fibre_cache::Cache<String, CacheEntry>, index: Index) -> Self`: `new` over a cache whose builder carried that listener.
+* `pub fn indexed(&self, plan_key: &str) -> usize`: how many composed keys the index holds under a plan key.
+* `pub fn bounded(capacity: u64, ttl: Duration) -> Self`: four shards, opportunistic maintenance on every insert (`maintenance_chance(1)`) and a timer tick of a hundredth of the TTL clamped to 10 ms and 1 s, so an entry leaves within a percent of its TTL.
+* `pub fn bounded_sharded(capacity: u64, ttl: Duration, shards: usize) -> Self`: `bounded` with the shard count given; `shards` is rounded up to the next power of two by `fibre_cache`, whose own default is derived from the CPU count. Capacity is accounted across all shards, so this trades lock contention against the fixed per-shard policy and timer structures, never against usable capacity.
 * Every entry is inserted with a cost of 1, so `capacity` counts entries.
 * `bounded` and `bounded_sharded` panic if `fibre_cache` refuses the configuration.
-* The side index grows on every `put` and is cleared for a plan key only by `invalidate`, so a plan key that produces many composed keys retains a list of them until it is invalidated.
+* The side index holds each composed key once and drops a key when the cache evicts it, on TTL or for room, through the eviction listener `bounded` and `bounded_sharded` install; `invalidate` clears a plan key's set. Expiry follows the cache's timer tick, so a key leaves the index when the janitor drops it, within a tick of its TTL.
 
 ## 9. Request context
 

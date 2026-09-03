@@ -1,8 +1,8 @@
 # @snapfire/fsr-client
 
-MPL-2.0. Pre-release, unpublished, part of the Snapfire FSR workspace.
+MPL-2.0. Pre-release, unpublished, part of the SnapFire FSR workspace.
 
-The browser half of Snapfire FSR. It decodes the tagged JSON the server encoded, mounts island components over server-rendered markup, fills streamed slots as they arrive, navigates between routes by patching segments instead of reloading and calls server actions by id. The server halves it pairs with are `snapfire_fsr_payload`, which owns the JSON pair, the HTML serialiser and the row protocol; and `snapfire_fsr_runtime`, which owns segments, streaming and the action endpoint. Task-by-task instructions live in [README.USAGE.md](README.USAGE.md) and every signature is in [API_REFERENCE.md](API_REFERENCE.md).
+The browser half of SnapFire FSR. It decodes the tagged JSON the server encoded, mounts island components over server-rendered markup, fills streamed slots as they arrive, navigates between routes by patching segments instead of reloading and calls server actions by id. The server halves it pairs with are `snapfire_fsr_payload`, which owns the JSON pair, the HTML serialiser and the row protocol; and `snapfire_fsr_runtime`, which owns segments, streaming and the action endpoint. Task-by-task instructions live in [README.USAGE.md](README.USAGE.md) and every signature is in [API_REFERENCE.md](API_REFERENCE.md).
 
 The package is browser-native ES modules. There is no bundler step, no `node_modules` and no runtime dependency: the core entry imports nothing outside itself; React lives behind a separate entry so a page that mounts Vue, Svelte or web components never loads it.
 
@@ -57,10 +57,11 @@ Serve the resulting `dist/` under the same prefix passed to `--public-path`, the
 | Re-fetch the current route after a mutation | `refresh` |
 | Call a server action by id | `action` |
 | Match on why an action failed | `ActionFailure` and its `kind` |
+| Render a page, or load a route and click through it, under `fsr test` | `render`, `load`, `screen` and `fireEvent` from `@snapfire/fsr-client/testing` |
 | Parse a whole payload response yourself | `parsePayload` |
 | Parse a single node row | `decodeNode` |
 | Turn a decoded node back into HTML | `nodeToHtml`, `renderSegment` |
 
 ## Status
 
-Pre-release and unpublished. It is not on npm and has no package manifest: consumers point an import map at the built `dist/`, which is how the examples under `fsr/examples/` serve it. `types/` holds the declarations snapfirec emits for `dist/`, checked in so `fsr types` can embed them and write them into an application's `types/@snapfire/fsr-client/` without a registry; copy `dist/*.d.ts` over it after a change to `src/`. The package carries no test suite of its own; it is exercised through that example, whose Rust tests pin the HTML markers, the wire rows, the segment sidecar and the action responses this code reads. No API or wire compatibility guarantee is offered yet; the format number the reader reports is `FORMAT_VERSION` 1 from `snapfire_fsr_payload`.
+Pre-release and unpublished. It is not on npm and has no package manifest: consumers point an import map at the built `dist/`, which is how the examples under `fsr/examples/` serve it. `types/` holds the declarations snapfirec emits for `dist/`, checked in so `fsr types` can embed them and write them into an application's `types/@snapfire/fsr-client/` without a registry; copy `dist/*.d.ts` over it after a change to `src/`. Its own specs live under that example, `app/tests/client/`, run by `fsr test` beside the page specs, since that app vendors React and serves this package: the value round trips, the payload reader and renderer, the island scan and an action failure. The example's Rust tests pin the HTML markers, the wire rows, the segment sidecar and the action responses this code reads, and its navigation spec drives `enableNavigation` end to end. No API or wire compatibility guarantee is offered yet; the format number the reader reports is `FORMAT_VERSION` 1 from `snapfire_fsr_payload`.

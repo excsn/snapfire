@@ -1,6 +1,6 @@
 # API Reference: @snapfire/fsr-client
 
-The browser half of Snapfire FSR: payload decoding, island hydration, streamed slot filling, segment navigation and the action client.
+The browser half of SnapFire FSR: payload decoding, island hydration, streamed slot filling, segment navigation and the action client.
 
 ## Contents
 
@@ -118,7 +118,7 @@ Produces the tagged JSON the server decodes. The mapping is not symmetric with `
 * A finite `number` is emitted bare; the server reads an integral one as an integer and a fractional one as an `f64`.
 * `NaN`, `Infinity` and `-Infinity` are emitted as `{ $: "f", v: "nan" | "inf" | "-inf" }`.
 * A `bigint` in the `i128` range is emitted as `i`, one above it and within `u128` as `u`. Outside both it throws `bigint outside the value model's integer range`.
-* `Uint8Array` is emitted as bytes (`b`), never as a `u8` typed array. `Uint8ClampedArray` is not part of the model and falls through to object encoding.
+* `Uint8Array` is emitted as bytes (`b`), unless it came out of `decodeValue` as a `u8` typed array, which is marked with a symbol and goes back as `ta` with kind `u8`. `Uint8ClampedArray` is not part of the model and falls through to object encoding.
 * Other typed arrays are emitted as `ta` with their kind, honouring `byteOffset` and `byteLength`, so a view over a larger buffer encodes only its own window.
 * A plain object owning a `$` key is escaped into the `m` tag's pair list.
 
@@ -262,7 +262,7 @@ Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root
 
 * `boot(): void`
 
-Scans the whole document, immediately when the DOM is past `loading` and on `DOMContentLoaded` otherwise, then scans again on every `sf:fill` event on `document`. That event is dispatched by the server's inline fill script after it moves a resolved template into its slot, which is what mounts islands inside streamed chunks. Calling `boot` more than once adds another listener; `scan` being idempotent keeps that harmless.
+Scans the whole document, immediately when the DOM is past `loading` and on `DOMContentLoaded` otherwise, then scans again on every `sf:fill` event on `document`. That event is dispatched by the server's inline fill script after it moves a resolved template into its slot, which is what mounts islands inside streamed chunks. Calling `boot` again scans again and adds no second listener; the listener is registered once per document.
 
 ### DOM Contract
 
@@ -315,7 +315,7 @@ Falls back to `window.location.reload()` when there is no sidecar, when the resp
 
 Builds a callable for a stable action id. The client holds ids, never URLs.
 
-The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `JSON.stringify(encodeValue(input))` as the body. `input` defaults to `{}`. The response body is parsed as JSON in both directions: on a non-ok status it throws `ActionFailure` built from the body's `kind` and `message`, falling back to `"internal"` and the response's `statusText`; on success it returns `decodeValue(body)`.
+The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `JSON.stringify(encodeValue(input))` as the body. `input` defaults to `{}`. On a non-ok status it throws `ActionFailure`: from the body's `kind` and `message` when the body is the JSON failure shape, otherwise with the kind the status stands for (`400` `invalid`, `401` and `403` `unauthorized`, `404` `not_found`, `409` `conflict`, `503` `unavailable`, `504` `timeout`, anything else `internal`); the message is then the body's text, the `statusText` or `HTTP <status>`. On success it returns `decodeValue` of the JSON body.
 
 `revalidate` defaults to true, which awaits `refresh()` after a successful call and before the result is returned. Pass `{ revalidate: false }` for a read-only action or to batch several mutations behind one manual `refresh`.
 
@@ -341,7 +341,7 @@ Thrown by an action callable when the server answers with a non-ok status.
 * `constructor(kind: string, message: string)`
 * `readonly kind: string`
 * `name` is `"ActionFailure"`
-* `message` is the server's message or the response's `statusText`
+* `message` is the server's message, the text of a body that is not the failure shape or the response's `statusText`
 
 The kinds the runtime emits: `unauthorized` (401), `not_found` (404), `invalid` (400), `conflict` (409), `timeout` (504), `unavailable` (503), `internal` (500).
 
@@ -354,7 +354,7 @@ The kinds the runtime emits: `unauthorized` (401), `not_found` (404), `invalid` 
 | `parsePayload` | `unknown payload row tag: <tag>`, `payload has no N row` |
 | `encodeValue` | a `bigint` outside the `i128` and `u128` ranges |
 | `renderSegment` | `segment path walks through a non-seq node` |
-| an action callable | `ActionFailure` or a JSON parse error when the failure body is not JSON |
+| an action callable | `ActionFailure` on any non-ok status; the fetch's own error when the request never completes |
 
 ### Silent Degradations
 

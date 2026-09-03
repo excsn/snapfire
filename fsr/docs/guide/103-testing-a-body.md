@@ -82,13 +82,27 @@ Three things in that test are not what a jest test would do.
 
 The queries are `screen.getByText`, `queryByText`, `getAllByText`, `getByLabelText`, `getByPlaceholderText` and `getByTestId`, each taking an optional root to search under, and the events are `fireEvent.click`, `change`, `submit` and `keyDown`. A `console.error` during a test fails it with the text, since React reports what it does not like that way. A failing test prints everything the page logged.
 
+**A route loads the way a browser loads it.** `load("/", { ctx })` fetches the document the stock host renders for that route, with the spec's mocks behind every service, installs it as the document, mounts its islands and enables navigation. A click on a link is then a client navigation: the navigator fetches the destination's payload from the same host, swaps the segment whose key changed and hydrates the new page in place. The storefront's [`navigation.spec.tsx`](../../examples/shopping_react_ts/app/tests/navigation.spec.tsx) clicks from the catalog to the cart and asserts that `#app` is the same element afterwards, which is the layout surviving, and that each page's loader ran once through the mocks. A page's own `navigate` or `refresh` after an action reaches the same host, so a spec sees the loader run again. The host under test is built from `config/app.toml` beside the app, the one that serves; without it, a route fetch answers 404 and says so.
+
+```tsx
+test("a click from the catalog to the cart swaps the page and keeps the document", async () => {
+  const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: () => [filament] } } });
+  await load("/", { ctx: c });
+  const app = document.getElementById("app");
+  await fireEvent.click(screen.getByLabelText("Cart, 2 items"));
+  assert.equal(location.pathname, "/cart");
+  assert.ok(document.getElementById("app") === app);
+  assert.ok(screen.getByText("Shopping cart"));
+});
+```
+
 ## Route tests are the other layer
 
-A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, seventeen tests over a mock transport that assert on the HTML a route renders and the props it ships. They are Rust because they assert on the host; an application with no Rust project has nothing of its own to assert there. The two layers are enough: a body test says a loader produces these props from these responses; a route test says a URL produces this document from these props.
+A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, eighteen tests over a mock transport that assert on the HTML a route renders, the chunks a deferred route streams and the props it ships. They are Rust because they assert on the host; an application with no Rust project gets the document half of that from `load` in a spec. The two layers are enough: a body test says a loader produces these props from these responses; a route test says a URL produces this document from these props.
 
 ## The lab
 
-Run `fsr test app`. Seven tests pass, each printed with its file and name. Now open `actions.test.ts` and change the mocked `placeOrder` to return `{ id: 7n }` only. Run again: the checkout test fails; the message names `shopping.placeOrder()` and the missing field, because the registry checked the mock's answer against the contract before the body ever saw it.
+Run `fsr test app`. Twenty-nine tests pass, seven body tests and twenty-two specs, each printed with its file and name. Now open `actions.test.ts` and change the mocked `placeOrder` to return `{ id: 7n }` only. Run again: the checkout test fails; the message names `shopping.placeOrder()` and the missing field, because the registry checked the mock's answer against the contract before the body ever saw it.
 
 Put it back, then change the expected count in the first test to `5n`. The failure prints `actual: 4n` and `expected: 5n`, in the value model's own spelling.
 

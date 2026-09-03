@@ -29,18 +29,19 @@ An application with a Rust project puts three lines in `build.rs`: build, write,
 
 ## `fsr dev`
 
-`fsr dev <app>` is those steps in a loop. It generates, bundles, builds the Cargo project beside the app and runs it, then watches. What it does on a change depends on what changed:
+`fsr dev <app>` is those steps in a loop. It generates, bundles, builds the Cargo project beside the app and runs it, or runs the stock host when there is no such project, then watches. What it does on a change depends on what changed:
 
 | Changed | It does |
 | --- | --- |
 | a page, a component or CSS | rebundles; reload the page |
 | a loader, an action, a schema or a client document | regenerates, rebundles, restarts |
 | Rust under `src/`, `build.rs`, `Cargo.toml` or `config/` | rebuilds, restarts |
+| `config/` beside an app with no Cargo project | restarts the stock host |
 | a test | nothing; `fsr test` is its own command |
 
 The restart rule is the one worth knowing: the loop restarts the server only when the generated files actually differ. Editing a page never restarts, because the bundle's output names are stable and the host reads it from disk; a restart would drop every in-memory session. A step that fails leaves the running server up and waits, so a typo never takes the page down. Stopping the loop stops the server with it.
 
-The loop needs a Cargo project beside the app today, since the server it runs is that project's binary. A stock binary for an application with no Rust at all is the missing piece.
+Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for production, the way `cargo run` is for a project that has one; it refuses a configuration whose `[app] dir` names a different directory.
 
 ## The lab
 

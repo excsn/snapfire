@@ -22,7 +22,7 @@ The expressions in between are the same language a loader speaks, plus the pure 
 
 A page calls helpers: `money(cents)`, `categoryLabel(key)`, `percentOff(price, list)`. The build follows the import, reads the helper as a function of `const`s, `if (c) return a;` chains and a `return`, then inlines it as a lambda at the call site. A module `const` such as the category list inlines as its value. Imports are followed on first use, so a helper module that also imports a browser library, the way `feedback.ts` imports SweetAlert2, costs nothing until a render actually reads from it, which a render never does since toasts are handlers.
 
-Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
+Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A namespace import works as a tag: `<Ui.Card>` reaches `Card` in the file `import * as Ui` names. A rest in a destructuring is the object without the named keys, so `{ className, ...rest }` spread onto an element or a component passes everything else through. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
 
 ## What the browser keeps
 
@@ -34,7 +34,7 @@ Three things in a component are the browser's and the build drops them rather th
 
 Children and spreads are ordinary. A component that takes `children` places them with `{children}`, and the build renders what the caller wrote between the tags in the caller's scope, so a layout can wrap a page without the page knowing. `<Header {...header} />` spreads an object into props and `<h1 {...attrs}>` into attributes, later entries winning the way React merges them, and a spread's `className` and a literal `class` are one attribute.
 
-Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, `dangerouslySetInnerHTML`, a member expression as a tag, a rest in a parameter. The report says `client` and names the line. The page still works, since it always could.
+Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, `dangerouslySetInnerHTML`, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works, since it always could.
 
 ## Writing for the server without thinking about it
 

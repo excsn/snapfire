@@ -19,6 +19,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
+* [Serving Without a Rust Project](#serving-without-a-rust-project)
 * [Reading the Report](#reading-the-report)
 * [Reading the Plan File](#reading-the-plan-file)
 * [Naming the Shell](#naming-the-shell)
@@ -283,6 +284,20 @@ An `xwpm.wmf` in the app directory marks it as an application xwpm manages. `fsr
 ```sh
 fsr build app
 fsr check app
+```
+
+## Serving Without a Rust Project
+
+`serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app, or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`.
+
+```sh
+fsr build app
+snapfirec --root app --config tsconfig.build.json --source-map --public-path /static/js/app --import-map importmap.json
+fsr serve app --listen 127.0.0.1:8080
+```
+
+```sh
+fsr dev app
 ```
 
 ## Reading the Report

@@ -2,7 +2,7 @@
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The request blocks of Snapfire FSR: matching a path, resolving it to a plan, loading the plan's data, evaluating its modules, assembling the payload tree and streaming it out. It works in the vocabulary types of `snapfire_fsr_core` (`Value`, `Node`, `PlanNode`) and hands its result to the encoders in `snapfire_fsr_payload`. Task-by-task instructions live in the [usage guide](README.USAGE.md); the full surface is in the [API reference](API_REFERENCE.md).
+The request blocks of SnapFire FSR: matching a path, resolving it to a plan, loading the plan's data, evaluating its modules, assembling the payload tree and streaming it out. It works in the vocabulary types of `snapfire_fsr_core` (`Value`, `Node`, `PlanNode`) and hands its result to the encoders in `snapfire_fsr_payload`. Task-by-task instructions live in the [usage guide](README.USAGE.md); the full surface is in the [API reference](API_REFERENCE.md).
 
 ```text
 path
