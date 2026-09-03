@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_tera
 
-The Tera evaluator for Snapfire FSR: it renders a template to a string and splits that string into payload chunks.
+The Tera evaluator for SnapFire FSR: it renders a template to a string and splits that string into payload chunks.
 
 ## Contents
 

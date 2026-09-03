@@ -1,9 +1,9 @@
-# Snapfire FSR Core (`snapfire_fsr_core`)
+# SnapFire FSR Core (`snapfire_fsr_core`)
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 ![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange?style=flat-square)
 
-The vocabulary crate of Snapfire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. Task-by-task instructions live in the [usage guide](README.USAGE.md); every signature is in the [API reference](API_REFERENCE.md).
+The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. Task-by-task instructions live in the [usage guide](README.USAGE.md); every signature is in the [API reference](API_REFERENCE.md).
 
 The value model is sovereign: it decides what can exist; encodings are ranked projections of it. An encoding is either lossless over the model or a declared degradation, never a silent one, which is why `Value` is not limited to what JSON can express. It carries `i128` and `u128` integers, `f32` separately from `f64`, raw bytes, typed numeric arrays, tagged variants and references. JSON tags whatever it cannot spell natively.
 

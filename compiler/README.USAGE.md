@@ -32,7 +32,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * [Keeping the Output Directory Clean](#keeping-the-output-directory-clean)
 * [Watching for Changes](#watching-for-changes)
 * [Loading the Output in a Browser](#loading-the-output-in-a-browser)
-* [Wiring the Build into a Snapfire Site](#wiring-the-build-into-a-snapfire-site)
+* [Wiring the Build into a SnapFire Site](#wiring-the-build-into-a-snapfire-site)
 * [Scope](#scope)
 * [Error Handling](#error-handling)
 
@@ -1201,7 +1201,7 @@ Point production at the minified graph and it stays minified all the way down:
 <script type="module" src="/assets/index.min.js"></script>
 ```
 
-## Wiring the Build into a Snapfire Site
+## Wiring the Build into a SnapFire Site
 
 Compile into the directory the `snapfire` crate serves and watches; a rebuild becomes a live reload:
 

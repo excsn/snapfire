@@ -238,7 +238,7 @@ Whatever the plan node's loader returned sits alongside them under its own keys:
 ```rust
 sources.insert_fn("layout_loader", |ctx| async move {
   let mut data = ValueMap::new();
-  data.insert("nav_label".to_owned(), Value::Str("Snapfire FSR".to_owned()));
+  data.insert("nav_label".to_owned(), Value::Str("SnapFire FSR".to_owned()));
   data.insert("visits".to_owned(), Value::Int(1));
   Ok(data)
 });
@@ -306,7 +306,7 @@ use snapfire_fsr_tera::TeraEvaluator;
 async fn chunks_of(evaluator: &TeraEvaluator) -> Result<Vec<Chunk>, EvalError> {
   let module = ModuleId::new("layout.tera", "default");
   let mut props = ValueMap::new();
-  props.insert("nav_label".to_owned(), Value::Str("Snapfire FSR".to_owned()));
+  props.insert("nav_label".to_owned(), Value::Str("SnapFire FSR".to_owned()));
   evaluator.evaluate(&module, &props).try_collect().await
 }
 ```

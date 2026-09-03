@@ -41,7 +41,7 @@ pub fn register(sources: &mut DataSources, chart_delay: Duration, renders: Rende
       _ => 0,
     };
     let mut data = ValueMap::new();
-    data.insert("title".to_owned(), Value::Str(format!("{section} ({count} servers) - Snapfire FSR")));
+    data.insert("title".to_owned(), Value::Str(format!("{section} ({count} servers) - SnapFire FSR")));
     Ok(data)
   });
 
@@ -54,7 +54,7 @@ pub fn register(sources: &mut DataSources, chart_delay: Duration, renders: Rende
       _ => 0,
     };
     let mut data = ValueMap::new();
-    data.insert("nav_label".to_owned(), Value::str("Snapfire FSR"));
+    data.insert("nav_label".to_owned(), Value::str("SnapFire FSR"));
     data.insert("visits".to_owned(), Value::Int(visits));
     data.insert("renders".to_owned(), Value::int(renders.get() as i64));
     Ok(data)

@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_plan"
 version = "0.1.0"
-description = "The plan file for Snapfire FSR: routes and their plans as a build artifact."
+description = "The plan file for SnapFire FSR: routes and their plans as a build artifact."
 
 edition = { workspace = true }
 authors = { workspace = true }

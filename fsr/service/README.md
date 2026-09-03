@@ -2,7 +2,7 @@
 
 MPL-2.0. Version 0.1.0, pre-release, not published to crates.io.
 
-The typed service boundary for Snapfire FSR. Application code asks for a capability by naming a service, a method and its arguments; it never names a host, a header or a token. A *contract* declares what exists, a *registry* binds that contract to one request, *interceptors* attach identity and credentials on the way out and a *transport* carries the call to wherever the implementation lives. Start with the [usage guide](README.USAGE.md); look calls up in the [API reference](API_REFERENCE.md).
+The typed service boundary for SnapFire FSR. Application code asks for a capability by naming a service, a method and its arguments; it never names a host, a header or a token. A *contract* declares what exists, a *registry* binds that contract to one request, *interceptors* attach identity and credentials on the way out and a *transport* carries the call to wherever the implementation lives. Start with the [usage guide](README.USAGE.md); look calls up in the [API reference](API_REFERENCE.md).
 
 The contract is a neutral data artifact speaking the FSR value model. Neither Rust nor TypeScript is its source of truth. Two of its three front ends are built: `openapi::import` reads an OpenAPI document and, behind the `grpc` feature, `import_proto` reads a `.proto` file, each into the same artifact; the TypeScript schema reader lives in `snapfire_fsr_lower` and the Rust derive export is not built. A contract is also constructed in Rust with the builder methods on `Contract`, `Service` and `Method`, then serialised with `Contract::to_json`. Contracts from several sources merge with `Contract::merge`, which refuses a name two of them define.
 

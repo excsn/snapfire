@@ -49,7 +49,7 @@ fn head_node(title: &str) -> Node {
 }
 
 async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, ctx: &RequestCtx) -> String {
-  let fallback = "Snapfire FSR".to_owned();
+  let fallback = "SnapFire FSR".to_owned();
   let Some(source_id) = crate::routes::metadata_source(entry) else { return fallback };
   let Some(source) = app.runtime.sources.get(&source_id) else { return fallback };
   match source.load(ctx).await {

@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_service
 
-The typed service boundary for Snapfire FSR: the contract artifact, its checking, the registry, interceptors and transports.
+The typed service boundary for SnapFire FSR: the contract artifact, its checking, the registry, interceptors and transports.
 
 ## Contents
 

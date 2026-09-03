@@ -1,4 +1,4 @@
-# Snapfire Compiler (`snapfirec`)
+# SnapFire Compiler (`snapfirec`)
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 ![Crates.io](https://img.shields.io/crates/v/snapfire_compiler?style=flat-square)
@@ -6,7 +6,7 @@
 
 A bespoke, high-performance *typescript to browser* build tool written in Rust.
 
-`Snapfire Compiler` replaces the traditional Node.js build chain (TypeScript, Vite/Rollup, PostCSS, Babel) with a single binary. It is designed to compile TypeScript libraries into browser-native ES Modules and standard CSS without requiring a `package.json` or `node_modules` folder. Task-by-task instructions live in the [usage guide](README.USAGE.md).
+`SnapFire Compiler` replaces the traditional Node.js build chain (TypeScript, Vite/Rollup, PostCSS, Babel) with a single binary. It is designed to compile TypeScript libraries into browser-native ES Modules and standard CSS without requiring a `package.json` or `node_modules` folder. Task-by-task instructions live in the [usage guide](README.USAGE.md).
 
 ## Philosophy
 
