@@ -4835,7 +4835,6 @@ version = "0.1.0"
 dependencies = [
  "ctrlc",
  "flate2",
- "futures-executor",
  "futures-util",
  "notify 8.2.0",
  "parking_lot",
@@ -4844,6 +4843,7 @@ dependencies = [
  "serde_json",
  "snapfire_fsr_core",
  "snapfire_fsr_engine",
+ "snapfire_fsr_host",
  "snapfire_fsr_ir",
  "snapfire_fsr_lower",
  "snapfire_fsr_payload",

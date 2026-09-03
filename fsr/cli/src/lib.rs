@@ -3,6 +3,7 @@
 //! `build` and `write`.
 
 pub mod dev;
+pub mod serve;
 pub mod spec;
 pub mod infer;
 pub mod test;
@@ -50,6 +51,8 @@ pub enum BuildError {
   Xwpm(String),
   #[error("{0}")]
   Dev(String),
+  #[error("{0}")]
+  Serve(String),
 }
 
 /// What `build` found and emitted, in the order the report prints it.
