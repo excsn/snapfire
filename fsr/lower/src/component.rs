@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use snapfire_fsr_ir::ast::{Component, Entry, Expr, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Lit, Stmt, Tmpl};
 use snapfire_fsr_ir::render::html_attr_name;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
@@ -116,9 +116,16 @@ impl ComponentSet {
   }
 
   /// The module id a capitalised JSX tag names: a function in this file or a
-  /// local import, lowered as its own component.
+  /// local import, lowered as its own component; `Ns.Name` is `Name` from the
+  /// file a namespace import binds as `Ns`.
   fn component_module(&mut self, file: &str, name: &str) -> Result<String, String> {
     let parsed = self.parsed[file].clone();
+    if let Some((namespace, member)) = name.split_once('.') {
+      let source = find_namespace_import(&parsed, namespace).ok_or_else(|| format!("`{namespace}` is not a namespace import; `<{name}>` needs `import * as {namespace}`"))?;
+      let target = self.resolve_import(file, &source).ok_or_else(|| format!("`{namespace}` comes from `{source}`, which the build cannot follow"))?;
+      self.load(&target).map_err(|e| e.to_string())?;
+      return Ok(format!("{target}#{member}"));
+    }
     if find_function(&parsed, name).is_some() {
       return Ok(format!("{file}#{name}"));
     }
@@ -296,6 +303,24 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
   None
 }
 
+/// The source of `import * as local`.
+fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
+  for item in &parsed.module.body {
+    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+    if import.type_only {
+      continue;
+    }
+    for spec in &import.specifiers {
+      if let js::ImportSpecifier::Namespace(ns) = spec {
+        if ns.local.sym.as_ref() == local {
+          return Some(import.src.value.to_atom_lossy().to_string());
+        }
+      }
+    }
+  }
+  None
+}
+
 /// `(source, imported name)` for a value import binding `local`.
 fn find_import(parsed: &Parsed, local: &str) -> Option<(String, String)> {
   for item in &parsed.module.body {
@@ -380,10 +405,12 @@ fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowered<Vec<Str
 /// `{ a, b = x, c: d }` over `target`: each name reads a field, a default
 /// applies when the field is null or absent.
 fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> Lowered<()> {
+  let mut taken: Vec<String> = Vec::new();
   for prop in &obj.props {
     match prop {
       js::ObjectPatProp::Assign(a) => {
         let name = a.key.id.sym.to_string();
+        taken.push(name.clone());
         let read = target.clone().field(name.clone());
         let bound = match &a.value {
           Some(default) => Expr::Coalesce(Box::new(read), Box::new(lowerer.expr(default)?)),
@@ -393,6 +420,7 @@ fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> 
       }
       js::ObjectPatProp::KeyValue(kv) => {
         let key = prop_name(&kv.key).ok_or_else(|| lowerer.residue(kv.key.span(), "a computed field in a pattern"))?;
+        taken.push(key.clone());
         let read = target.clone().field(key);
         match &*kv.value {
           js::Pat::Ident(local) => lowerer.scope.push((local.id.sym.to_string(), read)),
@@ -406,7 +434,14 @@ fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> 
           other => return Err(lowerer.residue(other.span(), "a nested pattern in a parameter")),
         }
       }
-      js::ObjectPatProp::Rest(r) => return Err(lowerer.residue(r.span, "a rest in a parameter")),
+      js::ObjectPatProp::Rest(r) => {
+        let js::Pat::Ident(id) = &*r.arg else {
+          return Err(lowerer.residue(r.span, "a pattern in a rest"));
+        };
+        let mut args = vec![target.clone()];
+        args.extend(taken.iter().map(|key| Expr::lit_str(key.clone())));
+        lowerer.scope.push((id.id.sym.to_string(), Expr::Builtin { name: Builtin::Omit, args }));
+      }
     }
   }
   Ok(())
@@ -709,12 +744,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
-    let name = match &el.opening.name {
-      js::JSXElementName::Ident(id) => id.sym.to_string(),
-      js::JSXElementName::JSXMemberExpr(m) => return Err(self.lowerer.residue(m.span, "a member expression as a tag")),
+    let (name, member) = match &el.opening.name {
+      js::JSXElementName::Ident(id) => (id.sym.to_string(), false),
+      js::JSXElementName::JSXMemberExpr(m) => match &m.obj {
+        js::JSXObject::Ident(obj) => (format!("{}.{}", obj.sym, m.prop.sym), true),
+        js::JSXObject::JSXMemberExpr(_) => return Err(self.lowerer.residue(m.span, "a member expression as a tag more than one level deep")),
+      },
       js::JSXElementName::JSXNamespacedName(n) => return Err(self.lowerer.residue(n.span, "a namespaced tag")),
     };
-    let is_component = name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    let is_component = member || name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
     if is_component {
       return self.component_ref(&name, el);
     }
@@ -753,7 +791,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn component_ref(&mut self, name: &str, el: &'p js::JSXElement) -> Lowered<Tmpl> {
-    if name == "Fragment" {
+    if name == "Fragment" || name == "React.Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
     }
     let mut props = Vec::new();
@@ -1123,8 +1161,11 @@ export function Page({ className, children, ...rest }: { className: string; chil
       ),
       ("src/ui/Header.tsx", "export function Header(props: { cartCount: number; q: string }) {\n  return <header>{props.q}{props.children}</header>;\n}\n"),
     ];
-    let err = lower(&files, "routes/index/page.tsx#default").unwrap_err();
-    assert!(err.to_string().contains("a rest in a parameter"), "{err}");
+    let lowered = lower(&files, "routes/index/page.tsx#default").unwrap();
+    let layout = &lowered.iter().find(|(m, _)| m == "src/ui/Page.tsx#Page").unwrap().1;
+    let Tmpl::Fragment(parts) = &layout.render else { panic!() };
+    let rest = Entry::Spread(Expr::Builtin { name: Builtin::Omit, args: vec![Expr::var("$props"), Expr::lit_str("className"), Expr::lit_str("children")] });
+    assert!(matches!(&parts[0], Tmpl::Component { props, .. } if props[0] == rest), "the rest is the props without what was named: {:?}", parts[0]);
     let mut files = files;
     files[1].1 = r#"
 import { Header } from "./Header";
@@ -1172,4 +1213,38 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     assert_eq!(jsx_text("a  b"), "a  b");
     assert_eq!(jsx_text("&minus; &amp; &#8230; &#x2192; &bogus;"), "\u{2212} & \u{2026} \u{2192} &bogus;");
   }
+  #[test]
+  fn a_rest_in_a_destructuring_is_the_object_without_the_named_keys() {
+    let page = r#"
+export default function Page({ title, kind = "note", ...rest }: { title: string; kind?: string; id: number; hidden: boolean }) {
+  const { id, ...attrs } = rest;
+  return <section data-id={id} {...attrs}>{title}: {kind}</section>;
+}
+"#;
+    let lowered = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap();
+    let component = &lowered[0].1;
+    let props = Expr::var("$props");
+    assert_eq!(component.body, vec![Stmt::Let { name: "$let3".to_owned(), expr: Expr::Builtin { name: Builtin::Omit, args: vec![props.clone(), Expr::lit_str("title"), Expr::lit_str("kind")] } }]);
+    let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
+    assert_eq!(attrs[0], Entry::Field("data-id".to_owned(), Expr::var("$let3").field("id")));
+    assert_eq!(attrs[1], Entry::Spread(Expr::Builtin { name: Builtin::Omit, args: vec![Expr::var("$let3"), Expr::lit_str("id")] }));
+  }
+
+  #[test]
+  fn a_member_expression_tag_names_an_export_of_a_namespace_import() {
+    let files = [
+      ("routes/index/page.tsx", "import * as Ui from \"../../src/ui\";\nimport * as React from \"react\";\nexport default function Page() {\n  return <React.Fragment><Ui.Card title=\"a\" /></React.Fragment>;\n}\n"),
+      ("src/ui/index.tsx", "export function Card({ title }: { title: string }) {\n  return <div className=\"card\">{title}</div>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/index/page.tsx#default").unwrap();
+    let modules: Vec<&str> = lowered.iter().map(|(m, _)| m.as_str()).collect();
+    assert_eq!(modules, ["src/ui/index.tsx#Card", "routes/index/page.tsx#default"]);
+    let Tmpl::Fragment(children) = &lowered[1].1.render else { panic!("{:?}", lowered[1].1.render) };
+    assert!(matches!(&children[0], Tmpl::Component { module, .. } if module == "src/ui/index.tsx#Card"));
+
+    let page = "import { ui } from \"../../src/ui\";\nexport default function Page() {\n  return <ui.Card title=\"a\" />;\n}\n";
+    let err = lower(&[("routes/index/page.tsx", page), ("src/ui/index.tsx", "export const ui = {};\n")], "routes/index/page.tsx#default").unwrap_err();
+    assert!(err.to_string().contains("`ui` is not a namespace import"), "{err}");
+  }
+
 }

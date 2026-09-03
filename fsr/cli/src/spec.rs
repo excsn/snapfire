@@ -6,18 +6,21 @@
 //! interpreter under the mock ctx the spec built, its service methods being
 //! the spec's own functions behind the contract.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use futures_util::future::{BoxFuture, LocalBoxFuture};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use snapfire_fsr_core::{Params, Value, ValueMap};
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
+use snapfire_fsr_host::config::Config;
+use snapfire_fsr_host::{Host, HostError, RenderMode};
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_ir::{Body, Interpreter};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
@@ -27,7 +30,7 @@ use snapfire_fsr_service::{Call, Contract, Services, Transport};
 use crate::test::Summary;
 use crate::vendor::{self, ESM_HOST, VendorManifest};
 use crate::xwpm::Layout;
-use crate::{BuildError, Built, dev};
+use crate::{BuildError, Built, dev, serve};
 
 pub const TEST_DIR: &str = ".fsr-test";
 const LINKEDOM: &str = "0.18.12";
@@ -100,6 +103,11 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
   let actions: HashMap<String, Arc<Body>> = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), Arc::new(b)))).collect();
+  let calls = JsCalls::new();
+  let current = Arc::new(AtomicU32::new(0));
+  let records = Records::default();
+  let transport = Arc::new(JsTransport { ctx: None, current: current.clone(), calls: calls.clone(), records: records.clone() });
+  let host = page_host(&app, built, contract, transport)?;
 
   for path in files {
     let rel = path.strip_prefix(&app).unwrap_or(&path).to_string_lossy().replace('\\', "/");
@@ -107,11 +115,10 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     if !compiled.is_file() {
       return Err(BuildError::Dev(format!("{rel}: snapfirec wrote no {}", compiled.display())));
     }
-    let calls = JsCalls::new();
-    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), components.clone(), calls.clone()));
+    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone()));
     let local = tokio::task::LocalSet::new();
     let outcome: Result<Vec<(String, Result<(), String>)>, BuildError> = runtime.block_on(local.run_until(async {
-      let engine = Engine::new(resolution.clone(), &dom, hooks.clone(), calls).map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
+      let engine = Engine::new(resolution.clone(), &dom, hooks.clone(), calls.clone()).map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
       engine.import(&boot).await.map_err(|e| BuildError::Dev(format!("{rel}: registering islands: {e}")))?;
       engine.import(&compiled).await.map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
       let names = engine.test_names().map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
@@ -154,6 +161,23 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     }
   }
   Ok(())
+}
+
+/// The stock host over the app, for the routes a spec loads, when the configuration the host reads is beside the app; the services are the spec's mocks.
+fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc<JsTransport>) -> Result<Option<Arc<Host>>, BuildError> {
+  let root = serve::project_root(app);
+  let config = match Config::load(&root) {
+    Ok(config) => config,
+    Err(HostError::NoConfig(_)) => return Ok(None),
+    Err(e) => return Err(BuildError::Dev(format!("{}: {e}", root.display()))),
+  };
+  if config.app.canonicalize().ok().as_deref() != Some(app) {
+    return Ok(None);
+  }
+  let host = Host::from_config_with(config, built.manifest.to_json(), Some((**contract).clone()))
+    .and_then(|builder| builder.services_over(transport).build())
+    .map_err(|e| BuildError::Dev(format!("the host that renders a loaded route: {e}")))?;
+  Ok(Some(Arc::new(host)))
 }
 
 fn indent(text: &str) -> String {
@@ -327,21 +351,26 @@ fn static_roots(app: &Path) -> Result<Vec<(String, PathBuf)>, BuildError> {
   Ok(parsed.statics.into_iter().map(|s| (s.route, config_dir.join(s.dir))).collect())
 }
 
-/// A mocked service layer whose methods are the spec's own functions, reached through the engine between jobs.
+/// Every ctx's service calls in order, by ctx id.
+type Records = Arc<Mutex<HashMap<u32, Vec<Value>>>>;
+
+/// A mocked service layer whose methods are the spec's own functions, reached through the engine between jobs. One is bound per ctx; the host's is bound to whichever ctx is current.
 struct JsTransport {
-  ctx_id: u32,
+  ctx: Option<u32>,
+  current: Arc<AtomicU32>,
   calls: JsCalls,
-  records: Mutex<Vec<Value>>,
+  records: Records,
 }
 
 impl Transport for JsTransport {
   fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
+    let id = self.ctx.unwrap_or_else(|| self.current.load(Ordering::Relaxed));
     let mut record = ValueMap::new();
     record.insert("service".to_owned(), Value::Str(call.service.clone()));
     record.insert("method".to_owned(), Value::Str(call.method.clone()));
     record.insert("args".to_owned(), Value::Map(call.args.clone()));
-    self.records.lock().push(Value::Map(record));
-    let key = format!("{}:{}.{}", self.ctx_id, call.service, call.method);
+    self.records.lock().entry(id).or_default().push(Value::Map(record));
+    let key = format!("{id}:{}.{}", call.service, call.method);
     let args = value_to_json(&Value::Map(call.args)).to_string();
     let calls = self.calls.clone();
     let (service, method) = (call.service, call.method);
@@ -356,7 +385,6 @@ impl Transport for JsTransport {
 struct MockCtx {
   ctx: RequestCtx,
   input: Option<Value>,
-  transport: Arc<JsTransport>,
 }
 
 #[derive(Deserialize)]
@@ -387,20 +415,23 @@ struct SpecHooks {
   calls: JsCalls,
   interpreter: Interpreter,
   ctxs: RefCell<Vec<Rc<MockCtx>>>,
-  current: Cell<u32>,
+  current: Arc<AtomicU32>,
+  records: Records,
+  host: Option<Arc<Host>>,
 }
 
 impl SpecHooks {
-  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, components: Arc<Components>, calls: JsCalls) -> Self {
-    let hooks = Self { contract, actions, components, calls, interpreter: Interpreter::default(), ctxs: RefCell::new(Vec::new()), current: Cell::new(0) };
+  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>) -> Self {
+    let hooks = Self { contract, actions, components, calls, interpreter: Interpreter::default(), ctxs: RefCell::new(Vec::new()), current, records, host };
     hooks.reset();
     hooks
   }
 
-  /// Forgets every ctx and installs the empty one as id 0.
+  /// Forgets every ctx and its calls and installs the empty one as id 0.
   fn reset(&self) {
     self.ctxs.borrow_mut().clear();
-    self.current.set(0);
+    self.records.lock().clear();
+    self.current.store(0, Ordering::Relaxed);
     let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None }).expect("the empty ctx builds");
     self.ctxs.borrow_mut().push(Rc::new(empty));
   }
@@ -431,13 +462,13 @@ impl SpecHooks {
       json => Some(json_to_value(json).map_err(|e| format!("input: {e}"))?),
     };
     let id = self.ctxs.borrow().len() as u32;
-    let transport = Arc::new(JsTransport { ctx_id: id, calls: self.calls.clone(), records: Mutex::new(Vec::new()) });
-    let services = Services::builder().contract((*self.contract).clone()).default_transport(transport.clone()).build();
+    let transport = Arc::new(JsTransport { ctx: Some(id), current: self.current.clone(), calls: self.calls.clone(), records: self.records.clone() });
+    let services = Services::builder().contract((*self.contract).clone()).default_transport(transport).build();
     let handle = services.bind(identity.clone(), Arc::new(snapfire_fsr_service::NoCredentials));
     let params: Params = spec.params.into_iter().collect();
     let query: Params = spec.query.into_iter().collect();
     let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), csrf: None, services: handle };
-    Ok(MockCtx { ctx, input, transport })
+    Ok(MockCtx { ctx, input })
   }
 
   fn get(&self, id: u32) -> Result<Rc<MockCtx>, String> {
@@ -460,7 +491,7 @@ impl Hooks for SpecHooks {
 
   fn use_ctx(&self, id: u32) -> Result<(), String> {
     self.get(id)?;
-    self.current.set(id);
+    self.current.store(id, Ordering::Relaxed);
     Ok(())
   }
 
@@ -470,7 +501,8 @@ impl Hooks for SpecHooks {
   }
 
   fn calls(&self, id: u32) -> Result<String, String> {
-    let calls = self.get(id)?.transport.records.lock().clone();
+    self.get(id)?;
+    let calls = self.records.lock().get(&id).cloned().unwrap_or_default();
     Ok(value_to_json(&Value::Seq(calls)).to_string())
   }
 
@@ -482,21 +514,22 @@ impl Hooks for SpecHooks {
       Value::Null => ValueMap::new(),
       _ => return Err("props must be an object".to_owned()),
     };
-    let html = futures_executor::block_on(self.interpreter.render(&component, &props, &self.components)).map_err(|f| format!("rendering {module}: {}", f.message))?;
+    let html = self.interpreter.render(&component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
     Ok(Some(html))
   }
 
   fn fetch(&self, method: String, url: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
-    let path = url.split(['?', '#']).next().unwrap_or("").to_owned();
+    let target = url.strip_prefix("http://localhost").unwrap_or(&url).to_owned();
+    let (path, query) = target.split_once('?').map(|(p, q)| (p.to_owned(), q.to_owned())).unwrap_or((target.clone(), String::new()));
     let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
     let Some(id) = action.filter(|_| method == "POST") else {
-      return Box::pin(async move { json_response(404, serde_json::json!({ "kind": "not_found", "message": format!("fsr test answers POST /_sf/action/<id> only, not {method} {path}") })) });
+      return self.page(method, path, query, target);
     };
     let Some(body_ir) = self.actions.get(&id).cloned() else {
       let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
       return Box::pin(async move { json_response(501, serde_json::json!({ "kind": "internal", "message": message })) });
     };
-    let mock = match self.get(self.current.get()) {
+    let mock = match self.get(self.current.load(Ordering::Relaxed)) {
       Ok(mock) => mock,
       Err(m) => return Box::pin(async move { json_response(500, serde_json::json!({ "kind": "internal", "message": m })) }),
     };
@@ -513,6 +546,31 @@ impl Hooks for SpecHooks {
       match interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
         Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
         Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+      }
+    })
+  }
+}
+
+impl SpecHooks {
+  /// A route rendered by the host under the current ctx: the document, or the wire payload when the query carries `__payload`.
+  fn page(&self, method: String, path: String, query: String, target: String) -> LocalBoxFuture<'static, FetchResponse> {
+    let Some(host) = self.host.clone() else {
+      let message = format!("fsr test answers POST /_sf/action/<id>, and GET of a route when config/app.toml is beside the app; not {method} {path}");
+      return Box::pin(async move { json_response(404, serde_json::json!({ "kind": "not_found", "message": message })) });
+    };
+    if method != "GET" {
+      return Box::pin(async move { FetchResponse { status: 405, body: format!("{method} {path}: a route is fetched with GET") } });
+    }
+    let session = match self.get(self.current.load(Ordering::Relaxed)) {
+      Ok(mock) => mock.ctx.session.clone(),
+      Err(m) => return Box::pin(async move { FetchResponse { status: 500, body: m } }),
+    };
+    let mode = if query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
+    Box::pin(async move {
+      match host.render_to_string(&target, mode, session).await {
+        Ok(body) => FetchResponse { status: 200, body },
+        Err(HostError::NotFound(path)) => FetchResponse { status: 404, body: format!("no route: {path}") },
+        Err(e) => FetchResponse { status: 500, body: e.to_string() },
       }
     })
   }

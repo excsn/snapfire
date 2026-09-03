@@ -27,11 +27,21 @@ test("adding one runs the action against the session", async () => {
 test("checkout places the order through the mocked service", async () => {
   const c = ctx({
     session: { cart: { "1": 2n } },
-    services: { shopping: { placeOrder: (args: { lines: { product_id: bigint; quantity: bigint }[] }) => ({ id: 7n, total_cents: 4800n, lines: args.lines.map((l) => ({ ...l, name: "PLA filament", line_cents: 4800n })) }) } },
+    services: {
+      shopping: {
+        placeOrder: (args: { lines: { product_id: bigint; quantity: bigint }[] }) => ({ id: 7n, total_cents: 4800n, lines: args.lines.map((l) => ({ ...l, name: "PLA filament", line_cents: 4800n })) }),
+        listProducts: () => [],
+      },
+    },
   });
   await render(<Cart lines={[filament]} cartCount={2n} />, { ctx: c });
   await fireEvent.click(screen.getByText("Proceed to checkout"));
   await fireEvent.click(screen.getByText("Place order"));
-  assert.equal(c.trace.calls, [{ service: "shopping", method: "placeOrder", args: { lines: [{ product_id: 1, quantity: 2 }] } }]);
+  assert.equal(
+    c.trace.calls.map((call) => call.method),
+    ["placeOrder", "listProducts"],
+    "the order, then the catalog the page navigates home to",
+  );
+  assert.equal(c.trace.calls[0].args, { lines: [{ product_id: 1, quantity: 2 }] });
   assert.equal(c.session.cart, {});
 });

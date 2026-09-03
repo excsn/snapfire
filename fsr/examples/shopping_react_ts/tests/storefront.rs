@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::executor::block_on;
+use futures::StreamExt;
 use shopping_react_ts::routes::about_plan;
 use snapfire_fsr_host::{Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
@@ -101,6 +102,23 @@ fn the_payload_carries_the_widths_the_document_declared() {
   assert!(payload.starts_with("V {"), "the response opens with its format row");
   assert!(payload.contains("routes/product/[id]/page.tsx#default"));
   assert!(payload.contains("Filament"));
+}
+
+#[test]
+fn a_route_with_a_loading_module_ships_the_document_before_its_page() {
+  let transport = Arc::new(
+    MockTransport::new().returns("shopping.getProduct", product(1, "Filament", 2400, 12)).returns("inventory.getStock", stock(1)),
+  );
+  let app = app_over(transport);
+  let parts: Vec<String> = block_on(async { app.render("/product/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
+
+  assert_eq!(parts.len(), 2, "the document, then one fill: {parts:?}");
+  assert!(parts[0].contains("data-sf-module=\"routes/product/[id]/loading.tsx#default\""), "the loading module holds the slot: {}", parts[0]);
+  assert!(parts[0].contains("<div class=\"skeleton skeleton-thumb\"></div>"), "rendered in Rust like any component");
+  assert!(!parts[0].contains("data-sf-module=\"routes/product/[id]/page.tsx#default\""), "the page waits for its loader; the sidecar alone names it");
+  assert!(parts[1].starts_with("<template data-sf-fill=\"1\">"), "{}", parts[1]);
+  assert!(parts[1].contains("data-sf-module=\"routes/product/[id]/page.tsx#default\""));
+  assert!(parts[1].contains("Filament"));
 }
 
 #[test]

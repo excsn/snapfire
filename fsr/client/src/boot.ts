@@ -79,13 +79,18 @@ export function scan(root: ParentNode): void {
   }
 }
 
-/** Scans the document and keeps scanning as streamed slots fill in. */
+const filling = new WeakSet<Document>();
+
+/** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export function boot(): void {
   const run = () => scan(document);
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", run);
+    document.addEventListener("DOMContentLoaded", run, { once: true });
   } else {
     run();
   }
-  document.addEventListener("sf:fill", run);
+  if (!filling.has(document)) {
+    filling.add(document);
+    document.addEventListener("sf:fill", run);
+  }
 }

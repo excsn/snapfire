@@ -732,3 +732,33 @@ hr {
     display: none;
   }
 }
+
+.skeleton {
+  background: var(--paper);
+  border-radius: var(--radius);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+.skeleton-thumb {
+  aspect-ratio: 1;
+}
+
+.skeleton-line {
+  height: 14px;
+  margin: 12px 0;
+}
+
+.skeleton-title {
+  height: 28px;
+  width: 60%;
+}
+
+.skeleton-short {
+  width: 40%;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}

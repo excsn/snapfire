@@ -150,7 +150,7 @@ fn bench(c: &mut Criterion) {
 
   for page in pages() {
     let component = components.get(page.module).cloned().expect("the page lowered");
-    let ir_html = rt.block_on(interpreter.render(&component, &page.props, &components)).expect("ir renders");
+    let ir_html = interpreter.render(&component, &page.props, &components).expect("ir renders");
     let module = bench_module(&prepared, &page);
     let engine = engine_for(&resolution, &prepared.dom, &module, &rt);
     let json = value_to_json(&Value::Map(page.props.clone())).to_string();
@@ -160,7 +160,7 @@ fn bench(c: &mut Criterion) {
     std::fs::write(prepared.test_dir.join(format!("render-{}.ir.html", page.name)), &ir_html).expect("dump");
     std::fs::write(prepared.test_dir.join(format!("render-{}.react.html", page.name)), &js_html).expect("dump");
 
-    c.bench_with_input(BenchmarkId::new("ir/render", page.name), &page, |b, page| b.iter(|| rt.block_on(interpreter.render(black_box(&component), black_box(&page.props), &components)).expect("ir renders")));
+    c.bench_with_input(BenchmarkId::new("ir/render", page.name), &page, |b, page| b.iter(|| interpreter.render(black_box(&component), black_box(&page.props), &components).expect("ir renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/render", page.name), &page, |b, _| b.iter(|| engine.eval_string("__render(__props)").expect("react renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/render_with_decode", page.name), &page, |b, _| b.iter(|| engine.eval_string("__render(__decode(__json))").expect("react renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/cold_context", page.name), &page, |b, _| b.iter(|| engine_for(&resolution, &prepared.dom, &module, &rt)));

@@ -55,6 +55,10 @@ export declare function render(element: ReactElement, options?: {
 	ctx?: TestCtx;
 	hydrate?: boolean;
 }): Promise<Rendered>;
+/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
+export declare function load(path: string, options?: {
+	ctx?: TestCtx;
+}): Promise<void>;
 type Matcher = string | RegExp;
 /** Queries over the document, by the text an element itself holds, its label, its placeholder or its `data-testid`. */
 export declare const screen: {

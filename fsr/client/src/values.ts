@@ -96,7 +96,9 @@ function decodeTagged(obj: { [key: string]: unknown }): SfValue {
       const ctor = TYPED_ARRAYS[obj["k"] as string];
       if (!ctor) throw new Error(`unknown typed array kind: ${obj["k"]}`);
       const bytes = bytesFromBase64(obj["v"] as string);
-      return new ctor(bytes.buffer);
+      const array = new ctor(bytes.buffer);
+      if (obj["k"] === "u8") Object.defineProperty(array, U8_TYPED, { value: true });
+      return array;
     }
     case "m": {
       const out: { [key: string]: SfValue } = {};
@@ -137,6 +139,9 @@ export function decodeValue(json: unknown): SfValue {
   return out;
 }
 
+/** Marks a `Uint8Array` that arrived as a `u8` typed array rather than as bytes, so it goes back the way it came. A `Uint8Array` the page made is bytes. */
+const U8_TYPED = Symbol("sf.u8");
+
 const TYPED_ARRAY_KINDS: [new (...a: never[]) => object, string][] = [
   [Int8Array, "i8"],
   [Int16Array, "i16"],
@@ -173,7 +178,10 @@ export function encodeValue(v: SfValue): unknown {
     if (v > I128_MAX && v <= U128_MAX) return { $: "u", v: v.toString() };
     throw new Error("bigint outside the value model's integer range");
   }
-  if (v instanceof Uint8Array) return { $: "b", v: base64FromBytes(v) };
+  if (v instanceof Uint8Array) {
+    const base64 = base64FromBytes(v);
+    return U8_TYPED in v ? { $: "ta", k: "u8", v: base64 } : { $: "b", v: base64 };
+  }
   for (const [ctor, kind] of TYPED_ARRAY_KINDS) {
     if (v instanceof ctor) {
       const ta = v as unknown as { buffer: ArrayBuffer; byteOffset: number; byteLength: number };

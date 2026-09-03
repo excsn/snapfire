@@ -20,8 +20,28 @@ if (typeof globalThis.KeyboardEvent !== "function") {
 }
 if (typeof globalThis.FocusEvent !== "function") globalThis.FocusEvent = class FocusEvent extends globalThis.UIEvent {};
 if (typeof globalThis.InputEvent !== "function") globalThis.InputEvent = class InputEvent extends globalThis.UIEvent {};
-globalThis.addEventListener = (...a) => document.addEventListener(...a);
-globalThis.removeEventListener = (...a) => document.removeEventListener(...a);
+globalThis.addEventListener = (...a) => globalThis.document.addEventListener(...a);
+globalThis.removeEventListener = (...a) => globalThis.document.removeEventListener(...a);
+if (new globalThis.MouseEvent("click").button !== 0) {
+  const Base = globalThis.MouseEvent;
+  globalThis.MouseEvent = class MouseEvent extends Base {
+    constructor(type, init = {}) {
+      super(type, init);
+      this.button = init.button ?? 0;
+      this.buttons = init.buttons ?? 0;
+      this.clientX = init.clientX ?? 0;
+      this.clientY = init.clientY ?? 0;
+      this.metaKey = !!init.metaKey;
+      this.ctrlKey = !!init.ctrlKey;
+      this.shiftKey = !!init.shiftKey;
+      this.altKey = !!init.altKey;
+    }
+  };
+}
+globalThis.__sf.load = (html, url) => {
+  globalThis.__sf_location(url);
+  globalThis.document = L.parseHTML(String(html)).document;
+};
 globalThis.IntersectionObserver = class IntersectionObserver {
   constructor(cb) {
     this.cb = cb;
