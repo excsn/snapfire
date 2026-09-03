@@ -18,6 +18,11 @@ export function registerIsland(moduleId: string, entry: IslandEntry): void {
   islands.set(moduleId, entry);
 }
 
+/** Every island registered so far, by module id. */
+export function registeredIslands(): ReadonlyMap<string, IslandEntry> {
+  return islands;
+}
+
 function propsFor(root: ParentNode, id: string): Props {
   const script = root.querySelector(`script[data-sf-props="${id}"]`) ?? document.querySelector(`script[data-sf-props="${id}"]`);
   if (!script || !script.textContent) return {};

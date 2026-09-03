@@ -46,18 +46,23 @@ struct Project {
   options: DevOptions,
 }
 
+/// The compiler: as given, else beside this binary, else on `PATH`.
+pub(crate) fn find_snapfirec(explicit: Option<&Path>) -> PathBuf {
+  match explicit {
+    Some(path) => path.to_path_buf(),
+    None => {
+      let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.join("snapfirec")));
+      beside.filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from("snapfirec"))
+    }
+  }
+}
+
 impl Project {
   fn open(app: &Path, options: DevOptions) -> Result<Self, BuildError> {
     let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
     let cargo = app.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file()).ok_or_else(|| BuildError::Dev(format!("no Cargo.toml beside {}; `fsr dev` runs the project's own binary", app.display())))?;
     let layout = Layout::of(&app)?;
-    let snapfirec = match &options.snapfirec {
-      Some(path) => path.clone(),
-      None => {
-        let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.join("snapfirec")));
-        beside.filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from("snapfirec"))
-      }
-    };
+    let snapfirec = find_snapfirec(options.snapfirec.as_deref());
     Ok(Self { app, cargo, layout, snapfirec, options })
   }
 

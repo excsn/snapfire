@@ -27,7 +27,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [100. Routes, loaders and pages](100-routes-loaders-and-pages.md), the file conventions, params and query, the props a page receives and navigation that keeps the layout. App developers.
 - [101. Actions and the session](101-actions-and-the-session.md), schemas, session defaults, guards and the cart as the worked case. App developers.
 - [102. Components the server renders](102-components-the-server-renders.md), what a component may say, helpers, `useState` and what stays in the browser. App developers.
-- [103. Testing a body](103-testing-a-body.md), mocks the contract checks, the trace and `fsr test`. App developers.
+- [103. Testing a body and a page](103-testing-a-body.md), mocks the contract checks, the trace, page tests over a DOM with hydration and `fsr test`. App developers.
 
 **The host**, or what runs it:
 

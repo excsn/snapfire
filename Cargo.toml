@@ -4,6 +4,7 @@ members = [
   "compiler",
   "examples/basic_site",
   "fsr/core",
+  "fsr/engine",
   "fsr/app",
   "fsr/auth",
   "fsr/cli",

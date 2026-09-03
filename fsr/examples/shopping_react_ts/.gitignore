@@ -6,3 +6,5 @@ app/tsconfig.build.json
 app/types/
 # written by snapfirec; rebuilt from the sources
 app/dist/
+# written by `fsr test`: compiled spec files and test-only vendor builds
+app/.fsr-test/

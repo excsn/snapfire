@@ -40,7 +40,7 @@ impl fmt::Display for Summary {
 /// Runs every test file under `app` whose name matches `filter`, when given.
 pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summary, BuildError> {
   let built = build(app, options)?;
-  let contract = Arc::new(built.contract);
+  let contract = Arc::new(built.contract.clone());
   let mut files = Vec::new();
   discover(app, app, &mut files)?;
   let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| BuildError::Dev(format!("runtime: {e}")))?;
@@ -67,6 +67,7 @@ pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summar
       }
     }
   }
+  crate::spec::run(app, &built, &contract, filter, &runtime, &mut summary)?;
   Ok(summary)
 }
 

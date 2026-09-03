@@ -3,6 +3,7 @@
 //! `build` and `write`.
 
 pub mod dev;
+pub mod spec;
 pub mod infer;
 pub mod test;
 pub mod types;

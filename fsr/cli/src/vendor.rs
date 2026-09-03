@@ -156,7 +156,7 @@ pub fn get(client: &reqwest::blocking::Client, url: &str) -> Result<Option<Vec<u
 }
 
 /// The absolute `/…` paths an esm.sh stub re-exports or imports, in order.
-fn stub_paths(stub: &str) -> Vec<String> {
+pub(crate) fn stub_paths(stub: &str) -> Vec<String> {
   let mut paths = Vec::new();
   for line in stub.lines() {
     let line = line.trim();
@@ -172,7 +172,7 @@ fn stub_paths(stub: &str) -> Vec<String> {
 }
 
 /// Every quoted absolute `/…` path a module imports.
-fn absolute_imports(module: &str) -> Vec<String> {
+pub(crate) fn absolute_imports(module: &str) -> Vec<String> {
   let mut found = Vec::new();
   for quote in ['"', '\''] {
     let needle = format!("{quote}/");
@@ -195,7 +195,7 @@ fn absolute_imports(module: &str) -> Vec<String> {
   found
 }
 
-fn file_name(path: &str) -> String {
+pub(crate) fn file_name(path: &str) -> String {
   path.rsplit('/').next().unwrap_or(path).to_owned()
 }
 
