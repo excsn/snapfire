@@ -53,3 +53,27 @@ Criterion, release profile, one run. The fidelity line read `DIFFERENT` on all t
 Page sizes: catalog 10400 bytes, product 2821 bytes, cart 3053 bytes.
 
 What it says. The IR is 3.1x to 3.4x faster than React in QuickJS on the two small pages and 1.6x on the catalog, where the twelve product cards make the interpreter's own overhead visible: 1.1 ms for 10 KB is about 110 ns per byte of output, which is slow for a Rust string builder and says the interpreter's evaluation, not the serialisation, is where the time goes. React's production build in QuickJS is closer than expected, and the decode of wire props adds under 10 percent on top of it. A cold QuickJS context with React and a page loaded costs about 19.5 ms, so an engine path is a warmed pool per worker, never a context per request. The gap is not the cliff JS_ENGINE.md was written to guard against: on these pages, either renderer serves a request in under 2 ms and the IR's case rests on the sandbox and on running no JavaScript in the serving path, with its speed a bonus that a profiling pass on the interpreter would widen.
+
+### 2026-09-03, `089fc17`, MacBook M4 Pro
+
+Criterion, release profile, one run, after step 1 of the interpreter optimisations: a synchronous evaluator and renderer for everything that holds no service call. The fidelity line read `identical` on all three pages.
+
+| Benchmark | Lower | Estimate | Upper |
+| --- | --- | --- | --- |
+| `ir/load_components` | 119.09 µs | 119.47 µs | 119.88 µs |
+| `ir/render/catalog_12` | 996.46 µs | 999.13 µs | 1.0021 ms |
+| `quickjs/render/catalog_12` | 1.7694 ms | 1.7723 ms | 1.7753 ms |
+| `quickjs/render_with_decode/catalog_12` | 1.9143 ms | 1.9178 ms | 1.9212 ms |
+| `quickjs/cold_context/catalog_12` | 19.919 ms | 20.001 ms | 20.089 ms |
+| `ir/render/product` | 129.35 µs | 129.72 µs | 130.10 µs |
+| `quickjs/render/product` | 470.85 µs | 471.68 µs | 472.55 µs |
+| `quickjs/render_with_decode/product` | 497.53 µs | 499.17 µs | 500.96 µs |
+| `quickjs/cold_context/product` | 19.995 ms | 20.044 ms | 20.097 ms |
+| `ir/render/cart_3` | 128.37 µs | 128.93 µs | 129.51 µs |
+| `quickjs/render/cart_3` | 504.03 µs | 505.99 µs | 508.22 µs |
+| `quickjs/render_with_decode/cart_3` | 544.34 µs | 545.75 µs | 547.13 µs |
+| `quickjs/cold_context/cart_3` | 19.918 ms | 19.980 ms | 20.047 ms |
+
+Page sizes unchanged: catalog 10400 bytes, product 2821 bytes, cart 3053 bytes.
+
+What it says. Against the first run, the IR renders are 11 percent faster on the catalog and 15 to 17 percent faster on the two small pages; every QuickJS group is within 3 percent of last time, which is the control that says the machine was in the same state and the change is the interpreter's. The IR is now 1.8x ahead on the catalog and 3.6x to 3.9x on the small pages. Step 1 removed the future per node and per expression and bought a sixth, not the half the optimisation note expected, so the boxed futures were a cost but not the cost: the time is in what the evaluator does per node, the string lookups, the clones at every boundary and the per-element allocations the note lists next, and a flamegraph of a catalog render loop is the next measurement before any of those is touched. `ir/load_components` moved from 106 to 119 µs, a parse of the same rows that gained the `Omit` builtin and nothing else; within a run's variance for a group that allocates as it goes.
