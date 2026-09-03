@@ -46,10 +46,11 @@ struct Project {
   options: DevOptions,
 }
 
-/// The compiler: as given, else beside this binary, else on `PATH`.
+/// The compiler: as given, else `$SNAPFIREC`, else beside this binary, else on `PATH`.
 pub(crate) fn find_snapfirec(explicit: Option<&Path>) -> PathBuf {
   match explicit {
     Some(path) => path.to_path_buf(),
+    None if std::env::var_os("SNAPFIREC").is_some_and(|v| !v.is_empty()) => PathBuf::from(std::env::var_os("SNAPFIREC").unwrap()),
     None => {
       let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.join("snapfirec")));
       beside.filter(|p| p.is_file()).unwrap_or_else(|| PathBuf::from("snapfirec"))

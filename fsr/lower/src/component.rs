@@ -738,10 +738,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         "style" => attrs.push(Entry::Field("style".to_owned(), self.style(attr)?)),
         "value" | "defaultValue" if name == "select" => select_value = Some(value),
         "value" if name == "option" => {
+          attrs.push(Entry::Field("value".to_owned(), value.clone()));
           if let Some(selected) = &self.select_value {
-            attrs.push(Entry::Field("selected".to_owned(), Expr::Compare(snapfire_fsr_ir::CompareOp::Eq, Box::new(Expr::Str(Box::new(value.clone()))), Box::new(Expr::Str(Box::new(selected.clone()))))));
+            attrs.push(Entry::Field("selected".to_owned(), Expr::Compare(snapfire_fsr_ir::CompareOp::Eq, Box::new(Expr::Str(Box::new(value))), Box::new(Expr::Str(Box::new(selected.clone()))))));
           }
-          attrs.push(Entry::Field("value".to_owned(), value));
         }
         _ => attrs.push(Entry::Field(html_attr_name(&raw).to_owned(), value)),
       }

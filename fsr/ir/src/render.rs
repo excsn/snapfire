@@ -1,8 +1,9 @@
 //! Renders a lowered component to HTML. The tree is the component's own, so
 //! the serialiser is a string builder: elements, escaped text and the three
 //! idioms. What the browser hydrates over is exactly this output, so it
-//! follows React's server renderer where hydration can tell: adjacent text
-//! nodes are separated by an empty comment, empty text writes nothing.
+//! follows React's server renderer byte for byte: adjacent text nodes are
+//! separated by an empty comment, empty text writes nothing, a boolean
+//! attribute is `name=""`, a void element closes with `/>`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -152,11 +153,13 @@ fn render<'a>(env: &'a mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: 
           }
           attribute(&name, &value, &mut open)?;
         }
-        open.push('>');
-        out.markup(&open);
         if VOID.contains(&tag.as_str()) {
+          open.push_str("/>");
+          out.markup(&open);
           return Ok(());
         }
+        open.push('>');
+        out.markup(&open);
         for child in children {
           render(env, child, library, slots, out).await?;
         }
@@ -312,9 +315,10 @@ fn interpolate(value: &Value, out: &mut Out) -> Result<(), Fail> {
   }
 }
 
-/// An attribute the way React prints one: `null`, `undefined` and `false`
-/// omit it, `true` on a boolean attribute writes the bare name, a `style`
-/// with nothing in it is omitted, anything else is stringified.
+/// An attribute the way React's server renderer prints one: `null`,
+/// `undefined` and `false` omit it, `true` on a boolean attribute writes
+/// `name=""`, a `style` with nothing in it is omitted, anything else is
+/// stringified.
 fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
   if matches!(value, Value::Null | Value::Bool(false)) {
     return Ok(());
@@ -336,6 +340,7 @@ fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
     if truthy(value) {
       out.push(' ');
       out.push_str(name);
+      out.push_str("=\"\"");
     }
     return Ok(());
   }
@@ -464,7 +469,7 @@ mod tests {
     attrs.insert("hidden".to_owned(), Value::Bool(true));
     let items = Value::Seq(vec![Value::Map(props(&[("name", Value::str("A")), ("attrs", Value::Map(attrs))])), Value::Map(props(&[("name", Value::str("B")), ("attrs", Value::Null)]))]);
     let html = block_on(Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap();
-    assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden>A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p><p class=\"item\" dataId=\"7\" hidden>A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p></div></main>");
+    assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p></div></main>");
   }
 
   #[test]
@@ -479,7 +484,7 @@ mod tests {
       ]),
     };
     let html = block_on(Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
-    assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled aria-hidden=\"true\"><br>");
+    assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
   }
 
   #[test]
