@@ -11,6 +11,8 @@ export interface IslandEntry {
 	when?: MountTiming;
 }
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
+/** Every island registered so far, by module id. */
+export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 /** Mounts every unmounted island marker under `root`, honoring each island's timing. Idempotent. */
 export declare function scan(root: ParentNode): void;
 /** Scans the document and keeps scanning as streamed slots fill in. */

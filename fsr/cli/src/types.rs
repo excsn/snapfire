@@ -29,6 +29,7 @@ const FSR_CLIENT: &[(&str, &str)] = &[
   ("react.d.ts", include_str!("../../client/types/react.d.ts")),
   ("reader.d.ts", include_str!("../../client/types/reader.d.ts")),
   ("render.d.ts", include_str!("../../client/types/render.d.ts")),
+  ("testing.d.ts", include_str!("../../client/types/testing.d.ts")),
   ("values.d.ts", include_str!("../../client/types/values.d.ts")),
 ];
 const FSR_AUTHORING: &[(&str, &str)] = &[("index.d.ts", include_str!("../../authoring/index.d.ts"))];
@@ -278,7 +279,12 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
     }
     seen.push(package.clone());
     let dir = app.join(&layout.types).join(&package);
-    if dir.is_dir() && !refresh {
+    let embedded = match package.as_str() {
+      "@snapfire/fsr-client" => Some(FSR_CLIENT),
+      "@snapfire/fsr-authoring" => Some(FSR_AUTHORING),
+      _ => None,
+    };
+    if dir.is_dir() && !refresh && embedded.is_none() {
       report.kept.push(package.clone());
       if let Some(typed) = manifest.packages.get(&package) {
         if typed.from.starts_with("@types/") {
@@ -287,11 +293,6 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
       }
       continue;
     }
-    let embedded = match package.as_str() {
-      "@snapfire/fsr-client" => Some(FSR_CLIENT),
-      "@snapfire/fsr-authoring" => Some(FSR_AUTHORING),
-      _ => None,
-    };
     if let Some(files) = embedded {
       write_embedded(app, &layout, &package, files)?;
       manifest.packages.insert(package.clone(), TypedPackage { version: env!("CARGO_PKG_VERSION").to_owned(), from: "fsr".to_owned(), entry: "index.d.ts".to_owned(), ambient: false });

@@ -96,12 +96,16 @@ pub enum Builtin {
 pub enum Tmpl {
   Text(String),
   Expr(Expr),
-  Element { tag: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] attrs: Vec<(String, Expr)>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  /// Attributes are `Entry::Field` in HTML spelling or `Entry::Spread` of a map whose keys are React's spelling, later entries winning.
+  Element { tag: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] attrs: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
   Fragment(Vec<Tmpl>),
   If { cond: Expr, then: Box<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] r#else: Option<Box<Tmpl>> },
   For { over: Expr, params: Vec<String>, body: Box<Tmpl> },
   Let { name: String, expr: Expr, then: Box<Tmpl> },
-  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<(String, Expr)> },
+  /// Props are `Entry::Field` or `Entry::Spread`; `children` render in the caller's scope wherever the callee places its `Slot`.
+  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  /// The caller's children, `{children}` in the callee.
+  Slot,
 }
 
 /// A lowered component: `let`s run once with `$props` bound, then the tree.

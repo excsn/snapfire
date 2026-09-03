@@ -3,15 +3,18 @@
 //! renders is lowered in turn under its own module id. Local imports are
 //! followed on first use, so a helper module that also imports a browser
 //! library costs nothing until a render reads from it. Event handlers, inner
-//! functions and `useState` setters are dropped, since the browser mounts the
-//! same module over the output; `useState(x)` reads as `x`, which is what a
-//! first render sees.
+//! functions, effects and `useState` setters are dropped, since the browser
+//! mounts the same module over the output; `useState(x)` reads as `x`, which
+//! is what a first render sees, `useMemo(f)` as `f()` and `useRef(x)` as
+//! `{ current: x }`. A caller's children become a `Slot` where the callee
+//! writes `{children}`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use snapfire_fsr_ir::ast::{Component, Expr, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Component, Entry, Expr, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::render::html_attr_name;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
@@ -87,7 +90,7 @@ impl ComponentSet {
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None };
         let result = cl.component(&function);
         (result, cl.lowerer.unbound.take())
       };
@@ -177,7 +180,7 @@ impl ComponentSet {
 /// Points every component reference at the module the set lowered it under.
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>) -> Tmpl {
   match tmpl {
-    Tmpl::Component { module, props } => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props },
+    Tmpl::Component { module, props, children } => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
     Tmpl::Fragment(children) => Tmpl::Fragment(children.into_iter().map(|c| rewrite_modules(c, modules)).collect()),
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules))) },
@@ -470,6 +473,21 @@ struct ComponentLowerer<'a, 'p> {
   refs: Vec<(String, (usize, usize))>,
   /// The `value` of the enclosing `<select>`, which its options compare against.
   select_value: Option<Expr>,
+  /// The props parameter when bound whole, so `props.children` is the slot.
+  props_name: Option<String>,
+  /// The local name `children` was destructured to.
+  children_name: Option<String>,
+}
+
+const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle"];
+
+/// The hook a call names when its callee is a bare identifier.
+fn hook_call(expr: &js::Expr) -> Option<(&str, &js::CallExpr)> {
+  let js::Expr::Call(call) = expr else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Ident(id) = &**callee else { return None };
+  let name = id.sym.as_ref();
+  name.starts_with("use").then_some((name, call))
 }
 
 impl<'a, 'p> ComponentLowerer<'a, 'p> {
@@ -493,6 +511,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               break;
             }
             js::Stmt::Decl(js::Decl::Fn(f)) => self.handlers.push(f.ident.sym.to_string()),
+            js::Stmt::Expr(e) if hook_call(&e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
             js::Stmt::Decl(js::Decl::Var(var)) => {
               for decl in &var.decls {
                 if let Some(stmt) = self.let_stmt(decl)? {
@@ -514,24 +533,63 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let Some(first) = params.first() else { return Ok(()) };
     match first {
       js::Pat::Ident(id) => {
+        self.props_name = Some(id.id.sym.to_string());
         self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var("$props".to_owned())));
         Ok(())
       }
-      js::Pat::Object(obj) => bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned())),
+      js::Pat::Object(obj) => {
+        self.children_name = obj.props.iter().find_map(|prop| match prop {
+          js::ObjectPatProp::Assign(a) if a.key.id.sym.as_ref() == "children" => Some("children".to_owned()),
+          js::ObjectPatProp::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("children") => match &*kv.value {
+            js::Pat::Ident(local) => Some(local.id.sym.to_string()),
+            _ => None,
+          },
+          _ => None,
+        });
+        bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned()))
+      }
       other => Err(self.lowerer.residue(other.span(), "the props parameter must be a name or a destructuring")),
     }
   }
 
   /// `const x = e` as a `let`; `const [x, setX] = useState(e)` as `let x = e`
   /// with `setX` a handler; `const { a, b } = e` as one `let` plus field reads.
+  /// A function value, `useCallback` included, is a handler.
   fn let_stmt(&mut self, decl: &js::VarDeclarator) -> Lowered<Option<Stmt>> {
     let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
     match &decl.name {
       js::Pat::Ident(name) => {
-        let expr = self.lowerer.expr(init)?;
-        let name = name.id.sym.to_string();
-        self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
-        Ok(Some(Stmt::Let { name, expr }))
+        let local = name.id.sym.to_string();
+        let expr = match hook_call(init) {
+          Some(("useCallback", _)) => {
+            self.handlers.push(local);
+            return Ok(None);
+          }
+          Some(("useMemo", call)) => {
+            let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) else {
+              return Err(self.lowerer.residue(decl.span, "`useMemo` of something other than an arrow"));
+            };
+            match &*arrow.body {
+              js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e)?,
+              js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts)?,
+            }
+          }
+          Some(("useRef", call)) => {
+            let current = match call.args.first() {
+              Some(a) => self.lowerer.expr(&a.expr)?,
+              None => Expr::Lit(Lit::Null),
+            };
+            Expr::Object(vec![Entry::Field("current".to_owned(), current)])
+          }
+          Some((hook, _)) if hook != "useState" => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
+          _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
+            self.handlers.push(local);
+            return Ok(None);
+          }
+          _ => self.lowerer.expr(init)?,
+        };
+        self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
+        Ok(Some(Stmt::Let { name: local, expr }))
       }
       js::Pat::Array(arr) => {
         let js::Expr::Call(call) = init else {
@@ -607,9 +665,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(Tmpl::For { over, params, body: Box::new(body?) })
       }
       js::Expr::Ident(id) if id.sym.as_ref() == "null" || id.sym.as_ref() == "undefined" => Ok(Tmpl::Fragment(Vec::new())),
+      js::Expr::Ident(id) if self.children_name.as_deref() == Some(id.sym.as_ref()) => Ok(Tmpl::Slot),
+      js::Expr::Member(m) if self.is_props_children(m) => Ok(Tmpl::Slot),
       js::Expr::Lit(js::Lit::Null(_)) => Ok(Tmpl::Fragment(Vec::new())),
       other => Ok(Tmpl::Expr(self.lowerer.expr(other)?)),
     }
+  }
+
+  fn is_props_children(&self, member: &js::MemberExpr) -> bool {
+    let js::Expr::Ident(obj) = &*member.obj else { return false };
+    let js::MemberProp::Ident(prop) = &member.prop else { return false };
+    self.props_name.as_deref() == Some(obj.sym.as_ref()) && prop.sym.as_ref() == "children"
   }
 
   /// A `.map` callback with statements: `const`s then a `return` of a tree.
@@ -655,8 +721,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut attrs = Vec::new();
     let mut select_value = None;
     for attr in &el.opening.attrs {
-      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else {
-        return Err(self.lowerer.residue(attr.span(), "a spread of attributes"));
+      let attr = match attr {
+        js::JSXAttrOrSpread::JSXAttr(attr) => attr,
+        js::JSXAttrOrSpread::SpreadElement(spread) => {
+          attrs.push(Entry::Spread(self.lowerer.expr(&spread.expr)?));
+          continue;
+        }
       };
       let raw = attr_name(&attr.name);
       if raw == "key" || raw == "ref" || is_handler_name(&raw) {
@@ -665,15 +735,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let value = self.attr_value(attr)?;
       match raw.as_str() {
         "dangerouslySetInnerHTML" => return Err(self.lowerer.residue(attr.span, "`dangerouslySetInnerHTML`")),
-        "style" => attrs.push(("style".to_owned(), self.style(attr)?)),
+        "style" => attrs.push(Entry::Field("style".to_owned(), self.style(attr)?)),
         "value" | "defaultValue" if name == "select" => select_value = Some(value),
         "value" if name == "option" => {
           if let Some(selected) = &self.select_value {
-            attrs.push(("selected".to_owned(), Expr::Compare(snapfire_fsr_ir::CompareOp::Eq, Box::new(Expr::Str(Box::new(value.clone()))), Box::new(Expr::Str(Box::new(selected.clone()))))));
+            attrs.push(Entry::Field("selected".to_owned(), Expr::Compare(snapfire_fsr_ir::CompareOp::Eq, Box::new(Expr::Str(Box::new(value.clone()))), Box::new(Expr::Str(Box::new(selected.clone()))))));
           }
-          attrs.push(("value".to_owned(), value));
+          attrs.push(Entry::Field("value".to_owned(), value));
         }
-        _ => attrs.push((html_attr_name(&raw), value)),
+        _ => attrs.push(Entry::Field(html_attr_name(&raw).to_owned(), value)),
       }
     }
     let outer = if name == "select" { std::mem::replace(&mut self.select_value, select_value) } else { self.select_value.take() };
@@ -686,24 +756,29 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if name == "Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
     }
-    if !el.children.iter().all(|c| matches!(c, js::JSXElementChild::JSXText(t) if t.value.to_atom_lossy().trim().is_empty())) {
-      return Err(self.lowerer.residue(el.span, format!("children passed to `{name}`; a lowered component takes props only")));
-    }
     let mut props = Vec::new();
     for attr in &el.opening.attrs {
-      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else {
-        return Err(self.lowerer.residue(attr.span(), "a spread of props"));
+      let attr = match attr {
+        js::JSXAttrOrSpread::JSXAttr(attr) => attr,
+        js::JSXAttrOrSpread::SpreadElement(spread) => {
+          props.push(Entry::Spread(self.lowerer.expr(&spread.expr)?));
+          continue;
+        }
       };
       let raw = attr_name(&attr.name);
       if raw == "key" || raw == "ref" || is_handler_name(&raw) {
         continue;
       }
+      if raw == "children" {
+        return Err(self.lowerer.residue(attr.span, "`children` as a prop; pass them between the tags"));
+      }
       let value = self.attr_value(attr)?;
-      props.push((raw, value));
+      props.push(Entry::Field(raw, value));
     }
+    let children = self.children(&el.children)?;
     let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
     self.refs.push((name.to_owned(), (loc.line, loc.col_display + 1)));
-    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props })
+    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children })
   }
 
   fn attr_value(&mut self, attr: &'p js::JSXAttr) -> Lowered<Expr> {
@@ -718,8 +793,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// `style={{ a: x, bTwo: y }}` as `a:x;b-two:y;`, a property whose value is
-  /// null omitted.
+  /// `style={{ a: x, bTwo: y }}` as an object keyed by CSS name, which the
+  /// renderer serialises the way React does.
   fn style(&mut self, attr: &'p js::JSXAttr) -> Lowered<Expr> {
     let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else {
       return self.attr_value(attr);
@@ -730,22 +805,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let js::Expr::Object(obj) = &**e else {
       return Err(self.lowerer.residue(e.span(), "a style that is not an object literal"));
     };
-    let mut parts = Vec::new();
+    let mut entries = Vec::new();
     for prop in &obj.props {
-      let js::PropOrSpread::Prop(p) = prop else {
-        return Err(self.lowerer.residue(prop.span(), "a spread into a style"));
+      let (key, value) = match prop {
+        js::PropOrSpread::Spread(spread) => {
+          entries.push(Entry::Spread(self.lowerer.expr(&spread.expr)?));
+          continue;
+        }
+        js::PropOrSpread::Prop(p) => match &**p {
+          js::Prop::KeyValue(kv) => (prop_name(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed style property"))?, self.lowerer.expr(&kv.value)?),
+          js::Prop::Shorthand(id) => (id.sym.to_string(), self.lowerer.ident(id)?),
+          other => return Err(self.lowerer.residue(other.span(), "a method in a style")),
+        },
       };
-      let (key, value) = match &**p {
-        js::Prop::KeyValue(kv) => (prop_name(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed style property"))?, self.lowerer.expr(&kv.value)?),
-        js::Prop::Shorthand(id) => (id.sym.to_string(), self.lowerer.ident(id)?),
-        other => return Err(self.lowerer.residue(other.span(), "a method in a style")),
-      };
-      let css = css_name(&key);
-      let piece = Expr::Template(vec![Expr::Lit(Lit::Str(format!("{css}:"))), value.clone(), Expr::Lit(Lit::Str(";".to_owned()))]);
-      let present = Expr::Compare(snapfire_fsr_ir::CompareOp::Ne, Box::new(value), Box::new(Expr::Lit(Lit::Null)));
-      parts.push(Expr::Ternary(Box::new(present), Box::new(piece), Box::new(Expr::Lit(Lit::Str(String::new())))));
+      entries.push(Entry::Field(css_name(&key), value));
     }
-    Ok(Expr::Template(parts))
+    Ok(Expr::Object(entries))
   }
 
   fn children(&mut self, children: &'p [js::JSXElementChild]) -> Lowered<Vec<Tmpl>> {
@@ -780,34 +855,6 @@ fn attr_name(name: &js::JSXAttrName) -> String {
 
 fn is_handler_name(name: &str) -> bool {
   name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase()
-}
-
-/// React's attribute spellings to HTML's.
-fn html_attr_name(name: &str) -> String {
-  match name {
-    "className" => "class",
-    "htmlFor" => "for",
-    "readOnly" => "readonly",
-    "autoFocus" => "autofocus",
-    "autoComplete" => "autocomplete",
-    "tabIndex" => "tabindex",
-    "defaultValue" => "value",
-    "defaultChecked" => "checked",
-    "maxLength" => "maxlength",
-    "minLength" => "minlength",
-    "colSpan" => "colspan",
-    "rowSpan" => "rowspan",
-    "srcSet" => "srcset",
-    "noValidate" => "novalidate",
-    "acceptCharset" => "accept-charset",
-    "httpEquiv" => "http-equiv",
-    "crossOrigin" => "crossorigin",
-    "spellCheck" => "spellcheck",
-    "encType" => "enctype",
-    "formAction" => "formaction",
-    other => other,
-  }
-  .to_owned()
 }
 
 fn css_name(key: &str) -> String {
@@ -987,8 +1034,8 @@ export default function Page({ items, q = "" }: Props) {
     assert_eq!(component.body, vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Length(Box::new(Expr::var("$props").field("items"))) }]);
     let Tmpl::Element { tag, attrs, children } = &component.render else { panic!("{:?}", component.render) };
     assert_eq!(tag, "main");
-    assert_eq!(attrs[0], ("class".to_owned(), Expr::lit_str("page")));
-    assert!(matches!(&attrs[1], (name, Expr::Template(_)) if name == "aria-label"));
+    assert_eq!(attrs[0], Entry::Field("class".to_owned(), Expr::lit_str("page")));
+    assert!(matches!(&attrs[1], Entry::Field(name, Expr::Template(_)) if name == "aria-label"));
     assert!(matches!(&children[1], Tmpl::If { r#else: Some(e), .. } if matches!(**e, Tmpl::Fragment(ref f) if f.is_empty())));
     assert!(matches!(&children[2], Tmpl::If { r#else: None, .. }));
     let Tmpl::Element { children: ul, .. } = &children[3] else { panic!() };
@@ -1032,12 +1079,81 @@ export default function Product({ product }: { product: { price: number; rating:
     let page = &lowered[1].1;
     assert_eq!(page.body, vec![Stmt::Let { name: "quantity".to_owned(), expr: Expr::Lit(Lit::Float(1.0)) }], "useState(x) reads as x");
     let Tmpl::Element { attrs, children, .. } = &page.render else { panic!() };
-    assert!(matches!(&attrs[0], (name, Expr::Template(parts)) if name == "style" && parts.len() == 2));
-    assert!(matches!(&children[0], Tmpl::Component { module, props } if module == "src/ui/Stars.tsx#Stars" && props.len() == 1));
+    assert!(matches!(&attrs[0], Entry::Field(name, Expr::Object(entries)) if name == "style" && entries.len() == 2));
+    assert!(matches!(&children[0], Tmpl::Component { module, props, .. } if module == "src/ui/Stars.tsx#Stars" && props.len() == 1));
     let Tmpl::Element { children: span, .. } = &children[1] else { panic!() };
     assert!(matches!(&span[0], Tmpl::Expr(Expr::Apply { f, args }) if matches!(**f, Expr::Lambda { .. }) && args.len() == 1), "{:?}", span[0]);
     let Tmpl::Element { attrs, .. } = &children[3] else { panic!() };
     assert_eq!(attrs.len(), 1, "onClick is dropped, disabled stays: {attrs:?}");
+  }
+
+  #[test]
+  fn children_spreads_and_hooks() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Page } from "../../src/ui/Page";
+export default function Catalog({ products, cartCount, q }: { products: { name: string }[]; cartCount: number; q: string }) {
+  const [open, setOpen] = useState(false);
+  const header = { cartCount, q };
+  const count = useMemo(() => products.length, [products]);
+  const box = useRef(null);
+  const toggle = useCallback(() => setOpen(!open), [open]);
+  const focus = () => box.current?.focus();
+  useEffect(() => { document.title = q; }, [q]);
+  return (
+    <Page {...header} className="catalog">
+      <h1 {...(open ? { hidden: true } : {})} className="title" ref={box}>{count}</h1>
+      {products.map((p) => <p key={p.name}>{p.name}</p>)}
+    </Page>
+  );
+}
+"#,
+      ),
+      (
+        "src/ui/Page.tsx",
+        r#"
+import { Header } from "./Header";
+export function Page({ className, children, ...rest }: { className: string; children: React.ReactNode; cartCount: number; q: string }) {
+  return <><Header {...rest} /><main className={`page ${className}`}>{children}</main></>;
+}
+"#,
+      ),
+      ("src/ui/Header.tsx", "export function Header(props: { cartCount: number; q: string }) {\n  return <header>{props.q}{props.children}</header>;\n}\n"),
+    ];
+    let err = lower(&files, "routes/index/page.tsx#default").unwrap_err();
+    assert!(err.to_string().contains("a rest in a parameter"), "{err}");
+    let mut files = files;
+    files[1].1 = r#"
+import { Header } from "./Header";
+export function Page(props: { className: string; children: React.ReactNode; cartCount: number; q: string }) {
+  return <><Header cartCount={props.cartCount} q={props.q} /><main className={`page ${props.className}`}>{props.children}</main></>;
+}
+"#;
+    let lowered = lower(&files, "routes/index/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/index/page.tsx#default").unwrap().1;
+    let names: Vec<&str> = page.body.iter().map(|s| match s { Stmt::Let { name, .. } => name.as_str(), _ => "" }).collect();
+    assert_eq!(names, ["open", "header", "count", "box"], "useCallback and the arrow are handlers, useEffect is dropped");
+    assert_eq!(page.body[2], Stmt::Let { name: "count".to_owned(), expr: Expr::Length(Box::new(Expr::var("$props").field("products"))) });
+    assert_eq!(page.body[3], Stmt::Let { name: "box".to_owned(), expr: Expr::Object(vec![Entry::Field("current".to_owned(), Expr::Lit(Lit::Null))]) });
+    let Tmpl::Component { module, props, children } = &page.render else { panic!("{:?}", page.render) };
+    assert_eq!(module, "src/ui/Page.tsx#Page");
+    assert!(matches!(&props[0], Entry::Spread(Expr::Var(v)) if v == "header"));
+    assert_eq!(props[1], Entry::Field("className".to_owned(), Expr::lit_str("catalog")));
+    let Tmpl::Element { attrs, children: h1, .. } = &children[0] else { panic!("{:?}", children[0]) };
+    assert!(matches!(&attrs[0], Entry::Spread(Expr::Ternary(..))));
+    assert_eq!(attrs[1], Entry::Field("class".to_owned(), Expr::lit_str("title")));
+    assert_eq!(h1, &vec![Tmpl::Expr(Expr::var("count"))]);
+    assert!(matches!(&children[1], Tmpl::For { .. }));
+    let layout = &lowered.iter().find(|(m, _)| m == "src/ui/Page.tsx#Page").unwrap().1;
+    let Tmpl::Fragment(parts) = &layout.render else { panic!() };
+    let Tmpl::Element { children: main, .. } = &parts[1] else { panic!() };
+    assert_eq!(main, &vec![Tmpl::Slot]);
+    let header = &lowered.iter().find(|(m, _)| m == "src/ui/Header.tsx#Header").unwrap().1;
+    let Tmpl::Element { children, .. } = &header.render else { panic!() };
+    assert_eq!(children[1], Tmpl::Slot, "`props.children` is the slot when props are bound whole");
   }
 
   #[test]

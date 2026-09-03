@@ -29,10 +29,12 @@ Imports resolve by relative path or by the aliases [chapter 302](302-imports-and
 Three things in a component are the browser's and the build drops them rather than refusing them:
 
 - **Event handlers.** Any `on*` attribute. The server writes the markup; the browser attaches the behaviour when it hydrates.
-- **Inner functions.** The `add` and `search` functions the handlers call. Dropped by name; a reference to one outside a handler is residue.
-- **`useState`.** `const [quantity, setQuantity] = useState(1)` reads as `const quantity = 1`, which is exactly what a first render sees in the browser too. The setter is a handler.
+- **Inner functions.** The `add` and `search` functions the handlers call, and a `const` holding an arrow. Dropped by name; a reference to one outside a handler is residue.
+- **Hooks.** `const [quantity, setQuantity] = useState(1)` reads as `const quantity = 1`, which is exactly what a first render sees in the browser too, and the setter is a handler. `useMemo(() => e)` reads as `e`, `useRef(x)` as `{ current: x }`, `useCallback` as a handler. `useEffect` and its layout and insertion variants are dropped whole, since the server never runs an effect and neither does React's own server renderer.
 
-Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, a hook other than `useState`, `dangerouslySetInnerHTML`, children or a spread passed to a lowered component, a member expression as a tag. The report says `client` and names the line. The page still works, since it always could.
+Children and spreads are ordinary. A component that takes `children` places them with `{children}`, and the build renders what the caller wrote between the tags in the caller's scope, so a layout can wrap a page without the page knowing. `<Header {...header} />` spreads an object into props and `<h1 {...attrs}>` into attributes, later entries winning the way React merges them, and a spread's `className` and a literal `class` are one attribute.
+
+Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, `dangerouslySetInnerHTML`, a member expression as a tag, a rest in a parameter. The report says `client` and names the line. The page still works, since it always could.
 
 ## Writing for the server without thinking about it
 
@@ -43,5 +45,7 @@ The one rule that matters is the invariant behind it: **a component is a functio
 ## The lab
 
 Open [`Header.tsx`](../../examples/shopping_react_ts/app/src/ui/Header.tsx). It uses `useState` twice, has a `search` function and a form with `onSubmit`. Run `fsr check app` and it is `lowered`; load the catalog and view the source: the header is in the HTML with the search box's initial value and no handlers. Type in the box and submit; the browser owns that and it works.
+
+Now open [`Page.tsx`](../../examples/shopping_react_ts/app/src/ui/Page.tsx), the layout every page wraps itself in. It spreads its `header` prop into `<Header>` and places the page's `children` inside `<main>`. In the catalog's source the header closes and `<main class="page catalog">` opens on the same line, one tree from one render, and the report lists `src/ui/Page.tsx#Page` as `lowered` beside the pages that use it.
 
 Now give the header a second hook: `const ref = useRef(null)` on the form. Check again. The report marks every page that renders the header as `client`, with the line in `Header.tsx`. Remove it.

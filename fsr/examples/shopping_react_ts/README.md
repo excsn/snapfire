@@ -53,7 +53,7 @@ The two backends stand in for services this application does not own. It reaches
 ```
 app/                    the TypeScript application
   routes/               a directory per route: page.tsx, loader.ts, actions.ts
-  tests/                body tests, mirroring routes/, run by fsr test
+  tests/                body tests and page specs, mirroring routes/, run by fsr test
   schemas/              the session shape and each action's input
   clients/              the service documents, imported into the contract
   src/ui/               components the pages share
@@ -92,6 +92,6 @@ cargo test                       # the Rust suite
 ../../../target/debug/fsr test app   # the body tests under app/, no Node
 ```
 
-Imports across folders use the aliases the build writes into `tsconfig.json`, `@src/ui/Header` or `@generated/client`, and snapfirec turns them into relative paths in the bundle. The body tests are `app/tests/cart/loader.test.ts` and `app/tests/cart/actions.test.ts`: each builds a context with `ctx({ session, services, input })`, mocking a service method as a plain function, runs the loader or action and asserts on what came back, on `c.session` and on `c.trace.calls`. They are TypeScript the build lowers and the host's interpreter replays, so the body under test runs where it runs in production. A mock that answers something the contract rejects fails with the method's name.
+Imports across folders use the aliases the build writes into `tsconfig.json`, `@src/ui/Header` or `@generated/client`, and snapfirec turns them into relative paths in the bundle. The body tests are `app/tests/cart/loader.test.ts` and `app/tests/cart/actions.test.ts`: each builds a context with `ctx({ session, services, input })`, mocking a service method as a plain function, runs the loader or action and asserts on what came back, on `c.session` and on `c.trace.calls`. They are TypeScript the build lowers and the host's interpreter replays, so the body under test runs where it runs in production. A mock that answers something the contract rejects fails with the method's name. The page specs, `tests/cart/page.spec.tsx`, `tests/index/page.spec.tsx`, `tests/product/page.spec.tsx` and `tests/ui/Header.spec.tsx`, render a page into a DOM inside the same `fsr test` run: QuickJS in process, linkedom for the document, React's development build so a hydration mismatch is reported in words. A page the build lowered is hydrated over the server's own markup; a click that calls an action runs the lowered action through the interpreter under the spec's `ctx`, with the mocked services behind the contract. The compiled specs and the test-only builds land in `app/.fsr-test/`, which is ignored.
 
 24 tests covering the catalogue and its ordering rules, the storefront over a mock transport with no backend running, plus the gRPC transport against a real tonic server on a port it picks.

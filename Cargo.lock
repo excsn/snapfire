@@ -2021,6 +2021,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "allocator-api2",
+ "equivalent",
+ "foldhash",
 ]
 
 [[package]]
@@ -4212,6 +4214,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "relative-path"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bca40a312222d8ba74837cb474edef44b37f561da5f773981007a10bbaa992b0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "rend"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4301,6 +4312,35 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "rquickjs"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e04e4eedfb060b503b5f0a2644abb890b0b3620d3fb674f9455f230014964e4"
+dependencies = [
+ "rquickjs-core",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16e4f499ac5b943d97ee6dbc44f23c2c10426f420f7d2f1793d6318911b6608c"
+dependencies = [
+ "hashbrown 0.17.1",
+ "relative-path",
+ "rquickjs-sys",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a13ac243b86a74120814ef7e9e30ad5a2c1199b7b9963b1cf7c84e4cdc1cad99"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -4795,6 +4835,7 @@ version = "0.1.0"
 dependencies = [
  "ctrlc",
  "flate2",
+ "futures-executor",
  "futures-util",
  "notify 8.2.0",
  "parking_lot",
@@ -4802,6 +4843,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapfire_fsr_core",
+ "snapfire_fsr_engine",
  "snapfire_fsr_ir",
  "snapfire_fsr_lower",
  "snapfire_fsr_payload",
@@ -4811,6 +4853,7 @@ dependencies = [
  "tar",
  "thiserror 2.0.20",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -4820,6 +4863,18 @@ dependencies = [
  "criterion",
  "indexmap",
  "xxhash-rust",
+]
+
+[[package]]
+name = "snapfire_fsr_engine"
+version = "0.1.0"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "parking_lot",
+ "rquickjs",
+ "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
