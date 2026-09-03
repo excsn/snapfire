@@ -16,6 +16,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Compiling TSX](#compiling-tsx)
   * [Compiling JavaScript](#compiling-javascript)
   * [Resolving Relative Imports](#resolving-relative-imports)
+  * [Resolving Path Aliases](#resolving-path-aliases)
   * [Stripping Console Calls](#stripping-console-calls)
 * [Compiling CSS](#compiling-css)
   * [Targeting Browsers](#targeting-browsers)
@@ -567,6 +568,37 @@ Static `import`, `export * from`, `export { x } from` and dynamic `import()` wit
 ```typescript
 const mod = await import(`./locale/${lang}.js`);   // write .js yourself
 ```
+
+### Resolving Path Aliases
+
+A deep tree makes `../../src/ui/Header` the price of every import. tsc lets a project name a prefix for it with `paths`; snapfirec honours the same entries, so an alias is written once in `tsconfig.json` and the browser never sees it:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@src/*": ["./src/*"],
+      "@lib": ["./src/lib/index"]
+    }
+  }
+}
+```
+
+```typescript
+// pages/home.ts
+import { greet } from "@src/util/greet";
+import { lib } from "@lib";
+```
+
+```javascript
+// dist/pages/home.js
+import { greet } from "../src/util/greet.js";
+import { lib } from "../src/lib/index.js";
+```
+
+An aliased specifier becomes the relative path from the importing module's output to the target's and then follows the rules above: `.js` is appended, a directory resolves to its `index.js` and a target that resolves to nothing fails the build the way a dangling relative import does. Declarations name the same relative path. A bare specifier no entry matches is still an external for the import map to cover, so an alias never needs an import-map entry of its own.
+
+The matching is tsc's: at most one `*` per pattern, the longest matching prefix wins and targets resolve against `baseUrl` when it is set, against the directory holding the tsconfig otherwise. Only the first target of an entry is used, since which files exist is the build's check rather than the resolver's.
 
 ### Stripping Console Calls
 

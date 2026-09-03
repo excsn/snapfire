@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use jsonc_parser::ParseOptions;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,83 @@ pub struct CompilerOptions {
   pub declaration: Option<bool>,
   pub jsx: Option<String>,
   pub jsx_import_source: Option<String>,
+  pub base_url: Option<PathBuf>,
+  /// tsc's `paths`: a bare specifier pattern with at most one `*` and the files it stands for.
+  pub paths: Option<BTreeMap<String, Vec<String>>>,
+}
+
+/// One `paths` entry, split at its `*`. An entry without one matches the whole specifier.
+#[derive(Debug, Clone)]
+struct Alias {
+  prefix: String,
+  suffix: String,
+  wildcard: bool,
+  target_prefix: PathBuf,
+  target_suffix: String,
+}
+
+/// The `paths` of a tsconfig resolved to absolute targets, so a bare specifier that matches one is
+/// a file in the tree rather than an external. Matching picks the longest prefix, as tsc does; the
+/// first target of an entry is the one used, since existence is the build's check, not this one's.
+#[derive(Debug, Clone, Default)]
+pub struct Aliases {
+  entries: Vec<Alias>,
+}
+
+impl Aliases {
+  pub fn resolve(config_dir: &Path, options: &CompilerOptions) -> Result<Self> {
+    let base = match &options.base_url {
+      Some(base) => config_dir.join(base),
+      None => config_dir.to_path_buf(),
+    };
+    let mut entries = Vec::new();
+    for (pattern, targets) in options.paths.iter().flatten() {
+      if pattern.matches('*').count() > 1 {
+        bail!("'paths' pattern {:?} has more than one '*'.", pattern);
+      }
+      let Some(target) = targets.first() else {
+        bail!("'paths' pattern {:?} names no target.", pattern);
+      };
+      if target.matches('*').count() > 1 || (target.contains('*') != pattern.contains('*')) {
+        bail!("'paths' target {:?} for {:?} must carry exactly the '*' its pattern does.", target, pattern);
+      }
+      let (prefix, suffix) = pattern.split_once('*').unwrap_or((pattern.as_str(), ""));
+      let (target_prefix, target_suffix) = target.split_once('*').unwrap_or((target.as_str(), ""));
+      entries.push(Alias {
+        prefix: prefix.to_owned(),
+        suffix: suffix.to_owned(),
+        wildcard: pattern.contains('*'),
+        target_prefix: base.join(target_prefix),
+        target_suffix: target_suffix.to_owned(),
+      });
+    }
+    Ok(Self { entries })
+  }
+
+  /// The file a bare specifier names, when a pattern matches it.
+  pub fn expand(&self, specifier: &str) -> Option<PathBuf> {
+    let mut best: Option<(&Alias, &str)> = None;
+    for alias in &self.entries {
+      let captured = if alias.wildcard {
+        match specifier.strip_prefix(&alias.prefix).and_then(|rest| rest.strip_suffix(&alias.suffix)) {
+          Some(captured) => captured,
+          None => continue,
+        }
+      } else if specifier == alias.prefix {
+        ""
+      } else {
+        continue;
+      };
+      if best.is_none_or(|(b, _)| alias.prefix.len() > b.prefix.len()) {
+        best = Some((alias, captured));
+      }
+    }
+    let (alias, captured) = best?;
+    let mut target = alias.target_prefix.as_os_str().to_owned();
+    target.push(captured);
+    target.push(&alias.target_suffix);
+    Some(PathBuf::from(target))
+  }
 }
 
 /// How JSX is lowered. `Preserve` writes the markup through untouched, which is

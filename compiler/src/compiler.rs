@@ -1,4 +1,4 @@
-use crate::config::{Jsx, MapMode, MapOptions};
+use crate::config::{Aliases, Jsx, MapMode, MapOptions};
 use crate::transforms::{Import, ImportRewriter, StripConsole};
 use anyhow::{Context, Result, anyhow};
 use lightningcss::rules::CssRule;
@@ -187,11 +187,16 @@ impl MapRequest<'_> {
 pub struct Compiler {
   targets: Option<Browsers>,
   jsx: Jsx,
+  aliases: Aliases,
 }
 
 impl Compiler {
-  pub fn new(targets: Option<Browsers>, jsx: Jsx) -> Self {
-    Self { targets, jsx }
+  pub fn new(targets: Option<Browsers>, jsx: Jsx, aliases: Aliases) -> Self {
+    Self { targets, jsx, aliases }
+  }
+
+  pub fn aliases(&self) -> &Aliases {
+    &self.aliases
   }
 
   pub fn compile_script(
@@ -296,6 +301,7 @@ impl Compiler {
         fold_pass(StripConsole { strip_log, strip_debug }),
         fold_pass(ImportRewriter::new(
           path,
+          self.aliases.clone(),
           referenced.clone(),
           externals.clone(),
           imports.clone(),
