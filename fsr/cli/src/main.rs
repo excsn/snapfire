@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use snapfire_fsr_cli::dev::DevOptions;
 use snapfire_fsr_cli::vendor::Spec;
-use snapfire_fsr_cli::{build, types, vendor, write, Options};
+use snapfire_fsr_cli::{build, dev, test, types, vendor, write, Options};
 
-const USAGE: &str = "usage: fsr build <app dir> [--shell <module id>] [--slot <name>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
+const USAGE: &str = "usage: fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -19,6 +20,43 @@ fn main() -> ExitCode {
   let rest = &args[2..];
 
   match command.as_str() {
+    "test" => {
+      let filter = match rest {
+        [] => None,
+        [one] => Some(one.as_str()),
+        _ => return usage(),
+      };
+      match test::run(&app, &Options::default(), filter) {
+        Ok(summary) => {
+          print!("{summary}");
+          if summary.failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "dev" => {
+      let mut options = DevOptions::default();
+      let mut rest = rest.iter();
+      while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+          ("--shell", Some(value)) => options.build.shell = value.clone(),
+          ("--slot", Some(value)) => options.build.slot = value.clone(),
+          ("--public-path", Some(value)) => options.public_path = value.clone(),
+          ("--snapfirec", Some(value)) => options.snapfirec = Some(PathBuf::from(value)),
+          _ => return usage(),
+        }
+      }
+      match dev::run(&app, options) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
     "build" | "check" => {
       let mut options = Options::default();
       let mut rest = rest.iter();

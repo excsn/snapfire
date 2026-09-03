@@ -1,13 +1,13 @@
 import { useState } from "react";
 
-import { actions, type ProductProps } from "../../../generated/client";
-import { categoryLabel } from "../../../src/ui/categories";
-import { addedToCart, failed } from "../../../src/ui/feedback";
-import { Header } from "../../../src/ui/Header";
-import { money, percentOff } from "../../../src/ui/money";
-import { stockLine } from "../../../src/ui/ProductCard";
-import { Stars } from "../../../src/ui/Stars";
-import { Thumb } from "../../../src/ui/Thumb";
+import { actions, type ProductProps } from "@generated/client";
+import { categoryLabel } from "@src/ui/categories";
+import { addedToCart, failed } from "@src/ui/feedback";
+import { Header } from "@src/ui/Header";
+import { money, percentOff } from "@src/ui/money";
+import { stockLine } from "@src/ui/ProductCard";
+import { Stars } from "@src/ui/Stars";
+import { Thumb } from "@src/ui/Thumb";
 
 export default function ProductPage({ product, stock: level, inCart, cartCount }: ProductProps) {
   const [quantity, setQuantity] = useState(1);

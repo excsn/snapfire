@@ -3,7 +3,7 @@
 //! root, so this is a walk over the IR with the contract at hand; anything it
 //! cannot settle is `unknown`, never a guess.
 
-use snapfire_fsr_ir::ast::{ArithOp, Body, Entry, Expr, Lit, Stmt};
+use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, Entry, Expr, Lit, Stmt};
 use snapfire_fsr_service::typescript::{type_name_for, Flavour};
 use snapfire_fsr_service::{Contract, Type, TypeDef};
 
@@ -276,6 +276,16 @@ impl<'a> Inferer<'a> {
       },
       Expr::Length(_) | Expr::Num(_) => Ts::Num,
       Expr::BigInt(_) => Ts::Big,
+      Expr::Apply { f, args } => {
+        let args = args.iter().map(|a| self.expr(a, env)).collect();
+        self.apply(f, args, env)
+      }
+      Expr::Builtin { name, .. } => match name {
+        Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max => Ts::Num,
+        Builtin::Includes => Ts::Bool,
+        Builtin::Range => Ts::List(Box::new(Ts::Big)),
+        _ => Ts::Str,
+      },
     }
   }
 

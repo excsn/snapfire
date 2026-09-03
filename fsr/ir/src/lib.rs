@@ -4,9 +4,10 @@
 pub mod ast;
 pub mod bind;
 pub mod interp;
+pub mod render;
 
 pub use ast::{
-  ArithOp, Body, CompareOp, Entry, Expr, Lit, LogicOp, Stmt, ParseError,
+  ArithOp, Body, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl, ParseError,
 };
-pub use bind::{IrAction, IrSource};
+pub use bind::{IrAction, IrEvaluator, IrSource};
 pub use interp::{Clock, Fail, Interpreter, Outcome};

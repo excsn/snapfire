@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 use snapfire_fsr_core::{CacheKey, DataSourceId, ModuleId, NodeId, PlanNode, SlotName};
-use snapfire_fsr_ir::Body;
+use snapfire_fsr_ir::{Body, Component};
 
 /// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
 /// with bare action ids and no sources, still reads.
@@ -42,6 +42,17 @@ pub struct Manifest {
   /// action is a boot error rather than a 404 at request time.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub actions: Vec<ActionEntry>,
+  /// One row per module the build lowered to a render tree. The host renders
+  /// these in Rust and the browser hydrates over the output; a module without
+  /// a row mounts in the browser only.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub components: Vec<ComponentEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComponentEntry {
+  pub module: String,
+  pub body: Component,
 }
 
 /// Who a row says answers it. The host may replace `lowered` with a Rust
@@ -305,7 +316,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new() }
   }
 
   pub fn with_actions(mut self, actions: Vec<ActionEntry>) -> Self {
@@ -315,6 +326,11 @@ impl Manifest {
 
   pub fn with_sources(mut self, sources: Vec<SourceEntry>) -> Self {
     self.sources = sources;
+    self
+  }
+
+  pub fn with_components(mut self, components: Vec<ComponentEntry>) -> Self {
+    self.components = components;
     self
   }
 
