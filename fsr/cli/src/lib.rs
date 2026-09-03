@@ -2,7 +2,9 @@
 //! generated TypeScript from them. The binary in `main.rs` is a thin front over
 //! `build` and `write`.
 
+pub mod dev;
 pub mod infer;
+pub mod test;
 pub mod types;
 pub mod vendor;
 pub mod xwpm;
@@ -11,8 +13,9 @@ use std::fmt;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::{lower_actions_with, lower_loader_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
-use snapfire_fsr_plan::{ActionEntry, Child, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
+use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
 
@@ -44,6 +47,8 @@ pub enum BuildError {
   Dependency { package: String, wants: String },
   #[error("{0}")]
   Xwpm(String),
+  #[error("{0}")]
+  Dev(String),
 }
 
 /// What `build` found and emitted, in the order the report prints it.
@@ -52,6 +57,8 @@ pub struct Report {
   pub routes: Vec<(String, String)>,
   pub sources: Vec<(String, String)>,
   pub actions: Vec<(String, String)>,
+  /// Module; `lowered` or `client`; for `client`, the line that decided it.
+  pub components: Vec<(String, String, String)>,
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
   pub types: Vec<(String, String)>,
@@ -62,6 +69,10 @@ impl fmt::Display for Report {
     section(f, "routes", &self.routes, "")?;
     section(f, "sources", &self.sources, "lowered")?;
     section(f, "actions", &self.actions, "lowered")?;
+    for (i, (module, owner, detail)) in self.components.iter().enumerate() {
+      let label = if i == 0 { "rendered" } else { "" };
+      writeln!(f, "{label:<9} {module:<34} {owner:<11} {detail}")?;
+    }
     for (i, (service, document)) in self.services.iter().enumerate() {
       let label = if i == 0 { "services" } else { "" };
       let kind = if document.ends_with(".proto") { "grpc" } else { "http" };
@@ -117,6 +128,8 @@ pub struct Built {
   pub contract: Contract,
   pub report: Report,
   pub files: Vec<(String, String)>,
+  /// The session defaults every body was lowered with, so a test lowers its target the same way.
+  pub defaults: SessionDefaults,
 }
 
 struct Route {
@@ -279,9 +292,25 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     });
   }
 
+  let mut set = ComponentSet::new(app);
+  for module in &islands {
+    match set.lower(module) {
+      Ok(()) => {}
+      Err(LowerError::Residue(residue)) => report.components.push((module.clone(), "client".to_owned(), format!("{}:{}: {}", residue.file, residue.line, residue.message))),
+      Err(LowerError::Parse { file, message }) => report.components.push((module.clone(), "client".to_owned(), format!("{file}: {message}"))),
+      Err(e) => return Err(e.into()),
+    }
+  }
+  let mut components = Vec::new();
+  for (module, component) in set.components {
+    report.components.push((module.clone(), "lowered".to_owned(), String::new()));
+    components.push(ComponentEntry { module, body: component });
+  }
+  report.components.sort();
+
   let session_type = session_import.as_ref().map(|_| "Session");
   let client = client_module(&contract, session_type, &routes, &sources, &actions);
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions);
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
 
   let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];
@@ -291,12 +320,13 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     ("generated/fsr.ts".to_owned(), ctx_module(&routes, session_import.as_deref())),
     ("generated/islands.ts".to_owned(), islands_module(&islands, options)),
     ("generated/client.ts".to_owned(), client),
+    ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app)?),
     ("tsconfig.build.json".to_owned(), types::tsconfig_build()),
   ]);
   let mut report = report;
   report.types = types::status(app)?;
-  Ok(Built { manifest, contract, report, files })
+  Ok(Built { manifest, contract, report, files, defaults })
 }
 
 /// Writes every generated file under `<app>` and returns their paths. The
@@ -346,8 +376,25 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>) -> String {
     let _ = writeln!(out, "  \"{}\": {{{}}};", route.pattern, if params.is_empty() { String::new() } else { format!(" {} ", params.join("; ")) });
   }
   out.push_str(
-    "}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  session: Session;\n  identity: Identity | null;\n  services: Services;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>) {\n  return declare<Input, Out>(body as never);\n}\n",
+    "}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  session: Session;\n  identity: Identity | null;\n  services: Services;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
+  out
+}
+
+/// `generated/testing.ts`: what a `*.test.ts` imports from `@snapfire/fsr/testing`.
+/// The bodies throw because `fsr test` lowers the file rather than running it;
+/// the types are the point.
+fn testing_module() -> String {
+  let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
+  out.push_str("import type { ActionCtx, Routes, Services, Session } from \"./fsr\";\n\n");
+  out.push_str("type Mocked<S> = { [K in keyof S]?: { [M in keyof S[K]]?: S[K][M] extends (args: infer A) => Promise<infer R> ? ((args: A) => R) | R : never } };\n\n");
+  out.push_str("export interface Mock<Input = void> {\n  session?: Partial<Session>;\n  services?: Mocked<Services>;\n  input?: Input;\n  params?: Record<string, string>;\n  query?: Record<string, string>;\n  identity?: { subject: string; claims?: Record<string, unknown> };\n}\n\n");
+  out.push_str("export interface Trace {\n  calls: { service: string; method: string; args: Record<string, unknown> }[];\n  session: { written: string[] };\n}\n\n");
+  out.push_str("export type TestCtx<Input = void, P extends keyof Routes = keyof Routes> = ActionCtx<Input, P> & { trace: Trace };\n\n");
+  out.push_str("const lowered = (): never => {\n  throw new Error(\"a test file is lowered by `fsr test`, never run as JavaScript\");\n};\n\n");
+  out.push_str("export function ctx<Input = void, P extends keyof Routes = keyof Routes>(mock: Mock<Input>): TestCtx<Input, P> {\n  void mock;\n  return lowered();\n}\n\n");
+  out.push_str("export function test(name: string, body: () => Promise<void>): void {\n  void name;\n  void body;\n  lowered();\n}\n\n");
+  out.push_str("export const assert = {\n  ok(value: unknown, message?: string): void {\n    void value;\n    void message;\n    lowered();\n  },\n  equal(actual: unknown, expected: unknown, message?: string): void {\n    void actual;\n    void expected;\n    void message;\n    lowered();\n  },\n  rejects(run: Promise<unknown> | (() => Promise<unknown>), kind?: string): Promise<void> {\n    void run;\n    void kind;\n    return lowered();\n  },\n};\n");
   out
 }
 

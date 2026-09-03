@@ -1,4 +1,4 @@
-import { actions, type Product } from "../../generated/client";
+import { actions, type Product } from "@generated/client";
 import { categoryLabel } from "./categories";
 import { addedToCart, failed } from "./feedback";
 import { money, percentOff } from "./money";

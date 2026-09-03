@@ -8,7 +8,7 @@ export default function About() {
           never hand-writes a client.
         </p>
         <p>
-          Routes come from <code>app/plan.json</code>. This one was added in Rust, which is what makes a route a binding
+          Routes come from <code>app/generated/plan.json</code>. This one was added in Rust, which is what makes a route a binding
           rather than a fixed artifact.
         </p>
         <p>

@@ -6,7 +6,7 @@ A storefront built the way Snapfire FSR expects an application to be built: the 
 
 ## Run it
 
-Six commands, from a fresh checkout. Only the last one is needed again afterwards.
+Four commands, from a fresh checkout. Only the last one is needed again afterwards.
 
 ```sh
 # 1. the two tools, from the repository root
@@ -20,20 +20,23 @@ cd fsr/client
 cd ../examples/shopping_react_ts
 ../../../target/debug/fsr types app
 
-# 4. the plan, the contracts and the generated TypeScript, written by build.rs
-cargo build
+# 4. generate, bundle, build and run, then keep doing so as files change
+../../../target/debug/fsr dev app
+```
 
-# 5. the browser bundle, which needs step 4's generated modules
-cd app
-../../../../target/debug/snapfirec --config tsconfig.build.json --source-map --public-path /static/js/app --import-map importmap.json
+Then open <http://127.0.0.1:8080>. Boot prints the routes, the sources, the actions, the modules rendered on the server, the services and what the host inferred.
 
-# 6. run it
+Step 2 is the browser build of the client library, which git does not carry. Step 3 is best effort: skip it and the app still runs, the editor just types every import as `any`. There is no `npm install`, because `app/vendor/` holds the runtime modules and is committed.
+
+Step 4 is three commands the loop runs for you and redoes as files change. By hand they are, in this order:
+
+```sh
+cargo build                     # the plan, the contracts and the generated TypeScript, written by build.rs
+cd app && ../../../../target/debug/snapfirec --config tsconfig.build.json --source-map --public-path /static/js/app --import-map importmap.json
 cd .. && cargo run
 ```
 
-Then open <http://127.0.0.1:8080>. Boot prints the routes, the sources, the actions, the services and what the host inferred.
-
-Steps 2 and 5 are the browser bundles, which git does not carry. Step 5 must follow step 4, because it compiles the island registry that `build.rs` writes. Step 3 is best effort: skip it and the app still runs, the editor just types every import as `any`. There is no `npm install`, because `app/vendor/` holds the runtime modules and is committed.
+The bundle must follow the build, because it compiles the island registry that `build.rs` writes.
 
 ## Three servers, one binary
 
@@ -50,33 +53,45 @@ The two backends stand in for services this application does not own. It reaches
 ```
 app/                    the TypeScript application
   routes/               a directory per route: page.tsx, loader.ts, actions.ts
+  tests/                body tests, mirroring routes/, run by fsr test
   schemas/              the session shape and each action's input
   clients/              the service documents, imported into the contract
   src/ui/               components the pages share
   styles/               plain CSS, linked into the head by convention
   vendor/               React and SweetAlert2, committed, no npm
   importmap.json        the bare specifiers the browser resolves
+  tsconfig.json         generated: the @app, @routes, @src, @schemas and @generated aliases
 config/app.toml         listen address, session key, each service's base URL
 src/backend/            the two services this example pretends not to own
 src/routes.rs           the one route added in Rust
 build.rs                runs the fsr build, so cargo build is enough
 ```
 
+The pages are rendered on the server without a JavaScript engine: the build lowers each `page.tsx` and the components under `src/ui/` to a render tree in the plan file, the host renders it in Rust and React hydrates over the markup in the browser. The `rendered` rows at boot say which modules that covers; a module the build cannot lower is listed as `client` with the line that decided it and mounts in the browser only.
+
 Generated output is not committed. `build.rs` writes `app/generated/` on every `cargo build`: the plan file, one contract per document, the TypeScript a body is written against and both tsconfigs.
 
 ## Changing it
 
-| You changed | Do this |
+While `fsr dev app` runs:
+
+| You changed | It does |
 | --- | --- |
-| a loader, an action, a schema or a service document | `cargo run`, since `build.rs` rebuilds the plan and the types |
-| a page, a component or the CSS | step 5 again, then reload |
-| the fsr client library under `fsr/client/src` | step 2 again, then step 5 |
-| a dependency the browser loads | `fsr add app <name>@<version>`, then `fsr types app` |
+| a page, a component or the CSS | rebundles; reload the page |
+| a loader, an action, a schema or a service document | regenerates, rebundles and restarts the server |
+| Rust under `src/`, `build.rs`, `Cargo.toml` or `config/` | rebuilds and restarts the server |
+| the fsr client library under `fsr/client/src` | nothing; step 2 again, then save any page |
+| a dependency the browser loads | nothing; `fsr add app <name>@<version>`, then `fsr types app` |
+
+A step that fails leaves the running server up and waits for the next change. A restart drops the in-memory sessions, so a page edit never causes one: the server is restarted only when the generated files differ.
 
 ## Tests
 
 ```sh
-cargo test
+cargo test                       # the Rust suite
+../../../target/debug/fsr test app   # the body tests under app/, no Node
 ```
+
+Imports across folders use the aliases the build writes into `tsconfig.json`, `@src/ui/Header` or `@generated/client`, and snapfirec turns them into relative paths in the bundle. The body tests are `app/tests/cart/loader.test.ts` and `app/tests/cart/actions.test.ts`: each builds a context with `ctx({ session, services, input })`, mocking a service method as a plain function, runs the loader or action and asserts on what came back, on `c.session` and on `c.trace.calls`. They are TypeScript the build lowers and the host's interpreter replays, so the body under test runs where it runs in production. A mock that answers something the contract rejects fails with the method's name.
 
 24 tests covering the catalogue and its ordering rules, the storefront over a mock transport with no backend running, plus the gRPC transport against a real tonic server on a port it picks.

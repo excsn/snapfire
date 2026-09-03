@@ -24,7 +24,7 @@ use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
 use snapfire_fsr_core::{Data, ModuleId, Node, Value};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator,
-  LoadError, Matcher, NullEvaluator, RequestCtx, Resolver, SessionCell,
+  LoadError, Matcher, RequestCtx, Resolver, SessionCell,
 };
 use snapfire_fsr_service::{
   Contract, HttpTransport, IdentityInterceptor, Services, TraceInterceptor, Transport,
@@ -523,7 +523,6 @@ impl HostBuilder {
     let app = app
       .services(services)
       .evaluator(move |m: &ModuleId| m.path == shell_path, shell)
-      .evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator))
       .build()?;
 
     let ttl = config.session_ttl()?;

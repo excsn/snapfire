@@ -271,3 +271,12 @@ export const addToCart = action<AddToCart>(async ({ input, session }) => {
     }
   );
 }
+
+#[test]
+fn the_input_type_reads_from_the_parameter_annotation() {
+  let annotated = "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { AddToCart } from \"../../schemas/cart\";\n\nexport const addToCart = action(async ({ input, session }: ActionCtx<AddToCart>) => {\n  session.cart = { ...session.cart, [String(input.product_id)]: input.quantity };\n});\n\nexport const remove = action(async (ctx: ActionCtx<RemoveFromCart>) => {\n  delete ctx.session.cart[String(ctx.input.product_id)];\n});\n\nexport const checkout = action(async ({ session }: ActionCtx) => {\n  session.cart = {};\n});\n";
+  let actions = lower_actions("actions.ts", annotated).unwrap();
+  assert_eq!(actions.iter().map(|a| (a.export.as_str(), a.input.as_deref())).collect::<Vec<_>>(), vec![("addToCart", Some("AddToCart")), ("remove", Some("RemoveFromCart")), ("checkout", None)]);
+  let older = lower_actions("actions.ts", ACTIONS).unwrap();
+  assert_eq!(older[0].input.as_deref(), Some("AddToCart"), "the type-argument spelling still reads");
+}

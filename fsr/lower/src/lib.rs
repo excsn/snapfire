@@ -2,9 +2,11 @@
 //! The recognised language is the one `_private_docs/IR.md` states; anything
 //! outside it is residue, reported with the line and the construct.
 
+pub mod component;
 pub mod schema;
+pub mod testing;
 
-use snapfire_fsr_ir::ast::{ArithOp, Body, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
+use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
 use swc_core::common::{sync::Lrc, FileName, SourceMap, Span, Spanned};
 use swc_core::ecma::ast as js;
 use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
@@ -31,8 +33,43 @@ pub enum LowerError {
 
 pub use schema::{read_schema, read_session_defaults, SchemaType};
 
-/// A lowered action: the exported name, the input type named in
-/// `action<T>(...)` when there is one, and the body.
+/// The import aliases every fsr application has, each a prefix and the app
+/// directory it stands for. The build writes them into both tsconfigs, snapfirec
+/// rewrites them for the browser and the lowerers resolve them here.
+pub const ALIASES: &[(&str, &str)] = &[("@app/", ""), ("@routes/", "routes/"), ("@src/", "src/"), ("@schemas/", "schemas/"), ("@generated/", "generated/")];
+
+/// A specifier as a path relative to the app: an alias expanded or a relative
+/// specifier joined to `from`'s directory. `None` for a bare specifier.
+pub fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
+  for (alias, dir) in ALIASES {
+    if let Some(rest) = specifier.strip_prefix(alias) {
+      return Some(normalize_path(std::path::Path::new(&format!("{dir}{rest}"))));
+    }
+  }
+  if !specifier.starts_with('.') {
+    return None;
+  }
+  let dir = std::path::Path::new(from).parent().unwrap_or(std::path::Path::new(""));
+  Some(normalize_path(&dir.join(specifier)))
+}
+
+fn normalize_path(path: &std::path::Path) -> String {
+  let mut parts: Vec<String> = Vec::new();
+  for component in path.components() {
+    match component {
+      std::path::Component::ParentDir => {
+        parts.pop();
+      }
+      std::path::Component::CurDir => {}
+      other => parts.push(other.as_os_str().to_string_lossy().into_owned()),
+    }
+  }
+  parts.join("/")
+}
+
+/// A lowered action: the exported name, the body and the input type when
+/// there is one, read from the parameter's `ActionCtx<T>` annotation or from
+/// the older `action<T>(...)` spelling.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoweredAction {
   pub export: String,
@@ -98,9 +135,13 @@ enum Exported<'a> {
 }
 
 pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
+  parse_with(file, source, false)
+}
+
+pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, LowerError> {
   let cm: Lrc<SourceMap> = Default::default();
   let fm = cm.new_source_file(Lrc::new(FileName::Custom(file.to_owned())), source.to_owned());
-  let syntax = Syntax::Typescript(TsSyntax { tsx: false, decorators: true, ..Default::default() });
+  let syntax = Syntax::Typescript(TsSyntax { tsx, decorators: true, ..Default::default() });
   let lexer = Lexer::new(syntax, js::EsVersion::latest(), StringInput::from(&*fm), None);
   let mut parser = Parser::new_from(lexer);
   let module = parser.parse_module().map_err(|e| {
@@ -150,17 +191,13 @@ fn classify(init: &js::Expr) -> Exported<'_> {
       if !is_action {
         return Exported::Other(call.span);
       }
-      let input = call.type_args.as_ref().and_then(|t| t.params.first()).and_then(|t| match &**t {
-        js::TsType::TsTypeRef(r) => match &r.type_name {
-          js::TsEntityName::Ident(id) => Some(id.sym.to_string()),
-          _ => None,
-        },
-        _ => None,
-      });
       let Some(last) = call.args.last() else { return Exported::Other(call.span) };
       match &*last.expr {
         js::Expr::Arrow(arrow) => match &*arrow.body {
-          js::ArrowFunctionBody::FunctionBody(b) => Exported::Action { input, first: arrow.params.first(), body: &b.stmts },
+          js::ArrowFunctionBody::FunctionBody(b) => {
+            let input = call.type_args.as_ref().and_then(|t| t.params.first()).and_then(|t| type_ref_name(t)).or_else(|| arrow.params.first().and_then(action_ctx_input));
+            Exported::Action { input, first: arrow.params.first(), body: &b.stmts }
+          }
           js::ArrowFunctionBody::Expr(_) => Exported::Other(arrow.span),
         },
         other => Exported::Other(other.span()),
@@ -168,6 +205,32 @@ fn classify(init: &js::Expr) -> Exported<'_> {
     }
     other => Exported::Other(other.span()),
   }
+}
+
+fn type_ref_name(ty: &js::TsType) -> Option<String> {
+  match ty {
+    js::TsType::TsTypeRef(r) => match &r.type_name {
+      js::TsEntityName::Ident(id) => Some(id.sym.to_string()),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// The input type an action's parameter names: `ActionCtx<AddToCart>` on
+/// `ctx` or on the destructuring of it.
+fn action_ctx_input(param: &js::Pat) -> Option<String> {
+  let ann = match param {
+    js::Pat::Ident(id) => id.type_ann.as_ref()?,
+    js::Pat::Object(obj) => obj.type_ann.as_ref()?,
+    _ => return None,
+  };
+  let js::TsType::TsTypeRef(r) = &*ann.type_ann else { return None };
+  match &r.type_name {
+    js::TsEntityName::Ident(id) if id.sym.as_ref() == "ActionCtx" => {}
+    _ => return None,
+  }
+  r.type_params.as_ref().and_then(|p| p.params.first()).and_then(|t| type_ref_name(t))
 }
 
 #[derive(Clone)]
@@ -186,14 +249,18 @@ pub(crate) struct Lowerer<'a> {
   parsed: &'a Parsed,
   defaults: &'a SessionDefaults,
   roots: Vec<(String, Root)>,
-  scope: Vec<(String, Expr)>,
+  pub(crate) scope: Vec<(String, Expr)>,
+  /// Module-level names a component lowerer has resolved, read after the scope.
+  pub(crate) globals: Vec<(String, Expr)>,
+  /// The last name `ident` could not resolve, so a caller that can may bind it and retry.
+  pub(crate) unbound: Option<String>,
 }
 
-type Lowered<T> = Result<T, Residue>;
+pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None }
   }
 
   /// `session.key`, with the schema's default folded in when there is one.
@@ -208,7 +275,7 @@ impl<'a> Lowerer<'a> {
     self.expr(expr)
   }
 
-  fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
+  pub(crate) fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
     self.parsed.residue(span, message)
   }
 
@@ -255,7 +322,7 @@ impl<'a> Lowerer<'a> {
     Ok(out)
   }
 
-  fn stmt(&mut self, stmt: &js::Stmt) -> Lowered<Stmt> {
+  pub(crate) fn stmt(&mut self, stmt: &js::Stmt) -> Lowered<Stmt> {
     match stmt {
       js::Stmt::Decl(js::Decl::Var(var)) => {
         if var.decls.len() != 1 {
@@ -447,7 +514,7 @@ impl<'a> Lowerer<'a> {
     self.roots.iter().rev().find(|(n, _)| n == name).map(|(_, r)| r.clone())
   }
 
-  fn expr(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+  pub(crate) fn expr(&mut self, expr: &js::Expr) -> Lowered<Expr> {
     match expr {
       js::Expr::Paren(p) => self.expr(&p.expr),
       js::Expr::Await(a) => self.expr(&a.arg),
@@ -552,9 +619,12 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  fn ident(&mut self, id: &js::Ident) -> Lowered<Expr> {
+  pub(crate) fn ident(&mut self, id: &js::Ident) -> Lowered<Expr> {
     let name = id.sym.as_ref();
     if let Some((_, bound)) = self.scope.iter().rev().find(|(n, _)| n == name) {
+      return Ok(bound.clone());
+    }
+    if let Some((_, bound)) = self.globals.iter().rev().find(|(n, _)| n == name) {
       return Ok(bound.clone());
     }
     match self.root_of(id) {
@@ -565,7 +635,10 @@ impl<'a> Lowerer<'a> {
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
       None => match name {
         "undefined" => Ok(Expr::Lit(Lit::Null)),
-        _ => Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow, or a name from outside the body"))),
+        _ => {
+          self.unbound = Some(name.to_owned());
+          Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow, or a name from outside the body")))
+        }
       },
     }
   }
@@ -668,7 +741,7 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+  pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));
     };
@@ -681,6 +754,17 @@ impl<'a> Lowerer<'a> {
     if let js::Expr::Ident(id) = &**callee {
       let name = id.sym.as_ref();
       if !self.scope.iter().any(|(n, _)| n == name) && self.root_of(id).is_none() {
+        if let Some((_, f)) = self.globals.iter().rev().find(|(n, _)| n == name) {
+          let f = Box::new(f.clone());
+          if !matches!(*f, Expr::Lambda { .. }) {
+            return Err(self.residue(id.span, format!("`{name}` is not a function")));
+          }
+          let mut args = Vec::with_capacity(call.args.len());
+          for a in &call.args {
+            args.push(self.expr(&a.expr)?);
+          }
+          return Ok(Expr::Apply { f, args });
+        }
         let one = |this: &mut Self| -> Lowered<Box<Expr>> {
           let a = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
           Ok(Box::new(this.expr(&a.expr)?))
@@ -689,8 +773,12 @@ impl<'a> Lowerer<'a> {
           "String" => Ok(Expr::Str(one(self)?)),
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
+          "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
-          _ => Err(self.residue(id.span, format!("a call to `{name}`, which the build cannot follow"))),
+          _ => {
+            self.unbound = Some(name.to_owned());
+            Err(self.residue(id.span, format!("a call to `{name}`, which the build cannot follow")))
+          }
         };
       }
     }
@@ -701,15 +789,58 @@ impl<'a> Lowerer<'a> {
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
 
     if let js::Expr::Ident(obj) = &*member.obj {
-      if obj.sym.as_ref() == "Object" && !self.scope.iter().any(|(n, _)| n == "Object") {
-        let a = call.args.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
-        let target = Box::new(self.expr(&a.expr)?);
-        return match method.as_str() {
-          "entries" => Ok(Expr::Entries(target)),
-          "keys" => Ok(Expr::Keys(target)),
-          "values" => Ok(Expr::Values(target)),
-          _ => Err(self.residue(member.span, format!("`Object.{method}`"))),
-        };
+      let global = obj.sym.as_ref();
+      if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
+        match global {
+          "Object" => {
+            let a = call.args.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
+            let target = Box::new(self.expr(&a.expr)?);
+            return match method.as_str() {
+              "entries" => Ok(Expr::Entries(target)),
+              "keys" => Ok(Expr::Keys(target)),
+              "values" => Ok(Expr::Values(target)),
+              _ => Err(self.residue(member.span, format!("`Object.{method}`"))),
+            };
+          }
+          "Math" => {
+            let name = match method.as_str() {
+              "round" => Builtin::Round,
+              "floor" => Builtin::Floor,
+              "ceil" => Builtin::Ceil,
+              "abs" => Builtin::Abs,
+              "min" => Builtin::Min,
+              "max" => Builtin::Max,
+              _ => return Err(self.residue(member.span, format!("`Math.{method}`"))),
+            };
+            let mut args = Vec::with_capacity(call.args.len());
+            for a in &call.args {
+              args.push(self.expr(&a.expr)?);
+            }
+            return Ok(Expr::Builtin { name, args });
+          }
+          "Array" if method == "from" => {
+            let (Some(shape), Some(f)) = (call.args.first(), call.args.get(1)) else {
+              return Err(self.residue(call.span, "`Array.from` takes `{ length }` and a function"));
+            };
+            let js::Expr::Object(obj) = &*shape.expr else {
+              return Err(self.residue(shape.expr.span(), "`Array.from` over something other than `{ length: n }`"));
+            };
+            let length = obj.props.iter().find_map(|p| match p {
+              js::PropOrSpread::Prop(p) => match &**p {
+                js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("length") => Some(&kv.value),
+                _ => None,
+              },
+              _ => None,
+            });
+            let Some(length) = length else { return Err(self.residue(shape.expr.span(), "`Array.from` over something other than `{ length: n }`")) };
+            let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![self.expr(length)?] });
+            let js::Expr::Arrow(arrow) = &*f.expr else {
+              return Err(self.residue(f.expr.span(), "`Array.from` takes an arrow function written in place"));
+            };
+            return Ok(Expr::Map(range, Box::new(self.lambda(arrow)?)));
+          }
+          _ => {}
+        }
       }
     }
 
@@ -760,6 +891,31 @@ impl<'a> Lowerer<'a> {
         let init = Box::new(self.expr(&init.expr)?);
         Ok(Expr::Reduce(target, init, f))
       }
+      "toFixed" | "repeat" | "join" | "trim" | "toUpperCase" | "toLowerCase" | "includes" | "toLocaleString" => {
+        let name = match method.as_str() {
+          "toFixed" => Builtin::ToFixed,
+          "repeat" => Builtin::Repeat,
+          "join" => Builtin::Join,
+          "trim" => Builtin::Trim,
+          "toUpperCase" => Builtin::Upper,
+          "toLowerCase" => Builtin::Lower,
+          "includes" => Builtin::Includes,
+          _ => Builtin::LocaleNumber,
+        };
+        let mut args = vec![*target];
+        if name == Builtin::LocaleNumber {
+          if let Some(a) = call.args.first() {
+            if !matches!(&*a.expr, js::Expr::Lit(js::Lit::Str(s)) if s.value.to_atom_lossy().as_ref() == "en-US") {
+              return Err(self.residue(a.expr.span(), "`toLocaleString` with a locale other than \"en-US\""));
+            }
+          }
+          return Ok(Expr::Builtin { name, args });
+        }
+        for a in &call.args {
+          args.push(self.expr(&a.expr)?);
+        }
+        Ok(Expr::Builtin { name, args })
+      }
       other => Err(self.residue(member.span, format!("`.{other}()`, which is not a builtin"))),
     }
   }
@@ -790,7 +946,7 @@ impl<'a> Lowerer<'a> {
   /// An arrow function applied by a builtin. Its body is one expression, or a
   /// block that only returns one. Destructured parameters read as fields and
   /// indexes of the positional parameter.
-  fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
+  pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
     let depth = self.scope.len();
     let mut params = Vec::new();
     for (i, pat) in arrow.params.iter().enumerate() {

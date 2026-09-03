@@ -391,8 +391,9 @@ pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
 pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
   let layout = Layout::of(app)?;
   let types = layout.types.trim_end_matches('/');
-  let mut paths: Vec<(String, String)> = vec![("@snapfire/fsr".to_owned(), "./generated/fsr".to_owned())];
-  let mut include: Vec<String> = vec!["src/**/*".to_owned(), "routes/**/*".to_owned(), "schemas/**/*".to_owned(), "generated/**/*".to_owned()];
+  let mut paths: Vec<(String, String)> = vec![("@snapfire/fsr".to_owned(), "./generated/fsr".to_owned()), ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned())];
+  paths.extend(alias_paths());
+  let mut include: Vec<String> = vec!["src/**/*".to_owned(), "routes/**/*".to_owned(), "schemas/**/*".to_owned(), "tests/**/*".to_owned(), "generated/**/*".to_owned()];
   for (name, typed) in present(app, &layout)? {
     if typed.ambient {
       include.push(format!("{types}/{name}/{}", typed.entry));
@@ -415,7 +416,19 @@ pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
 /// `tsconfig.build.json` for snapfirec: the browser modules only, so the
 /// server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
 pub fn tsconfig_build() -> String {
-  "{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\"\n  },\n  \"include\": [\"src/**/*\", \"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}\n".to_owned()
+  let mut out = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
+  let paths = alias_paths();
+  let last = paths.len() - 1;
+  for (i, (from, to)) in paths.iter().enumerate() {
+    out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
+  }
+  out.push_str("    }\n  },\n  \"include\": [\"src/**/*\", \"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}\n");
+  out
+}
+
+/// The `paths` entries for `snapfire_fsr_lower::ALIASES`, the same in both tsconfigs.
+fn alias_paths() -> Vec<(String, String)> {
+  snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("./{dir}*"))).collect()
 }
 
 #[cfg(test)]

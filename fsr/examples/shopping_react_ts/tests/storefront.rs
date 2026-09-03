@@ -74,7 +74,7 @@ fn the_published_document_is_the_only_client_description() {
 }
 
 #[test]
-fn a_route_ships_data_and_a_client_module_with_no_server_javascript() {
+fn a_route_renders_its_page_on_the_server_with_no_javascript_engine() {
   let transport = Arc::new(
     MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)])),
   );
@@ -83,8 +83,11 @@ fn a_route_ships_data_and_a_client_module_with_no_server_javascript() {
 
   assert!(html.starts_with("<!--sf-g:shell#document--><!doctype html>"), "{}", &html[..80]);
   assert!(html.contains("data-sf-module=\"routes/index/page.tsx#default\""), "the component is named for the browser");
-  assert!(html.contains("Filament"), "the props carry the data the backend returned");
-  assert!(!html.contains("<li>"), "the server renders no component markup");
+  assert!(html.contains("<h2 class=\"card-title\"><a href=\"/product/1\">Filament</a></h2>"), "the page's own markup is rendered from the lowered tree: {html}");
+  assert!(html.contains("<span class=\"price\">$24.00</span>"), "a module helper ran in Rust: {html}");
+  assert!(html.contains("<span class=\"stars-rating\">4.5</span>"), "a component the page imports rendered too");
+  assert!(html.contains("<h1>Today&#39;s picks</h1>") || html.contains("<h1>Today's picks</h1>"), "text is the component's");
+  assert!(html.contains("data-sf-props=\"sf-i0\""), "the props still ship, so the browser hydrates rather than mounts");
 }
 
 #[test]

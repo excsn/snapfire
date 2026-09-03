@@ -1,6 +1,6 @@
 import { boot, enableNavigation, registerIsland } from "@snapfire/fsr-client";
 import { reactMounter } from "@snapfire/fsr-client/react";
-import { registerIslands } from "../generated/islands.js";
+import { registerIslands } from "@generated/islands.js";
 
 registerIslands();
 

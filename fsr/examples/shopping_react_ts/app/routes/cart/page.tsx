@@ -1,10 +1,10 @@
 import { navigate } from "@snapfire/fsr-client";
 
-import { actions, type CartProps } from "../../generated/client";
-import { confirmOrder, failed, orderPlaced, removedFromCart } from "../../src/ui/feedback";
-import { Header } from "../../src/ui/Header";
-import { money } from "../../src/ui/money";
-import { Thumb } from "../../src/ui/Thumb";
+import { actions, type CartProps } from "@generated/client";
+import { confirmOrder, failed, orderPlaced, removedFromCart } from "@src/ui/feedback";
+import { Header } from "@src/ui/Header";
+import { money } from "@src/ui/money";
+import { Thumb } from "@src/ui/Thumb";
 
 export default function Cart({ lines, cartCount }: CartProps) {
   const items = Number(cartCount);

@@ -9,7 +9,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId};
-use snapfire_fsr_ir::{IrAction, IrSource};
+use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrSource};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   LoadError, MatchitMatcher, NodeCache, RequestCtx, Runtime, TableResolver,
@@ -72,6 +72,8 @@ pub struct Report {
   pub routes: Vec<(String, Owner)>,
   pub sources: Vec<(String, Owner)>,
   pub actions: Vec<(String, Owner)>,
+  /// Modules rendered on the server, by the lowered tree or by Rust.
+  pub components: Vec<(String, Owner)>,
 }
 
 impl std::fmt::Display for Report {
@@ -87,6 +89,10 @@ impl std::fmt::Display for Report {
     for (i, (action, owner)) in self.actions.iter().enumerate() {
       let label = if i == 0 { "actions" } else { "" };
       writeln!(f, "{label:<9} {action:<22} {}", owner.as_str())?;
+    }
+    for (i, (module, owner)) in self.components.iter().enumerate() {
+      let label = if i == 0 { "rendered" } else { "" };
+      writeln!(f, "{label:<9} {module:<22} {}", owner.as_str())?;
     }
     Ok(())
   }
@@ -117,6 +123,7 @@ pub struct AppBuilder {
   declared_actions: Vec<String>,
   lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
+  lowered_components: Vec<(String, Component)>,
   contract: Option<Arc<Contract>>,
   sources: DataSources,
   claimed: Vec<(String, Owner)>,
@@ -136,6 +143,7 @@ impl App {
       declared_actions: Vec::new(),
       lowered_sources: Vec::new(),
       lowered_actions: Vec::new(),
+      lowered_components: Vec::new(),
       contract: None,
       sources: DataSources::new(),
       claimed: Vec::new(),
@@ -164,6 +172,7 @@ impl App {
       .lowered_actions()
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
       .collect();
+    builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
     Ok(builder)
   }
 }
@@ -357,10 +366,20 @@ impl AppBuilder {
         (id, owner)
       })
       .collect();
+    let mut components = Vec::new();
+    if !self.lowered_components.is_empty() {
+      let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components));
+      components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
+      let evaluator = Arc::new(evaluator);
+      let covers = evaluator.clone();
+      self.evaluators.register(move |m: &ModuleId| covers.covers(m), evaluator);
+    }
+
     let mut report = Report {
       routes: resolved.iter().map(|(p, _, owner)| (p.clone(), *owner)).collect(),
       sources,
       actions,
+      components,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 

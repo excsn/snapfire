@@ -44,6 +44,10 @@ pub enum Expr {
   /// `null` is omitted, the way an absent optional argument is in TypeScript.
   Call { service: String, method: String, #[serde(default)] args: Vec<(String, Expr)> },
   Lambda { params: Vec<String>, body: Box<Expr> },
+  /// A lambda applied to arguments: a module-level helper a component calls.
+  Apply { f: Box<Expr>, args: Vec<Expr> },
+  /// A fixed pure function; the list is `Builtin`.
+  Builtin { name: Builtin, args: Vec<Expr> },
   Map(Box<Expr>, Box<Expr>),
   Filter(Box<Expr>, Box<Expr>),
   Reduce(Box<Expr>, Box<Expr>, Box<Expr>),
@@ -57,6 +61,55 @@ pub enum Expr {
   Str(Box<Expr>),
   Num(Box<Expr>),
   BigInt(Box<Expr>),
+}
+
+/// The pure functions a component may call by name. Each is one JavaScript
+/// method or global with the same semantics for the value model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Builtin {
+  Round,
+  Floor,
+  Ceil,
+  Abs,
+  Min,
+  Max,
+  ToFixed,
+  Repeat,
+  Join,
+  Trim,
+  Upper,
+  Lower,
+  Includes,
+  EncodeUriComponent,
+  LocaleNumber,
+  /// `Array.from({ length: n })`: the integers `0..n`.
+  Range,
+}
+
+/// A component's render tree. Elements and text are literal; `Expr` is
+/// interpolated as text; `If`, `For` and `Let` are the JSX idioms for a
+/// ternary, `.map` and a block body; `Component` is another lowered component
+/// applied to props.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tmpl {
+  Text(String),
+  Expr(Expr),
+  Element { tag: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] attrs: Vec<(String, Expr)>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  Fragment(Vec<Tmpl>),
+  If { cond: Expr, then: Box<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] r#else: Option<Box<Tmpl>> },
+  For { over: Expr, params: Vec<String>, body: Box<Tmpl> },
+  Let { name: String, expr: Expr, then: Box<Tmpl> },
+  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<(String, Expr)> },
+}
+
+/// A lowered component: `let`s run once with `$props` bound, then the tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Component {
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub body: Body,
+  pub render: Tmpl,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,6 +244,11 @@ impl Expr {
       }
       Expr::Template(parts) => parts.iter().for_each(|p| p.free_vars(out)),
       Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
+      Expr::Builtin { args, .. } => args.iter().for_each(|e| e.free_vars(out)),
+      Expr::Apply { f, args } => {
+        f.free_vars(out);
+        args.iter().for_each(|e| e.free_vars(out));
+      }
       Expr::Lambda { params, body } => {
         let mut inner = Vec::new();
         body.free_vars(&mut inner);
@@ -218,6 +276,8 @@ impl Expr {
       | Expr::Some(a, b) | Expr::Every(a, b) => a.has_call() || b.has_call(),
       Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.has_call() || b.has_call() || c.has_call(),
       Expr::Template(parts) => parts.iter().any(Expr::has_call),
+      Expr::Builtin { args, .. } => args.iter().any(Expr::has_call),
+      Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),
       Expr::Lambda { body, .. } => body.has_call(),
     }
   }

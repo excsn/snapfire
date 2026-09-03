@@ -5,7 +5,7 @@ use futures_util::future::{join_all, BoxFuture};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, RequestCtx, SessionCell};
 
-use crate::ast::{ArithOp, Body, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
+use crate::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
 use crate::bind::kind_name;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -20,7 +20,7 @@ impl Fail {
     Self { kind, message: message.into() }
   }
 
-  fn internal(message: impl Into<String>) -> Self {
+  pub(crate) fn internal(message: impl Into<String>) -> Self {
     Self::new(FailureKind::Internal, message)
   }
 }
@@ -59,6 +59,23 @@ impl Default for Interpreter {
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
     Self { clock }
+  }
+
+  pub(crate) fn clock(&self) -> Arc<dyn Clock> {
+    self.clock.clone()
+  }
+
+  /// Evaluates one expression over `scope` with no request: what a test's
+  /// assertion or a rendered component reads.
+  pub async fn evaluate(&self, expr: &Expr, scope: Vec<(String, Value)>) -> Result<Value, Fail> {
+    let mut env = Env::detached(self.clock.clone(), scope);
+    env.eval(expr).await
+  }
+
+  /// Applies a lambda to `args` with no request: what a mocked service method is.
+  pub async fn apply(&self, lambda: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
+    let mut env = Env::detached(self.clock.clone(), Vec::new());
+    env.apply(lambda, args).await
   }
 
   /// Runs a body. Session writes land in a draft committed only on success.
@@ -116,22 +133,36 @@ fn commit(cell: &SessionCell, draft: &ValueMap, written: &[String]) {
   }
 }
 
-enum Flow {
+pub(crate) enum Flow {
   Next,
   Return(Value),
 }
 
-struct Env {
+pub(crate) struct Env {
   ctx: RequestCtx,
   input: Value,
   identity: Option<Value>,
   session: ValueMap,
   written: Vec<String>,
-  scope: Vec<(String, Value)>,
+  pub(crate) scope: Vec<(String, Value)>,
   clock: Arc<dyn Clock>,
 }
 
 impl Env {
+  /// An environment for a render: no request, no session, no input; only
+  /// the scope a component's props make.
+  pub(crate) fn detached(clock: Arc<dyn Clock>, scope: Vec<(String, Value)>) -> Self {
+    Self {
+      ctx: RequestCtx::anonymous(Default::default()),
+      input: Value::Null,
+      identity: None,
+      session: ValueMap::new(),
+      written: Vec::new(),
+      scope,
+      clock,
+    }
+  }
+
   fn lookup(&self, name: &str) -> Result<Value, Fail> {
     self
       .scope
@@ -156,7 +187,7 @@ impl Env {
     Ok(())
   }
 
-  fn block<'a>(&'a mut self, body: &'a Body) -> BoxFuture<'a, Result<Flow, Fail>> {
+  pub(crate) fn block<'a>(&'a mut self, body: &'a Body) -> BoxFuture<'a, Result<Flow, Fail>> {
     Box::pin(async move {
       let depth = self.scope.len();
       let mut i = 0;
@@ -268,7 +299,7 @@ impl Env {
     Ok(Flow::Next)
   }
 
-  fn eval<'a>(&'a mut self, expr: &'a Expr) -> BoxFuture<'a, Result<Value, Fail>> {
+  pub(crate) fn eval<'a>(&'a mut self, expr: &'a Expr) -> BoxFuture<'a, Result<Value, Fail>> {
     Box::pin(async move {
       match expr {
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
@@ -387,19 +418,33 @@ impl Env {
           self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
         Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+        Expr::Apply { f, args } => {
+          let mut values = Vec::with_capacity(args.len());
+          for arg in args {
+            values.push(self.eval(arg).await?);
+          }
+          self.apply(f, values).await
+        }
+        Expr::Builtin { name, args } => {
+          let mut values = Vec::with_capacity(args.len());
+          for arg in args {
+            values.push(self.eval(arg).await?);
+          }
+          builtin(*name, values)
+        }
         Expr::Map(over, f) => {
           let items = self.seq(over, "map").await?;
           let mut out = Vec::with_capacity(items.len());
-          for item in items {
-            out.push(self.apply(f, vec![item]).await?);
+          for (i, item) in items.into_iter().enumerate() {
+            out.push(self.apply(f, vec![item, Value::F64(i as f64)]).await?);
           }
           Ok(Value::Seq(out))
         }
         Expr::Filter(over, f) => {
           let items = self.seq(over, "filter").await?;
           let mut out = Vec::new();
-          for item in items {
-            if truthy(&self.apply(f, vec![item.clone()]).await?) {
+          for (i, item) in items.into_iter().enumerate() {
+            if truthy(&self.apply(f, vec![item.clone(), Value::F64(i as f64)]).await?) {
               out.push(item);
             }
           }
@@ -415,8 +460,8 @@ impl Env {
         }
         Expr::Find(over, f) => {
           let items = self.seq(over, "find").await?;
-          for item in items {
-            if truthy(&self.apply(f, vec![item.clone()]).await?) {
+          for (i, item) in items.into_iter().enumerate() {
+            if truthy(&self.apply(f, vec![item.clone(), Value::F64(i as f64)]).await?) {
               return Ok(item);
             }
           }
@@ -497,7 +542,7 @@ impl Env {
     }
   }
 
-  async fn apply(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
+  pub(crate) async fn apply(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
     let Expr::Lambda { params, body } = f else {
       return Err(Fail::internal("a builtin takes a lambda"));
     };
@@ -543,7 +588,7 @@ fn parse_kind(name: &str) -> Option<FailureKind> {
   })
 }
 
-fn type_error(what: &str, wanted: &str, got: &Value) -> Fail {
+pub(crate) fn type_error(what: &str, wanted: &str, got: &Value) -> Fail {
   Fail::internal(format!("{what} wants {wanted}, got {}", kind_name(got)))
 }
 
@@ -642,7 +687,118 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
   })
 }
 
-fn stringify(value: &Value) -> Result<String, Fail> {
+fn number(what: &str, value: &Value) -> Result<f64, Fail> {
+  match value {
+    Value::Int(n) => Ok(*n as f64),
+    Value::UInt(n) => Ok(*n as f64),
+    Value::F32(f) => Ok(*f as f64),
+    Value::F64(f) => Ok(*f),
+    other => Err(type_error(what, "a number", other)),
+  }
+}
+
+fn text<'a>(what: &str, value: &'a Value) -> Result<&'a str, Fail> {
+  match value {
+    Value::Str(s) => Ok(s),
+    other => Err(type_error(what, "a string", other)),
+  }
+}
+
+/// A JavaScript number, which every builtin produces; integers stay `Int`
+/// only when they were `BigInt`s.
+fn whole(f: f64) -> Value {
+  Value::F64(f)
+}
+
+/// One builtin, with JavaScript's semantics for the value model: `round` is
+/// half up, `toFixed` rounds half away from zero, `localeNumber` groups by
+/// thousands with a comma.
+fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
+  let what = format!("{name:?}");
+  let arg = |i: usize| args.get(i).ok_or_else(|| Fail::internal(format!("{what} takes more arguments")));
+  Ok(match name {
+    Builtin::Round => whole((number(&what, arg(0)?)? + 0.5).floor()),
+    Builtin::Floor => whole(number(&what, arg(0)?)?.floor()),
+    Builtin::Ceil => whole(number(&what, arg(0)?)?.ceil()),
+    Builtin::Abs => whole(number(&what, arg(0)?)?.abs()),
+    Builtin::Min | Builtin::Max => {
+      let mut best: Option<f64> = None;
+      for value in &args {
+        let n = number(&what, value)?;
+        best = Some(match best {
+          None => n,
+          Some(b) if name == Builtin::Min => b.min(n),
+          Some(b) => b.max(n),
+        });
+      }
+      whole(best.ok_or_else(|| Fail::internal(format!("{what} takes a number")))?)
+    }
+    Builtin::ToFixed => {
+      let n = number(&what, arg(0)?)?;
+      let digits = args.get(1).map(|d| number(&what, d)).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+      let scale = 10f64.powi(digits as i32);
+      let rounded = (n.abs() * scale + 0.5).floor() / scale;
+      let rounded = if n < 0.0 { -rounded } else { rounded };
+      Value::Str(format!("{rounded:.digits$}"))
+    }
+    Builtin::Repeat => {
+      let s = text(&what, arg(0)?)?;
+      let n = number(&what, arg(1)?)?.max(0.0) as usize;
+      Value::Str(s.repeat(n))
+    }
+    Builtin::Join => {
+      let Value::Seq(items) = arg(0)? else { return Err(type_error(&what, "an array", arg(0)?)) };
+      let sep = match args.get(1) {
+        Some(v) => text(&what, v)?.to_owned(),
+        None => ",".to_owned(),
+      };
+      let parts: Result<Vec<String>, Fail> = items.iter().map(|v| if matches!(v, Value::Null) { Ok(String::new()) } else { stringify(v) }).collect();
+      Value::Str(parts?.join(&sep))
+    }
+    Builtin::Trim => Value::Str(text(&what, arg(0)?)?.trim().to_owned()),
+    Builtin::Upper => Value::Str(text(&what, arg(0)?)?.to_uppercase()),
+    Builtin::Lower => Value::Str(text(&what, arg(0)?)?.to_lowercase()),
+    Builtin::Includes => match arg(0)? {
+      Value::Str(s) => Value::Bool(s.contains(text(&what, arg(1)?)?)),
+      Value::Seq(items) => Value::Bool(items.contains(arg(1)?)),
+      other => return Err(type_error(&what, "a string or an array", other)),
+    },
+    Builtin::EncodeUriComponent => {
+      let s = stringify(arg(0)?)?;
+      let mut out = String::with_capacity(s.len());
+      for byte in s.bytes() {
+        match byte {
+          b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => out.push(byte as char),
+          _ => out.push_str(&format!("%{byte:02X}")),
+        }
+      }
+      Value::Str(out)
+    }
+    Builtin::LocaleNumber => {
+      let n = number(&what, arg(0)?)?;
+      let text = stringify(&whole(n))?;
+      let (sign, digits) = text.strip_prefix('-').map(|d| ("-", d)).unwrap_or(("", &text));
+      let (int, frac) = digits.split_once('.').map(|(i, f)| (i, Some(f))).unwrap_or((digits, None));
+      let mut grouped = String::new();
+      for (i, c) in int.chars().enumerate() {
+        if i > 0 && (int.len() - i) % 3 == 0 {
+          grouped.push(',');
+        }
+        grouped.push(c);
+      }
+      Value::Str(match frac {
+        Some(f) => format!("{sign}{grouped}.{f}"),
+        None => format!("{sign}{grouped}"),
+      })
+    }
+    Builtin::Range => {
+      let n = number(&what, arg(0)?)?.max(0.0) as i64;
+      Value::Seq((0..n).map(|i| Value::F64(i as f64)).collect())
+    }
+  })
+}
+
+pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
   Ok(match value {
     Value::Null => "null".to_owned(),
     Value::Bool(b) => b.to_string(),

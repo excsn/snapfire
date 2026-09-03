@@ -1,14 +1,11 @@
-import type { IndexProps } from "../../generated/client";
-import { categories, categoryLabel } from "../../src/ui/categories";
-import { Header } from "../../src/ui/Header";
-import { ProductCard } from "../../src/ui/ProductCard";
+import type { IndexProps } from "@generated/client";
+import { categories, categoryLabel } from "@src/ui/categories";
+import { Header } from "@src/ui/Header";
+import { ProductCard } from "@src/ui/ProductCard";
 
 function chipHref(category: string, q: string | null | undefined): string {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (category) params.set("category", category);
-  const query = params.toString();
-  return query ? `/?${query}` : "/";
+  const pairs = [q ? `q=${encodeURIComponent(q)}` : "", category ? `category=${encodeURIComponent(category)}` : ""].filter((p) => p !== "");
+  return pairs.length > 0 ? `/?${pairs.join("&")}` : "/";
 }
 
 export default function Catalog({ products, q, category, cartCount }: IndexProps) {
