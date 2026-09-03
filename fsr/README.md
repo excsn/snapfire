@@ -33,4 +33,4 @@ The [storefront example](examples/shopping_react_ts/README.md) is a checkout in 
 
 ## Status
 
-Pre-release and unpublished. The storefront runs on the stock host, its three loaders and three actions in TypeScript, every page rendered in Rust and hydrated by React. What is built, what is half built and what is not started is tracked against the Next.js surface in the working notes, and the guide says where each seam is when you want to own one.
+Pre-release and unpublished. The storefront runs on the stock host, its four loaders and three actions in TypeScript, every page rendered in Rust and hydrated by React. What is built, what is half built and what is not started is tracked against the Next.js surface in the working notes, and the guide says where each seam is when you want to own one.

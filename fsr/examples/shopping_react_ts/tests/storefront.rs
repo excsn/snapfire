@@ -68,10 +68,10 @@ fn the_published_document_is_the_only_client_description() {
   let imported = snapfire_fsr_service::import(shopping_react_ts::backend::shopping::DOCUMENT, "shopping").unwrap();
   let contract = &imported.contract;
 
-  for method in ["listProducts", "getProduct", "placeOrder"] {
+  for method in ["listProducts", "getProduct", "placeOrder", "getOrder"] {
     assert!(contract.method("shopping", method).is_some(), "{method} was imported");
   }
-  assert_eq!(imported.routes.len(), 3, "every operation carries its transport shape");
+  assert_eq!(imported.routes.len(), 4, "every operation carries its transport shape");
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn routes_come_from_the_plan_file_and_from_rust() {
     .unwrap()
     .add("/about", shopping_react_ts::routes::about_plan());
 
-  assert_eq!(routes.patterns(), vec!["/", "/cart", "/product/{id}", "/about"]);
+  assert_eq!(routes.patterns(), vec!["/", "/cart", "/order/{id}", "/product/{id}", "/about"]);
   assert!(routes.build().is_ok());
 }
 
@@ -182,7 +182,7 @@ fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
   let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::routes::plan()).unwrap();
-  assert_eq!(manifest.sources(), vec!["index", "cart", "product"]);
+  assert_eq!(manifest.sources(), vec!["index", "cart", "order", "product"]);
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));
   assert!(manifest.modules().contains(&"routes/error.tsx#default".to_owned()), "error modules count");
@@ -237,6 +237,30 @@ fn the_cart_page_names_and_prices_what_the_session_holds() {
   assert!(html.contains("routes/cart/page.tsx#default"));
   assert!(html.contains("Filament"), "the name came from the catalog, not the cart");
   assert!(html.contains("2400"), "so did the price");
+}
+
+#[test]
+fn the_order_page_reads_the_placed_order_back() {
+  let mut line = ValueMap::new();
+  line.insert("product_id".to_owned(), Value::int(1i64));
+  line.insert("name".to_owned(), Value::str("Filament"));
+  line.insert("quantity".to_owned(), Value::int(2i64));
+  line.insert("line_cents".to_owned(), Value::int(4800i64));
+  let mut order = ValueMap::new();
+  order.insert("id".to_owned(), Value::int(5001i64));
+  order.insert("total_cents".to_owned(), Value::int(4800i64));
+  order.insert("lines".to_owned(), Value::Seq(vec![Value::Map(line)]));
+  let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
+  let app = app_over(transport.clone());
+
+  let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(html.contains("data-sf-module=\"routes/order/[id]/page.tsx#default\""), "{html}");
+  assert!(html.contains("Order #<!-- -->5001<!-- --> placed"), "the heading is rendered in Rust: {html}");
+  assert!(html.contains("<a href=\"/product/1\">Filament</a>"), "each line links back to its product");
+  assert!(html.contains("$48.00"));
+  let calls = transport.calls();
+  assert_eq!(calls.len(), 1);
+  assert_eq!(calls[0].0, "shopping.getOrder");
 }
 
 #[test]

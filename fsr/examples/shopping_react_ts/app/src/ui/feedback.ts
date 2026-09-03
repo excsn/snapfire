@@ -31,12 +31,7 @@ export async function confirmOrder(items: number, totalCents: number): Promise<b
   return result.isConfirmed;
 }
 
-export function orderPlaced(id: bigint | number, totalCents: bigint | number, lines: number): void {
-  void Swal.fire({
-    icon: "success",
-    title: `Order #${String(id)} placed`,
-    html: `<p>${lines} line${lines === 1 ? "" : "s"}, ${money(totalCents)} charged.</p><p>Thank you for shopping with us.</p>`,
-    confirmButtonText: "Back to the catalog",
-    confirmButtonColor: "#ffa41c",
-  });
+/** Resolves when the toast has run its course, which is when the page moves on to the order. */
+export async function orderPlaced(id: bigint | number, totalCents: bigint | number, lines: number): Promise<void> {
+  await toast.fire({ icon: "success", title: `Order #${String(id)} placed`, text: `${lines} line${lines === 1 ? "" : "s"}, ${money(totalCents)} charged.` });
 }

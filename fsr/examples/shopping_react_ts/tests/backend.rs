@@ -69,15 +69,24 @@ fn order_ids_advance() {
 }
 
 #[test]
+fn a_placed_order_is_readable_by_its_id() {
+  let catalog = Catalog::seed();
+  let placed = catalog.place(&order(&[(5, 2)])).unwrap();
+  assert_eq!(catalog.order(placed.id), Some(placed));
+  assert_eq!(catalog.order(1), None);
+}
+
+#[test]
 fn the_published_document_describes_what_the_server_serves() {
   let doc: serde_json::Value =
     serde_json::from_str(shopping_react_ts::backend::shopping::DOCUMENT).unwrap();
 
-  for path in ["/products", "/products/{id}", "/orders"] {
+  for path in ["/products", "/products/{id}", "/orders", "/orders/{id}"] {
     assert!(doc["paths"].get(path).is_some(), "{path} is documented");
   }
   assert_eq!(doc["paths"]["/products"]["get"]["operationId"], "listProducts");
   assert_eq!(doc["paths"]["/orders"]["post"]["operationId"], "placeOrder");
+  assert_eq!(doc["paths"]["/orders/{id}"]["get"]["operationId"], "getOrder");
   for schema in ["Attribute", "Image", "Product", "OrderLine", "OrderRequest", "PlacedLine", "Order"] {
     assert!(doc["components"]["schemas"].get(schema).is_some(), "{schema} is defined");
   }

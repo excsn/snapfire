@@ -90,6 +90,7 @@ impl OrderError {
 struct State {
   products: Vec<Product>,
   next_order: u64,
+  orders: Vec<Order>,
 }
 
 /// The backend's own store. It is behind an HTTP boundary, so the FSR side
@@ -192,7 +193,7 @@ impl Product {
 impl Catalog {
   pub fn seed() -> Self {
     let products = SEED.iter().map(Seed::build).collect();
-    Self(Arc::new(Mutex::new(State { products, next_order: 5001 })))
+    Self(Arc::new(Mutex::new(State { products, next_order: 5001, orders: Vec::new() })))
   }
 
   pub fn list(&self, filter: &Filter<'_>) -> Vec<Product> {
@@ -201,6 +202,10 @@ impl Catalog {
 
   pub fn get(&self, id: u64) -> Option<Product> {
     self.0.lock().products.iter().find(|p| p.id == id).cloned()
+  }
+
+  pub fn order(&self, id: u64) -> Option<Order> {
+    self.0.lock().orders.iter().find(|o| o.id == id).cloned()
   }
 
   /// Every line is checked before any stock moves, so a rejected order leaves
@@ -245,6 +250,8 @@ impl Catalog {
 
     let id = state.next_order;
     state.next_order += 1;
-    Ok(Order { id, total_cents, lines })
+    let order = Order { id, total_cents, lines };
+    state.orders.push(order.clone());
+    Ok(order)
   }
 }

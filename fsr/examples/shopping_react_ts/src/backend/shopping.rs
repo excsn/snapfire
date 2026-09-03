@@ -45,6 +45,13 @@ async fn place_order(catalog: Data<Catalog>, body: Json<OrderRequest>) -> HttpRe
   }
 }
 
+async fn get_order(catalog: Data<Catalog>, id: Path<u64>) -> HttpResponse {
+  match catalog.order(*id) {
+    Some(order) => HttpResponse::Ok().json(order),
+    None => HttpResponse::NotFound().body(format!("no order {}", *id)),
+  }
+}
+
 async fn document() -> HttpResponse {
   HttpResponse::Ok()
     .content_type("application/json; charset=utf-8")
@@ -59,6 +66,7 @@ pub async fn serve(catalog: Catalog, addr: (&str, u16)) -> std::io::Result<()> {
       .route("/products", web::get().to(list_products))
       .route("/products/{id}", web::get().to(get_product))
       .route("/orders", web::post().to(place_order))
+      .route("/orders/{id}", web::get().to(get_order))
   })
   .bind(addr)?
   .run()

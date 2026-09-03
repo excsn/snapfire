@@ -98,11 +98,11 @@ test("a click from the catalog to the cart swaps the page and keeps the document
 
 ## Route tests are the other layer
 
-A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, eighteen tests over a mock transport that assert on the HTML a route renders, the chunks a deferred route streams and the props it ships. They are Rust because they assert on the host; an application with no Rust project gets the document half of that from `load` in a spec. The two layers are enough: a body test says a loader produces these props from these responses; a route test says a URL produces this document from these props.
+A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, nineteen tests over a mock transport that assert on the HTML a route renders, the chunks a deferred route streams and the props it ships. They are Rust because they assert on the host; an application with no Rust project gets the document half of that from `load` in a spec. The two layers are enough: a body test says a loader produces these props from these responses; a route test says a URL produces this document from these props.
 
 ## The lab
 
-Run `fsr test app`. Twenty-nine tests pass, seven body tests and twenty-two specs, each printed with its file and name. Now open `actions.test.ts` and change the mocked `placeOrder` to return `{ id: 7n }` only. Run again: the checkout test fails; the message names `shopping.placeOrder()` and the missing field, because the registry checked the mock's answer against the contract before the body ever saw it.
+Run `fsr test app`. Thirty tests pass, seven body tests and twenty-three specs, each printed with its file and name. Now open `actions.test.ts` and change the mocked `placeOrder` to return `{ id: 7n }` only. Run again: the checkout test fails; the message names `shopping.placeOrder()` and the missing field, because the registry checked the mock's answer against the contract before the body ever saw it.
 
 Put it back, then change the expected count in the first test to `5n`. The failure prints `actual: 4n` and `expected: 5n`, in the value model's own spelling.
 
