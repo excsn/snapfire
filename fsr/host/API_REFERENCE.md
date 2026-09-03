@@ -97,7 +97,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `Host::from(path: impl AsRef<Path>) -> Result<HostBuilder, HostError>` locates and loads the configuration per `locate`, then the plan file and the contracts directory when it exists, merged with `Contract::merge` file by file.
 * `Host::from_cwd() -> Result<HostBuilder, HostError>` is `Host::from(".")`.
 * `Host::from_located(located: config::Located) -> Result<HostBuilder, HostError>` is `Host::from_config(Config::load_located(located)?)`.
-* `Host::from_config(config: Config) -> Result<HostBuilder, HostError>`.
+* `Host::from_config(config: Config) -> Result<HostBuilder, HostError>`: reads the plan file and the contracts directory the configuration names, then `from_config_with`.
+* `Host::from_config_with(config: Config, plan: String, contract: Option<Contract>) -> Result<HostBuilder, HostError>`: over a plan file and a contract already in memory, which is how `fsr test` renders a route a spec loads.
 
 ### HostBuilder
 

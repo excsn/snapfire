@@ -124,6 +124,7 @@ Runs a body. `Clone`; the default carries the system clock.
 
 * `Interpreter::default() -> Interpreter`
 * `Interpreter::with_clock(clock: Arc<dyn Clock>) -> Interpreter`
+* `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<String, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what React's server renderer writes. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
 * `Interpreter::run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`. `input` is `None` for a loader; a body reads `Expr::Input` as `Value::Null` then. Session writes go to a draft copied from `ctx.session` at entry and are committed to the cell, key by key, only on success.
 
 ### Outcome
@@ -170,6 +171,7 @@ What `Expr::Now` reads.
 * `Map`, `Filter`, `Find`, `Some`, `Every` apply a one-parameter lambda over a `Seq`; `Reduce` applies a two-parameter lambda `(acc, item)` from `init`. A non-`Seq` operand is `Internal`. `Find` yields `Value::Null` when nothing matches.
 * `Entries` yields a `Seq` of two-element `Seq` pairs in insertion order; `Keys` and `Values` likewise; all three require a `Map`.
 * `Length` counts `Seq` items, `Str` characters or `Map` entries, as `F64`, since a TypeScript `number` is a float and a `bigint` is an `Int`.
+* `Builtin::Omit` takes a `Map` and string keys and yields the map without those keys, the rest of a destructuring; `Null` reads as an empty map and any other first argument is `Internal`.
 
 ### Calls
 

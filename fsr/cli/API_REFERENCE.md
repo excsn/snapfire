@@ -9,6 +9,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr types](#fsr-types)
   * [fsr build](#fsr-build)
   * [fsr check](#fsr-check)
+  * [fsr serve](#fsr-serve)
 * [2. The Build](#2-the-build)
   * [Options](#options)
   * [build](#build)
@@ -48,6 +49,13 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * `fsr check <app dir> [--shell <module id>] [--slot <name>]`
 * Runs the build and prints the report; writes nothing. Same exit codes.
+
+### fsr serve
+
+* `fsr serve <app dir> [--listen <addr>]`
+* `serve::run`: the stock host, `snapfire_fsr_host::Host`, over the configuration `serve::project_root` finds, the directory beside the app when it holds `config/`, `app.toml` or `app.yaml`, else the app itself; prints the host's report and listens on `--listen` or the configured `server.listen` until the process ends. Refuses a configuration whose `[app] dir` is not the app given. Exit 1 on a `BuildError::Serve`.
+* `serve::host_for(app: &Path) -> Result<Host, BuildError>` is the same host without the listener.
+* `fsr dev <app dir>` runs this in place of `cargo run` when no `Cargo.toml` is beside the app, watching `config/`, `app.toml` and `app.yaml` there instead of `src/`.
 
 ### fsr add
 
@@ -208,5 +216,6 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
 * `Http(String, String)`, the URL and the failure.
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.
+* `Serve(String)`, the stock host refusing to build or the listener failing, from `fsr serve`.
 * `Dependency { package: String, wants: String }`, a vendored module importing a package outside its bundle.
 * `Xwpm(String)`, an `xwpm` command that could not start or failed.

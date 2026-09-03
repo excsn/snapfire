@@ -77,7 +77,7 @@ Every block in every crate, one line each, sorted by the itch it scratches. The 
 
 ## I want the tools
 
-- **`fsr build`**, **`fsr check`**, **`fsr dev`**, **`fsr test`**, **`fsr add`**, **`fsr types`**, the commands, all thin fronts over the library.
-- **`snapfire_fsr_cli::dev`**, the watch loop; **`vendor`**, **`types`** and **`xwpm`**, the dependency side.
+- **`fsr build`**, **`fsr check`**, **`fsr dev`**, **`fsr serve`**, **`fsr test`**, **`fsr add`**, **`fsr types`**, the commands, all thin fronts over the library.
+- **`snapfire_fsr_cli::dev`**, the watch loop; **`serve`**, the stock host over an app with no Rust beside it; **`vendor`**, **`types`** and **`xwpm`**, the dependency side.
 - **`snapfire_fsr_lower::ALIASES`**, the five import prefixes, the same table the tsconfigs get.
 - **snapfirec**, the TypeScript and CSS compiler, with `paths` for aliases, `--import-map` for externals and `--public-path` for the preload manifest.

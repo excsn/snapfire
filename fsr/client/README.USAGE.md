@@ -364,7 +364,7 @@ await fetch("/api/import", {
 });
 ```
 
-JavaScript has one number type, so the mapping in this direction is not symmetric with the one coming back. A `number` goes out as bare JSON and reaches the server as an integer when it is integral, otherwise as an `f64`; use a `bigint` when the server must see a wide integer. `NaN` and the two infinities go out as the `f` tag's symbols. A `Uint8Array` goes out as bytes rather than a `u8` typed array, so a `u8` series that arrived as a typed array returns to the server as `Value::Bytes`; send `Int8Array` or one of the wider kinds when the distinction matters. A plain object that has its own `$` key is escaped into the `m` tag's pair list, so a map with a `$` key survives instead of being read back as a tag.
+JavaScript has one number type, so the mapping in this direction is not symmetric with the one coming back. A `number` goes out as bare JSON and reaches the server as an integer when it is integral, otherwise as an `f64`; use a `bigint` when the server must see a wide integer. `NaN` and the two infinities go out as the `f` tag's symbols. A `Uint8Array` the page made goes out as bytes; one that arrived as a `u8` typed array is marked on decode and goes back as the typed array it was, so a round trip keeps the server's kind. A plain object that has its own `$` key is escaped into the `m` tag's pair list, so a map with a `$` key survives instead of being read back as a tag.
 
 ## Reading a Payload Response by Hand
 
@@ -442,7 +442,7 @@ try {
 }
 ```
 
-The kinds are the server's `FailureKind` spellings: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` and `internal`. A response whose body is not the JSON failure shape rejects with the parse error instead, so rethrow anything that is not an `ActionFailure`, as the block above does, rather than treating every rejection as one.
+The kinds are the server's `FailureKind` spellings: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` and `internal`. A response whose body is not the JSON failure shape, a proxy's page or a refusal in plain text, is still an `ActionFailure`: the kind is read back from the status, `400` as `invalid`, `401` and `403` as `unauthorized`, `404` as `not_found`, `409` as `conflict`, `503` as `unavailable`, `504` as `timeout` and anything else as `internal`, with the body's text as the message. Rethrow anything that is not an `ActionFailure`, as the block above does, since a request that never completes rejects with the fetch's own error.
 
 The rest of the package reports differently. Mount problems never reject anything the caller can see: an unregistered module id and a loader or mounter that throws are both logged with `console.warn`; the island stays as the server rendered it. Navigation degrades instead of throwing: a non-ok payload response, a missing sidecar or a segment region that cannot be found in the DOM all fall back to a full page load. The two decoders do throw, on an unknown value tag, an unknown typed array kind, an unknown node row kind, an unknown row tag or a body with no `N` row:
 

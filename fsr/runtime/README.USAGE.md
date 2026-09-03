@@ -298,7 +298,7 @@ sources.insert_fn("layout_loader", |ctx| async move {
   ctx.session.insert("visits", Value::Int(visits));
 
   let mut data = ValueMap::new();
-  data.insert("nav_label".to_owned(), Value::str("Snapfire FSR"));
+  data.insert("nav_label".to_owned(), Value::str("SnapFire FSR"));
   data.insert("visits".to_owned(), Value::Int(visits));
   Ok(data)
 });
@@ -398,9 +398,9 @@ The head node is the application's, not the runtime's. The example app computes 
 let title = match source.load(&ctx).await {
   Ok(data) => match data.get("title") {
     Some(Value::Str(title)) => title.clone(),
-    _ => "Snapfire FSR".to_owned(),
+    _ => "SnapFire FSR".to_owned(),
   },
-  Err(_) => "Snapfire FSR".to_owned(),
+  Err(_) => "SnapFire FSR".to_owned(),
 };
 let assembly = assemble(&runtime, &plan, &ctx, &head_node(&title)).await?;
 ```
@@ -535,18 +535,23 @@ Arc::new(MemoryCache::new())                               // unbounded, no expi
 Arc::new(FibreCache::bounded(1024, Duration::from_secs(300)))  // bounded and TTL-expiring
 ```
 
-`FibreCache::bounded_sharded(capacity, ttl, shards)` tunes lock contention. Shards are rounded up to the next power of two; capacity is accounted across all of them, so a higher shard count trades fixed per-shard structures against contention, never against usable capacity. For a cache you configure yourself, build the `fibre_cache::Cache` and pass it:
+`bounded` picks four shards, maintenance on every insert and a timer tick of a hundredth of the TTL, since a node cache is written on a miss and read on every request. `FibreCache::bounded_sharded(capacity, ttl, shards)` changes the shard count alone. Shards are rounded up to the next power of two; capacity is accounted across all of them, so a higher shard count trades fixed per-shard structures against contention, never against usable capacity. For a cache you configure yourself, build the `fibre_cache::Cache` and pass it:
 
 ```rust
-let cache = FibreCache::new(
+let (index, listener) = FibreCache::listener();
+let cache = FibreCache::with_index(
   fibre_cache::CacheBuilder::default()
     .capacity(64)
     .time_to_live(Duration::from_secs(60))
     .shards(2)
+    .eviction_listener(listener)
     .build()
     .unwrap(),
+  index,
 );
 ```
+
+`FibreCache::new` takes a cache with no listener; its side index then shrinks only on `invalidate`.
 
 ## Invalidating What Changed
 
@@ -556,7 +561,7 @@ Invalidation takes the plan's `cache_key`, not a composed key. It drops every en
 runtime.cache.invalidate("dash_page").await;
 ```
 
-Tags are keys and revalidation is invalidation: after an action mutates the fleet, invalidating `dash_page` is what makes the next request re-evaluate. `MemoryCache` does it by dropping every entry whose key starts with `dash_page|`; `FibreCache` keeps a side index from plan key to composed keys, so it invalidates exactly without scanning. That index is populated on `put` and cleared for a plan key on `invalidate`, so it grows with the number of distinct composed keys a plan key has produced since the last invalidation.
+Tags are keys and revalidation is invalidation: after an action mutates the fleet, invalidating `dash_page` is what makes the next request re-evaluate. `MemoryCache` does it by dropping every entry whose key starts with `dash_page|`; `FibreCache` keeps a side index from plan key to composed keys, so it invalidates exactly without scanning. That index holds each composed key once and follows the cache's own evictions through a listener, so it never outgrows what the cache holds.
 
 `NodeCache` is three methods, so a Redis-backed or two-tier store is a small implementation:
 

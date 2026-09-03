@@ -27,7 +27,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [100. Routes, loaders and pages](100-routes-loaders-and-pages.md), the file conventions, params and query, the props a page receives and navigation that keeps the layout. App developers.
 - [101. Actions and the session](101-actions-and-the-session.md), schemas, session defaults, guards and the cart as the worked case. App developers.
 - [102. Components the server renders](102-components-the-server-renders.md), what a component may say, helpers, `useState` and what stays in the browser. App developers.
-- [103. Testing a body and a page](103-testing-a-body.md), mocks the contract checks, the trace, page tests over a DOM with hydration and `fsr test`. App developers.
+- [103. Testing a body and a page](103-testing-a-body.md), mocks the contract checks, the trace, page tests over a DOM with hydration, loading a route and clicking through it, and `fsr test`. App developers.
 
 **The host**, or what runs it:
 
@@ -38,7 +38,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 
 **Tooling**, or the commands:
 
-- [300. The build and the dev loop](300-the-build-and-the-dev-loop.md), `fsr build`, `fsr check`, `fsr dev` and why `generated/` is not committed. Everyone.
+- [300. The build and the dev loop](300-the-build-and-the-dev-loop.md), `fsr build`, `fsr check`, `fsr dev`, `fsr serve` and why `generated/` is not committed. Everyone.
 - [301. Dependencies without npm](301-dependencies-without-npm.md), `fsr add`, `fsr types`, the import map and what xwpm changes. Everyone.
 - [302. Imports and aliases](302-imports-and-aliases.md), the five prefixes and where each of the three readers resolves them. Everyone.
 
