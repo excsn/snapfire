@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_auth
 
-Auth for Snapfire FSR: the `IdentityProvider` seam, the login flow over it and the dev provider.
+Auth for SnapFire FSR: the `IdentityProvider` seam, the login flow over it and the dev provider.
 
 ## Contents
 

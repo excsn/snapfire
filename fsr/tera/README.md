@@ -2,7 +2,7 @@
 
 MPL-2.0. Version 0.1.0, pre-release and unpublished.
 
-The Tera evaluator for Snapfire FSR. It implements `snapfire_fsr_runtime::Evaluator` by rendering a Tera template to a string and splitting that string into payload chunks: literal markup becomes a raw node, an `island()` call becomes a client node the browser mounts, a `slot()` call becomes the stitch point where a plan child's subtree lands. There is no JavaScript engine here, no hydration protocol, no participation in the module graph; the whole crate is one file, which is the point. The runtime half of the seam, the `Evaluator` trait plus the assembler that stitches slots, lives in `snapfire_fsr_runtime`. To wire one up, read the [usage guide](README.USAGE.md); for signatures and constraints, the [API reference](API_REFERENCE.md).
+The Tera evaluator for SnapFire FSR. It implements `snapfire_fsr_runtime::Evaluator` by rendering a Tera template to a string and splitting that string into payload chunks: literal markup becomes a raw node, an `island()` call becomes a client node the browser mounts, a `slot()` call becomes the stitch point where a plan child's subtree lands. There is no JavaScript engine here, no hydration protocol, no participation in the module graph; the whole crate is one file, which is the point. The runtime half of the seam, the `Evaluator` trait plus the assembler that stitches slots, lives in `snapfire_fsr_runtime`. To wire one up, read the [usage guide](README.USAGE.md); for signatures and constraints, the [API reference](API_REFERENCE.md).
 
 ## Install
 

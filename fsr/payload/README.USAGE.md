@@ -1,6 +1,6 @@
 # Usage Guide: snapfire_fsr_payload
 
-How to encode Snapfire FSR values and payload trees, what every tag on the wire means and how to keep a streamed response consistent across its chunks.
+How to encode SnapFire FSR values and payload trees, what every tag on the wire means and how to keep a streamed response consistent across its chunks.
 
 ## Table of Contents
 

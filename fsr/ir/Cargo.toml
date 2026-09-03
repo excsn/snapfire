@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_ir"
 version = "0.1.0"
-description = "The lowered form of a loader or action body for Snapfire FSR, and the interpreter that runs it over the value model."
+description = "The lowered form of a loader or action body for SnapFire FSR, and the interpreter that runs it over the value model."
 
 edition = { workspace = true }
 authors = { workspace = true }

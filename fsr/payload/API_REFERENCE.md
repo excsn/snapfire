@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_payload
 
-The encodings of Snapfire FSR: the lossless JSON pair, the HTML serializer and the row protocol.
+The encodings of SnapFire FSR: the lossless JSON pair, the HTML serializer and the row protocol.
 
 ## Contents
 

@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_core
 
-Vocabulary types for Snapfire FSR: the value model, the payload tree, the render plan, module identity and canonical fingerprinting.
+Vocabulary types for SnapFire FSR: the value model, the payload tree, the render plan, module identity and canonical fingerprinting.
 
 ## Contents
 

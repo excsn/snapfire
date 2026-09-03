@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_session
 
-The session layer for Snapfire FSR: signed cookies, the session store, token custody and CSRF.
+The session layer for SnapFire FSR: signed cookies, the session store, token custody and CSRF.
 
 ## Contents
 

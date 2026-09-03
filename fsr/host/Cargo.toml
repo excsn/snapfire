@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_host"
 version = "0.1.0"
-description = "The stock host for Snapfire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
+description = "The stock host for SnapFire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
 
 edition = { workspace = true }
 authors = { workspace = true }

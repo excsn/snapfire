@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_tera"
 version = "0.1.0"
-description = "Tera evaluator for Snapfire FSR: string rendering with marker-and-split islands and slots."
+description = "Tera evaluator for SnapFire FSR: string rendering with marker-and-split islands and slots."
 
 edition = { workspace = true }
 authors = { workspace = true }
