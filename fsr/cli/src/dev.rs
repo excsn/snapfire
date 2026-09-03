@@ -40,7 +40,7 @@ impl Default for DevOptions {
 /// The application and, when one wraps it, the Cargo project whose binary serves it.
 struct Project {
   app: PathBuf,
-  cargo: PathBuf,
+  cargo: Option<PathBuf>,
   layout: Layout,
   snapfirec: PathBuf,
   options: DevOptions,
@@ -61,7 +61,7 @@ pub(crate) fn find_snapfirec(explicit: Option<&Path>) -> PathBuf {
 impl Project {
   fn open(app: &Path, options: DevOptions) -> Result<Self, BuildError> {
     let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
-    let cargo = app.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file()).ok_or_else(|| BuildError::Dev(format!("no Cargo.toml beside {}; `fsr dev` runs the project's own binary", app.display())))?;
+    let cargo = app.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
     let layout = Layout::of(&app)?;
     let snapfirec = find_snapfirec(options.snapfirec.as_deref());
     Ok(Self { app, cargo, layout, snapfirec, options })
@@ -87,15 +87,34 @@ impl Project {
   }
 
   fn cargo_build(&self) -> Result<(), BuildError> {
-    let status = Command::new("cargo").arg("build").current_dir(&self.cargo).status().map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
+    let Some(cargo) = &self.cargo else { return Ok(()) };
+    let status = Command::new("cargo").arg("build").current_dir(cargo).status().map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
     if !status.success() {
       return Err(BuildError::Dev(format!("cargo build exited with {status}")));
     }
     Ok(())
   }
 
+  /// The project's own binary when there is one, else this binary's `serve` over the app.
   fn spawn(&self) -> Result<Child, BuildError> {
-    Command::new("cargo").arg("run").current_dir(&self.cargo).spawn().map_err(|e| BuildError::Dev(format!("cargo run: {e}")))
+    match &self.cargo {
+      Some(cargo) => Command::new("cargo").arg("run").current_dir(cargo).spawn().map_err(|e| BuildError::Dev(format!("cargo run: {e}"))),
+      None => {
+        let exe = std::env::current_exe().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))?;
+        Command::new(exe).arg("serve").arg(&self.app).spawn().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))
+      }
+    }
+  }
+
+  /// What to watch besides the app: the Cargo project's sources, or the configuration the stock host reads.
+  fn watched(&self) -> Vec<PathBuf> {
+    match &self.cargo {
+      Some(cargo) => ["src", "config", "build.rs", "Cargo.toml"].iter().map(|name| cargo.join(name)).collect(),
+      None => {
+        let root = crate::serve::project_root(&self.app);
+        ["config", "app.toml", "app.yaml"].iter().map(|name| root.join(name)).collect()
+      }
+    }
   }
 
   /// Which of the three steps a set of changed paths calls for.
@@ -181,8 +200,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   }, notify::Config::default())
   .map_err(|e| BuildError::Dev(format!("watcher: {e}")))?;
   watcher.watch(&project.app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("watch {}: {e}", project.app.display())))?;
-  for name in ["src", "config", "build.rs", "Cargo.toml"] {
-    let path = project.cargo.join(name);
+  for path in project.watched() {
     if path.exists() {
       watcher.watch(&path, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("watch {}: {e}", path.display())))?;
     }
@@ -190,7 +208,10 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
 
   let mut server = Server { child: None };
   let mut files: Option<Vec<(String, String)>> = None;
-  println!("dev: watching {} and the project around it; press Ctrl-C to stop", project.app.display());
+  match &project.cargo {
+    Some(cargo) => println!("dev: watching {} and the project at {}; press Ctrl-C to stop", project.app.display(), cargo.display()),
+    None => println!("dev: watching {} and its configuration, served by the stock host; press Ctrl-C to stop", project.app.display()),
+  }
 
   let mut want = Change { app: true, project: true };
   loop {
@@ -279,7 +300,7 @@ mod tests {
   use super::*;
 
   fn project(app: &Path) -> Project {
-    Project { app: app.to_path_buf(), cargo: app.parent().unwrap().to_path_buf(), layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default() }
+    Project { app: app.to_path_buf(), cargo: Some(app.parent().unwrap().to_path_buf()), layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default() }
   }
 
   #[test]

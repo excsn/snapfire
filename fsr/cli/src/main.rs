@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use snapfire_fsr_cli::dev::DevOptions;
+use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::vendor::Spec;
-use snapfire_fsr_cli::{build, dev, test, types, vendor, write, Options};
+use snapfire_fsr_cli::{build, dev, serve, test, types, vendor, write, Options};
 
-const USAGE: &str = "usage: fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
+const USAGE: &str = "usage: fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -31,6 +32,23 @@ fn main() -> ExitCode {
           print!("{summary}");
           if summary.failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "serve" => {
+      let mut options = ServeOptions::default();
+      let mut rest = rest.iter();
+      while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+          ("--listen", Some(value)) => options.listen = Some(value.clone()),
+          _ => return usage(),
+        }
+      }
+      match serve::run(&app, options) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
           eprintln!("{e}");
           ExitCode::from(1)
