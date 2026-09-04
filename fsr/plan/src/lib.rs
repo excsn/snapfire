@@ -47,6 +47,10 @@ pub struct Manifest {
   /// a row mounts in the browser only.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub components: Vec<ComponentEntry>,
+  /// The tree a host renders, with status 404, for a path no route matches.
+  /// Absent, the host answers with a plain text line.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub not_found: Option<Node>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -316,7 +320,11 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None }
+  }
+  pub fn with_not_found(mut self, not_found: Option<Node>) -> Self {
+    self.not_found = not_found;
+    self
   }
 
   pub fn with_actions(mut self, actions: Vec<ActionEntry>) -> Self {
@@ -385,11 +393,22 @@ impl Manifest {
     Ok(out)
   }
 
+  /// The not-found tree as the runtime wants it, checked like a route's.
+  pub fn not_found(&self) -> Result<Option<PlanNode>, PlanError> {
+    match &self.not_found {
+      Some(node) => Ok(Some(node.to_plan("not_found", &mut Vec::new())?)),
+      None => Ok(None),
+    }
+  }
+
   /// Every data source named anywhere in the file.
   pub fn sources(&self) -> Vec<String> {
     let mut out = Vec::new();
     for entry in &self.routes {
       entry.plan.sources_into(&mut out);
+    }
+    if let Some(node) = &self.not_found {
+      node.sources_into(&mut out);
     }
     out
   }
@@ -400,6 +419,9 @@ impl Manifest {
     let mut out = Vec::new();
     for entry in &self.routes {
       entry.plan.modules_into(&mut out);
+    }
+    if let Some(node) = &self.not_found {
+      node.modules_into(&mut out);
     }
     out
   }

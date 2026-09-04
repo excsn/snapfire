@@ -110,6 +110,12 @@ let routes = Routes::new().add("/", Plan::of("shell#document")).add("/health", P
 let app = App::builder(routes).evaluator(|_| true, shell).build()?;
 ```
 
+The tree for a path nothing matches is not a route. The plan file carries one when the application has a `routes/not-found.tsx`; `Routes::not_found` sets or replaces it from Rust. The host renders it with status 404 and `params.path`.
+
+```rust
+let routes = Routes::from_manifest(&text)?.not_found(Plan::of("shell#document").slot("content", Plan::of("src/Missing.tsx#default")));
+```
+
 ## Answering a Data Source
 
 `source` takes an async function of the request context; `source_impl` takes a `DataSource`. A source the plan names and nothing answers is a `BindError::Unbound` at `build`.

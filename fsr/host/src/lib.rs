@@ -21,7 +21,7 @@ use futures_util::StreamExt;
 use http::{header, HeaderValue, Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, StreamBody};
 use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
-use snapfire_fsr_core::{Data, ModuleId, Node, Value};
+use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator,
   LoadError, Matcher, RequestCtx, Resolver, SessionCell,
@@ -216,9 +216,35 @@ impl Host {
       .resolver
       .resolve(matched.entry, &matched.params)
       .ok_or_else(|| HostError::NotFound(path.to_owned()))?;
+    self.render_plan(&plan, matched.params, query, mode, session).await
+  }
+
+  /// The application's not-found tree for a path no route matches, or `None`
+  /// when it has none. `params.path` carries the path the tree is answering.
+  pub async fn render_not_found(
+    &self,
+    path: &str,
+    mode: RenderMode,
+    session: SessionCell,
+  ) -> Result<Option<BoxStream<'static, String>>, HostError> {
+    let Some(plan) = &self.app.not_found else { return Ok(None) };
+    let (path, raw_query) = path.split_once('?').unwrap_or((path, ""));
+    let mut params = Params::new();
+    params.insert("path".to_owned(), path.to_owned());
+    Ok(Some(self.render_plan(plan, params, parse_query(raw_query), mode, session).await?))
+  }
+
+  async fn render_plan(
+    &self,
+    plan: &PlanNode,
+    params: Params,
+    query: Params,
+    mode: RenderMode,
+    session: SessionCell,
+  ) -> Result<BoxStream<'static, String>, HostError> {
     let services = self.app.services.bind(session.identity(), Arc::new(snapfire_fsr_service::NoCredentials));
-    let ctx = RequestCtx { params: matched.params, query, session, csrf: None, services };
-    let assembly = assemble(&self.app.runtime, &plan, &ctx, &self.head).await?;
+    let ctx = RequestCtx { params, query, session, csrf: None, services };
+    let assembly = assemble(&self.app.runtime, plan, &ctx, &self.head).await?;
     Ok(match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
       RenderMode::Payload => Box::pin(wire_stream(assembly)),
@@ -293,22 +319,30 @@ impl Host {
     };
     tracing::info!(target: "fsr::host", path = %path, payload = (mode == RenderMode::Payload), "request");
 
-    match self.render(&target, mode, opened.cell.clone()).await {
-      Ok(chunks) => {
+    let rendered = match self.render(&target, mode, opened.cell.clone()).await {
+      Ok(chunks) => Ok((StatusCode::OK, chunks)),
+      Err(HostError::NotFound(path)) => match self.render_not_found(&target, mode, opened.cell.clone()).await {
+        Ok(Some(chunks)) => Ok((StatusCode::NOT_FOUND, chunks)),
+        Ok(None) => return text_response(StatusCode::NOT_FOUND, format!("no route: {path}")),
+        Err(e) => Err(e),
+      },
+      Err(e) => Err(e),
+    };
+    match rendered {
+      Ok((status, chunks)) => {
         let content_type = match mode {
           RenderMode::Html => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
         };
         let body = StreamBody::new(chunks.map(|c| Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(c)))));
         let mut response = Response::builder()
-          .status(StatusCode::OK)
+          .status(status)
           .header(header::CONTENT_TYPE, content_type)
           .body(body.boxed_unsync())
           .expect("a response with a valid header");
         self.set_cookie(&opened, &mut response).await;
         response
       }
-      Err(HostError::NotFound(path)) => text_response(StatusCode::NOT_FOUND, format!("no route: {path}")),
       Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
   }
@@ -408,6 +442,11 @@ impl HostBuilder {
 
   pub fn route(mut self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self {
     self.app_mut(|app| app.route(pattern, plan));
+    self
+  }
+
+  pub fn not_found(mut self, plan: impl IntoPlan) -> Self {
+    self.app_mut(|app| app.not_found(plan));
     self
   }
 

@@ -23,7 +23,7 @@ The binding rule: a plan file plus Rust registrations become an `App`, or a refu
 
 Everything a request needs, plus what was bound to produce it.
 
-* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`
+* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub not_found: Option<PlanNode>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match.
 * `App::builder(routes: Routes) -> AppBuilder`: from routes alone, no plan file.
 * `App::from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: the plan file's text; its routes, its lowered sources, actions and components and its declared actions are remembered for `build`.
 
@@ -43,6 +43,7 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::cache(self, cache: Arc<dyn NodeCache>) -> Self`
 * `AppBuilder::route(self, pattern, plan: impl IntoPlan) -> Self`
 * `AppBuilder::route_override(self, pattern, plan: impl IntoPlan) -> Self`
+* `AppBuilder::not_found(self, plan: impl IntoPlan) -> Self`: `Routes::not_found` on the builder's routes.
 * `AppBuilder::build(self) -> Result<App, BindError>`: binds every lowered source and action not overridden, the lowered components under the IR evaluator, checks every override names something, every named source and declared action is answered and every pattern is one the matcher accepts, then assembles the runtime and the report. A lowered action with an input type is wrapped so the value is checked against the contract before its body runs, failing as `Invalid`.
 
 ## 2. Routes and Plans
@@ -53,9 +54,11 @@ Routes from the plan file, from Rust or both. A pattern claimed twice is refused
 
 * `pub struct Routes`, `Default`.
 * `Routes::new() -> Self`
-* `Routes::from_manifest(source: &str) -> Result<Self, BindError>`: every route in the file, owned by `PlanFile`.
+* `Routes::from_manifest(source: &str) -> Result<Self, BindError>`: every route in the file, owned by `PlanFile`, plus the file's not-found tree when it has one.
 * `Routes::add(self, pattern, plan: impl IntoPlan) -> Self`: owned by `Rust`; a plan that fails to convert is kept as the error `build` returns.
 * `Routes::replace(self, pattern, plan: impl IntoPlan) -> Self`: owned by `RustOverride`, replacing the entry with that pattern.
+* `Routes::not_found(self, plan: impl IntoPlan) -> Self`: the tree for a path no route matches, replacing the plan file's; its sources count as declared.
+* `Routes::has_not_found(&self) -> bool`
 * `Routes::patterns(&self) -> Vec<&str>`
 * `Routes::build(self) -> Result<(MatchitMatcher, TableResolver), BindError>`: entry ids are positions in file order followed by Rust order.
 

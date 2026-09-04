@@ -8,7 +8,7 @@ The question this chapter answers: how does a directory become a route, where do
 
 Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern: `routes/index/` is `/`, `routes/cart/` is `/cart`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart`; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
 
-Beside the page a route may have a `loader.ts`, an `actions.ts`, an `error.tsx` and a `loading.tsx`. The build discovers all four, so adding a file is the whole of registering it. The report lists the pattern beside the directory:
+Beside the page a route may have a `loader.ts`, an `actions.ts`, an `error.tsx` and a `loading.tsx`. The build discovers all four, so adding a file is the whole of registering it. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
 
 ```
 routes    /                      routes/index
@@ -45,11 +45,15 @@ An `error.tsx` beside a route (or `routes/error.tsx` for all of them) receives `
 
 A `loading.tsx` marks the route deferred: the document ships with the loading module in the page's slot and the real page streams in when the loader finishes, filling the slot in place. Streaming is a property of the plan, declared by the file's presence, not something the page or the loader has to do.
 
+A `routes/not-found.tsx` answers a path no route matches. The host renders it like any page, inside the shell and hydrated, with status 404 and `params.path` carrying the path asked for; without one the answer is a line of text. It is not a route, so it has no loader and no pattern, and a link to it from a page is a full load rather than a client navigation.
+
 ## Navigation keeps what did not change
 
 Links are ordinary anchors. With navigation enabled, a same-origin click fetches the destination's payload rather than a new document. Every region of a page carries a segment key, the module plus the parameters and query that produced it; the client walks the old and new payloads together, replacing only the region whose key differs. A region that did not change keeps its DOM and its island state. The shell survives every click, since its module and inputs never change; a page's own region is replaced when its module or its inputs do, which is what a click from the catalog into a product asks for.
 
 The key includes the query string, which is why `/` and `/?q=filament` are different segments: a search that changed the results must replace the grid; a key that ignored the query would patch nothing.
+
+The payload is usually already there when the click lands. Moving the pointer over a link, focusing it or touching it fetches its payload and holds it for thirty seconds, so the click applies what is held and the loader ran while the user was still deciding; a back or forward inside that window makes no request either. An action that revalidates drops everything held, so nothing from before the mutation is shown after it. A link whose loader should not run speculatively says `data-sf-prefetch="none"`.
 
 ## The lab
 

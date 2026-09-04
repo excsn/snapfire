@@ -38,6 +38,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Shell** is the module every route's root node renders through, `shell#document` unless told otherwise.
 * **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page.
 * **Loading module** is a route's `loading.tsx`; its presence marks the node deferred with that fallback.
+* **Not-found module** is `routes/not-found.tsx`, rendered with status 404 for a path no route matches; it receives `params.path`.
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
 * **Client** is a document under `clients/`, `<name>.openapi.json` or `<name>.proto`, imported as the service `<name>`; the host reaches the first over HTTP and the second over gRPC.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
@@ -54,6 +55,7 @@ app/
   schemas/   session.ts  cart.ts
   routes/
     error.tsx
+    not-found.tsx
     index/         page.tsx  loader.ts
     product/[id]/  page.tsx  loader.ts
     cart/          page.tsx  loader.ts  actions.ts
@@ -94,6 +96,14 @@ routes/admin/users/page.tsx      /admin/users     source id admin.users
 ```
 
 Routes are emitted sorted by pattern, so entry ids are stable across builds regardless of file system order.
+
+A `not-found.tsx` at the top of `routes/` is not a route. It is the page the host renders with status 404 when nothing matches. It receives the path it is answering as `params.path`:
+
+```tsx
+export default function NotFound({ params }: { params: { path: string } }) {
+  return <h1>No page at {params.path}</h1>;
+}
+```
 
 ## Writing a Loader
 

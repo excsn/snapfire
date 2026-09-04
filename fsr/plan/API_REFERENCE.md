@@ -33,16 +33,18 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry> }`. `sources`, `actions` and `components` are absent from the file when empty.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node> }`. `sources`, `actions` and `components` are absent from the file when empty; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
 * `Manifest::with_components(self, components: Vec<ComponentEntry>) -> Self`
+* `Manifest::with_not_found(self, not_found: Option<Node>) -> Self`
 * `Manifest::from_json(source: &str) -> Result<Self, PlanError>`: parses, checks the version and refuses a `lowered` source or action row with no body.
 * `Manifest::to_json(&self) -> String`: pretty-printed, in field order.
 * `Manifest::routes(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the runtime's trees in file order; refuses an empty pattern, a malformed module id, a node id used twice within one route and a slot used twice on one node.
-* `Manifest::sources(&self) -> Vec<String>`: every data source any tree names, once, in tree order.
-* `Manifest::modules(&self) -> Vec<String>`: every module any tree names, fallback and error modules included, once, in tree order.
+* `Manifest::not_found(&self) -> Result<Option<PlanNode>, PlanError>`: the not-found tree, checked like a route's, at `not_found`.
+* `Manifest::sources(&self) -> Vec<String>`: every data source any tree names, the not-found tree included, once, in tree order.
+* `Manifest::modules(&self) -> Vec<String>`: every module any tree names, fallback, error and not-found modules included, once, in tree order.
 * `Manifest::action_ids(&self) -> Vec<String>`
 * `Manifest::lowered_sources(&self) -> impl Iterator<Item = &SourceEntry>`: the rows whose owner is `Lowered`.
 * `Manifest::lowered_actions(&self) -> impl Iterator<Item = &ActionEntry>`

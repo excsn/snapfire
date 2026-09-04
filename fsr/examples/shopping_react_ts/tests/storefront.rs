@@ -147,9 +147,13 @@ fn a_call_the_contract_rejects_never_reaches_the_backend() {
 }
 
 #[test]
-fn an_unmatched_path_is_not_found() {
+fn an_unmatched_path_renders_the_not_found_page() {
   let app = app_over(Arc::new(MockTransport::new()));
   assert!(block_on(app.render_to_string("/nope", RenderMode::Html, SessionCell::default())).is_err());
+  let chunks = block_on(app.render_not_found("/nope?x=1", RenderMode::Html, SessionCell::default())).unwrap().expect("routes/not-found.tsx is the page");
+  let html = block_on(chunks.collect::<Vec<String>>()).concat();
+  assert!(html.contains("data-sf-module=\"routes/not-found.tsx#default\""), "{html}");
+  assert!(html.contains("No page at <!-- -->/nope"), "the path reaches the page as params.path: {html}");
 }
 
 #[test]
@@ -186,6 +190,7 @@ fn the_plan_file_names_what_a_host_must_bind() {
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));
   assert!(manifest.modules().contains(&"routes/error.tsx#default".to_owned()), "error modules count");
+  assert!(manifest.modules().contains(&"routes/not-found.tsx#default".to_owned()), "the not-found tree counts");
 }
 
 #[test]
