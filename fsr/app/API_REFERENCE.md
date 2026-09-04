@@ -32,6 +32,7 @@ The route handlers a host dispatches before matching a page.
 * `Handlers::match_request(&self, method: &str, path: &str) -> Option<HandlerMatch>`: the handler id and the pattern's parameters; the method is matched case-insensitively.
 * `Handlers::dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>`
 * `Handlers::ids(&self) -> Vec<String>`; `Handlers::is_empty(&self) -> bool`.
+* `App::invalidate(&self, plan_key: &str) -> usize` (async): drops every cached subtree under the plan `cache_key` and says how many went.
 * `App::builder(routes: Routes) -> AppBuilder`: from routes alone, no plan file.
 * `App::from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: the plan file's text; its routes, its lowered sources, actions and components and its declared actions are remembered for `build`.
 

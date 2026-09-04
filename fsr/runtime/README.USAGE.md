@@ -507,19 +507,19 @@ let runtime = Runtime::builder()
   .build();
 ```
 
-The key the cache actually sees is composed by the assembler, not by the plan. It is four fields joined by `|`:
+The key the cache actually sees is composed by the assembler, not by the plan. It is five fields joined by `|`:
 
 ```text
-{plan cache_key}|{k=v pairs, sorted, joined by &}|ident={identity subject or -}|{16 hex digits of the subtree data fingerprint}
+{plan cache_key}|{k=v pairs, sorted, joined by &}|ident={identity subject or -}|csrf={token or -}|{16 hex digits of the subtree data fingerprint}
 ```
 
 So a request for `/dash/servers` as `alice`, whose loader returned the fingerprint `3f2a...`, looks up:
 
 ```text
-dash_page|section=servers|ident=alice|3f2a9c1d40b7e558
+dash_page|section=servers|ident=alice|csrf=-|3f2a9c1d40b7e558
 ```
 
-Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another; an anonymous request keys on `-`. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
+Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another; an anonymous request keys on `-`. The CSRF token is injected into props, so it is in the key too when a host sets one, and `-` when none does. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
 
 Three things disqualify a subtree from caching:
 
@@ -569,7 +569,7 @@ Tags are keys and revalidation is invalidation: after an action mutates the flee
 impl NodeCache for MyCache {
   fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>> { /* ... */ }
   fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()> { /* ... */ }
-  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()> { /* ... */ }
+  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize> { /* ... */ }
 }
 ```
 

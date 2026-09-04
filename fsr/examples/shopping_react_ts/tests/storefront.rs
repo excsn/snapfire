@@ -415,6 +415,31 @@ fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
 }
 
 #[test]
+fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
+  let transport = Arc::new(
+    MockTransport::new()
+      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.getProduct", product(1, "Nozzle", 1200, 3))
+      .returns("inventory.getStock", stock(1)),
+  );
+  let app = app_over(transport.clone());
+  let render = |path: &str| block_on(app.render_to_string(path, RenderMode::Html, SessionCell::default())).unwrap();
+
+  let first = render("/");
+  assert_eq!(render("/"), first);
+  assert_eq!(transport.calls().iter().filter(|(p, _, _)| p == "shopping.listProducts").count(), 2, "data resolves before render, so a hit still asks the service");
+  assert_eq!(block_on(app.invalidate("routes/index/page.tsx#default")), 1, "two renders with one answer share an entry");
+  assert_eq!(block_on(app.invalidate("routes/layout.tsx#default")), 1, "the layout's subtree, page included, is its own entry");
+  assert_eq!(block_on(app.invalidate("shell#document")), 0, "the shell uses the head and is never written");
+  assert_eq!(block_on(app.invalidate("routes/index/page.tsx#default")), 0);
+
+  render("/product/1");
+  render("/product/2");
+  assert_eq!(block_on(app.invalidate("routes/product/[id]/page.tsx#default")), 2, "one entry per distinct params");
+  assert_eq!(block_on(app.invalidate("routes/layout.tsx#default")), 0, "the product page streams behind loading.tsx, so its layout never caches");
+}
+
+#[test]
 fn a_handler_written_in_rust_sits_beside_the_lowered_ones() {
   let app = Host::from(env!("CARGO_MANIFEST_DIR"))
     .unwrap()

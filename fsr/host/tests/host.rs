@@ -20,7 +20,7 @@ const PLAN: &str = r#"{
     { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
       { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
     { "pattern": "/hello/{name}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/hello/page.tsx#default", "source": "hello" } } ] } }
+      { "slot": "content", "node": { "id": 1, "module": "routes/hello/page.tsx#default", "source": "hello", "cache_key": "routes/hello/page.tsx#default" } } ] } }
   ],
   "sources": [
     { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
@@ -317,4 +317,32 @@ fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
   assert_eq!(config.session.ttl, "4h");
 
   std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[tokio::test]
+async fn a_cache_section_installs_the_render_memo_and_the_report_says_so() {
+  let dir = app_dir();
+  let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{base}\n[cache]\nttl = \"5m\"\n")).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  assert!(host.report.to_string().contains("cache     1000 entries, ttl 5m"), "{}", host.report);
+
+  host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  host.render_to_string("/hello/ada", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert_eq!(host.invalidate("routes/hello/page.tsx#default").await, 2, "one entry per distinct params");
+  assert_eq!(host.invalidate("routes/hello/page.tsx#default").await, 0);
+
+  std::fs::write(dir.join("app.toml"), format!("{base}\n[cache]\nttl = \"soon\"\n")).unwrap();
+  let Err(err) = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build() else { panic!("a lifetime nobody can parse must refuse to start") };
+  assert!(err.to_string().contains("cache.ttl"), "{err}");
+}
+
+#[tokio::test]
+async fn without_a_cache_section_nothing_is_cached() {
+  let (host, _) = host();
+  assert!(!host.report.to_string().contains("cache "), "{}", host.report);
+  host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert_eq!(host.invalidate("routes/hello/page.tsx#default").await, 0);
 }

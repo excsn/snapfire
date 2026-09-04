@@ -218,6 +218,11 @@ pub struct AppBuilder {
 }
 
 impl App {
+  /// Drops every cached subtree under the plan `cache_key` and says how many went.
+  pub async fn invalidate(&self, plan_key: &str) -> usize {
+    self.runtime.cache.invalidate(plan_key).await
+  }
+
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
       routes,

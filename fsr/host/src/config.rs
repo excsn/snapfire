@@ -23,6 +23,8 @@ pub struct Config {
   pub server: ServerConfig,
   pub document: DocumentConfig,
   pub session: SessionSection,
+  /// The render memo; absent means nothing is cached.
+  pub cache: Option<CacheSection>,
   pub clients: BTreeMap<String, ClientConfig>,
   pub statics: Vec<StaticRoot>,
   /// Which settings were inferred rather than written, for the report.
@@ -96,6 +98,26 @@ pub struct SessionSection {
   pub secure: bool,
 }
 
+/// The render memo: evaluated subtrees keyed by plan node, params, identity
+/// and a fingerprint of their data, so a hit skips evaluation and a data
+/// change is a miss. `ttl` bounds how long an entry nobody invalidates lives.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheSection {
+  #[serde(default = "default_cache_capacity")]
+  pub capacity: u64,
+  #[serde(default = "default_cache_ttl")]
+  pub ttl: String,
+}
+
+fn default_cache_capacity() -> u64 {
+  1000
+}
+
+fn default_cache_ttl() -> String {
+  "1m".to_owned()
+}
+
 /// A service the application calls. `document` defaults to
 /// `clients/<name>.openapi.json` under the app directory, or
 /// `clients/<name>.proto` when that is the file present; a `.proto` document
@@ -115,7 +137,7 @@ pub struct StaticRoot {
   pub dir: String,
 }
 
-const SECTIONS: &[&str] = &["app", "server", "document", "session", "clients", "static"];
+const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static"];
 
 fn default_app_dir() -> String {
   "app".to_owned()
@@ -278,6 +300,7 @@ impl Config {
       return Err(HostError::Config(at.clone(), "missing section `session`; `session.key` is required".to_owned()));
     }
     let session: SessionSection = store.get_into_struct("session").map_err(fail)?;
+    let cache: Option<CacheSection> = if store.path_exists("cache") { Some(store.get_into_struct("cache").map_err(fail)?) } else { None };
 
     let mut clients = BTreeMap::new();
     let mut names: Vec<String> = store
@@ -361,7 +384,7 @@ impl Config {
       }
     }
 
-    Ok(Self { root, app, sources: located.sources, server, document, session, clients, statics, inferred })
+    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, inferred })
   }
 
   /// A path from the file, against the app directory.
@@ -371,6 +394,12 @@ impl Config {
 
   pub fn session_ttl(&self) -> Result<Duration, HostError> {
     parse_duration(&self.session.ttl).ok_or_else(|| HostError::Value("session.ttl".to_owned(), self.session.ttl.clone()))
+  }
+
+  /// The cache lifetime, `None` when no `[cache]` section is written.
+  pub fn cache_ttl(&self) -> Result<Option<Duration>, HostError> {
+    let Some(cache) = &self.cache else { return Ok(None) };
+    parse_duration(&cache.ttl).map(Some).ok_or_else(|| HostError::Value("cache.ttl".to_owned(), cache.ttl.clone()))
   }
 }
 

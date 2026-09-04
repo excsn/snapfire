@@ -328,12 +328,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
     let content = Node {
       id: wrapping.len() as u32 + 1,
-      module: page,
+      module: page.clone(),
       source,
       deferred: loading.is_some(),
       fallback: loading,
       error: local_error.or_else(|| error_module.clone()),
-      cache_key: None,
+      cache_key: Some(page),
       children: Vec::new(),
     };
     let content = wrap_in_layouts(content, &wrapping, error_module.as_deref());
@@ -384,7 +384,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let not_found = not_found_module.map(|module| {
     let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| l.dir == routes_dir).collect();
-    let content = Node { id: wrapping.len() as u32 + 1, module, source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: None, children: Vec::new() };
+    let content = Node { id: wrapping.len() as u32 + 1, module: module.clone(), source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: Some(module), children: Vec::new() };
     Node {
       id: 0,
       module: options.shell.clone(),
@@ -635,7 +635,7 @@ fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: Option<&str>)
       deferred: false,
       fallback: None,
       error: error.map(str::to_owned),
-      cache_key: None,
+      cache_key: Some(layout.module.clone()),
       children: vec![Child { slot: "content".to_owned(), node }],
     };
   }
