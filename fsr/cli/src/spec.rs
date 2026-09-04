@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use snapfire_fsr_core::{Params, Value, ValueMap};
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
 use snapfire_fsr_host::config::Config;
-use snapfire_fsr_host::{Host, HostError, RenderMode};
+use snapfire_fsr_host::{Host, HostError, Preflight, PreflightAction, RenderMode};
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_ir::{Body, Interpreter};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
@@ -113,7 +113,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
       handler_matcher.insert(&row.method, &row.pattern, row.id.clone()).map_err(|e| BuildError::Dev(format!("{}: {e}", row.pattern)))?;
     }
   }
-  let handlers = Arc::new((handlers, handler_matcher));
+  let handlers = Arc::new((handlers, handler_matcher, built.manifest.middleware.clone().map(Arc::new)));
   let calls = JsCalls::new();
   let current = Arc::new(AtomicU32::new(0));
   let records = Records::default();
@@ -419,7 +419,7 @@ struct IdentitySpec {
   claims: serde_json::Value,
 }
 
-type Handlers = Arc<(HashMap<String, (Option<String>, Arc<Body>)>, HandlerMatcher)>;
+type Handlers = Arc<(HashMap<String, (Option<String>, Arc<Body>)>, HandlerMatcher, Option<Arc<Body>>)>;
 
 struct SpecHooks {
   contract: Arc<Contract>,
@@ -491,7 +491,7 @@ impl SpecHooks {
 }
 
 fn json_response(status: u16, json: serde_json::Value) -> FetchResponse {
-  FetchResponse { status, body: json.to_string() }
+  FetchResponse { headers: Vec::new(), status, body: json.to_string() }
 }
 
 impl Hooks for SpecHooks {
@@ -535,100 +535,161 @@ impl Hooks for SpecHooks {
   fn fetch(&self, method: String, url: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
     let target = url.strip_prefix("http://localhost").unwrap_or(&url).to_owned();
     let (path, query) = target.split_once('?').map(|(p, q)| (p.to_owned(), q.to_owned())).unwrap_or((target.clone(), String::new()));
-    let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
-    let Some(id) = action.filter(|_| method == "POST") else {
-      if let Some(found) = self.handlers.1.match_request(&method, &path) {
-        return self.handler(found.id, found.params, query, body);
-      }
-      return self.page(method, path, query, target);
-    };
-    let Some(body_ir) = self.actions.get(&id).cloned() else {
-      let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
-      return Box::pin(async move { json_response(501, serde_json::json!({ "kind": "internal", "message": message })) });
-    };
     let mock = match self.get(self.current.load(Ordering::Relaxed)) {
       Ok(mock) => mock,
       Err(m) => return Box::pin(async move { json_response(500, serde_json::json!({ "kind": "internal", "message": m })) }),
     };
-    let input = match body.as_deref().map(serde_json::from_str::<serde_json::Value>) {
-      Some(Ok(json)) => match json_to_value(&json) {
-        Ok(value) => value,
-        Err(e) => return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })) }),
-      },
-      Some(Err(e)) => return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })) }),
-      None => mock.input.clone().unwrap_or(Value::Null),
-    };
+    let middleware = self.handlers.2.clone();
     let interpreter = self.interpreter.clone();
+    let hooks = self.clone_for_fetch();
     Box::pin(async move {
-      match interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
-        Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
-        Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
-      }
+      let preflight = match middleware {
+        Some(body_ir) => {
+          let mut request = ValueMap::new();
+          request.insert("method".to_owned(), Value::Str(method.clone()));
+          request.insert("path".to_owned(), Value::Str(path.clone()));
+          let mut ctx = mock.ctx.clone();
+          ctx.params = Params::new();
+          ctx.query = parse_query(&query);
+          match interpreter.run(&body_ir, &ctx, Some(Value::Map(request))).await {
+            Ok(outcome) => match Preflight::from_value(&outcome.value) {
+              Ok(preflight) => preflight,
+              Err(message) => return json_response(500, serde_json::json!({ "kind": "internal", "message": message })),
+            },
+            Err(fail) => return json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+          }
+        }
+        None => Preflight::pass(),
+      };
+      let (path, query, target) = match &preflight.action {
+        PreflightAction::Continue => (path, query, target),
+        PreflightAction::Rewrite(to) => {
+          let (to_path, to_query) = to.split_once('?').unwrap_or((to.as_str(), ""));
+          let query = if to_query.is_empty() { query } else { to_query.to_owned() };
+          let target = if query.is_empty() { to_path.to_owned() } else { format!("{to_path}?{query}") };
+          (to_path.to_owned(), query, target)
+        }
+        PreflightAction::Redirect { to, status } => {
+          let mut response = FetchResponse::new(*status, "").header("location", to.clone());
+          response.headers.extend(preflight.headers.iter().cloned());
+          return response;
+        }
+        PreflightAction::Respond { status, body } => {
+          let mut response = match body {
+            Value::Null => FetchResponse::new(*status, ""),
+            Value::Str(text) => FetchResponse::new(*status, text.clone()),
+            other => FetchResponse::new(*status, value_to_json(other).to_string()),
+          };
+          response.headers.extend(preflight.headers.iter().cloned());
+          return response;
+        }
+      };
+      let mut response = hooks.dispatch(method, path, query, target, body).await;
+      response.headers.extend(preflight.headers.iter().cloned());
+      response
     })
   }
 }
 
 impl SpecHooks {
-  /// A lowered handler run under the current ctx with the matched params, the URL's query and the request body as its input.
-  fn handler(&self, id: String, params: Params, query: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
-    let Some((input_type, body_ir)) = self.handlers.0.get(&id).cloned() else {
-      return Box::pin(async move { json_response(501, serde_json::json!({ "kind": "internal", "message": format!("`{id}` is not a lowered handler") })) });
+  /// The parts of the hooks a fetch needs once the middleware has run.
+  fn clone_for_fetch(&self) -> FetchHooks {
+    FetchHooks { actions: self.actions.clone(), handlers: self.handlers.clone(), contract: self.contract.clone(), interpreter: self.interpreter.clone(), current_ctx: self.get(self.current.load(Ordering::Relaxed)).ok(), host: self.host.clone() }
+  }
+}
+
+struct FetchHooks {
+  actions: HashMap<String, Arc<Body>>,
+  handlers: Handlers,
+  contract: Arc<Contract>,
+  interpreter: Interpreter,
+  current_ctx: Option<Rc<MockCtx>>,
+  host: Option<Arc<Host>>,
+}
+
+impl FetchHooks {
+  async fn dispatch(&self, method: String, path: String, query: String, target: String, body: Option<String>) -> FetchResponse {
+    let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
+    let Some(id) = action.filter(|_| method == "POST") else {
+      if let Some(found) = self.handlers.1.match_request(&method, &path) {
+        return self.handler(found.id, found.params, query, body).await;
+      }
+      return self.page(method, path, query, target).await;
     };
-    let mock = match self.get(self.current.load(Ordering::Relaxed)) {
-      Ok(mock) => mock,
-      Err(m) => return Box::pin(async move { json_response(500, serde_json::json!({ "kind": "internal", "message": m })) }),
+    let Some(body_ir) = self.actions.get(&id).cloned() else {
+      let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
+      return json_response(501, serde_json::json!({ "kind": "internal", "message": message }));
+    };
+    let Some(mock) = self.current_ctx.clone() else {
+      return json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" }));
+    };
+    let input = match body.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+      Some(Ok(json)) => match json_to_value(&json) {
+        Ok(value) => value,
+        Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+      },
+      Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+      None => mock.input.clone().unwrap_or(Value::Null),
+    };
+    match self.interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
+      Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
+      Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+    }
+  }
+
+  /// A lowered handler run under the current ctx with the matched params, the URL's query and the request body as its input.
+  async fn handler(&self, id: String, params: Params, query: String, body: Option<String>) -> FetchResponse {
+    let Some((input_type, body_ir)) = self.handlers.0.get(&id).cloned() else {
+      return json_response(501, serde_json::json!({ "kind": "internal", "message": format!("`{id}` is not a lowered handler") }));
+    };
+    let Some(mock) = self.current_ctx.clone() else {
+      return json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" }));
     };
     let input = match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
       Some(Ok(json)) => match json_to_value(&json) {
         Ok(value) => value,
-        Err(e) => return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })) }),
+        Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
       },
-      Some(Err(e)) => return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })) }),
+      Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
       None => Value::Null,
     };
     if let Some(name) = input_type {
       if let Err(e) = self.contract.check_value(&Type::Named(name), &input, "input") {
-        let message = e.to_string();
-        return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": message })) });
+        return json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() }));
       }
     }
     let mut ctx = mock.ctx.clone();
     ctx.params = params;
     ctx.query = parse_query(&query);
-    let interpreter = self.interpreter.clone();
-    Box::pin(async move {
-      match interpreter.run(&body_ir, &ctx, Some(input)).await {
-        Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
-        Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
-      }
-    })
+    match self.interpreter.run(&body_ir, &ctx, Some(input)).await {
+      Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
+      Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+    }
   }
 
   /// A route rendered by the host under the current ctx: the document, or the wire payload when the query carries `__payload`.
-  fn page(&self, method: String, path: String, query: String, target: String) -> LocalBoxFuture<'static, FetchResponse> {
+  async fn page(&self, method: String, path: String, query: String, target: String) -> FetchResponse {
     let Some(host) = self.host.clone() else {
       let message = format!("fsr test answers POST /_sf/action/<id>, and GET of a route when config/app.toml is beside the app; not {method} {path}");
-      return Box::pin(async move { json_response(404, serde_json::json!({ "kind": "not_found", "message": message })) });
+      return json_response(404, serde_json::json!({ "kind": "not_found", "message": message }));
     };
     if method != "GET" {
-      return Box::pin(async move { FetchResponse { status: 405, body: format!("{method} {path}: a route is fetched with GET") } });
+      return FetchResponse::new(405, format!("{method} {path}: a route is fetched with GET"));
     }
-    let session = match self.get(self.current.load(Ordering::Relaxed)) {
-      Ok(mock) => mock.ctx.session.clone(),
-      Err(m) => return Box::pin(async move { FetchResponse { status: 500, body: m } }),
+    let Some(mock) = self.current_ctx.clone() else {
+      return FetchResponse::new(500, "no current ctx");
     };
+    let session = mock.ctx.session.clone();
     let mode = if query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
-    Box::pin(async move {
-      match host.render_to_string(&target, mode, session.clone()).await {
-        Ok(body) => FetchResponse { status: 200, body },
-        Err(HostError::NotFound(path)) => match host.render_not_found(&target, mode, session).await {
-          Ok(Some(chunks)) => FetchResponse { status: 404, body: chunks.collect::<Vec<String>>().await.concat() },
-          Ok(None) => FetchResponse { status: 404, body: format!("no route: {path}") },
-          Err(e) => FetchResponse { status: 500, body: e.to_string() },
-        },
-        Err(e) => FetchResponse { status: 500, body: e.to_string() },
-      }
-    })
+    match host.render_to_string(&target, mode, session.clone()).await {
+      Ok(body) => FetchResponse::new(200, body),
+      Err(HostError::NotFound(path)) => match host.render_not_found(&target, mode, session).await {
+        Ok(Some(chunks)) => FetchResponse::new(404, chunks.collect::<Vec<String>>().await.concat()),
+        Ok(None) => FetchResponse::new(404, format!("no route: {path}")),
+        Err(e) => FetchResponse::new(500, e.to_string()),
+      },
+      Err(e) => FetchResponse::new(500, e.to_string()),
+    }
   }
 }
 

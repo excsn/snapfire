@@ -10,6 +10,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Writing a Loader](#writing-a-loader)
 * [Writing Actions](#writing-actions)
 * [Writing a Route Handler](#writing-a-route-handler)
+* [Writing Middleware](#writing-middleware)
 * [Importing a Service](#importing-a-service)
 * [Declaring the Session and Action Inputs](#declaring-the-session-and-action-inputs)
 * [Reading the Generated Types](#reading-the-generated-types)
@@ -35,6 +36,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Pattern** comes from the directory path: `index` is `/`, `[id]` is `{id}`, `[...rest]` is `{*rest}`.
 * **Source id** is the route's static segments joined with `.`, `index` for the root; it names the loader.
 * **Action id** is `<source id>.<export>`, so `routes/cart/actions.ts` exporting `checkout` is `cart.checkout`.
+* **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request`; it continues, redirects, rewrites, responds or adds headers.
 * **Handler** is an export of a directory's `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, answered with JSON rather than a document; its id is `<route id>.<METHOD>`. A directory is a page or a handler, never both.
 * **Module id** is the page's path with `#default`, `routes/cart/page.tsx#default`; the client registers islands under it.
 * **Shell** is the module every route's root node renders through, `shell#document` unless told otherwise.
@@ -160,6 +162,22 @@ export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => {
 ```
 
 The handler runs before any page is matched, sees the same `session`, `identity` and `services` a loader sees and writes the session the same way. A method the file does not export answers 404.
+
+## Writing Middleware
+
+`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method` and `request.path` plus the same `query`, `session`, `identity` and `services` a loader gets. What it returns decides the request: nothing continues; `redirect` answers with a `Location` and status 307 unless `status` says otherwise; `status` with an optional `body` answers outright, text for a string and JSON for anything else; `rewrite` serves another path under the same location; `headers` join the response in every case.
+
+```ts
+import type { MiddlewareCtx, MiddlewareResult } from "@snapfire/fsr";
+
+export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
+  if (request.path.startsWith("/account") && !identity) return { redirect: "/login" };
+  if (request.path === "/shop") return { rewrite: "/" };
+  return { headers: { "x-frame-options": "DENY" } };
+}
+```
+
+A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`.
 
 ## Importing a Service
 

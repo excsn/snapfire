@@ -100,6 +100,19 @@ impl Loader for FileLoader {
 pub struct FetchResponse {
   pub status: u16,
   pub body: String,
+  /// Response headers the page may read with `res.headers.get(name)`.
+  pub headers: Vec<(String, String)>,
+}
+
+impl FetchResponse {
+  pub fn new(status: u16, body: impl Into<String>) -> Self {
+    Self { status, body: body.into(), headers: Vec::new() }
+  }
+
+  pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+    self.headers.push((name.into(), value.into()));
+    self
+  }
 }
 
 /// What the runner answers for the page: the mock contexts a spec builds, the
@@ -339,7 +352,8 @@ impl Engine {
       return Ok(false);
     }
     for (id, response) in done {
-      self.call_global::<()>("__sf_complete", (id, response.status, response.body))?;
+      let headers: Vec<String> = response.headers.into_iter().flat_map(|(name, value)| [name, value]).collect();
+      self.call_global::<()>("__sf_complete", (id, response.status, response.body, headers))?;
     }
     Ok(true)
   }
@@ -422,7 +436,7 @@ mod tests {
       Ok(None)
     }
     fn fetch(&self, method: String, url: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
-      Box::pin(async move { FetchResponse { status: 200, body: format!("{{\"echo\":\"{method} {url} {}\"}}", body.unwrap_or_default().replace('"', "'")) } })
+      Box::pin(async move { FetchResponse { headers: Vec::new(), status: 200, body: format!("{{\"echo\":\"{method} {url} {}\"}}", body.unwrap_or_default().replace('"', "'")) } })
     }
   }
 

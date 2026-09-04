@@ -75,15 +75,18 @@ globalThis.fetch = (url, init = {}) =>
     pending.set(id, { resolve, reject });
   });
 
-globalThis.__sf_complete = (id, status, body) => {
+globalThis.__sf_complete = (id, status, body, headers) => {
   const p = pending.get(id);
   pending.delete(id);
   if (!p) return;
+  const flat = headers || [];
+  const pairs = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) pairs.push([flat[i], flat[i + 1]]);
   p.resolve({
     ok: status < 400,
     status,
     statusText: "",
-    headers: { get: () => null },
+    headers: { get: (name) => (pairs.find(([k]) => k.toLowerCase() === String(name).toLowerCase()) || [null, null])[1] },
     json: async () => JSON.parse(body),
     text: async () => body,
   });

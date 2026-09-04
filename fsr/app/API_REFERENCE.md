@@ -23,7 +23,7 @@ The binding rule: a plan file plus Rust registrations become an `App`, or a refu
 
 Everything a request needs, plus what was bound to produce it.
 
-* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub not_found: Option<PlanNode>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match.
+* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub middleware: Option<Arc<dyn ActionHandler>>, pub not_found: Option<PlanNode>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match. `middleware` runs before every request with `{ method, path }` as its input; what its value means is the host's reading, `snapfire_fsr_host::Preflight`.
 
 ### Handlers
 
@@ -48,6 +48,8 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::handler<F, Fut>(self, method, pattern, f: F) -> Self` with the same bounds as `action`: a Rust handler for `METHOD pattern`, reported by that name; `build` refuses it as `HandlerClaimed` when the plan lowers the same pair.
 * `AppBuilder::handler_override<F, Fut>(self, method, pattern, f: F) -> Self`: replaces the lowered handler for the pair; `HandlerOverridesNothing` when there is none.
 * `AppBuilder::handler_impl(self, method, pattern, handler: Arc<dyn ActionHandler>) -> Self`
+* `AppBuilder::middleware<F, Fut>(self, f: F) -> Self` with the same bounds as `action`: Rust middleware; `build` refuses it as `MiddlewareClaimed` when the plan lowers one.
+* `AppBuilder::middleware_override<F, Fut>(self, f: F) -> Self`: replaces the lowered middleware; `MiddlewareOverridesNothing` when there is none.
 * `AppBuilder::evaluator<P>(self, predicate: P, evaluator: Arc<dyn Evaluator>) -> Self` where `P: Fn(&ModuleId) -> bool + Send + Sync + 'static`
 * `AppBuilder::services(self, services: Arc<Services>) -> Self`: default is an empty registry.
 * `AppBuilder::contract(self, contract: Contract) -> Self`: required when any lowered action names an input type.
@@ -104,8 +106,8 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 
 `#[derive(Debug, Clone, Default, PartialEq, Eq)]`, `Display`.
 
-* `pub struct Report { pub routes: Vec<(String, Owner)>, pub sources: Vec<(String, Owner)>, pub actions: Vec<(String, Owner)>, pub handlers: Vec<(String, Owner)>, pub components: Vec<(String, Owner)> }`
-* `routes` and `handlers` sorted, the handler name being `METHOD pattern`; the rest in binding order. `Display` prints five labelled columns, `routes`, `sources`, `actions`, `handlers` and `rendered`.
+* `pub struct Report { pub routes: Vec<(String, Owner)>, pub sources: Vec<(String, Owner)>, pub actions: Vec<(String, Owner)>, pub handlers: Vec<(String, Owner)>, pub middleware: Option<Owner>, pub components: Vec<(String, Owner)> }`
+* `routes` and `handlers` sorted, the handler name being `METHOD pattern`; the rest in binding order. `Display` prints labelled columns, `routes`, `sources`, `actions`, `handlers`, `middleware` when there is one and `rendered`.
 
 ## 4. Error Handling
 
@@ -126,3 +128,5 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 * `HandlerClaimed(String)`: a handler lowered by the file and bound in Rust without an override; the string is `METHOD pattern`.
 * `HandlerOverridesNothing(String)`: a handler override the file has nothing for.
 * `UnboundHandler(String)`: a handler row with no body that no Rust handler answers.
+* `MiddlewareClaimed`: middleware lowered by the file and bound in Rust without an override.
+* `MiddlewareOverridesNothing`

@@ -55,6 +55,10 @@ pub struct Manifest {
   /// with a value rather than a document.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<HandlerEntry>,
+  /// The lowered `middleware.ts`, run before every request that is not a
+  /// static file.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub middleware: Option<Body>,
 }
 
 /// A handler row: `method` and `pattern` are what the host matches, `id` is
@@ -357,7 +361,11 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None, handlers: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None, handlers: Vec::new(), middleware: None }
+  }
+  pub fn with_middleware(mut self, middleware: Option<Body>) -> Self {
+    self.middleware = middleware;
+    self
   }
   pub fn with_handlers(mut self, handlers: Vec<HandlerEntry>) -> Self {
     self.handlers = handlers;

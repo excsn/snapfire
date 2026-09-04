@@ -231,9 +231,15 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
 }
 
 /** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
-export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<{ status: number }> {
+export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<{ status: number; path: string }> {
   sf().use(options.ctx?.id ?? 0);
-  const res = await fetch(path);
+  let res = await fetch(path);
+  for (let hops = 0; hops < 5 && res.status >= 300 && res.status < 400; hops++) {
+    const to = res.headers.get("location");
+    if (!to) break;
+    path = to;
+    res = await fetch(path);
+  }
   const html = await res.text();
   if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
   sf().load(html, path);
@@ -241,7 +247,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   boot();
   enableNavigation();
   await settle();
-  return { status: res.status };
+  return { status: res.status, path };
 }
 
 type Matcher = string | RegExp;

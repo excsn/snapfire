@@ -49,6 +49,10 @@ pub enum BindError {
   HandlerOverridesNothing(String),
   #[error("the plan declares handler `{0}`, which nothing answers")]
   UnboundHandler(String),
+  #[error("the middleware is lowered by the plan file and bound in Rust; mark the Rust one as an override")]
+  MiddlewareClaimed,
+  #[error("the middleware is marked an override but the plan lowers none")]
+  MiddlewareOverridesNothing,
 }
 
 /// Who answers a name.
@@ -80,6 +84,7 @@ pub struct Report {
   pub actions: Vec<(String, Owner)>,
   /// `METHOD pattern` per handler.
   pub handlers: Vec<(String, Owner)>,
+  pub middleware: Option<Owner>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
 }
@@ -102,6 +107,9 @@ impl std::fmt::Display for Report {
       let label = if i == 0 { "handlers" } else { "" };
       writeln!(f, "{label:<9} {handler:<22} {}", owner.as_str())?;
     }
+    if let Some(owner) = &self.middleware {
+      writeln!(f, "{:<9} {:<22} {}", "middleware", "middleware", owner.as_str())?;
+    }
     for (i, (module, owner)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<22} {}", owner.as_str())?;
@@ -116,6 +124,9 @@ pub struct App {
   pub resolver: TableResolver,
   /// Route handlers: a method and a pattern answered with a value.
   pub handlers: Handlers,
+  /// Runs before every request that is not a static file, with the request
+  /// line as its input.
+  pub middleware: Option<Arc<dyn ActionHandler>>,
   /// Rendered with status 404 for a path the matcher does not match.
   pub not_found: Option<PlanNode>,
   pub runtime: Arc<Runtime>,
@@ -179,6 +190,8 @@ fn handler_key(method: &str, pattern: &str) -> String {
 
 pub struct AppBuilder {
   routes: Routes,
+  lowered_middleware: Option<snapfire_fsr_ir::Body>,
+  rust_middleware: Option<(Arc<dyn ActionHandler>, Owner)>,
   declared_handlers: Vec<(String, String, String)>,
   lowered_handlers: Vec<(String, String, String, Option<String>, snapfire_fsr_ir::Body)>,
   rust_handlers: Vec<(String, String, Arc<dyn ActionHandler>, Owner)>,
@@ -202,6 +215,8 @@ impl App {
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
       routes,
+      lowered_middleware: None,
+      rust_middleware: None,
       declared_handlers: Vec::new(),
       lowered_handlers: Vec::new(),
       rust_handlers: Vec::new(),
@@ -238,6 +253,7 @@ impl App {
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
       .collect();
     builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
+    builder.lowered_middleware = parsed.middleware.clone();
     for row in &parsed.handlers {
       match &row.body {
         Some(body) => builder.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
@@ -370,6 +386,26 @@ impl AppBuilder {
     self
   }
 
+  /// Middleware written in Rust, called with the request line as its input.
+  /// Refused at `build` when the plan lowers one.
+  pub fn middleware<F, Fut>(mut self, f: F) -> Self
+  where
+    F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+  {
+    self.rust_middleware = Some((Arc::new(FnHandler(f)), Owner::Rust));
+    self
+  }
+
+  pub fn middleware_override<F, Fut>(mut self, f: F) -> Self
+  where
+    F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+  {
+    self.rust_middleware = Some((Arc::new(FnHandler(f)), Owner::RustOverride));
+    self
+  }
+
   pub fn handler_impl(mut self, method: impl Into<String>, pattern: impl Into<String>, handler: Arc<dyn ActionHandler>) -> Self {
     self.rust_handlers.push((method.into().to_ascii_uppercase(), pattern.into(), handler, Owner::Rust));
     self
@@ -453,6 +489,14 @@ impl AppBuilder {
       }
     }
 
+    let (middleware, middleware_owner): (Option<Arc<dyn ActionHandler>>, Option<Owner>) = match (self.rust_middleware.take(), self.lowered_middleware.take()) {
+      (Some((_, Owner::Rust)), Some(_)) => return Err(BindError::MiddlewareClaimed),
+      (Some((_, Owner::RustOverride)), None) => return Err(BindError::MiddlewareOverridesNothing),
+      (Some((handler, owner)), _) => (Some(handler), Some(owner)),
+      (None, Some(body)) => (Some(Arc::new(IrAction::new(body))), Some(Owner::Lowered)),
+      (None, None) => (None, None),
+    };
+
     let mut handlers = Handlers::default();
     let mut handler_rows: Vec<(String, Owner)> = Vec::new();
     let mut claimed_handlers: Vec<(String, Owner)> = Vec::new();
@@ -526,6 +570,7 @@ impl AppBuilder {
       sources,
       actions,
       handlers: handler_rows,
+      middleware: middleware_owner,
       components,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -549,6 +594,7 @@ impl AppBuilder {
       matcher,
       resolver,
       handlers,
+      middleware,
       not_found,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
