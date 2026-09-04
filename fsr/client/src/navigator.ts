@@ -96,12 +96,79 @@ function apply(payload: Payload): boolean {
   return true;
 }
 
-/** Revalidation after a mutation: re-fetches the current route's payload and force-replaces the top-level child segments, so the layout's DOM survives while mutated content refreshes. */
+interface Cached {
+  text: string;
+  at: number;
+}
+
+/** Payload text by `pathname + search` or the fetch still bringing it. */
+const cache = new Map<string, Cached | Promise<Cached | null>>();
+let cacheMs = 30_000;
+
+export type PrefetchTiming = "hover" | "none";
+
+export interface NavigationOptions {
+  /** Whether a link's payload is fetched ahead of its click (on hover, focus or touch) or never. Defaults to `"hover"`. */
+  prefetch?: PrefetchTiming;
+  /** How long a fetched payload answers a navigation before it is fetched again. Defaults to 30 seconds. */
+  cacheMs?: number;
+}
+
+function payloadUrl(url: URL): string {
+  return `${url.pathname}${url.search}${url.search ? "&" : "?"}__payload`;
+}
+
+function cacheKey(url: URL): string {
+  return `${url.pathname}${url.search}`;
+}
+
+async function fetchPayload(url: URL): Promise<Cached | null> {
+  const key = cacheKey(url);
+  const inflight = (async () => {
+    const res = await fetch(payloadUrl(url));
+    if (!res.ok) return null;
+    return { text: await res.text(), at: performance.now() };
+  })();
+  cache.set(key, inflight);
+  const entry = await inflight;
+  if (cache.get(key) === inflight) {
+    if (entry) {
+      cache.set(key, entry);
+    } else {
+      cache.delete(key);
+    }
+  }
+  return entry;
+}
+
+/** The route's payload from the cache while it is fresh, else fetched and cached. `null` is a response that was not ok. */
+async function payloadFor(url: URL): Promise<Cached | null> {
+  const held = cache.get(cacheKey(url));
+  if (held instanceof Promise) return held;
+  if (held && performance.now() - held.at < cacheMs) return held;
+  return fetchPayload(url);
+}
+
+/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. */
+export function prefetch(href: string): Promise<void> {
+  const url = new URL(href, window.location.href);
+  if (url.origin !== window.location.origin) return Promise.resolve();
+  const held = cache.get(cacheKey(url));
+  if (held instanceof Promise || (held && performance.now() - held.at < cacheMs)) return Promise.resolve();
+  return fetchPayload(url).then(() => undefined);
+}
+
+/** Drops every held payload, which is what a mutation calls for. */
+export function clearRouterCache(): void {
+  cache.clear();
+}
+
+/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and force-replaces the top-level child segments, so the layout's DOM survives while mutated content refreshes. */
 export async function refresh(): Promise<void> {
   const bail = () => window.location.reload();
   if (!current) return bail();
-  const search = window.location.search;
-  const res = await fetch(`${window.location.pathname}${search}${search ? "&" : "?"}__payload`);
+  cache.clear();
+  const res = await fetch(payloadUrl(new URL(window.location.href)));
   if (!res.ok) return bail();
   const payload = parsePayload(await res.text());
   if (!payload.segments) return bail();
@@ -124,15 +191,14 @@ export async function refresh(): Promise<void> {
 
 export async function navigate(href: string, push = true): Promise<void> {
   const url = new URL(href, window.location.href);
-  const fetchUrl = `${url.pathname}${url.search}${url.search ? "&" : "?"}__payload`;
-  const res = await fetch(fetchUrl);
-  if (!res.ok) {
+  const held = await payloadFor(url);
+  if (!held) {
     window.location.assign(href);
     return;
   }
   let patched = false;
   try {
-    patched = apply(parsePayload(await res.text()));
+    patched = apply(parsePayload(held.text));
   } catch {
     patched = false;
   }
@@ -144,24 +210,41 @@ export async function navigate(href: string, push = true): Promise<void> {
   window.scrollTo(0, 0);
 }
 
-/** Reads the sidecar the server embedded, intercepts same-origin link clicks and owns history from then on. */
-export function enableNavigation(): void {
+function linkOf(target: EventTarget | null): Element | null {
+  const anchor = (target as Element | null)?.closest?.("a[href]") ?? null;
+  if (!anchor || anchor.hasAttribute("data-sf-native")) return null;
+  return anchor;
+}
+
+/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched and owns history from then on. */
+export function enableNavigation(options: NavigationOptions = {}): void {
   const sidecar = document.querySelector("script[data-sf-segments]");
   if (sidecar?.textContent) {
     current = JSON.parse(sidecar.textContent);
   }
+  if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
-    const anchor = (event.target as Element).closest?.("a[href]");
-    if (!anchor || anchor.hasAttribute("data-sf-native")) return;
+    const anchor = linkOf(event.target);
+    if (!anchor) return;
     const href = anchor.getAttribute("href") ?? "";
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
     event.preventDefault();
     void navigate(url.pathname + url.search);
   });
+  if ((options.prefetch ?? "hover") === "hover") {
+    const warm = (event: Event) => {
+      const anchor = linkOf(event.target);
+      if (!anchor || anchor.getAttribute("data-sf-prefetch") === "none") return;
+      void prefetch(anchor.getAttribute("href") ?? "");
+    };
+    document.addEventListener("mouseover", warm);
+    document.addEventListener("focusin", warm);
+    document.addEventListener("touchstart", warm, { passive: true });
+  }
   window.addEventListener("popstate", () => {
     void navigate(window.location.pathname + window.location.search, false);
   });

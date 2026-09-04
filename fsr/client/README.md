@@ -53,6 +53,8 @@ Serve the resulting `dist/` under the same prefix passed to `--public-path`, the
 | Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
 | Mount anything else | your own `Mounter` |
 | Take over link clicks and history | `enableNavigation` |
+| Warm a route before its link is clicked | `prefetch`, on by default for hovered, focused and touched links |
+| Drop payloads held from before a mutation | `clearRouterCache`, which `refresh` does for you |
 | Go to a route from code | `navigate` |
 | Re-fetch the current route after a mutation | `refresh` |
 | Call a server action by id | `action` |

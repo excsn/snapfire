@@ -34,6 +34,8 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [DOM Contract](#dom-contract)
 * [6. Navigation](#6-navigation)
   * [enableNavigation](#enablenavigation)
+  * [prefetch](#prefetch)
+  * [clearRouterCache](#clearroutercache)
   * [navigate](#navigate)
   * [refresh](#refresh)
 * [7. Actions](#7-actions)
@@ -281,21 +283,34 @@ What the server writes and this package reads.
 
 ## 6. Navigation
 
-Segment patching in place of a page load. All three functions share one module-level sidecar and one id allocator.
+Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator and one router cache: payload text by `pathname + search` or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads.
 
 ### enableNavigation
 
-* `enableNavigation(): void`
+* `enableNavigation(options?: NavigationOptions): void`
+* `interface NavigationOptions { prefetch?: PrefetchTiming; cacheMs?: number }`; `type PrefetchTiming = "hover" | "none"`. `prefetch` defaults to `"hover"`, `cacheMs` to 30000.
 
-Reads `script[data-sf-segments]` into the module's current sidecar, then installs a `click` listener on `document` and a `popstate` listener on `window`.
+Reads `script[data-sf-segments]` into the module's current sidecar, sets `cacheMs` when given, then installs a `click` listener on `document` and a `popstate` listener on `window`. With `prefetch` at `"hover"`, `mouseover`, `focusin` and passive `touchstart` listeners on `document` call `prefetch` with the href of the enclosing `a[href]`, unless it carries `data-sf-native` or `data-sf-prefetch="none"`.
 
 A click is ignored when `defaultPrevented` is set, when `button` is not 0, when any of `metaKey`, `ctrlKey`, `shiftKey` or `altKey` is held, when the target has no enclosing `a[href]` or when the href resolves to another origin. Otherwise the default is prevented and `navigate` is called with the path plus search.
+
+### prefetch
+
+* `prefetch(href: string): Promise<void>`
+
+Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh payload for `<pathname><search>` or a fetch for it is in flight, resolves at once; otherwise fetches the payload form and holds the text with the time it arrived. A non-ok response holds nothing.
+
+### clearRouterCache
+
+* `clearRouterCache(): void`
+
+Drops every held payload and forgets every fetch in flight, whose result is then discarded when it lands.
 
 ### navigate
 
 * `navigate(href: string, push?: boolean): Promise<void>`
 
-Fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not. A non-ok response hands over to `window.location.assign(href)`. Otherwise the payload is parsed and applied, history is pushed when `push` is true (its default), then the window scrolls to the top.
+Takes `<pathname><search>` from the router cache while its entry is younger than `cacheMs`, joins a fetch already in flight for it or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not. A fetched text is held. A non-ok response hands over to `window.location.assign(href)`. Otherwise the payload is parsed and applied, history is pushed when `push` is true (its default), then the window scrolls to the top.
 
 Applying walks the old and new segment spines together. The first key mismatch replaces that region from the new payload; a differing child count replaces the parent region; slot-addressed children are skipped and resolve through `S` rows instead. Resolved slots are filled after the diff, then the document is rescanned. A missing sidecar, a missing `G` row or a region whose comment pair cannot be found in the DOM falls back to `window.location.reload()`.
 
@@ -303,7 +318,7 @@ Applying walks the old and new segment spines together. The first key mismatch r
 
 * `refresh(): Promise<void>`
 
-Re-fetches the current `pathname` and `search` with `__payload` appended, then force-replaces every top-level non-deferred child segment region regardless of whether its key changed, fills the resolved slots and rescans. Everything outside those regions, the layout included, keeps its DOM and its island state.
+Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, then force-replaces every top-level non-deferred child segment region regardless of whether its key changed, fills the resolved slots and rescans. Everything outside those regions, the layout included, keeps its DOM and its island state.
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok, when it carries no `G` row, when the child segment counts differ or when a region cannot be found.
 
