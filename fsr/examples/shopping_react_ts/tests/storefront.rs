@@ -392,6 +392,29 @@ fn middleware_written_in_rust_must_override_the_lowered_one() {
 }
 
 #[test]
+fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
+  let out = std::env::temp_dir().join(format!("fsr-prerender-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&out);
+  let app = Host::from(env!("CARGO_MANIFEST_DIR"))
+    .unwrap()
+    .route("/about", about_plan())
+    .services_over(Arc::new(MockTransport::new()))
+    .prerendered(&out)
+    .build()
+    .unwrap();
+  assert_eq!(app.prerenderable(), ["/about"], "every storefront page reads the session's cart; the Rust route reads nothing");
+  assert_eq!(app.prerendered("/about", RenderMode::Html), None, "nothing written yet");
+
+  let written = block_on(app.prerender(&out)).unwrap();
+  assert_eq!(written.iter().map(|(p, f)| (p.as_str(), f.strip_prefix(&out).unwrap().to_string_lossy().into_owned())).collect::<Vec<_>>(), vec![("/about", "about/index.html".to_owned()), ("/about", "about/index.payload".to_owned())]);
+  let html = app.prerendered("/about?anything=1", RenderMode::Html).unwrap();
+  assert!(html.contains("data-sf-module=\"src/About.tsx#default\""), "the document, with the Rust route's island: {html}");
+  assert!(app.prerendered("/about", RenderMode::Payload).unwrap().contains("src/About.tsx#default"));
+  assert_eq!(app.prerendered("/cart", RenderMode::Html), None);
+  let _ = std::fs::remove_dir_all(&out);
+}
+
+#[test]
 fn a_handler_written_in_rust_sits_beside_the_lowered_ones() {
   let app = Host::from(env!("CARGO_MANIFEST_DIR"))
     .unwrap()

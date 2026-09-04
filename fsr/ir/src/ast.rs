@@ -267,6 +267,30 @@ impl Expr {
     }
   }
 
+  /// True when the expression reads anything that differs between requests:
+  /// a parameter, the query, the session, the identity, the input or the clock.
+  pub fn reads_request(&self) -> bool {
+    match self {
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
+      Expr::Call { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
+      Expr::Var(_) | Expr::Lit(_) => false,
+      Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
+        Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
+        Entry::Computed(k, v) => k.reads_request() || v.reads_request(),
+      }),
+      Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
+      | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.reads_request(),
+      Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Some(a, b) | Expr::Every(a, b) => a.reads_request() || b.reads_request(),
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.reads_request() || b.reads_request() || c.reads_request(),
+      Expr::Template(parts) => parts.iter().any(Expr::reads_request),
+      Expr::Builtin { args, .. } => args.iter().any(Expr::reads_request),
+      Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
+      Expr::Lambda { body, .. } => body.reads_request(),
+    }
+  }
+
   pub fn has_call(&self) -> bool {
     match self {
       Expr::Call { .. } => true,
@@ -287,4 +311,16 @@ impl Expr {
       Expr::Lambda { body, .. } => body.has_call(),
     }
   }
+}
+
+/// True when any statement of the body reads the request or writes the
+/// session, so the body's result is not the same for every request.
+pub fn body_reads_request(body: &Body) -> bool {
+  body.iter().any(|stmt| match stmt {
+    Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.reads_request(),
+    Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
+    Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
+    Stmt::Guard { cond, .. } => cond.reads_request(),
+    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } => true,
+  })
 }

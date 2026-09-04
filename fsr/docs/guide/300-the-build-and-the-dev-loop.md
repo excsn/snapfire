@@ -43,6 +43,10 @@ The restart rule is the one worth knowing: the loop restarts the server only whe
 
 Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for production, the way `cargo run` is for a project that has one; it refuses a configuration whose `[app] dir` names a different directory.
 
+## Rendering once what never changes
+
+A route whose loader reads no parameter, no query, no session, no identity and no clock renders the same for every request. The host can tell, because the loader is data it can read. The boot report lists such routes under `prerender`; `fsr prerender app` (or the project's binary with `--prerender`) renders each once into `server.prerender` and the host answers those from the file from then on, with `x-sf-prerendered: 1` so you can see it. The storefront's `/about` qualifies; every other page reads the cart from the session, so none of them does. There is nothing to declare: a loader that starts reading the session takes its route back to per-request rendering at the next build.
+
 ## The lab
 
 Run `fsr dev app` in the storefront and wait for the host. Edit the heading text in `routes/index/page.tsx` and save: the log shows one snapfirec run and no restart; a reload shows the new text with the cart still held. Now edit `routes/index/loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.

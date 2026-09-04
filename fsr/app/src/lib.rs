@@ -85,6 +85,8 @@ pub struct Report {
   /// `METHOD pattern` per handler.
   pub handlers: Vec<(String, Owner)>,
   pub middleware: Option<Owner>,
+  /// Patterns one render serves for every request; the host prerenders these.
+  pub prerenderable: Vec<String>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
 }
@@ -129,6 +131,9 @@ pub struct App {
   pub middleware: Option<Arc<dyn ActionHandler>>,
   /// Rendered with status 404 for a path the matcher does not match.
   pub not_found: Option<PlanNode>,
+  /// Patterns with no parameter whose every source is lowered and reads
+  /// nothing of the request, so one render serves every request.
+  pub prerenderable: Vec<String>,
   pub runtime: Arc<Runtime>,
   pub services: Arc<Services>,
   pub actions: ActionRegistry,
@@ -427,6 +432,7 @@ impl AppBuilder {
       }
     }
 
+    let fixed_sources: Vec<String> = self.lowered_sources.iter().filter(|(_, body)| !snapfire_fsr_ir::body_reads_request(body)).map(|(name, _)| name.clone()).collect();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
       match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
         Some(Owner::RustOverride) => {}
@@ -541,6 +547,16 @@ impl AppBuilder {
 
     let not_found = self.routes.take_not_found();
     let resolved = self.routes.resolved()?;
+    let prerenderable: Vec<String> = resolved
+      .iter()
+      .filter(|(pattern, plan, _)| {
+        !pattern.contains('{')
+          && declared_sources(plan).iter().all(|name| {
+            fixed_sources.contains(name) && matches!(self.claimed.iter().rev().find(|(claimed, _)| claimed == name).map(|(_, o)| *o), Some(Owner::Lowered))
+          })
+      })
+      .map(|(pattern, _, _)| pattern.clone())
+      .collect();
     let actions = self
       .actions
       .ids()
@@ -571,6 +587,7 @@ impl AppBuilder {
       actions,
       handlers: handler_rows,
       middleware: middleware_owner,
+      prerenderable: prerenderable.clone(),
       components,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -596,6 +613,7 @@ impl AppBuilder {
       handlers,
       middleware,
       not_found,
+      prerenderable,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
       actions: self.actions,

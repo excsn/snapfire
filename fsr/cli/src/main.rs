@@ -6,7 +6,7 @@ use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, serve, test, types, vendor, write, Options};
 
-const USAGE: &str = "usage: fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
+const USAGE: &str = "usage: fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -49,6 +49,31 @@ fn main() -> ExitCode {
       }
       match serve::run(&app, options) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "prerender" => {
+      let mut out: Option<PathBuf> = None;
+      let mut rest = rest.iter();
+      while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+          ("--out", Some(value)) => out = Some(PathBuf::from(value)),
+          _ => return usage(),
+        }
+      }
+      match serve::prerender(&app, out.as_deref()) {
+        Ok(written) => {
+          if written.is_empty() {
+            println!("nothing to prerender: every route reads the request");
+          }
+          for (pattern, file) in written {
+            println!("{pattern:<22} {}", file.display());
+          }
+          ExitCode::SUCCESS
+        }
         Err(e) => {
           eprintln!("{e}");
           ExitCode::from(1)

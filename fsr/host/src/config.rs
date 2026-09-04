@@ -52,11 +52,15 @@ pub struct ServerConfig {
   /// The directory of contract files `fsr build` writes, merged at boot in name order.
   #[serde(default = "default_contracts")]
   pub contracts: String,
+  /// Where `prerender` writes and the host reads a route rendered once at
+  /// build time, relative to the app directory. Absent, nothing is prerendered.
+  #[serde(default)]
+  pub prerender: Option<String>,
 }
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts() }
+    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), prerender: None }
   }
 }
 

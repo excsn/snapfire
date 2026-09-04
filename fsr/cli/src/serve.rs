@@ -36,6 +36,18 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
 }
 
 /// The stock host over `app`, refusing a configuration that names a different app directory.
+/// Renders every prerenderable route of the stock host into `out`, else
+/// `server.prerender` from the configuration, else `dist/prerender` under the app.
+pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)>, BuildError> {
+  let host = host_for(app)?;
+  let out = match out {
+    Some(out) => out.to_path_buf(),
+    None => host.report.prerender.clone().unwrap_or_else(|| app.join("dist/prerender")),
+  };
+  let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(e.to_string()))?;
+  runtime.block_on(host.prerender(&out)).map_err(|e| BuildError::Serve(e.to_string()))
+}
+
 pub fn host_for(app: &Path) -> Result<Host, BuildError> {
   let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let root = project_root(&given);

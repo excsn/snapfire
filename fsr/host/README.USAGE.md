@@ -69,6 +69,7 @@ Only what cannot be inferred: where to listen, how to sign sessions, where each 
 ```toml
 [server]
 listen = "127.0.0.1:8080"
+prerender = "dist/prerender"      # optional: where rendered-once routes live
 
 [document]
 title = "Shopping"
@@ -216,6 +217,20 @@ let host = Host::from(".")?
 
 assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction::Redirect { to: "/new".into(), status: 307 });
 ```
+
+## Prerendering the Routes That Never Change
+
+A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once, anonymously, into the configured directory. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads.
+
+```rust
+let written = host.prerender(&host.report.prerender.clone().unwrap()).await?;
+for (pattern, file) in written {
+  println!("{pattern} -> {}", file.display());
+}
+assert!(host.prerendered("/about", RenderMode::Html).is_some());
+```
+
+`fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
 
 ## Taking a Name Back
 
