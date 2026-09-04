@@ -228,12 +228,13 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 Cache lookup and store happen per plan node that carries a `cache_key`. The composed key is:
 
 ```text
-{cache_key}|{sorted k=v params joined by &}|ident={subject}|{fingerprint:016x}
+{cache_key}|{sorted k=v params joined by &}|ident={subject}|csrf={token}|{fingerprint:016x}
 ```
 
 * `cache_key` is `PlanNode::cache_key`, the plan's own tag.
 * The params are every entry of `ctx.params`, formatted `k=v`, sorted, joined by `&`. No params means an empty field.
 * `subject` is the subject from `ctx.session.identity()` when the session resolved one; it is `-` when it did not.
+* `token` is `ctx.csrf` when set, since it is injected into props; `-` otherwise.
 * The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing each node id followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
 
 No key is composed at all, so neither `get` nor `put` runs, when the node has no `cache_key`, when the subtree contains a `deferred` descendant or when any node in the subtree has a recorded load failure. A key that was composed is always looked up, but it is written back only if the subtree did not use the head slot.
@@ -301,11 +302,11 @@ What a hit restores. `Debug + Clone + PartialEq`.
 
 * `fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>`: `key` is the composed key from [`assemble`](#assemble).
 * `fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()>`
-* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities.
+* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities, and return how many it removed.
 
 ### `NoCache`
 
-The default. Unit struct. `get` is always `None`, `put` and `invalidate` do nothing.
+The default. Unit struct. `get` is always `None`, `put` does nothing and `invalidate` answers zero.
 
 ### `MemoryCache`
 

@@ -231,3 +231,34 @@ fn a_tuned_shard_count_changes_nothing_a_caller_can_observe() {
     assert_eq!(block_on(cache.get("page|a")), None);
   }
 }
+
+#[test]
+fn the_csrf_token_is_part_of_the_key() {
+  let evals = Arc::new(AtomicU32::new(0));
+  let rt = runtime(Arc::clone(&evals), DataSources::new());
+  let plan = cached_leaf(None);
+  let with = |token: &str| RequestCtx { csrf: Some(token.to_owned()), ..Default::default() };
+
+  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &plan, &with("t1"), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &plan, &with("t2"), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &plan, &with("t1"), &Node::raw(""))).unwrap();
+
+  assert_eq!(evals.load(Ordering::Relaxed), 3, "a token is injected into props, so an entry never serves another session's");
+}
+
+#[test]
+fn invalidation_says_how_many_entries_went() {
+  let entry = CacheEntry { node: Node::raw("<p>one</p>"), segments: Vec::new() };
+  let memory = MemoryCache::new();
+  let fibre = FibreCache::bounded(64, Duration::from_secs(60));
+  let caches: [&dyn NodeCache; 2] = [&memory, &fibre];
+  for cache in caches {
+    block_on(cache.put("page|a".to_owned(), entry.clone()));
+    block_on(cache.put("page|b".to_owned(), entry.clone()));
+    block_on(cache.put("other|a".to_owned(), entry.clone()));
+    assert_eq!(block_on(cache.invalidate("page")), 2);
+    assert_eq!(block_on(cache.invalidate("page")), 0);
+    assert_eq!(block_on(cache.get("other|a")), Some(entry.clone()));
+  }
+}

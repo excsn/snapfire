@@ -13,6 +13,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [ServerConfig](#serverconfig)
   * [DocumentConfig](#documentconfig)
   * [SessionSection](#sessionsection)
+  * [CacheSection](#cachesection)
   * [ClientConfig](#clientconfig)
   * [StaticRoot](#staticroot)
   * [parse_duration](#parse_duration)
@@ -55,12 +56,13 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub inferred: Vec<String> }`
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub inferred: Vec<String> }`
 * `Config::load(path) -> Result<Config, HostError>`: `locate`, then `load_located`.
 * `Config::load_located(located: Located) -> Result<Config, HostError>`: `NoConfig` when `sources` is empty; otherwise c5store over the sources in that order with default options, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `from_store`.
-* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `clients` and `static`, requires `session`, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
+* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients` and `static`, requires `session`, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
+* `Config::cache_ttl(&self) -> Result<Option<Duration>, HostError>`: `None` without a `[cache]` section; a lifetime nobody can parse is `HostError::Value("cache.ttl", ..)`.
 * Every table refuses unknown keys.
 
 ### AppSection
@@ -79,6 +81,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### SessionSection
 
 * `key: String`, required. `store` (default `memory`, the only value accepted), `ttl` (default `8h`), `capacity` (default 4096), `secure` (default false).
+
+### CacheSection
+
+* `capacity: u64` (default 1000), `ttl: String` (default `1m`). Present at all means `build` installs `FibreCache::bounded(capacity, ttl)` on the app; absent means nothing is cached.
 
 ### ClientConfig
 
@@ -124,6 +130,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`.
 * `prerenderable(&self) -> &[String]`: the patterns one render serves for every request: no parameter, every source lowered and reading nothing of the request (`snapfire_fsr_ir::body_reads_request`), no Rust source.
 * `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`; returns what it wrote.
+* `invalidate(&self, plan_key: &str) -> usize`: drops every cached subtree under the plan `cache_key`, a lowered page's or layout's module name, and says how many went; zero without a `[cache]` section.
 * `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its query string ignored; `None` without a directory or a file.
 * `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path }` as its input and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
 * `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, whose query string becomes `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
@@ -144,9 +151,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### HostReport
 
-* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
+* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
 * `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
+* `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
 
 ### Body
 

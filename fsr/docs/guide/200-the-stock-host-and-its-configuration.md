@@ -31,7 +31,7 @@ Configuration is TOML or YAML under `config/`, read as a ladder of files where a
 
 For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, in that order, then lets `C5_`-prefixed environment variables override any key with `__` as the separator. A file that is absent is simply not on the ladder, so a checkout with only `app.toml` runs while a deployment adds `production.toml` and `production-eu.yaml` without touching the base. The report lists every file it read under `config`, in order, so the ladder is never a guess. Secrets follow the same ladder: c5store's encrypted values are written by c5cli into a YAML overlay, which is why a secret lives in a `.yaml` beside the `.toml` that holds the rest.
 
-The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map and the stylesheets. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory.
+The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map and the stylesheets. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory.
 
 ## What the host infers
 

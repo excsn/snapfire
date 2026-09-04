@@ -14,6 +14,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Mounting in axum](#mounting-in-axum)
 * [Serving with actix](#serving-with-actix)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
+* [Caching Rendered Segments](#caching-rendered-segments)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
@@ -77,6 +78,10 @@ title = "Shopping"
 [session]
 key = "a signing key"             # required
 ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
+
+[cache]                           # optional: the render memo, nothing is cached without it
+capacity = 1000                   # entries, the default
+ttl = "1m"                        # the default
 
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
@@ -232,6 +237,18 @@ assert!(host.prerendered("/about", RenderMode::Html).is_some());
 
 `fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
 
+## Caching Rendered Segments
+
+Every page and layout the build lowers carries its module name as its plan `cache_key`. With a `[cache]` section the host installs a bounded `FibreCache` and the runtime memoizes each rendered subtree under that key, the matched params, the identity subject, the CSRF token when a host sets one and a fingerprint of the subtree's loaded data. Loaders still run on every request, since data resolves before render; what a hit skips is evaluation. A changed answer is a different fingerprint and so a miss, never a stale hit, which is why nothing in the application declares a lifetime: `ttl` only bounds how long an entry nobody asks for again is kept.
+
+```rust
+host.render_to_string("/product/1", RenderMode::Html, SessionCell::default()).await?;
+host.render_to_string("/product/1", RenderMode::Html, SessionCell::default()).await?;
+assert_eq!(host.invalidate("routes/product/[id]/page.tsx#default").await, 1);
+```
+
+`invalidate` takes a module name and drops every entry under it, across all params and identities, and says how many went. A subtree with a streamed descendant, a failed source or the head slot is never written, so a page behind `loading.tsx` keeps its layout out of the cache too. Without a `[cache]` section nothing is cached and `invalidate` answers zero.
+
 ## Taking a Name Back
 
 The binding rule from `snapfire_fsr` applies unchanged. A lowered source or action is a default; Rust replaces it with an override. The report says `rust override`.
@@ -284,6 +301,7 @@ sources   index                  lowered
 actions   cart.checkout          lowered
 services  shopping               http        http://127.0.0.1:8081
 static    /static/js/app         /srv/shop/app/dist
+cache     1000 entries, ttl 1m
 config    /srv/shop/config
 inferred  static /static/js/app from dist/.snapfire-build.json
           document.entry from dist/.snapfire-build.json

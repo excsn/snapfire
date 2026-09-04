@@ -354,11 +354,13 @@ impl Session {
     let mut pairs: Vec<String> = self.ctx.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
     let subject = self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned());
+    let csrf = self.ctx.csrf.as_deref().unwrap_or("-");
     Some(format!(
-      "{}|{}|ident={}|{:016x}",
+      "{}|{}|ident={}|csrf={}|{:016x}",
       plan_key.0,
       pairs.join("&"),
       subject,
+      csrf,
       subtree_data_fingerprint(node, data)
     ))
   }

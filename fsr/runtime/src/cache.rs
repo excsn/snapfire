@@ -24,9 +24,9 @@ pub struct CacheEntry {
 pub trait NodeCache: Send + Sync {
   fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>;
   fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()>;
-  /// Removes every entry whose plan `cache_key` matches. Tags are keys,
-  /// revalidation is invalidation.
-  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()>;
+  /// Removes every entry whose plan `cache_key` matches and says how many
+  /// went. Tags are keys, revalidation is invalidation.
+  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>;
 }
 
 pub struct NoCache;
@@ -40,8 +40,8 @@ impl NodeCache for NoCache {
     Box::pin(ready(()))
   }
 
-  fn invalidate(&self, _cache_key: &str) -> BoxFuture<'_, ()> {
-    Box::pin(ready(()))
+  fn invalidate(&self, _cache_key: &str) -> BoxFuture<'_, usize> {
+    Box::pin(ready(0))
   }
 }
 
@@ -67,10 +67,12 @@ impl NodeCache for MemoryCache {
     Box::pin(ready(()))
   }
 
-  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()> {
+  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize> {
     let prefix = format!("{cache_key}|");
-    self.entries.lock().retain(|k, _| !k.starts_with(&prefix));
-    Box::pin(ready(()))
+    let mut entries = self.entries.lock();
+    let before = entries.len();
+    entries.retain(|k, _| !k.starts_with(&prefix));
+    Box::pin(ready(before - entries.len()))
   }
 }
 
@@ -186,12 +188,12 @@ impl NodeCache for FibreCache {
     Box::pin(ready(()))
   }
 
-  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, ()> {
-    let keys = self.index.lock().remove(cache_key);
-    for key in keys.into_iter().flatten() {
-      self.cache.invalidate(&key);
+  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize> {
+    let keys = self.index.lock().remove(cache_key).unwrap_or_default();
+    for key in &keys {
+      self.cache.invalidate(key);
     }
-    Box::pin(ready(()))
+    Box::pin(ready(keys.len()))
   }
 }
 

@@ -24,7 +24,7 @@ use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator,
-  LoadError, Matcher, RequestCtx, Resolver, SessionCell,
+  FibreCache, LoadError, Matcher, RequestCtx, Resolver, SessionCell,
 };
 use snapfire_fsr_service::{
   Contract, HttpTransport, IdentityInterceptor, Services, TraceInterceptor, Transport,
@@ -155,6 +155,8 @@ pub struct HostReport {
   pub statics: Vec<(String, PathBuf)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
+  /// The render memo's capacity and lifetime, when configured.
+  pub cache: Option<(u64, String)>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
 }
@@ -176,6 +178,9 @@ impl std::fmt::Display for HostReport {
         Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}", dir.display())?,
         None => writeln!(f, "{label:<9} {pattern:<22} not configured")?,
       }
+    }
+    if let Some((capacity, ttl)) = &self.cache {
+      writeln!(f, "{:<9} {capacity} entries, ttl {ttl}", "cache")?;
     }
     for (i, source) in self.config.iter().enumerate() {
       let label = if i == 0 { "config" } else { "" };
@@ -348,6 +353,13 @@ impl Host {
   /// source lowered and reading nothing of the request.
   pub fn prerenderable(&self) -> &[String] {
     &self.app.prerenderable
+  }
+
+  /// Drops every cached subtree of the plan node keyed `plan_key`, a module
+  /// name for a lowered page or layout, and says how many went. Zero when
+  /// nothing was cached under it or no cache is configured.
+  pub async fn invalidate(&self, plan_key: &str) -> usize {
+    self.app.invalidate(plan_key).await
   }
 
   /// Renders every prerenderable route once, anonymously, writing the
@@ -851,6 +863,13 @@ impl HostBuilder {
     if let Some(contract) = self.contract.take() {
       app = app.contract(contract);
     }
+    let cache_row = match (config.cache_ttl()?, &config.cache) {
+      (Some(ttl), Some(section)) => {
+        app = app.cache(Arc::new(FibreCache::bounded(section.capacity, ttl)));
+        Some((section.capacity, section.ttl.clone()))
+      }
+      _ => None,
+    };
     let app = app
       .services(services)
       .evaluator(move |m: &ModuleId| m.path == shell_path, shell)
@@ -894,6 +913,7 @@ impl HostBuilder {
       services: service_rows,
       statics: static_rows,
       prerender: prerendered.clone(),
+      cache: cache_row,
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
