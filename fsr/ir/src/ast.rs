@@ -267,6 +267,42 @@ impl Expr {
     }
   }
 
+  /// Calls `f` on this expression and every expression beneath it, in tree order.
+  pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
+    f(self);
+    match self {
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Lit(_) => {}
+      Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
+      Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
+        Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
+        Entry::Computed(k, v) => {
+          k.visit(f);
+          v.visit(f);
+        }
+      }),
+      Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
+      | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.visit(f),
+      Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Some(a, b) | Expr::Every(a, b) => {
+        a.visit(f);
+        b.visit(f);
+      }
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => {
+        a.visit(f);
+        b.visit(f);
+        c.visit(f);
+      }
+      Expr::Template(parts) => parts.iter().for_each(|e| e.visit(f)),
+      Expr::Builtin { args, .. } => args.iter().for_each(|e| e.visit(f)),
+      Expr::Apply { f: callee, args } => {
+        callee.visit(f);
+        args.iter().for_each(|e| e.visit(f));
+      }
+      Expr::Lambda { body, .. } => body.visit(f),
+    }
+  }
+
   /// True when the expression reads anything that differs between requests:
   /// a parameter, the query, the session, the identity, the input or the clock.
   pub fn reads_request(&self) -> bool {
@@ -323,4 +359,43 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::Guard { cond, .. } => cond.reads_request(),
     Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } => true,
   })
+}
+
+/// The route parameters a body reads, by name, without duplicates.
+pub fn body_params_read(body: &Body) -> Vec<String> {
+  let mut out = Vec::new();
+  fn exprs<'a>(body: &'a Body, into: &mut Vec<&'a Expr>) {
+    for stmt in body {
+      match stmt {
+        Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => into.push(expr),
+        Stmt::If { cond, then, r#else } => {
+          into.push(cond);
+          exprs(then, into);
+          exprs(r#else, into);
+        }
+        Stmt::ForOf { over, body, .. } => {
+          into.push(over);
+          exprs(body, into);
+        }
+        Stmt::Guard { cond, .. } => into.push(cond),
+        Stmt::SessionSet { path, value, .. } => {
+          into.extend(path.iter());
+          into.push(value);
+        }
+        Stmt::SessionDelete { path, .. } => into.extend(path.iter()),
+      }
+    }
+  }
+  let mut all = Vec::new();
+  exprs(body, &mut all);
+  for expr in all {
+    expr.visit(&mut |e| {
+      if let Expr::Param(name) = e {
+        if !out.contains(name) {
+          out.push(name.clone());
+        }
+      }
+    });
+  }
+  out
 }

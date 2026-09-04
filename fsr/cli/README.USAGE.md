@@ -8,6 +8,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Quick Start](#quick-start)
 * [Laying Out Routes](#laying-out-routes)
 * [Writing a Loader](#writing-a-loader)
+* [Writing a Layout](#writing-a-layout)
 * [Writing Actions](#writing-actions)
 * [Writing a Route Handler](#writing-a-route-handler)
 * [Writing Middleware](#writing-middleware)
@@ -39,6 +40,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Action id** is `<source id>.<export>`, so `routes/cart/actions.ts` exporting `checkout` is `cart.checkout`.
 * **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request`; it continues, redirects, rewrites, responds or adds headers.
 * **Handler** is an export of a directory's `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, answered with JSON rather than a document; its id is `<route id>.<METHOD>`. A directory is a page or a handler, never both.
+* **Layout** is `layout.tsx` in a routes directory: an island that wraps every page beneath it and renders the page where it puts `children`; its `layout.loader.ts` is its loader, named for the module it feeds the way `page.loader.ts` is.
 * **Module id** is the page's path with `#default`, `routes/cart/page.tsx#default`; the client registers islands under it.
 * **Shell** is the module every route's root node renders through, `shell#document` unless told otherwise.
 * **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page.
@@ -61,6 +63,7 @@ app/
   routes/
     error.tsx
     not-found.tsx
+    layout.tsx     layout.loader.ts
     index/         page.tsx  page.loader.ts
     product/[id]/  page.tsx  page.loader.ts
     cart/          page.tsx  page.loader.ts  actions.ts
@@ -123,6 +126,32 @@ export async function load({ params, services }: Ctx<"/product/{id}">) {
 ```
 
 The route pattern as the type argument gives `params` its fields; without it `params` is the union of every route's.
+
+## Writing a Layout
+
+`layout.tsx` wraps every page under its directory and renders the page where it puts `children`. Its props are what `layout.loader.ts` beside it returns, independent of the page's loader, so shared data such as a cart count lives in the layout's loader and no page carries it. A layout is an island: it hydrates, holds state and survives a navigation between the pages it wraps.
+
+```tsx
+import type { ReactNode } from "react";
+import type { LayoutProps } from "@generated/client";
+
+export default function Layout({ cartCount, children }: LayoutProps & { children: ReactNode }) {
+  return (
+    <>
+      <Header cartCount={cartCount} />
+      {children}
+    </>
+  );
+}
+```
+
+```ts
+export async function load({ session }: Ctx) {
+  return { cartCount: Object.values(session.cart).reduce((n, q) => n + q, 0n) };
+}
+```
+
+Layouts nest: `routes/account/layout.tsx` sits inside `routes/layout.tsx` for every page under `account/`. A layout's loader takes the plain `Ctx`, since it serves many patterns. The page inside a layout cannot read the layout's data and the layout cannot read the page's; they share the session and the actions.
 
 ## Writing Actions
 

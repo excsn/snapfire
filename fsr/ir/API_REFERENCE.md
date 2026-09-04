@@ -78,9 +78,11 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `Expr::lambda(params: &[&str], body: Expr) -> Expr`.
 * `Expr::object(entries: Vec<(&str, Expr)>) -> Expr` builds `Field` entries only.
 * `Expr::free_vars(&self, out: &mut Vec<String>)` appends every `Var` name read and not bound by an enclosing lambda, without duplicates.
+* `Expr::visit(&self, f: &mut dyn FnMut(&Expr))` calls `f` on the expression and every expression beneath it, in tree order.
 * `Expr::has_call(&self) -> bool` is true when any `Call` appears in the tree.
 * `Expr::reads_request(&self) -> bool` is true when a `Param`, `Query`, `Session`, `Identity`, `Input` or `Now` appears in the tree.
 * `body_reads_request(body: &Body) -> bool` is true when any statement reads the request or writes the session.
+* `body_params_read(body: &Body) -> Vec<String>` is every route parameter the body reads, by name, without duplicates.
 
 ### Entry
 
@@ -127,6 +129,7 @@ Runs a body. `Clone`; the default carries the system clock.
 * `Interpreter::default() -> Interpreter`
 * `Interpreter::with_clock(clock: Arc<dyn Clock>) -> Interpreter`
 * `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<String, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what React's server renderer writes. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
+* `render::ROOT_SLOT`: what a root component's own `Slot` writes into the markup, since it has no caller. `IrEvaluator` splits the markup there and emits a `Client` node whose `children` carry the pieces around a `Node::Slot("content")`, which is how a layout places its page.
 * `Interpreter::run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`. `input` is `None` for a loader; a body reads `Expr::Input` as `Value::Null` then. Session writes go to a draft copied from `ctx.session` at entry and are committed to the cell, key by key, only on success.
 
 ### Outcome

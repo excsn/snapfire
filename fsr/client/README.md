@@ -49,6 +49,7 @@ Serve the resulting `dist/` under the same prefix passed to `--public-path`, the
 | Say which component mounts for a module id | `registerIsland` |
 | Mount every island on the page and keep up with streamed chunks | `boot` |
 | Mount islands inside a subtree you inserted yourself | `scan` |
+| Re-render a mounted island with new props, keeping its DOM and state | `patchIsland`, `reactPatcher` |
 | Delay hydration until the island scrolls into view | `when: "visible"` |
 | Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
 | Mount anything else | your own `Mounter` |

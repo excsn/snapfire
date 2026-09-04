@@ -221,6 +221,7 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 * **Failure degradation.** A node with a recorded failure renders its `error` module or the built-in error node when it has none. Its children are not built.
 * **Head.** `Chunk::Slot(SlotName("head"))` substitutes the `head` argument and marks the subtree head-using, which propagates to ancestors through non-deferred children.
 * **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
+* **Slots inside an island.** A `Chunk::Node` holding a `Node::Slot` anywhere under it has each slot answered the way a `Chunk::Slot` is, in place, the child segment's path counting into the island's `children`; this is how a layout's page sits inside the layout's own markup.
 * **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props alone or `Node::raw("")` when it has none. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`.
 * **Collapse.** A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq` and each non-deferred child segment records `path: [index]`.
 
@@ -250,11 +251,13 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 A deferred slot's eventual content.
 
 * `pub slot: SlotId`
+* `pub key: String`: the deferred segment's key, so its fill is delimited like any region.
 * `pub future: BoxFuture<'static, Resolved>`: infallible. A failed loader or evaluation inside the subtree resolves to an error node instead.
 
 ### `Resolved`
 
 * `pub slot: SlotId`
+* `pub key: String`
 * `pub node: Node`
 * `pub pending: Vec<PendingResolution>`: nested deferral, new slots the resolution itself introduced.
 
@@ -270,7 +273,7 @@ Segment information produced inside a resolution is discarded; a deferred subtre
 
 ### `DefaultKeyer`
 
-Module plus every matched param and every query pair. Unit struct.
+Module plus every matched param and every query pair. Unit struct. `snapfire_fsr` installs its own keyer over this one: a node with children is keyed by its module and the parameters its source reads, so a layout survives a navigation that changes a parameter it never looks at; a leaf keeps this key.
 
 * `fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String`: `plan.module` displayed as `path#export`; when params or query pairs are present a `?` followed by the param `k=v` pairs sorted, then the query pairs sorted, joined by `&`, for example `page.tera#default?section=servers` or `page.tsx#default?q=wireless`.
 

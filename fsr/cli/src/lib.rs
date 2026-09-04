@@ -69,6 +69,8 @@ pub struct Report {
   pub handlers: Vec<(String, String)>,
   /// `middleware.ts` when the app has one.
   pub middleware: Option<String>,
+  /// The directory pattern a layout wraps and its module.
+  pub layouts: Vec<(String, String)>,
   /// Module; `lowered` or `client`; for `client`, the line that decided it.
   pub components: Vec<(String, String, String)>,
   pub services: Vec<(String, String)>,
@@ -79,6 +81,7 @@ pub struct Report {
 impl fmt::Display for Report {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     section(f, "routes", &self.routes, "")?;
+    section(f, "layouts", &self.layouts, "")?;
     section(f, "sources", &self.sources, "lowered")?;
     section(f, "actions", &self.actions, "lowered")?;
     section(f, "handlers", &self.handlers, "lowered")?;
@@ -124,6 +127,8 @@ pub struct Options {
   /// The module and export the generated island registry mounts pages with.
   pub mounter_module: String,
   pub mounter: String,
+  /// The export of the mounter module that re-renders a mounted island with new props.
+  pub patcher: String,
 }
 
 impl Default for Options {
@@ -133,6 +138,7 @@ impl Default for Options {
       slot: "content".to_owned(),
       mounter_module: "@snapfire/fsr-client/react".to_owned(),
       mounter: "reactMounter".to_owned(),
+      patcher: "reactPatcher".to_owned(),
     }
   }
 }
@@ -239,12 +245,41 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     islands.push(module.clone());
   }
 
+  let mut layouts: Vec<LayoutInfo> = Vec::new();
+  let mut layout_ids: Vec<String> = Vec::new();
+  for dir in routes.iter().chain(handler_routes.iter()).flat_map(|r| r.dir.ancestors().map(Path::to_path_buf).collect::<Vec<_>>()) {
+    if !dir.starts_with(&routes_dir) || !dir.join("layout.tsx").is_file() || layouts.iter().any(|l| l.dir == dir) {
+      continue;
+    }
+    let rel = dir.strip_prefix(app).unwrap_or(&dir).to_string_lossy().replace('\\', "/");
+    let (prefix, dir_id) = pattern_of(&routes_dir, &dir)?;
+    let id = if dir == routes_dir { "layout".to_owned() } else { format!("{dir_id}.layout") };
+    let module = format!("{rel}/layout.tsx#default");
+    let loader = dir.join("layout.loader.ts");
+    let source = if loader.is_file() {
+      let loader_module = format!("{rel}/layout.loader.ts");
+      let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
+      let body = lower_loader_with(&loader_module, &text, &defaults)?;
+      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body));
+      report.sources.push((id.clone(), loader_module));
+      Some(id.clone())
+    } else {
+      None
+    };
+    report.layouts.push((prefix, module.clone()));
+    islands.push(module.clone());
+    layout_ids.push(id.clone());
+    layouts.push(LayoutInfo { dir, module, source });
+  }
+  layouts.sort_by(|a, b| a.dir.cmp(&b.dir));
+
   for route in &routes {
     let rel = route.dir.strip_prefix(app).unwrap_or(&route.dir);
     let rel = rel.to_string_lossy().replace('\\', "/");
     let page = format!("{rel}/page.tsx#default");
     report.routes.push((route.pattern.clone(), rel.clone()));
 
+    let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| route.dir.starts_with(&l.dir)).collect();
     let loader = route.dir.join("page.loader.ts");
     let source = if loader.is_file() {
       let module = format!("{rel}/page.loader.ts");
@@ -292,7 +327,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
 
     let content = Node {
-      id: 1,
+      id: wrapping.len() as u32 + 1,
       module: page,
       source,
       deferred: loading.is_some(),
@@ -301,6 +336,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       cache_key: None,
       children: Vec::new(),
     };
+    let content = wrap_in_layouts(content, &wrapping, error_module.as_deref());
     entries.push(RouteEntry {
       pattern: route.pattern.clone(),
       plan: Node {
@@ -346,21 +382,23 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     None
   };
 
-  let not_found = not_found_module.map(|module| Node {
-    id: 0,
-    module: options.shell.clone(),
-    source: None,
-    deferred: false,
-    fallback: None,
-    error: None,
-    cache_key: None,
-    children: vec![Child {
-      slot: options.slot.clone(),
-      node: Node { id: 1, module, source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: None, children: Vec::new() },
-    }],
+  let not_found = not_found_module.map(|module| {
+    let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| l.dir == routes_dir).collect();
+    let content = Node { id: wrapping.len() as u32 + 1, module, source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: None, children: Vec::new() };
+    Node {
+      id: 0,
+      module: options.shell.clone(),
+      source: None,
+      deferred: false,
+      fallback: None,
+      error: None,
+      cache_key: None,
+      children: vec![Child { slot: options.slot.clone(), node: wrap_in_layouts(content, &wrapping, error_module.as_deref()) }],
+    }
   });
 
   let mut set = ComponentSet::new(app);
+  set.layouts = layouts.iter().map(|l| l.module.clone()).collect();
   for module in &islands {
     match set.lower(module) {
       Ok(()) => {}
@@ -377,7 +415,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   report.components.sort();
 
   let session_type = session_import.as_ref().map(|_| "Session");
-  let client = client_module(&contract, session_type, &routes, &sources, &actions);
+  let client = client_module(&contract, session_type, &routes, &layout_ids, &sources, &actions);
   let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
 
@@ -469,7 +507,7 @@ fn testing_module() -> String {
 /// `generated/client.ts`: the contract's types as the browser sees them, the
 /// props of every page inferred from its loader's return and one typed callable
 /// per action, nested by route id.
-fn client_module(contract: &Contract, session: Option<&str>, routes: &[Route], sources: &[SourceEntry], actions: &[ActionEntry]) -> String {
+fn client_module(contract: &Contract, session: Option<&str>, routes: &[Route], layouts: &[String], sources: &[SourceEntry], actions: &[ActionEntry]) -> String {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   out.push_str("import { action as call } from \"@snapfire/fsr-client\";\n\n");
   out.push_str(&typescript::type_declarations(contract, Flavour::Client));
@@ -481,7 +519,14 @@ fn client_module(contract: &Contract, session: Option<&str>, routes: &[Route], s
     };
     let _ = writeln!(out, "export type {} = {props};", props_name(&route.id));
   }
-  if !routes.is_empty() {
+  for id in layouts {
+    let props = match sources.iter().find(|s| s.id == *id).and_then(|s| s.body.as_ref()) {
+      Some(body) => infer::Inferer { contract, session, input: None }.returns(body).print(Flavour::Client),
+      None => "{}".to_owned(),
+    };
+    let _ = writeln!(out, "export type {} = {props};", props_name(id));
+  }
+  if !routes.is_empty() || !layouts.is_empty() {
     out.push('\n');
   }
 
@@ -543,15 +588,16 @@ fn props_name(id: &str) -> String {
 fn islands_module(islands: &[String], options: &Options) -> String {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   let _ = writeln!(out, "import {{ registerIsland }} from \"@snapfire/fsr-client\";");
-  let _ = writeln!(out, "import {{ {} }} from \"{}\";\n", options.mounter, options.mounter_module);
+  let _ = writeln!(out, "import {{ {}, {} }} from \"{}\";\n", options.mounter, options.patcher, options.mounter_module);
   out.push_str("export function registerIslands(): void {\n");
   for module in islands {
     let Some((path, _export)) = module.split_once('#') else { continue };
     let js = path.rsplit_once('.').map(|(stem, _)| format!("{stem}.js")).unwrap_or_else(|| format!("{path}.js"));
     let _ = writeln!(
       out,
-      "  registerIsland(\"{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.default), mount: {} }});",
-      options.mounter
+      "  registerIsland(\"{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.default), mount: {}, patch: {} }});",
+      options.mounter,
+      options.patcher
     );
   }
   out.push_str("}\n");
@@ -569,6 +615,31 @@ fn sorted_files(dir: &Path, suffix: &str) -> Result<Vec<PathBuf>, BuildError> {
     .collect();
   files.sort();
   Ok(files)
+}
+
+struct LayoutInfo {
+  dir: PathBuf,
+  module: String,
+  source: Option<String>,
+}
+
+/// Nests `content` under each layout, outermost first, with node ids counting
+/// up from 1 so the tree's ids stay unique.
+fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: Option<&str>) -> Node {
+  let mut node = content;
+  for (depth, layout) in wrapping.iter().enumerate().rev() {
+    node = Node {
+      id: depth as u32 + 1,
+      module: layout.module.clone(),
+      source: layout.source.clone(),
+      deferred: false,
+      fallback: None,
+      error: error.map(str::to_owned),
+      cache_key: None,
+      children: vec![Child { slot: "content".to_owned(), node }],
+    };
+  }
+  node
 }
 
 fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Route>) -> Result<(), BuildError> {

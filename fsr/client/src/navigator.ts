@@ -1,6 +1,6 @@
-import { scan } from "./boot.js";
+import { patchIsland, scan } from "./boot.js";
 import { parsePayload, Payload, Segment, SfNode } from "./reader.js";
-import { escapeKey, nodeToHtml, renderSegment, subtreeAt, IdAlloc } from "./render.js";
+import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
 
 let current: Segment | null = null;
 const ids: IdAlloc = { next: 0 };
@@ -50,22 +50,79 @@ function replaceRegion(region: Region, html: string): boolean {
   return true;
 }
 
-function fillSlot(slot: number, node: SfNode): void {
+/** Fills a streamed slot with its content, delimited as the region its segment key names, so a later navigation can diff it. */
+function fillSlot(slot: number, node: SfNode, key: string | null): void {
   const el = document.querySelector(`[data-sf-slot="${slot}"]`);
   if (!el) return;
   const template = document.createElement("template");
-  template.innerHTML = nodeToHtml(node, ids);
+  const html = nodeToHtml(node, ids);
+  template.innerHTML = key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`;
   el.replaceWith(template.content);
 }
 
-/** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. Slot-addressed children resolve through S rows instead. */
-function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode): boolean {
-  const swap = () => {
-    const region = findRegion(oldSeg.k);
-    return region ? replaceRegion(region, renderSegment(newNode, newSeg, ids)) : false;
-  };
+/** The key of the segment a slot id resolves, from a sidecar. */
+function keyOfSlot(seg: Segment, slot: number): string | null {
+  if (seg.s === slot) return seg.k;
+  for (const child of seg.c) {
+    const found = keyOfSlot(child, slot);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+/** The pending node a slot id names, anywhere under `node`. */
+function pendingOf(node: SfNode, slot: number): SfNode | null {
+  if (node.kind === "pending") return node.slot === slot ? node : null;
+  if (node.kind === "seq" || node.kind === "client") {
+    for (const child of node.children) {
+      const found = pendingOf(child, slot);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. */
+function replaceChild(old: Segment, html: string): boolean {
+  const region = findRegion(old.k);
+  if (region) return replaceRegion(region, html);
+  if (old.s === undefined) return false;
+  const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
+  if (!el) return false;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  el.replaceWith(template.content);
+  return true;
+}
+
+/** The island a kept region holds, when its node is one: the first `sf-i` between the delimiters, with its props script. */
+function islandOf(region: Region): { el: Element; script: Element | null } | null {
+  for (let n: Node | null = region.start.nextSibling; n && n !== region.end; n = n.nextSibling) {
+    if (n instanceof Element && n.tagName === "SF-I") {
+      const next = n.nextSibling;
+      const script = next instanceof Element && next.tagName === "SCRIPT" && next.getAttribute("data-sf-props") === n.id ? next : null;
+      return { el: n, script };
+    }
+  }
+  return null;
+}
+
+/** Hands a kept island the props the new payload carries, so it re-renders in place with its DOM and its state. Its props script is rewritten for the next mount. */
+function patchProps(region: Region, node: SfNode): void {
+  if (node.kind !== "client") return;
+  const island = islandOf(region);
+  if (!island) return;
+  const json = scriptSafeJson(node.props);
+  if (island.script?.textContent === json) return;
+  if (island.script) island.script.textContent = json;
+  void patchIsland(island.el, node.props);
+}
+
+/** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Slot-addressed children resolve through S rows instead. */
+function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean): boolean {
+  const swap = () => replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
   if (oldSeg.k !== newSeg.k) {
-    if (swap()) return true;
+    if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
     // A region that cannot be replaced is the root, whose delimiters are
     // children of the document. Same module means the same chrome, so the
     // change is below it: retag the delimiter and descend rather than
@@ -75,22 +132,35 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode): boolean {
     if (!region) return false;
     region.start.data = `sf-g:${escapeKey(newSeg.k)}`;
   }
-  const oldChildren = oldSeg.c.filter((c) => c.s === undefined);
-  const newChildren = newSeg.c.filter((c) => c.s === undefined);
-  if (oldChildren.length !== newChildren.length) return swap();
-  for (let i = 0; i < newChildren.length; i++) {
-    if (!diff(oldChildren[i], newChildren[i], subtreeAt(newNode, newChildren[i].p ?? []))) return false;
+  if (oldSeg.c.length !== newSeg.c.length) return swap();
+  if (newNode.kind === "client") {
+    const region = findRegion(oldSeg.k);
+    if (region) patchProps(region, newNode);
+  } else if (force && newSeg.c.length === 0) {
+    return swap();
+  }
+  for (let i = 0; i < newSeg.c.length; i++) {
+    const oldChild = oldSeg.c[i];
+    const newChild = newSeg.c[i];
+    if (newChild.s !== undefined) {
+      // Streaming again: the old child's place takes the slot with its
+      // fallback; the resolution fills it with the delimited content.
+      const pending = pendingOf(newNode, newChild.s);
+      if (!pending || !replaceChild(oldChild, nodeToHtml(pending, ids))) return false;
+      continue;
+    }
+    if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force)) return false;
   }
   return true;
 }
 
-/** False when the payload could not be patched in place, which leaves the caller to fall back to a full load. */
-function apply(payload: Payload): boolean {
+/** False when the payload could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. */
+function apply(payload: Payload, force: boolean): boolean {
   if (!current || !payload.segments) return false;
-  if (!diff(current, payload.segments, payload.tree)) return false;
+  if (!diff(current, payload.segments, payload.tree, force)) return false;
   current = payload.segments;
   for (const r of payload.resolutions) {
-    fillSlot(r.slot, r.node);
+    fillSlot(r.slot, r.node, keyOfSlot(payload.segments, r.slot));
   }
   scan(document);
   return true;
@@ -163,30 +233,20 @@ export function clearRouterCache(): void {
   cache.clear();
 }
 
-/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and force-replaces the top-level child segments, so the layout's DOM survives while mutated content refreshes. */
+/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and applies it, every kept island taking its new props in place and every kept region that is not an island replaced, so layouts and pages keep their DOM and their state while what they show follows the mutation. */
 export async function refresh(): Promise<void> {
   const bail = () => window.location.reload();
   if (!current) return bail();
   cache.clear();
   const res = await fetch(payloadUrl(new URL(window.location.href)));
   if (!res.ok) return bail();
-  const payload = parsePayload(await res.text());
-  if (!payload.segments) return bail();
-  const oldChildren = current.c.filter((c) => c.s === undefined);
-  const newChildren = payload.segments.c.filter((c) => c.s === undefined);
-  if (oldChildren.length !== newChildren.length) return bail();
-  for (let i = 0; i < newChildren.length; i++) {
-    const region = findRegion(oldChildren[i].k);
-    if (!region) return bail();
-    if (!replaceRegion(region, renderSegment(subtreeAt(payload.tree, newChildren[i].p ?? []), newChildren[i], ids))) {
-      return bail();
-    }
+  let patched = false;
+  try {
+    patched = apply(parsePayload(await res.text()), true);
+  } catch {
+    patched = false;
   }
-  current = payload.segments;
-  for (const r of payload.resolutions) {
-    fillSlot(r.slot, r.node);
-  }
-  scan(document);
+  if (!patched) return bail();
 }
 
 export async function navigate(href: string, push = true): Promise<void> {
@@ -198,7 +258,7 @@ export async function navigate(href: string, push = true): Promise<void> {
   }
   let patched = false;
   try {
-    patched = apply(parsePayload(held.text));
+    patched = apply(parsePayload(held.text), false);
   } catch {
     patched = false;
   }

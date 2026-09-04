@@ -111,7 +111,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 ### Routes
 
-* A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
+* A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. A `layout.tsx` in any directory on the way from `routes/` to a route wraps that route's page, outermost first. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
 * A segment is a name of ASCII letters, digits, `_` and `-`, `[name]` for a parameter or `[...name]` for a catch-all. Anything else is `BuildError::Segment`.
 * `index` as the first segment is the root. `index` deeper in a path is a literal segment.
 * Routes are sorted by pattern before ids are assigned.
@@ -120,6 +120,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * Source id: the static segments joined with `.`; `index` for the root. Parameter segments contribute nothing.
 * Action id: `<source id>.<export>` for each export `lower_actions` returns.
+* Layout id: `layout` for `routes/layout.tsx`, `<static segments joined with .>.layout` deeper; it names the layout's loader as a source.
 * Handler id: `<route id>.<METHOD>` for each export of `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; the row also carries the method and the pattern. An `action<T>` export names `T` as its input, which must be a schema type or the build fails with `UnknownHandlerInput`.
 
 ### Modules
@@ -128,22 +129,23 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * Error: `routes/error.tsx#default` (or `.ts`) when present, applied to every page; a route's own `error.tsx` takes precedence for that route.
 * Loading: `<route dir>/loading.tsx#default` when present; the node is marked deferred with it as the fallback.
 * Not found: `routes/not-found.tsx#default` (or `.ts`) when present, the page for a path no route matches.
+* Layout: `<dir>/layout.tsx#default`, its loader `<dir>/layout.loader.ts` as the source row under the layout id, once however many routes it wraps.
 * Loader, actions and route modules are named by their relative paths in the source, action and handler rows.
 * Middleware: `middleware.ts` at the top of the app, when present, lowered as `Manifest.middleware`. Its exported `middleware` reads `request` (`method` and `path`), which reaches it as the input. It returns nothing or an object naming `redirect`, `rewrite`, `status`, `body` or `headers`.
 
 ### Plan shape
 
-* Every route is a two-node tree: node 0 is the shell module, node 1 is the page in `Options::slot`, carrying the source id, the error module and the fallback.
-* `not_found` is the same two-node tree around the not-found module with the routes-level error module and no source, present only when the module is; the host renders it with status 404 and `params.path` set to the path asked for.
+* Every route is a chain: node 0 is the shell module; each wrapping layout follows in `Options::slot` for the shell and `content` for a layout, ids counting up from 1, carrying the layout's source and the routes-level error module; the page comes last with its source, its error module and its fallback. A route with no layout is the two-node tree of before.
+* `not_found` is the same chain around the not-found module, inside the root layout when there is one, with the routes-level error module and no source, present only when the module is; the host renders it with status 404 and `params.path` set to the path asked for.
 * Sources and actions are emitted with `RowOwner::Lowered` and their bodies. No other owner is produced.
 * An action whose `action<T>` names a type the contract lacks is `UnknownInput`; an action row carries `input` when it names one.
 
 ### Generated files
 
 * `generated/contracts/<client>.json` is `Contract::to_json` of that document's import, types and service; `generated/contracts/schemas.json` holds the schema types. `CONTRACTS_DIR` names the directory. The build merges them with `Contract::merge` for `services.d.ts`, `client.ts` and validation, so a type two documents define fails the build naming the second; `write` empties the directory of `*.json` before writing so a removed client leaves nothing behind.
-* `generated/fsr.ts` declares `Routes` with one key per page pattern and per handler pattern, so `Ctx<"/api/cart">` types a handler's parameters, plus `RequestLine`, `MiddlewareCtx` and `MiddlewareResult` for `middleware.ts`.
+* `generated/fsr.ts` declares `Routes` with one key per page pattern and per handler pattern, so `Ctx<"/api/cart">` types a handler's parameters, plus `RequestLine`, `MiddlewareCtx` and `MiddlewareResult` for `middleware.ts`. `generated/client.ts` types a layout's props from its loader the way it types a page's: `LayoutProps` for the root, `AccountLayoutProps` for `routes/account/layout.tsx`.
 * `generated/services.d.ts` is `snapfire_fsr_service::typescript::declarations` of it.
-* `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module: the routes-level error module, the not-found module, then each page, its error and its loading module, each loading `../<path>.js` relative to `generated/`.
+* `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module, each with `mount` and `patch` from `Options::mounter_module`: the routes-level error module, the not-found module, each layout, then each page, its error and its loading module, each loading `../<path>.js` relative to `generated/`.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.
 * `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build`.
 * `generated/fsr.ts` is what the generated `tsconfig.json` maps `@snapfire/fsr` to; it imports the base package as `@snapfire/fsr-authoring`, re-exports `fail` and `Services`, imports `Session`, declares `Routes` with one key per pattern whose value has a `string` field per parameter, `Ctx<P extends keyof Routes = keyof Routes>` with `params`, `query`, `session`, `identity`, `services` and `now`, `ActionCtx<Input, P>` and an `action<Input, Out>` wrapper over `@snapfire/fsr`'s.

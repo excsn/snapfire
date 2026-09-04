@@ -74,26 +74,44 @@ fn write_segment(session: &mut HtmlSession, node: &Node, info: &SegmentInfo, out
   if let Some(inner) = info.children.iter().find(|c| c.slot.is_none() && c.path.is_empty()) {
     write_segment(session, node, inner, out);
   } else {
-    let positioned: Vec<(&u32, &SegmentInfo)> = info
+    let positioned: Vec<(&[u32], &SegmentInfo)> = info
       .children
       .iter()
-      .filter(|c| c.slot.is_none())
-      .filter_map(|c| c.path.first().map(|i| (i, c)))
+      .filter(|c| c.slot.is_none() && !c.path.is_empty())
+      .map(|c| (c.path.as_slice(), c))
       .collect();
-    match node {
-      Node::Seq(items) if !positioned.is_empty() => {
-        for (idx, item) in items.iter().enumerate() {
-          match positioned.iter().find(|(i, _)| **i == idx as u32) {
-            Some((_, child)) => write_segment(session, item, child, out),
-            None => out.push_str(&session.serialize(item)),
-          }
-        }
-      }
-      _ => out.push_str(&session.serialize(node)),
-    }
+    write_positioned(session, node, &positioned, out);
   }
 
   out.push_str("<!--/sf-g-->");
+}
+
+/// Writes `node` with each positioned child segment wrapped at its path,
+/// descending through `Seq` items and an island's children alike.
+fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32], &SegmentInfo)], out: &mut String) {
+  if positioned.is_empty() {
+    out.push_str(&session.serialize(node));
+    return;
+  }
+  let write_items = |session: &mut HtmlSession, items: &[Node], out: &mut String| {
+    for (idx, item) in items.iter().enumerate() {
+      let here: Vec<(&[u32], &SegmentInfo)> = positioned.iter().filter(|(p, _)| p[0] == idx as u32).map(|(p, c)| (&p[1..], *c)).collect();
+      match here.iter().find(|(p, _)| p.is_empty()) {
+        Some((_, child)) => write_segment(session, item, child, out),
+        None => write_positioned(session, item, &here, out),
+      }
+    }
+  };
+  match node {
+    Node::Seq(items) => write_items(session, items, out),
+    Node::Client { module, props, children, ssr: None } => {
+      let (open, close) = session.client_wrapper(module, props);
+      out.push_str(&open);
+      write_items(session, children, out);
+      out.push_str(&close);
+    }
+    _ => out.push_str(&session.serialize(node)),
+  }
 }
 
 /// The first-response encoding of a streamed page: the tree with segment
@@ -121,7 +139,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     }
     let slot = resolved.slot.0;
     let body = state.session.serialize(&resolved.node);
-    let chunk = format!("<template data-sf-fill=\"{slot}\">{body}</template><script>__sfFill({slot})</script>");
+    let chunk = format!("<template data-sf-fill=\"{slot}\"><!--sf-g:{}-->{body}<!--/sf-g--></template><script>__sfFill({slot})</script>", escape_key(&resolved.key));
     Some((chunk, state))
   }))
 }

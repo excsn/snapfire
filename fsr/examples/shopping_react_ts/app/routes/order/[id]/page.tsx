@@ -1,12 +1,11 @@
 import type { OrderProps } from "@generated/client";
 import { money } from "@src/ui/money";
-import { Page } from "@src/ui/Page";
 
-export default function OrderPage({ order, cartCount }: OrderProps) {
+export default function OrderPage({ order }: OrderProps) {
   const items = order.lines.reduce((n, l) => n + Number(l.quantity), 0);
 
   return (
-    <Page header={{ cartCount }} className="order">
+    <main className="page order">
       <section className="order-placed">
         <p className="empty-glyph">📦</p>
         <h1>Order #{String(order.id)} placed</h1>
@@ -26,6 +25,6 @@ export default function OrderPage({ order, cartCount }: OrderProps) {
           Back to shopping
         </a>
       </section>
-    </Page>
+    </main>
   );
 }

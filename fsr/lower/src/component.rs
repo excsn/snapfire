@@ -28,11 +28,14 @@ pub struct ComponentSet {
   defaults: SessionDefaults,
   pub components: Vec<(String, Component)>,
   resolving: Vec<String>,
+  /// Modules that are layouts: their `children` is the child segment, placed
+  /// inside `<sf-s>` so the browser can adopt it without reconciling it.
+  pub layouts: Vec<String>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new() }
   }
 
   /// Lowers `module` (a `path#export` under the app) and everything it
@@ -90,7 +93,8 @@ impl ComponentSet {
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None };
+        let layout_root = self.layouts.iter().any(|m| *m == format!("{file}#{export}"));
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root };
         let result = cl.component(&function);
         (result, cl.lowerer.unbound.take())
       };
@@ -512,6 +516,18 @@ struct ComponentLowerer<'a, 'p> {
   props_name: Option<String>,
   /// The local name `children` was destructured to.
   children_name: Option<String>,
+  /// A layout: its slot is wrapped in `<sf-s>`.
+  layout_root: bool,
+}
+
+impl ComponentLowerer<'_, '_> {
+  fn slot(&self) -> Tmpl {
+    if self.layout_root {
+      Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot] }
+    } else {
+      Tmpl::Slot
+    }
+  }
 }
 
 const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle"];
@@ -700,8 +716,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(Tmpl::For { over, params, body: Box::new(body?) })
       }
       js::Expr::Ident(id) if id.sym.as_ref() == "null" || id.sym.as_ref() == "undefined" => Ok(Tmpl::Fragment(Vec::new())),
-      js::Expr::Ident(id) if self.children_name.as_deref() == Some(id.sym.as_ref()) => Ok(Tmpl::Slot),
-      js::Expr::Member(m) if self.is_props_children(m) => Ok(Tmpl::Slot),
+      js::Expr::Ident(id) if self.children_name.as_deref() == Some(id.sym.as_ref()) => Ok(self.slot()),
+      js::Expr::Member(m) if self.is_props_children(m) => Ok(self.slot()),
       js::Expr::Lit(js::Lit::Null(_)) => Ok(Tmpl::Fragment(Vec::new())),
       other => Ok(Tmpl::Expr(self.lowerer.expr(other)?)),
     }

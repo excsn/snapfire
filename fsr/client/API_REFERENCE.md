@@ -31,6 +31,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [registerIsland](#registerisland)
   * [scan](#scan)
   * [boot](#boot)
+  * [patchIsland](#patchisland)
   * [DOM Contract](#dom-contract)
 * [6. Navigation](#6-navigation)
   * [enableNavigation](#enablenavigation)
@@ -266,6 +267,14 @@ Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root
 
 Scans the whole document, immediately when the DOM is past `loading` and on `DOMContentLoaded` otherwise, then scans again on every `sf:fill` event on `document`. That event is dispatched by the server's inline fill script after it moves a resolved template into its slot, which is what mounts islands inside streamed chunks. Calling `boot` again scans again and adds no second listener; the listener is registered once per document.
 
+### patchIsland
+
+* `patchIsland(el: Element, props: Props): Promise<boolean>`
+
+Re-renders the island mounted at `el` with `props`, in place, through the entry's `patch`; the DOM and the island's state survive. Resolves false when nothing is mounted there, the mount failed or the entry has no patcher.
+
+* `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
+
 ### DOM Contract
 
 What the server writes and this package reads.
@@ -278,7 +287,8 @@ What the server writes and this package reads.
 | `<div data-sf-slot="N">` | HTML serialiser, `nodeToHtml` | the fill script, `refresh`, `navigate` |
 | `<template data-sf-fill="N">` | the streamed HTML response | the fill script |
 | `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script | `boot` |
-| `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment` | `navigate`, `refresh` |
+| `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment`, the fill of a streamed segment | `navigate`, `refresh` |
+| `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
 | `<script type="application/json" data-sf-segments>` | streamed HTML response | `enableNavigation` |
 
 ## 6. Navigation
@@ -312,15 +322,15 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 Takes `<pathname><search>` from the router cache while its entry is younger than `cacheMs`, joins a fetch already in flight for it or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not. A fetched text is held. A non-ok response hands over to `window.location.assign(href)`. Otherwise the payload is parsed and applied, history is pushed when `push` is true (its default), then the window scrolls to the top.
 
-Applying walks the old and new segment spines together. The first key mismatch replaces that region from the new payload; a differing child count replaces the parent region; slot-addressed children are skipped and resolve through `S` rows instead. Resolved slots are filled after the diff, then the document is rescanned. A missing sidecar, a missing `G` row or a region whose comment pair cannot be found in the DOM falls back to `window.location.reload()`.
+Applying walks the old and new segment spines together, children paired in order whether positioned or slot-addressed. The first key mismatch replaces that region from the new payload; a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row or a region whose comment pair cannot be found in the DOM falls back to `window.location.reload()`.
 
 ### refresh
 
 * `refresh(): Promise<void>`
 
-Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, then force-replaces every top-level non-deferred child segment region regardless of whether its key changed, fills the resolved slots and rescans. Everything outside those regions, the layout included, keeps its DOM and its island state.
+Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended and applies it as `navigate` does, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state.
 
-Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok, when it carries no `G` row, when the child segment counts differ or when a region cannot be found.
+Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
 
 ## 7. Actions
 
@@ -342,7 +352,15 @@ Its own entry point, so the core package never imports React.
 
 * `const reactMounter: Mounter`
 
-Creates the element with `createElement(component, props)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root.
+Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root.
+
+`children` is set when `el` holds an `<sf-s>` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. The page inside hydrates in its own root.
+
+### reactPatcher
+
+* `const reactPatcher: Patcher`
+
+Calls `render` on the root the mounter returned with `createElement(component, props, children)`, the same `children` element as at mount, so a layout re-renders with new props and its page's DOM is untouched.
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 

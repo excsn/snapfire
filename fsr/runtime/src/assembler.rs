@@ -136,11 +136,14 @@ impl Runtime {
 /// or evaluation resolves to the segment's error node instead.
 pub struct PendingResolution {
   pub slot: SlotId,
+  /// The deferred segment's key, so its fill is delimited like any region.
+  pub key: String,
   pub future: BoxFuture<'static, Resolved>,
 }
 
 pub struct Resolved {
   pub slot: SlotId,
+  pub key: String,
   pub node: Node,
   /// Nested deferral: a resolution may introduce new pending slots.
   pub pending: Vec<PendingResolution>,
@@ -206,6 +209,15 @@ fn collect_loads<'p>(
   }
   for (_, child) in &node.children {
     collect_loads(child, false, out);
+  }
+}
+
+fn has_slot(node: &Node) -> bool {
+  match node {
+    Node::Slot(_) => true,
+    Node::Seq(items) => items.iter().any(has_slot),
+    Node::Client { children, .. } => children.iter().any(has_slot),
+    _ => false,
   }
 }
 
@@ -308,14 +320,16 @@ impl Session {
     Ok(if parts.len() == 1 { parts.pop().unwrap() } else { Node::Seq(parts) })
   }
 
-  fn defer(self: &Arc<Self>, child: PlanNode, slot: SlotId) -> PendingResolution {
+  fn defer(self: &Arc<Self>, child: PlanNode, slot: SlotId, key: String) -> PendingResolution {
     let session = Arc::clone(self);
+    let resolved_key = key.clone();
     PendingResolution {
       slot,
+      key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
-          Ok((node, pending, _segments)) => Resolved { slot, node, pending },
-          Err(e) => Resolved { slot, node: error_node(&e.to_string()), pending: Vec::new() },
+          Ok((node, pending, _segments)) => Resolved { slot, key: resolved_key, node, pending },
+          Err(e) => Resolved { slot, key: resolved_key, node: error_node(&e.to_string()), pending: Vec::new() },
         }
       }),
     }
@@ -359,6 +373,68 @@ impl Session {
     }
   }
 
+  /// Replaces every `Node::Slot` inside `node` with the plan child of that
+  /// name, the way a `Chunk::Slot` is answered, recording each child segment
+  /// with its path inside `node`.
+  fn fill_slots<'a>(
+    self: &'a Arc<Self>,
+    node: Node,
+    plan: &'a PlanNode,
+    loaded: &'a Loaded,
+    out_pending: &'a mut Vec<PendingResolution>,
+    segments: &'a mut Vec<SegmentInfo>,
+    path: &'a mut Vec<u32>,
+  ) -> BoxFuture<'a, Result<(Node, bool), AssembleError>> {
+    Box::pin(async move {
+      let mut used_head = false;
+      match node {
+        Node::Slot(slot) => {
+          let child = plan
+            .children
+            .iter()
+            .find(|(name, _)| *name == slot)
+            .map(|(_, child)| child)
+            .ok_or_else(|| AssembleError::MissingSlot { node: plan.id.0, slot: slot.0.clone() })?;
+          let key = self.runtime.keyer.key(child, &self.ctx.params, &self.ctx.query);
+          if child.deferred {
+            let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
+            let fallback = self.fallback_node(child).await?;
+            out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
+            segments.push(SegmentInfo { key, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new() });
+            Ok((Node::Pending { slot: slot_id, fallback: Box::new(fallback) }, false))
+          } else {
+            let (child_node, grandchildren, child_used_head) = self.build(child, loaded, out_pending).await?;
+            segments.push(SegmentInfo { key, path: path.clone(), slot: None, children: grandchildren });
+            Ok((child_node, child_used_head))
+          }
+        }
+        Node::Seq(items) => {
+          let mut out = Vec::with_capacity(items.len());
+          for (i, item) in items.into_iter().enumerate() {
+            path.push(i as u32);
+            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path).await?;
+            path.pop();
+            used_head |= head;
+            out.push(filled);
+          }
+          Ok((Node::Seq(out), used_head))
+        }
+        Node::Client { module, props, children, ssr } => {
+          let mut out = Vec::with_capacity(children.len());
+          for (i, item) in children.into_iter().enumerate() {
+            path.push(i as u32);
+            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path).await?;
+            path.pop();
+            used_head |= head;
+            out.push(filled);
+          }
+          Ok((Node::Client { module, props, children: out, ssr }, used_head))
+        }
+        other => Ok((other, false)),
+      }
+    })
+  }
+
   fn build<'a>(
     self: &'a Arc<Self>,
     node: &'a PlanNode,
@@ -395,6 +471,16 @@ impl Session {
       let mut used_head = false;
       for chunk in chunks {
         match chunk {
+          Chunk::Node(n) if has_slot(&n) => {
+            let idx = parts.len();
+            let mut inner: Vec<SegmentInfo> = Vec::new();
+            let (filled, child_used_head) = self.fill_slots(n, node, loaded, out_pending, &mut inner, &mut Vec::new()).await?;
+            used_head |= child_used_head;
+            parts.push(filled);
+            for info in inner {
+              segments.push((idx, info));
+            }
+          }
           Chunk::Node(n) => parts.push(n),
           Chunk::Slot(slot) if slot.0 == "head" => {
             used_head = true;
@@ -412,7 +498,7 @@ impl Session {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
               let fallback = self.fallback_node(child).await?;
               parts.push(Node::Pending { slot: slot_id, fallback: Box::new(fallback) });
-              out_pending.push(self.defer(child.clone(), slot_id));
+              out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
               segments.push((usize::MAX, SegmentInfo { key, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new() }));
             } else {
               let (child_node, grandchildren, child_used_head) =
@@ -431,7 +517,7 @@ impl Session {
         .into_iter()
         .map(|(idx, mut info)| {
           if info.slot.is_none() && !collapsed {
-            info.path = vec![idx as u32];
+            info.path.insert(0, idx as u32);
           }
           info
         })

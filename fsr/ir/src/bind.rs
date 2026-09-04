@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use futures_util::stream;
-use snapfire_fsr_core::{Data, ModuleId, Node, Value};
+use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
 use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, LoadError, NodeChunks, RequestCtx};
 
 use crate::ast::{Body, Component};
@@ -122,7 +122,19 @@ impl Evaluator for IrEvaluator {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
       let html = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
-      Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(html))) }))
+      if !html.contains(crate::render::ROOT_SLOT) {
+        return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(html))) }));
+      }
+      let mut children = Vec::new();
+      for (i, piece) in html.split(crate::render::ROOT_SLOT).enumerate() {
+        if i > 0 {
+          children.push(Node::Slot(SlotName("content".to_owned())));
+        }
+        if !piece.is_empty() {
+          children.push(Node::raw(piece));
+        }
+      }
+      Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }))
     }))
   }
 }

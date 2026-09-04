@@ -1,4 +1,6 @@
 import { Segment, SfNode } from "./reader.js";
+import { SfValue } from "./values.js";
+declare function scriptSafeJson(value: SfValue): string;
 export interface IdAlloc {
 	next: number;
 }
@@ -8,4 +10,5 @@ export declare function escapeKey(key: string): string;
 declare function subtreeAt(node: SfNode, path: number[]): SfNode;
 /** Mirrors the server's segment serialization: the subtree wrapped in comment delimiters, recursing into child segments, so a swapped-in region stays diffable on the next navigation. */
 export declare function renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string;
+export { scriptSafeJson };
 export { subtreeAt };

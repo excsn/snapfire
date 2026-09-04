@@ -2,6 +2,8 @@ import { decodeValue, SfValue } from "./values.js";
 
 export type Props = { [key: string]: SfValue };
 export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean) => unknown;
+/** Re-renders a mounted island in place with new props; `handle` is what the mounter returned. */
+export type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void;
 
 export type MountTiming = "load" | "visible" | "idle";
 
@@ -10,7 +12,16 @@ export interface IslandEntry {
   mount: Mounter;
   /** When hydration happens: immediately, when scrolled into view, or when the main thread is idle. Defaults to "load". Per island, not per page. */
   when?: MountTiming;
+  patch?: Patcher;
 }
+
+interface Mounted {
+  entry: IslandEntry;
+  moduleId: string;
+  handle: Promise<unknown>;
+}
+
+const mounted = new WeakMap<Element, Mounted>();
 
 const islands = new Map<string, IslandEntry>();
 
@@ -31,10 +42,25 @@ function propsFor(root: ParentNode, id: string): Props {
 
 function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
   const hydrate = el.childNodes.length > 0;
-  entry
+  const handle = entry
     .loader()
     .then((mod) => entry.mount(mod, props, el, hydrate))
-    .catch((err) => console.warn(`sf: mounting ${moduleId} failed`, err));
+    .catch((err) => {
+      console.warn(`sf: mounting ${moduleId} failed`, err);
+      return undefined;
+    });
+  mounted.set(el, { entry, moduleId, handle });
+}
+
+/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. False when nothing is mounted there or the island's entry has no patcher. */
+export async function patchIsland(el: Element, props: Props): Promise<boolean> {
+  const island = mounted.get(el);
+  if (!island?.entry.patch) return false;
+  const handle = await island.handle;
+  if (handle === undefined) return false;
+  const mod = await island.entry.loader();
+  island.entry.patch(handle, mod, props, el);
+  return true;
 }
 
 function schedule(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {

@@ -6,6 +6,7 @@ pub mod plan;
 pub mod routes;
 
 use std::future::Future;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, PlanNode};
@@ -433,6 +434,7 @@ impl AppBuilder {
     }
 
     let fixed_sources: Vec<String> = self.lowered_sources.iter().filter(|(_, body)| !snapfire_fsr_ir::body_reads_request(body)).map(|(name, _)| name.clone()).collect();
+    let reads: HashMap<String, Vec<String>> = self.lowered_sources.iter().map(|(name, body)| (name.clone(), snapfire_fsr_ir::body_params_read(body))).collect();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
       match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
         Some(Owner::RustOverride) => {}
@@ -602,7 +604,7 @@ impl AppBuilder {
       resolver.insert(entry, plan);
     }
 
-    let mut runtime = Runtime::builder().sources(self.sources).evaluators(self.evaluators);
+    let mut runtime = Runtime::builder().sources(self.sources).evaluators(self.evaluators).keyer(Arc::new(ReadsKeyer { reads }));
     if let Some(cache) = self.cache {
       runtime = runtime.cache(cache);
     }
@@ -637,6 +639,34 @@ impl ActionHandler for CheckedInput {
       return Box::pin(async move { Err(error) });
     }
     self.inner.call(ctx, input)
+  }
+}
+
+/// Keys a node with children by its module and the route parameters its
+/// source reads, so a layout survives a navigation that changes a parameter
+/// it never looks at; a leaf keeps `DefaultKeyer`'s full key.
+struct ReadsKeyer {
+  reads: HashMap<String, Vec<String>>,
+}
+
+impl snapfire_fsr_runtime::SegmentKeyer for ReadsKeyer {
+  fn key(&self, plan: &PlanNode, params: &snapfire_fsr_core::Params, query: &snapfire_fsr_core::Params) -> String {
+    if plan.children.is_empty() {
+      return snapfire_fsr_runtime::DefaultKeyer.key(plan, params, query);
+    }
+    let mut key = plan.module.to_string();
+    let read = plan.data_source.as_ref().and_then(|s| self.reads.get(&s.0));
+    let mut pairs: Vec<String> = params
+      .iter()
+      .filter(|(k, _)| read.is_some_and(|names| names.contains(k)))
+      .map(|(k, v)| format!("{k}={v}"))
+      .collect();
+    pairs.sort_unstable();
+    if !pairs.is_empty() {
+      key.push('?');
+      key.push_str(&pairs.join("&"));
+    }
+    key
   }
 }
 

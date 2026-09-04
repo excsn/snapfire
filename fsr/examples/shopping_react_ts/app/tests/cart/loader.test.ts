@@ -9,16 +9,14 @@ test("held lines carry the catalog's rows and the held quantity", async () => {
     session: { cart: { "2": 3n } },
     services: { shopping: { listProducts: () => [filament, hotend] } },
   });
-  const { lines, cartCount } = await load(c);
+  const { lines } = await load(c);
   assert.equal(lines, [{ ...hotend, quantity: 3n }]);
-  assert.equal(cartCount, 3n);
   assert.equal(c.trace.calls, [{ service: "shopping", method: "listProducts", args: {} }]);
 });
 
 test("an empty cart lists nothing and still asks the catalog once", async () => {
   const c = ctx<void, "/cart">({ services: { shopping: { listProducts: () => [filament] } } });
-  const { lines, cartCount } = await load(c);
+  const { lines } = await load(c);
   assert.equal(lines, []);
-  assert.equal(cartCount, 0n);
   assert.ok(c.trace.calls.length === 1);
 });
