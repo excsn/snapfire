@@ -9,6 +9,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`RouteMatch`](#routematch)
   * [`Matcher`](#matcher)
   * [`MatchitMatcher`](#matchitmatcher)
+  * [`HandlerMatcher`](#handlermatcher)
 * [2. Resolution](#2-resolution)
   * [`Resolver`](#resolver)
   * [`TableResolver`](#tableresolver)
@@ -88,6 +89,15 @@ What a matcher returns. `Debug + Clone + PartialEq`.
 * `pub fn new() -> Self`
 * `pub fn insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), matchit::InsertError>`: patterns are `matchit` patterns, so a capture is written `/dash/{section}`. Conflicting or malformed patterns fail here, at construction.
 * `fn match_path(&self, path: &str) -> Option<RouteMatch>`: named captures become params, in the order `matchit` yields them.
+
+### `HandlerMatcher`
+
+* `pub struct HandlerMatcher`, `Default`: one `matchit` router per HTTP method, resolving to a handler id.
+* `HandlerMatcher::new() -> Self`
+* `HandlerMatcher::insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), matchit::InsertError>`: the method is upper-cased.
+* `HandlerMatcher::match_request(&self, method: &str, path: &str) -> Option<HandlerMatch>`
+* `HandlerMatcher::is_empty(&self) -> bool`
+* `pub struct HandlerMatch { pub id: String, pub params: Params }`
 
 ## 2. Resolution
 

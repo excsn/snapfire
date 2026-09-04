@@ -23,7 +23,15 @@ The binding rule: a plan file plus Rust registrations become an `App`, or a refu
 
 Everything a request needs, plus what was bound to produce it.
 
-* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub not_found: Option<PlanNode>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match.
+* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub not_found: Option<PlanNode>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match.
+
+### Handlers
+
+The route handlers a host dispatches before matching a page.
+
+* `Handlers::match_request(&self, method: &str, path: &str) -> Option<HandlerMatch>`: the handler id and the pattern's parameters; the method is matched case-insensitively.
+* `Handlers::dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>`
+* `Handlers::ids(&self) -> Vec<String>`; `Handlers::is_empty(&self) -> bool`.
 * `App::builder(routes: Routes) -> AppBuilder`: from routes alone, no plan file.
 * `App::from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: the plan file's text; its routes, its lowered sources, actions and components and its declared actions are remembered for `build`.
 
@@ -37,6 +45,9 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::action<F, Fut>(self, id, f: F) -> Self` where `F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static`, `Fut: Future<Output = Result<Value, ActionError>> + Send + 'static`
 * `AppBuilder::action_override<F, Fut>(self, id, f: F) -> Self`: `build` refuses when the plan lowers no such action.
 * `AppBuilder::action_impl(self, id, handler: Arc<dyn ActionHandler>) -> Self`
+* `AppBuilder::handler<F, Fut>(self, method, pattern, f: F) -> Self` with the same bounds as `action`: a Rust handler for `METHOD pattern`, reported by that name; `build` refuses it as `HandlerClaimed` when the plan lowers the same pair.
+* `AppBuilder::handler_override<F, Fut>(self, method, pattern, f: F) -> Self`: replaces the lowered handler for the pair; `HandlerOverridesNothing` when there is none.
+* `AppBuilder::handler_impl(self, method, pattern, handler: Arc<dyn ActionHandler>) -> Self`
 * `AppBuilder::evaluator<P>(self, predicate: P, evaluator: Arc<dyn Evaluator>) -> Self` where `P: Fn(&ModuleId) -> bool + Send + Sync + 'static`
 * `AppBuilder::services(self, services: Arc<Services>) -> Self`: default is an empty registry.
 * `AppBuilder::contract(self, contract: Contract) -> Self`: required when any lowered action names an input type.
@@ -44,7 +55,7 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::route(self, pattern, plan: impl IntoPlan) -> Self`
 * `AppBuilder::route_override(self, pattern, plan: impl IntoPlan) -> Self`
 * `AppBuilder::not_found(self, plan: impl IntoPlan) -> Self`: `Routes::not_found` on the builder's routes.
-* `AppBuilder::build(self) -> Result<App, BindError>`: binds every lowered source and action not overridden, the lowered components under the IR evaluator, checks every override names something, every named source and declared action is answered and every pattern is one the matcher accepts, then assembles the runtime and the report. A lowered action with an input type is wrapped so the value is checked against the contract before its body runs, failing as `Invalid`.
+* `AppBuilder::build(self) -> Result<App, BindError>`: binds every lowered source, action and handler not overridden, checks a handler row with no body is answered in Rust (`UnboundHandler`), the lowered components under the IR evaluator, checks every override names something, every named source and declared action is answered and every pattern is one the matcher accepts, then assembles the runtime and the report. A lowered action with an input type is wrapped so the value is checked against the contract before its body runs, failing as `Invalid`.
 
 ## 2. Routes and Plans
 
@@ -93,8 +104,8 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 
 `#[derive(Debug, Clone, Default, PartialEq, Eq)]`, `Display`.
 
-* `pub struct Report { pub routes: Vec<(String, Owner)>, pub sources: Vec<(String, Owner)>, pub actions: Vec<(String, Owner)>, pub components: Vec<(String, Owner)> }`
-* `routes` sorted by pattern; the rest in binding order. `Display` prints four labelled columns, `routes`, `sources`, `actions` and `rendered`.
+* `pub struct Report { pub routes: Vec<(String, Owner)>, pub sources: Vec<(String, Owner)>, pub actions: Vec<(String, Owner)>, pub handlers: Vec<(String, Owner)>, pub components: Vec<(String, Owner)> }`
+* `routes` and `handlers` sorted, the handler name being `METHOD pattern`; the rest in binding order. `Display` prints five labelled columns, `routes`, `sources`, `actions`, `handlers` and `rendered`.
 
 ## 4. Error Handling
 
@@ -112,3 +123,6 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 * `Module { module }`: not `path#export`.
 * `NoContract { id, input }`: a lowered action names an input type and no contract was passed.
 * `UnknownInput { id, input }`: the contract does not define the type.
+* `HandlerClaimed(String)`: a handler lowered by the file and bound in Rust without an override; the string is `METHOD pattern`.
+* `HandlerOverridesNothing(String)`: a handler override the file has nothing for.
+* `UnboundHandler(String)`: a handler row with no body that no Rust handler answers.

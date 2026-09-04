@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
 use snapfire_fsr_ir::{Body, Expr, Fail, Interpreter};
 use snapfire_fsr_lower::testing::{Assertion, Binding, Mock, Step, Target, TestCase, lower_tests};
-use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_loader_with};
+use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_handlers_with, lower_loader_with};
 use snapfire_fsr_runtime::{Identity, RequestCtx, ServiceError, SessionCell};
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
@@ -107,6 +107,18 @@ impl Targets {
         let body = Arc::new(lower_loader_with(file, &source, &self.defaults).map_err(|e| e.to_string())?);
         self.loaders.insert(file.clone(), body.clone());
         Ok(body)
+      }
+      Target::Handler { file, export } => {
+        let key = format!("{file}#{export}");
+        if let Some(body) = self.actions.get(&key) {
+          return Ok(body.clone());
+        }
+        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
+        let lowered = lower_handlers_with(file, &source, &self.defaults).map_err(|e| e.to_string())?;
+        for handler in lowered {
+          self.actions.insert(format!("{file}#{}", handler.method), Arc::new(handler.body));
+        }
+        self.actions.get(&key).cloned().ok_or_else(|| LowerError::MissingExport { file: file.clone(), export: export.clone() }.to_string())
       }
       Target::Action { file, export } => {
         let key = format!("{file}#{export}");
@@ -328,7 +340,7 @@ async fn run_case(case: &TestCase, targets: &mut Targets, contract: &Arc<Contrac
 fn describe(target: &Target) -> String {
   match target {
     Target::Loader { .. } => "`load`".to_owned(),
-    Target::Action { export, .. } => format!("`{export}`"),
+    Target::Action { export, .. } | Target::Handler { export, .. } => format!("`{export}`"),
   }
 }
 

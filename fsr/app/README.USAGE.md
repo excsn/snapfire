@@ -163,6 +163,19 @@ let app = App::from_manifest(&text)?
   .build()?;
 ```
 
+## Answering a Handler
+
+A `route.ts` lowers to handler rows the plan file names by method and pattern. `handler` adds one written in Rust beside them, `handler_override` takes a lowered one back and `handler_impl` takes an `ActionHandler`. The report lists each as `METHOD pattern`.
+
+```rust
+let app = App::from_manifest(&text)?
+  .handler("GET", "/api/health", |_ctx, _input| async { Ok(Value::str("ok")) })
+  .handler_override("POST", "/api/cart", |ctx, input| async move { add_to_cart(ctx, input).await })
+  .build()?;
+```
+
+A host matches handlers before pages: `app.handlers.match_request("GET", "/api/health")` gives the id and the parameters, `app.handlers.dispatch` runs it with a request context and the request body as its input.
+
 ## Rendering a Module in Rust
 
 Lowered components get the IR evaluator automatically and appear under `rendered` as `lowered`. Anything else is an evaluator registered by predicate, checked in registration order.

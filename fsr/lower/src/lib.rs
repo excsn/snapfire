@@ -77,6 +77,18 @@ pub struct LoweredAction {
   pub body: Body,
 }
 
+/// A lowered route handler: the HTTP method it answers, the body and the
+/// input type when the export is an `action<T>`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoweredHandler {
+  pub method: String,
+  pub input: Option<String>,
+  pub body: Body,
+}
+
+/// The exports of a `route.ts` that are handlers.
+pub const HANDLER_METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
 /// Session keys with the value a body reads when the key is absent, from
 /// `export const defaults` in the session schema. A read of such a key lowers
 /// to `session.key ?? default`.
@@ -118,6 +130,33 @@ pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) 
     let mut lowerer = Lowerer::new(&parsed, defaults);
     lowerer.bind_ctx(first)?;
     out.push(LoweredAction { export: name.to_owned(), input, body: lowerer.block(body)? });
+  }
+  Ok(out)
+}
+
+/// Lowers every export of a `route.ts` named for an HTTP method, in file
+/// order. A method exported as a plain function reads the request body as
+/// `input` unchecked; one exported as `action<T>(...)` has it checked
+/// against `T` first.
+pub fn lower_handlers(file: &str, source: &str) -> Result<Vec<LoweredHandler>, LowerError> {
+  lower_handlers_with(file, source, &SessionDefaults::new())
+}
+
+pub fn lower_handlers_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredHandler>, LowerError> {
+  let parsed = parse(file, source)?;
+  let mut out = Vec::new();
+  for (name, exported) in parsed.exports() {
+    if !HANDLER_METHODS.contains(&name) {
+      continue;
+    }
+    let (input, first, body) = match exported {
+      Exported::Function(first, body) => (None, first, body),
+      Exported::Action { input, first, body } => (input, first, body),
+      Exported::Other(span) => return Err(parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into()),
+    };
+    let mut lowerer = Lowerer::new(&parsed, defaults);
+    lowerer.bind_ctx(first)?;
+    out.push(LoweredHandler { method: name.to_owned(), input, body: lowerer.block(body)? });
   }
   Ok(out)
 }

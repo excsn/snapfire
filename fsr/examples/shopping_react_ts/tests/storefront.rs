@@ -328,6 +328,55 @@ fn a_declared_action_nothing_answers_refuses_to_start() {
 }
 
 #[test]
+fn a_route_handler_answers_a_request_with_a_value() {
+  use snapfire_fsr_runtime::FailureKind;
+
+  let app = app_over(Arc::new(MockTransport::new()));
+  let session = SessionCell::default();
+  hold(&session, 1, 2);
+
+  let got = block_on(app.call_handler("GET", "/api/cart?x=1", session.clone(), Value::Null)).unwrap();
+  let Value::Map(map) = got else { panic!("a map") };
+  assert_eq!(map.get("count"), Some(&Value::int(2i64)));
+
+  let mut input = ValueMap::new();
+  input.insert("product_id".to_owned(), Value::int(3i64));
+  input.insert("quantity".to_owned(), Value::int(1i64));
+  let Value::Map(map) = block_on(app.call_handler("post", "/api/cart", session.clone(), Value::Map(input))).unwrap() else { panic!("a map") };
+  assert_eq!(map.get("count"), Some(&Value::int(3i64)));
+  assert_eq!(cart_lines(&session).get("3"), Some(&Value::int(1i64)), "the handler wrote the session");
+
+  let mut bad = ValueMap::new();
+  bad.insert("product_id".to_owned(), Value::str("three"));
+  let err = block_on(app.call_handler("POST", "/api/cart", session.clone(), Value::Map(bad))).unwrap_err();
+  assert_eq!(err.kind, FailureKind::Invalid, "the input is checked against AddToCart before the body runs");
+
+  let err = block_on(app.call_handler("GET", "/api/nothing", session.clone(), Value::Null)).unwrap_err();
+  assert_eq!(err.kind, FailureKind::NotFound);
+  let err = block_on(app.call_handler("DELETE", "/api/cart", session, Value::Null)).unwrap_err();
+  assert_eq!(err.kind, FailureKind::NotFound, "a method the file does not export is not a handler");
+  assert_eq!(app.report().app.handlers, vec![("GET /api/cart".to_owned(), snapfire_fsr::Owner::Lowered), ("POST /api/cart".to_owned(), snapfire_fsr::Owner::Lowered)]);
+}
+
+#[test]
+fn a_handler_written_in_rust_sits_beside_the_lowered_ones() {
+  let app = Host::from(env!("CARGO_MANIFEST_DIR"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new()))
+    .handler("GET", "/api/health", |_ctx, _input| async { Ok(Value::str("ok")) })
+    .build()
+    .unwrap();
+  assert_eq!(block_on(app.call_handler("GET", "/api/health", SessionCell::default(), Value::Null)).unwrap(), Value::str("ok"));
+  let refused = Host::from(env!("CARGO_MANIFEST_DIR"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new()))
+    .handler("GET", "/api/cart", |_ctx, _input| async { Ok(Value::Null) })
+    .build();
+  let Err(err) = refused else { panic!("the plan lowers GET /api/cart") };
+  assert!(matches!(err, snapfire_fsr_host::HostError::Bind(snapfire_fsr::BindError::HandlerClaimed(_))), "{err}");
+}
+
+#[test]
 fn an_action_input_the_schema_rejects_never_reaches_the_body() {
   use snapfire_fsr_runtime::{FailureKind, SessionCell};
 
