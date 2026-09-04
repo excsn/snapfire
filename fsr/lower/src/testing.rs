@@ -18,6 +18,7 @@ pub enum Target {
   Loader { file: String },
   Action { file: String, export: String },
   Handler { file: String, export: String },
+  Middleware { file: String },
 }
 
 /// The `ctx({ ... })` literal, each part an expression the runner evaluates.
@@ -105,6 +106,7 @@ pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError> {
         ("loader", "load") => Target::Loader { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
         ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
+        ("middleware", "middleware") => Target::Middleware { file: target_file },
         _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a route's `loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
@@ -331,7 +333,7 @@ impl<'a> TestLowerer<'a> {
         "session" => mock.session = self.entries(value)?,
         "params" => mock.params = self.entries(value)?,
         "query" => mock.query = self.entries(value)?,
-        "input" => mock.input = Some(self.lowerer.expr(value)?),
+        "input" | "request" => mock.input = Some(self.lowerer.expr(value)?),
         "identity" => mock.identity = Some(self.lowerer.expr(value)?),
         "services" => {
           let js::Expr::Object(services) = value else {

@@ -195,6 +195,28 @@ let host = Host::from(".")?
 let answer = host.call_handler("GET", "/api/health", session, Value::Null).await?;
 ```
 
+## Middleware in Rust
+
+The plan's `middleware.ts` runs before every request; `middleware_override` replaces it with a Rust function of the request context and the request line, whose value the host reads as a `Preflight`. `preflight` runs it without a request, for a test.
+
+```rust
+use snapfire_fsr_host::{Preflight, PreflightAction};
+
+let host = Host::from(".")?
+  .middleware_override(|_ctx, request| async move {
+    let mut out = ValueMap::new();
+    if let Value::Map(line) = &request {
+      if line.get("path") == Some(&Value::str("/old")) {
+        out.insert("redirect".into(), Value::str("/new"));
+      }
+    }
+    Ok(Value::Map(out))
+  })
+  .build()?;
+
+assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction::Redirect { to: "/new".into(), status: 307 });
+```
+
 ## Taking a Name Back
 
 The binding rule from `snapfire_fsr` applies unchanged. A lowered source or action is a default; Rust replaces it with an override. The report says `rust override`.

@@ -60,6 +60,7 @@ export declare function load(path: string, options?: {
 	ctx?: TestCtx;
 }): Promise<{
 	status: number;
+	path: string;
 }>;
 type Matcher = string | RegExp;
 /** Queries over the document, by the text an element itself holds, its label, its placeholder or its `data-testid`. */

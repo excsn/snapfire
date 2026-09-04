@@ -161,6 +161,31 @@ pub fn lower_handlers_with(file: &str, source: &str, defaults: &SessionDefaults)
   Ok(out)
 }
 
+/// Lowers the exported `middleware` of `middleware.ts`. The body reads the
+/// request line as `request` (`method` and `path`), which reaches it as the
+/// input. It returns nothing to continue or a map naming `redirect`,
+/// `rewrite`, `status`, `body` or `headers`.
+pub fn lower_middleware(file: &str, source: &str) -> Result<Body, LowerError> {
+  lower_middleware_with(file, source, &SessionDefaults::new())
+}
+
+pub fn lower_middleware_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError> {
+  let parsed = parse(file, source)?;
+  let function = parsed
+    .exports()
+    .find_map(|(name, decl)| (name == "middleware").then_some(decl))
+    .ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() })?;
+  let (first, body) = match function {
+    Exported::Function(first, body) => (first, body),
+    Exported::Action { .. } => return Err(LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }),
+    Exported::Other(span) => return Err(parsed.residue(span, "`middleware` must be a function").into()),
+  };
+  let mut lowerer = Lowerer::new(&parsed, defaults);
+  lowerer.middleware = true;
+  lowerer.bind_ctx(first)?;
+  Ok(lowerer.block(body)?)
+}
+
 pub(crate) struct Parsed {
   file: String,
   cm: Lrc<SourceMap>,
@@ -288,6 +313,8 @@ pub(crate) struct Lowerer<'a> {
   parsed: &'a Parsed,
   defaults: &'a SessionDefaults,
   roots: Vec<(String, Root)>,
+  /// A middleware body reads the request line as `request`, which is its input.
+  middleware: bool,
   pub(crate) scope: Vec<(String, Expr)>,
   /// Module-level names a component lowerer has resolved, read after the scope.
   pub(crate) globals: Vec<(String, Expr)>,
@@ -299,7 +326,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false }
   }
 
   /// `session.key`, with the schema's default folded in when there is one.
@@ -331,7 +358,7 @@ impl<'a> Lowerer<'a> {
           match prop {
             js::ObjectPatProp::Assign(a) => {
               let name = a.key.id.sym.to_string();
-              let root = root_named(&name).ok_or_else(|| self.residue(a.span, format!("`{name}` is not a field of the context")))?;
+              let root = self.root_named(&name).ok_or_else(|| self.residue(a.span, format!("`{name}` is not a field of the context")))?;
               self.roots.push((name, root));
             }
             js::ObjectPatProp::KeyValue(kv) => {
@@ -339,7 +366,7 @@ impl<'a> Lowerer<'a> {
               let js::Pat::Ident(local) = &*kv.value else {
                 return Err(self.residue(kv.value.span(), "a nested destructuring of the context"));
               };
-              let root = root_named(&key).ok_or_else(|| self.residue(kv.key.span(), format!("`{key}` is not a field of the context")))?;
+              let root = self.root_named(&key).ok_or_else(|| self.residue(kv.key.span(), format!("`{key}` is not a field of the context")))?;
               self.roots.push((local.id.sym.to_string(), root));
             }
             js::ObjectPatProp::Rest(r) => return Err(self.residue(r.span, "a rest of the context")),
@@ -349,6 +376,13 @@ impl<'a> Lowerer<'a> {
       }
       other => Err(self.residue(other.span(), "the context parameter must be `ctx` or a destructuring")),
     }
+  }
+
+  fn root_named(&self, name: &str) -> Option<Root> {
+    if self.middleware && name == "request" {
+      return Some(Root::Input);
+    }
+    root_named(name)
   }
 
   fn block(&mut self, stmts: &[js::Stmt]) -> Lowered<Body> {

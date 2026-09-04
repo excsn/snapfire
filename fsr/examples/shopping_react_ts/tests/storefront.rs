@@ -359,6 +359,39 @@ fn a_route_handler_answers_a_request_with_a_value() {
 }
 
 #[test]
+fn the_middleware_redirects_rewrites_and_adds_a_header() {
+  use snapfire_fsr_host::{Preflight, PreflightAction};
+
+  let app = app_over(Arc::new(MockTransport::new()));
+  let redirect = block_on(app.preflight("GET", "/basket", SessionCell::default())).unwrap();
+  assert_eq!(redirect, Preflight { action: PreflightAction::Redirect { to: "/cart".into(), status: 307 }, headers: Vec::new() });
+  let rewrite = block_on(app.preflight("get", "/shop?q=x", SessionCell::default())).unwrap();
+  assert_eq!(rewrite.action, PreflightAction::Rewrite("/".into()));
+  let plain = block_on(app.preflight("POST", "/_sf/action/cart.checkout", SessionCell::default())).unwrap();
+  assert_eq!(plain, Preflight { action: PreflightAction::Continue, headers: vec![("x-storefront".into(), "fsr".into())] });
+  assert_eq!(app.report().app.middleware, Some(snapfire_fsr::Owner::Lowered));
+}
+
+#[test]
+fn middleware_written_in_rust_must_override_the_lowered_one() {
+  let refused = Host::from(env!("CARGO_MANIFEST_DIR"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new()))
+    .middleware(|_ctx, _request| async { Ok(Value::Null) })
+    .build();
+  let Err(err) = refused else { panic!("the plan lowers middleware.ts") };
+  assert!(matches!(err, snapfire_fsr_host::HostError::Bind(snapfire_fsr::BindError::MiddlewareClaimed)), "{err}");
+  let app = Host::from(env!("CARGO_MANIFEST_DIR"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new()))
+    .middleware_override(|_ctx, _request| async { Ok(Value::Null) })
+    .build()
+    .unwrap();
+  assert_eq!(block_on(app.preflight("GET", "/basket", SessionCell::default())).unwrap().action, snapfire_fsr_host::PreflightAction::Continue);
+  assert_eq!(app.report().app.middleware, Some(snapfire_fsr::Owner::RustOverride));
+}
+
+#[test]
 fn a_handler_written_in_rust_sits_beside_the_lowered_ones() {
   let app = Host::from(env!("CARGO_MANIFEST_DIR"))
     .unwrap()

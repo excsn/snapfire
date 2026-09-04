@@ -61,6 +61,19 @@ export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => {
 
 This is the API route: the same session, identity and services as a page, reached by anything that speaks HTTP. A body test imports a method from the route file the way it imports `load` from a loader. A page spec can `fetch` it. A directory is a page or a handler, never both.
 
+## Middleware runs first
+
+`middleware.ts` at the top of the app exports a function that runs before every request that is not a static file: the action route, the handlers and the pages alike. It reads `request.method` and `request.path` beside the session, the identity and the services. What it returns decides the request. Nothing continues. `redirect` answers with a location. `rewrite` serves another path under the same URL. `status` with a `body` answers outright. `headers` join whatever response follows.
+
+```ts
+export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
+  if (request.path.startsWith("/account") && !identity) return { redirect: "/login" };
+  return { headers: { "x-frame-options": "DENY" } };
+}
+```
+
+The storefront's middleware sends the old `/basket` to `/cart`, serves `/shop` as the catalog and stamps every response. Under `fsr test`, a body test runs it with a `request` in its context, a spec's `fetch` goes through it and `load` follows the redirect and reports where it landed.
+
 ## Navigation keeps what did not change
 
 Links are ordinary anchors. With navigation enabled, a same-origin click fetches the destination's payload rather than a new document. Every region of a page carries a segment key, the module plus the parameters and query that produced it; the client walks the old and new payloads together, replacing only the region whose key differs. A region that did not change keeps its DOM and its island state. The shell survives every click, since its module and inputs never change; a page's own region is replaced when its module or its inputs do, which is what a click from the catalog into a product asks for.

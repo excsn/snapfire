@@ -176,6 +176,23 @@ let app = App::from_manifest(&text)?
 
 A host matches handlers before pages: `app.handlers.match_request("GET", "/api/health")` gives the id and the parameters, `app.handlers.dispatch` runs it with a request context and the request body as its input.
 
+## Answering the Middleware
+
+`middleware.ts` lowers to `Manifest.middleware`. `middleware` binds one written in Rust when the plan has none and `middleware_override` replaces the lowered one. It is called with the request line, `{ method, path }`, as its input; the host reads its value.
+
+```rust
+let app = App::from_manifest(&text)?
+  .middleware_override(|ctx, request| async move {
+    let mut out = ValueMap::new();
+    if ctx.session.identity().is_none() {
+      out.insert("redirect".into(), Value::str("/login"));
+    }
+    let _ = request;
+    Ok(Value::Map(out))
+  })
+  .build()?;
+```
+
 ## Rendering a Module in Rust
 
 Lowered components get the IR evaluator automatically and appear under `rendered` as `lowered`. Anything else is an evaluator registered by predicate, checked in registration order.

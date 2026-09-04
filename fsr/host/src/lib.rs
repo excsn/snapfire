@@ -62,6 +62,83 @@ pub enum HostError {
   Assemble(#[from] AssembleError),
 }
 
+/// What the middleware decided for a request. `headers` join the response
+/// whatever the decision.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Preflight {
+  pub action: PreflightAction,
+  pub headers: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreflightAction {
+  Continue,
+  /// Serve `path` in place of the one asked for; the location is unchanged.
+  Rewrite(String),
+  Redirect { to: String, status: u16 },
+  /// Answer with `status` and `body`: text when a string, JSON otherwise, empty when null.
+  Respond { status: u16, body: Value },
+}
+
+impl Preflight {
+  pub fn pass() -> Self {
+    Self { action: PreflightAction::Continue, headers: Vec::new() }
+  }
+
+  /// Reads the value a middleware returned. Null or an empty map continues;
+  /// `redirect` wins over `status`, which wins over `rewrite`; `headers` is a
+  /// map of strings applied in every case.
+  pub fn from_value(value: &Value) -> Result<Self, String> {
+    let map = match value {
+      Value::Null => return Ok(Self::pass()),
+      Value::Map(map) => map,
+      other => return Err(format!("middleware returned {}; expected nothing or an object", kind_of(other))),
+    };
+    let mut headers = Vec::new();
+    if let Some(given) = map.get("headers") {
+      let Value::Map(given) = given else { return Err("middleware `headers` must be an object of strings".to_owned()) };
+      for (name, value) in given {
+        let Value::Str(value) = value else { return Err(format!("middleware header `{name}` must be a string")) };
+        headers.push((name.clone(), value.clone()));
+      }
+    }
+    let status = match map.get("status") {
+      None | Some(Value::Null) => None,
+      Some(Value::Int(n)) => Some(u16::try_from(*n).map_err(|_| format!("middleware `status` {n} is not an HTTP status"))?),
+      Some(other) => return Err(format!("middleware `status` must be a number, found {}", kind_of(other))),
+    };
+    let text = |key: &str| -> Result<Option<String>, String> {
+      match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Str(s)) => Ok(Some(s.clone())),
+        Some(other) => Err(format!("middleware `{key}` must be a string, found {}", kind_of(other))),
+      }
+    };
+    let action = if let Some(to) = text("redirect")? {
+      PreflightAction::Redirect { to, status: status.unwrap_or(307) }
+    } else if let Some(status) = status {
+      PreflightAction::Respond { status, body: map.get("body").cloned().unwrap_or(Value::Null) }
+    } else if let Some(path) = text("rewrite")? {
+      PreflightAction::Rewrite(path)
+    } else {
+      PreflightAction::Continue
+    };
+    Ok(Self { action, headers })
+  }
+}
+
+fn kind_of(value: &Value) -> &'static str {
+  match value {
+    Value::Null => "null",
+    Value::Bool(_) => "a boolean",
+    Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) => "a number",
+    Value::Str(_) => "a string",
+    Value::Seq(_) => "an array",
+    Value::Map(_) => "an object",
+    _ => "a value",
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderMode {
   Html,
@@ -257,6 +334,21 @@ impl Host {
     Ok(chunks.concat())
   }
 
+  /// Runs the middleware for a request, with `{ method, path }` as its input
+  /// and the query string decoded into `ctx.query`. Without middleware every
+  /// request continues.
+  pub async fn preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError> {
+    let Some(middleware) = &self.app.middleware else { return Ok(Preflight::pass()) };
+    let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
+    let mut request = snapfire_fsr_core::ValueMap::new();
+    request.insert("method".to_owned(), Value::Str(method.to_ascii_uppercase()));
+    request.insert("path".to_owned(), Value::Str(bare.to_owned()));
+    let services = self.app.services.bind(session.identity(), Arc::new(snapfire_fsr_service::NoCredentials));
+    let ctx = RequestCtx { params: Params::new(), query: parse_query(raw_query), session, csrf: None, services };
+    let value = middleware.call(ctx, Value::Map(request)).await?;
+    Preflight::from_value(&value).map_err(|message| ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message))
+  }
+
   /// The handler matching `method` and `path`, run with `input` as the
   /// request body. `path` may carry a query string. `NotFound` when no
   /// handler matches.
@@ -301,6 +393,56 @@ impl Host {
     let cookie = req.headers().get(header::COOKIE).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let opened = self.sessions.open(cookie.as_deref()).await;
 
+    let raw_query = req.uri().query().unwrap_or("").to_owned();
+    let asked = match req.uri().path_and_query() {
+      Some(pq) => pq.as_str().to_owned(),
+      None => path.clone(),
+    };
+    let preflight = match self.preflight(req.method().as_str(), &asked, opened.cell.clone()).await {
+      Ok(preflight) => preflight,
+      Err(e) => {
+        return json_response(
+          StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+          &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
+        )
+      }
+    };
+    let (path, target) = match &preflight.action {
+      PreflightAction::Continue => (path, asked),
+      PreflightAction::Rewrite(to) => {
+        let (to_path, to_query) = to.split_once('?').unwrap_or((to.as_str(), ""));
+        let query = if to_query.is_empty() { raw_query.clone() } else { to_query.to_owned() };
+        let target = if query.is_empty() { to_path.to_owned() } else { format!("{to_path}?{query}") };
+        (to_path.to_owned(), target)
+      }
+      PreflightAction::Redirect { to, status } => {
+        let mut response = Response::builder()
+          .status(StatusCode::from_u16(*status).unwrap_or(StatusCode::TEMPORARY_REDIRECT))
+          .header(header::LOCATION, to.as_str())
+          .body(Body::default())
+          .expect("a redirect");
+        with_headers(&mut response, &preflight.headers);
+        self.set_cookie(&opened, &mut response).await;
+        return response;
+      }
+      PreflightAction::Respond { status, body } => {
+        let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let mut response = match body {
+          Value::Null => Response::builder().status(status).body(Body::default()).expect("an empty response"),
+          Value::Str(text) => text_response(status, text.clone()),
+          other => json_response(status, &snapfire_fsr_payload::value_to_json(other)),
+        };
+        with_headers(&mut response, &preflight.headers);
+        self.set_cookie(&opened, &mut response).await;
+        return response;
+      }
+    };
+    let mut response = self.respond(req, &opened, path, target, &raw_query).await;
+    with_headers(&mut response, &preflight.headers);
+    response
+  }
+
+  async fn respond(&self, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, path: String, target: String, raw_query: &str) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(id) = path.strip_prefix("/_sf/action/") {
         let input = match serde_json::from_slice::<serde_json::Value>(req.body())
@@ -319,16 +461,10 @@ impl Host {
             &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
           ),
         };
-        self.set_cookie(&opened, &mut response).await;
+        self.set_cookie(opened, &mut response).await;
         return response;
       }
     }
-
-    let raw_query = req.uri().query().unwrap_or("");
-    let target = match req.uri().path_and_query() {
-      Some(pq) => pq.as_str().to_owned(),
-      None => path.clone(),
-    };
 
     if self.app.handlers.match_request(req.method().as_str(), &path).is_some() {
       let input = if req.body().is_empty() {
@@ -349,7 +485,7 @@ impl Host {
           &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
         ),
       };
-      self.set_cookie(&opened, &mut response).await;
+      self.set_cookie(opened, &mut response).await;
       return response;
     }
 
@@ -377,7 +513,7 @@ impl Host {
           .header(header::CONTENT_TYPE, content_type)
           .body(body.boxed_unsync())
           .expect("a response with a valid header");
-        self.set_cookie(&opened, &mut response).await;
+        self.set_cookie(opened, &mut response).await;
         response
       }
       Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
@@ -426,6 +562,14 @@ impl Host {
 
   pub fn listen(&self) -> &str {
     &self.report_listen
+  }
+}
+
+fn with_headers(response: &mut Response<Body>, headers: &[(String, String)]) {
+  for (name, value) in headers {
+    if let (Ok(name), Ok(value)) = (header::HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(value)) {
+      response.headers_mut().append(name, value);
+    }
   }
 }
 
@@ -484,6 +628,24 @@ impl HostBuilder {
 
   pub fn not_found(mut self, plan: impl IntoPlan) -> Self {
     self.app_mut(|app| app.not_found(plan));
+    self
+  }
+
+  pub fn middleware<F, Fut>(mut self, f: F) -> Self
+  where
+    F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<Value, ActionError>> + Send + 'static,
+  {
+    self.app_mut(|app| app.middleware(f));
+    self
+  }
+
+  pub fn middleware_override<F, Fut>(mut self, f: F) -> Self
+  where
+    F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<Value, ActionError>> + Send + 'static,
+  {
+    self.app_mut(|app| app.middleware_override(f));
     self
   }
 
