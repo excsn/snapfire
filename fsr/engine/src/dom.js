@@ -5,6 +5,9 @@ for (const key of Object.keys(L)) {
   if (/^[A-Z]/.test(key) && !(key in globalThis)) globalThis[key] = L[key];
 }
 globalThis.document = document;
+// React decides at import whether `input` events exist by asking the document for `oninput`; without it React falls back to a polyfill that only watches the focused element on keyup, so a controlled text input never sees a change.
+const documentProto = Object.getPrototypeOf(document);
+if (!("oninput" in documentProto)) documentProto.oninput = null;
 globalThis.window = globalThis;
 globalThis.self = globalThis;
 if (typeof globalThis.UIEvent !== "function") globalThis.UIEvent = class UIEvent extends Event {};

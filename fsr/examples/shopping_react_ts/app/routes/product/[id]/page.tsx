@@ -3,13 +3,12 @@ import { useState } from "react";
 import { actions, type ProductProps } from "@generated/client";
 import { categoryLabel } from "@src/ui/categories";
 import { addedToCart, failed } from "@src/ui/feedback";
-import { Page } from "@src/ui/Page";
 import { money, percentOff } from "@src/ui/money";
 import { stockLine } from "@src/ui/ProductCard";
 import { Stars } from "@src/ui/Stars";
 import { Thumb } from "@src/ui/Thumb";
 
-export default function ProductPage({ product, stock: level, inCart, cartCount }: ProductProps) {
+export default function ProductPage({ product, stock: level, inCart }: ProductProps) {
   const [quantity, setQuantity] = useState(1);
   const stock = Number(product.stock);
   const line = stockLine(product.stock);
@@ -28,7 +27,7 @@ export default function ProductPage({ product, stock: level, inCart, cartCount }
   }
 
   return (
-    <Page header={{ cartCount, category: product.category }} className="product">
+    <main className="page product">
       <nav className="crumbs" aria-label="Breadcrumb">
         <a href="/">All</a>
         <span>›</span>
@@ -122,6 +121,6 @@ export default function ProductPage({ product, stock: level, inCart, cartCount }
           <p className="buy-note">Ships from snapfire.shop. Sold by {product.brand}.</p>
         </aside>
       </div>
-    </Page>
+    </main>
   );
 }

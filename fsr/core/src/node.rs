@@ -26,6 +26,10 @@ pub enum Node {
     slot: SlotId,
     fallback: Box<Node>,
   },
+  /// Where a child segment goes inside an island's own markup: a layout's
+  /// `children`. The assembler replaces it with the child's node; it never
+  /// reaches a serializer.
+  Slot(crate::plan::SlotName),
 }
 
 impl Node {

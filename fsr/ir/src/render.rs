@@ -70,6 +70,10 @@ impl Out {
   }
 }
 
+/// What a root component's own `Slot` writes, since it has no caller: the
+/// evaluator splits the markup here and places the child segment.
+pub const ROOT_SLOT: &str = "\u{0}sf-slot\u{0}";
+
 /// A caller's children and the scope they read, rendered wherever the callee places its `Slot`.
 struct Slot {
   children: Vec<Tmpl>,
@@ -214,7 +218,10 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       result?;
     }
     Tmpl::Slot => {
-      let Some(slot) = slots.pop() else { return Ok(()) };
+      let Some(slot) = slots.pop() else {
+        out.html.push_str(ROOT_SLOT);
+        return Ok(());
+      };
       let inner = std::mem::replace(&mut env.scope, slot.scope.clone());
       let mut result = Ok(());
       for child in &slot.children {

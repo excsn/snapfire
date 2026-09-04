@@ -2,12 +2,11 @@ import { navigate } from "@snapfire/fsr-client";
 
 import { actions, type CartProps } from "@generated/client";
 import { confirmOrder, failed, orderPlaced, removedFromCart } from "@src/ui/feedback";
-import { Page } from "@src/ui/Page";
 import { money } from "@src/ui/money";
 import { Thumb } from "@src/ui/Thumb";
 
-export default function Cart({ lines, cartCount }: CartProps) {
-  const items = Number(cartCount);
+export default function Cart({ lines }: CartProps) {
+  const items = lines.reduce((n, l) => n + Number(l.quantity), 0);
   const subtotal = lines.reduce((sum, l) => sum + Number(l.price_cents) * Number(l.quantity), 0);
 
   async function change(productId: bigint | number, delta: bigint, name: string): Promise<void> {
@@ -40,7 +39,7 @@ export default function Cart({ lines, cartCount }: CartProps) {
   }
 
   return (
-    <Page header={{ cartCount }} className="cart">
+    <main className="page cart">
       {lines.length === 0 ? (
         <section className="empty">
           <p className="empty-glyph">🛒</p>
@@ -109,6 +108,6 @@ export default function Cart({ lines, cartCount }: CartProps) {
           </aside>
         </div>
       )}
-    </Page>
+    </main>
   );
 }

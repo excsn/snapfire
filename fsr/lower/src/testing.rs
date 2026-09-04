@@ -103,11 +103,11 @@ pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError> {
       let target_file = format!("{resolved}.ts");
       let stem = source.rsplit('/').next().unwrap_or(&source);
       let target = match (stem, imported.as_str()) {
-        ("page.loader", "load") => Target::Loader { file: target_file },
+        ("page.loader" | "layout.loader", "load") => Target::Loader { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
         ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
         ("middleware", "middleware") => Target::Middleware { file: target_file },
-        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a route's `page.loader`, an action from its `actions` or a method from its `route`")).into()),
+        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a `page.loader` or a `layout.loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
     }

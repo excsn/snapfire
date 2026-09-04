@@ -8,7 +8,7 @@ The question this chapter answers: how does a directory become a route, where do
 
 Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern: `routes/index/` is `/`, `routes/cart/` is `/cart`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart`; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
 
-Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` and a `loading.tsx`. The build discovers all four, so adding a file is the whole of registering it. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
+Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` and a `loading.tsx`. The build discovers all four, so adding a file is the whole of registering it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
 
 ```
 routes    /                      routes/index
@@ -46,6 +46,14 @@ An `error.tsx` beside a route (or `routes/error.tsx` for all of them) receives `
 A `loading.tsx` marks the route deferred: the document ships with the loading module in the page's slot and the real page streams in when the loader finishes, filling the slot in place. Streaming is a property of the plan, declared by the file's presence, not something the page or the loader has to do.
 
 A `routes/not-found.tsx` answers a path no route matches. The host renders it like any page, inside the shell and hydrated, with status 404 and `params.path` carrying the path asked for; without one the answer is a line of text. It is not a route, so it has no loader and no pattern, and a link to it from a page is a full load rather than a client navigation.
+
+## A layout wraps the pages beneath it
+
+`layout.tsx` in a routes directory renders around every page under it, the page appearing where the layout puts `children`. Its props come from `layout.loader.ts` beside it, independent of the page's loader: the storefront's header takes the cart count from the root layout's loader. No page carries it any more. Layouts nest by directory.
+
+A layout is an island like a page. It hydrates in its own root and the page hydrates in a root inside it, so a navigation between two pages swaps the page and leaves the layout's DOM and state alone: text typed in the header's search box survives the click. When an action revalidates, the layout takes its new props and re-renders in place, so the cart count follows the mutation without the box losing its text. A layout is keyed by its module and the route parameters its loader reads, which is why a layout that reads none stays put across every page.
+
+The line between them is firm: the page cannot read the layout's data and the layout cannot read the page's. Nothing but the session and the actions crosses it. That is what keeps a page under a React layout free to be anything.
 
 ## A handler answers with a value
 

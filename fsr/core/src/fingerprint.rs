@@ -205,6 +205,10 @@ impl Fingerprint for Node {
         h.update(&slot.0.to_le_bytes());
         fallback.write_canonical(h);
       }
+      Node::Slot(name) => {
+        h.update(&[5]);
+        h.update(name.0.as_bytes());
+      }
     }
   }
 }

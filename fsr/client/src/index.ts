@@ -6,5 +6,5 @@ export type { Payload, Segment, SfNode } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
 export { clearRouterCache, enableNavigation, navigate, prefetch, refresh } from "./navigator.js";
 export type { NavigationOptions, PrefetchTiming } from "./navigator.js";
-export { boot, registerIsland, registeredIslands, scan } from "./boot.js";
-export type { IslandEntry, Mounter, MountTiming, Props } from "./boot.js";
+export { boot, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
+export type { IslandEntry, Mounter, MountTiming, Patcher, Props } from "./boot.js";

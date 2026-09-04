@@ -9,7 +9,7 @@ export interface NavigationOptions {
 export declare function prefetch(href: string): Promise<void>;
 /** Drops every held payload, which is what a mutation calls for. */
 export declare function clearRouterCache(): void;
-/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and force-replaces the top-level child segments, so the layout's DOM survives while mutated content refreshes. */
+/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and applies it, every kept island taking its new props in place and every kept region that is not an island replaced, so layouts and pages keep their DOM and their state while what they show follows the mutation. */
 export declare function refresh(): Promise<void>;
 export declare function navigate(href: string, push?: boolean): Promise<void>;
 /** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched and owns history from then on. */

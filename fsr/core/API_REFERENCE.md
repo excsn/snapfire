@@ -142,6 +142,7 @@ One node of the payload tree.
 * `Seq(Vec<Node>)`
 * `Client { module: ModuleId, props: Props, children: Vec<Node>, ssr: Option<Box<Node>> }` - `props` holds values only; content passed into the component goes in `children`. `ssr` is the evaluator's rendered output, `None` under the null evaluator.
 * `Pending { slot: SlotId, fallback: Box<Node> }` - the fallback is carried inline, so the first response is complete without the resolution row.
+* `Slot(SlotName)` - where a child segment goes inside an island's own markup, a layout's `children`. The assembler replaces it with the child's node; a serializer never sees one and writes nothing for it if it does.
 * `pub fn text(v: impl Into<Cow<'static, str>>) -> Node`
 * `pub fn raw(v: impl Into<String>) -> Node` - wraps the string in `Html`.
 * Derives `Debug`, `Clone` and `PartialEq`. Not `Eq` or `Hash`, since props can hold floats.

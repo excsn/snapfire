@@ -43,7 +43,7 @@ export function escapeKey(key: string): string {
 function subtreeAt(node: SfNode, path: number[]): SfNode {
   let current = node;
   for (const idx of path) {
-    if (current.kind !== "seq") throw new Error("segment path walks through a non-seq node");
+    if (current.kind !== "seq" && current.kind !== "client") throw new Error("segment path walks through a node with no children");
     current = current.children[idx];
   }
   return current;
@@ -53,18 +53,34 @@ function subtreeAt(node: SfNode, path: number[]): SfNode {
 export function renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string {
   let out = `<!--sf-g:${escapeKey(seg.k)}-->`;
   const inner = seg.c.find((c) => c.s === undefined && (c.p ?? []).length === 0);
-  const positioned = seg.c.filter((c) => c.s === undefined && (c.p ?? []).length > 0);
   if (inner) {
     out += renderSegment(node, inner, ids);
-  } else if (node.kind === "seq" && positioned.length > 0) {
-    node.children.forEach((child, idx) => {
-      const match = positioned.find((c) => (c.p ?? [])[0] === idx);
-      out += match ? renderSegment(child, match, ids) : nodeToHtml(child, ids);
-    });
   } else {
-    out += nodeToHtml(node, ids);
+    const positioned = seg.c.filter((c) => c.s === undefined && (c.p ?? []).length > 0).map((c) => ({ path: c.p ?? [], seg: c }));
+    out += renderPositioned(node, positioned, ids);
   }
   return out + "<!--/sf-g-->";
 }
+
+/** `node` with each positioned child segment wrapped at its path, descending through seq items and an island's children alike. */
+function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segment }[], ids: IdAlloc): string {
+  if (positioned.length === 0) return nodeToHtml(node, ids);
+  const items = (children: SfNode[]): string =>
+    children
+      .map((child, idx) => {
+        const here = positioned.filter((c) => c.path[0] === idx).map((c) => ({ path: c.path.slice(1), seg: c.seg }));
+        const exact = here.find((c) => c.path.length === 0);
+        return exact ? renderSegment(child, exact.seg, ids) : renderPositioned(child, here, ids);
+      })
+      .join("");
+  if (node.kind === "seq") return items(node.children);
+  if (node.kind === "client" && !node.ssr) {
+    const id = `sf-c${ids.next++}`;
+    return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${scriptSafeJson(node.props)}</script>`;
+  }
+  return nodeToHtml(node, ids);
+}
+
+export { scriptSafeJson };
 
 export { subtreeAt };

@@ -66,6 +66,8 @@ The serialized shape of a `PlanNode`. Every optional field is absent from the fi
 * `Node::from_plan(plan: &PlanNode) -> Self`
 * `module`, `fallback` and `error` are module ids, `path#export`; `Manifest::routes` refuses any other spelling.
 
+A layout is an ordinary node whose one child sits in the slot `content`; the build nests the page under every layout on its path.
+
 ### Child
 
 * `pub struct Child { pub slot: String, pub node: Node }`

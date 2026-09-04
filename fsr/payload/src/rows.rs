@@ -26,6 +26,7 @@ pub fn node_to_row_json(node: &Node) -> Json {
       }])
     }
     Node::Pending { slot, fallback } => json!(["p", slot.0, node_to_row_json(fallback)]),
+    Node::Slot(_) => json!(["q", []]),
   }
 }
 

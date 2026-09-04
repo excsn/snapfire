@@ -125,6 +125,7 @@ Holds the island id counter for one response, so ids stay unique across chunks t
 
 * `pub fn new() -> Self`
 * `pub fn serialize(&mut self, node: &Node) -> String`
+* `pub fn client_wrapper(&mut self, module: &ModuleId, props: &Props) -> (String, String)`: the island's open tag with a fresh id and its close tag with the props script, for a caller that writes the island's children itself, the way the segment writer does around a child segment inside a layout.
 * Also implements `Default`; `new` and `Default::default` are the same thing.
 
 Constraints:

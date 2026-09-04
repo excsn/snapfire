@@ -127,7 +127,7 @@ snapfirec --source-map --minify compact --public-path /static/js/app --import-ma
 
 ## Registering an Island
 
-An entry is a loader, a mounter and an optional timing. The loader resolves to whatever the mounter expects, which for `reactMounter` is the component itself:
+An entry is a loader, a mounter, an optional patcher and an optional timing. The loader resolves to whatever the mounter expects, which for `reactMounter` is the component itself; the patcher re-renders the island with new props when a navigation or a revalidation keeps its DOM:
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
@@ -136,10 +136,11 @@ import { reactMounter } from "@snapfire/fsr-client/react";
 registerIsland("components/ServerChart.tsx#default", {
   loader: () => import("./ServerChart.js").then((m) => m.default),
   mount: reactMounter,
+  patch: reactPatcher,
 });
 ```
 
-The key must be the exact `data-sf-module` string the server wrote. A marker whose module id is not registered is left server-rendered and logged:
+The key must be the exact `data-sf-module` string the server wrote. A layout is registered like any island; `reactMounter` recognises the `<sf-s>` in its markup and hands the component a child element it never reconciles, so the page inside hydrates in its own root and a navigation swaps it under the live layout. A marker whose module id is not registered is left server-rendered and logged:
 
 ```
 sf: no island registered for components/ServerChart.tsx#default
@@ -237,7 +238,7 @@ import { enableNavigation } from "@snapfire/fsr-client";
 enableNavigation();
 ```
 
-A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
+A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. A kept island whose props changed is re-rendered in place through its patcher rather than replaced. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
 ## Prefetching and the Router Cache
 
@@ -274,7 +275,7 @@ await navigate("/servers/eu");
 await navigate("/servers/eu", false);
 ```
 
-`refresh` drops the router cache, re-fetches the current route and force-replaces the top-level child segments, which is the revalidation an action performs for you:
+`refresh` drops the router cache, re-fetches the current route and hands every kept island its new props in place, which is the revalidation an action performs for you: a layout's cart count follows the mutation and a page keeps what the user typed.
 
 ```ts
 await refresh();

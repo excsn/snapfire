@@ -5,7 +5,7 @@ const product = (id: bigint, name: string, category: string) => ({ id, name, bra
 
 test("the catalog hydrates with its chips and cards", async () => {
   const products = [product(1n, "PLA filament", "printing"), product(2n, "Nozzle", "printing")];
-  const r = await render(<Catalog products={products} q="" category="printing" cartCount={0n} />);
+  const r = await render(<Catalog products={products} q="" category="printing" />);
   assert.equal(r.hydrated, "routes/index/page.tsx#default");
   assert.equal(screen.getByText("2 results").tagName, "P");
   assert.equal(screen.getAllByText(/filament|Nozzle/).length, 2);
@@ -13,7 +13,7 @@ test("the catalog hydrates with its chips and cards", async () => {
 });
 
 test("a search with nothing matching says so", async () => {
-  await render(<Catalog products={[]} q="zzz" category="" cartCount={0n} />);
+  await render(<Catalog products={[]} q="zzz" category="" />);
   assert.ok(screen.getByText('Results for "zzz"'));
   assert.ok(screen.getByText("Nothing matched"));
 });

@@ -1,6 +1,5 @@
 import type { IndexProps } from "@generated/client";
 import { categories, categoryLabel } from "@src/ui/categories";
-import { Page } from "@src/ui/Page";
 import { ProductCard } from "@src/ui/ProductCard";
 
 function chipHref(category: string, q: string | null | undefined): string {
@@ -8,12 +7,12 @@ function chipHref(category: string, q: string | null | undefined): string {
   return pairs.length > 0 ? `/?${pairs.join("&")}` : "/";
 }
 
-export default function Catalog({ products, q, category, cartCount }: IndexProps) {
+export default function Catalog({ products, q, category }: IndexProps) {
   const active = category ?? "";
   const heading = q ? `Results for "${q}"` : active ? categoryLabel(active) : "Today's picks";
 
   return (
-    <Page header={{ cartCount, q, category }} className="catalog">
+    <main className="page catalog">
       <nav className="chips" aria-label="Categories">
         <a className={active === "" ? "chip chip-active" : "chip"} href={chipHref("", q)}>
           All
@@ -47,6 +46,6 @@ export default function Catalog({ products, q, category, cartCount }: IndexProps
           ))}
         </section>
       )}
-    </Page>
+    </main>
   );
 }

@@ -1,5 +1,5 @@
 use serde_json::Value as Json;
-use snapfire_fsr_core::{Node, Value};
+use snapfire_fsr_core::{ModuleId, Node, Props, Value};
 
 use crate::json::value_to_json;
 
@@ -70,7 +70,20 @@ impl HtmlSession {
         self.write(fallback, out);
         out.push_str("</div>");
       }
+      Node::Slot(_) => {}
     }
+  }
+
+  /// The open tag with a fresh island id and the close tag with the props
+  /// script, for a caller that writes the island's children itself.
+  pub fn client_wrapper(&mut self, module: &ModuleId, props: &Props) -> (String, String) {
+    let id = self.next_island;
+    self.next_island += 1;
+    let props_json = script_safe_json(&value_to_json(&Value::Map(props.clone())));
+    (
+      format!("<sf-i id=\"sf-i{id}\" data-sf-module=\"{module}\">"),
+      format!("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i{id}\">{props_json}</script>"),
+    )
   }
 }
 
