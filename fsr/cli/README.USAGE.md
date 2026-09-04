@@ -22,6 +22,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
+* [Prerendering](#prerendering)
 * [Reading the Report](#reading-the-report)
 * [Reading the Plan File](#reading-the-plan-file)
 * [Naming the Shell](#naming-the-shell)
@@ -351,6 +352,17 @@ fsr serve app --listen 127.0.0.1:8080
 ```sh
 fsr dev app
 ```
+
+## Prerendering
+
+`fsr prerender app` renders every route that reads nothing of the request once, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. It prints what it wrote. The host serves those files from then on; the boot report's `prerender` rows say which routes qualify.
+
+```sh
+fsr prerender app
+fsr prerender app --out build/static
+```
+
+A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. A Rust source disqualifies its route.
 
 ## Reading the Report
 

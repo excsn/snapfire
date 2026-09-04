@@ -10,7 +10,7 @@ pub mod actix;
 
 use std::convert::Infallible;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -153,6 +153,8 @@ pub struct HostReport {
   /// Service, `http` or `grpc`, base URL.
   pub services: Vec<(String, String, String)>,
   pub statics: Vec<(String, PathBuf)>,
+  /// Where prerendered documents are read from, when configured.
+  pub prerender: Option<PathBuf>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
 }
@@ -167,6 +169,13 @@ impl std::fmt::Display for HostReport {
     for (i, (route, dir)) in self.statics.iter().enumerate() {
       let label = if i == 0 { "static" } else { "" };
       writeln!(f, "{label:<9} {route:<22} {}", dir.display())?;
+    }
+    for (i, pattern) in self.app.prerenderable.iter().enumerate() {
+      let label = if i == 0 { "prerender" } else { "" };
+      match &self.prerender {
+        Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}", dir.display())?,
+        None => writeln!(f, "{label:<9} {pattern:<22} not configured")?,
+      }
     }
     for (i, source) in self.config.iter().enumerate() {
       let label = if i == 0 { "config" } else { "" };
@@ -185,6 +194,7 @@ pub struct Host {
   sessions: Sessions,
   head: Node,
   statics: Vec<(String, ServeDir)>,
+  prerendered: Option<PathBuf>,
   report_listen: String,
   pub report: HostReport,
 }
@@ -198,6 +208,7 @@ pub struct HostBuilder {
   transport_override: Option<Arc<dyn Transport>>,
   store: Option<Arc<dyn SessionStore>>,
   shell: Option<Arc<dyn Evaluator>>,
+  prerendered: Option<PathBuf>,
   pending: Option<HostError>,
 }
 
@@ -269,8 +280,7 @@ impl Host {
       transport_override: None,
       store: None,
       shell: None,
-      pending: None,
-    })
+      pending: None, prerendered: None })
   }
 
   pub fn report(&self) -> &HostReport {
@@ -332,6 +342,42 @@ impl Host {
   pub async fn render_to_string(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<String, HostError> {
     let chunks: Vec<String> = self.render(path, mode, session).await?.collect().await;
     Ok(chunks.concat())
+  }
+
+  /// The patterns one render serves for every request: no parameter, every
+  /// source lowered and reading nothing of the request.
+  pub fn prerenderable(&self) -> &[String] {
+    &self.app.prerenderable
+  }
+
+  /// Renders every prerenderable route once, anonymously, writing the
+  /// document as `<out>/<path>/index.html` and the payload beside it as
+  /// `index.payload`; `/` lands at the top of `out`. Returns what was written.
+  pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
+    let mut written = Vec::new();
+    for pattern in self.app.prerenderable.clone() {
+      let dir = out.join(pattern.trim_matches('/'));
+      std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
+      for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
+        let text = self.render_to_string(&pattern, mode, SessionCell::default()).await?;
+        let file = dir.join(name);
+        std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
+        written.push((pattern.clone(), file));
+      }
+    }
+    Ok(written)
+  }
+
+  /// The prerendered text for `path` in `mode`, when the prerender directory
+  /// holds one. The query string is ignored: a prerenderable route reads none.
+  pub fn prerendered(&self, path: &str, mode: RenderMode) -> Option<String> {
+    let dir = self.prerendered.as_ref()?;
+    let path = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
+    let name = match mode {
+      RenderMode::Html => "index.html",
+      RenderMode::Payload => "index.payload",
+    };
+    std::fs::read_to_string(dir.join(path.trim_matches('/')).join(name)).ok()
   }
 
   /// Runs the middleware for a request, with `{ method, path }` as its input
@@ -492,6 +538,23 @@ impl Host {
     let mode = if raw_query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
     tracing::info!(target: "fsr::host", path = %path, payload = (mode == RenderMode::Payload), "request");
 
+    if req.method() == Method::GET {
+      if let Some(text) = self.prerendered(&path, mode) {
+        let content_type = match mode {
+          RenderMode::Html => "text/html; charset=utf-8",
+          RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
+        };
+        let mut response = Response::builder()
+          .status(StatusCode::OK)
+          .header(header::CONTENT_TYPE, content_type)
+          .header("x-sf-prerendered", "1")
+          .body(http_body_util::Full::new(Bytes::from(text)).map_err(|never: std::convert::Infallible| match never {}).boxed_unsync())
+          .expect("a response with a valid header");
+        self.set_cookie(opened, &mut response).await;
+        return response;
+      }
+    }
+
     let rendered = match self.render(&target, mode, opened.cell.clone()).await {
       Ok(chunks) => Ok((StatusCode::OK, chunks)),
       Err(HostError::NotFound(path)) => match self.render_not_found(&target, mode, opened.cell.clone()).await {
@@ -616,6 +679,12 @@ impl HostBuilder {
   }
 
   /// The evaluator for the document module, replacing the stock shell.
+  /// Where prerendered documents are read from, overriding `server.prerender`.
+  pub fn prerendered(mut self, dir: impl Into<PathBuf>) -> Self {
+    self.prerendered = Some(dir.into());
+    self
+  }
+
   pub fn shell(mut self, evaluator: Arc<dyn Evaluator>) -> Self {
     self.shell = Some(evaluator);
     self
@@ -819,14 +888,16 @@ impl HostBuilder {
       statics.push((root.route.trim_end_matches('/').to_owned(), ServeDir::new(dir)));
     }
 
+    let prerendered = self.prerendered.take().or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
     let report = HostReport {
       app: app.report.clone(),
       services: service_rows,
       statics: static_rows,
+      prerender: prerendered.clone(),
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
-    Ok(Host { app, sessions, head, statics, report, report_listen: config.server.listen })
+    Ok(Host { app, sessions, head, statics, prerendered, report, report_listen: config.server.listen })
   }
 }
 

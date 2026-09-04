@@ -7,7 +7,6 @@ pub mod interp;
 pub mod render;
 
 pub use ast::{
-  ArithOp, Body, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl, ParseError,
-};
+  ArithOp, Body, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl, ParseError, body_reads_request};
 pub use bind::{IrAction, IrEvaluator, IrSource};
 pub use interp::{Clock, Fail, Interpreter, Outcome};

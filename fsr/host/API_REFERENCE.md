@@ -70,6 +70,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### ServerConfig
 
 * `listen` (default `127.0.0.1:8080`), `plan` (default `generated/plan.json`), `contracts` (default `generated/contracts`), a directory whose `*.json` files are merged in name order at boot.
+* `prerender: Option<String>`: the directory, relative to the app, that `prerender` writes and the host reads; absent by default.
 
 ### DocumentConfig
 
@@ -107,6 +108,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `services(self, services: Arc<Services>) -> Self`: a registry built elsewhere, in place of the clients.
 * `session_store(self, store: Arc<dyn SessionStore>) -> Self`.
 * `shell(self, evaluator: Arc<dyn Evaluator>) -> Self`.
+* `prerendered(self, dir: impl Into<PathBuf>) -> Self`: where prerendered documents are read from, over `server.prerender`.
 * `route`, `route_override`, `not_found`, `handler`, `handler_override`, `middleware`, `middleware_override`, `source`, `source_override`, `source_impl`, `action`, `action_override`, `evaluator`: the `snapfire_fsr::AppBuilder` methods with the same signatures.
 * `build(self) -> Result<Host, HostError>`: imports the clients, builds the registry with trace and identity interceptors, registers the shell for the document module and `NullEvaluator` for the rest after any evaluators given, applies the contract, builds the app under the binding rule, the session layer and the static roots.
 
@@ -120,9 +122,12 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `render_to_string(&self, path, mode, session) -> Result<String, HostError>`.
 * `render_not_found(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<Option<BoxStream<'static, String>>, HostError>`: the application's not-found tree for `path`, with `params.path` set to the path without its query string, or `None` when the application has none.
 * `call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`.
+* `prerenderable(&self) -> &[String]`: the patterns one render serves for every request: no parameter, every source lowered and reading nothing of the request (`snapfire_fsr_ir::body_reads_request`), no Rust source.
+* `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`; returns what it wrote.
+* `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its query string ignored; `None` without a directory or a file.
 * `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path }` as its input and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
 * `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, whose query string becomes `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
-* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then a page, `__payload` in the query selecting the payload mode; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed.
+* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`; then a page, `__payload` in the query selecting the payload mode; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed.
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
 
@@ -141,6 +146,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 * `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
 * `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
+* `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 
 ### Body
 

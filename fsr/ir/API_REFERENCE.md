@@ -79,6 +79,8 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `Expr::object(entries: Vec<(&str, Expr)>) -> Expr` builds `Field` entries only.
 * `Expr::free_vars(&self, out: &mut Vec<String>)` appends every `Var` name read and not bound by an enclosing lambda, without duplicates.
 * `Expr::has_call(&self) -> bool` is true when any `Call` appears in the tree.
+* `Expr::reads_request(&self) -> bool` is true when a `Param`, `Query`, `Session`, `Identity`, `Input` or `Now` appears in the tree.
+* `body_reads_request(body: &Body) -> bool` is true when any statement reads the request or writes the session.
 
 ### Entry
 
