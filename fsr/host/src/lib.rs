@@ -257,6 +257,19 @@ impl Host {
     Ok(chunks.concat())
   }
 
+  /// The handler matching `method` and `path`, run with `input` as the
+  /// request body. `path` may carry a query string. `NotFound` when no
+  /// handler matches.
+  pub async fn call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError> {
+    let (path, raw_query) = path.split_once('?').unwrap_or((path, ""));
+    let Some(found) = self.app.handlers.match_request(method, path) else {
+      return Err(ActionError::new(snapfire_fsr_runtime::FailureKind::NotFound, format!("no handler for {} {path}", method.to_ascii_uppercase())));
+    };
+    let services = self.app.services.bind(session.identity(), Arc::new(snapfire_fsr_service::NoCredentials));
+    let ctx = RequestCtx { params: found.params, query: parse_query(raw_query), session, csrf: None, services };
+    self.app.handlers.dispatch(&found.id, ctx, input).await
+  }
+
   pub async fn call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError> {
     let services = self.app.services.bind(session.identity(), Arc::new(snapfire_fsr_service::NoCredentials));
     let ctx = RequestCtx { params: Default::default(), query: Default::default(), session, csrf: None, services };
@@ -312,11 +325,35 @@ impl Host {
     }
 
     let raw_query = req.uri().query().unwrap_or("");
-    let mode = if raw_query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
     let target = match req.uri().path_and_query() {
       Some(pq) => pq.as_str().to_owned(),
       None => path.clone(),
     };
+
+    if self.app.handlers.match_request(req.method().as_str(), &path).is_some() {
+      let input = if req.body().is_empty() {
+        Value::Null
+      } else {
+        match serde_json::from_slice::<serde_json::Value>(req.body())
+          .map_err(|e| e.to_string())
+          .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
+        {
+          Ok(value) => value,
+          Err(e) => return json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
+        }
+      };
+      let mut response = match self.call_handler(req.method().as_str(), &target, opened.cell.clone(), input).await {
+        Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
+        Err(e) => json_response(
+          StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+          &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
+        ),
+      };
+      self.set_cookie(&opened, &mut response).await;
+      return response;
+    }
+
+    let mode = if raw_query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
     tracing::info!(target: "fsr::host", path = %path, payload = (mode == RenderMode::Payload), "request");
 
     let rendered = match self.render(&target, mode, opened.cell.clone()).await {
@@ -447,6 +484,24 @@ impl HostBuilder {
 
   pub fn not_found(mut self, plan: impl IntoPlan) -> Self {
     self.app_mut(|app| app.not_found(plan));
+    self
+  }
+
+  pub fn handler<F, Fut>(mut self, method: impl Into<String>, pattern: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<Value, ActionError>> + Send + 'static,
+  {
+    self.app_mut(|app| app.handler(method, pattern, f));
+    self
+  }
+
+  pub fn handler_override<F, Fut>(mut self, method: impl Into<String>, pattern: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<Value, ActionError>> + Send + 'static,
+  {
+    self.app_mut(|app| app.handler_override(method, pattern, f));
     self
   }
 

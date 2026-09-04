@@ -47,6 +47,20 @@ A `loading.tsx` marks the route deferred: the document ships with the loading mo
 
 A `routes/not-found.tsx` answers a path no route matches. The host renders it like any page, inside the shell and hydrated, with status 404 and `params.path` carrying the path asked for; without one the answer is a line of text. It is not a route, so it has no loader and no pattern, and a link to it from a page is a full load rather than a client navigation.
 
+## A handler answers with a value
+
+A directory may hold a `route.ts` instead of a page. Its exports named `GET`, `POST`, `PUT`, `PATCH` or `DELETE` are handlers: the host matches the method and the pattern before any page, runs the body with the same context a loader gets plus the request body as `input` and answers with the returned value as JSON. A `fail` sets the status by its kind. Written as an `action<T>`, a handler has its input checked against `T` before the body runs; written as a plain function, `input` is whatever the request carried.
+
+```ts
+export async function GET({ session }: Ctx<"/api/cart">) {
+  return { lines: session.cart };
+}
+
+export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => { ... });
+```
+
+This is the API route: the same session, identity and services as a page, reached by anything that speaks HTTP. A body test imports a method from the route file the way it imports `load` from a loader. A page spec can `fetch` it. A directory is a page or a handler, never both.
+
 ## Navigation keeps what did not change
 
 Links are ordinary anchors. With navigation enabled, a same-origin click fetches the destination's payload rather than a new document. Every region of a page carries a segment key, the module plus the parameters and query that produced it; the client walks the old and new payloads together, replacing only the region whose key differs. A region that did not change keeps its DOM and its island state. The shell survives every click, since its module and inputs never change; a page's own region is replaced when its module or its inputs do, which is what a click from the catalog into a product asks for.

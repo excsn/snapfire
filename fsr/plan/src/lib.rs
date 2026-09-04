@@ -51,6 +51,43 @@ pub struct Manifest {
   /// Absent, the host answers with a plain text line.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub not_found: Option<Node>,
+  /// One row per HTTP method a `route.ts` exports: a request the host answers
+  /// with a value rather than a document.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub handlers: Vec<HandlerEntry>,
+}
+
+/// A handler row: `method` and `pattern` are what the host matches, `id` is
+/// `<route id>.<METHOD>`. A row without a body is a declaration Rust answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HandlerEntry {
+  pub id: String,
+  pub method: String,
+  pub pattern: String,
+  pub owner: RowOwner,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub input: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub body: Option<Body>,
+}
+
+impl HandlerEntry {
+  pub fn lowered(id: impl Into<String>, method: impl Into<String>, pattern: impl Into<String>, module: impl Into<String>, body: Body) -> Self {
+    Self { id: id.into(), method: method.into(), pattern: pattern.into(), owner: RowOwner::Lowered, module: Some(module.into()), input: None, reason: None, body: Some(body) }
+  }
+
+  pub fn rust(id: impl Into<String>, method: impl Into<String>, pattern: impl Into<String>) -> Self {
+    Self { id: id.into(), method: method.into(), pattern: pattern.into(), owner: RowOwner::Rust, module: None, input: None, reason: None, body: None }
+  }
+
+  pub fn with_input(mut self, input: impl Into<String>) -> Self {
+    self.input = Some(input.into());
+    self
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -320,7 +357,14 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None, handlers: Vec::new() }
+  }
+  pub fn with_handlers(mut self, handlers: Vec<HandlerEntry>) -> Self {
+    self.handlers = handlers;
+    self
+  }
+  pub fn lowered_handlers(&self) -> impl Iterator<Item = &HandlerEntry> {
+    self.handlers.iter().filter(|row| row.owner == RowOwner::Lowered)
   }
   pub fn with_not_found(mut self, not_found: Option<Node>) -> Self {
     self.not_found = not_found;

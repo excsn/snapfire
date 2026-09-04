@@ -16,8 +16,8 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_lower::{lower_actions_with, lower_loader_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
-use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
+use snapfire_fsr_lower::{lower_actions_with, lower_handlers_with, lower_loader_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
+use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
 
@@ -39,6 +39,10 @@ pub enum BuildError {
   Contract(#[from] ContractError),
   #[error("action `{action}` names input type `{name}`, which no schema under schemas/ declares")]
   UnknownInput { action: String, name: String },
+  #[error("{0}: holds both `page.tsx` and `route.ts`; a directory is a page or a handler")]
+  PageAndRoute(PathBuf),
+  #[error("handler `{handler}` names input type `{name}`, which no schema under schemas/ declares")]
+  UnknownHandlerInput { handler: String, name: String },
   #[error("`{0}` is not a package spec; write `name@version` or `name@version/subpath`")]
   Spec(String),
   #[error("{0}: {1}")]
@@ -61,6 +65,8 @@ pub struct Report {
   pub routes: Vec<(String, String)>,
   pub sources: Vec<(String, String)>,
   pub actions: Vec<(String, String)>,
+  /// `METHOD pattern` and the `route.ts` that exports it.
+  pub handlers: Vec<(String, String)>,
   /// Module; `lowered` or `client`; for `client`, the line that decided it.
   pub components: Vec<(String, String, String)>,
   pub services: Vec<(String, String)>,
@@ -73,6 +79,7 @@ impl fmt::Display for Report {
     section(f, "routes", &self.routes, "")?;
     section(f, "sources", &self.sources, "lowered")?;
     section(f, "actions", &self.actions, "lowered")?;
+    section(f, "handlers", &self.handlers, "lowered")?;
     for (i, (module, owner, detail)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {owner:<11} {detail}")?;
@@ -136,6 +143,7 @@ pub struct Built {
   pub defaults: SessionDefaults,
 }
 
+#[derive(Clone)]
 struct Route {
   pattern: String,
   dir: PathBuf,
@@ -203,8 +211,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   contract.validate()?;
 
   let mut routes = Vec::new();
-  discover(&routes_dir, &routes_dir, &mut routes)?;
+  let mut handler_routes = Vec::new();
+  discover(&routes_dir, &routes_dir, &mut routes, &mut handler_routes)?;
   routes.sort_by(|a, b| a.pattern.cmp(&b.pattern));
+  handler_routes.sort_by(|a, b| a.pattern.cmp(&b.pattern));
 
   let error_module = ["error.tsx", "error.ts"]
     .iter()
@@ -301,6 +311,27 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     });
   }
 
+  let mut handlers = Vec::new();
+  for route in &handler_routes {
+    let rel = route.dir.strip_prefix(app).unwrap_or(&route.dir);
+    let rel = rel.to_string_lossy().replace('\\', "/");
+    let file = route.dir.join("route.ts");
+    let module = format!("{rel}/route.ts");
+    let text = std::fs::read_to_string(&file).map_err(|e| BuildError::Io(file.clone(), e))?;
+    for lowered in lower_handlers_with(&module, &text, &defaults)? {
+      let id = format!("{}.{}", route.id, lowered.method);
+      if let Some(name) = &lowered.input {
+        if !contract.types.contains_key(name) {
+          return Err(BuildError::UnknownHandlerInput { handler: id, name: name.clone() });
+        }
+      }
+      let mut entry = HandlerEntry::lowered(id, lowered.method.clone(), route.pattern.clone(), module.clone(), lowered.body);
+      entry.input = lowered.input;
+      report.handlers.push((format!("{} {}", lowered.method, route.pattern), module.clone()));
+      handlers.push(entry);
+    }
+  }
+
   let not_found = not_found_module.map(|module| Node {
     id: 0,
     module: options.shell.clone(),
@@ -333,14 +364,14 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let session_type = session_import.as_ref().map(|_| "Session");
   let client = client_module(&contract, session_type, &routes, &sources, &actions);
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found);
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
 
   let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend([
     ("generated/services.d.ts".to_owned(), typescript::declarations(&contract)),
-    ("generated/fsr.ts".to_owned(), ctx_module(&routes, session_import.as_deref())),
+    ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref())),
     ("generated/islands.ts".to_owned(), islands_module(&islands, options)),
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
@@ -526,7 +557,7 @@ fn sorted_files(dir: &Path, suffix: &str) -> Result<Vec<PathBuf>, BuildError> {
   Ok(files)
 }
 
-fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>) -> Result<(), BuildError> {
+fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Route>) -> Result<(), BuildError> {
   let mut children: Vec<PathBuf> = std::fs::read_dir(dir)
     .map_err(|e| BuildError::Io(dir.to_path_buf(), e))?
     .filter_map(|e| e.ok().map(|e| e.path()))
@@ -534,12 +565,22 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>) -> Result<(), BuildEr
     .collect();
   children.sort();
 
-  if dir.join("page.tsx").is_file() || dir.join("page.ts").is_file() {
+  let page = dir.join("page.tsx").is_file() || dir.join("page.ts").is_file();
+  let handler = dir.join("route.ts").is_file();
+  if page && handler {
+    return Err(BuildError::PageAndRoute(dir.to_path_buf()));
+  }
+  if page || handler {
     let (pattern, id) = pattern_of(root, dir)?;
-    out.push(Route { pattern, dir: dir.to_path_buf(), id });
+    let route = Route { pattern, dir: dir.to_path_buf(), id };
+    if page {
+      out.push(route);
+    } else {
+      handlers.push(route);
+    }
   }
   for child in children {
-    discover(root, &child, out)?;
+    discover(root, &child, out, handlers)?;
   }
   Ok(())
 }

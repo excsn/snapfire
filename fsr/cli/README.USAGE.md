@@ -9,6 +9,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Laying Out Routes](#laying-out-routes)
 * [Writing a Loader](#writing-a-loader)
 * [Writing Actions](#writing-actions)
+* [Writing a Route Handler](#writing-a-route-handler)
 * [Importing a Service](#importing-a-service)
 * [Declaring the Session and Action Inputs](#declaring-the-session-and-action-inputs)
 * [Reading the Generated Types](#reading-the-generated-types)
@@ -34,6 +35,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Pattern** comes from the directory path: `index` is `/`, `[id]` is `{id}`, `[...rest]` is `{*rest}`.
 * **Source id** is the route's static segments joined with `.`, `index` for the root; it names the loader.
 * **Action id** is `<source id>.<export>`, so `routes/cart/actions.ts` exporting `checkout` is `cart.checkout`.
+* **Handler** is an export of a directory's `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, answered with JSON rather than a document; its id is `<route id>.<METHOD>`. A directory is a page or a handler, never both.
 * **Module id** is the page's path with `#default`, `routes/cart/page.tsx#default`; the client registers islands under it.
 * **Shell** is the module every route's root node renders through, `shell#document` unless told otherwise.
 * **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page.
@@ -95,7 +97,7 @@ routes/docs/[...rest]/page.tsx   /docs/{*rest}
 routes/admin/users/page.tsx      /admin/users     source id admin.users
 ```
 
-Routes are emitted sorted by pattern, so entry ids are stable across builds regardless of file system order.
+Routes are emitted sorted by pattern, so entry ids are stable across builds regardless of file system order. A directory holding `route.ts` instead of a page is a handler route with the same pattern rules; one holding both fails the build.
 
 A `not-found.tsx` at the top of `routes/` is not a route. It is the page the host renders with status 404 when nothing matches. It receives the path it is answering as `params.path`:
 
@@ -136,6 +138,28 @@ export const addToCart = action<AddToCart>(async ({ input, session }) => {
 ```
 
 The input type must be declared under `schemas/`; the host checks a submitted value against it before the body runs.
+
+## Writing a Route Handler
+
+`route.ts` exports one function per HTTP method it answers. A plain function reads the request body as `input` unchecked; an `action<T>` has the body checked against `T` first, the way an action's input is. The value returned is the JSON response; `fail` sets the status by its kind.
+
+```ts
+import { action, fail } from "@snapfire/fsr";
+import type { ActionCtx, Ctx } from "@snapfire/fsr";
+import type { AddToCart } from "../../../schemas/cart";
+
+export async function GET({ session }: Ctx<"/api/cart">) {
+  return { lines: session.cart };
+}
+
+export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => {
+  if (input.quantity <= 0n) fail("invalid", "quantity must be positive");
+  session.cart = { ...session.cart, [String(input.product_id)]: input.quantity };
+  return { lines: session.cart };
+});
+```
+
+The handler runs before any page is matched, sees the same `session`, `identity` and `services` a loader sees and writes the session the same way. A method the file does not export answers 404.
 
 ## Importing a Service
 

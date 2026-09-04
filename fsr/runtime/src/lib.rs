@@ -19,7 +19,7 @@ pub use cache::{CacheEntry, FibreCache, MemoryCache, NoCache, NodeCache};
 pub use ctx::{parse_query, Identity, RequestCtx, SessionCell};
 pub use data::{DataSource, DataSources, LoadError};
 pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
-pub use matcher::{EntryId, Matcher, MatchitMatcher, RouteMatch};
+pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
 pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};

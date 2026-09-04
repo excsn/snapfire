@@ -12,7 +12,7 @@ use snapfire_fsr_core::{Data, ModuleId, PlanNode};
 use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrSource};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  LoadError, MatchitMatcher, NodeCache, RequestCtx, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadError, MatchitMatcher, NodeCache, RequestCtx, Runtime, TableResolver,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -43,6 +43,12 @@ pub enum BindError {
   NoContract { id: String, input: String },
   #[error("action `{id}` names input type `{input}`, which the contract does not define")]
   UnknownInput { id: String, input: String },
+  #[error("handler `{0}` is lowered by the plan file and bound in Rust; mark the Rust one as an override")]
+  HandlerClaimed(String),
+  #[error("handler `{0}` is marked an override but the plan lowers no such handler")]
+  HandlerOverridesNothing(String),
+  #[error("the plan declares handler `{0}`, which nothing answers")]
+  UnboundHandler(String),
 }
 
 /// Who answers a name.
@@ -72,6 +78,8 @@ pub struct Report {
   pub routes: Vec<(String, Owner)>,
   pub sources: Vec<(String, Owner)>,
   pub actions: Vec<(String, Owner)>,
+  /// `METHOD pattern` per handler.
+  pub handlers: Vec<(String, Owner)>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
 }
@@ -90,6 +98,10 @@ impl std::fmt::Display for Report {
       let label = if i == 0 { "actions" } else { "" };
       writeln!(f, "{label:<9} {action:<22} {}", owner.as_str())?;
     }
+    for (i, (handler, owner)) in self.handlers.iter().enumerate() {
+      let label = if i == 0 { "handlers" } else { "" };
+      writeln!(f, "{label:<9} {handler:<22} {}", owner.as_str())?;
+    }
     for (i, (module, owner)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<22} {}", owner.as_str())?;
@@ -102,6 +114,8 @@ impl std::fmt::Display for Report {
 pub struct App {
   pub matcher: MatchitMatcher,
   pub resolver: TableResolver,
+  /// Route handlers: a method and a pattern answered with a value.
+  pub handlers: Handlers,
   /// Rendered with status 404 for a path the matcher does not match.
   pub not_found: Option<PlanNode>,
   pub runtime: Arc<Runtime>,
@@ -120,8 +134,54 @@ impl std::fmt::Debug for App {
   }
 }
 
+/// The handlers a host dispatches: one router per method resolving to an id,
+/// and the handler behind each id.
+#[derive(Default)]
+pub struct Handlers {
+  matcher: HandlerMatcher,
+  registry: ActionRegistry,
+}
+
+impl Handlers {
+  pub fn match_request(&self, method: &str, path: &str) -> Option<HandlerMatch> {
+    self.matcher.match_request(method, path)
+  }
+
+  pub fn dispatch(&self, id: &str, ctx: RequestCtx, input: snapfire_fsr_core::Value) -> futures_util::future::BoxFuture<'static, Result<snapfire_fsr_core::Value, ActionError>> {
+    self.registry.dispatch(id, ctx, input)
+  }
+
+  pub fn ids(&self) -> Vec<String> {
+    self.registry.ids()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.matcher.is_empty()
+  }
+}
+
+struct FnHandler<F>(F);
+
+impl<F, Fut> ActionHandler for FnHandler<F>
+where
+  F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync,
+  Fut: std::future::Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+{
+  fn call(&self, ctx: RequestCtx, input: snapfire_fsr_core::Value) -> futures_util::future::BoxFuture<'static, Result<snapfire_fsr_core::Value, ActionError>> {
+    Box::pin((self.0)(ctx, input))
+  }
+}
+
+/// `METHOD pattern`, the name a handler is reported and overridden by.
+fn handler_key(method: &str, pattern: &str) -> String {
+  format!("{} {pattern}", method.to_ascii_uppercase())
+}
+
 pub struct AppBuilder {
   routes: Routes,
+  declared_handlers: Vec<(String, String, String)>,
+  lowered_handlers: Vec<(String, String, String, Option<String>, snapfire_fsr_ir::Body)>,
+  rust_handlers: Vec<(String, String, Arc<dyn ActionHandler>, Owner)>,
   declared_actions: Vec<String>,
   lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
@@ -142,6 +202,9 @@ impl App {
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
       routes,
+      declared_handlers: Vec::new(),
+      lowered_handlers: Vec::new(),
+      rust_handlers: Vec::new(),
       declared_actions: Vec::new(),
       lowered_sources: Vec::new(),
       lowered_actions: Vec::new(),
@@ -175,6 +238,12 @@ impl App {
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
       .collect();
     builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
+    for row in &parsed.handlers {
+      match &row.body {
+        Some(body) => builder.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
+        None => builder.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
+      }
+    }
     Ok(builder)
   }
 }
@@ -281,6 +350,31 @@ impl AppBuilder {
     self
   }
 
+  /// A handler written in Rust: `method` and `pattern` are what the host
+  /// matches. Refused at `build` when the plan lowers the same pair.
+  pub fn handler<F, Fut>(self, method: impl Into<String>, pattern: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+  {
+    self.handler_impl(method, pattern, Arc::new(FnHandler(f)))
+  }
+
+  /// A Rust handler replacing a lowered one for the same method and pattern.
+  pub fn handler_override<F, Fut>(mut self, method: impl Into<String>, pattern: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, snapfire_fsr_core::Value) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+  {
+    self.rust_handlers.push((method.into().to_ascii_uppercase(), pattern.into(), Arc::new(FnHandler(f)), Owner::RustOverride));
+    self
+  }
+
+  pub fn handler_impl(mut self, method: impl Into<String>, pattern: impl Into<String>, handler: Arc<dyn ActionHandler>) -> Self {
+    self.rust_handlers.push((method.into().to_ascii_uppercase(), pattern.into(), handler, Owner::Rust));
+    self
+  }
+
   pub fn route_override(mut self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self {
     self.routes = self.routes.replace(pattern, plan);
     self
@@ -359,6 +453,48 @@ impl AppBuilder {
       }
     }
 
+    let mut handlers = Handlers::default();
+    let mut handler_rows: Vec<(String, Owner)> = Vec::new();
+    let mut claimed_handlers: Vec<(String, Owner)> = Vec::new();
+    for (method, pattern, handler, owner) in &self.rust_handlers {
+      let key = handler_key(method, pattern);
+      if *owner == Owner::RustOverride && !self.lowered_handlers.iter().any(|(_, m, p, _, _)| handler_key(m, p) == key) {
+        return Err(BindError::HandlerOverridesNothing(key));
+      }
+      handlers.matcher.insert(method, pattern, key.clone()).map_err(|e| BindError::Pattern { pattern: pattern.clone(), message: e.to_string() })?;
+      handlers.registry.insert(key.clone(), handler.clone());
+      claimed_handlers.push((key.clone(), *owner));
+      handler_rows.push((key, *owner));
+    }
+    for (id, method, pattern, input, body) in std::mem::take(&mut self.lowered_handlers) {
+      let key = handler_key(&method, &pattern);
+      match claimed_handlers.iter().find(|(k, _)| *k == key).map(|(_, o)| *o) {
+        Some(Owner::RustOverride) => continue,
+        Some(_) => return Err(BindError::HandlerClaimed(key)),
+        None => {}
+      }
+      let handler: Arc<dyn ActionHandler> = match input {
+        None => Arc::new(IrAction::new(body)),
+        Some(input) => {
+          let contract = self.contract.clone().ok_or_else(|| BindError::NoContract { id: id.clone(), input: input.clone() })?;
+          if !contract.types.contains_key(&input) {
+            return Err(BindError::UnknownInput { id: id.clone(), input });
+          }
+          Arc::new(CheckedInput { input, contract, inner: IrAction::new(body) })
+        }
+      };
+      handlers.matcher.insert(&method, &pattern, id.clone()).map_err(|e| BindError::Pattern { pattern: pattern.clone(), message: e.to_string() })?;
+      handlers.registry.insert(id, handler);
+      handler_rows.push((key, Owner::Lowered));
+    }
+    for (_, method, pattern) in &self.declared_handlers {
+      let key = handler_key(method, pattern);
+      if !claimed_handlers.iter().any(|(k, _)| *k == key) {
+        return Err(BindError::UnboundHandler(key));
+      }
+    }
+    handler_rows.sort_by(|a, b| a.0.cmp(&b.0));
+
     let not_found = self.routes.take_not_found();
     let resolved = self.routes.resolved()?;
     let actions = self
@@ -389,6 +525,7 @@ impl AppBuilder {
       routes: resolved.iter().map(|(p, _, owner)| (p.clone(), *owner)).collect(),
       sources,
       actions,
+      handlers: handler_rows,
       components,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -411,6 +548,7 @@ impl AppBuilder {
     Ok(App {
       matcher,
       resolver,
+      handlers,
       not_found,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),

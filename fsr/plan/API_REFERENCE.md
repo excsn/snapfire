@@ -33,12 +33,14 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node> }`. `sources`, `actions` and `components` are absent from the file when empty; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry> }`. `sources`, `actions`, `components` and `handlers` are absent from the file when empty; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
 * `Manifest::with_components(self, components: Vec<ComponentEntry>) -> Self`
 * `Manifest::with_not_found(self, not_found: Option<Node>) -> Self`
+* `Manifest::with_handlers(self, handlers: Vec<HandlerEntry>) -> Self`
+* `Manifest::lowered_handlers(&self) -> impl Iterator<Item = &HandlerEntry>`
 * `Manifest::from_json(source: &str) -> Result<Self, PlanError>`: parses, checks the version and refuses a `lowered` source or action row with no body.
 * `Manifest::to_json(&self) -> String`: pretty-printed, in field order.
 * `Manifest::routes(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the runtime's trees in file order; refuses an empty pattern, a malformed module id, a node id used twice within one route and a slot used twice on one node.
@@ -92,6 +94,13 @@ The serialized shape of a `PlanNode`. Every optional field is absent from the fi
 * `ActionEntry::rust(id) -> Self`
 * `ActionEntry::with_input(self, input) -> Self`: the contract type a call's input is checked against before the body runs.
 * Deserializes from a row or from a bare string, which reads as `rust(id)`.
+
+### HandlerEntry
+
+* `pub struct HandlerEntry { pub id: String, pub method: String, pub pattern: String, pub owner: RowOwner, pub module: Option<String>, pub input: Option<String>, pub reason: Option<String>, pub body: Option<Body> }`: a request the host answers with a value. `method` and `pattern` are what it matches; `id` is `<route id>.<METHOD>`; `input` names the type the body is checked against. A row without a body is a declaration Rust must answer.
+* `HandlerEntry::lowered(id, method, pattern, module, body: Body) -> Self`
+* `HandlerEntry::rust(id, method, pattern) -> Self`
+* `HandlerEntry::with_input(self, input) -> Self`
 
 ### ComponentEntry
 

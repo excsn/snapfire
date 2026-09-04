@@ -110,7 +110,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 ### Routes
 
-* A directory under `routes/` is a route when it contains `page.tsx` or `page.ts`. Other directories contribute path segments only.
+* A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
 * A segment is a name of ASCII letters, digits, `_` and `-`, `[name]` for a parameter or `[...name]` for a catch-all. Anything else is `BuildError::Segment`.
 * `index` as the first segment is the root. `index` deeper in a path is a literal segment.
 * Routes are sorted by pattern before ids are assigned.
@@ -119,6 +119,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * Source id: the static segments joined with `.`; `index` for the root. Parameter segments contribute nothing.
 * Action id: `<source id>.<export>` for each export `lower_actions` returns.
+* Handler id: `<route id>.<METHOD>` for each export of `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; the row also carries the method and the pattern. An `action<T>` export names `T` as its input, which must be a schema type or the build fails with `UnknownHandlerInput`.
 
 ### Modules
 
@@ -126,7 +127,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * Error: `routes/error.tsx#default` (or `.ts`) when present, applied to every page; a route's own `error.tsx` takes precedence for that route.
 * Loading: `<route dir>/loading.tsx#default` when present; the node is marked deferred with it as the fallback.
 * Not found: `routes/not-found.tsx#default` (or `.ts`) when present, the page for a path no route matches.
-* Loader and actions modules are named by their relative paths in the source and action rows.
+* Loader, actions and route modules are named by their relative paths in the source, action and handler rows.
 
 ### Plan shape
 
@@ -138,6 +139,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### Generated files
 
 * `generated/contracts/<client>.json` is `Contract::to_json` of that document's import, types and service; `generated/contracts/schemas.json` holds the schema types. `CONTRACTS_DIR` names the directory. The build merges them with `Contract::merge` for `services.d.ts`, `client.ts` and validation, so a type two documents define fails the build naming the second; `write` empties the directory of `*.json` before writing so a removed client leaves nothing behind.
+* `generated/fsr.ts` declares `Routes` with one key per page pattern and per handler pattern, so `Ctx<"/api/cart">` types a handler's parameters.
 * `generated/services.d.ts` is `snapfire_fsr_service::typescript::declarations` of it.
 * `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module: the routes-level error module, the not-found module, then each page, its error and its loading module, each loading `../<path>.js` relative to `generated/`.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.

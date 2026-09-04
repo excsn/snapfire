@@ -181,6 +181,20 @@ let host = Host::from(".")?
   .build()?;
 ```
 
+## Adding a Handler in Rust
+
+A handler answers a method and a pattern with a value rather than a document, before any page is matched. The plan file carries the ones `route.ts` exports; `handler` adds one in Rust and `handler_override` replaces a lowered one.
+
+```rust
+use snapfire_fsr_core::Value;
+
+let host = Host::from(".")?
+  .handler("GET", "/api/health", |_ctx, _input| async { Ok(Value::str("ok")) })
+  .build()?;
+
+let answer = host.call_handler("GET", "/api/health", session, Value::Null).await?;
+```
+
 ## Taking a Name Back
 
 The binding rule from `snapfire_fsr` applies unchanged. A lowered source or action is a default; Rust replaces it with an override. The report says `rust override`.

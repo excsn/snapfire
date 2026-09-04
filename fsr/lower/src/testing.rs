@@ -17,6 +17,7 @@ use crate::{Lowered, LowerError, Lowerer, Parsed, SessionDefaults, parse, prop_n
 pub enum Target {
   Loader { file: String },
   Action { file: String, export: String },
+  Handler { file: String, export: String },
 }
 
 /// The `ctx({ ... })` literal, each part an expression the runner evaluates.
@@ -103,7 +104,8 @@ pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError> {
       let target = match (stem, imported.as_str()) {
         ("loader", "load") => Target::Loader { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
-        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a route's `loader` or an action from its `actions`")).into()),
+        ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
+        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a route's `loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
     }

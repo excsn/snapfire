@@ -25,7 +25,8 @@ use snapfire_fsr_host::{Host, HostError, RenderMode};
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_ir::{Body, Interpreter};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
-use snapfire_fsr_runtime::{Identity, RequestCtx, ServiceError, SessionCell};
+use snapfire_fsr_runtime::{parse_query, HandlerMatcher, Identity, RequestCtx, ServiceError, SessionCell};
+use snapfire_fsr_service::Type;
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
 use crate::test::Summary;
@@ -104,6 +105,15 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
   let actions: HashMap<String, Arc<Body>> = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), Arc::new(b)))).collect();
+  let mut handlers: HashMap<String, (Option<String>, Arc<Body>)> = HashMap::new();
+  let mut handler_matcher = HandlerMatcher::new();
+  for row in built.manifest.lowered_handlers() {
+    if let Some(body) = &row.body {
+      handlers.insert(row.id.clone(), (row.input.clone(), Arc::new(body.clone())));
+      handler_matcher.insert(&row.method, &row.pattern, row.id.clone()).map_err(|e| BuildError::Dev(format!("{}: {e}", row.pattern)))?;
+    }
+  }
+  let handlers = Arc::new((handlers, handler_matcher));
   let calls = JsCalls::new();
   let current = Arc::new(AtomicU32::new(0));
   let records = Records::default();
@@ -116,7 +126,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     if !compiled.is_file() {
       return Err(BuildError::Dev(format!("{rel}: snapfirec wrote no {}", compiled.display())));
     }
-    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone()));
+    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), handlers.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone()));
     let local = tokio::task::LocalSet::new();
     let outcome: Result<Vec<(String, Result<(), String>)>, BuildError> = runtime.block_on(local.run_until(async {
       let engine = Engine::new(resolution.clone(), &dom, hooks.clone(), calls.clone()).map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
@@ -409,9 +419,12 @@ struct IdentitySpec {
   claims: serde_json::Value,
 }
 
+type Handlers = Arc<(HashMap<String, (Option<String>, Arc<Body>)>, HandlerMatcher)>;
+
 struct SpecHooks {
   contract: Arc<Contract>,
   actions: HashMap<String, Arc<Body>>,
+  handlers: Handlers,
   components: Arc<Components>,
   calls: JsCalls,
   interpreter: Interpreter,
@@ -422,8 +435,8 @@ struct SpecHooks {
 }
 
 impl SpecHooks {
-  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>) -> Self {
-    let hooks = Self { contract, actions, components, calls, interpreter: Interpreter::default(), ctxs: RefCell::new(Vec::new()), current, records, host };
+  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>) -> Self {
+    let hooks = Self { contract, actions, handlers, components, calls, interpreter: Interpreter::default(), ctxs: RefCell::new(Vec::new()), current, records, host };
     hooks.reset();
     hooks
   }
@@ -524,6 +537,9 @@ impl Hooks for SpecHooks {
     let (path, query) = target.split_once('?').map(|(p, q)| (p.to_owned(), q.to_owned())).unwrap_or((target.clone(), String::new()));
     let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
     let Some(id) = action.filter(|_| method == "POST") else {
+      if let Some(found) = self.handlers.1.match_request(&method, &path) {
+        return self.handler(found.id, found.params, query, body);
+      }
       return self.page(method, path, query, target);
     };
     let Some(body_ir) = self.actions.get(&id).cloned() else {
@@ -553,6 +569,41 @@ impl Hooks for SpecHooks {
 }
 
 impl SpecHooks {
+  /// A lowered handler run under the current ctx with the matched params, the URL's query and the request body as its input.
+  fn handler(&self, id: String, params: Params, query: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
+    let Some((input_type, body_ir)) = self.handlers.0.get(&id).cloned() else {
+      return Box::pin(async move { json_response(501, serde_json::json!({ "kind": "internal", "message": format!("`{id}` is not a lowered handler") })) });
+    };
+    let mock = match self.get(self.current.load(Ordering::Relaxed)) {
+      Ok(mock) => mock,
+      Err(m) => return Box::pin(async move { json_response(500, serde_json::json!({ "kind": "internal", "message": m })) }),
+    };
+    let input = match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
+      Some(Ok(json)) => match json_to_value(&json) {
+        Ok(value) => value,
+        Err(e) => return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })) }),
+      },
+      Some(Err(e)) => return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })) }),
+      None => Value::Null,
+    };
+    if let Some(name) = input_type {
+      if let Err(e) = self.contract.check_value(&Type::Named(name), &input, "input") {
+        let message = e.to_string();
+        return Box::pin(async move { json_response(400, serde_json::json!({ "kind": "invalid", "message": message })) });
+      }
+    }
+    let mut ctx = mock.ctx.clone();
+    ctx.params = params;
+    ctx.query = parse_query(&query);
+    let interpreter = self.interpreter.clone();
+    Box::pin(async move {
+      match interpreter.run(&body_ir, &ctx, Some(input)).await {
+        Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
+        Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+      }
+    })
+  }
+
   /// A route rendered by the host under the current ctx: the document, or the wire payload when the query carries `__payload`.
   fn page(&self, method: String, path: String, query: String, target: String) -> LocalBoxFuture<'static, FetchResponse> {
     let Some(host) = self.host.clone() else {
