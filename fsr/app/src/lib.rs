@@ -8,7 +8,7 @@ pub mod routes;
 use std::future::Future;
 use std::sync::Arc;
 
-use snapfire_fsr_core::{Data, ModuleId};
+use snapfire_fsr_core::{Data, ModuleId, PlanNode};
 use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrSource};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
@@ -102,6 +102,8 @@ impl std::fmt::Display for Report {
 pub struct App {
   pub matcher: MatchitMatcher,
   pub resolver: TableResolver,
+  /// Rendered with status 404 for a path the matcher does not match.
+  pub not_found: Option<PlanNode>,
   pub runtime: Arc<Runtime>,
   pub services: Arc<Services>,
   pub actions: ActionRegistry,
@@ -272,6 +274,13 @@ impl AppBuilder {
     self
   }
 
+  /// The tree rendered, with status 404, for a path no route matches,
+  /// replacing the plan file's when it has one.
+  pub fn not_found(mut self, plan: impl IntoPlan) -> Self {
+    self.routes = std::mem::take(&mut self.routes).not_found(plan);
+    self
+  }
+
   pub fn route_override(mut self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self {
     self.routes = self.routes.replace(pattern, plan);
     self
@@ -350,6 +359,7 @@ impl AppBuilder {
       }
     }
 
+    let not_found = self.routes.take_not_found();
     let resolved = self.routes.resolved()?;
     let actions = self
       .actions
@@ -401,6 +411,7 @@ impl AppBuilder {
     Ok(App {
       matcher,
       resolver,
+      not_found,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
       actions: self.actions,

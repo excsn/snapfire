@@ -211,11 +211,16 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     .find(|f| routes_dir.join(f).is_file())
     .map(|f| format!("routes/{f}#default"));
 
+  let not_found_module = ["not-found.tsx", "not-found.ts"]
+    .iter()
+    .find(|f| routes_dir.join(f).is_file())
+    .map(|f| format!("routes/{f}#default"));
+
   let mut entries = Vec::new();
   let mut sources = Vec::new();
   let mut actions = Vec::new();
   let mut islands: Vec<String> = Vec::new();
-  if let Some(module) = &error_module {
+  for module in [&error_module, &not_found_module].into_iter().flatten() {
     islands.push(module.clone());
   }
 
@@ -296,6 +301,20 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     });
   }
 
+  let not_found = not_found_module.map(|module| Node {
+    id: 0,
+    module: options.shell.clone(),
+    source: None,
+    deferred: false,
+    fallback: None,
+    error: None,
+    cache_key: None,
+    children: vec![Child {
+      slot: options.slot.clone(),
+      node: Node { id: 1, module, source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: None, children: Vec::new() },
+    }],
+  });
+
   let mut set = ComponentSet::new(app);
   for module in &islands {
     match set.lower(module) {
@@ -314,7 +333,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let session_type = session_import.as_ref().map(|_| "Session");
   let client = client_module(&contract, session_type, &routes, &sources, &actions);
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components);
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
 
   let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];

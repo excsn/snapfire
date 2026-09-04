@@ -87,7 +87,11 @@ let plan = Node {
 let manifest = Manifest::new(vec![RouteEntry { pattern: "/".into(), plan }]);
 ```
 
-A deferred node names its fallback; a node that may fail names its error module. Both are modules a host must be able to evaluate, so `modules` lists them.
+A deferred node names its fallback; a node that may fail names its error module. Both are modules a host must be able to evaluate, so `modules` lists them. `with_not_found` carries one more tree, outside the routes, that a host renders with status 404 for a path nothing matches; `not_found()` converts it the way `routes()` converts a route's.
+
+```rust
+let manifest = manifest.with_not_found(Some(Node { id: 0, module: "shell#document".into(), source: None, deferred: false, fallback: None, error: None, cache_key: None, children: vec![Child { slot: "content".into(), node: Node { id: 1, module: "routes/not-found.tsx#default".into(), source: None, deferred: false, fallback: None, error: None, cache_key: None, children: Vec::new() } }] }));
+```
 
 ```rust
 let mut node = Node { id: 1, module: "routes/product/[id]/page.tsx#default".into(), source: Some("product".into()), deferred: true, fallback: Some("routes/product/[id]/loading.tsx#default".into()), error: None, cache_key: None, children: Vec::new() };
@@ -143,7 +147,7 @@ for (pattern, plan) in manifest.routes()? {
 
 ## Listing What a Host Must Bind
 
-`sources` is every data source named in any tree, once, in tree order; `modules` is every module named anywhere, fallbacks and error modules included; `action_ids` is every action row. `lowered_sources` and `lowered_actions` pick out the rows that carry a body.
+`sources` is every data source named in any tree, the not-found tree included, once, in tree order; `modules` is every module named anywhere, fallbacks, error modules and the not-found tree included; `action_ids` is every action row. `lowered_sources` and `lowered_actions` pick out the rows that carry a body.
 
 ```rust
 let must_answer: Vec<&str> = manifest.sources.iter().filter(|row| row.owner == snapfire_fsr_plan::RowOwner::Rust).map(|row| row.id.as_str()).collect();

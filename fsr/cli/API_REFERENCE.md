@@ -125,11 +125,13 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * Page: `<route dir>/page.tsx#default`, with the directory relative to `app`.
 * Error: `routes/error.tsx#default` (or `.ts`) when present, applied to every page; a route's own `error.tsx` takes precedence for that route.
 * Loading: `<route dir>/loading.tsx#default` when present; the node is marked deferred with it as the fallback.
+* Not found: `routes/not-found.tsx#default` (or `.ts`) when present, the page for a path no route matches.
 * Loader and actions modules are named by their relative paths in the source and action rows.
 
 ### Plan shape
 
 * Every route is a two-node tree: node 0 is the shell module, node 1 is the page in `Options::slot`, carrying the source id, the error module and the fallback.
+* `not_found` is the same two-node tree around the not-found module with the routes-level error module and no source, present only when the module is; the host renders it with status 404 and `params.path` set to the path asked for.
 * Sources and actions are emitted with `RowOwner::Lowered` and their bodies. No other owner is produced.
 * An action whose `action<T>` names a type the contract lacks is `UnknownInput`; an action row carries `input` when it names one.
 
@@ -137,7 +139,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * `generated/contracts/<client>.json` is `Contract::to_json` of that document's import, types and service; `generated/contracts/schemas.json` holds the schema types. `CONTRACTS_DIR` names the directory. The build merges them with `Contract::merge` for `services.d.ts`, `client.ts` and validation, so a type two documents define fails the build naming the second; `write` empties the directory of `*.json` before writing so a removed client leaves nothing behind.
 * `generated/services.d.ts` is `snapfire_fsr_service::typescript::declarations` of it.
-* `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module: the routes-level error module, then each page, its error and its loading module, each loading `../<path>.js` relative to `generated/`.
+* `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module: the routes-level error module, the not-found module, then each page, its error and its loading module, each loading `../<path>.js` relative to `generated/`.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.
 * `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build`.
 * `generated/fsr.ts` is what the generated `tsconfig.json` maps `@snapfire/fsr` to; it imports the base package as `@snapfire/fsr-authoring`, re-exports `fail` and `Services`, imports `Session`, declares `Routes` with one key per pattern whose value has a `string` field per parameter, `Ctx<P extends keyof Routes = keyof Routes>` with `params`, `query`, `session`, `identity`, `services` and `now`, `ActionCtx<Input, P>` and an `action<Input, Out>` wrapper over `@snapfire/fsr`'s.

@@ -173,6 +173,14 @@ let host = Host::from(".")?
   .build()?;
 ```
 
+`not_found` sets the tree the host renders, with status 404, for a path no route matches; it replaces the one `routes/not-found.tsx` put in the plan file. The page receives the path it is answering as `params.path`.
+
+```rust
+let host = Host::from(".")?
+  .not_found(Plan::of("shell#document").slot("content", Plan::of("src/Missing.tsx#default")))
+  .build()?;
+```
+
 ## Taking a Name Back
 
 The binding rule from `snapfire_fsr` applies unchanged. A lowered source or action is a default; Rust replaces it with an override. The report says `rust override`.

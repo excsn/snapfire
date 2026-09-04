@@ -12,6 +12,7 @@ pub struct Routes {
   entries: Vec<(String, PlanNode, Owner)>,
   overrides: Vec<String>,
   failed: Option<BindError>,
+  not_found: Option<PlanNode>,
 }
 
 impl Routes {
@@ -26,7 +27,23 @@ impl Routes {
       .into_iter()
       .map(|(pattern, plan)| (pattern, plan, Owner::PlanFile))
       .collect();
-    Ok(Self { entries, overrides: Vec::new(), failed: None })
+    Ok(Self { entries, overrides: Vec::new(), failed: None, not_found: manifest.not_found()? })
+  }
+
+  /// The tree rendered, with status 404, for a path no route matches. Replaces
+  /// the plan file's when it has one.
+  pub fn not_found(mut self, plan: impl IntoPlan) -> Self {
+    match plan.into_plan() {
+      Ok(plan) => self.not_found = Some(plan),
+      Err(e) => {
+        self.failed.get_or_insert(e);
+      }
+    }
+    self
+  }
+
+  pub fn has_not_found(&self) -> bool {
+    self.not_found.is_some()
   }
 
   pub fn add(mut self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self {
@@ -58,7 +75,11 @@ impl Routes {
   }
 
   pub(crate) fn plans(&self) -> impl Iterator<Item = &PlanNode> {
-    self.entries.iter().map(|(_, plan, _)| plan)
+    self.entries.iter().map(|(_, plan, _)| plan).chain(self.not_found.iter())
+  }
+
+  pub(crate) fn take_not_found(&mut self) -> Option<PlanNode> {
+    self.not_found.take()
   }
 
   pub(crate) fn resolved(self) -> Result<Vec<(String, PlanNode, Owner)>, BindError> {

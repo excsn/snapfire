@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use futures_util::future::{BoxFuture, LocalBoxFuture};
+use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use snapfire_fsr_core::{Params, Value, ValueMap};
@@ -567,9 +568,13 @@ impl SpecHooks {
     };
     let mode = if query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
     Box::pin(async move {
-      match host.render_to_string(&target, mode, session).await {
+      match host.render_to_string(&target, mode, session.clone()).await {
         Ok(body) => FetchResponse { status: 200, body },
-        Err(HostError::NotFound(path)) => FetchResponse { status: 404, body: format!("no route: {path}") },
+        Err(HostError::NotFound(path)) => match host.render_not_found(&target, mode, session).await {
+          Ok(Some(chunks)) => FetchResponse { status: 404, body: chunks.collect::<Vec<String>>().await.concat() },
+          Ok(None) => FetchResponse { status: 404, body: format!("no route: {path}") },
+          Err(e) => FetchResponse { status: 500, body: e.to_string() },
+        },
         Err(e) => FetchResponse { status: 500, body: e.to_string() },
       }
     })

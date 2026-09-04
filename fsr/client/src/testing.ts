@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { boot, registeredIslands } from "./boot.js";
-import { enableNavigation } from "./navigator.js";
+import { clearRouterCache, enableNavigation } from "./navigator.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 /** What `fsr test` installs before a spec file loads. */
@@ -80,7 +80,10 @@ export function ctx(mock: Mock = {}): TestCtx {
 /** Called by the runner when a body under test reaches a mocked service method. Answers synchronously: a mock is a function of its arguments. */
 function callMock(key: string, args: string): string {
   const fn = mocks.get(key);
-  if (!fn) throw new Error(`no mock for ${key}`);
+  if (!fn) {
+    console.error(`no mock for ${key}`);
+    throw new Error(`no mock for ${key}`);
+  }
   const result = fn(decodeValue(JSON.parse(args)) as never);
   if (result !== null && typeof result === "object" && typeof (result as { then?: unknown }).then === "function") {
     throw new Error(`the mock for ${key} returned a promise; a mock answers synchronously`);
@@ -228,15 +231,17 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
 }
 
 /** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
-export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<void> {
+export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<{ status: number }> {
   sf().use(options.ctx?.id ?? 0);
   const res = await fetch(path);
   const html = await res.text();
-  if (!res.ok) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
+  if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
   sf().load(html, path);
+  clearRouterCache();
   boot();
   enableNavigation();
   await settle();
+  return { status: res.status };
 }
 
 type Matcher = string | RegExp;
