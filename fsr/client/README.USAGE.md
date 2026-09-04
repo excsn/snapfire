@@ -15,6 +15,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
+* [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
@@ -238,6 +239,30 @@ enableNavigation();
 
 A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
+## Prefetching and the Router Cache
+
+A link's payload is fetched when the pointer moves over it, when it takes focus or when it is touched, then held for thirty seconds. The click that follows applies the held payload with no round trip. So does a back or forward that lands on a route fetched inside the window. `enableNavigation` takes both settings:
+
+```ts
+enableNavigation({ prefetch: "none" });
+enableNavigation({ cacheMs: 5_000 });
+```
+
+A link that should not be warmed says so, which is right for a link whose loader is expensive or whose route logs the visit:
+
+```html
+<a href="/reports/yearly" data-sf-prefetch="none">Yearly report</a>
+```
+
+From code, `prefetch` warms a route ahead of time and `clearRouterCache` drops everything held. `refresh` drops it on its own, so an action that revalidates never leaves a payload from before the mutation behind:
+
+```ts
+import { clearRouterCache, prefetch } from "@snapfire/fsr-client";
+
+await prefetch("/cart");
+clearRouterCache();
+```
+
 ## Navigating and Refreshing From Code
 
 `navigate` takes an href and pushes history by default; pass `false` to replay a history entry without pushing a new one:
@@ -249,13 +274,13 @@ await navigate("/servers/eu");
 await navigate("/servers/eu", false);
 ```
 
-`refresh` re-fetches the current route and force-replaces the top-level child segments, which is the revalidation an action performs for you:
+`refresh` drops the router cache, re-fetches the current route and force-replaces the top-level child segments, which is the revalidation an action performs for you:
 
 ```ts
 await refresh();
 ```
 
-Both request the payload form of the current URL by appending `__payload` to the query string; both fall back to a full reload when the response is not usable.
+Both request the payload form of the URL by appending `__payload` to the query string, `navigate` through the router cache; both fall back to a full load when the response is not usable.
 
 ## Calling an Action
 
