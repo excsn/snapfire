@@ -156,7 +156,7 @@ struct Route {
 }
 
 /// Walks `<app>/routes`, `<app>/clients` and `<app>/schemas`, lowers every
-/// `loader.ts` and `actions.ts`, builds the contract and returns the plan file
+/// `page.loader.ts` and `actions.ts`, builds the contract and returns the plan file
 /// and the generated TypeScript. Nothing is written; `write` does that.
 pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let routes_dir = app.join("routes");
@@ -245,9 +245,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     let page = format!("{rel}/page.tsx#default");
     report.routes.push((route.pattern.clone(), rel.clone()));
 
-    let loader = route.dir.join("loader.ts");
+    let loader = route.dir.join("page.loader.ts");
     let source = if loader.is_file() {
-      let module = format!("{rel}/loader.ts");
+      let module = format!("{rel}/page.loader.ts");
       let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
       let body = lower_loader_with(&module, &text, &defaults)?;
       sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body));

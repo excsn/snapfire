@@ -52,7 +52,7 @@ export const checkout = action(async ({ session, services }) => {
 
 #[test]
 fn the_catalog_loader_lowers_to_one_call() {
-  let body = lower_loader("loader.ts", CATALOG).unwrap();
+  let body = lower_loader("page.loader.ts", CATALOG).unwrap();
   assert_eq!(
     body,
     vec![Stmt::Return(Expr::object(vec![(
@@ -64,7 +64,7 @@ fn the_catalog_loader_lowers_to_one_call() {
 
 #[test]
 fn the_product_loader_coerces_the_param() {
-  let body = lower_loader("loader.ts", PRODUCT).unwrap();
+  let body = lower_loader("page.loader.ts", PRODUCT).unwrap();
   assert_eq!(
     body,
     vec![Stmt::Return(Expr::object(vec![(
@@ -77,7 +77,7 @@ fn the_product_loader_coerces_the_param() {
 #[test]
 fn the_cart_loader_lowers_its_join() {
   let held = || Expr::Session("cart".into()).index(Expr::Str(Box::new(Expr::var("p").field("id"))));
-  let body = lower_loader("loader.ts", CART).unwrap();
+  let body = lower_loader("page.loader.ts", CART).unwrap();
   assert_eq!(
     body,
     vec![
@@ -167,7 +167,7 @@ export async function load(ctx: Ctx) {
   return { product: await ctx.services.shopping.getProduct({ id: BigInt(ctx.params.id) }), who: ctx.identity.subject, at: ctx.now };
 }
 "#;
-  let body = lower_loader("loader.ts", src).unwrap();
+  let body = lower_loader("page.loader.ts", src).unwrap();
   let Stmt::Return(Expr::Object(entries)) = &body[0] else { panic!("{body:?}") };
   assert_eq!(entries[1], Entry::Field("who".into(), Expr::Identity(vec!["subject".into()])));
   assert_eq!(entries[2], Entry::Field("at".into(), Expr::Now));
@@ -189,10 +189,10 @@ export async function load({ params }: Ctx) {
   return { slug: slugify(params.name) };
 }
 "#;
-  let r = residue(lower_loader("app/routes/x/loader.ts", src).unwrap_err());
+  let r = residue(lower_loader("app/routes/x/page.loader.ts", src).unwrap_err());
   assert_eq!((r.line, r.column), (5, 18), "{r}");
   assert!(r.message.contains("`slugify`"), "{r}");
-  assert!(r.to_string().starts_with("app/routes/x/loader.ts:5:18:"), "{r}");
+  assert!(r.to_string().starts_with("app/routes/x/page.loader.ts:5:18:"), "{r}");
 }
 
 #[test]
@@ -206,7 +206,7 @@ export async function load({ services }: Ctx) {
   }
 }
 "#;
-  let r = residue(lower_loader("loader.ts", src).unwrap_err());
+  let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
   assert_eq!(r.line, 3);
   assert_eq!(r.message, "`try`");
 }
@@ -219,7 +219,7 @@ export async function load({ services }: Ctx) {
   return { names: xs.map((p) => { const n = p.name; return n; }) };
 }
 "#;
-  let r = residue(lower_loader("loader.ts", src).unwrap_err());
+  let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
   assert_eq!(r.line, 4);
   assert!(r.message.contains("one expression"), "{r}");
 }
@@ -238,10 +238,10 @@ export const bump = action(async ({ input }) => {
 
 #[test]
 fn a_missing_load_export_and_a_parse_error_name_themselves() {
-  let err = lower_loader("loader.ts", "export const other = 1;").unwrap_err();
+  let err = lower_loader("page.loader.ts", "export const other = 1;").unwrap_err();
   assert!(matches!(err, LowerError::MissingExport { ref export, .. } if export == "load"), "{err}");
 
-  let err = lower_loader("loader.ts", "export async function load( {").unwrap_err();
+  let err = lower_loader("page.loader.ts", "export async function load( {").unwrap_err();
   assert!(matches!(err, LowerError::Parse { .. }), "{err}");
 }
 

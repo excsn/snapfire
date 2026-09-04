@@ -23,9 +23,9 @@ const PLAN: &str = r#"{
       { "slot": "content", "node": { "id": 1, "module": "routes/hello/page.tsx#default", "source": "hello" } } ] } }
   ],
   "sources": [
-    { "id": "index", "owner": "lowered", "module": "routes/index/loader.ts",
+    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] },
-    { "id": "hello", "owner": "lowered", "module": "routes/hello/loader.ts",
+    { "id": "hello", "owner": "lowered", "module": "routes/hello/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "greeting", { "template": [ { "lit": { "str": "hi " } }, { "param": "name" }, { "lit": { "str": " via " } }, { "query": "from" } ] } ] } ] } } ] }
   ],
   "actions": [

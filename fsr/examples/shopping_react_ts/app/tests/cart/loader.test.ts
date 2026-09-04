@@ -1,4 +1,4 @@
-import { load } from "@routes/cart/loader";
+import { load } from "@routes/cart/page.loader";
 import { assert, ctx, test } from "@snapfire/fsr/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Polymaker", category: "printing", price_cents: 2400n, stock: 12n, rating: 4.7, reviews: 1834n, description: "", tags: [], attributes: [], image: { color: "#000", emoji: "x" } };

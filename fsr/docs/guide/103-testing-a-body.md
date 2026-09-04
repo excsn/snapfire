@@ -12,7 +12,7 @@ Tests live under `app/tests/`, mirroring `routes/`; they import the body by alia
 
 ```ts
 // app/tests/cart/loader.test.ts
-import { load } from "@routes/cart/loader";
+import { load } from "@routes/cart/page.loader";
 import { assert, ctx, test } from "@snapfire/fsr/testing";
 
 test("held lines carry the catalog's rows and the held quantity", async () => {

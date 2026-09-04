@@ -105,7 +105,7 @@ A row per data source. `lowered` carries the body `fsr build` produced; `rust` i
 ```rust
 use snapfire_fsr_plan::{RowOwner, SourceEntry};
 
-let lowered = SourceEntry::lowered("cart", "routes/cart/loader.ts", body);
+let lowered = SourceEntry::lowered("cart", "routes/cart/page.loader.ts", body);
 let declared = SourceEntry::rust("pricing");
 assert_eq!(lowered.owner, RowOwner::Lowered);
 let manifest = manifest.with_sources(vec![lowered, declared]);
@@ -167,7 +167,7 @@ A leaf route reads as three keys per node; absent fields are absent.
   "routes": [
     { "pattern": "/cart", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "source": "cart", "error": "routes/error.tsx#default" } } ] } }
   ],
-  "sources": [ { "id": "cart", "owner": "lowered", "module": "routes/cart/loader.ts", "body": [ ] } ],
+  "sources": [ { "id": "cart", "owner": "lowered", "module": "routes/cart/page.loader.ts", "body": [ ] } ],
   "actions": [ { "id": "cart.addToCart", "owner": "lowered", "module": "routes/cart/actions.ts", "export": "addToCart", "input": "AddToCart", "body": [ ] } ],
   "components": [ { "module": "routes/cart/page.tsx#default", "body": { "render": { "text": "" } } } ]
 }

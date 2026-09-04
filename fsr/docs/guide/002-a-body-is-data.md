@@ -28,7 +28,7 @@ The recognised body is written into the plan file as data. The interpreter in th
 A body that says something outside the language is residue. `try`, a class, a regular expression, a `while`, an import the build cannot follow, a call it does not know. The build does not guess. It names the file, the line and the construct:
 
 ```
-app/routes/cart/loader.ts:2:9: `try`
+app/routes/cart/page.loader.ts:2:9: `try`
 ```
 
 and stops, because today there is no engine to hand the body to. That is a deliberate floor rather than a gap. The failure fsr is built to prevent is the silent one, where a build quietly moves a body from "data the runtime executes" to "JavaScript some engine runs" so that an application that meant to have no server JavaScript grows one without anybody deciding. When an engine exists, residue will run there and the report will say `engine` beside the name. It will never say nothing.
@@ -40,8 +40,8 @@ The language grows when an application shows a body that needs a construct and c
 Every name the application declares appears in the report with who answers it:
 
 ```
-sources   index                  lowered     routes/index/loader.ts
-          cart                   lowered     routes/cart/loader.ts
+sources   index                  lowered     routes/index/page.loader.ts
+          cart                   lowered     routes/cart/page.loader.ts
 actions   cart.addToCart         lowered     routes/cart/actions.ts
 ```
 

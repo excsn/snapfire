@@ -61,9 +61,9 @@ app/
   routes/
     error.tsx
     not-found.tsx
-    index/         page.tsx  loader.ts
-    product/[id]/  page.tsx  loader.ts
-    cart/          page.tsx  loader.ts  actions.ts
+    index/         page.tsx  page.loader.ts
+    product/[id]/  page.tsx  page.loader.ts
+    cart/          page.tsx  page.loader.ts  actions.ts
 ```
 
 ```sh
@@ -74,9 +74,9 @@ fsr build app
 routes    /                      routes/index
           /cart                  routes/cart
           /product/{id}          routes/product/[id]
-sources   index                  lowered     routes/index/loader.ts
-          cart                   lowered     routes/cart/loader.ts
-          product                lowered     routes/product/[id]/loader.ts
+sources   index                  lowered     routes/index/page.loader.ts
+          cart                   lowered     routes/cart/page.loader.ts
+          product                lowered     routes/product/[id]/page.loader.ts
 actions   cart.addToCart         lowered     routes/cart/actions.ts
           cart.checkout          lowered     routes/cart/actions.ts
 services  shopping               http        clients/shopping.openapi.json
@@ -112,7 +112,7 @@ export default function NotFound({ params }: { params: { path: string } }) {
 
 ## Writing a Loader
 
-`loader.ts` exports `load`. It is lowered, never run, so it may import types freely and values not at all.
+`page.loader.ts` exports `load`. It is lowered, never run, so it may import types freely and values not at all.
 
 ```ts
 import type { Ctx } from "@snapfire/fsr";
@@ -392,10 +392,10 @@ fsr build app --shell shell#document --slot content
 A body outside the IR stops the build with its position and the construct.
 
 ```
-routes/cart/loader.ts:2:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
+routes/cart/page.loader.ts:2:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
 ```
 
-Two answers: rewrite the body inside the IR or keep the file and bind the name in Rust with `source_override` on the host builder, which makes the row a Rust override in the report. Removing the `loader.ts` and binding the id with `source` also works, since a route without a loader declares no source.
+Two answers: rewrite the body inside the IR or keep the file and bind the name in Rust with `source_override` on the host builder, which makes the row a Rust override in the report. Removing the `page.loader.ts` and binding the id with `source` also works, since a route without a loader declares no source.
 
 ## Building From Rust
 

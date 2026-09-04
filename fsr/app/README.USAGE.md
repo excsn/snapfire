@@ -270,7 +270,7 @@ use snapfire_fsr::BindError;
 
 match App::from_manifest(&text).and_then(|b| b.build()) {
   Ok(app) => run(app),
-  Err(BindError::Unbound { name }) => eprintln!("the plan needs `{name}`; write a loader.ts or a `source(\"{name}\", ..)`"),
+  Err(BindError::Unbound { name }) => eprintln!("the plan needs `{name}`; write a page.loader.ts or a `source(\"{name}\", ..)`"),
   Err(BindError::Claimed(name)) => eprintln!("`{name}` is lowered; use `source_override`"),
   Err(BindError::UnboundAction { id }) => eprintln!("the plan declares `{id}`; answer it with `action`"),
   Err(BindError::Plan(e)) => eprintln!("plan file: {e}"),
