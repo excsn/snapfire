@@ -73,7 +73,7 @@ fn session_defaults_fold_into_every_read_of_the_key() {
   "#).unwrap();
   assert_eq!(defaults, vec![("cart".to_owned(), Expr::Object(vec![])), ("visits".to_owned(), Expr::lit_int(0))]);
 
-  let body = lower_loader_with("loader.ts", "export async function load({ session }) { return { n: session.visits, other: session.theme }; }", &defaults).unwrap();
+  let body = lower_loader_with("page.loader.ts", "export async function load({ session }) { return { n: session.visits, other: session.theme }; }", &defaults).unwrap();
   let Stmt::Return(Expr::Object(entries)) = &body[0] else { panic!("{body:?}") };
   assert_eq!(entries[0], snapfire_fsr_ir::ast::Entry::Field("n".into(), Expr::Coalesce(Box::new(Expr::Session("visits".into())), Box::new(Expr::lit_int(0)))));
   assert_eq!(entries[1], snapfire_fsr_ir::ast::Entry::Field("other".into(), Expr::Session("theme".into())), "a key with no default reads plain");
@@ -86,7 +86,7 @@ fn session_defaults_fold_into_every_read_of_the_key() {
 fn query_reads_lower_like_params() {
   use snapfire_fsr_ir::{Expr, Stmt};
   use snapfire_fsr_lower::lower_loader;
-  let body = lower_loader("loader.ts", "export async function load({ query, services }) { return { p: await services.shop.list({ tag: query.tag }) }; }").unwrap();
+  let body = lower_loader("page.loader.ts", "export async function load({ query, services }) { return { p: await services.shop.list({ tag: query.tag }) }; }").unwrap();
   let Stmt::Return(Expr::Object(entries)) = &body[0] else { panic!() };
   let snapfire_fsr_ir::ast::Entry::Field(_, Expr::Call { args, .. }) = &entries[0] else { panic!() };
   assert_eq!(args[0], ("tag".to_owned(), Expr::Query("tag".into())));

@@ -140,7 +140,7 @@ fn lowered_rows_round_trip_with_their_bodies() {
 
   let body = vec![Stmt::Return(Expr::object(vec![("products", Expr::Array(vec![]))]))];
   let manifest = Manifest::new(vec![])
-    .with_sources(vec![SourceEntry::lowered("catalog", "app/routes/index/loader.ts", body.clone()), SourceEntry::rust("pricing")])
+    .with_sources(vec![SourceEntry::lowered("catalog", "app/routes/index/page.loader.ts", body.clone()), SourceEntry::rust("pricing")])
     .with_actions(vec![ActionEntry::lowered("checkout", "app/routes/cart/actions.ts", body).with_input("Empty")]);
 
   let json = manifest.to_json();

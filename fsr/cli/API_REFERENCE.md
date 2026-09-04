@@ -78,7 +78,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### build
 
 * `pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError>`
-* Imports `app/clients`, reads `app/schemas`, validates the contract, walks `app/routes`, lowers every `loader.ts` and `actions.ts` and returns everything without writing. The first error in any file fails the whole build.
+* Imports `app/clients`, reads `app/schemas`, validates the contract, walks `app/routes`, lowers every `page.loader.ts` and `actions.ts` and returns everything without writing. The first error in any file fails the whole build.
 
 ### Built
 

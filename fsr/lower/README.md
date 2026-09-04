@@ -17,7 +17,7 @@ The crate has no Cargo features. It depends on `snapfire_fsr_ir` for the tree it
 
 | What you are doing | What to reach for |
 | --- | --- |
-| Lower a `loader.ts` with an exported `load` | `lower_loader` |
+| Lower a `page.loader.ts` with an exported `load` | `lower_loader` |
 | Lower an `actions.ts` with `export const x = action(...)` entries | `lower_actions` |
 | Read the input type an action names in `action<T>(...)` | `LoweredAction::input` |
 | Turn `schemas/*.ts` interfaces into contract types | `read_schema` |

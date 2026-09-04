@@ -37,7 +37,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 ```rust
 use snapfire_fsr_lower::{lower_actions, lower_loader};
 
-let body = lower_loader("routes/index/loader.ts", r#"
+let body = lower_loader("routes/index/page.loader.ts", r#"
   export async function load({ params, services }) {
     return { products: await services.shopping.listProducts({ tag: params.tag }) };
   }
@@ -58,8 +58,8 @@ assert_eq!(actions[0].export, "checkout");
 `lower_loader` finds the exported `load` and lowers its body. The context parameter may be destructured or named.
 
 ```rust
-let destructured = lower_loader("loader.ts", "export async function load({ params }) { return { id: params.id }; }")?;
-let named = lower_loader("loader.ts", "export const load = async (ctx) => { return { id: ctx.params.id }; };")?;
+let destructured = lower_loader("page.loader.ts", "export async function load({ params }) { return { id: params.id }; }")?;
+let named = lower_loader("page.loader.ts", "export const load = async (ctx) => { return { id: ctx.params.id }; };")?;
 assert_eq!(destructured, named);
 ```
 
@@ -162,7 +162,7 @@ let defaults = read_session_defaults("schemas/session.ts", r#"
   export interface Session { cart: Record<string, bigint> }
   export const defaults: Session = { cart: {} };
 "#)?;
-let body = lower_loader_with("loader.ts", source, &defaults)?;
+let body = lower_loader_with("page.loader.ts", source, &defaults)?;
 ```
 
 `lower_loader` and `lower_actions` are the same with no defaults. A key without a default reads plain.
@@ -174,7 +174,7 @@ A `Residue` names the file, the one-based line and column and the construct. Its
 ```rust
 use snapfire_fsr_lower::LowerError;
 
-match lower_loader("routes/x/loader.ts", source) {
+match lower_loader("routes/x/page.loader.ts", source) {
   Ok(body) => emit(body),
   Err(LowerError::Residue(r)) => eprintln!("{r}"),
   Err(other) => eprintln!("{other}"),
@@ -182,7 +182,7 @@ match lower_loader("routes/x/loader.ts", source) {
 ```
 
 ```
-routes/x/loader.ts:5:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
+routes/x/page.loader.ts:5:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
 ```
 
 ## Error Handling

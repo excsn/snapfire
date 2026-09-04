@@ -173,7 +173,7 @@ const LOWERED: &str = r#"{
     { "pattern": "/", "plan": { "id": 0, "module": "app#Catalog", "source": "catalog" } }
   ],
   "sources": [
-    { "id": "catalog", "owner": "lowered", "module": "app/routes/index/loader.ts",
+    { "id": "catalog", "owner": "lowered", "module": "app/routes/index/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ] }
   ],
   "actions": [

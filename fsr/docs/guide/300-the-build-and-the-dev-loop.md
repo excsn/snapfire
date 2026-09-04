@@ -49,6 +49,6 @@ A route whose loader reads no parameter, no query, no session, no identity and n
 
 ## The lab
 
-Run `fsr dev app` in the storefront and wait for the host. Edit the heading text in `routes/index/page.tsx` and save: the log shows one snapfirec run and no restart; a reload shows the new text with the cart still held. Now edit `routes/index/loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
+Run `fsr dev app` in the storefront and wait for the host. Edit the heading text in `routes/index/page.tsx` and save: the log shows one snapfirec run and no restart; a reload shows the new text with the cart still held. Now edit `routes/index/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
 
 Then break something: add `try {` without a closing brace to the loader. The loop prints the parse error with its line and waits; the previous server keeps serving. Fix it and the loop picks up where it left off.

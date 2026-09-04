@@ -52,7 +52,7 @@ The two backends stand in for services this application does not own. It reaches
 
 ```
 app/                    the TypeScript application
-  routes/               a directory per route: page.tsx, loader.ts, actions.ts, loading.tsx; index, product, cart and order
+  routes/               a directory per route: page.tsx, page.loader.ts, actions.ts, loading.tsx; index, product, cart and order
   tests/                body tests, page specs and the client library's specs, run by fsr test
   schemas/              the session shape and each action's input
   clients/              the service documents, imported into the contract

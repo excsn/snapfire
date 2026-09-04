@@ -103,11 +103,11 @@ pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError> {
       let target_file = format!("{resolved}.ts");
       let stem = source.rsplit('/').next().unwrap_or(&source);
       let target = match (stem, imported.as_str()) {
-        ("loader", "load") => Target::Loader { file: target_file },
+        ("page.loader", "load") => Target::Loader { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
         ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
         ("middleware", "middleware") => Target::Middleware { file: target_file },
-        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a route's `loader`, an action from its `actions` or a method from its `route`")).into()),
+        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a route's `page.loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
     }
@@ -402,7 +402,7 @@ mod tests {
   #[test]
   fn a_test_file_lowers_to_mock_run_and_assert_steps() {
     let source = r#"
-import { load } from "./loader";
+import { load } from "./page.loader";
 import { addToCart } from "./actions";
 import { assert, ctx, test } from "@snapfire/fsr/testing";
 
@@ -424,7 +424,7 @@ test("an empty cart cannot check out", async () => {
 "#;
     let file = lower_tests("routes/cart/loader.test.ts", source).unwrap();
     assert_eq!(file.tests.len(), 2);
-    let from_folder = lower_tests("tests/cart/loader.test.ts", &source.replace("\"./loader\"", "\"../../routes/cart/loader\"").replace("\"./actions\"", "\"@routes/cart/actions\"")).unwrap();
+    let from_folder = lower_tests("tests/cart/loader.test.ts", &source.replace("\"./page.loader\"", "\"../../routes/cart/page.loader\"").replace("\"./actions\"", "\"@routes/cart/actions\"")).unwrap();
     assert_eq!(from_folder.tests[0].steps[1].1, file.tests[0].steps[1].1, "a test under tests/ names the same loader");
     assert_eq!(from_folder.tests[1].steps[1].1, file.tests[1].steps[1].1, "an alias names the same actions");
     let first = &file.tests[0];
@@ -433,7 +433,7 @@ test("an empty cart cannot check out", async () => {
     assert_eq!(name, "c");
     assert_eq!(mock.session.len(), 1);
     assert!(matches!(&mock.services[0], (s, m, Expr::Lambda { params, .. }) if s == "shopping" && m == "listProducts" && params.is_empty()));
-    assert_eq!(first.steps[1].1, Step::Run { binding: Some(Binding::Fields(vec![("lines".to_owned(), "lines".to_owned())])), target: Target::Loader { file: "routes/cart/loader.ts".to_owned() }, ctx: "c".to_owned() });
+    assert_eq!(first.steps[1].1, Step::Run { binding: Some(Binding::Fields(vec![("lines".to_owned(), "lines".to_owned())])), target: Target::Loader { file: "routes/cart/page.loader.ts".to_owned() }, ctx: "c".to_owned() });
     assert!(matches!(&first.steps[2].1, Step::Assert(Assertion::Equal(Expr::Var(v), Expr::Array(_))) if v == "lines"));
     assert!(matches!(&first.steps[3].1, Step::Assert(Assertion::Ok(_))));
     let second = &file.tests[1];
@@ -446,7 +446,7 @@ test("an empty cart cannot check out", async () => {
 
   #[test]
   fn a_statement_outside_the_dialect_fails_with_its_line() {
-    let source = "import { load } from \"./loader\";\nimport { assert, ctx, test } from \"@snapfire/fsr/testing\";\ntest(\"x\", async () => {\n  const c = ctx({});\n  const r = await load(c);\n  console.log(r);\n});\n";
+    let source = "import { load } from \"./page.loader\";\nimport { assert, ctx, test } from \"@snapfire/fsr/testing\";\ntest(\"x\", async () => {\n  const c = ctx({});\n  const r = await load(c);\n  console.log(r);\n});\n";
     let err = lower_tests("routes/index/loader.test.ts", source).unwrap_err();
     assert_eq!(err.to_string(), "routes/index/loader.test.ts:6:3: a call other than `assert.<method>(...)`");
     let source = "import { assert, ctx, test } from \"@snapfire/fsr/testing\";\ntest(\"x\", async () => {\n  const r = await load(c);\n});\n";
