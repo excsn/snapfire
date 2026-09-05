@@ -1,0 +1,24 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8101"
+
+[site]
+name = "billing"
+at = "/billing"
+shell = "../portal_react_ts/app/generated/shell.json"
+
+[document]
+title = "Billing"
+
+[session]
+key = "billing-example-dev-key-not-a-secret"
+ttl = "1h"
+
+[clients.ledger]
+transport = "mock"
+
+[[static]]
+route = "/static/js/fsr"
+dir = "../../../client/dist"

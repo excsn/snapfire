@@ -68,6 +68,11 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::not_found(self, plan: impl IntoPlan) -> Self`: `Routes::not_found` on the builder's routes.
 * `AppBuilder::build(self) -> Result<App, BindError>`: binds every lowered source, action and handler not overridden, checks a handler row with no body is answered in Rust (`UnboundHandler`), the lowered components under the IR evaluator, checks every override names something, every named source and declared action is answered and every pattern is one the matcher accepts, then assembles the runtime and the report. A lowered action with an input type is wrapped so the value is checked against the contract before its body runs, failing as `Invalid`.
 
+### mount_manifest and middleware_from
+
+* `AppBuilder::mount_manifest(&mut self, manifest: &str) -> Result<(), BindError>`: adds every lowered row of another plan file beside this builder's, its routes and intercepts as plan-file entries, its sources with their metas and stores, its actions, components and handlers; the ids are the file's, so a mounted site's arrive prefixed. Its middleware and not-found tree are the caller's to place.
+* `middleware_from(body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler>`: a lowered middleware body as the handler the edge runs, for a host chaining a mounted site's after its own.
+
 ## 2. Routes and Plans
 
 ### Routes

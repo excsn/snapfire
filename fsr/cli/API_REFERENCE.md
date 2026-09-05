@@ -58,6 +58,11 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `serve::prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)>, BuildError>` builds that host and calls `Host::prerender` with `out`, else `server.prerender`, else `dist/prerender` under the app, one rendering per configured locale; `fsr prerender` prints what it wrote, or that nothing qualifies.
 * `fsr dev <app dir>` runs this in place of `cargo run` when no `Cargo.toml` is beside the app, watching `config/`, `app.toml` and `app.yaml` there instead of `src/`. The host it builds carries a reloader that rereads the project, so a change to the generated files is `POST /__fsr/reload` to `server.listen`, printing the report it answers with, and the process restarts only when the reload is refused, a changed `[session]` for one; after a rebundle alone it posts `/__fsr/changed`, best effort, so open development documents refresh.
 
+### Sites
+
+* Every command reads the `[site]` section of the configuration beside the app, `site_beside`, and builds with it; `fsr dev` then serves the bundle under `<at>/static/js/app`.
+* `fsr serve` mounts every site the shell's `[sites]` table names, `snapfire_fsr_sites::mount_all`, sets a reloader that mounts them again and watches the table, `snapfire_fsr_sites::watch`, on `SIGHUP` and on `sites.poll`.
+
 ### fsr add
 
 * `fsr add <app dir> <name@version[/subpath]>... [--external <name,...>]`
@@ -75,9 +80,22 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `pub struct Options { pub shell: String, pub slot: String, pub mounter_module: String, pub mounter: String }`
 * `Default` is `shell#document`, `content`, `@snapfire/fsr-client/react` and `reactMounter`.
 
+### SiteOptions
+
+* `pub struct SiteOptions { pub name: String, pub at: String, pub shell: Option<PathBuf> }`: the `[site]` section as the build reads it; `prefix()` is `<name>:`.
+* `Options::beside(app: &Path) -> Options`: the defaults with `site` from the configuration beside `app` when one names that app directory. `site_beside(app: &Path) -> Option<SiteOptions>` is that lookup alone. `Options::prefix()` is the prefix on every emitted id, empty without a site.
+* `unprefixed(service: &str) -> &str`: a service name without its site prefix, which is what a test mocks it by.
+
+### ShellContract
+
+* `pub struct ShellContract { pub version: u32, pub store: BTreeMap<String, String>, pub imports: BTreeMap<String, String>, pub fsr: String }`: `generated/shell.json`. `SHELL_CONTRACT_VERSION` is 1.
+* `ShellContract::read(path: &Path) -> Result<ShellContract, BuildError>`: refuses a version this fsr does not read.
+* `declarations(&self) -> String`: `generated/shell.d.ts`, `ShellStore` and `ShellImport`.
+
 ### build
 
 * `pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError>`
+* With `options.site` set, after every generated TypeScript is written unprefixed, the plan file is `Manifest::namespaced`, every contract file `Contract::namespaced`, the islands registry registers `<name>:<module>` and the generated call sites call `<name>:<action id>`; with `site.shell` set, `generated/shell.d.ts` is written from the shell contract. Without a site, `generated/shell.json` is written: every store key a `store` export seeds, typed by inferring the loader's return and then the store body, the app's import map and the fsr version.
 * Imports `app/clients`, reads `app/schemas`, validates the contract, walks `app/routes`, lowers every `page.loader.ts` and `actions.ts` and returns everything without writing. The first error in any file fails the whole build.
 
 ### Built
@@ -91,6 +109,8 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * Removes every `*.json` under `generated/contracts/`, then writes every entry of `built.files` under `app`, creating directories as needed. Returns the paths written.
 
 ### Report
+
+* `shell: Option<(String, usize, usize, Vec<String>)>`: for a site built against a shell contract, its path, its store key and import counts and the site's import map entries that differ; `Display` prints a `shell` row and a second naming the differences.
 
 * `pub struct Report { pub routes: Vec<(String, String)>, pub layouts: Vec<(String, String)>, pub slots: Vec<(String, String)>, pub intercepts: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub handlers: Vec<(String, String)>, pub middleware: Option<String>, pub components: Vec<(String, String, String)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
 * `routes` pairs a pattern with its directory relative to `app`; `layouts` pairs the pattern a layout wraps with its module; `slots` pairs a parallel slot's source id with its page module; `intercepts` pairs `<pattern> into <slot>` with the `page.<slot>.tsx` module; `sources` and `actions` pair an id with the module that lowered to it; `services` pairs a service with its document; `schemas` pairs a type with its file; `types` pairs a package with `types::status`'s row.

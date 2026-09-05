@@ -26,6 +26,8 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
+* [Building a Site](#building-a-site)
+* [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
 * [Serving Locales](#serving-locales)
 * [Prerendering](#prerendering)
@@ -507,6 +509,50 @@ An `xwpm.wmf` in the app directory marks it as an application xwpm manages. `fsr
 fsr build app
 fsr check app
 ```
+
+## Building a Site
+
+A `[site]` section in the configuration beside the app makes the build a site's: every id the build emits carries `<name>:`, every route pattern sits under `at` and the islands registry, the generated call sites and the contract carry the same spelling, so two sites can hold the same files and be mounted by one shell. `fsr build`, `check`, `dev`, `test`, `serve` and `prerender` all read the section beside the app.
+
+```toml
+# config/app.toml beside the site's app
+[site]
+name = "billing"
+at = "/billing"
+shell = "../portal/app/generated/shell.json"
+```
+
+Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as written, `services.ledger` keeps its name, `actions.invoice.pay` keeps its nesting. What changes is the plan file and the browser bundle, where a module is `billing:routes/index/page.tsx#default` and an action `billing:invoice.pay`, together with the paths, which are literal: a site's links are written with the prefix, `/billing/invoice/1`, and its middleware compares against it. A body test mocks `ledger`, not `billing:ledger`; the runner strips the prefix.
+
+`fsr dev` serves a site's bundle under `<at>/static/js/app`, so bundle a site by hand with that public path:
+
+```sh
+snapfirec --root app --config tsconfig.build.json --source-map --public-path /billing/static/js/app --import-map importmap.json
+```
+
+With `shell` set, the build reads the shell contract and writes `generated/shell.d.ts`: `ShellStore`, the keys the shell's loaders seed with their types, and `ShellImport`, the specifiers the shell's import map serves. The report's `shell` row counts both and names any import the site maps differently, since the shell's mapping serves at mount.
+
+```ts
+import { key } from "@snapfire/fsr-client/store";
+import type { ShellStore } from "@generated/shell";
+
+export const who = key<ShellStore["portal/who"]>("portal/who");
+```
+
+## Building a Shell
+
+An application without `[site]` is a shell as far as the build is concerned: it writes `generated/shell.json`, the contract a site is built against, with every store key its loaders' `store` exports seed, typed as the browser reads them, the import map it serves and the fsr version that wrote it. A shell that is not built by `fsr`, or a team that wants a narrower promise than the build would state, writes the same document by hand.
+
+```json
+{
+  "version": 1,
+  "store": { "portal/teams": "number", "portal/who": "string" },
+  "imports": { "react": "/static/js/vendor/react/react.bundle.mjs" },
+  "fsr": "0.1.0"
+}
+```
+
+Mounting is the host's: a `[sites]` table in the shell's configuration names each site's artifact, and `fsr serve` mounts them through `snapfire_fsr_sites`, rereading the table on `SIGHUP` or the configured poll. The host guide's "Mounting Sites" chapter says what a mount does.
 
 ## Serving Without a Rust Project
 

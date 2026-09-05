@@ -382,6 +382,8 @@ struct JsTransport {
 impl Transport for JsTransport {
   fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
     let id = self.ctx.unwrap_or_else(|| self.current.load(Ordering::Relaxed));
+    let mut call = call;
+    call.service = crate::unprefixed(&call.service).to_owned();
     let mut record = ValueMap::new();
     record.insert("service".to_owned(), Value::Str(call.service.clone()));
     record.insert("method".to_owned(), Value::Str(call.method.clone()));

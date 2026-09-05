@@ -493,7 +493,7 @@ The store lives as long as the document. A soft navigation keeps it and writes w
 
 ## Reading the Locale
 
-The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">`, and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
+The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">`, and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. A payload for a route a mounted site serves carries an `E` row naming the site's entry module; the navigator imports it once, then scans again, so the site's islands register and mount on first arrival without a document load. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
 
 ```tsx
 import { Link, useLocale } from "@snapfire/fsr-client/react";

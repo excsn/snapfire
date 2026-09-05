@@ -33,8 +33,64 @@ pub struct Config {
   pub locales: Option<LocalesSection>,
   /// The identity provider; absent means no login and no `/auth/` routes.
   pub auth: Option<AuthSection>,
+  /// The application as a site: its name and the prefix its routes sit
+  /// under, both fixed at build. Absent, the application is whole.
+  pub site: Option<SiteSection>,
+  /// The sites this application mounts as their shell; absent means none.
+  pub sites: Option<SitesSection>,
   /// Which settings were inferred rather than written, for the report.
   pub inferred: Vec<String>,
+}
+
+/// `[sites]`: `root` is where `name@version` artifacts resolve, `poll` how
+/// often the table is reread, and one `[sites.<name>]` per mounted site.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SitesSection {
+  pub root: Option<String>,
+  pub poll: Option<String>,
+  pub mounts: BTreeMap<String, MountConfig>,
+}
+
+/// `[sites.<name>]`: `artifact` is `name@version` under the root or a path,
+/// `hash` the content hash the mount is pinned to and `allow_engine` whether
+/// an artifact carrying engine-owned rows may be mounted.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MountConfig {
+  pub artifact: String,
+  #[serde(default)]
+  pub hash: Option<String>,
+  #[serde(default)]
+  pub allow_engine: bool,
+}
+
+/// `[site]`: `name` prefixes every id the build emits, `<name>:`, and `at` is
+/// the path every route and link is written under.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SiteSection {
+  pub name: String,
+  pub at: String,
+  /// What the site was built against: a path to the shell's `generated/shell.json` or a hand-written one.
+  #[serde(default)]
+  pub shell: Option<String>,
+}
+
+impl SiteSection {
+  /// `<name>:`, the prefix on every id.
+  pub fn prefix(&self) -> String {
+    format!("{}:", self.name)
+  }
+
+  /// `at` joined with a path: `/` is `at` itself.
+  pub fn under(&self, path: &str) -> String {
+    let at = self.at.trim_end_matches('/');
+    if path == "/" {
+      at.to_owned()
+    } else {
+      format!("{at}{path}")
+    }
+  }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -240,7 +296,7 @@ pub struct StaticRoot {
   pub dir: String,
 }
 
-const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static", "locales", "auth"];
+const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static", "locales", "auth", "site", "sites"];
 
 fn default_app_dir() -> String {
   "app".to_owned()
@@ -484,9 +540,76 @@ impl Config {
       }
     }
 
+    let site: Option<SiteSection> = if store.path_exists("site") || !store.key_paths_with_prefix(Some("site")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["name", "at", "shell"] {
+        if let Some(value) = store.get(&format!("site.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      let section: SiteSection = serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("site: {e}")))?;
+      if section.name.is_empty() || !section.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
+        return Err(HostError::Config(at.clone(), format!("site.name `{}` must be lowercase letters, digits, `_` or `-`", section.name)));
+      }
+      if !section.at.starts_with('/') || section.at.len() < 2 || section.at.ends_with('/') || section.at.contains('{') {
+        return Err(HostError::Config(at.clone(), format!("site.at `{}` must be a path such as `/billing`, with no trailing slash", section.at)));
+      }
+      Some(section)
+    } else {
+      None
+    };
+
+    let sites: Option<SitesSection> = if store.path_exists("sites") || !store.key_paths_with_prefix(Some("sites")).is_empty() {
+      let scalar = |key: &str| -> Result<Option<String>, HostError> {
+        match store.get(&format!("sites.{key}")) {
+          Some(value) => match to_json(&value) {
+            serde_json::Value::String(s) => Ok(Some(s)),
+            other => Err(HostError::Config(at.clone(), format!("sites.{key} must be a string, found {other}"))),
+          },
+          None => Ok(None),
+        }
+      };
+      let root = scalar("root")?;
+      let poll = scalar("poll")?;
+      if let Some(poll) = &poll {
+        if parse_duration(poll).is_none() {
+          return Err(HostError::Config(at.clone(), format!("sites.poll `{poll}` is not a duration")));
+        }
+      }
+      let mut names: Vec<String> = store
+        .key_paths_with_prefix(Some("sites"))
+        .into_iter()
+        .filter_map(|k| k.strip_prefix("sites.").map(|rest| rest.split('.').next().unwrap_or(rest).to_owned()))
+        .filter(|name| name != "root" && name != "poll")
+        .collect();
+      if let Some(c5store::value::C5DataValue::Map(map)) = store.get("sites") {
+        names.extend(map.keys().filter(|k| *k != "root" && *k != "poll").cloned());
+      }
+      names.sort();
+      names.dedup();
+      let mut mounts = BTreeMap::new();
+      for name in names {
+        let mount: MountConfig = store.get_into_struct(&format!("sites.{name}")).map_err(fail)?;
+        if mount.artifact.contains('@') && !mount.artifact.contains('/') && root.is_none() {
+          return Err(HostError::Config(at.clone(), format!("sites.{name}.artifact `{}` names a version, which needs sites.root", mount.artifact)));
+        }
+        mounts.insert(name, mount);
+      }
+      Some(SitesSection { root, poll, mounts })
+    } else {
+      None
+    };
+    if site.is_some() && sites.is_some() {
+      return Err(HostError::Config(at.clone(), "a site cannot mount sites; drop [sites] or [site]".to_owned()));
+    }
+
     let root = located.root.clone();
     let app = root.join(&app_section.dir);
     let mut inferred = Vec::new();
+    let css_route = match &site {
+      Some(site) => site.under("/static/css"),
+      None => "/static/css".to_owned(),
+    };
 
     let mut document = document;
     if let Some(facts) = build_facts(&app) {
@@ -511,9 +634,9 @@ impl Config {
       inferred.push("static /static/js/vendor from vendor/".to_owned());
     }
     if app.join("styles").is_dir() {
-      if !statics.iter().any(|s| s.route == "/static/css") {
-        statics.push(StaticRoot { route: "/static/css".to_owned(), dir: "styles".to_owned() });
-        inferred.push("static /static/css from styles/".to_owned());
+      if !statics.iter().any(|s| s.route == css_route) {
+        statics.push(StaticRoot { route: css_route.clone(), dir: "styles".to_owned() });
+        inferred.push(format!("static {css_route} from styles/"));
       }
       if document.styles.is_none() {
         let mut sheets: Vec<String> = std::fs::read_dir(app.join("styles"))
@@ -522,7 +645,7 @@ impl Config {
               .filter_map(|e| e.ok())
               .map(|e| e.path())
               .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "css"))
-              .filter_map(|p| p.file_name().map(|n| format!("/static/css/{}", n.to_string_lossy())))
+              .filter_map(|p| p.file_name().map(|n| format!("{css_route}/{}", n.to_string_lossy())))
               .collect()
           })
           .unwrap_or_default();
@@ -542,7 +665,7 @@ impl Config {
       }
     }
 
-    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, locales, auth, inferred })
+    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, locales, auth, site, sites, inferred })
   }
 
   /// A path from the file, against the app directory.

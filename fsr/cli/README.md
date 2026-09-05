@@ -29,6 +29,7 @@ The crate has no Cargo features. It depends on `snapfire_fsr_lower` for the reco
 | Type a page's props or call an action from a page | `generated/client.ts` |
 | Mount pages with something other than React | `Options::mounter_module` and `Options::mounter` |
 | Run an application with no Rust beside it | `fsr serve <app>` or `fsr dev <app>` with no `Cargo.toml` beside it |
+| Build one team's application as a site another mounts under a path | a `[site]` section beside the app; `fsr serve` on the shell mounts its `[sites]` table |
 | Run the build from Rust | `build` and `write` |
 | Read what was discovered, imported and lowered | `Report` |
 

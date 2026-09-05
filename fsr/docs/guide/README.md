@@ -35,6 +35,8 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [201. Graduating to Rust](201-graduating-to-rust.md), taking one name back from the plan file and the rule that keeps it honest. Platform developers.
 - [202. Services and transports](202-services-and-transports.md), HTTP, gRPC, interceptors and why application code never sees a token. Platform developers.
 - [203. Sessions and identity](203-sessions-and-identity.md), the signed cookie, the store, who the request is and where a login goes. Platform developers.
+- [204. Reloading in place](204-reloading-in-place.md), the tables a request reads, what a reload swaps and what it refuses, and why `fsr dev` no longer restarts. Platform developers.
+- [205. Sites: one product, many teams](205-sites.md), a team's application built as a site, the shell that mounts it under a path, what crosses the seam and how a deploy is a pointer moved. Everyone.
 
 **Tooling**, or the commands:
 
@@ -55,6 +57,8 @@ And one appendix:
 **A full-stack developer working in TypeScript:** read in order through the 100s, then 300, 301 and 302. Skip the 200s until you need to run something that is not the stock host.
 
 **A Rust developer extending the platform:** read 000, 002 and 003 for the contract you are extending, then the 200s in order, then the parts bin.
+
+**A team that owns one part of a larger product:** read 205, then the 100s; the shell is someone else's, and your site runs alone until it is mounted.
 
 **Someone evaluating fsr for a team:** read 000, 001 and 002. They are the argument. If they hold, the rest is detail.
 

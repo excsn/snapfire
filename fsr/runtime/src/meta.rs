@@ -34,11 +34,14 @@ pub struct Head {
   pub title: String,
   pub description: Option<String>,
   pub rest: Node,
+  /// A module the browser must load for this response's islands beyond the
+  /// document's own entry, a mounted site's; the payload carries it as an `E` row.
+  pub entry: Option<String>,
 }
 
 impl Head {
   pub fn new(title: impl Into<String>, rest: Node) -> Self {
-    Self { title: title.into(), description: None, rest }
+    Self { title: title.into(), description: None, rest, entry: None }
   }
 
   /// The head node for a document: `rest`, then the title and description
@@ -66,7 +69,7 @@ impl Head {
 
 impl From<Node> for Head {
   fn from(rest: Node) -> Self {
-    Self { title: String::new(), description: None, rest }
+    Self { title: String::new(), description: None, rest, entry: None }
   }
 }
 

@@ -38,6 +38,19 @@ impl Default for DevOptions {
   }
 }
 
+impl DevOptions {
+  /// The defaults for `app`, its `[site]` read from the configuration beside
+  /// it: a site's bundle is served under its prefix.
+  pub fn beside(app: &Path) -> Self {
+    let build = Options::beside(app);
+    let public_path = match &build.site {
+      Some(site) => format!("{}/static/js/app", site.at.trim_end_matches('/')),
+      None => "/static/js/app".to_owned(),
+    };
+    Self { build, public_path, snapfirec: None }
+  }
+}
+
 /// The application and, when one wraps it, the Cargo project whose binary serves it.
 struct Project {
   app: PathBuf,

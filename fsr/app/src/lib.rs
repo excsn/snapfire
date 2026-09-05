@@ -312,6 +312,28 @@ impl App {
 }
 
 impl AppBuilder {
+  /// Adds every lowered row of another plan file beside this builder's: a
+  /// mounted site's routes, sources, actions, components and handlers, its
+  /// ids already prefixed so nothing collides. Its middleware and not-found
+  /// tree are the caller's to place.
+  pub fn mount_manifest(&mut self, manifest: &str) -> Result<(), BindError> {
+    let parsed = snapfire_fsr_plan::Manifest::from_json(manifest)?;
+    self.routes.extend_manifest(manifest)?;
+    self.declared_actions.extend(parsed.action_ids());
+    self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));
+    self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
+    self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store))));
+    self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
+    self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
+    for row in &parsed.handlers {
+      match &row.body {
+        Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
+        None => self.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
+      }
+    }
+    Ok(())
+  }
+
   pub fn source<F, Fut>(mut self, name: impl Into<String>, f: F) -> Self
   where
     F: Fn(RequestCtx) -> Fut + Send + Sync + 'static,
@@ -708,6 +730,12 @@ impl AppBuilder {
       report,
     })
   }
+}
+
+/// A lowered middleware body as the handler the edge runs it through, for a
+/// host that chains a mounted site's middleware after its own.
+pub fn middleware_from(body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler> {
+  Arc::new(IrAction::new(body))
 }
 
 /// A lowered action whose input is checked against its declared type before

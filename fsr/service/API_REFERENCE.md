@@ -191,6 +191,10 @@ The neutral artifact. Also `Default`. Both maps are `IndexMap`s and both default
 
 Record checking is strict in both directions: an absent non-optional field is `MissingField` and a field the record does not declare is `UnknownField`. Union checking requires the tag to be declared, a unit arm to carry no payload and a payload arm to carry one.
 
+### Contract::namespaced
+
+* `namespaced(&self, name: &str) -> Contract`: the contract as a site's: every type and service keyed `<name>:<its name>`, every `named` reference following, every cache tag and `writes` tag prefixed the same way unless it starts with `@`, which marks a tag shared with the shell on purpose. A key already carrying the prefix is left alone.
+
 ## 2. The Registry
 
 Module `registry`, re-exported at the crate root.

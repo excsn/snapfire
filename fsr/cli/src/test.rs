@@ -154,6 +154,8 @@ struct LambdaTransport {
 
 impl Transport for LambdaTransport {
   fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
+    let mut call = call;
+    call.service = crate::unprefixed(&call.service).to_owned();
     let path = format!("{}.{}", call.service, call.method);
     let mut record = ValueMap::new();
     record.insert("service".to_owned(), Value::Str(call.service.clone()));

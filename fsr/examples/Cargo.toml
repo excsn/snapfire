@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
   "advanced_tera_app",
+  "billing_site_react_ts",
   "ops_console_react_ts",
+  "portal_react_ts",
   "shopping_react_ts",
 ]
 

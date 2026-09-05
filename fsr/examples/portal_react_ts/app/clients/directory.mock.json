@@ -1,0 +1,19 @@
+{
+  "listTeams": [
+    {
+      "name": "Billing",
+      "site": "/billing",
+      "lead": "alice"
+    },
+    {
+      "name": "Fleet",
+      "site": "/fleet",
+      "lead": "bob"
+    },
+    {
+      "name": "Portal",
+      "site": "/",
+      "lead": "norm"
+    }
+  ]
+}

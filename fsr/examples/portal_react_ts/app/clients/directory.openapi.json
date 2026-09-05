@@ -1,0 +1,59 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Directory",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/teams": {
+      "get": {
+        "operationId": "listTeams",
+        "responses": {
+          "200": {
+            "description": "every team and where it lives",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Team"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-sf-cache": {
+          "ttl": "30s",
+          "scope": "shared",
+          "tags": [
+            "teams"
+          ]
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Team": {
+        "type": "object",
+        "required": [
+          "name",
+          "site",
+          "lead"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "lead": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

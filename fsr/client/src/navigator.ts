@@ -266,8 +266,21 @@ function apply(payload: Payload, force: boolean): boolean {
   for (const head of payload.heads) applyHead(head);
   if (payload.locale !== null) setLocale(payload.locale);
   scan(document);
+  if (payload.entry !== null && !entries.has(payload.entry)) {
+    const src = payload.entry;
+    entries.add(src);
+    import(src)
+      .then(() => scan(document))
+      .catch((err) => {
+        entries.delete(src);
+        console.warn(`sf: loading ${src} failed`, err);
+      });
+  }
   return true;
 }
+
+/** The entry modules a payload has asked for, so a site's islands register once. */
+const entries = new Set<string>();
 
 interface Cached {
   text: string;

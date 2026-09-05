@@ -1335,3 +1335,162 @@ fn a_bundle_carrying_a_server_module_refuses_to_start() {
   assert!(imported.contains("routes/index/page.js imports routes/index/actions.js"), "{imported}");
   build(r#"{"outputs": ["routes/index/page.js"], "graph": {"routes/index/page.js": []}}"#).unwrap();
 }
+
+fn site_dir() -> PathBuf {
+  let dir = app_dir();
+  let manifest = snapfire_fsr_plan::Manifest::from_json(PLAN).unwrap().namespaced("shop", "/shop", "shell#document");
+  std::fs::write(dir.join("generated/plan.json"), manifest.to_json()).unwrap();
+  let contract = snapfire_fsr_service::Contract::from_json(CONTRACT).unwrap().namespaced("shop");
+  std::fs::write(dir.join("generated/contracts/shop.json"), contract.to_json()).unwrap();
+  std::fs::create_dir_all(dir.join("styles")).unwrap();
+  std::fs::write(dir.join("styles/site.css"), "body{}").unwrap();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml + "\n[site]\nname = \"shop\"\nat = \"/shop\"\n").unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_site_serves_standalone_under_its_prefix_with_its_ids_prefixed() {
+  let dir = site_dir();
+  let transport = Arc::new(MockTransport::new().returns("shop:shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
+  let report = host.report().to_string();
+  assert!(report.contains("site      shop                   at /shop"), "{report}");
+  assert!(report.contains("/shop/static/css"), "{report}");
+  assert!(report.contains("/shop/hello/{name}") && report.contains("shop:index.bump"), "{report}");
+
+  let html = host.render_to_string("/shop", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("data-sf-module=\"shop:routes/index/page.tsx#default\"") && html.contains("\"a\""), "{html}");
+  assert!(html.contains("href=\"/shop/static/css/site.css\""), "{html}");
+  assert_eq!(transport.calls().len(), 1, "the body called the prefixed client");
+  let html = host.render_to_string("/shop/hello/x?from=y", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("hi x via y"), "{html}");
+  assert!(host.render_to_string("/hello/x", RenderMode::Html, SessionCell::default()).await.is_err(), "nothing serves outside the prefix");
+
+  let response = host
+    .handle(Request::post("/_sf/action/shop:index.bump").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(r#"{"by": 2}"#)).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK, "{}", body_of(response).await);
+}
+
+#[test]
+fn a_bad_site_section_refuses_to_start() {
+  let dir = site_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("at = \"/shop\"", "at = \"shop/\"")).unwrap();
+  let e = Host::from(dir.join("app.toml")).map(|_| ()).unwrap_err().to_string();
+  assert!(e.contains("site.at"), "{e}");
+  std::fs::write(dir.join("app.toml"), toml.replace("name = \"shop\"", "name = \"Shop\"")).unwrap();
+  let e = Host::from(dir.join("app.toml")).map(|_| ()).unwrap_err().to_string();
+  assert!(e.contains("site.name"), "{e}");
+}
+
+const SITE_MIDDLEWARE: &str = r#"[ { "return": { "object": [ { "field": [ "headers", { "object": [ { "field": [ "x-site", { "lit": { "str": "shop" } } ] } ] } ] } ] } } ]"#;
+
+const SHELL_LAYOUT: &str = r#"{ "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "main", "attrs": [ { "field": [ "class", { "lit": { "str": "shell" } } ] } ], "children": [ { "element": { "tag": "header", "children": [ { "text": "the shell" } ] } }, { "slot": "content" } ] } } } }"#;
+
+/// A shell over the fixture whose root layout renders in Rust, so a mounted
+/// site's pages land inside it.
+fn shell_dir() -> PathBuf {
+  let dir = app_dir();
+  let plan = std::fs::read_to_string(dir.join("generated/plan.json")).unwrap();
+  let mut json: serde_json::Value = serde_json::from_str(&plan).unwrap();
+  json["components"] = serde_json::json!([serde_json::from_str::<serde_json::Value>(SHELL_LAYOUT).unwrap()]);
+  std::fs::write(dir.join("generated/plan.json"), json.to_string()).unwrap();
+  dir
+}
+
+fn shell_with(site: &std::path::Path) -> Arc<Host> {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])).returns("shop:shop.list", Value::Seq(vec![Value::str("b")])));
+  let mount = snapfire_fsr_host::Mount::load("shop", site, "dev", "deadbeef", false).unwrap();
+  let host = Host::from(shell_dir().join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .middleware(|_ctx, input| async move {
+      let site = match &input {
+        Value::Map(map) => match map.get("site") {
+          Some(Value::Str(name)) => name.clone(),
+          _ => "none".to_owned(),
+        },
+        _ => "none".to_owned(),
+      };
+      let mut headers = ValueMap::new();
+      headers.insert("x-shell".to_owned(), Value::Str(site));
+      let mut out = ValueMap::new();
+      out.insert("headers".to_owned(), Value::Map(headers));
+      Ok(Value::Map(out))
+    })
+    .mount(mount)
+    .build()
+    .unwrap();
+  Arc::new(host)
+}
+
+#[tokio::test]
+async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middleware_head_and_clients() {
+  let site = site_dir();
+  let plan = std::fs::read_to_string(site.join("generated/plan.json")).unwrap();
+  let mut json: serde_json::Value = serde_json::from_str(&plan).unwrap();
+  json["middleware"] = serde_json::from_str(SITE_MIDDLEWARE).unwrap();
+  std::fs::write(site.join("generated/plan.json"), json.to_string()).unwrap();
+  let toml = std::fs::read_to_string(site.join("app.toml")).unwrap();
+  std::fs::write(site.join("app.toml"), toml.replace("entry = \"/static/app.js\"", "entry = \"/shop/static/js/app/src/main.js\"")).unwrap();
+  let host = shell_with(&site);
+
+  let report = host.report().to_string();
+  assert!(report.contains("sites     shop                   at /shop from") && report.contains("dev deadbeef"), "{report}");
+  assert!(report.contains("ignored [static /static, session]"), "{report}");
+  assert!(report.contains("/shop/hello/{name}") && report.contains("shop:index") && report.contains("static    /static") && report.contains("/shop/static/css"), "{report}");
+
+  let response = host.handle(Request::get("/shop").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("x-shell").unwrap(), "shop", "the shell's middleware saw the site");
+  assert_eq!(response.headers().get("x-site").unwrap(), "shop", "the site's middleware ran after it");
+  let html = body_of(response).await;
+  assert!(html.contains("<header>the shell</header>"), "the shell's root layout wraps the site: {html}");
+  assert!(html.contains("data-sf-module=\"shop:routes/index/page.tsx#default\"") && html.contains("\"b\""), "the site's page rendered inside it through its own client: {html}");
+  assert!(html.contains("<link rel=\"stylesheet\" href=\"/shop/static/css/site.css\">") && html.contains("<script type=\"module\" src=\"/shop/static/js/app/src/main.js\"></script>"), "{html}");
+
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-shell").unwrap(), "none");
+  assert!(response.headers().get("x-site").is_none(), "the site's middleware stays under its prefix");
+  let html = body_of(response).await;
+  assert!(!html.contains("/shop/static/js/app/src/main.js") && html.contains("\"a\""), "the shell's page renders through the shell's client: {html}");
+
+  let payload = body_of(host.handle(Request::get("/shop/hello/x?from=y&__payload").body(Bytes::new()).unwrap()).await).await;
+  assert!(payload.contains("E \"/shop/static/js/app/src/main.js\"") && payload.contains("hi x via y"), "{payload}");
+  let payload = body_of(host.handle(Request::get("/hello/x?from=y&__payload").body(Bytes::new()).unwrap()).await).await;
+  assert!(!payload.contains("\nE "), "{payload}");
+
+  let response = host.handle(Request::get("/shop/static/css/site.css").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "the site's stylesheet is served under its prefix");
+  let response = host
+    .handle(Request::post("/_sf/action/shop:index.bump").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(r#"{"by": 4}"#)).unwrap())
+    .await;
+  assert_eq!(body_of(response).await, "4", "the site's action runs under its prefixed id");
+  let status = body_of(host.handle(Request::get("/__fsr/sites").body(Bytes::new()).unwrap()).await).await;
+  assert!(status.contains("\"name\":\"shop\"") && status.contains("\"hash\":\"deadbeef\""), "{status}");
+}
+
+#[test]
+fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_is_a_site() {
+  let site = site_dir();
+  let mount = snapfire_fsr_host::Mount::load("billing", &site, "dev", "-", false).unwrap();
+  let e = Host::from(app_dir().join("app.toml")).unwrap().mount(mount).build().map(|_| ()).unwrap_err().to_string();
+  assert!(e.contains("site `billing`") && e.contains("is the site `shop`"), "{e}");
+
+  let plan = std::fs::read_to_string(site.join("generated/plan.json")).unwrap();
+  let mut json: serde_json::Value = serde_json::from_str(&plan).unwrap();
+  json["sources"][0]["owner"] = serde_json::Value::String("engine".to_owned());
+  json["sources"][0]["export"] = serde_json::Value::String("load".to_owned());
+  std::fs::write(site.join("generated/plan.json"), json.to_string()).unwrap();
+  let mount = snapfire_fsr_host::Mount::load("shop", &site, "dev", "-", false).unwrap();
+  let e = Host::from(app_dir().join("app.toml")).unwrap().mount(mount).build().map(|_| ()).unwrap_err().to_string();
+  assert!(e.contains("engine-owned rows shop:index"), "{e}");
+
+  let shell = app_dir();
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  std::fs::write(shell.join("app.toml"), toml + "\n[sites]\nroot = \"sites\"\n[sites.shop]\nartifact = \"shop@1\"\n[site]\nname = \"x\"\nat = \"/x\"\n").unwrap();
+  let e = Host::from(shell.join("app.toml")).map(|_| ()).unwrap_err().to_string();
+  assert!(e.contains("cannot mount sites"), "{e}");
+}

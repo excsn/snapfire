@@ -49,6 +49,23 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Opt
   Head::new(title, Node::raw(head))
 }
 
+/// The stylesheet links and the entry script a mounted site adds to the
+/// document's head on its own routes, the same markup `head` writes.
+pub fn site_head(styles: &[String], entry: Option<&str>) -> String {
+  let mut head = String::new();
+  for href in styles {
+    head.push_str("<link rel=\"stylesheet\" href=\"");
+    head.push_str(&escape(href));
+    head.push_str("\">");
+  }
+  if let Some(entry) = entry {
+    head.push_str("<script type=\"module\" src=\"");
+    head.push_str(&escape(entry));
+    head.push_str("\"></script>");
+  }
+  head
+}
+
 /// The live-refresh script a development document carries, with the bundle
 /// id the document was rendered against. Every event names the bundle the
 /// server sees now: a different one reloads, since the page's modules

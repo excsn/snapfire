@@ -17,6 +17,7 @@ snapfire_fsr = { path = "../app" }
 snapfire_fsr_auth = { path = "../auth" }
 snapfire_fsr_core = { path = "../core" }
 snapfire_fsr_payload = { path = "../payload" }
+snapfire_fsr_plan = { path = "../plan" }
 snapfire_fsr_runtime = { path = "../runtime" }
 snapfire_fsr_service = { path = "../service", features = ["grpc"] }
 snapfire_fsr_session = { path = "../session" }

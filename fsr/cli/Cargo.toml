@@ -23,6 +23,7 @@ serde_json = "1.0.151"
 snapfire_fsr_core = { path = "../core" }
 snapfire_fsr_engine = { path = "../engine" }
 snapfire_fsr_host = { path = "../host" }
+snapfire_fsr_sites = { path = "../sites" }
 snapfire_fsr_ir = { path = "../ir" }
 snapfire_fsr_lower = { path = "../lower" }
 snapfire_fsr_payload = { path = "../payload" }

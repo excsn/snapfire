@@ -1,0 +1,65 @@
+.billing {
+  border: 1px solid #dde3ea;
+  border-radius: 12px;
+  background: #fff;
+  padding: 20px 24px;
+}
+
+.billing-nav {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #dde3ea;
+}
+
+.billing-nav a {
+  color: #1f6feb;
+}
+
+.billing-who {
+  margin-left: auto;
+  color: #5b6b7c;
+  font-size: 13px;
+}
+
+.invoice-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.invoice-table th,
+.invoice-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.invoice-table .total {
+  text-align: right;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.status-overdue td:nth-child(2) {
+  color: #c9403f;
+}
+
+.status-paid td:nth-child(2) {
+  color: #1a9c5b;
+}
+
+.pay {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid #1f6feb;
+  background: #1f6feb;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.paid {
+  color: #1a9c5b;
+  font-weight: 600;
+}
