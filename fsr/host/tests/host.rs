@@ -127,9 +127,9 @@ async fn a_route_renders_through_the_stock_shell_with_the_configured_head() {
   assert!(html.contains("<script type=\"module\" src=\"/static/app.js\"></script>"), "{html}");
   assert!(html.contains("data-sf-module=\"routes/index/page.tsx#default\""), "{html}");
   assert!(html.contains("\"a\""), "the lowered loader ran: {html}");
-  assert_eq!(host.report.app.sources.len(), 2);
-  assert!(host.report.to_string().contains("lowered"), "{}", host.report);
-  assert!(host.report.to_string().contains("/static"), "{}", host.report);
+  assert_eq!(host.report().app.sources.len(), 2);
+  assert!(host.report().to_string().contains("lowered"), "{}", host.report());
+  assert!(host.report().to_string().contains("/static"), "{}", host.report());
 }
 
 #[tokio::test]
@@ -266,7 +266,7 @@ fn the_environment_overrides_the_file_and_the_report_says_where_config_came_from
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
   unsafe { std::env::remove_var("C5_SERVER__LISTEN") };
   assert_eq!(host.listen(), "127.0.0.1:9");
-  assert!(host.report.to_string().contains("config"), "{}", host.report);
+  assert!(host.report().to_string().contains("config"), "{}", host.report());
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
   std::fs::write(root.join("config/local.toml"), "[document]\ntitle = \"Layered\"\n").unwrap();
 
   let host = Host::from(&root).unwrap().build().unwrap();
-  let report = host.report.to_string();
+  let report = host.report().to_string();
   assert!(report.contains("/static/js/app"), "dist is served at the build's publicPath: {report}");
   assert!(report.contains("/static/js/vendor"), "vendor/ is served by convention: {report}");
   assert!(report.contains("inferred"), "{report}");
@@ -357,7 +357,7 @@ async fn a_cache_section_installs_the_render_memo_and_the_report_says_so() {
   std::fs::write(dir.join("app.toml"), format!("{base}\n[cache]\nttl = \"5m\"\n")).unwrap();
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
-  assert!(host.report.to_string().contains("cache     1000 entries, ttl 5m"), "{}", host.report);
+  assert!(host.report().to_string().contains("cache     1000 entries, ttl 5m"), "{}", host.report());
 
   host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
   host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
@@ -373,7 +373,7 @@ async fn a_cache_section_installs_the_render_memo_and_the_report_says_so() {
 #[tokio::test]
 async fn without_a_cache_section_nothing_is_cached() {
   let (host, _) = host();
-  assert!(!host.report.to_string().contains("cache "), "{}", host.report);
+  assert!(!host.report().to_string().contains("cache "), "{}", host.report());
   host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert_eq!(host.invalidate("routes/hello/page.tsx#default").await, 0);
 }
@@ -385,8 +385,8 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
   let dir = app_dir();
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
-  assert!(host.report.dev, "RELEASE_ENV is unset, so this is development");
-  assert!(host.report.to_string().contains("dev       live refresh on /__fsr/events"), "{}", host.report);
+  assert!(host.report().dev, "RELEASE_ENV is unset, so this is development");
+  assert!(host.report().to_string().contains("dev       live refresh on /__fsr/events"), "{}", host.report());
   let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(html.contains("new EventSource(\"/__fsr/events\")"), "{html}");
   assert!(html.contains("<title>Test &lt;app&gt;</title>"), "the head is otherwise the same: {html}");
@@ -427,8 +427,8 @@ async fn dev_off_in_the_configuration_drops_the_script_and_the_endpoints() {
   std::fs::write(dir.join("app.toml"), base.replace("[server]\n", "[server]\ndev = false\n")).unwrap();
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
-  assert!(!host.report.dev);
-  assert!(!host.report.to_string().contains("dev "), "{}", host.report);
+  assert!(!host.report().dev);
+  assert!(!host.report().to_string().contains("dev "), "{}", host.report());
   let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(!html.contains("EventSource"), "{html}");
   let response = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await;
@@ -536,8 +536,8 @@ async fn body_of(response: http::Response<snapfire_fsr_host::Body>) -> String {
 #[tokio::test]
 async fn a_locale_prefix_is_stripped_and_marks_the_document_and_every_segment() {
   let host = localised();
-  assert_eq!(host.report.locales, vec!["en_US".to_owned(), "fr_FR".to_owned(), "de".to_owned()]);
-  assert!(host.report.to_string().contains("locales   en_US (default, unprefixed), fr_FR, de"), "{}", host.report);
+  assert_eq!(host.report().locales, vec!["en_US".to_owned(), "fr_FR".to_owned(), "de".to_owned()]);
+  assert!(host.report().to_string().contains("locales   en_US (default, unprefixed), fr_FR, de"), "{}", host.report());
 
   let html = host.render_to_string("/fr_FR/hello/norm?from=test", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(html.contains("<html lang=\"fr-FR\" data-sf-locale=\"fr_FR\">"), "{html}");
@@ -618,7 +618,7 @@ async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_dir
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
   let host = Host::from(localised_dir().join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
-  assert!(host.prerenderable().contains(&"/".to_owned()), "{}", host.report);
+  assert!(host.prerenderable().contains(&"/".to_owned()), "{}", host.report());
 
   let written = host.prerender(&out).await.unwrap();
   let served: Vec<&str> = written.iter().map(|(p, _)| p.as_str()).collect();
@@ -758,9 +758,9 @@ fn field(text: &str, name: &str) -> Option<String> {
 #[tokio::test]
 async fn the_login_flow_signs_a_session_in_through_the_file_provider() {
   let (host, transport) = identified();
-  assert_eq!(host.report.auth, Some(("file".to_owned(), "/login".to_owned())));
-  assert_eq!(host.report.bearer, vec![("shop".to_owned(), "access_token".to_owned())]);
-  let report = host.report.to_string();
+  assert_eq!(host.report().auth, Some(("file".to_owned(), "/login".to_owned())));
+  assert_eq!(host.report().bearer, vec![("shop".to_owned(), "access_token".to_owned())]);
+  let report = host.report().to_string();
   assert!(report.contains("auth      file, login page /login"), "{report}");
   assert!(report.contains("bearer    shop                   access_token"), "{report}");
 
@@ -999,8 +999,8 @@ transport = "{transport}"
 #[tokio::test]
 async fn a_mock_client_answers_from_its_responses_file_and_reaches_nothing() {
   let host = Host::from(mocked_dir(r#"{"list": ["socks", "hat"]}"#, "mock").join("app.toml")).unwrap().build().unwrap();
-  assert_eq!(host.report.services, vec![("shop".to_owned(), "mock".to_owned(), "clients/shop.mock.json".to_owned())]);
-  let report = host.report.to_string();
+  assert_eq!(host.report().services, vec![("shop".to_owned(), "mock".to_owned(), "clients/shop.mock.json".to_owned())]);
+  let report = host.report().to_string();
   assert!(report.contains("services  shop                   mock        clients/shop.mock.json"), "{report}");
 
   let response = host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
@@ -1150,7 +1150,7 @@ base_url = "http://127.0.0.1:1"
 async fn sessions_and_sign_in_live_behind_the_identity_client() {
   let identity = Arc::new(IdentityService::default());
   let host = Host::from(remote_dir().join("app.toml")).unwrap().services_over(identity.clone()).build().unwrap();
-  let report = host.report.to_string();
+  let report = host.report().to_string();
   assert!(report.contains("session   service via identity"), "{report}");
   assert!(report.contains("auth      service via identity, login page /login"), "{report}");
 
@@ -1244,7 +1244,7 @@ base_url = "http://127.0.0.1:1"
 async fn a_cached_method_answers_renders_from_memory_until_a_write_or_a_drop() {
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("socks")])).returns("shop.add", Value::Null));
   let host = Host::from(cached_dir().join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
-  let report = host.report.to_string();
+  let report = host.report().to_string();
   assert!(report.contains("cached    shop.list              ttl 1m shared [items]"), "{report}");
   assert!(report.contains("writes    shop.add               [items]"), "{report}");
 
@@ -1271,6 +1271,67 @@ fn without_cache_data_no_method_is_cached_whatever_the_contract_says() {
   std::fs::write(dir.join("app.toml"), text).unwrap();
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("socks")])));
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
-  assert!(host.report.cached.is_empty());
+  assert!(host.report().cached.is_empty());
   assert!(host.services().data_cache().is_none());
+}
+
+#[tokio::test]
+async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
+  let dir = app_dir();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let reload_from = dir.clone();
+  let reload_with = transport.clone();
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(transport.clone())
+    .reloader(move || Host::from(reload_from.join("app.toml")).map(|b| b.services_over(reload_with.clone())))
+    .build()
+    .unwrap();
+
+  let response = host
+    .handle(Request::post("/_sf/action/index.bump").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(r#"{"by": 2}"#)).unwrap())
+    .await;
+  let cookie = response.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().split(';').next().unwrap().to_owned();
+  let html = host.render_to_string("/hello/x?from=y", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("hi x via y") && html.contains("<title>Test &lt;app&gt;</title>"), "{html}");
+
+  std::fs::write(dir.join("generated/plan.json"), PLAN.replace("\"hi \"", "\"hey \"")).unwrap();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("Test <app>", "Reloaded")).unwrap();
+  let response = host.handle(Request::post("/__fsr/reload").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let printed = body_of(response).await;
+  assert!(printed.contains("lowered"), "the reload answers with the new report: {printed}");
+
+  let html = host.render_to_string("/hello/x?from=y", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("hey x via y") && html.contains("<title>Reloaded</title>"), "the new plan and head serve: {html}");
+  let response = host
+    .handle(Request::post("/_sf/action/index.bump").header(header::COOKIE, &cookie).body(Bytes::from(r#"{"by": 3}"#)).unwrap())
+    .await;
+  assert_eq!(body_of(response).await, "5", "the session outlived the reload");
+
+  std::fs::write(dir.join("app.toml"), toml.replace("test-key", "another-key")).unwrap();
+  let refused = host.reload().unwrap_err().to_string();
+  assert!(refused.contains("`session`") && refused.contains("restart"), "{refused}");
+  let html = host.render_to_string("/hello/x?from=y", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("hey x via y"), "a refused reload leaves the tables alone: {html}");
+
+  let (plain, _) = self::host();
+  let none = plain.reload().unwrap_err().to_string();
+  assert!(none.contains("no reloader"), "{none}");
+}
+
+#[test]
+fn a_bundle_carrying_a_server_module_refuses_to_start() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("dist")).unwrap();
+  let build = |facts: &str| {
+    std::fs::write(dir.join("dist/.snapfire-build.json"), facts).unwrap();
+    Host::from(dir.join("app.toml")).and_then(|b| b.build()).map(|_| ()).map_err(|e| e.to_string())
+  };
+  let leaked = build(r#"{"outputs": ["routes/index/page.js", "routes/index/page.loader.js"], "graph": {}}"#).unwrap_err();
+  assert!(leaked.contains("server modules in the bundle: routes/index/page.loader.js is a loader, routes/index/page.loader.ts"), "{leaked}");
+  let imported = build(r#"{"outputs": ["routes/index/page.js"], "graph": {"routes/index/page.js": ["routes/index/actions.js"]}}"#).unwrap_err();
+  assert!(imported.contains("routes/index/page.js imports routes/index/actions.js"), "{imported}");
+  build(r#"{"outputs": ["routes/index/page.js"], "graph": {"routes/index/page.js": []}}"#).unwrap();
 }

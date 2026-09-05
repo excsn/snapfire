@@ -69,6 +69,8 @@ pub enum HostError {
   NotFound(String),
   #[error(transparent)]
   Assemble(#[from] AssembleError),
+  #[error("server modules in the bundle: {0}")]
+  Leak(String),
 }
 
 /// What the middleware decided for a request. `headers` join the response
@@ -247,20 +249,35 @@ impl std::fmt::Display for HostReport {
 }
 
 pub struct Host {
-  app: App,
+  live: parking_lot::RwLock<Arc<Tables>>,
   sessions: Sessions,
+  changed: Option<tokio::sync::broadcast::Sender<()>>,
+  reloader: Option<Reloader>,
+  csrf_always: bool,
+  report_listen: String,
+  /// The `[session]` settings the running `Sessions` were built from; a
+  /// reload whose settings differ is refused, since the store outlives it.
+  session_shape: String,
+}
+
+/// How a host rebuilds its tables on `Host::reload`: the builder for the
+/// application as it now stands on disk.
+pub type Reloader = Box<dyn Fn() -> Result<HostBuilder, HostError> + Send + Sync>;
+
+/// Everything a request reads that a reload replaces. A request loads the
+/// current set once at the edge and keeps it for its lifetime, so a reload
+/// mid-request changes nothing for that request.
+struct Tables {
+  app: App,
   head: Head,
   /// The bundle's build facts file, read for its id when `dev` is on; the
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
-  changed: Option<tokio::sync::broadcast::Sender<()>>,
   statics: Vec<(String, ServeDir)>,
   prerendered: Option<PathBuf>,
   locales: Locales,
   auth: Option<Mounted>,
-  csrf_always: bool,
-  report_listen: String,
-  pub report: HostReport,
+  report: Arc<HostReport>,
 }
 
 /// The identity flow the host serves under `/auth/`, plus the application's
@@ -298,6 +315,7 @@ pub struct HostBuilder {
   shell: Option<Arc<dyn Evaluator>>,
   prerendered: Option<PathBuf>,
   identity: Option<Arc<dyn IdentityProvider>>,
+  reloader: Option<Reloader>,
   pending: Option<HostError>,
 }
 
@@ -371,17 +389,45 @@ impl Host {
       shell: None,
       prerendered: None,
       identity: None,
+      reloader: None,
       pending: None,
     })
   }
 
-  pub fn report(&self) -> &HostReport {
-    &self.report
+  /// What the host bound, as of the last reload.
+  pub fn report(&self) -> Arc<HostReport> {
+    self.tables().report.clone()
+  }
+
+  /// The current tables, taken once per request.
+  fn tables(&self) -> Arc<Tables> {
+    self.live.read().clone()
   }
 
   /// The locales the host serves and how it resolves a request's.
-  pub fn locales(&self) -> &Locales {
-    &self.locales
+  pub fn locales(&self) -> Locales {
+    self.tables().locales.clone()
+  }
+
+  /// Rebuilds the tables through the builder's reloader and swaps them in;
+  /// a request in flight finishes on the tables it started with. The
+  /// sessions stay: a reload that changes `[session]` is refused.
+  pub fn reload(&self) -> Result<Arc<HostReport>, HostError> {
+    let reloader = self.reloader.as_ref().ok_or_else(|| HostError::Value("reload".to_owned(), "no reloader; `HostBuilder::reloader` names how to rebuild".to_owned()))?;
+    self.reload_with(reloader()?)
+  }
+
+  /// `reload` over a builder the caller made.
+  pub fn reload_with(&self, builder: HostBuilder) -> Result<Arc<HostReport>, HostError> {
+    let (tables, config) = builder.assemble()?;
+    let shape = session_shape(&config);
+    if shape != self.session_shape {
+      return Err(HostError::Value("session".to_owned(), "changed since the host was built; restart to apply it".to_owned()));
+    }
+    let report = tables.report.clone();
+    *self.live.write() = Arc::new(tables);
+    self.changed();
+    Ok(report)
   }
 
   /// Renders a route. `path` may carry a locale prefix and its query string.
@@ -392,20 +438,21 @@ impl Host {
     mode: RenderMode,
     session: SessionCell,
   ) -> Result<BoxStream<'static, String>, HostError> {
+    let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = self.locales.resolve(bare, None, None);
-    self.render_in(&visit, raw_query, mode, Incoming::anonymous(session)).await
+    let visit = t.locales.resolve(bare, None, None);
+    self.render_in(&t, &visit, raw_query, mode, Incoming::anonymous(session)).await
   }
 
-  async fn render_in(&self, visit: &Resolution, raw_query: &str, mode: RenderMode, incoming: Incoming) -> Result<BoxStream<'static, String>, HostError> {
-    let (plan, params) = self.plan_for(&visit.path).ok_or_else(|| HostError::NotFound(visit.path.clone()))?;
-    self.render_plan(&plan, params, parse_query(raw_query), mode, incoming, visit).await
+  async fn render_in(&self, t: &Tables, visit: &Resolution, raw_query: &str, mode: RenderMode, incoming: Incoming) -> Result<BoxStream<'static, String>, HostError> {
+    let (plan, params) = self.plan_for(t, &visit.path).ok_or_else(|| HostError::NotFound(visit.path.clone()))?;
+    self.render_plan(t, &plan, params, parse_query(raw_query), mode, incoming, visit).await
   }
 
   /// The plan a route resolves `path` to, with its params.
-  fn plan_for(&self, path: &str) -> Option<(PlanNode, Params)> {
-    let matched = self.app.matcher.match_path(path)?;
-    let plan = self.app.resolver.resolve(matched.entry, &matched.params)?;
+  fn plan_for(&self, t: &Tables, path: &str) -> Option<(PlanNode, Params)> {
+    let matched = t.app.matcher.match_path(path)?;
+    let plan = t.app.resolver.resolve(matched.entry, &matched.params)?;
     Some((plan, matched.params))
   }
 
@@ -415,10 +462,15 @@ impl Host {
   /// reaches down to the one declaring its slot. `path` and `from` are paths
   /// without their query.
   pub fn intercept_for(&self, path: &str, from: Option<&str>, into: Option<&str>) -> Option<(PlanNode, Params)> {
-    let (plans, params) = self.app.intercepts.plans_for(path)?;
+    let t = self.tables();
+    self.intercept_in(&t, path, from, into)
+  }
+
+  fn intercept_in(&self, t: &Tables, path: &str, from: Option<&str>, into: Option<&str>) -> Option<(PlanNode, Params)> {
+    let (plans, params) = t.app.intercepts.plans_for(path)?;
     let from_plan = match into {
       Some(_) => None,
-      None => Some(self.plan_for(from?)?.0),
+      None => Some(self.plan_for(t, from?)?.0),
     };
     let chosen = plans.into_iter().find(|plan| match (into, &from_plan) {
       (Some(slot), _) => intercept_slot(plan).as_deref() == Some(slot),
@@ -439,23 +491,25 @@ impl Host {
     into: Option<&str>,
     session: SessionCell,
   ) -> Result<BoxStream<'static, String>, HostError> {
+    let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = self.locales.resolve(bare, None, None);
-    self.render_navigation_in(&visit, raw_query, from, into, Incoming::anonymous(session)).await
+    let visit = t.locales.resolve(bare, None, None);
+    self.render_navigation_in(&t, &visit, raw_query, from, into, Incoming::anonymous(session)).await
   }
 
   async fn render_navigation_in(
     &self,
+    t: &Tables,
     visit: &Resolution,
     raw_query: &str,
     from: Option<&str>,
     into: Option<&str>,
     incoming: Incoming,
   ) -> Result<BoxStream<'static, String>, HostError> {
-    let from_bare = from.map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f)).map(|f| self.locales.resolve(f, None, None).path);
-    match self.intercept_for(&visit.path, from_bare.as_deref(), into) {
-      Some((plan, params)) => self.render_plan(&plan, params, parse_query(raw_query), RenderMode::Payload, incoming, visit).await,
-      None => self.render_in(visit, raw_query, RenderMode::Payload, incoming).await,
+    let from_bare = from.map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f)).map(|f| t.locales.resolve(f, None, None).path);
+    match self.intercept_in(t, &visit.path, from_bare.as_deref(), into) {
+      Some((plan, params)) => self.render_plan(t, &plan, params, parse_query(raw_query), RenderMode::Payload, incoming, visit).await,
+      None => self.render_in(t, visit, raw_query, RenderMode::Payload, incoming).await,
     }
   }
 
@@ -468,16 +522,17 @@ impl Host {
     mode: RenderMode,
     session: SessionCell,
   ) -> Result<Option<BoxStream<'static, String>>, HostError> {
+    let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = self.locales.resolve(bare, None, None);
-    self.render_not_found_in(&visit, raw_query, mode, Incoming::anonymous(session)).await
+    let visit = t.locales.resolve(bare, None, None);
+    self.render_not_found_in(&t, &visit, raw_query, mode, Incoming::anonymous(session)).await
   }
 
-  async fn render_not_found_in(&self, visit: &Resolution, raw_query: &str, mode: RenderMode, incoming: Incoming) -> Result<Option<BoxStream<'static, String>>, HostError> {
-    let Some(plan) = &self.app.not_found else { return Ok(None) };
+  async fn render_not_found_in(&self, t: &Tables, visit: &Resolution, raw_query: &str, mode: RenderMode, incoming: Incoming) -> Result<Option<BoxStream<'static, String>>, HostError> {
+    let Some(plan) = &t.app.not_found else { return Ok(None) };
     let mut params = Params::new();
     params.insert("path".to_owned(), visit.path.clone());
-    Ok(Some(self.render_plan(plan, params, parse_query(raw_query), mode, incoming, visit).await?))
+    Ok(Some(self.render_plan(t, plan, params, parse_query(raw_query), mode, incoming, visit).await?))
   }
 
   /// The head a request renders under: the boot head, plus the live-refresh
@@ -485,6 +540,7 @@ impl Host {
   /// asked for the default locale.
   async fn render_plan(
     &self,
+    t: &Tables,
     plan: &PlanNode,
     params: Params,
     query: Params,
@@ -493,24 +549,25 @@ impl Host {
     visit: &Resolution,
   ) -> Result<BoxStream<'static, String>, HostError> {
     let mut extra = Vec::new();
-    if let Some(facts) = &self.dev_bundle {
+    if let Some(facts) = &t.dev_bundle {
       extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts))));
     }
     if visit.prefixed && visit.locale.is_default {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(&visit.path)));
     }
     if extra.is_empty() {
-      return self.render_plan_with(plan, params, query, mode, incoming, &visit.locale, &self.head).await;
+      return self.render_plan_with(t, plan, params, query, mode, incoming, &visit.locale, &t.head).await;
     }
-    let mut head = self.head.clone();
-    let mut parts = vec![self.head.rest.clone()];
+    let mut head = t.head.clone();
+    let mut parts = vec![t.head.rest.clone()];
     parts.extend(extra);
     head.rest = snapfire_fsr_core::Node::Seq(parts);
-    self.render_plan_with(plan, params, query, mode, incoming, &visit.locale, &head).await
+    self.render_plan_with(t, plan, params, query, mode, incoming, &visit.locale, &head).await
   }
 
   async fn render_plan_with(
     &self,
+    t: &Tables,
     plan: &PlanNode,
     params: Params,
     query: Params,
@@ -519,8 +576,8 @@ impl Host {
     locale: &Locale,
     head: &Head,
   ) -> Result<BoxStream<'static, String>, HostError> {
-    let ctx = self.ctx(incoming, params, query, locale.clone());
-    let assembly = assemble(&self.app.runtime, plan, &ctx, head).await?;
+    let ctx = self.ctx(t, incoming, params, query, locale.clone());
+    let assembly = assemble(&t.app.runtime, plan, &ctx, head).await?;
     Ok(match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
       RenderMode::Payload => Box::pin(wire_stream(assembly)),
@@ -541,21 +598,21 @@ impl Host {
   /// The patterns one render serves for every request: no parameter, every
   /// source lowered and reading nothing of the request, no page or layout
   /// reading its `identity` or `csrf_token` prop.
-  pub fn prerenderable(&self) -> &[String] {
-    &self.app.prerenderable
+  pub fn prerenderable(&self) -> Vec<String> {
+    self.tables().app.prerenderable.clone()
   }
 
   /// Drops every cached subtree of the plan node keyed `plan_key`, a module
   /// name for a lowered page or layout, and says how many went. Zero when
   /// nothing was cached under it or no cache is configured.
   pub async fn invalidate(&self, plan_key: &str) -> usize {
-    self.app.invalidate(plan_key).await
+    self.tables().app.invalidate(plan_key).await
   }
 
   /// The service registry the routes call through, for a Rust host that
   /// calls a backend outside a request.
   pub fn services(&self) -> Arc<Services> {
-    self.app.services.clone()
+    self.tables().app.services.clone()
   }
 
   /// Drops every data cache answer under the named tags, the out-of-band
@@ -565,7 +622,7 @@ impl Host {
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
   {
-    self.app.services.invalidate_tags(tags);
+    self.tables().app.services.invalidate_tags(tags);
   }
 
   /// Renders every prerenderable route once per locale, anonymously, writing
@@ -574,17 +631,18 @@ impl Host {
   /// default lands under its tag, `<out>/fr_FR/about/index.html`. Returns
   /// what was written, each path with its prefix.
   pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
+    let t = self.tables();
     let mut written = Vec::new();
-    for pattern in self.app.prerenderable.clone() {
-      for tag in self.locales.supported.clone() {
-        let locale = self.locales.locale(&tag);
+    for pattern in t.app.prerenderable.clone() {
+      for tag in t.locales.supported.clone() {
+        let locale = t.locales.locale(&tag);
         let root = if locale.is_default { out.to_path_buf() } else { out.join(&tag) };
         let dir = root.join(pattern.trim_matches('/'));
         std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
         let served = if locale.is_default { pattern.clone() } else { format!("/{tag}{}", pattern.trim_end_matches('/')) };
         for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
-          let (plan, params) = self.plan_for(&pattern).ok_or_else(|| HostError::NotFound(pattern.clone()))?;
-          let chunks = self.render_plan_with(&plan, params, Params::new(), mode, Incoming::anonymous(SessionCell::default()), &locale, &self.head).await?;
+          let (plan, params) = self.plan_for(&t, &pattern).ok_or_else(|| HostError::NotFound(pattern.clone()))?;
+          let chunks = self.render_plan_with(&t, &plan, params, Params::new(), mode, Incoming::anonymous(SessionCell::default()), &locale, &t.head).await?;
           let text: String = chunks.collect::<Vec<_>>().await.concat();
           let file = dir.join(name);
           std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
@@ -599,13 +657,14 @@ impl Host {
   /// holds one. `path` may carry a locale prefix. The query string is
   /// ignored: a prerenderable route reads none.
   pub fn prerendered(&self, path: &str, mode: RenderMode) -> Option<String> {
+    let t = self.tables();
     let path = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
-    let visit = self.locales.resolve(path, None, None);
-    self.prerendered_in(&visit.path, mode, &visit.locale)
+    let visit = t.locales.resolve(path, None, None);
+    self.prerendered_in(&t, &visit.path, mode, &visit.locale)
   }
 
-  fn prerendered_in(&self, path: &str, mode: RenderMode, locale: &Locale) -> Option<String> {
-    let dir = self.prerendered.as_ref()?;
+  fn prerendered_in(&self, t: &Tables, path: &str, mode: RenderMode, locale: &Locale) -> Option<String> {
+    let dir = t.prerendered.as_ref()?;
     let root = if locale.is_default { dir.clone() } else { dir.join(&locale.tag) };
     let name = match mode {
       RenderMode::Html => "index.html",
@@ -619,18 +678,19 @@ impl Host {
   /// the query string decoded into `ctx.query`. Without middleware every
   /// request continues.
   pub async fn preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError> {
+    let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = self.locales.resolve(bare, None, None);
-    self.preflight_in(method, &visit.path, raw_query, Incoming::anonymous(session), &visit.locale).await
+    let visit = t.locales.resolve(bare, None, None);
+    self.preflight_in(&t, method, &visit.path, raw_query, Incoming::anonymous(session), &visit.locale).await
   }
 
-  async fn preflight_in(&self, method: &str, path: &str, raw_query: &str, incoming: Incoming, locale: &Locale) -> Result<Preflight, ActionError> {
-    let Some(middleware) = &self.app.middleware else { return Ok(Preflight::pass()) };
+  async fn preflight_in(&self, t: &Tables, method: &str, path: &str, raw_query: &str, incoming: Incoming, locale: &Locale) -> Result<Preflight, ActionError> {
+    let Some(middleware) = &t.app.middleware else { return Ok(Preflight::pass()) };
     let mut request = ValueMap::new();
     request.insert("method".to_owned(), Value::Str(method.to_ascii_uppercase()));
     request.insert("path".to_owned(), Value::Str(path.to_owned()));
     request.insert("payload".to_owned(), Value::Bool(raw_query.split('&').any(|p| p == "__payload")));
-    let ctx = self.ctx(incoming, Params::new(), parse_query(raw_query), locale.clone());
+    let ctx = self.ctx(t, incoming, Params::new(), parse_query(raw_query), locale.clone());
     let value = middleware.call(ctx, Value::Map(request)).await?;
     Preflight::from_value(&value).map_err(|message| ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message))
   }
@@ -639,39 +699,42 @@ impl Host {
   /// request body. `path` may carry a locale prefix and a query string.
   /// `NotFound` when no handler matches.
   pub async fn call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError> {
+    let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = self.locales.resolve(bare, None, None);
-    self.call_handler_in(method, &visit.path, raw_query, Incoming::anonymous(session), &visit.locale, input).await
+    let visit = t.locales.resolve(bare, None, None);
+    self.call_handler_in(&t, method, &visit.path, raw_query, Incoming::anonymous(session), &visit.locale, input).await
   }
 
-  async fn call_handler_in(&self, method: &str, path: &str, raw_query: &str, incoming: Incoming, locale: &Locale, input: Value) -> Result<Value, ActionError> {
-    let Some(found) = self.app.handlers.match_request(method, path) else {
+  async fn call_handler_in(&self, t: &Tables, method: &str, path: &str, raw_query: &str, incoming: Incoming, locale: &Locale, input: Value) -> Result<Value, ActionError> {
+    let Some(found) = t.app.handlers.match_request(method, path) else {
       return Err(ActionError::new(snapfire_fsr_runtime::FailureKind::NotFound, format!("no handler for {} {path}", method.to_ascii_uppercase())));
     };
-    let ctx = self.ctx(incoming, found.params, parse_query(raw_query), locale.clone());
-    self.app.handlers.dispatch(&found.id, ctx, input).await
+    let ctx = self.ctx(t, incoming, found.params, parse_query(raw_query), locale.clone());
+    t.app.handlers.dispatch(&found.id, ctx, input).await
   }
 
   /// `call_action_in` under the default locale.
   pub async fn call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError> {
-    self.call_action_in(id, session, self.locales.default_locale(), input).await
+    let locale = self.tables().locales.default_locale();
+    self.call_action_in(id, session, locale, input).await
   }
 
   /// Runs an action with `locale` as its `ctx.locale`, which at the edge is
   /// the locale of the document that called it.
   pub async fn call_action_in(&self, id: &str, session: SessionCell, locale: Locale, input: Value) -> Result<Value, ActionError> {
-    self.dispatch_action(id, Incoming::anonymous(session), locale, input).await
+    let t = self.tables();
+    self.dispatch_action(&t, id, Incoming::anonymous(session), locale, input).await
   }
 
-  async fn dispatch_action(&self, id: &str, incoming: Incoming, locale: Locale, input: Value) -> Result<Value, ActionError> {
-    let ctx = self.ctx(incoming, Params::new(), Params::new(), locale);
-    self.app.actions.dispatch(id, ctx, input).await
+  async fn dispatch_action(&self, t: &Tables, id: &str, incoming: Incoming, locale: Locale, input: Value) -> Result<Value, ActionError> {
+    let ctx = self.ctx(t, incoming, Params::new(), Params::new(), locale);
+    t.app.actions.dispatch(id, ctx, input).await
   }
 
   /// The context a body runs in: the services bound to the session's identity
   /// and the request's custody, the token as `csrf`.
-  fn ctx(&self, incoming: Incoming, params: Params, query: Params, locale: Locale) -> RequestCtx {
-    let services = self.app.services.bind(incoming.session.identity(), incoming.credentials);
+  fn ctx(&self, t: &Tables, incoming: Incoming, params: Params, query: Params, locale: Locale) -> RequestCtx {
+    let services = t.app.services.bind(incoming.session.identity(), incoming.credentials);
     RequestCtx { params, query, session: incoming.session, locale, csrf: incoming.csrf, services }
   }
 
@@ -697,8 +760,8 @@ impl Host {
   /// A server-sent event stream: one event on open and one per `changed`
   /// call, each `data: {"bundle":"<id>"}` with the bundle id of that moment,
   /// until the client goes away.
-  fn events(&self) -> Response<Body> {
-    let (Some(tx), Some(facts)) = (&self.changed, self.dev_bundle.clone()) else { return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned()) };
+  fn events(&self, t: &Tables) -> Response<Body> {
+    let (Some(tx), Some(facts)) = (&self.changed, t.dev_bundle.clone()) else { return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned()) };
     let rx = tx.subscribe();
     let event = move || Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(format!("data: {{\"bundle\":\"{}\"}}\n\n", bundle_id(&facts)))));
     let greeting = event();
@@ -720,19 +783,26 @@ impl Host {
   }
 
   pub async fn handle(&self, req: Request<Bytes>) -> Response<Body> {
+    let t = self.tables();
     let path = req.uri().path().to_owned();
 
     if self.changed.is_some() {
       if path == "/__fsr/events" && req.method() == Method::GET {
-        return self.events();
+        return self.events(&t);
       }
       if path == "/__fsr/changed" && req.method() == Method::POST {
         self.changed();
         return Response::builder().status(StatusCode::NO_CONTENT).body(Body::default()).expect("an empty response");
       }
+      if path == "/__fsr/reload" && req.method() == Method::POST {
+        return match self.reload() {
+          Ok(report) => text_response(StatusCode::OK, report.to_string()),
+          Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        };
+      }
     }
 
-    for (route, dir) in &self.statics {
+    for (route, dir) in &t.statics {
       if let Some(rest) = path.strip_prefix(route.as_str()) {
         if rest.is_empty() || rest.starts_with('/') {
           let mut inner = Request::builder().method(req.method().clone()).uri(if rest.is_empty() { "/" } else { rest });
@@ -762,17 +832,17 @@ impl Host {
     let is_action = req.method() == Method::POST && path.starts_with("/_sf/action/");
     let visit = if is_action {
       let from = header("x-sf-from").map(|f| f.split('?').next().unwrap_or(&f).to_owned()).unwrap_or_else(|| "/".to_owned());
-      let resolved = self.locales.resolve(&from, cookie.as_deref(), accept_language.as_deref());
+      let resolved = t.locales.resolve(&from, cookie.as_deref(), accept_language.as_deref());
       Resolution { locale: resolved.locale, path: path.clone(), prefixed: false, set_cookie: None }
     } else {
-      self.locales.resolve(&path, cookie.as_deref(), accept_language.as_deref())
+      t.locales.resolve(&path, cookie.as_deref(), accept_language.as_deref())
     };
-    let framework_owned = visit.path.starts_with("/_sf/") || visit.path.starts_with("/__fsr/") || (self.auth.is_some() && visit.path.starts_with("/auth/"));
+    let framework_owned = visit.path.starts_with("/_sf/") || visit.path.starts_with("/__fsr/") || (t.auth.is_some() && visit.path.starts_with("/auth/"));
     if visit.prefixed && framework_owned {
       return text_response(StatusCode::NOT_FOUND, format!("no route: {path}"));
     }
     let raw_query = req.uri().query().unwrap_or("").to_owned();
-    let mut response = self.handle_resolved(req, &opened, visit.clone(), raw_query).await;
+    let mut response = self.handle_resolved(&t, req, &opened, visit.clone(), raw_query).await;
     if let Some(set_cookie) = &visit.set_cookie {
       if let Ok(value) = HeaderValue::from_str(set_cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
@@ -783,15 +853,15 @@ impl Host {
 
   /// The request past the statics and the locale: the middleware, then the
   /// action route, a handler or a page.
-  async fn handle_resolved(&self, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, visit: Resolution, raw_query: String) -> Response<Body> {
+  async fn handle_resolved(&self, t: &Tables, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, visit: Resolution, raw_query: String) -> Response<Body> {
     let path = visit.path.clone();
-    if let Some(mounted) = &self.auth {
+    if let Some(mounted) = &t.auth {
       if let Some(response) = self.auth_route(mounted, &req, opened, &path, &raw_query).await {
         return response;
       }
     }
     let asked = if raw_query.is_empty() { path.clone() } else { format!("{path}?{raw_query}") };
-    let preflight = match self.preflight_in(req.method().as_str(), &path, &raw_query, self.incoming(opened), &visit.locale).await {
+    let preflight = match self.preflight_in(t, req.method().as_str(), &path, &raw_query, self.incoming(opened), &visit.locale).await {
       Ok(preflight) => preflight,
       Err(e) => {
         return json_response(
@@ -830,12 +900,12 @@ impl Host {
         return response;
       }
     };
-    let mut response = self.respond(req, opened, path, target, &raw_query, &visit).await;
+    let mut response = self.respond(t, req, opened, path, target, &raw_query, &visit).await;
     with_headers(&mut response, &preflight.headers);
     response
   }
 
-  async fn respond(&self, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, path: String, target: String, raw_query: &str, visit: &Resolution) -> Response<Body> {
+  async fn respond(&self, t: &Tables, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, path: String, target: String, raw_query: &str, visit: &Resolution) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(id) = path.strip_prefix("/_sf/action/") {
         let is_form = req.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
@@ -858,7 +928,7 @@ impl Host {
             Err(e) => return json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
           }
         };
-        let mut response = match self.dispatch_action(id, self.incoming(opened), visit.locale.clone(), input).await {
+        let mut response = match self.dispatch_action(t, id, self.incoming(opened), visit.locale.clone(), input).await {
           Ok(_) if is_form => {
             let back = req.headers().get(header::REFERER).and_then(|v| v.to_str().ok()).and_then(referer_path).unwrap_or_else(|| "/".to_owned());
             see_other(&back)
@@ -874,7 +944,7 @@ impl Host {
       }
     }
 
-    if self.app.handlers.match_request(req.method().as_str(), &path).is_some() {
+    if t.app.handlers.match_request(req.method().as_str(), &path).is_some() {
       let input = if req.body().is_empty() {
         Value::Null
       } else {
@@ -887,7 +957,7 @@ impl Host {
         }
       };
       let (target_path, target_query) = target.split_once('?').unwrap_or((target.as_str(), ""));
-      let mut response = match self.call_handler_in(req.method().as_str(), target_path, target_query, self.incoming(opened), &visit.locale, input).await {
+      let mut response = match self.call_handler_in(t, req.method().as_str(), target_path, target_query, self.incoming(opened), &visit.locale, input).await {
         Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
         Err(e) => json_response(
           StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -910,10 +980,10 @@ impl Host {
       RenderMode::Payload => (header("x-sf-from"), header("x-sf-into")),
       RenderMode::Html => (None, None),
     };
-    let intercepted = (from.is_some() || into.is_some()) && self.intercept_for(&path, from.as_deref().map(|f| f.split('?').next().unwrap_or(f)), into.as_deref()).is_some();
+    let intercepted = (from.is_some() || into.is_some()) && self.intercept_in(t, &path, from.as_deref().map(|f| f.split('?').next().unwrap_or(f)), into.as_deref()).is_some();
 
     if req.method() == Method::GET && !intercepted {
-      if let Some(text) = self.prerendered_in(&path, mode, &visit.locale) {
+      if let Some(text) = self.prerendered_in(t, &path, mode, &visit.locale) {
         let content_type = match mode {
           RenderMode::Html => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
@@ -932,13 +1002,13 @@ impl Host {
     let (target_path, target_query) = target.split_once('?').unwrap_or((target.as_str(), ""));
     let target_visit = Resolution { locale: visit.locale.clone(), path: target_path.to_owned(), prefixed: visit.prefixed, set_cookie: None };
     let rendered = if intercepted {
-      self.render_navigation_in(&target_visit, target_query, from.as_deref(), into.as_deref(), self.incoming(opened)).await
+      self.render_navigation_in(t, &target_visit, target_query, from.as_deref(), into.as_deref(), self.incoming(opened)).await
     } else {
-      self.render_in(&target_visit, target_query, mode, self.incoming(opened)).await
+      self.render_in(t, &target_visit, target_query, mode, self.incoming(opened)).await
     };
     let rendered = match rendered {
       Ok(chunks) => Ok((StatusCode::OK, chunks)),
-      Err(HostError::NotFound(path)) => match self.render_not_found_in(&target_visit, target_query, mode, self.incoming(opened)).await {
+      Err(HostError::NotFound(path)) => match self.render_not_found_in(t, &target_visit, target_query, mode, self.incoming(opened)).await {
         Ok(Some(chunks)) => Ok((StatusCode::NOT_FOUND, chunks)),
         Ok(None) => return text_response(StatusCode::NOT_FOUND, format!("no route: {path}")),
         Err(e) => Err(e),
@@ -1386,12 +1456,57 @@ impl HostBuilder {
     self
   }
 
+  /// How `Host::reload` rebuilds the tables: a builder for the application as
+  /// it stands on disk, with whatever this builder was given added again.
+  pub fn reloader<F>(mut self, f: F) -> Self
+  where
+    F: Fn() -> Result<HostBuilder, HostError> + Send + Sync + 'static,
+  {
+    self.reloader = Some(Box::new(f));
+    self
+  }
+
   pub fn build(mut self) -> Result<Host, HostError> {
+    let reloader = self.reloader.take();
+    let store = self.store.take();
+    let (tables, config) = self.assemble()?;
+    let ttl = config.session_ttl()?;
+    let store: Arc<dyn SessionStore> = match store {
+      Some(store) => store,
+      None => match config.session.store.as_str() {
+        "memory" => Arc::new(MemorySessionStore::new(config.session.capacity, ttl)),
+        "service" => {
+          let client = config.session.client.clone().unwrap_or_default();
+          Arc::new(ServiceSessionStore::new(tables.app.services.clone(), client))
+        }
+        other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
+      },
+    };
+    let sessions = Sessions::new(
+      store,
+      config.session.key.as_bytes(),
+      SessionConfig { ttl, secure: config.session.secure, ..SessionConfig::default() },
+    );
+    let changed = config.dev().then(|| tokio::sync::broadcast::channel(16).0);
+    Ok(Host {
+      live: parking_lot::RwLock::new(Arc::new(tables)),
+      sessions,
+      changed,
+      reloader,
+      csrf_always: config.session.csrf == "always",
+      session_shape: session_shape(&config),
+      report_listen: config.server.listen,
+    })
+  }
+
+  /// Everything but the sessions: the tables a request reads, checked the
+  /// way a boot checks them, and the configuration they came from.
+  fn assemble(mut self) -> Result<(Tables, Config), HostError> {
     if let Some(e) = self.pending.take() {
       return Err(e);
     }
     let config = self.config;
-    let _ = self.plan;
+    let plan = self.plan;
 
     let mut service_rows = Vec::new();
     let bearer_rows: Vec<(String, String)> = config
@@ -1488,23 +1603,11 @@ impl HostBuilder {
       .evaluator(move |m: &ModuleId| m.path == shell_path, shell)
       .build()?;
 
-    let ttl = config.session_ttl()?;
-    let store: Arc<dyn SessionStore> = match self.store.take() {
-      Some(store) => store,
-      None => match config.session.store.as_str() {
-        "memory" => Arc::new(MemorySessionStore::new(config.session.capacity, ttl)),
-        "service" => {
-          let client = config.session.client.clone().unwrap_or_default();
-          Arc::new(ServiceSessionStore::new(app.services.clone(), client))
-        }
-        other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
-      },
-    };
-    let sessions = Sessions::new(
-      store,
-      config.session.key.as_bytes(),
-      SessionConfig { ttl, secure: config.session.secure, ..SessionConfig::default() },
-    );
+    config.session_ttl()?;
+    if !matches!(config.session.store.as_str(), "memory" | "service") {
+      return Err(HostError::Value("session.store".to_owned(), config.session.store.clone()));
+    }
+    leaks(&config, &plan)?;
 
     let import_map = match &config.document.import_map {
       Some(rel) => {
@@ -1517,7 +1620,6 @@ impl HostBuilder {
     let head = shell::head(&config.document.title, &styles, import_map.as_deref(), config.document.entry.as_deref());
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
-    let changed = dev.then(|| tokio::sync::broadcast::channel(16).0);
 
     let mut statics = Vec::new();
     let mut static_rows = Vec::new();
@@ -1602,8 +1704,69 @@ impl HostBuilder {
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
-    Ok(Host { app, sessions, head, dev_bundle, changed, statics, prerendered, locales, auth, csrf_always: config.session.csrf == "always", report, report_listen: config.server.listen })
+    Ok((Tables { app, head, dev_bundle, statics, prerendered, locales, auth, report: Arc::new(report) }, config))
   }
+}
+
+/// The `[session]` settings as one string, compared across a reload.
+fn session_shape(config: &Config) -> String {
+  let s = &config.session;
+  format!("{} {:?} {} {} {} {} {:?}", s.store, s.client, s.key, s.ttl, s.secure, s.csrf, s.capacity)
+}
+
+/// Refuses a bundle that carries a server module. The plan's sources,
+/// actions and handlers name their modules, `middleware.ts` is implicit,
+/// and `app/<path>.ts` bundles to `dist/<path>.js`; any such output in the
+/// build facts, or any output importing one, is a leak. No facts file means
+/// no bundle to check.
+fn leaks(config: &Config, plan: &str) -> Result<(), HostError> {
+  let facts = config.app.join("dist/.snapfire-build.json");
+  let Ok(text) = std::fs::read_to_string(&facts) else { return Ok(()) };
+  let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| HostError::Config(facts.clone(), e.to_string()))?;
+  let plan: serde_json::Value = serde_json::from_str(plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+  let found = leaked_outputs(&plan, &json);
+  if found.is_empty() {
+    Ok(())
+  } else {
+    Err(HostError::Leak(found.join(", ")))
+  }
+}
+
+fn server_output(module: &str) -> String {
+  let stem = module.strip_suffix(".tsx").or_else(|| module.strip_suffix(".ts")).unwrap_or(module);
+  format!("{stem}.js")
+}
+
+/// Every bundle output that is a server module, or imports one, each with
+/// the reason.
+fn leaked_outputs(plan: &serde_json::Value, facts: &serde_json::Value) -> Vec<String> {
+  let mut server: std::collections::BTreeMap<String, String> = Default::default();
+  for (table, what) in [("sources", "a loader"), ("actions", "an actions module"), ("handlers", "a route handler")] {
+    for row in plan[table].as_array().into_iter().flatten() {
+      if let Some(module) = row["module"].as_str() {
+        server.insert(server_output(module), format!("{what}, {module}"));
+      }
+    }
+  }
+  if !plan["middleware"].is_null() {
+    server.insert("middleware.js".to_owned(), "the middleware, middleware.ts".to_owned());
+  }
+  let mut found = Vec::new();
+  for output in facts["outputs"].as_array().into_iter().flatten().filter_map(|o| o.as_str()) {
+    if let Some(reason) = server.get(output) {
+      found.push(format!("{output} is {reason}"));
+    }
+  }
+  if let Some(graph) = facts["graph"].as_object() {
+    for (importer, imports) in graph {
+      for imported in imports.as_array().into_iter().flatten().filter_map(|i| i.as_str()) {
+        if server.contains_key(imported) {
+          found.push(format!("{importer} imports {imported}"));
+        }
+      }
+    }
+  }
+  found
 }
 
 /// `tower::Service` over the host, for hyper, axum or any tower stack.
@@ -1643,7 +1806,7 @@ impl Host {
   }
 
   pub fn owner_of_source(&self, name: &str) -> Option<Owner> {
-    self.report.app.sources.iter().find(|(n, _)| n == name).map(|(_, o)| *o)
+    self.report().app.sources.iter().find(|(n, _)| n == name).map(|(_, o)| *o)
   }
 }
 

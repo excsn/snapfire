@@ -187,13 +187,13 @@ fn the_handler_and_the_middleware_answer_before_any_page() {
 #[test]
 fn nothing_prerenders_under_a_layout_that_reads_the_session() {
   let app = console(fleet());
-  assert!(app.report.app.prerenderable.is_empty(), "{:?}", app.report.app.prerenderable);
+  assert!(app.report().app.prerenderable.is_empty(), "{:?}", app.report().app.prerenderable);
 }
 
 #[test]
 fn a_prefixed_locale_renders_the_help_page_in_french_and_the_default_is_unprefixed() {
   let app = console(fleet());
-  assert_eq!(app.report.locales, vec!["en_US".to_owned(), "fr_FR".to_owned()]);
+  assert_eq!(app.report().locales, vec!["en_US".to_owned(), "fr_FR".to_owned()]);
 
   let french = block_on(app.render_to_string("/fr_FR/help", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(french.contains("<html lang=\"fr-FR\" data-sf-locale=\"fr_FR\">"), "{french}");
@@ -249,8 +249,8 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
   use http::{header, Request};
   let transport = fleet();
   let app = console(transport.clone());
-  assert_eq!(app.report.auth, Some(("service via identity".to_owned(), "/login".to_owned())));
-  assert_eq!(app.report.bearer, vec![("fleet".to_owned(), "access_token".to_owned())]);
+  assert_eq!(app.report().auth, Some(("service via identity".to_owned(), "/login".to_owned())));
+  assert_eq!(app.report().bearer, vec![("fleet".to_owned(), "access_token".to_owned())]);
   let location = |response: &http::Response<snapfire_fsr_host::Body>| response.headers().get(header::LOCATION).unwrap().to_str().unwrap().to_owned();
   let text = |response: http::Response<snapfire_fsr_host::Body>| block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
 

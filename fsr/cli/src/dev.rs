@@ -1,9 +1,10 @@
 //! `fsr dev`: generate, bundle and run, then redo whichever of those a change
-//! calls for. A change under the app regenerates and rebundles; the server
-//! restarts only when the generated files differ, since the bundle's output
-//! names are stable and the host reads it from disk. A change to the project
-//! around the app rebuilds and restarts. A failed step keeps the running
-//! server, so a typo never takes the page down.
+//! calls for. A change under the app regenerates and rebundles; when the
+//! generated files differ the running server reloads its tables in place,
+//! and restarts only when it cannot, since the bundle's output names are
+//! stable and the host reads it from disk. A change to the project around
+//! the app rebuilds and restarts. A failed step keeps the running server, so
+//! a typo never takes the page down.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -96,6 +97,28 @@ impl Project {
     let Ok(mut stream) = std::net::TcpStream::connect(&listen) else { return };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
     let _ = std::io::Write::write_all(&mut stream, format!("POST /__fsr/changed HTTP/1.1\r\nHost: {listen}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes());
+  }
+
+  /// Asks the running server to rebuild its tables from disk. `Err` when it
+  /// is not up, has `dev` off, has no reloader or refused, and the caller
+  /// restarts it instead.
+  fn reload(&self) -> Result<String, String> {
+    let root = crate::serve::project_root(&self.app);
+    let config = snapfire_fsr_host::config::Config::load(&root).map_err(|e| e.to_string())?;
+    let listen = config.server.listen;
+    let mut stream = std::net::TcpStream::connect(&listen).map_err(|e| e.to_string())?;
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+    std::io::Write::write_all(&mut stream, format!("POST /__fsr/reload HTTP/1.1\r\nHost: {listen}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).map_err(|e| e.to_string())?;
+    let mut response = String::new();
+    std::io::Read::read_to_string(&mut stream, &mut response).map_err(|e| e.to_string())?;
+    let (head, body) = response.split_once("\r\n\r\n").unwrap_or((response.as_str(), ""));
+    let status = head.split_whitespace().nth(1).unwrap_or("");
+    if status == "200" {
+      Ok(body.to_owned())
+    } else {
+      Err(body.trim().to_owned())
+    }
   }
 
   fn cargo_build(&self) -> Result<(), BuildError> {
@@ -229,6 +252,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   loop {
     if want.app || want.project {
       let mut restart = want.project || server.child.is_none();
+      let mut reload = false;
       let mut failed = false;
       if want.app {
         match project.generate() {
@@ -238,7 +262,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
               print!("{}", built.report);
               files = Some(built.files);
             }
-            restart |= changed;
+            reload |= changed;
           }
           Err(e) => {
             eprintln!("{e}");
@@ -252,6 +276,15 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
           }
         }
       }
+      if !failed && reload && !restart {
+        match project.reload() {
+          Ok(report) => print!("{report}"),
+          Err(e) => {
+            println!("dev: reload refused ({e}); restarting");
+            restart = true;
+          }
+        }
+      }
       if !failed && restart {
         match project.cargo_build() {
           Ok(()) => server.restart(&project),
@@ -260,7 +293,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
             failed = true;
           }
         }
-      } else if !failed {
+      } else if !failed && !reload {
         project.notify_changed();
       }
       if failed {

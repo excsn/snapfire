@@ -510,7 +510,7 @@ fsr check app
 
 ## Serving Without a Rust Project
 
-`serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app, or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`.
+`serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app, or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.
 
 ```sh
 fsr build app

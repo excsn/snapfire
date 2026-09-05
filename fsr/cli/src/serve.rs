@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use snapfire_fsr_host::config::Config;
-use snapfire_fsr_host::{Host, HostBuilder};
+use snapfire_fsr_host::Host;
 
 use crate::BuildError;
 
@@ -28,7 +28,7 @@ pub fn project_root(app: &Path) -> PathBuf {
 /// Builds the host for `app` and serves it until the process ends.
 pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
   let host = Arc::new(host_for(app)?);
-  print!("{}", host.report);
+  print!("{}", host.report());
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
   println!("fsr server on http://{listen}/");
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(format!("runtime: {e}")))?;
@@ -42,7 +42,7 @@ pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)
   let host = host_for(app)?;
   let out = match out {
     Some(out) => out.to_path_buf(),
-    None => host.report.prerender.clone().unwrap_or_else(|| app.join("dist/prerender")),
+    None => host.report().prerender.clone().unwrap_or_else(|| app.join("dist/prerender")),
   };
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(e.to_string()))?;
   runtime.block_on(host.prerender(&out)).map_err(|e| BuildError::Serve(e.to_string()))
@@ -56,5 +56,6 @@ pub fn host_for(app: &Path) -> Result<Host, BuildError> {
   if configured != given {
     return Err(BuildError::Serve(format!("{} names {} as the app directory, not {}", root.display(), config.app.display(), given.display())));
   }
-  Host::from_config(config).and_then(HostBuilder::build).map_err(|e| BuildError::Serve(e.to_string()))
+  let builder = Host::from_config(config).map_err(|e| BuildError::Serve(e.to_string()))?;
+  builder.reloader(move || Host::from(&root)).build().map_err(|e| BuildError::Serve(e.to_string()))
 }
