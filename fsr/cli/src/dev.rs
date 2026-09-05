@@ -234,6 +234,25 @@ impl Drop for Server {
   }
 }
 
+/// A complete artifact: what `build` and `write` produced, plus the paths
+/// they wrote. The browser bundle is in `dist/` beside them.
+pub struct Emitted {
+  pub built: Built,
+  pub written: Vec<PathBuf>,
+}
+
+/// Everything a host reads: the plan and the generated modules, then the
+/// browser bundle. `build` and `write` alone leave `dist/` at whatever the
+/// last bundle wrote, which a host cannot tell from a current one, so this
+/// is what a build script and `fsr build` call.
+pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
+  let project = Project::open(app, options)?;
+  let built = build(&project.app, &project.options.build)?;
+  let written = write(&project.app, &built)?;
+  project.bundle()?;
+  Ok(Emitted { built, written })
+}
+
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   let project = Project::open(app, options)?;
   let (tx, rx) = channel::<Msg>();

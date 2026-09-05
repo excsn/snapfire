@@ -656,13 +656,17 @@ The library half runs the same build without the binary. A crate that serves the
 // build.rs
 fn main() {
   let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("app");
-  for watched in ["routes", "schemas", "clients", "importmap.json", "types"] {
+  for watched in ["routes", "src", "schemas", "clients", "importmap.json", "types"] {
     println!("cargo:rerun-if-changed={}", app.join(watched).display());
   }
-  let built = snapfire_fsr_cli::build(&app, &snapfire_fsr_cli::Options::default()).unwrap_or_else(|e| panic!("fsr build app: {e}"));
-  snapfire_fsr_cli::write(&app, &built).unwrap_or_else(|e| panic!("fsr build app: {e}"));
+  let options = snapfire_fsr_cli::DevOptions::beside(&app);
+  snapfire_fsr_cli::emit(&app, options).unwrap_or_else(|e| panic!("fsr build app: {e}"));
 }
 ```
+
+`emit` is generation and then the bundle. `build` and `write` are the generation alone, and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract, and for `emit` otherwise.
+
+`src` belongs in the watched list whenever a component outside `routes/` is placed with `<Island>`, since a change there has to reach `dist/`. `emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else, as the examples in this repository do.
 
 ```
 # .gitignore
@@ -675,11 +679,13 @@ app/dist/
 
 ```rust
 use std::path::Path;
-use snapfire_fsr_cli::{build, write, Options};
+use snapfire_fsr_cli::{emit, DevOptions};
 
-let built = build(Path::new("app"), &Options::default())?;
-print!("{}", built.report);
-write(Path::new("app"), &built)?;
+let emitted = emit(Path::new("app"), DevOptions::beside(Path::new("app")))?;
+print!("{}", emitted.built.report);
+for path in emitted.written {
+  println!("wrote {}", path.display());
+}
 ```
 
 ## Error Handling

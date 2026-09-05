@@ -14,8 +14,6 @@ A site: an application built with a `[site]` section, so every id it emits is pr
 ## Run it alone
 
 ```sh
-../../../target/debug/fsr build app
-../../../target/debug/snapfirec --root app --config tsconfig.build.json --source-map --public-path /billing/static/js/app --import-map importmap.json
 cargo run -p billing_site_react_ts
 ```
 

@@ -16,9 +16,10 @@ The shell of a company site: a header, a team directory and a sign-in; under `/b
 The site's bundle is served under its own prefix, so build both applications first, then run the portal:
 
 ```sh
-cd ../billing_site_react_ts && ../../../target/debug/fsr build app && ../../../target/debug/snapfirec --root app --config tsconfig.build.json --source-map --public-path /billing/static/js/app --import-map importmap.json
-cd ../portal_react_ts && ../../../target/debug/fsr build app && ../../../target/debug/snapfirec --root app --config tsconfig.build.json --source-map --public-path /static/js/app --import-map importmap.json
+cargo build -p billing_site_react_ts
 cargo run -p portal_react_ts
 ```
+
+Each `build.rs` emits its own plan and bundle, the site's under `/billing/static/js/app` from its `[site] at`.
 
 Then open `http://127.0.0.1:8100/`, sign in as `alice` / `wonder` and follow Billing. `cargo test -p portal_react_ts` drives the same host in process.
