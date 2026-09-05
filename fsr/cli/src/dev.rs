@@ -86,6 +86,18 @@ impl Project {
     Ok(())
   }
 
+  /// Tells the running server a bundle changed under it, so open documents
+  /// refresh. Best effort: a server that is not up yet or has `dev` off
+  /// simply does not hear it.
+  fn notify_changed(&self) {
+    let root = crate::serve::project_root(&self.app);
+    let Ok(config) = snapfire_fsr_host::config::Config::load(&root) else { return };
+    let listen = config.server.listen;
+    let Ok(mut stream) = std::net::TcpStream::connect(&listen) else { return };
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+    let _ = std::io::Write::write_all(&mut stream, format!("POST /__fsr/changed HTTP/1.1\r\nHost: {listen}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes());
+  }
+
   fn cargo_build(&self) -> Result<(), BuildError> {
     let Some(cargo) = &self.cargo else { return Ok(()) };
     let status = Command::new("cargo").arg("build").current_dir(cargo).status().map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
@@ -248,6 +260,8 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
             failed = true;
           }
         }
+      } else if !failed {
+        project.notify_changed();
       }
       if failed {
         println!("dev: waiting for changes");

@@ -15,6 +15,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving with actix](#serving-with-actix)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
 * [Caching Rendered Segments](#caching-rendered-segments)
+* [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
@@ -71,6 +72,7 @@ Only what cannot be inferred: where to listen, how to sign sessions, where each 
 [server]
 listen = "127.0.0.1:8080"
 prerender = "dist/prerender"      # optional: where rendered-once routes live
+dev = false                       # optional: live refresh; absent, on unless RELEASE_ENV is set to something else than development
 
 [document]
 title = "Shopping"
@@ -290,6 +292,18 @@ assert_eq!(transport.calls().len(), 1);
 
 `handle` drives the whole edge, cookies included, without a socket.
 
+## Refreshing the Browser in Development
+
+In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream, and `POST /__fsr/changed` tells every open document that something changed. `fsr dev` posts it after a rebundle that did not restart the server; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
+
+```rust
+host.changed();
+```
+
+Every event names the bundle the server sees now, a hash over the modules `dist/.snapfire-build.json` lists. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them.
+
+`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment, and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
+
 ## Reading the Report
 
 `Host::report` is the application's report plus the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
@@ -302,6 +316,7 @@ actions   cart.checkout          lowered
 services  shopping               http        http://127.0.0.1:8081
 static    /static/js/app         /srv/shop/app/dist
 cache     1000 entries, ttl 1m
+dev       live refresh on /__fsr/events, told by POST /__fsr/changed
 config    /srv/shop/config
 inferred  static /static/js/app from dist/.snapfire-build.json
           document.entry from dist/.snapfire-build.json

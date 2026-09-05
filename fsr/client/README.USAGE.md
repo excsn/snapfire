@@ -238,7 +238,7 @@ import { enableNavigation } from "@snapfire/fsr-client";
 enableNavigation();
 ```
 
-A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. A kept island whose props changed is re-rendered in place through its patcher rather than replaced. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
+It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. A kept island whose props changed is re-rendered in place through its patcher rather than replaced. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
 ## Prefetching and the Router Cache
 

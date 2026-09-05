@@ -62,6 +62,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients` and `static`, requires `session`, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
+* `Config::dev(&self) -> bool`: `server.dev` when written, else whether `Deployment::from_env().release_env` is `development`, which it is when the variable is unset.
 * `Config::cache_ttl(&self) -> Result<Option<Duration>, HostError>`: `None` without a `[cache]` section; a lifetime nobody can parse is `HostError::Value("cache.ttl", ..)`.
 * Every table refuses unknown keys.
 
@@ -73,6 +74,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 * `listen` (default `127.0.0.1:8080`), `plan` (default `generated/plan.json`), `contracts` (default `generated/contracts`), a directory whose `*.json` files are merged in name order at boot.
 * `prerender: Option<String>`: the directory, relative to the app, that `prerender` writes and the host reads; absent by default.
+* `dev: Option<bool>`: whether the document carries the live-refresh script and the host answers `/__fsr/events` and `/__fsr/changed`; absent, it follows `RELEASE_ENV`.
 
 ### DocumentConfig
 
@@ -130,11 +132,13 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`.
 * `prerenderable(&self) -> &[String]`: the patterns one render serves for every request: no parameter, every source lowered and reading nothing of the request (`snapfire_fsr_ir::body_reads_request`), no Rust source.
 * `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`; returns what it wrote.
+* `changed(&self)`: tells every open `/__fsr/events` stream that something changed; nothing when `dev` is off.
 * `invalidate(&self, plan_key: &str) -> usize`: drops every cached subtree under the plan `cache_key`, a lowered page's or layout's module name, and says how many went; zero without a `[cache]` section.
 * `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its query string ignored; `None` without a directory or a file.
 * `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path }` as its input and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
 * `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, whose query string becomes `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
 * `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`; then a page, `__payload` in the query selecting the payload mode; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed.
+* With `dev` on, `handle` answers `GET /__fsr/events` with a `text/event-stream` body, one `data: {"bundle":"<id>"}` event on open and one per `changed`, and `POST /__fsr/changed` with 204 after calling `changed`, both before statics, middleware and sessions; static files gain `Cache-Control: no-cache`. The bundle id is a hash over every output `dist/.snapfire-build.json` lists, source maps aside, `-` without a bundle; a served document's head carries `dev_script` with the id of that moment and `prerender` writes the plain head.
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
 
@@ -155,6 +159,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 * `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
+* `dev: bool`: `Display` prints one `dev` row naming the two paths when true.
 
 ### Body
 
@@ -187,6 +192,7 @@ Behind the `actix` feature.
 
 ### head
 
+* `pub fn shell::dev_script(bundle: &str) -> String`: the `<script>` a development document carries, with `bundle` as the id it was rendered against. It opens `EventSource("/__fsr/events")`; an event whose `bundle` differs reloads, the first event after a connect is otherwise ignored, and any later one re-links every stylesheet with a `__sf` query string and calls `window.__sf.refresh`, or reloads when nothing is registered there.
 * `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> snapfire_fsr_runtime::Head`: a head whose default title is `title` and whose `rest` is `<meta charset>`, a viewport meta, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, the entry as `<script type="module" src>`.
 
 ## 6. Error Handling

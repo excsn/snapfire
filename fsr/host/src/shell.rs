@@ -42,6 +42,18 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Opt
   Head::new(title, Node::raw(head))
 }
 
+/// The live-refresh script a development document carries, with the bundle
+/// id the document was rendered against. Every event names the bundle the
+/// server sees now: a different one reloads, since the page's modules
+/// changed; the same one re-links the stylesheets and asks the client
+/// library to refresh the route in place, or reloads when no client library
+/// is on the page. The first event after a connect is the greeting and does
+/// nothing on its own, so a reconnect after a restart refreshes and a fresh
+/// load does not.
+pub fn dev_script(bundle: &str) -> String {
+  format!("<script>(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first=true,s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}})()</script>", escape(bundle))
+}
+
 fn escape(text: &str) -> String {
   text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }

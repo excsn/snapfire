@@ -157,6 +157,9 @@ pub struct HostReport {
   pub prerender: Option<PathBuf>,
   /// The render memo's capacity and lifetime, when configured.
   pub cache: Option<(u64, String)>,
+  /// Whether the document carries the live-refresh script and the host
+  /// answers `/__fsr/events` and `/__fsr/changed`.
+  pub dev: bool,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
 }
@@ -182,6 +185,9 @@ impl std::fmt::Display for HostReport {
     if let Some((capacity, ttl)) = &self.cache {
       writeln!(f, "{:<9} {capacity} entries, ttl {ttl}", "cache")?;
     }
+    if self.dev {
+      writeln!(f, "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed", "dev")?;
+    }
     for (i, source) in self.config.iter().enumerate() {
       let label = if i == 0 { "config" } else { "" };
       writeln!(f, "{label:<9} {}", source.display())?;
@@ -198,6 +204,10 @@ pub struct Host {
   app: App,
   sessions: Sessions,
   head: Head,
+  /// The bundle's build facts file, read for its id when `dev` is on; the
+  /// plain head is what `prerender` writes.
+  dev_bundle: Option<PathBuf>,
+  changed: Option<tokio::sync::broadcast::Sender<()>>,
   statics: Vec<(String, ServeDir)>,
   prerendered: Option<PathBuf>,
   report_listen: String,
@@ -334,9 +344,28 @@ impl Host {
     mode: RenderMode,
     session: SessionCell,
   ) -> Result<BoxStream<'static, String>, HostError> {
+    match &self.dev_bundle {
+      Some(facts) => {
+        let mut head = self.head.clone();
+        head.rest = snapfire_fsr_core::Node::Seq(vec![self.head.rest.clone(), snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts)))]);
+        self.render_plan_with(plan, params, query, mode, session, &head).await
+      }
+      None => self.render_plan_with(plan, params, query, mode, session, &self.head).await,
+    }
+  }
+
+  async fn render_plan_with(
+    &self,
+    plan: &PlanNode,
+    params: Params,
+    query: Params,
+    mode: RenderMode,
+    session: SessionCell,
+    head: &Head,
+  ) -> Result<BoxStream<'static, String>, HostError> {
     let services = self.app.services.bind(session.identity(), Arc::new(snapfire_fsr_service::NoCredentials));
     let ctx = RequestCtx { params, query, session, csrf: None, services };
-    let assembly = assemble(&self.app.runtime, plan, &ctx, &self.head).await?;
+    let assembly = assemble(&self.app.runtime, plan, &ctx, head).await?;
     Ok(match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
       RenderMode::Payload => Box::pin(wire_stream(assembly)),
@@ -371,7 +400,10 @@ impl Host {
       let dir = out.join(pattern.trim_matches('/'));
       std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
       for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
-        let text = self.render_to_string(&pattern, mode, SessionCell::default()).await?;
+        let matched = self.app.matcher.match_path(&pattern).ok_or_else(|| HostError::NotFound(pattern.clone()))?;
+        let plan = self.app.resolver.resolve(matched.entry, &matched.params).ok_or_else(|| HostError::NotFound(pattern.clone()))?;
+        let chunks = self.render_plan_with(&plan, matched.params, Params::new(), mode, SessionCell::default(), &self.head).await?;
+        let text: String = chunks.collect::<Vec<_>>().await.concat();
         let file = dir.join(name);
         std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
         written.push((pattern.clone(), file));
@@ -429,8 +461,51 @@ impl Host {
   /// The whole edge for one request: static roots, the action route, then a
   /// page in either mode, with the session opened from the cookie and
   /// persisted into the response.
+  /// Tells every open development document that something changed, so each
+  /// refreshes its route in place. Nothing happens when `dev` is off.
+  pub fn changed(&self) {
+    if let Some(tx) = &self.changed {
+      let _ = tx.send(());
+    }
+  }
+
+  /// A server-sent event stream: one event on open and one per `changed`
+  /// call, each `data: {"bundle":"<id>"}` with the bundle id of that moment,
+  /// until the client goes away.
+  fn events(&self) -> Response<Body> {
+    let (Some(tx), Some(facts)) = (&self.changed, self.dev_bundle.clone()) else { return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned()) };
+    let rx = tx.subscribe();
+    let event = move || Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(format!("data: {{\"bundle\":\"{}\"}}\n\n", bundle_id(&facts)))));
+    let greeting = event();
+    let opened = futures_util::stream::once(async move { greeting });
+    let changes = futures_util::stream::unfold((rx, event), |(mut rx, event)| async move {
+      loop {
+        match rx.recv().await {
+          Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return Some((event(), (rx, event))),
+          Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+        }
+      }
+    });
+    Response::builder()
+      .status(StatusCode::OK)
+      .header(header::CONTENT_TYPE, "text/event-stream")
+      .header(header::CACHE_CONTROL, "no-cache")
+      .body(StreamBody::new(opened.chain(changes)).boxed_unsync())
+      .expect("an event stream")
+  }
+
   pub async fn handle(&self, req: Request<Bytes>) -> Response<Body> {
     let path = req.uri().path().to_owned();
+
+    if self.changed.is_some() {
+      if path == "/__fsr/events" && req.method() == Method::GET {
+        return self.events();
+      }
+      if path == "/__fsr/changed" && req.method() == Method::POST {
+        self.changed();
+        return Response::builder().status(StatusCode::NO_CONTENT).body(Body::default()).expect("an empty response");
+      }
+    }
 
     for (route, dir) in &self.statics {
       if let Some(rest) = path.strip_prefix(route.as_str()) {
@@ -441,7 +516,13 @@ impl Host {
           }
           let inner = inner.body(Bytes::new()).expect("a request rebuilt from a request");
           return match dir.clone().oneshot(inner).await {
-            Ok(response) => response.map(|b| b.map_err(std::io::Error::other).boxed_unsync()),
+            Ok(response) => {
+              let mut response = response.map(|b| b.map_err(std::io::Error::other).boxed_unsync());
+              if self.changed.is_some() {
+                response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+              }
+              response
+            }
             Err(never) => match never {},
           };
         }
@@ -638,6 +719,26 @@ impl Host {
   pub fn listen(&self) -> &str {
     &self.report_listen
   }
+}
+
+/// What tells one bundle from the next: a hash over the content of every
+/// output the build facts list, source maps aside, so a rebundle that wrote
+/// the same modules keeps its id and an edited module changes it. `-` when
+/// there is no bundle.
+fn bundle_id(facts: &Path) -> String {
+  use std::hash::{Hash, Hasher};
+  let Ok(text) = std::fs::read_to_string(facts) else { return "-".to_owned() };
+  let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return "-".to_owned() };
+  let dir = facts.parent().unwrap_or(Path::new("."));
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  for output in json["outputs"].as_array().into_iter().flatten().filter_map(|o| o.as_str()) {
+    if output.ends_with(".map") || output.ends_with(".snapfire-build.json") {
+      continue;
+    }
+    output.hash(&mut hasher);
+    std::fs::read(dir.join(output)).unwrap_or_default().hash(&mut hasher);
+  }
+  format!("{:016x}", hasher.finish())
 }
 
 fn with_headers(response: &mut Response<Body>, headers: &[(String, String)]) {
@@ -898,6 +999,9 @@ impl HostBuilder {
     };
     let styles = config.document.styles.clone().unwrap_or_default();
     let head = shell::head(&config.document.title, &styles, import_map.as_deref(), config.document.entry.as_deref());
+    let dev = config.dev();
+    let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
+    let changed = dev.then(|| tokio::sync::broadcast::channel(16).0);
 
     let mut statics = Vec::new();
     let mut static_rows = Vec::new();
@@ -914,10 +1018,11 @@ impl HostBuilder {
       statics: static_rows,
       prerender: prerendered.clone(),
       cache: cache_row,
+      dev,
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
-    Ok(Host { app, sessions, head, statics, prerendered, report, report_listen: config.server.listen })
+    Ok(Host { app, sessions, head, dev_bundle, changed, statics, prerendered, report, report_listen: config.server.listen })
   }
 }
 

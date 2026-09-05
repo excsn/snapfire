@@ -56,7 +56,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `serve::run`: the stock host, `snapfire_fsr_host::Host`, over the configuration `serve::project_root` finds, the directory beside the app when it holds `config/`, `app.toml` or `app.yaml`, else the app itself; prints the host's report and listens on `--listen` or the configured `server.listen` until the process ends. Refuses a configuration whose `[app] dir` is not the app given. Exit 1 on a `BuildError::Serve`.
 * `serve::host_for(app: &Path) -> Result<Host, BuildError>` is the same host without the listener.
 * `serve::prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)>, BuildError>` builds that host and calls `Host::prerender` with `out`, else `server.prerender`, else `dist/prerender` under the app; `fsr prerender` prints what it wrote, or that nothing qualifies.
-* `fsr dev <app dir>` runs this in place of `cargo run` when no `Cargo.toml` is beside the app, watching `config/`, `app.toml` and `app.yaml` there instead of `src/`.
+* `fsr dev <app dir>` runs this in place of `cargo run` when no `Cargo.toml` is beside the app, watching `config/`, `app.toml` and `app.yaml` there instead of `src/`. After a rebundle that did not restart the server it posts `/__fsr/changed` to `server.listen`, best effort, so open development documents refresh.
 
 ### fsr add
 

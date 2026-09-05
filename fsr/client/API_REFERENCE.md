@@ -307,7 +307,7 @@ Segment patching in place of a page load. The functions share one module-level s
 * `enableNavigation(options?: NavigationOptions): void`
 * `interface NavigationOptions { prefetch?: PrefetchTiming; cacheMs?: number }`; `type PrefetchTiming = "hover" | "none"`. `prefetch` defaults to `"hover"`, `cacheMs` to 30000.
 
-Reads `script[data-sf-segments]` into the module's current sidecar, sets `cacheMs` when given, then installs a `click` listener on `document` and a `popstate` listener on `window`. With `prefetch` at `"hover"`, `mouseover`, `focusin` and passive `touchstart` listeners on `document` call `prefetch` with the href of the enclosing `a[href]`, unless it carries `data-sf-native` or `data-sf-prefetch="none"`.
+Registers `refresh` as `window.__sf.refresh`, which the host's development script calls, reads `script[data-sf-segments]` into the module's current sidecar, sets `cacheMs` when given, then installs a `click` listener on `document` and a `popstate` listener on `window`. With `prefetch` at `"hover"`, `mouseover`, `focusin` and passive `touchstart` listeners on `document` call `prefetch` with the href of the enclosing `a[href]`, unless it carries `data-sf-native` or `data-sf-prefetch="none"`.
 
 A click is ignored when `defaultPrevented` is set, when `button` is not 0, when any of `metaKey`, `ctrlKey`, `shiftKey` or `altKey` is held, when the target has no enclosing `a[href]` or when the href resolves to another origin. Otherwise the default is prevented and `navigate` is called with the path plus search.
 
