@@ -1,4 +1,4 @@
-import { patchIsland, scan } from "./boot.js";
+import { loadEntry, patchIsland, scan } from "./boot.js";
 import { setLocale } from "./locale.js";
 import { Head, parsePayload, Payload, Segment, SfNode } from "./reader.js";
 import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
@@ -265,22 +265,10 @@ function apply(payload: Payload, force: boolean): boolean {
   }
   for (const head of payload.heads) applyHead(head);
   if (payload.locale !== null) setLocale(payload.locale);
+  if (payload.entry !== null) loadEntry(payload.entry);
   scan(document);
-  if (payload.entry !== null && !entries.has(payload.entry)) {
-    const src = payload.entry;
-    entries.add(src);
-    import(src)
-      .then(() => scan(document))
-      .catch((err) => {
-        entries.delete(src);
-        console.warn(`sf: loading ${src} failed`, err);
-      });
-  }
   return true;
 }
-
-/** The entry modules a payload has asked for, so a site's islands register once. */
-const entries = new Set<string>();
 
 interface Cached {
   text: string;

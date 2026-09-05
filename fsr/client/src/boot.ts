@@ -99,13 +99,58 @@ export function scan(root: ParentNode): void {
     if (!moduleId) continue;
     const entry = islands.get(moduleId);
     if (!entry) {
-      console.warn(`sf: no island registered for ${moduleId}`);
+      missing.add(moduleId);
+      arm();
       continue;
     }
     el.setAttribute("data-sf-mounted", "");
     const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when") as MountTiming | null;
     schedule(placed ? { ...entry, when: placed } : entry, moduleId, el, propsFor(root, el.id));
   }
+}
+
+/** Module ids no registry knew when a scan reached them. A miss is not yet a defect: a mounted site registers its islands when its own entry module runs, which is after the shell's `boot` has already scanned the document. */
+const missing = new Set<string>();
+/** Entry modules already imported, so a site's islands register once however many payloads name them. */
+const entries = new Set<string>();
+let loading = 0;
+let armed = false;
+
+function report(): void {
+  if (loading > 0) return;
+  for (const moduleId of missing) {
+    if (!islands.has(moduleId)) console.warn(`sf: no island registered for ${moduleId}`);
+  }
+  missing.clear();
+}
+
+/** Settles the misses once every entry module in the document has run. Module scripts are deferred, so they all execute before `DOMContentLoaded`, which has not fired while the state is `loading` or `interactive`. */
+function arm(): void {
+  if (armed) return;
+  armed = true;
+  const run = () => {
+    armed = false;
+    report();
+  };
+  if (document.readyState === "complete") queueMicrotask(run);
+  else document.addEventListener("DOMContentLoaded", run, { once: true });
+}
+
+/** Imports an entry module once and rescans, so the islands it registers mount. Call it before the scan that will miss them, so a miss is not reported while its registration is in flight. */
+export function loadEntry(src: string): void {
+  if (entries.has(src)) return;
+  entries.add(src);
+  loading += 1;
+  import(src)
+    .then(() => scan(document))
+    .catch((err) => {
+      entries.delete(src);
+      console.warn(`sf: loading ${src} failed`, err);
+    })
+    .finally(() => {
+      loading -= 1;
+      report();
+    });
 }
 
 const filling = new WeakSet<Document>();

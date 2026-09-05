@@ -157,6 +157,8 @@ The key must be the exact `data-sf-module` string the server wrote. A layout is 
 sf: no island registered for components/ServerChart.tsx#default
 ```
 
+The warning waits for the document to settle, because a miss is not yet a defect. A mounted site puts a second entry module in the head and registers its islands when that module runs, which is after the shell's `boot` has already scanned them; the same holds for the entry a payload names on the first navigation into a site. So a module id missing at scan time is remembered rather than reported, and warned about only once every deferred script has run and nothing named by `loadEntry` is still in flight.
+
 ## Choosing When an Island Hydrates
 
 `when` is per island, not per page; it defaults to `"load"`:

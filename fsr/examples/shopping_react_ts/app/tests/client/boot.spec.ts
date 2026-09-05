@@ -19,3 +19,21 @@ test("scan mounts each registered marker once, with its props and whether it has
     ["widget", {}, "w2", false],
   ]);
 });
+
+test("a marker no registry knows yet is not reported until every entry has run", async () => {
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(String(args[0]));
+  };
+  try {
+    document.body.innerHTML = '<sf-i id="l1" data-sf-module="tests/client/late"></sf-i><sf-i id="g1" data-sf-module="tests/client/gone"></sf-i>';
+    scan(document);
+    assert.equal(warnings, [], "a first miss is what a mounted site's islands look like before its entry runs");
+    registerIsland("tests/client/late", { loader: async () => "late", mount: () => {} });
+    await settle();
+    assert.equal(warnings, ["sf: no island registered for tests/client/gone"], "only the one still missing once the scan settles");
+  } finally {
+    console.warn = warn;
+  }
+});

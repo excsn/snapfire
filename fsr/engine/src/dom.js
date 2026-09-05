@@ -23,6 +23,8 @@ Object.defineProperty(documentProto, "title", {
     el.textContent = String(value);
   },
 });
+// linkedom defines no `readyState`, and a document the runner parsed in one call has no loading phase to be in: code that defers work to `DOMContentLoaded` would wait for an event nothing dispatches.
+if (!("readyState" in documentProto)) documentProto.readyState = "complete";
 globalThis.window = globalThis;
 globalThis.self = globalThis;
 if (typeof globalThis.UIEvent !== "function") globalThis.UIEvent = class UIEvent extends Event {};
