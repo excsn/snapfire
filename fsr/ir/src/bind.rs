@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
-use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, LoadError, Meta, Metadata, NodeChunks, RequestCtx};
+use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, LoadError, Meta, Metadata, NodeChunks, RequestCtx, Seeds};
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
@@ -133,6 +133,38 @@ impl Metadata for IrMeta {
   }
 }
 
+/// A lowered `store` seeding the browser's store from its loader's data,
+/// which the body reads as its input. It must return an object; every key of
+/// it is a store key.
+pub struct IrStore {
+  source_id: String,
+  body: Arc<Body>,
+  interpreter: Interpreter,
+}
+
+impl IrStore {
+  pub fn new(source_id: impl Into<String>, body: Body) -> Self {
+    Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  }
+}
+
+impl Seeds for IrStore {
+  fn seed(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
+    let id = self.source_id.clone();
+    let body = self.body.clone();
+    let interpreter = self.interpreter.clone();
+    let ctx = ctx.clone();
+    let input = Value::Map(data.clone());
+    Box::pin(async move {
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+      match outcome.value {
+        Value::Map(map) => Ok(map),
+        other => Err(LoadError { source_id: id, message: format!("store must return an object, got {}", kind_name(&other)) }),
+      }
+    })
+  }
+}
+
 /// A lowered action answering an action id.
 pub struct IrAction {
   body: Arc<Body>,
@@ -207,6 +239,7 @@ impl Evaluator for IrEvaluator {
       let rendered = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
       let mut props = props;
       props.shift_remove("$slots");
+      props.shift_remove("$store");
       if rendered.islands.is_empty() && !rendered.html.contains(SLOT_MARK) {
         return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
       }

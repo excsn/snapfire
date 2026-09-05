@@ -9,6 +9,7 @@ pub mod meta;
 pub mod resolver;
 pub mod segments;
 pub mod services;
+pub mod store;
 pub mod stream;
 
 pub use actions::{ActionError, ActionHandler, ActionRegistry, FailureKind};
@@ -25,4 +26,5 @@ pub use meta::{Head, Meta, Metadata};
 pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
-pub use stream::{html_stream, meta_to_json, segments_to_json, wire_stream, FILL_SCRIPT};
+pub use store::Seeds;
+pub use stream::{html_stream, meta_to_json, segments_to_json, seed_to_json, wire_stream, FILL_SCRIPT};

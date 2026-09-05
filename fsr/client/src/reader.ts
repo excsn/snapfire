@@ -37,6 +37,8 @@ export interface Payload {
   segments: Segment | null;
   /** The document's title and description, from the eager wave then from each resolution that set them, in order. */
   heads: Head[];
+  /** The store keys the route seeds, from the eager wave then from each resolution that seeded, in order. */
+  seeds: { [key: string]: SfValue }[];
   resolutions: { slot: number; node: SfNode }[];
 }
 
@@ -66,7 +68,7 @@ export function decodeNode(row: unknown): SfNode {
   }
 }
 
-/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H and S rows. */
+/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H, T and S rows. */
 export function parsePayload(text: string): Payload {
   let format = 0;
   let encoding = "";
@@ -74,6 +76,7 @@ export function parsePayload(text: string): Payload {
   let segments: Segment | null = null;
   const resolutions: { slot: number; node: SfNode }[] = [];
   const heads: Head[] = [];
+  const seeds: { [key: string]: SfValue }[] = [];
 
   for (const line of text.split("\n")) {
     if (line.length === 0) continue;
@@ -88,6 +91,8 @@ export function parsePayload(text: string): Payload {
       segments = JSON.parse(line.slice(2));
     } else if (tag === "H") {
       heads.push(JSON.parse(line.slice(2)));
+    } else if (tag === "T") {
+      seeds.push(decodeValue(JSON.parse(line.slice(2))) as { [key: string]: SfValue });
     } else if (tag === "S") {
       const gap = line.indexOf(" ", 2);
       const slot = Number(line.slice(2, gap));
@@ -97,5 +102,5 @@ export function parsePayload(text: string): Payload {
     }
   }
   if (tree === null) throw new Error("payload has no N row");
-  return { format, encoding, tree, segments, heads, resolutions };
+  return { format, encoding, tree, segments, heads, seeds, resolutions };
 }

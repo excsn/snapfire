@@ -86,6 +86,7 @@ impl Interpreter {
     let (data, identity) = ctx.session.snapshot();
     let mut env = Env {
       ctx: ctx.clone(),
+      store: ValueMap::new(),
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::new();
@@ -145,6 +146,7 @@ pub(crate) struct Env {
   session: ValueMap,
   written: Vec<String>,
   pub(crate) scope: Vec<(String, Value)>,
+  pub(crate) store: ValueMap,
   clock: Arc<dyn Clock>,
 }
 
@@ -159,6 +161,7 @@ impl Env {
       session: ValueMap::new(),
       written: Vec::new(),
       scope,
+      store: ValueMap::new(),
       clock,
     }
   }
@@ -238,6 +241,7 @@ impl Env {
       session: self.session.clone(),
       written: Vec::new(),
       scope: self.scope.clone(),
+      store: self.store.clone(),
       clock: self.clock.clone(),
     }
   }
@@ -306,6 +310,7 @@ impl Env {
       Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
       Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Identity(path) => {
         let mut current = self.identity.clone().unwrap_or(Value::Null);
         for step in path {
@@ -556,6 +561,7 @@ impl Env {
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
         Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Identity(path) => {
           let mut current = self.identity.clone().unwrap_or(Value::Null);
           for step in path {

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrMeta, IrSource};
+use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrMeta, IrSource, IrStore};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, NodeCache, RequestCtx, Resolver, Runtime, TableResolver,
@@ -225,6 +225,7 @@ pub struct AppBuilder {
   lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
   /// By source id: the loader module's `meta` body.
   lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
+  lowered_stores: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
   lowered_components: Vec<(String, Component)>,
   contract: Option<Arc<Contract>>,
@@ -256,6 +257,7 @@ impl App {
       declared_actions: Vec::new(),
       lowered_sources: Vec::new(),
       lowered_metas: Vec::new(),
+      lowered_stores: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
       contract: None,
@@ -285,6 +287,10 @@ impl App {
     builder.lowered_metas = parsed
       .lowered_sources()
       .filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta)))
+      .collect();
+    builder.lowered_stores = parsed
+      .lowered_sources()
+      .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store)))
       .collect();
     builder.lowered_actions = parsed
       .lowered_actions()
@@ -664,6 +670,11 @@ impl AppBuilder {
     for (name, meta) in std::mem::take(&mut self.lowered_metas) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
         runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta)));
+      }
+    }
+    for (name, store) in std::mem::take(&mut self.lowered_stores) {
+      if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
+        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store)));
       }
     }
 

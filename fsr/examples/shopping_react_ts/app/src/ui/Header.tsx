@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { navigate } from "@snapfire/fsr-client";
+import { useStore } from "@snapfire/fsr-client/react";
+
+import { cartCount } from "@src/store";
 
 import { categories } from "./categories";
 
-export function Header({ cartCount, q = "", category = "" }: { cartCount: bigint | number; q?: string | null; category?: string | null }) {
+export function Header({ q = "", category = "" }: { q?: string | null; category?: string | null }) {
   const [text, setText] = useState(q ?? "");
   const [chosen, setChosen] = useState(category ?? "");
-  const items = Number(cartCount);
+  const [items] = useStore(cartCount, 0);
 
   function search(): void {
     const params = new URLSearchParams();

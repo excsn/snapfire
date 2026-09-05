@@ -8,6 +8,8 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Quick Start](#quick-start)
 * [Laying Out Routes](#laying-out-routes)
 * [Writing a Loader](#writing-a-loader)
+  * [Titling the Document](#titling-the-document)
+  * [Seeding the Store](#seeding-the-store)
 * [Writing a Layout](#writing-a-layout)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Writing Actions](#writing-actions)
@@ -131,6 +133,24 @@ export async function load({ params, services }: Ctx<"/product/{id}">) {
 
 The route pattern as the type argument gives `params` its fields; without it `params` is the union of every route's.
 
+### Titling the Document
+
+A loader module may export `meta` beside `load`, a function of the data `load` returned, giving the document its title and description. The innermost route with one wins over its layouts and over the title in `app.toml`.
+
+```ts
+export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({ title: `${data.product.name} · Shopping` });
+```
+
+### Seeding the Store
+
+A loader module may also export `store`, the same shape, returning the store keys this route seeds. The build lowers it beside `load`, the host runs it after the data arrives, and the keys reach the browser in the document, in a navigation's payload and with a streamed segment when it resolves. Components render on the server from the same values, so a seeded key hydrates without a flash.
+
+```ts
+export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/count": Number(data.cartCount) });
+```
+
+Every segment on the route may export one, merged outermost first, so a page wins a key its layout also sets. The keys are literal strings here, since a `store` body runs before any component and follows no imports. `useStore` in a component is how the browser reads and writes them, and the client package's guide has the rest.
+
 ## Writing a Layout
 
 `layout.tsx` wraps every page under its directory and renders the page where it puts `children`. Its props are what `layout.loader.ts` beside it returns, independent of the page's loader, so shared data such as a cart count lives in the layout's loader and no page carries it. A layout is an island: it hydrates, holds state and survives a navigation between the pages it wraps.
@@ -139,10 +159,10 @@ The route pattern as the type argument gives `params` its fields; without it `pa
 import type { ReactNode } from "react";
 import type { LayoutProps } from "@generated/client";
 
-export default function Layout({ cartCount, children }: LayoutProps & { children: ReactNode }) {
+export default function Layout({ q, children }: LayoutProps & { children: ReactNode }) {
   return (
     <>
-      <Header cartCount={cartCount} />
+      <Header q={q} />
       {children}
     </>
   );
@@ -155,7 +175,7 @@ export async function load({ session }: Ctx) {
 }
 ```
 
-Layouts nest: `routes/account/layout.tsx` sits inside `routes/layout.tsx` for every page under `account/`. A layout's loader takes the plain `Ctx`, since it serves many patterns. The page inside a layout cannot read the layout's data and the layout cannot read the page's; they share the session and the actions.
+Layouts nest: `routes/account/layout.tsx` sits inside `routes/layout.tsx` for every page under `account/`. A layout's loader takes the plain `Ctx`, since it serves many patterns. The page inside a layout cannot read the layout's data and the layout cannot read the page's; they share the session, the actions and the store the layout's `store` export seeds.
 
 ## Filling a Layout's Slots
 

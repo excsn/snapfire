@@ -1,3 +1,4 @@
+import { adopt } from "./store.js";
 import { decodeValue, SfValue } from "./values.js";
 
 export type Props = { [key: string]: SfValue };
@@ -111,6 +112,7 @@ const filling = new WeakSet<Document>();
 /** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export function boot(): void {
   const run = () => scan(document);
+  adopt();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", run, { once: true });
   } else {

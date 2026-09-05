@@ -29,6 +29,7 @@ const FSR_CLIENT: &[(&str, &str)] = &[
   ("react.d.ts", include_str!("../../client/types/react.d.ts")),
   ("reader.d.ts", include_str!("../../client/types/reader.d.ts")),
   ("render.d.ts", include_str!("../../client/types/render.d.ts")),
+  ("store.d.ts", include_str!("../../client/types/store.d.ts")),
   ("testing.d.ts", include_str!("../../client/types/testing.d.ts")),
   ("values.d.ts", include_str!("../../client/types/values.d.ts")),
 ];

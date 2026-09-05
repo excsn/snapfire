@@ -1,6 +1,9 @@
 import { useState } from "react";
 
+import { get, optimistic } from "@snapfire/fsr-client";
+
 import { actions, type ProductProps } from "@generated/client";
+import { cartCount } from "@src/store";
 import { categoryLabel } from "@src/ui/categories";
 import { addedToCart, failed } from "@src/ui/feedback";
 import { money, percentOff } from "@src/ui/money";
@@ -18,8 +21,11 @@ export default function ProductPage({ product, stock: level, inCart }: ProductPr
   const specs = product.attributes.filter((a) => a.name !== "Ingredients");
 
   async function add(): Promise<void> {
+    const showing = get(cartCount) ?? 0;
     try {
-      const result = await actions.cart.addToCart({ product_id: product.id, quantity: BigInt(quantity) });
+      const result = await optimistic(cartCount, showing + quantity, () =>
+        actions.cart.addToCart({ product_id: product.id, quantity: BigInt(quantity) }),
+      );
       addedToCart(product.name, result.count);
     } catch (e) {
       failed(e);

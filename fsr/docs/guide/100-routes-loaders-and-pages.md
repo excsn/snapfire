@@ -46,6 +46,18 @@ export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({
 
 The innermost route with a `meta` wins, so a layout's loader can set a default a page's overrides. A client-side navigation retitles the document from the payload, and a page behind `loading.tsx` retitles it the moment its data arrives, since the meta rides with the streamed segment. Reading `params`, `query`, `session` or `now` inside `meta` is allowed and marks the route dynamic the way it would in `load`.
 
+## The loader can seed a store the islands share
+
+Every island on a page is its own React root, so nothing crosses between them: no context, no lifted state. What they do share is a store, one keyed map for the document, and a loader fills it the same way it titles the document. Export `store` beside `load`, a function of the data the loader returned:
+
+```ts
+export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/count": Number(data.cartCount) });
+```
+
+Every segment on the route may export one and they merge outermost first, so a page wins a key its layout also sets. The seed reaches the browser in the document, so a component reading a key is rendered from the same value on the server and hydrates without a flash; a navigation carries it in the payload and a streamed segment carries its own when it resolves. A `store` export names its keys as literal strings, since it runs before any component and has no imports to follow.
+
+The storefront's root layout seeds the cart's total, and the header shows it. Nothing passes it down: the header is a component inside the layout's island, the buy button is in the page's, and the number they agree on is the key. [Chapter 102](102-components-the-server-renders.md) is how a component reads and writes it.
+
 ## The page receives what the loader returned
 
 The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `IndexProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.
