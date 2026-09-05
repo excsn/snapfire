@@ -303,6 +303,16 @@ Mounts every unmounted island marker under `root`. Selects `sf-i:not([data-sf-mo
 
 Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root` first and then across the document. A missing or empty script yields `{}`.
 
+A marker whose module id no registry knows is left as rendered and remembered, not reported. Every id still unregistered is warned about once the document settles: on `DOMContentLoaded`, after which every deferred module script has run, or on a microtask when the state is already `complete`, and never while an entry named by `loadEntry` is still loading. A mounted site's islands are missing on every scan that precedes its entry, so a first miss is the healthy path rather than a defect.
+
+### loadEntry
+
+* `loadEntry(src: string): void`
+
+Imports `src` once, however many times it is asked for, then rescans the document so the islands it registered mount. A failure warns `sf: loading <src> failed` and forgets `src`, so a later payload naming it tries again. Call it before the scan that will miss those islands: while it is in flight no miss is reported.
+
+The navigator calls it with a payload's `E` row, which is how a mounted site's entry reaches the browser on the first navigation into that site.
+
 ### boot
 
 * `boot(): void`
@@ -600,7 +610,8 @@ Not every failure surfaces as a rejection.
 
 | Situation | Behaviour |
 | --- | --- |
-| No island registered for a marker's module id | `console.warn("sf: no island registered for <id>")`, marker left as rendered |
+| No island registered for a marker's module id | Marker left as rendered and remembered; `console.warn("sf: no island registered for <id>")` only once the document settles and it is still unregistered |
+| An entry module fails to import | `console.warn("sf: loading <src> failed", err)`, and `src` is forgotten so a later payload retries |
 | A loader or mounter rejects | `console.warn("sf: mounting <id> failed", err)`, marker left as rendered |
 | A marker with no `data-sf-module` | Skipped, not marked mounted |
 | Missing or empty props script | Mounted with `{}` |
