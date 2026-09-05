@@ -8,6 +8,8 @@ title = "Ops console"
 [session]
 key = "ops-console-example-dev-key-not-a-secret"
 ttl = "1h"
+store = "service"
+client = "identity"
 
 [locales]
 supported = ["en_US", "fr_FR"]
@@ -15,12 +17,16 @@ default = "en_US"
 remember = true
 
 [auth]
-provider = "file"
+provider = "service"
+client = "identity"
 login = "/login"
 
 [clients.fleet]
 base_url = "http://127.0.0.1:8091"
 bearer = true
+
+[clients.identity]
+base_url = "http://127.0.0.1:8092"
 
 [[static]]
 route = "/static/js/fsr"

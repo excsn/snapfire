@@ -3,6 +3,7 @@
 //! it, actix reaches it through the `actix` feature's shim.
 
 pub mod config;
+mod remote;
 pub mod locale;
 pub mod shell;
 
@@ -36,6 +37,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
 pub use config::{AuthSection, BearerKey, ClientConfig, Config};
+pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use locale::{Locales, LocalesSection, Resolution};
 
 /// The encodings a payload request may name in `enc`; the wire's `V` row
@@ -157,8 +159,10 @@ pub enum RenderMode {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostReport {
   pub app: Report,
-  /// Service, `http` or `grpc`, base URL.
+  /// Service, `http`, `grpc` or `mock`, base URL or responses file.
   pub services: Vec<(String, String, String)>,
+  /// The client the sessions live behind, when the store is `service`.
+  pub session: Option<String>,
   pub statics: Vec<(String, PathBuf)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
@@ -197,6 +201,9 @@ impl std::fmt::Display for HostReport {
     }
     if let Some((capacity, ttl)) = &self.cache {
       writeln!(f, "{:<9} {capacity} entries, ttl {ttl}", "cache")?;
+    }
+    if let Some(client) = &self.session {
+      writeln!(f, "{:<9} service via {client}", "session")?;
     }
     if self.dev {
       writeln!(f, "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed", "dev")?;
@@ -1453,6 +1460,10 @@ impl HostBuilder {
       Some(store) => store,
       None => match config.session.store.as_str() {
         "memory" => Arc::new(MemorySessionStore::new(config.session.capacity, ttl)),
+        "service" => {
+          let client = config.session.client.clone().unwrap_or_default();
+          Arc::new(ServiceSessionStore::new(app.services.clone(), client))
+        }
         other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
       },
     };
@@ -1507,9 +1518,17 @@ impl HostBuilder {
             let users = config.config_dir().join(section.users.as_deref().unwrap_or("auth.toml"));
             Arc::new(DevProvider::from_toml(&section.login, &users).map_err(|e| HostError::Config(users.clone(), e))?)
           }
+          "service" => {
+            let client = section.client.clone().unwrap_or_default();
+            Arc::new(ServiceProvider::new(app.services.clone(), client, section.login.clone()))
+          }
           other => return Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
         };
-        Some((Mounted { auth: Auth::new(provider), login_path: section.login.clone() }, section.provider.clone()))
+        let name = match &section.client {
+          Some(client) if section.provider == "service" => format!("service via {client}"),
+          _ => section.provider.clone(),
+        };
+        Some((Mounted { auth: Auth::new(provider), login_path: section.login.clone() }, name))
       }
       (None, None) => None,
     };
@@ -1518,6 +1537,7 @@ impl HostBuilder {
     let report = HostReport {
       app: app.report.clone(),
       services: service_rows,
+      session: (config.session.store == "service").then(|| config.session.client.clone().unwrap_or_default()),
       statics: static_rows,
       prerender: prerendered.clone(),
       cache: cache_row,

@@ -1,0 +1,66 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Identity", "version": "1.0.0" },
+  "paths": {
+    "/authenticate": {
+      "post": {
+        "operationId": "authenticate",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Credentials" } } }
+        },
+        "responses": {
+          "200": { "description": "who signed in", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Signed" } } } },
+          "401": { "description": "unknown user or wrong password" }
+        }
+      }
+    },
+    "/sessions/{id}": {
+      "get": {
+        "operationId": "getSession",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "the stored record", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Stored" } } } },
+          "404": { "description": "no such session" }
+        }
+      },
+      "put": {
+        "operationId": "putSession",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Stored" } } }
+        },
+        "responses": { "204": { "description": "stored" } }
+      },
+      "delete": {
+        "operationId": "deleteSession",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "forgotten" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Credentials": {
+        "type": "object",
+        "required": ["user", "password"],
+        "properties": { "user": { "type": "string" }, "password": { "type": "string" } }
+      },
+      "Signed": {
+        "type": "object",
+        "required": ["subject", "claims", "access_token"],
+        "properties": {
+          "subject": { "type": "string" },
+          "claims": { "type": "object", "additionalProperties": { "type": "string" } },
+          "access_token": { "type": "string" }
+        }
+      },
+      "Stored": {
+        "type": "object",
+        "required": ["record"],
+        "properties": { "record": { "type": "string" } }
+      }
+    }
+  }
+}

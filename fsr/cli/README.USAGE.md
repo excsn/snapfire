@@ -340,7 +340,7 @@ A private route is a line of middleware, with the literal `return_to` you want:
 if (request.path === "/account" && !identity?.subject) return { redirect: "/auth/login?return_to=/account" };
 ```
 
-A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner does not serve the three `/auth/` routes, so the flow itself is a host test.
+`provider = "service"` with `client = "<name>"` asks that client's `authenticate` instead of a file, and `[session] store = "service"` with a `client` keeps the sessions behind one too, so the host holds neither accounts nor sessions; the console's identity service is the example, and `APP_ENV=mock` puts it behind a file like any other client. A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner does not serve the three `/auth/` routes, so the flow itself is a host test.
 
 ## Importing a Service
 

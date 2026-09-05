@@ -18,6 +18,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | An island timed on idle and one timed on visibility | `island(TipList, { when: "idle" })` on the summary, `<Island when="visible">` around the job timeline |
 | A counter held in a nested layout that survives a navigation between the two routes beneath it | `routes/state/layout.tsx`, `routes/state/one/`, `routes/state/two/` |
 | The whole console over a file instead of a backend | `config/mock.toml`, `app/clients/fleet.mock.json`, `APP_ENV=mock` |
+| Sessions and sign-in behind a service, nothing held by the host | `store = "service"` and `provider = "service"` in `config/app.toml`, `src/backend/identity.rs`, `app/clients/identity.openapi.json`, `tests/identity.rs` |
 | An error boundary on a nested segment | `routes/agents/view/[id]/error.tsx` |
 | Two locales, the default unprefixed and French under `/fr_FR/`, remembered in a cookie once chosen | `[locales]` in `config/app.toml`, the picker in `src/ui/LanguagePicker.tsx`, `useLocale()` in `routes/help/page.tsx` |
 | A login the host serves over a users file, a guarded route, the identity and the CSRF token as layout props, a loader whose backend call carries the session's token | `[auth]` in `config/app.toml`, `config/auth.toml`, `routes/login/`, `routes/account/`, the guard in `middleware.ts`, `src/ui/Header.tsx` |
@@ -35,9 +36,9 @@ cd ../examples/ops_console_react_ts && ../../../target/debug/fsr types app
 ../../../target/debug/fsr dev app
 ```
 
-Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`.
+Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091 and the identity service on 8092. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`, which the identity service reads and the host never opens: every sign-in is a call to `authenticate` and every session is a record the service holds, so the host keeps neither in memory.
 
-To run it with no backend at all, `APP_ENV=mock ../../../target/debug/fsr serve app` picks up `config/mock.toml`, which names the fleet client's transport as `mock`, and the fleet answers from `app/clients/fleet.mock.json`. The report says so beside the client; acknowledging an alert fails on purpose, since the file records nothing.
+To run it with no backend at all, `APP_ENV=mock ../../../target/debug/fsr serve app` picks up `config/mock.toml`, which names the fleet client's transport as `mock`, and the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
 
 ## Try it
 
@@ -49,4 +50,4 @@ Acknowledge an alert in the right column: the count in the header and the headli
 
 ## Tests
 
-`cargo test` runs the Rust suite in `tests/console.rs` over a mocked fleet: the two seeds and their merge, the two streamed segments, both fallbacks, the variant each slot picks and the actions. `fsr test app` runs the page specs under `app/tests/` in QuickJS over linkedom: the store across roots, the derived key, the optimistic writes and both intercepts.
+`cargo test` runs `tests/identity.rs` over the real identity service on a port of its own. The Rust suite in `tests/console.rs` runs over a mocked fleet: the two seeds and their merge, the two streamed segments, both fallbacks, the variant each slot picks and the actions. `fsr test app` runs the page specs under `app/tests/` in QuickJS over linkedom: the store across roots, the derived key, the optimistic writes and both intercepts.

@@ -1,3 +1,10 @@
-# APP_ENV=mock: the fleet answers from a file and no backend runs.
+# APP_ENV=mock: the fleet and the identity service answer from files and no backend runs.
+# Sessions cannot live in a canned answer, so they stay in memory here.
 [clients.fleet]
 transport = "mock"
+
+[clients.identity]
+transport = "mock"
+
+[session]
+store = "memory"

@@ -6,6 +6,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::{Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_session::MemorySessionStore;
 
 fn agent(id: i64, name: &str, region: &str, status: &str, queue: i64) -> Value {
   let mut map = ValueMap::new();
@@ -42,12 +43,27 @@ fn fleet() -> Arc<MockTransport> {
       .returns("fleet.getAgent", agent(1, "builder-eu-1", "eu", "up", 3))
       .returns("fleet.listJobs", Value::Seq(vec![job(11, "compile", 92)]))
       .returns("fleet.listAlerts", Value::Seq(vec![alert(21, 3, "page", "builder-us-1 stopped answering"), alert(22, 1, "warn", "queue over 3")]))
-      .returns("fleet.acknowledgeAlert", Value::Seq(vec![alert(22, 1, "warn", "queue over 3")])),
+      .returns("fleet.acknowledgeAlert", Value::Seq(vec![alert(22, 1, "warn", "queue over 3")]))
+      .returns("identity.authenticate", signed("alice", "admin")),
   )
 }
 
+fn signed(subject: &str, role: &str) -> Value {
+  let mut claims = ValueMap::new();
+  claims.insert("role".to_owned(), Value::str(role));
+  let mut map = ValueMap::new();
+  map.insert("subject".to_owned(), Value::str(subject));
+  map.insert("claims".to_owned(), Value::Map(claims));
+  map.insert("access_token".to_owned(), Value::Str(format!("svc-token-{subject}")));
+  Value::Map(map)
+}
+
+/// The stock host over the mocks. Sessions live in the identity service in
+/// `config/app.toml`; a canned transport cannot hold them, so these tests keep
+/// them in memory and `tests/identity.rs` drives the service itself.
 fn console(transport: Arc<MockTransport>) -> Host {
-  Host::from(env!("CARGO_MANIFEST_DIR")).unwrap().services_over(transport).build().unwrap()
+  let store = Arc::new(MemorySessionStore::new(64, std::time::Duration::from_secs(600)));
+  Host::from(env!("CARGO_MANIFEST_DIR")).unwrap().services_over(transport).session_store(store).build().unwrap()
 }
 
 fn watching(session: &SessionCell, ids: &[i64]) {
@@ -228,7 +244,7 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
   use http::{header, Request};
   let transport = fleet();
   let app = console(transport.clone());
-  assert_eq!(app.report.auth, Some(("file".to_owned(), "/login".to_owned())));
+  assert_eq!(app.report.auth, Some(("service via identity".to_owned(), "/login".to_owned())));
   assert_eq!(app.report.bearer, vec![("fleet".to_owned(), "access_token".to_owned())]);
   let location = |response: &http::Response<snapfire_fsr_host::Body>| response.headers().get(header::LOCATION).unwrap().to_str().unwrap().to_owned();
   let text = |response: http::Response<snapfire_fsr_host::Body>| block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
@@ -259,7 +275,7 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
   let html = text(response);
   assert!(html.contains("alice") && html.contains("admin"), "{html}");
   assert!(html.contains("Sign out"), "the header shows the session: {html}");
-  assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer dev-token-alice"), "the loader's fleet call carried the token");
+  assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer svc-token-alice"), "the loader's fleet call carried the token the identity service issued");
   let start = html.find("name=\"_csrf\" value=\"").map(|i| i + 20).expect("the sign-out form carries the token");
   let token = &html[start..start + html[start..].find('"').unwrap()];
   assert!(!token.is_empty());

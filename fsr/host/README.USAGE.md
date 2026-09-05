@@ -17,6 +17,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Posting a Form to an Action](#posting-a-form-to-an-action)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
+* [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
@@ -85,6 +86,7 @@ title = "Shopping"
 key = "a signing key"             # required
 ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
 csrf = "identified"               # when a CSRF token is minted: once signed in, or always
+store = "memory"                  # or "service", with client naming the [clients] entry that holds sessions
 
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
@@ -96,7 +98,7 @@ default = "en_US"                 # served unprefixed; the first supported one w
 remember = true                   # write the cookie when a prefix chose the locale
 
 [auth]                            # optional: without it there is no login and no /auth/ route
-provider = "file"                 # the accounts in config/auth.toml; oidc is planned
+provider = "file"                 # the accounts in config/auth.toml; "service" asks a client; oidc is planned
 login = "/login"                  # the application's login page, the default
 
 [clients.shopping]
@@ -327,6 +329,18 @@ password = "wonder"
 claims = { role = "admin" }
 ```
 
+The `service` provider keeps no accounts at all. `client` names a `[clients.<name>]` entry whose contract declares `authenticate(user, password)` answering `subject`, `claims` and `access_token`; the callback sends the form's two fields there, a `401` or a `404` from the service is the denial and anything else the service answers is a 400. The token the service issued goes into custody, so the bearer rides the clients that ask for it the same as with `file`:
+
+```toml
+[auth]
+provider = "service"
+client = "identity"
+login = "/login"
+
+[clients.identity]
+base_url = "http://127.0.0.1:8092"
+```
+
 A Rust host hands in any `IdentityProvider` instead, and the login page is `auth.login` when the section is written, `/login` otherwise:
 
 ```rust
@@ -357,6 +371,25 @@ let host = Host::from(".")?
   })
   .build()?;
 ```
+
+## Keeping Sessions in a Service
+
+`[session] store = "service"` moves every session record out of the host's memory and behind a client, so a fleet of hosts shares one session and a restart forgets nothing. The client's contract declares three methods, `getSession(id)` answering `{ record }` or a `404`, `putSession(id, record)` and `deleteSession(id)`; the record travels as one string in the payload's JSON encoding, so the service stores an opaque blob and never learns the shape of a session. A client can hold both the sessions and the accounts, as the console's identity service does.
+
+```toml
+[session]
+key = "a signing key"
+store = "service"
+client = "identity"
+```
+
+```text
+services  identity               http        http://127.0.0.1:8092
+session   service via identity
+auth      service via identity, login page /login, routes /auth/login, /auth/callback and /auth/logout
+```
+
+A `getSession` that fails for a reason other than `404` is logged and the request runs anonymous; a `putSession` that fails is logged and the response still goes out. `HostBuilder::session_store` still wins over the section for a Rust host. Under `fsr test` sessions stay in memory whatever the section says, since a spec's mocks cannot hold them.
 
 ## Caching Rendered Segments
 
