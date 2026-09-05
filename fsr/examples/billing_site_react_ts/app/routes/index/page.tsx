@@ -20,7 +20,7 @@ export default function InvoicesPage({ invoices }: IndexProps) {
                 <Link href={`/billing/invoice/${invoice.id}`}>{invoice.customer}</Link>
               </td>
               <td>{invoice.status}</td>
-              <td className="total">{invoice.total}</td>
+              <td className="total">{invoice.total.toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
