@@ -17,6 +17,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [ClientConfig](#clientconfig)
   * [StaticRoot](#staticroot)
   * [LocalesSection](#localessection)
+  * [AuthSection](#authsection)
+  * [BearerKey](#bearerkey)
   * [parse_duration](#parse_duration)
 * [2. Building](#2-building)
   * [Host::from](#hostfrom)
@@ -60,11 +62,12 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub inferred: Vec<String> }`
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub inferred: Vec<String> }`
 * `Config::load(path) -> Result<Config, HostError>`: `locate`, then `load_located`.
 * `Config::load_located(located: Located) -> Result<Config, HostError>`: `NoConfig` when `sources` is empty; otherwise c5store over the sources in that order with default options, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `from_store`.
-* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients`, `static` and `locales`, requires `session`, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
+* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales` and `auth`, requires `session`, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
+* `Config::config_dir(&self) -> PathBuf`: the directory of the first file loaded, the project root when none; where `auth.users` resolves.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
 * `Config::dev(&self) -> bool`: `server.dev` when written, else whether `Deployment::from_env().release_env` is `development`, which it is when the variable is unset.
 * `Config::cache_ttl(&self) -> Result<Option<Duration>, HostError>`: `None` without a `[cache]` section; a lifetime nobody can parse is `HostError::Value("cache.ttl", ..)`.
@@ -94,7 +97,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### ClientConfig
 
-* `document: Option<String>`, inferred as `clients/<name>.openapi.json` when absent, falling back to `clients/<name>.proto` when only that file exists; `base_url: String`. A `.proto` document is reached with `GrpcTransport`, anything else with `HttpTransport`. The table key is the service name.
+* `document: Option<String>`, inferred as `clients/<name>.openapi.json` when absent, falling back to `clients/<name>.proto` when only that file exists; `base_url: String`. A `.proto` document is reached with `GrpcTransport`, anything else with `HttpTransport`. The table key is the service name. `bearer: Option<BearerKey>`: which custody entry the client's calls carry as a bearer token; absent, none.
 
 ### StaticRoot
 
@@ -103,6 +106,15 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### LocalesSection
 
 * `pub struct locale::LocalesSection { pub supported: Vec<String>, pub default: Option<String>, pub order: Vec<String>, pub remember: bool, pub cookie: String }`, the `[locales]` section. `supported` is at least one tag of letters, digits, `_` and `-`, spelled as the application wants to see it; `default` is among them, the first when absent; `order` names the sources consulted, any subset of `prefix`, `cookie` and `header`, all three in that order when absent; `remember` is false by default; `cookie` is `sf_locale` by default. Checked at `build`, which fails with `HostError::Config` naming the offence.
+
+### AuthSection
+
+* `pub struct config::AuthSection { pub provider: String, pub login: String, pub users: Option<String> }`, the `[auth]` section. `provider` is one of `config::PROVIDERS`, `["file"]`; `login` is the application's login page, `/login` by default, and must start with `/`; `users` is the `file` provider's table, `auth.toml` by default, relative to `config_dir` and read on its own rather than through the ladder.
+
+### BearerKey
+
+* `pub enum config::BearerKey { Toggle(bool), Named(String) }`, untagged: `true`, `false` or a string in the file.
+* `key(&self) -> Option<&str>`: `access_token` for `true`, the string for `Named`, `None` for `false`.
 
 ### parse_duration
 
@@ -125,8 +137,9 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `session_store(self, store: Arc<dyn SessionStore>) -> Self`.
 * `shell(self, evaluator: Arc<dyn Evaluator>) -> Self`.
 * `prerendered(self, dir: impl Into<PathBuf>) -> Self`: where prerendered documents are read from, over `server.prerender`.
+* `identity(self, provider: Arc<dyn IdentityProvider>) -> Self`: the provider behind the `/auth/` routes, in place of the one `[auth]` names; the login page is `auth.login` when the section is written, `/login` otherwise.
 * `route`, `route_override`, `not_found`, `handler`, `handler_override`, `middleware`, `middleware_override`, `source`, `source_override`, `source_impl`, `action`, `action_override`, `evaluator`: the `snapfire_fsr::AppBuilder` methods with the same signatures.
-* `build(self) -> Result<Host, HostError>`: imports the clients, builds the registry with trace and identity interceptors, registers the shell for the document module and `NullEvaluator` for the rest after any evaluators given, applies the contract, builds the app under the binding rule, the session layer and the static roots.
+* `build(self) -> Result<Host, HostError>`: imports the clients, builds the registry with trace and identity interceptors plus one `CredentialInterceptor::bearer(key).only(clients)` per custody key the clients' `bearer` name, mounts the provider (`DevProvider::from_toml` for `file`, `HostError::Config` naming the file when it cannot be read), registers the shell for the document module and `NullEvaluator` for the rest after any evaluators given, applies the contract, builds the app under the binding rule, the session layer and the static roots.
 
 ## 3. The Host
 
@@ -135,7 +148,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `pub struct Host { pub report: HostReport, .. }`
 * `report(&self) -> &HostReport`; `listen(&self) -> &str`, the configured address.
 * `locales(&self) -> &Locales`: the locales the host serves and how it resolves a request's.
-* `render(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<BoxStream<'static, String>, HostError>`; `path` may carry a locale prefix, stripped before the route matches and resolved into `ctx.locale`, and a query string, decoded into `ctx.query`. Services are bound with the session's identity and no credentials. A prefixed request for the default locale carries `canonical` in its head.
+* `render(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<BoxStream<'static, String>, HostError>`; `path` may carry a locale prefix, stripped before the route matches and resolved into `ctx.locale`, and a query string, decoded into `ctx.query`. Services are bound with the session's identity and no credentials, and no CSRF token is minted; `handle` is where custody and the token ride. A prefixed request for the default locale carries `canonical` in its head.
 * `render_to_string(&self, path, mode, session) -> Result<String, HostError>`.
 * `intercept_for(&self, path: &str, from: Option<&str>, into: Option<&str>) -> Option<(PlanNode, Params)>`: the intercept a soft navigation to `path` renders, of the route's variants in file order: with `into`, the one whose slot it names; otherwise the first whose layouts, module for module from the shell down to the one declaring its slot, the route of `from`, the origin's path, shares. Both paths are without their query.
 * `render_navigation(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell) -> Result<BoxStream<'static, String>, HostError>`: the payload for a soft navigation: the intercept when `intercept_for` finds one, else `render` in `Payload` mode. `path` may carry its query; `from` may too.
@@ -143,14 +156,14 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `render_not_found(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<Option<BoxStream<'static, String>>, HostError>`: the application's not-found tree for `path`, with `params.path` set to the path without its query string, or `None` when the application has none.
 * `call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: `call_action_in` under the default locale.
 * `call_action_in(&self, id: &str, session: SessionCell, locale: Locale, input: Value) -> Result<Value, ActionError>`: runs the action with `locale` as its `ctx.locale`.
-* `prerenderable(&self) -> &[String]`: the patterns one render serves for every request: no parameter, every source lowered and reading nothing of the request (`snapfire_fsr_ir::body_reads_request`), no Rust source.
+* `prerenderable(&self) -> &[String]`: the patterns one render serves for every request: no parameter, every source lowered and reading nothing of the request (`snapfire_fsr_ir::body_reads_request`), no Rust source, no page or layout on the plan reading its `identity` or `csrf_token` prop (`Component::reads_prop`).
 * `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously once per supported locale and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`, a locale other than the default under its tag, `<out>/fr_FR/<path>/`; returns what it wrote, each path with its prefix.
 * `changed(&self)`: tells every open `/__fsr/events` stream that something changed; nothing when `dev` is off.
 * `invalidate(&self, plan_key: &str) -> usize`: drops every cached subtree under the plan `cache_key`, a lowered page's or layout's module name, and says how many went; zero without a `[cache]` section.
 * `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its locale prefix choosing the locale's directory and its query string ignored; `None` without a directory or a file.
 * `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path }` as its input, the path stripped of its locale prefix, the locale in `ctx.locale` and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
 * `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, its locale prefix stripped and resolved into `ctx.locale` and its query string becoming `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
-* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the locale, `Locales::resolve` over the path, the `Cookie` header and `Accept-Language`, or for the action route over the `x-sf-from` header's path instead of the request's, the stripped path standing in for the rest and a prefixed `/_sf/` or `/__fsr/` path answered `404`; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`; then a page, `__payload` in the query selecting the payload mode, and in that mode an `x-sf-from` or `x-sf-into` header makes it `render_navigation`, which skips the prerender directory when an intercept applies; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed; so is the locale cookie a `Resolution` asks for.
+* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the locale, `Locales::resolve` over the path, the `Cookie` header and `Accept-Language`, or for the action route over the `x-sf-from` header's path instead of the request's, the stripped path standing in for the rest and a prefixed `/_sf/`, `/__fsr/` or, with a provider mounted, `/auth/` path answered `404`; then, with a provider mounted, the identity routes: `GET /auth/login` answers 303 to what `Auth::login` returns, its `return_to` the query's when that is a path on this origin, else the `Referer`'s path, else `/`; `/auth/callback` reads its params from a form-encoded or JSON `POST` body or from a `GET` query, answers 303 to the flow's destination, 303 to `<login>?error=denied&return_to=<pending>` on `AuthError::Denied` and 400 with the message on `Invalid`; `POST /auth/logout` verifies `_csrf` from the body or `x-sf-csrf` from the headers with `Sessions::verify_csrf`, 403 when it fails, else `Auth::logout`, `Sessions::destroy` and 303 `/` carrying the expiring cookie and no persist; a `GET` of the login page calls `Auth::ensure_flow` with the query's `return_to`, else the `Referer`'s path when that is not the login page, else `/`, then continues; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`; then a page, `__payload` in the query selecting the payload mode, and in that mode an `x-sf-from` or `x-sf-into` header makes it `render_navigation`, which skips the prerender directory when an intercept applies; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed; so is the locale cookie a `Resolution` asks for. Every body under `handle` runs with the session's token custody bound to its services and, once the session is identified, the session's CSRF token as `ctx.csrf`; an anonymous request carries no token, so its renders share the memo.
 * With `dev` on, `handle` answers `GET /__fsr/events` with a `text/event-stream` body, one `data: {"bundle":"<id>"}` event on open and one per `changed`, and `POST /__fsr/changed` with 204 after calling `changed`, both before statics, middleware and sessions; static files gain `Cache-Control: no-cache`. The bundle id is a hash over every output `dist/.snapfire-build.json` lists, source maps aside, `-` without a bundle; a served document's head carries `dev_script` with the id of that moment and `prerender` writes the plain head.
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
@@ -183,12 +196,14 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### HostReport
 
-* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
+* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
 * `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 * `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
 * `dev: bool`: `Display` prints one `dev` row naming the two paths when true.
 * `locales: Vec<String>`: the configured locales, the default first, empty without a `[locales]` section; `Display` prints one `locales` row, `en_US (default, unprefixed), fr_FR`, when set.
+* `auth: Option<(String, String)>`: the provider name (`file`, else `custom` for one the builder was handed) and the login page; `Display` prints one `auth` row naming both and the three routes, plus `bearer    none; no client carries a token` when `bearer` is empty.
+* `bearer: Vec<(String, String)>`: client and custody key for every client whose `bearer` names one; `Display` prints a `bearer` row per client.
 
 ### Body
 

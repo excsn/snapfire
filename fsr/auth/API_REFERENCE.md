@@ -28,10 +28,13 @@ The login flow over any `IdentityProvider`. Holds the provider and no other stat
 
 * `pub fn new(provider: Arc<dyn IdentityProvider>) -> Self`
 * `pub async fn login(&self, opened: &Opened, return_to: &str) -> String`
+* `pub fn pending_return_to(&self, opened: &Opened) -> Option<String>`
 * `pub async fn callback(&self, opened: &Opened, params: ValueMap) -> Result<String, AuthError>`
 * `pub fn logout(&self, opened: &Opened)`
 
 `login` awaits `provider.begin(return_to)`, inserts `return_to` into the returned `state` as a `Value::Str`, writes the whole map to `opened.tokens` under the reserved key `_sf_auth` and returns `Begin::redirect` unchanged. It writes nothing to `opened.cell`, so the session stays anonymous. The insert overwrites any `return_to` a provider put in its own state. The write marks the token cell dirty, so `Sessions::persist` saves the record.
+
+`pending_return_to` reads `return_to` out of the flow state without consuming it; `None` when no flow is in progress or the state holds no string there.
 
 `callback` removes `_sf_auth` from `opened.tokens` before calling the provider, so the flow is consumed whether the attempt succeeds or fails. It returns `AuthError::Invalid("no login in progress for this session")` when that key is absent or is not a `Value::Map`. The destination comes from the state's `return_to`, defaulting to `/` when it is missing or not a `Value::Str`. On success it calls `opened.cell.set_identity(Some(outcome.identity))` then `opened.tokens.merge(outcome.tokens)`, so identity is readable by application code while tokens are not. The destination is then returned.
 
@@ -81,8 +84,9 @@ Name and password against a fixed in-memory table. Passwords are compared in the
 * `pub fn new(login_path: impl Into<String>) -> Self`
 * `pub fn user(self, name: impl Into<String>, password: impl Into<String>) -> Self`
 * `pub fn user_with_claims(self, name: impl Into<String>, password: impl Into<String>, claims: ValueMap) -> Self`
+* `pub fn from_toml(login_path: impl Into<String>, path: impl AsRef<Path>) -> Result<Self, String>`
 
-`new` starts with an empty table. `user` appends an entry with empty claims; `user_with_claims` appends one with the claims given. Both consume and return `Self` for chaining. Neither rejects a duplicate name: the first match in insertion order wins.
+`new` starts with an empty table. `user` appends an entry with empty claims; `user_with_claims` appends one with the claims given. Both consume and return `Self` for chaining. Neither rejects a duplicate name: the first match in insertion order wins. `from_toml` reads a file of `[[users]]` rows, each `name`, `password` and an optional `claims` table whose values become `Value`s (a string, integer, float, boolean, array or table; a datetime becomes its string), and appends them in file order. An unreadable or unparsable file, no row at all or an empty name is `Err` naming the path and the reason.
 
 `begin` returns `Begin { redirect: format!("{login_path}?return_to={encoded}"), state: ValueMap::new() }`, where `encoded` is `return_to` passed through `form_urlencoded::byte_serialize`. The redirect always carries a `return_to` query parameter, so a `login_path` that already has a query string produces a malformed URL.
 

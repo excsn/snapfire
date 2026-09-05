@@ -251,6 +251,7 @@ Reads one credential out of custody and attaches it.
 * `fn bearer(credential: impl Into<String>) -> Self` with header `authorization` and scheme `"Bearer "`
 * `fn header(self, header: impl Into<String>) -> Self`
 * `fn scheme(self, scheme: impl Into<String>) -> Self`
+* `fn only(self, services: impl IntoIterator<Item = impl Into<String>>) -> Self`: attaches the credential on calls to the named services only; without it every service gets it
 
 Writes `{scheme}{token}` under the header key. Writes nothing when custody holds no such credential or holds one that is not a `Value::Str`.
 
