@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 
 use snapfire_fsr_cli::{build, BuildError, Options};
 
+static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn app(files: &[(&str, &str)]) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let dir = std::env::temp_dir().join(format!("fsr-cli-routes-{}-{nanos}", std::process::id()));
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let dir = std::env::temp_dir().join(format!("fsr-cli-routes-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   for (name, source) in files {
@@ -15,7 +18,7 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   dir
 }
 
-const LAYOUT: &str = "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed}<Slot name=\"modal\" /></div>;\n}\n";
+const LAYOUT: &str = "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed}<Slot name=\"modal\"><p>closed</p></Slot><Slot name=\"drawer\" /></div>;\n}\n";
 const PAGE: &str = "export default function Page() {\n  return <p>page</p>;\n}\n";
 
 fn fails(dir: &Path) -> BuildError {
@@ -76,7 +79,7 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
   assert_eq!(intercept["pattern"], "/photo/{id}");
   let layout = &intercept["plan"]["children"][0]["node"];
   assert_eq!(layout["module"], "routes/layout.tsx#default");
-  assert_eq!(layout["keep"], serde_json::json!(["content", "feed"]), "the page and the other slot stay as the browser has them");
+  assert_eq!(layout["keep"], serde_json::json!(["content", "feed", "drawer"]), "the page and the other slots stay as the browser has them");
   assert_eq!(layout["children"].as_array().unwrap().len(), 1);
   assert_eq!(layout["children"][0]["slot"], "modal");
   let variant = &layout["children"][0]["node"];
@@ -100,12 +103,22 @@ fn slots_and_variants_out_of_place_are_refused() {
   let nested = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("routes/slots/feed/page.tsx", PAGE), ("routes/slots/feed/more/page.tsx", PAGE)]);
   assert!(matches!(fails(&nested), BuildError::SlotRoute(_)));
 
-  let undeclared = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("routes/photo/page.tsx", PAGE), ("routes/photo/page.drawer.tsx", PAGE)]);
-  assert!(matches!(fails(&undeclared), BuildError::SlotUndeclared { slot, .. } if slot == "drawer"));
+  let undeclared = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("routes/photo/page.tsx", PAGE), ("routes/photo/page.panel.tsx", PAGE)]);
+  assert!(matches!(fails(&undeclared), BuildError::SlotUndeclared { slot, .. } if slot == "panel"));
 
-  let many = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("routes/photo/page.tsx", PAGE), ("routes/photo/page.modal.tsx", PAGE), ("routes/photo/page.feed.tsx", PAGE)]);
-  assert!(matches!(fails(&many), BuildError::ManyVariants(_)));
-  for dir in [stray, empty, nested, undeclared, many] {
+  for dir in [stray, empty, nested, undeclared] {
     std::fs::remove_dir_all(&dir).unwrap();
   }
+}
+
+#[test]
+fn a_route_may_carry_a_variant_per_slot() {
+  let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("routes/photo/page.tsx", PAGE), ("routes/photo/page.modal.tsx", PAGE), ("routes/photo/page.drawer.tsx", PAGE)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  assert_eq!(built.report.intercepts.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(), vec!["/photo into drawer", "/photo into modal"], "one entry per variant, in file order");
+  let plan = plan_json(&dir);
+  let slots: Vec<String> = plan["intercepts"].as_array().unwrap().iter().map(|e| e["plan"]["children"][0]["node"]["children"][0]["slot"].as_str().unwrap().to_owned()).collect();
+  assert_eq!(slots, vec!["drawer", "modal"]);
+  assert_eq!(plan["intercepts"][0]["plan"]["children"][0]["node"]["keep"], serde_json::json!(["content", "modal"]), "the other variant's slot is kept, and `feed` is no slot without a slots/ directory");
+  std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -113,7 +113,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. A `layout.tsx` in any directory on the way from `routes/` to a route wraps that route's page, outermost first. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
 * `slots/<name>/` beside a `layout.tsx` is a parallel slot of that layout, a child in the slot `<name>` of every route under it, with `page.tsx`, `page.loader.ts`, `loading.tsx` and `error.tsx` read the way a route's are and the source id `layout.<name>` (`<layout id>.<name>` for a nested layout). It is not a route: `slots/` elsewhere is `BuildError::SlotsWithoutLayout`, a slot without `page.tsx` is `SlotWithoutPage` and one with a page or handler directory beneath it is `SlotRoute`. A layout also declares every slot its template places with `<Slot name>`.
-* `page.<slot>.tsx` beside a route's `page.tsx` is an intercept: an entry under the route's pattern in the manifest's `intercepts`, holding the layouts down to the nearest one declaring `<slot>`, that layout with the variant as its `<slot>` child and its page and every other slot in `keep`, and each layout above with its own slots in `keep`. The variant shares the route's source and error module and streams behind `loading.<slot>.tsx` alone. A slot no layout above declares is `SlotUndeclared`; a second variant on one route is `ManyVariants`.
+* `page.<slot>.tsx` beside a route's `page.tsx` is an intercept: an entry under the route's pattern in the manifest's `intercepts`, holding the layouts down to the nearest one declaring `<slot>`, that layout with the variant as its `<slot>` child and its page and every other slot in `keep`, and each layout above with its own slots in `keep`. The variant shares the route's source and error module and streams behind `loading.<slot>.tsx` alone. A route with several variants has one entry each, in file order. A slot no layout above declares is `SlotUndeclared`.
 * Node ids are assigned in tree order per plan, the shell at 0.
 * A segment is a name of ASCII letters, digits, `_` and `-`, `[name]` for a parameter or `[...name]` for a catch-all. Anything else is `BuildError::Segment`.
 * `index` as the first segment is the root. `index` deeper in a path is a literal segment.
@@ -224,7 +224,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `DuplicateType { name: String, first: String, second: String }`
 * `Contract(ContractError)`, from `Contract::validate`.
 * `UnknownInput { action: String, name: String }`
-* `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)`, `SlotUndeclared { path: PathBuf, file: String, slot: String }` and `ManyVariants(PathBuf)`, from the slot and variant rules above.
+* `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)` and `SlotUndeclared { path: PathBuf, file: String, slot: String }`, from the slot and variant rules above.
 * `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
 * `Http(String, String)`, the URL and the failure.
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.

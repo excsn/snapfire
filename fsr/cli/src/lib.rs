@@ -49,8 +49,6 @@ pub enum BuildError {
   SlotRoute(PathBuf),
   #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
   SlotUndeclared { path: PathBuf, file: String, slot: String },
-  #[error("{0}: one `page.<slot>.tsx` per route")]
-  ManyVariants(PathBuf),
   #[error("handler `{handler}` names input type `{name}`, which no schema under schemas/ declares")]
   UnknownHandlerInput { handler: String, name: String },
   #[error("`{0}` is not a package spec; write `name@version` or `name@version/subpath`")]
@@ -402,11 +400,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     let content = wrap_in_layouts(content, &wrapping, error_module.as_deref());
     entries.push(RouteEntry { pattern: route.pattern.clone(), plan: shell_over(options, content) });
 
-    let variants = variant_files(&route.dir)?;
-    if variants.len() > 1 {
-      return Err(BuildError::ManyVariants(route.dir.clone()));
-    }
-    for (file, slot) in variants {
+    for (file, slot) in variant_files(&route.dir)? {
       let module = format!("{rel}/{file}#default");
       let Some(declaring) = wrapping.iter().rposition(|l| l.declares(&slot)) else {
         return Err(BuildError::SlotUndeclared { path: route.dir.clone(), file, slot });

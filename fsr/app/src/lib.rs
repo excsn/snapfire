@@ -155,18 +155,19 @@ impl std::fmt::Debug for App {
 }
 
 /// The intercept plans from the plan file: one per `page.<slot>.tsx`, matched
-/// on the route's pattern.
+/// on the route's pattern, in file order under it.
 #[derive(Default)]
 pub struct Intercepts {
   matcher: MatchitMatcher,
-  resolver: TableResolver,
+  plans: HashMap<snapfire_fsr_runtime::EntryId, Vec<PlanNode>>,
 }
 
 impl Intercepts {
-  pub fn plan_for(&self, path: &str) -> Option<(PlanNode, Params)> {
+  /// Every intercept of the route `path` matches, with the matched params.
+  pub fn plans_for(&self, path: &str) -> Option<(Vec<PlanNode>, Params)> {
     let matched = self.matcher.match_path(path)?;
-    let plan = self.resolver.resolve(matched.entry, &matched.params)?;
-    Some((plan, matched.params))
+    let plans = self.plans.get(&matched.entry)?.clone();
+    Some((plans, matched.params))
   }
 }
 
@@ -585,13 +586,20 @@ impl AppBuilder {
 
     let not_found = self.routes.take_not_found();
     let mut intercepts = Intercepts::default();
-    for (index, (pattern, plan)) in self.routes.take_intercepts().into_iter().enumerate() {
+    let mut grouped: Vec<(String, Vec<PlanNode>)> = Vec::new();
+    for (pattern, plan) in self.routes.take_intercepts() {
+      match grouped.iter_mut().find(|(p, _)| *p == pattern) {
+        Some((_, plans)) => plans.push(plan),
+        None => grouped.push((pattern, vec![plan])),
+      }
+    }
+    for (index, (pattern, plans)) in grouped.into_iter().enumerate() {
       let entry = snapfire_fsr_runtime::EntryId(index as u32);
       intercepts
         .matcher
         .insert(&pattern, entry)
         .map_err(|e| BindError::Pattern { pattern: pattern.clone(), message: e.to_string() })?;
-      intercepts.resolver.insert(entry, plan);
+      intercepts.plans.insert(entry, plans);
     }
     let resolved = self.routes.resolved()?;
     let prerenderable: Vec<String> = resolved

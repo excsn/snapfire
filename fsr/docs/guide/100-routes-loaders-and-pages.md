@@ -72,7 +72,7 @@ The line between them is firm: the page cannot read the layout's data and the la
 
 Three rules cover what Next calls parallel and intercepting routes. A directory is a URL and nothing else. A layout declares its holes in code. A slot that is a route of its own lives under `slots/` beside the layout.
 
-A **parallel slot** is a segment beside the page with its own loader, loading and error boundary, rendered into a region the layout places. It lives under `slots/<name>/` beside the `layout.tsx`, holding the ordinary route files: `page.tsx`, `page.loader.ts`, `loading.tsx`, `error.tsx`. The layout places it as a prop of that name or as `<Slot name>`; either way the region is `<sf-s data-sf-name>` in the markup, which the layout's root adopts and never reconciles. Its props type is `Layout<Name>Props`, its source id `layout.<name>`, and it is keyed, cached and kept across navigation like any segment. The storefront's `routes/slots/promo/` shows snacks under the header on every page, loaded once per document by its own loader, and stays put when the page under it changes.
+A **parallel slot** is a segment beside the page with its own loader, loading and error boundary, rendered into a region the layout places. It lives under `slots/<name>/` beside the `layout.tsx`, holding the ordinary route files: `page.tsx`, `page.loader.ts`, `loading.tsx`, `error.tsx`. The layout places it as a prop of that name or as `<Slot name>`; either way the region is `<sf-s data-sf-name>` in the markup, which the layout's root adopts and never reconciles. Children of `<Slot>`, or `{promo ?? <p>…</p>}` in the prop form, are the fallback the region shows while nothing fills it, and takes back when a navigation empties it. Its props type is `Layout<Name>Props`, its source id `layout.<name>`, and it is keyed, cached and kept across navigation like any segment. The storefront's `routes/slots/promo/` shows snacks under the header on every page, loaded once per document by its own loader, and stays put when the page under it changes.
 
 ```tsx
 import { Slot } from "@snapfire/fsr-client/react";
@@ -99,7 +99,7 @@ import { Link } from "@snapfire/fsr-client/react";
 <Link href={`/product/${id}`} full>Full details</Link>
 ```
 
-The report lists each slot under `slots` by its source id and each intercept under `intercepts` as the pattern and the slot it opens in. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it, a variant naming a slot no layout above declares and a second variant on one route each stop the build.
+The report lists each slot under `slots` by its source id and each intercept under `intercepts` as the pattern and the slot it opens in. A route may carry a variant per slot, `page.modal.tsx` and `page.drawer.tsx` side by side, and the one that opens is the first, in file order, whose slot the live layout declares, or the one a link's `into` names. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
 
 ## A handler answers with a value
 

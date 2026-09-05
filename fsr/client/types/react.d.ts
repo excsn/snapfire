@@ -15,8 +15,10 @@ export declare function island<P extends object>(component: ComponentType<P>, op
 export interface SlotProps {
 	/** The slot's name: a `slots/<name>` directory beside the layout, or the slot a `page.<name>.tsx` under it renders into. */
 	name: string;
+	/** What the slot shows while nothing fills it. Rendered by the server, lowered by the build; never rendered here. */
+	children?: ReactNode;
 }
-/** A named slot of a layout: the region a parallel route renders into, or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment, empty when nothing fills it; in the browser this element adopts the region as it stands, and navigation fills and empties it without React reconciling it. */
+/** A named slot of a layout: the region a parallel route renders into, or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment, or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands, and navigation fills and empties it without React reconciling it. */
 export declare function Slot({ name }: SlotProps): ReactElement;
 export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 	/** Always the document's rendering of the target, never an intercept into a slot. */

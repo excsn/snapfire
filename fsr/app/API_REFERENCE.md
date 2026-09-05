@@ -30,7 +30,7 @@ Everything a request needs, plus what was bound to produce it.
 The intercept trees from the plan file, matched on their route's pattern. Whether one applies to a navigation is the host's call.
 
 * `pub struct Intercepts`, `Default`.
-* `Intercepts::plan_for(&self, path: &str) -> Option<(PlanNode, Params)>`: the tree and the matched params for `path`, or `None` when no intercept matches.
+* `Intercepts::plans_for(&self, path: &str) -> Option<(Vec<PlanNode>, Params)>`: every intercept of the route `path` matches, in file order, with the matched params; `None` when no intercept matches.
 
 ### Handlers
 

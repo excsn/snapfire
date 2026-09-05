@@ -517,6 +517,10 @@ impl Session {
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
       self.inject_ctx_props(&mut props);
+      if !node.children.is_empty() || !node.keep.is_empty() {
+        let slots = node.children.iter().map(|(name, _)| name).chain(&node.keep).map(|name| Value::Str(name.0.clone())).collect();
+        props.insert("$slots".to_owned(), Value::Seq(slots));
+      }
 
       let chunks: Vec<Chunk> = self
         .runtime

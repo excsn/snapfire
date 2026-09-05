@@ -166,3 +166,25 @@ fn a_kept_slot_renders_nothing_and_the_sidecar_says_which() {
   assert_eq!(sidecar["keep"], serde_json::json!(["content"]));
   assert_eq!(sidecar["c"][0]["n"], "modal");
 }
+
+#[test]
+fn a_node_with_children_learns_which_slots_the_plan_fills_or_keeps() {
+  use parking_lot::Mutex;
+  struct Recording(Arc<Mutex<Vec<Data>>>);
+  impl Evaluator for Recording {
+    fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+      self.0.lock().push(props.clone());
+      Box::pin(stream::iter([Ok(Chunk::Node(Node::raw("<x>")))]))
+    }
+  }
+  let seen = Arc::new(Mutex::new(Vec::new()));
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|_: &ModuleId| true, Arc::new(Recording(Arc::clone(&seen))));
+  let runtime = Runtime::new(DataSources::new(), evaluators);
+
+  let plan = layout_plan(vec![(SlotName("modal".into()), leaf(1, "page.modal.tsx"))], vec!["content", "promo"]);
+  block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let props = seen.lock();
+  assert_eq!(props[0].get("$slots"), Some(&Value::Seq(vec![Value::str("modal"), Value::str("content"), Value::str("promo")])), "children first, then the kept ones");
+  assert!(props.iter().skip(1).all(|p| p.get("$slots").is_none()), "a leaf has no slots to name: {:?}", props);
+}

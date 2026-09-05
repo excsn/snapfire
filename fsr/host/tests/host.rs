@@ -30,8 +30,11 @@ const PLAN: &str = r#"{
   ],
   "intercepts": [
     { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "keep": ["content"], "children": [
-        { "slot": "modal", "node": { "id": 2, "module": "routes/feed/photo/page.modal.tsx#default" } } ] } } ] } }
+      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "keep": ["content", "drawer"], "children": [
+        { "slot": "modal", "node": { "id": 2, "module": "routes/feed/photo/page.modal.tsx#default" } } ] } } ] } },
+    { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "keep": ["content", "modal"], "children": [
+        { "slot": "drawer", "node": { "id": 2, "module": "routes/feed/photo/page.drawer.tsx#default" } } ] } } ] } }
   ],
   "sources": [
     { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
@@ -424,19 +427,23 @@ async fn a_soft_navigation_is_intercepted_when_its_origin_shares_the_declaring_l
   assert!(host.intercept_for("/feed/photo/3", Some("/"), None).is_none(), "the index has no such layout");
   assert!(host.intercept_for("/feed/photo/3", None, None).is_none(), "no origin is a document");
   assert!(host.intercept_for("/feed/photo/3", None, Some("modal")).is_some(), "`into` names the slot outright");
-  assert!(host.intercept_for("/feed/photo/3", Some("/feed"), Some("drawer")).is_none(), "a slot the route has no variant for");
+  assert!(host.intercept_for("/feed/photo/3", Some("/feed"), Some("panel")).is_none(), "a slot the route has no variant for");
+  let (drawer, _) = host.intercept_for("/feed/photo/3", None, Some("drawer")).unwrap();
+  assert_eq!(drawer.children[0].1.children[0].0 .0, "drawer", "`into` picks among a route's variants");
+  let (first, _) = host.intercept_for("/feed/photo/3", Some("/feed"), None).unwrap();
+  assert_eq!(first.children[0].1.children[0].0 .0, "modal", "without `into`, the first variant whose layout the origin shares");
   assert!(host.intercept_for("/feed", Some("/feed"), None).is_none(), "a route without a variant");
 
   let payload = host.render_navigation_to_string("/feed/photo/3", Some("/feed"), None, SessionCell::default()).await.unwrap();
   let sidecar = payload.lines().find(|l| l.starts_with("G ")).unwrap();
-  assert!(sidecar.contains("\"keep\":[\"content\"]"), "{sidecar}");
+  assert!(sidecar.contains("\"keep\":[\"content\",\"drawer\"]"), "{sidecar}");
   let plain = host.render_navigation_to_string("/feed/photo/3", Some("/"), None, SessionCell::default()).await.unwrap();
   assert!(!plain.contains("keep"), "{plain}");
 
   let response = host.handle(Request::get("/feed/photo/3?__payload").header("x-sf-from", "/feed?x=1").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
   let body = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
-  assert!(body.contains("\"keep\":[\"content\"]"), "the edge reads the origin header: {body}");
+  assert!(body.contains("\"keep\":[\"content\",\"drawer\"]"), "the edge reads the origin header: {body}");
   let response = host.handle(Request::get("/feed/photo/3?__payload").body(Bytes::new()).unwrap()).await;
   let body = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
   assert!(!body.contains("keep"), "without it the payload is the page's: {body}");
