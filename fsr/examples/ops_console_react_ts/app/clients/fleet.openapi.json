@@ -1,37 +1,117 @@
 {
   "openapi": "3.0.3",
-  "info": { "title": "Fleet", "version": "1.0.0" },
+  "info": {
+    "title": "Fleet",
+    "version": "1.0.0"
+  },
   "paths": {
     "/agents": {
       "get": {
         "operationId": "listAgents",
-        "parameters": [{ "name": "region", "in": "query", "required": false, "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "the agents",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Agent" } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Agent"
+                  }
+                }
+              }
+            }
           }
+        },
+        "x-sf-cache": {
+          "ttl": "15s",
+          "tags": [
+            "agents"
+          ],
+          "scope": "shared"
         }
       }
     },
     "/agents/{id}": {
       "get": {
         "operationId": "getAgent",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
-          "200": { "description": "one agent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Agent" } } } }
+          "200": {
+            "description": "one agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          }
+        },
+        "x-sf-cache": {
+          "ttl": "15s",
+          "tags": [
+            "agents"
+          ],
+          "scope": "shared"
         }
       }
     },
     "/agents/{id}/jobs": {
       "get": {
         "operationId": "listJobs",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "what the agent is running",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Job" } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Job"
+                  }
+                }
+              }
+            }
           }
+        },
+        "x-sf-cache": {
+          "ttl": "30s",
+          "tags": [
+            "agents"
+          ],
+          "scope": "shared"
         }
       }
     },
@@ -41,18 +121,59 @@
         "responses": {
           "200": {
             "description": "the open alerts",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Alert" } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Alert"
+                  }
+                }
+              }
+            }
           }
+        },
+        "x-sf-cache": {
+          "ttl": "15s",
+          "tags": [
+            "alerts"
+          ],
+          "scope": "shared"
         }
       }
     },
     "/alerts/{id}/ack": {
       "post": {
         "operationId": "acknowledgeAlert",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
-          "200": { "description": "what is left open", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Alert" } } } } }
-        }
+          "200": {
+            "description": "what is left open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Alert"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-sf-writes": [
+          "alerts"
+        ]
       }
     }
   },
@@ -60,33 +181,82 @@
     "schemas": {
       "Agent": {
         "type": "object",
-        "required": ["id", "name", "region", "status", "queue_depth", "cpu"],
+        "required": [
+          "id",
+          "name",
+          "region",
+          "status",
+          "queue_depth",
+          "cpu"
+        ],
         "properties": {
-          "id": { "type": "integer", "format": "int64" },
-          "name": { "type": "string" },
-          "region": { "type": "string" },
-          "status": { "type": "string" },
-          "queue_depth": { "type": "integer", "format": "int64" },
-          "cpu": { "type": "number", "format": "double" }
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "queue_depth": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cpu": {
+            "type": "number",
+            "format": "double"
+          }
         }
       },
       "Job": {
         "type": "object",
-        "required": ["id", "name", "seconds"],
+        "required": [
+          "id",
+          "name",
+          "seconds"
+        ],
         "properties": {
-          "id": { "type": "integer", "format": "int64" },
-          "name": { "type": "string" },
-          "seconds": { "type": "integer", "format": "int64" }
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          }
         }
       },
       "Alert": {
         "type": "object",
-        "required": ["id", "agent_id", "level", "text"],
+        "required": [
+          "id",
+          "agent_id",
+          "level",
+          "text"
+        ],
         "properties": {
-          "id": { "type": "integer", "format": "int64" },
-          "agent_id": { "type": "integer", "format": "int64" },
-          "level": { "type": "string" },
-          "text": { "type": "string" }
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "agent_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "level": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
         }
       }
     }

@@ -301,6 +301,16 @@ fn subtree_has_failure(node: &PlanNode, failed: &HashMap<u32, LoadError>) -> boo
   failed.contains_key(&node.id.0) || node.children.iter().any(|(_, c)| subtree_has_failure(c, failed))
 }
 
+/// Every module and slot beneath a node, so two routes sharing a layout node
+/// with no data of its own still key their subtrees apart.
+fn subtree_shape(node: &PlanNode, h: &mut xxhash_rust::xxh3::Xxh3) {
+  h.update(node.module.to_string().as_bytes());
+  for (slot, child) in &node.children {
+    h.update(slot.0.as_bytes());
+    subtree_shape(child, h);
+  }
+}
+
 fn subtree_data_fingerprint(node: &PlanNode, data: &HashMap<u32, Data>) -> u64 {
   fn walk(node: &PlanNode, data: &HashMap<u32, Data>, h: &mut xxhash_rust::xxh3::Xxh3) {
     h.update(&node.id.0.to_le_bytes());
@@ -462,13 +472,16 @@ impl Session {
     pairs.sort_unstable();
     let subject = self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned());
     let csrf = self.ctx.csrf.as_deref().unwrap_or("-");
+    let mut shape = xxhash_rust::xxh3::Xxh3::new();
+    subtree_shape(node, &mut shape);
     Some(format!(
-      "{}|{}|ident={}|csrf={}|locale={}|{:016x}|{:016x}",
+      "{}|{}|ident={}|csrf={}|locale={}|{:016x}|{:016x}|{:016x}",
       plan_key.0,
       pairs.join("&"),
       subject,
       csrf,
       self.ctx.locale.tag,
+      shape.digest(),
       subtree_data_fingerprint(node, data),
       store.fingerprint()
     ))

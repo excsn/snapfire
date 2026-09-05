@@ -1,9 +1,10 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use futures::executor::block_on;
 use futures::StreamExt;
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_host::{Host, RenderMode};
+use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_service::MockTransport;
 use snapfire_fsr_session::MemorySessionStore;
@@ -63,7 +64,11 @@ fn signed(subject: &str, role: &str) -> Value {
 /// them in memory and `tests/identity.rs` drives the service itself.
 fn console(transport: Arc<MockTransport>) -> Host {
   let store = Arc::new(MemorySessionStore::new(64, std::time::Duration::from_secs(600)));
-  Host::from(env!("CARGO_MANIFEST_DIR")).unwrap().services_over(transport).session_store(store).build().unwrap()
+  let mut config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+  if let Some(cache) = config.cache.as_mut() {
+    cache.data = None;
+  }
+  Host::from_config(config).unwrap().services_over(transport).session_store(store).build().unwrap()
 }
 
 fn watching(session: &SessionCell, ids: &[i64]) {

@@ -33,6 +33,7 @@ How to declare a contract, build the service registry, bind it to a request and 
   * [The Built-In Three](#the-built-in-three)
   * [Writing Your Own](#writing-your-own)
   * [Short-Circuiting the Chain](#short-circuiting-the-chain)
+* [Caching a Method's Answers](#caching-a-methods-answers)
 * [Holding Credentials](#holding-credentials)
 * [Testing Against a Mock](#testing-against-a-mock)
 * [Wiring the Layer into an Application](#wiring-the-layer-into-an-application)
@@ -679,6 +680,43 @@ impl Interceptor for RequireIdentity {
   }
 }
 ```
+
+## Caching a Method's Answers
+
+Freshness is the data owner's knowledge, so it is declared on the contract, per method, and the registry does the rest. `ttl` says how long an answer holds, `tags` name what a write drops it under, `scope` says who may share it, and `stale` opens a window after `ttl` in which the last answer is served while a refresh runs behind it.
+
+```rust
+use snapfire_fsr_service::{Freshness, Method, Service, Type};
+
+let catalog = Service::new()
+  .method("list", Method::new(vec![], Type::list(Type::named("Product"))).cached(Freshness::ttl("30s").tags(["catalog"]).shared().stale("2m")))
+  .method("mine", Method::new(vec![], Type::list(Type::named("Order"))).cached(Freshness::ttl("1m").per_subject()))
+  .method("add", Method::new(vec![Field::new("name", Type::Str)], Type::Null).writes(["catalog"]));
+```
+
+An OpenAPI operation says the same with `x-sf-cache` and `x-sf-writes`; a `.proto` carries no annotation yet.
+
+```json
+{ "get": { "operationId": "list", "x-sf-cache": { "ttl": "30s", "tags": ["catalog"], "scope": "shared", "stale": "2m" }, "responses": { "200": { "..." : "..." } } } }
+```
+
+The builder turns it on with a capacity per policy:
+
+```rust
+let services = Services::builder().contract(contract).default_transport(transport).data_cache(500).build();
+let anon = services.bind_anonymous();
+anon.call("catalog", "list", ValueMap::new()).await?;
+anon.call("catalog", "list", ValueMap::new()).await?;
+assert_eq!(services.data_cache().unwrap().hits(), 1);
+anon.call("catalog", "add", args).await?;
+anon.call("catalog", "list", ValueMap::new()).await?;
+assert_eq!(services.data_cache().unwrap().misses(), 2, "the write dropped the tag");
+services.invalidate_tags(["catalog"]);
+```
+
+The scope is the safety rule. `private`, the default, means an identified call never reads or writes the cache, so a bearer-carrying answer cannot be served to someone else by accident; anonymous calls share one entry. `shared` serves everyone the same entry. `subject` keeps one entry per subject. A miss always runs the caller's own call with its own credentials; only the refresh a `stale` window starts runs anonymously, which is why `stale` is refused off `shared` scope by `validate` and by `try_build`.
+
+A failure is never stored: the next call asks again, and a refresh that fails keeps the last answer. Two calls with the same arguments in another order share an entry, since the key renders maps by sorted key.
 
 ## Holding Credentials
 

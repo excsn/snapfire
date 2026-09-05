@@ -14,6 +14,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [DocumentConfig](#documentconfig)
   * [SessionSection](#sessionsection)
   * [CacheSection](#cachesection)
+  * [DataCacheSection](#datacachesection)
   * [ClientConfig](#clientconfig)
   * [StaticRoot](#staticroot)
   * [LocalesSection](#localessection)
@@ -95,6 +96,11 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### CacheSection
 
 * `capacity: u64` (default 1000), `ttl: String` (default `1m`). Present at all means `build` installs `FibreCache::bounded(capacity, ttl)` on the app; absent means nothing is cached.
+* `data: Option<DataCacheSection>`: present means `build` installs the service layer's `DataCache` over every method whose contract declares `cache`; absent means no method is cached.
+
+### DataCacheSection
+
+* `capacity: Option<u64>`: entries per policy, `cache.capacity` when absent. Unknown keys are refused.
 
 ### ClientConfig
 
@@ -164,6 +170,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously once per supported locale and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`, a locale other than the default under its tag, `<out>/fr_FR/<path>/`; returns what it wrote, each path with its prefix.
 * `changed(&self)`: tells every open `/__fsr/events` stream that something changed; nothing when `dev` is off.
 * `invalidate(&self, plan_key: &str) -> usize`: drops every cached subtree under the plan `cache_key`, a lowered page's or layout's module name, and says how many went; zero without a `[cache]` section.
+* `invalidate_tags<I, S>(&self, tags: I)`: drops every data cache answer under the named tags; nothing without `[cache.data]`.
+* `services(&self) -> Arc<Services>`: the registry the routes call through.
 * `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its locale prefix choosing the locale's directory and its query string ignored; `None` without a directory or a file.
 * `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path, payload }` as its input, `payload` true when the query carries `__payload`, the path stripped of its locale prefix, the locale in `ctx.locale` and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
 * `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, its locale prefix stripped and resolved into `ctx.locale` and its query string becoming `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
@@ -208,7 +216,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `locales: Vec<String>`: the configured locales, the default first, empty without a `[locales]` section; `Display` prints one `locales` row, `en_US (default, unprefixed), fr_FR`, when set.
 * `auth: Option<(String, String)>`: the provider name (`file`, `service via <client>`, else `custom` for one the builder was handed) and the login page; `Display` prints one `auth` row naming both and the three routes, plus `bearer    none; no client carries a token` when `bearer` is empty.
 * `bearer: Vec<(String, String)>`: client and custody key for every client whose `bearer` names one; `Display` prints a `bearer` row per client.
-* `session: Option<String>`: the client the sessions live behind when `session.store` is `service`; `Display` prints one `session` row, `service via <client>`. The `auth` name for a `service` provider reads `service via <client>`.
+* `session: Option<String>`: the client the sessions live behind when `session.store` is `service`; `Display` prints one `session` row, `service via <client>`.
+* `cached: Vec<(String, String)>`: `service.method` and its policy as text, `ttl 15s shared, stale 2m [tags]`; `Display` prints a `cached` row per method. `writers: Vec<(String, String)>`: `service.method` and `[tags]`; a `writes` row per method. The `auth` name for a `service` provider reads `service via <client>`.
 
 ### ServiceSessionStore
 

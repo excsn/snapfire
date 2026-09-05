@@ -11,6 +11,8 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [Variant](#variant)
   * [TypeDef](#typedef)
   * [Method](#method)
+  * [Freshness](#freshness)
+  * [Scope](#scope)
   * [Service](#service)
   * [Contract](#contract)
 * [2. The Registry](#2-the-registry)
@@ -26,6 +28,8 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [IdentityInterceptor](#identityinterceptor)
   * [CredentialInterceptor](#credentialinterceptor)
   * [TraceInterceptor](#traceinterceptor)
+  * [DataCache](#datacache)
+  * [DataCacheError](#datacacheerror)
 * [5. Transports](#5-transports)
   * [Transport](#transport)
   * [LocalTransport](#localtransport)
@@ -133,7 +137,29 @@ One method signature.
 
 * `pub params: Vec<Field>`, defaults to empty when absent from JSON
 * `pub returns: Type`
+* `pub cache: Option<Freshness>`, absent from JSON when `None`: how long an answer may be reused
+* `pub writes: Vec<String>`, absent from JSON when empty: the tags a successful call drops
 * `fn new(params: Vec<Field>, returns: Type) -> Self`
+* `fn cached(self, freshness: Freshness) -> Self`; `fn writes<I, S>(self, tags: I) -> Self`
+
+### Freshness
+
+The data owner's statement of how long a method's answer holds, on the contract.
+
+* `pub ttl: String`, a duration (`30s`, `5m`, `2h`, `1d` or seconds)
+* `pub tags: Vec<String>`, the tags a write drops it under; absent from JSON when empty
+* `pub scope: Scope`, default `Private`
+* `pub stale: Option<String>`, a window after `ttl` in which the last answer is served while a refresh runs behind it; `Shared` scope only
+* `fn ttl(ttl: impl Into<String>) -> Self`; `fn tags<I, S>(self, tags: I) -> Self`; `fn shared(self) -> Self`; `fn per_subject(self) -> Self`; `fn stale(self, window: impl Into<String>) -> Self`
+
+### Scope
+
+Who a cached answer may be served to. Serialized in snake case.
+
+* `Private` (default): an identified call never reads or writes the cache; anonymous calls share one entry
+* `Shared`: every call reads one entry, identified or not
+* `Subject`: one entry per identity subject, plus one for anonymous calls
+* `fn as_str(&self) -> &'static str`
 
 ### Service
 
@@ -177,6 +203,8 @@ Named clients over transports behind one seam, built once per process and shared
 * `fn contract(&self) -> &Contract`
 * `fn bind(self: &Arc<Self>, identity: Option<Identity>, credentials: Arc<dyn Credentials>) -> ServiceHandle` fixes one request's identity and credential custody into a handle safe to hand to application code
 * `fn bind_anonymous(self: &Arc<Self>) -> ServiceHandle` binds with no identity and `NoCredentials`
+* `fn data_cache(&self) -> Option<&DataCache>`: the cache, when the builder asked for one and the contract declares a cached or writing method
+* `fn invalidate_tags<I, S>(&self, tags: I)`: drops every cached answer under the named tags; nothing without a cache
 
 Every call made through a bound handle runs `check_call` before any transport is selected, then the interceptor chain, then the transport, then `check_return` unless response checking was disabled. A service with no named transport falls back to the default transport; with neither, the call fails with `FailureKind::Unavailable`.
 
@@ -189,7 +217,9 @@ Also `Default`, though `Services::builder()` is the entry point that sets the in
 * `fn transport(self, service: impl Into<String>, transport: Arc<dyn Transport>) -> Self` binds one named service
 * `fn default_transport(self, transport: Arc<dyn Transport>) -> Self` binds the fallback for every service without one
 * `fn check_responses(self, check: bool) -> Self` governs `check_return` only; arguments are checked either way. `Services::builder()` starts it at `true`.
-* `fn build(self) -> Arc<Services>` gives every transport its own chain over the same interceptor list
+* `fn data_cache(self, capacity: u64) -> Self`: answers every method whose contract declares `cache` from memory, `capacity` entries per policy; the cache sits last in the chain
+* `fn build(self) -> Arc<Services>` gives every transport its own chain over the same interceptor list; panics on a cache policy `try_build` would refuse
+* `fn try_build(self) -> Result<Arc<Services>, DataCacheError>`
 
 ## 3. Calls and Custody
 
@@ -263,6 +293,23 @@ A request id that survives the whole fanout. Also `Default`.
 * `fn key(self, key: impl Into<String>) -> Self`
 
 Writes a zero-padded 16-digit lowercase hex counter under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`.
+
+### DataCache
+
+The interceptor `data_cache` installs: one `fibre_cache` per distinct `(ttl, stale)`, built on first use so a host may be built before its runtime runs. Tag generations are part of every key, so a write moves a generation on and the entries under it become unreachable. A miss runs the caller's own call, credentials included; only a `stale` refresh runs anonymously. A failed call is never stored, and a failed refresh keeps the last answer.
+
+* `fn from_contract(contract: &Contract, capacity: u64) -> Result<Self, DataCacheError>`
+* `fn is_empty(&self) -> bool`: no method declares `cache` and none `writes`
+* `fn policies(&self) -> Vec<(String, Freshness)>`: `service.method` and its policy, sorted
+* `fn writers(&self) -> Vec<(String, Vec<String>)>`: `service.method` and the tags it drops, sorted
+* `fn hits(&self) -> u64`; `fn misses(&self) -> u64`
+* `fn invalidate_tags<I, S>(&self, tags: I)`
+* `Clone` shares the caches; `Interceptor`.
+* `pub fn cache::canonical(value: &Value, out: &mut String)`: the deterministic rendering of a value the key uses, maps by sorted key.
+
+### DataCacheError
+
+* `Ttl { method, ttl }`, `Stale { method, stale }`: not a duration; `StaleScope { method }`: `stale` off `Shared` scope; `Build { method, error }`: `fibre_cache` refused the policy.
 
 ## 5. Transports
 

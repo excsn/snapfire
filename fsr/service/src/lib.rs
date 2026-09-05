@@ -1,5 +1,6 @@
 pub mod call;
 pub mod check;
+pub mod cache;
 pub mod contract;
 pub mod http;
 pub mod interceptor;
@@ -14,7 +15,8 @@ pub mod typescript;
 
 pub use call::{Call, Credentials, NoCredentials};
 pub use check::ContractError;
-pub use contract::{Contract, Field, Method, ScalarKind, Service, Type, TypeDef, Variant};
+pub use cache::{DataCache, DataCacheError};
+pub use contract::{Contract, Field, Freshness, Method, ScalarKind, Scope, Service, Type, TypeDef, Variant};
 pub use http::{kind_for_status, HttpTransport, Route};
 pub use openapi::{import, ImportError, Imported};
 #[cfg(feature = "grpc")]

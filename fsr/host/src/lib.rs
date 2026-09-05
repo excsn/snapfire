@@ -36,7 +36,7 @@ use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionSto
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
-pub use config::{AuthSection, BearerKey, ClientConfig, Config};
+pub use config::{AuthSection, BearerKey, ClientConfig, Config, DataCacheSection};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use locale::{Locales, LocalesSection, Resolution};
 
@@ -163,6 +163,10 @@ pub struct HostReport {
   pub services: Vec<(String, String, String)>,
   /// The client the sessions live behind, when the store is `service`.
   pub session: Option<String>,
+  /// Method and policy for every method the data cache answers.
+  pub cached: Vec<(String, String)>,
+  /// Method and tags for every method that drops cached answers.
+  pub writers: Vec<(String, String)>,
   pub statics: Vec<(String, PathBuf)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
@@ -201,6 +205,14 @@ impl std::fmt::Display for HostReport {
     }
     if let Some((capacity, ttl)) = &self.cache {
       writeln!(f, "{:<9} {capacity} entries, ttl {ttl}", "cache")?;
+    }
+    for (i, (method, policy)) in self.cached.iter().enumerate() {
+      let label = if i == 0 { "cached" } else { "" };
+      writeln!(f, "{label:<9} {method:<22} {policy}")?;
+    }
+    for (i, (method, tags)) in self.writers.iter().enumerate() {
+      let label = if i == 0 { "writes" } else { "" };
+      writeln!(f, "{label:<9} {method:<22} {tags}")?;
     }
     if let Some(client) = &self.session {
       writeln!(f, "{:<9} service via {client}", "session")?;
@@ -538,6 +550,22 @@ impl Host {
   /// nothing was cached under it or no cache is configured.
   pub async fn invalidate(&self, plan_key: &str) -> usize {
     self.app.invalidate(plan_key).await
+  }
+
+  /// The service registry the routes call through, for a Rust host that
+  /// calls a backend outside a request.
+  pub fn services(&self) -> Arc<Services> {
+    self.app.services.clone()
+  }
+
+  /// Drops every data cache answer under the named tags, the out-of-band
+  /// counterpart of a method that `writes` them.
+  pub fn invalidate_tags<I, S>(&self, tags: I)
+  where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+  {
+    self.app.services.invalidate_tags(tags);
   }
 
   /// Renders every prerenderable route once per locale, anonymously, writing
@@ -1418,6 +1446,11 @@ impl HostBuilder {
           .contract(contract)
           .intercept(Arc::new(TraceInterceptor::new()))
           .intercept(Arc::new(IdentityInterceptor::new()));
+        if let Some(cache) = &config.cache {
+          if let Some(data) = &cache.data {
+            builder = builder.data_cache(data.capacity.unwrap_or(cache.capacity));
+          }
+        }
         let mut by_key: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         for (client, key) in &bearer_rows {
           by_key.entry(key.clone()).or_default().push(client.clone());
@@ -1433,7 +1466,7 @@ impl HostBuilder {
             }
           }
         }
-        builder.build()
+        builder.try_build().map_err(|e| HostError::Value("cache.data".to_owned(), e.to_string()))?
       }
     };
 
@@ -1538,6 +1571,27 @@ impl HostBuilder {
       app: app.report.clone(),
       services: service_rows,
       session: (config.session.store == "service").then(|| config.session.client.clone().unwrap_or_default()),
+      cached: app
+        .services
+        .data_cache()
+        .map(|cache| {
+          cache
+            .policies()
+            .into_iter()
+            .map(|(method, f)| {
+              let mut policy = format!("ttl {} {}", f.ttl, f.scope.as_str());
+              if let Some(stale) = &f.stale {
+                policy.push_str(&format!(", stale {stale}"));
+              }
+              if !f.tags.is_empty() {
+                policy.push_str(&format!(" [{}]", f.tags.join(", ")));
+              }
+              (method, policy)
+            })
+            .collect()
+        })
+        .unwrap_or_default(),
+      writers: app.services.data_cache().map(|cache| cache.writers().into_iter().map(|(method, tags)| (method, format!("[{}]", tags.join(", ")))).collect()).unwrap_or_default(),
       statics: static_rows,
       prerender: prerendered.clone(),
       cache: cache_row,

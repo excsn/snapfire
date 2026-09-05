@@ -133,6 +133,18 @@ pub struct CacheSection {
   pub capacity: u64,
   #[serde(default = "default_cache_ttl")]
   pub ttl: String,
+  /// The data cache over every method whose contract declares `cache`;
+  /// absent, no method is cached whatever the contract says.
+  #[serde(default)]
+  pub data: Option<DataCacheSection>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DataCacheSection {
+  /// Entries per policy; `cache.capacity` when absent.
+  #[serde(default)]
+  pub capacity: Option<u64>,
 }
 
 fn default_cache_capacity() -> u64 {
@@ -591,15 +603,5 @@ fn to_json(value: &c5store::value::C5DataValue) -> serde_json::Value {
 
 /// `30s`, `15m`, `8h`, `2d`, or a bare number of seconds.
 pub fn parse_duration(raw: &str) -> Option<Duration> {
-  let raw = raw.trim();
-  let (digits, unit) = raw.split_at(raw.find(|c: char| !c.is_ascii_digit()).unwrap_or(raw.len()));
-  let n: u64 = digits.parse().ok()?;
-  let seconds = match unit.trim() {
-    "" | "s" => n,
-    "m" => n * 60,
-    "h" => n * 3600,
-    "d" => n * 86_400,
-    _ => return None,
-  };
-  Some(Duration::from_secs(seconds))
+  snapfire_fsr_core::parse_duration(raw)
 }

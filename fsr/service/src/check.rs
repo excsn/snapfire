@@ -1,11 +1,13 @@
 use snapfire_fsr_core::{TypedArray, Value, ValueMap};
 
-use crate::contract::{Contract, ScalarKind, Type, TypeDef};
+use crate::contract::{Contract, ScalarKind, Scope, Type, TypeDef};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ContractError {
   #[error("no service `{0}` in the contract")]
   UnknownService(String),
+  #[error("{path}: {reason}")]
+  Cache { path: String, reason: String },
   #[error("service `{service}` has no method `{method}`")]
   UnknownMethod { service: String, method: String },
   #[error("contract names type `{name}` at {path}, which it does not define")]
@@ -96,6 +98,19 @@ impl Contract {
           self.check_type(&param.ty, &field_path(&path, &param.name))?;
         }
         self.check_type(&method.returns, &format!("{path}()"))?;
+        if let Some(cache) = &method.cache {
+          if snapfire_fsr_core::parse_duration(&cache.ttl).is_none() {
+            return Err(ContractError::Cache { path: path.clone(), reason: format!("ttl `{}` is not a duration", cache.ttl) });
+          }
+          if let Some(stale) = &cache.stale {
+            if snapfire_fsr_core::parse_duration(stale).is_none() {
+              return Err(ContractError::Cache { path: path.clone(), reason: format!("stale `{stale}` is not a duration") });
+            }
+            if cache.scope != Scope::Shared {
+              return Err(ContractError::Cache { path: path.clone(), reason: "stale needs scope = \"shared\", since a background refresh carries no identity".to_owned() });
+            }
+          }
+        }
       }
     }
     Ok(())

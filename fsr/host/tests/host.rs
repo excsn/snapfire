@@ -1194,3 +1194,83 @@ fn a_service_store_or_provider_needs_a_client_that_exists() {
   let error = Host::from(dir.join("app.toml")).err().expect("a client that is not declared is refused").to_string();
   assert!(error.contains("session.client") && error.contains("vault"), "{error}");
 }
+
+const CACHED_OPENAPI: &str = r##"{
+  "openapi": "3.0.3",
+  "info": { "title": "Shop", "version": "1.0.0" },
+  "paths": {
+    "/list": { "get": { "operationId": "list", "x-sf-cache": { "ttl": "1m", "tags": ["items"], "scope": "shared" },
+      "responses": { "200": { "description": "the items", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } } } } } },
+    "/add": { "post": { "operationId": "add", "x-sf-writes": ["items"], "responses": { "204": { "description": "added" } } } }
+  }
+}"##;
+
+fn cached_dir() -> PathBuf {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("clients")).unwrap();
+  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  std::fs::write(dir.join("clients/shop.openapi.json"), CACHED_OPENAPI).unwrap();
+  std::fs::write(
+    dir.join("app.toml"),
+    r#"
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:0"
+
+[document]
+title = "Cached"
+
+[session]
+key = "test-key"
+
+[cache]
+capacity = 100
+ttl = "1m"
+
+[cache.data]
+capacity = 50
+
+[clients.shop]
+base_url = "http://127.0.0.1:1"
+"#,
+  )
+  .unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_cached_method_answers_renders_from_memory_until_a_write_or_a_drop() {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("socks")])).returns("shop.add", Value::Null));
+  let host = Host::from(cached_dir().join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
+  let report = host.report.to_string();
+  assert!(report.contains("cached    shop.list              ttl 1m shared [items]"), "{report}");
+  assert!(report.contains("writes    shop.add               [items]"), "{report}");
+
+  let list_calls = || transport.calls().iter().filter(|(p, _, _)| p == "shop.list").count();
+  for _ in 0..2 {
+    let response = host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+    assert!(body_of(response).await.contains("socks"));
+  }
+  assert_eq!(list_calls(), 1, "the second render read the entry");
+
+  host.invalidate_tags(["items"]);
+  host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(list_calls(), 2, "an out-of-band drop");
+
+  host.services().bind_anonymous().call("shop", "add", ValueMap::new()).await.unwrap();
+  host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(list_calls(), 3, "a write dropped the tag it names");
+}
+
+#[test]
+fn without_cache_data_no_method_is_cached_whatever_the_contract_says() {
+  let dir = cached_dir();
+  let text = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("[cache.data]\ncapacity = 50\n", "");
+  std::fs::write(dir.join("app.toml"), text).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("socks")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
+  assert!(host.report.cached.is_empty());
+  assert!(host.services().data_cache().is_none());
+}

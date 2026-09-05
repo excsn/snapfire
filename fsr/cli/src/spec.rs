@@ -188,6 +188,9 @@ fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc
   let mut config = config;
   config.session.store = "memory".to_owned();
   config.session.client = None;
+  if let Some(cache) = config.cache.as_mut() {
+    cache.data = None;
+  }
   let host = Host::from_config_with(config, built.manifest.to_json(), Some((**contract).clone()))
     .and_then(|builder| builder.services_over(transport).build())
     .map_err(|e| BuildError::Dev(format!("the host that renders a loaded route: {e}")))?;

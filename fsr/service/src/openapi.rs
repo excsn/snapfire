@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use serde_json::{Map, Value as Json};
 
-use crate::contract::{Contract, Field, Method, Service, Type, TypeDef, Variant};
+use crate::contract::{Contract, Field, Method, Service, Type, TypeDef, Variant, Freshness};
 use crate::http::Route;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -441,10 +441,16 @@ pub fn import(document: &str, default_service: &str) -> Result<Imported, ImportE
         Some((code, schema)) => import.ty(schema, &format!("{at}/responses/{code}"), &format!("{name}Result"))?,
       };
 
-      services
-        .entry(service.clone())
-        .or_default()
-        .insert(name.clone(), Method::new(params, returns));
+      let mut method = Method::new(params, returns);
+      if let Some(cache) = operation.get("x-sf-cache") {
+        let freshness: Freshness = serde_json::from_value(cache.clone()).map_err(|e| malformed(&format!("{at}/x-sf-cache"), e.to_string()))?;
+        method = method.cached(freshness);
+      }
+      if let Some(writes) = operation.get("x-sf-writes") {
+        let tags: Vec<String> = serde_json::from_value(writes.clone()).map_err(|e| malformed(&format!("{at}/x-sf-writes"), e.to_string()))?;
+        method = method.writes(tags);
+      }
+      services.entry(service.clone()).or_default().insert(name.clone(), method);
       routes.push((format!("{service}.{name}"), Route::new(verb.to_uppercase(), path.clone())));
     }
   }

@@ -31,6 +31,11 @@ impl Next {
     Self { chain, index: 0 }
   }
 
+  /// The chain from `index` on, which is how the data cache re-enters it.
+  pub(crate) fn at(chain: Arc<Chain>, index: usize) -> Self {
+    Self { chain, index }
+  }
+
   pub fn run(self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
     match self.chain.interceptors.get(self.index) {
       Some(interceptor) => {

@@ -5,6 +5,7 @@ use indexmap::IndexMap;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, Identity, ServiceCaller, ServiceError, ServiceHandle};
 
+use crate::cache::{Continuation, DataCache, DataCacheError};
 use crate::call::{Call, Credentials, NoCredentials};
 use crate::contract::Contract;
 use crate::interceptor::{Chain, Interceptor, Next};
@@ -17,6 +18,7 @@ pub struct Services {
   chains: IndexMap<String, Arc<Chain>>,
   default_chain: Option<Arc<Chain>>,
   check_responses: bool,
+  data_cache: Option<DataCache>,
 }
 
 #[derive(Default)]
@@ -26,6 +28,7 @@ pub struct ServicesBuilder {
   transports: IndexMap<String, Arc<dyn Transport>>,
   default_transport: Option<Arc<dyn Transport>>,
   check_responses: bool,
+  data_capacity: Option<u64>,
 }
 
 impl Services {
@@ -59,6 +62,23 @@ impl Services {
   fn chain_for(&self, service: &str) -> Option<&Arc<Chain>> {
     self.chains.get(service).or(self.default_chain.as_ref())
   }
+
+  /// The data cache, when the builder asked for one and the contract declares
+  /// a cached method.
+  pub fn data_cache(&self) -> Option<&DataCache> {
+    self.data_cache.as_ref()
+  }
+
+  /// Drops every cached answer under the named tags; nothing without a cache.
+  pub fn invalidate_tags<I, S>(&self, tags: I)
+  where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+  {
+    if let Some(cache) = &self.data_cache {
+      cache.invalidate_tags(tags);
+    }
+  }
 }
 
 impl ServicesBuilder {
@@ -89,16 +109,49 @@ impl ServicesBuilder {
     self
   }
 
+  /// Answers every method whose contract declares `cache` from memory, each
+  /// cache bounded by `capacity` entries. The cache sits last in the chain,
+  /// so a hit skips nothing an earlier interceptor does and a miss runs the
+  /// rest as any call would.
+  pub fn data_cache(mut self, capacity: u64) -> Self {
+    self.data_capacity = Some(capacity);
+    self
+  }
+
   pub fn build(self) -> Arc<Services> {
+    self.try_build().expect("a contract whose cache policies validate")
+  }
+
+  /// `build`, failing on a cache policy the contract's `validate` would refuse.
+  pub fn try_build(mut self) -> Result<Arc<Services>, DataCacheError> {
+    let data_cache = match self.data_capacity {
+      Some(capacity) => {
+        let cache = DataCache::from_contract(&self.contract, capacity)?;
+        if cache.is_empty() {
+          None
+        } else {
+          self.interceptors.push(Arc::new(cache.clone()));
+          Some(cache)
+        }
+      }
+      None => None,
+    };
+    let index = self.interceptors.len().saturating_sub(1);
     let chain_over = |transport: Arc<dyn Transport>| {
       Arc::new(Chain { interceptors: self.interceptors.clone(), transport })
     };
-    Arc::new(Services {
+    let chains: IndexMap<String, Arc<Chain>> = self.transports.into_iter().map(|(name, t)| (name, chain_over(t))).collect();
+    let default_chain = self.default_transport.map(chain_over);
+    if let Some(cache) = &data_cache {
+      cache.attach(Continuation { chains: chains.clone(), default_chain: default_chain.clone(), index: index + 1 });
+    }
+    Ok(Arc::new(Services {
       contract: Arc::new(self.contract),
-      chains: self.transports.into_iter().map(|(name, t)| (name, chain_over(t))).collect(),
-      default_chain: self.default_transport.map(chain_over),
+      chains,
+      default_chain,
       check_responses: self.check_responses,
-    })
+      data_cache,
+    }))
   }
 }
 
