@@ -21,6 +21,7 @@ How to run a login flow over an `IdentityProvider`, where the flow state lives w
   * [Implementing begin](#implementing-begin)
   * [Implementing callback](#implementing-callback)
 * [Configuring the Dev Provider](#configuring-the-dev-provider)
+* [Reading the Accounts From a File](#reading-the-accounts-from-a-file)
 * [Why the Callback Is Bound to the Session](#why-the-callback-is-bound-to-the-session)
 * [Error Handling](#error-handling)
 
@@ -397,6 +398,27 @@ let provider = DevProvider::new("/login").user_with_claims("alice", "wonder", cl
 ```
 
 It reads `user` plus `password` out of the callback params, ignores the flow state entirely and mints one token per successful login, `access_token` set to `dev-token-<name>`. It is a development convenience: passwords are compared in the clear against an in-memory table.
+
+## Reading the Accounts From a File
+
+`DevProvider::from_toml` builds the same table from a file, which is how the stock host's `file` provider is configured:
+
+```toml
+[[users]]
+name = "alice"
+password = "wonder"
+claims = { role = "admin" }
+
+[[users]]
+name = "bob"
+password = "builder"
+```
+
+```rust
+let provider = DevProvider::from_toml("/login", "config/auth.toml")?;
+```
+
+A file with no row is an error rather than an empty provider: a login page nobody can pass is a misconfiguration.
 
 ## Why the Callback Is Bound to the Session
 

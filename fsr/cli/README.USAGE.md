@@ -15,6 +15,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Writing Actions](#writing-actions)
 * [Writing a Route Handler](#writing-a-route-handler)
 * [Writing Middleware](#writing-middleware)
+* [Signing In](#signing-in)
 * [Importing a Service](#importing-a-service)
 * [Declaring the Session and Action Inputs](#declaring-the-session-and-action-inputs)
 * [Reading the Generated Types](#reading-the-generated-types)
@@ -258,13 +259,86 @@ The handler runs before any page is matched, sees the same `session`, `identity`
 import type { MiddlewareCtx, MiddlewareResult } from "@snapfire/fsr";
 
 export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
-  if (request.path.startsWith("/account") && !identity) return { redirect: "/login" };
+  if (request.path.startsWith("/account") && !identity?.subject) return { redirect: "/login" };
   if (request.path === "/shop") return { rewrite: "/" };
   return { headers: { "x-frame-options": "DENY" } };
 }
 ```
 
-A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`.
+`identity` is read by field, `identity?.subject` here, since a body holds no whole value for it. A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`.
+
+## Signing In
+
+The host owns the flow and the application owns the page. `[auth]` in `config/app.toml` names the provider and the login route; `config/auth.toml` holds the `file` provider's accounts, and `bearer` on a client says its calls carry the token the callback stored.
+
+```toml
+[auth]
+provider = "file"
+login = "/login"
+
+[clients.fleet]
+base_url = "http://127.0.0.1:8091"
+bearer = true
+```
+
+```toml
+[[users]]
+name = "alice"
+password = "wonder"
+claims = { role = "admin" }
+```
+
+`routes/login/page.tsx` is an ordinary route whose form posts to `/auth/callback`. The host sends the browser there from `/auth/login`, with `return_to` in the query, and back to it with `error=denied` when the provider refuses, which its loader reads from `query`:
+
+```ts
+export async function load({ query }: Ctx) {
+  return { denied: query.error === "denied" };
+}
+```
+
+```tsx
+export default function LoginPage({ denied }: LoginProps) {
+  return (
+    <form method="post" action="/auth/callback">
+      {denied ? <p>Unknown user or wrong password.</p> : null}
+      <input name="user" />
+      <input name="password" type="password" />
+      <button>Sign in</button>
+    </form>
+  );
+}
+```
+
+A signed-in session reaches every body as `identity`, read by field, and reaches a page or layout as two props the host injects, `identity` and `csrf_token`. A sign-out is a form posting the token to `/auth/logout`, and the sign-in link is a plain anchor with `data-sf-native`, since `/auth/login` answers with a redirect rather than a payload:
+
+```tsx
+export default function Layout({ children, identity, csrf_token }: { children: ReactNode; identity?: Identity; csrf_token?: string }) {
+  return (
+    <>
+      {identity ? (
+        <form method="post" action="/auth/logout">
+          {identity.subject}
+          <input type="hidden" name="_csrf" value={csrf_token ?? ""} />
+          <button>Sign out</button>
+        </form>
+      ) : (
+        <a href="/auth/login" data-sf-native>
+          Sign in
+        </a>
+      )}
+      {children}
+    </>
+  );
+}
+```
+
+A private route is a line of middleware, with the literal `return_to` you want:
+
+```ts
+if (request.path === "/account" && !identity?.subject) return { redirect: "/auth/login?return_to=/account" };
+```
+
+A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner does not serve the three `/auth/` routes, so the flow itself is a host test.
 
 ## Importing a Service
 
@@ -476,7 +550,7 @@ fsr prerender app
 fsr prerender app --out build/static
 ```
 
-A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route.
+A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route, and so does a page or layout on it reading its `identity` or `csrf_token` prop.
 
 ## Reading the Report
 

@@ -32,6 +32,8 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Replace the document shell | `HostBuilder::shell` |
 | Test without a backend | `HostBuilder::services_over` with a `MockTransport`, then `Host::render_to_string` and `Host::call_action` |
 | Keep sessions somewhere else | `HostBuilder::session_store` |
+| Sign users in | `[auth]` over `config/auth.toml`, or `HostBuilder::identity` with any `IdentityProvider` |
+| Send the session's token to one backend | `[clients.<name>] bearer = true` |
 | See what was bound and served | `Host::report` |
 
 ## Status

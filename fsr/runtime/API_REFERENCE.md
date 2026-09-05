@@ -162,7 +162,7 @@ There is no `Pending` variant. Holes belong to the assembler.
 
 * `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: pure in the arguments. The evaluator sees no plan, no tree and no request context beyond the props the assembler composed.
 
-The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one) and `csrf_token` (a `Value::Str`, when the context carries one). A loader key with one of those names is replaced.
+The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one) and `csrf_token` (a `Value::Str`, when the context carries one; the stock host mints one once the session is identified). A loader key with one of those names is replaced.
 
 An error module additionally receives `error`, a `Value::Str` holding the `LoadError` display string. A fallback module receives the three request keys only, never loader data.
 
@@ -244,7 +244,7 @@ Cache lookup and store happen per plan node that carries a `cache_key`. The comp
 * `cache_key` is `PlanNode::cache_key`, the plan's own tag.
 * The params are every entry of `ctx.params`, formatted `k=v`, sorted, joined by `&`. No params means an empty field.
 * `subject` is the subject from `ctx.session.identity()` when the session resolved one; it is `-` when it did not.
-* `token` is `ctx.csrf` when set, since it is injected into props; `-` otherwise.
+* `token` is `ctx.csrf` when set, since it is injected into props; `-` otherwise. A token is per session, so a segment rendered with one is memoised per session; the stock host carries none for an anonymous request so those renders share the memo.
 * The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing each node id followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
 
 No key is composed at all, so neither `get` nor `put` runs, when the node has no `cache_key`, when the subtree contains a `deferred` descendant or when any node in the subtree has a recorded load failure. A key that was composed is always looked up, but it is written back only if the subtree did not use the head slot.

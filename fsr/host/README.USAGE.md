@@ -15,6 +15,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving with actix](#serving-with-actix)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
 * [Serving Locales](#serving-locales)
+* [Signing In on the Host](#signing-in-on-the-host)
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
@@ -91,8 +92,13 @@ supported = ["en_US", "fr_FR"]
 default = "en_US"                 # served unprefixed; the first supported one when absent
 remember = true                   # write the cookie when a prefix chose the locale
 
+[auth]                            # optional: without it there is no login and no /auth/ route
+provider = "file"                 # the accounts in config/auth.toml; oidc is planned
+login = "/login"                  # the application's login page, the default
+
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
+bearer = true                     # send custody's access_token as a bearer; a string names another key
 ```
 
 A key the host does not know is an error naming the key. So is a section it does not know, so a typo cannot silently do nothing.
@@ -233,7 +239,7 @@ assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction
 
 ## Prerendering the Routes That Never Change
 
-A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads. A route that reads only the locale still qualifies: that is what the render per locale is for.
+A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads, and so does a page or layout reading its `identity` or `csrf_token` prop, since a render for nobody cannot supply them. A route that reads only the locale still qualifies: that is what the render per locale is for.
 
 ```rust
 let written = host.prerender(&host.report.prerender.clone().unwrap()).await?;
@@ -271,6 +277,50 @@ let value = host.call_action_in("cart.checkout", session, host.locales().locale(
 ```
 
 Without the section there is one locale, `en`, no source is consulted and nothing is a prefix.
+
+## Signing In on the Host
+
+An `[auth]` section mounts the identity flow from `snapfire_fsr_auth` on three framework-owned routes, the way the action route is owned. `GET /auth/login` starts it, with `return_to` from the query, else the `Referer`'s path, else `/`, and only ever a path on this origin; the provider's `begin` says where the browser goes, which for the `file` provider is the application's login page with `return_to` in the query. The login page is the application's own route, since auth never renders; a `GET` of it seeds the flow when none is in progress, so a typed URL still posts somewhere. `/auth/callback` takes a form or JSON `POST`, or a `GET` carrying the provider's query; a success is a 303 to where the flow began, a refusal a 303 back to the login page with `error=denied` and the `return_to` it had, a callback with no flow in progress a 400. `POST /auth/logout` verifies `_csrf` from the form, or `x-sf-csrf` from a fetch, against the session, clears identity and custody, deletes the record and answers 303 `/` with the cookie expiring. None of the three takes a locale prefix.
+
+The `file` provider is `DevProvider::from_toml` over `config/auth.toml`, read beside `app.toml` and never through the ladder, so an overlay cannot merge two tables of accounts:
+
+```toml
+[[users]]
+name = "alice"
+password = "wonder"
+claims = { role = "admin" }
+```
+
+A Rust host hands in any `IdentityProvider` instead, and the login page is `auth.login` when the section is written, `/login` otherwise:
+
+```rust
+let host = Host::from(".")?.identity(Arc::new(my_provider)).build()?;
+```
+
+Once a session is identified the host mints a CSRF token for it. Every render, middleware, handler and action runs with the session's token custody bound to its services, so a loader's outbound call carries what the callback stored. Bodies see `identity` and the `csrf_token` prop and never the custody. Which client sends the token is written per client, `bearer = true` for `access_token` or a string naming another custody key; a client without it sends nothing, so a third-party API never sees a user's credential. The boot report says which:
+
+```
+auth      file, login page /login, routes /auth/login, /auth/callback and /auth/logout
+bearer    shopping               access_token
+```
+
+A guard is middleware, since the host does not know which routes are private:
+
+```rust
+let host = Host::from(".")?
+  .middleware_override(|ctx, request| async move {
+    let path = match &request {
+      Value::Map(line) => line.get("path").cloned(),
+      _ => None,
+    };
+    let mut out = ValueMap::new();
+    if path == Some(Value::str("/account")) && ctx.session.identity().is_none() {
+      out.insert("redirect".into(), Value::str("/auth/login?return_to=/account"));
+    }
+    Ok(Value::Map(out))
+  })
+  .build()?;
+```
 
 ## Caching Rendered Segments
 
@@ -349,6 +399,8 @@ actions   cart.checkout          lowered
 services  shopping               http        http://127.0.0.1:8081
 static    /static/js/app         /srv/shop/app/dist
 cache     1000 entries, ttl 1m
+auth      file, login page /login, routes /auth/login, /auth/callback and /auth/logout
+bearer    shopping               access_token
 dev       live refresh on /__fsr/events, told by POST /__fsr/changed
 config    /srv/shop/config
 inferred  static /static/js/app from dist/.snapfire-build.json
