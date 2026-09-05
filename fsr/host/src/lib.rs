@@ -26,7 +26,7 @@ use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode, Value, ValueMap};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator,
-  FibreCache, Head, LoadError, Locale, Matcher, RequestCtx, Resolver, SessionCell,
+  FibreCache, Head, LoadError, Locale, Matcher, Metadata, RequestCtx, Resolver, SessionCell,
 };
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, NoCredentials, Services, TraceInterceptor, Transport,
@@ -37,6 +37,10 @@ use tower_http::services::ServeDir;
 
 pub use config::{AuthSection, BearerKey, Config};
 pub use locale::{Locales, LocalesSection, Resolution};
+
+/// The encodings a payload request may name in `enc`; the wire's `V` row
+/// names the one it got.
+pub const PAYLOAD_ENCODINGS: &[&str] = &["json"];
 
 /// The response body: a stream of chunks, the same one the runtime produces.
 pub type Body = http_body_util::combinators::UnsyncBoxBody<Bytes, std::io::Error>;
@@ -235,6 +239,7 @@ pub struct Host {
   prerendered: Option<PathBuf>,
   locales: Locales,
   auth: Option<Mounted>,
+  csrf_always: bool,
   report_listen: String,
   pub report: HostReport,
 }
@@ -574,7 +579,7 @@ impl Host {
     std::fs::read_to_string(root.join(path.trim_matches('/')).join(name)).ok()
   }
 
-  /// Runs the middleware for a request, with `{ method, path }` as its input,
+  /// Runs the middleware for a request, with `{ method, path, payload }` as its input,
   /// the path stripped of its locale prefix, the locale in `ctx.locale` and
   /// the query string decoded into `ctx.query`. Without middleware every
   /// request continues.
@@ -589,6 +594,7 @@ impl Host {
     let mut request = ValueMap::new();
     request.insert("method".to_owned(), Value::Str(method.to_ascii_uppercase()));
     request.insert("path".to_owned(), Value::Str(path.to_owned()));
+    request.insert("payload".to_owned(), Value::Bool(raw_query.split('&').any(|p| p == "__payload")));
     let ctx = self.ctx(incoming, Params::new(), parse_query(raw_query), locale.clone());
     let value = middleware.call(ctx, Value::Map(request)).await?;
     Preflight::from_value(&value).map_err(|message| ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message))
@@ -638,7 +644,7 @@ impl Host {
   /// the session is identified, a CSRF token. An anonymous request carries no
   /// token so its renders share the memo; the token joins the memo key.
   fn incoming(&self, opened: &Opened) -> Incoming {
-    let csrf = opened.cell.identity().map(|_| self.sessions.csrf_token(&opened.id));
+    let csrf = (self.csrf_always || opened.cell.identity().is_some()).then(|| self.sessions.csrf_token(&opened.id));
     Incoming { session: opened.cell.clone(), csrf, credentials: Arc::new(opened.tokens.clone()) }
   }
 
@@ -797,14 +803,31 @@ impl Host {
   async fn respond(&self, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, path: String, target: String, raw_query: &str, visit: &Resolution) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(id) = path.strip_prefix("/_sf/action/") {
-        let input = match serde_json::from_slice::<serde_json::Value>(req.body())
-          .map_err(|e| e.to_string())
-          .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
-        {
-          Ok(value) => value,
-          Err(e) => return json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+        let is_form = req.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
+        let input = if is_form {
+          let mut fields = form_params(req.body());
+          let token = match fields.shift_remove("_csrf") {
+            Some(Value::Str(token)) => token,
+            _ => String::new(),
+          };
+          if !self.sessions.verify_csrf(&opened.id, &token) {
+            return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
+          }
+          Value::Map(fields)
+        } else {
+          match serde_json::from_slice::<serde_json::Value>(req.body())
+            .map_err(|e| e.to_string())
+            .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
+          {
+            Ok(value) => value,
+            Err(e) => return json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+          }
         };
         let mut response = match self.dispatch_action(id, self.incoming(opened), visit.locale.clone(), input).await {
+          Ok(_) if is_form => {
+            let back = req.headers().get(header::REFERER).and_then(|v| v.to_str().ok()).and_then(referer_path).unwrap_or_else(|| "/".to_owned());
+            see_other(&back)
+          }
           Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
           Err(e) => json_response(
             StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -841,6 +864,11 @@ impl Host {
     }
 
     let mode = if raw_query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
+    if mode == RenderMode::Payload {
+      if let Some(asked) = parse_query(raw_query).get("enc").filter(|enc| !PAYLOAD_ENCODINGS.contains(&enc.as_str())) {
+        return text_response(StatusCode::NOT_ACCEPTABLE, format!("unsupported payload encoding `{asked}`; the encodings are {}", PAYLOAD_ENCODINGS.join(", ")));
+      }
+    }
     tracing::info!(target: "fsr::host", path = %path, payload = (mode == RenderMode::Payload), "request");
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let (from, into) = match mode {
@@ -902,7 +930,8 @@ impl Host {
   }
 
   async fn set_cookie(&self, opened: &Opened, response: &mut Response<Body>) {
-    if let Some(set_cookie) = self.sessions.persist(opened).await {
+    let set_cookie = if self.csrf_always { self.sessions.establish(opened).await } else { self.sessions.persist(opened).await };
+    if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
       }
@@ -1247,6 +1276,14 @@ impl HostBuilder {
     self
   }
 
+  /// Describes the segment whose data source is `name`, title and
+  /// description, once its data has loaded; the innermost described segment
+  /// on a plan wins.
+  pub fn meta(mut self, name: impl Into<String>, meta: Arc<dyn Metadata>) -> Self {
+    self.app_mut(|app| app.meta(name, meta));
+    self
+  }
+
   pub fn action<F, Fut>(mut self, id: impl Into<String>, f: F) -> Self
   where
     F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static,
@@ -1438,7 +1475,7 @@ impl HostBuilder {
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
-    Ok(Host { app, sessions, head, dev_bundle, changed, statics, prerendered, locales, auth, report, report_listen: config.server.listen })
+    Ok(Host { app, sessions, head, dev_bundle, changed, statics, prerendered, locales, auth, csrf_always: config.session.csrf == "always", report, report_listen: config.server.listen })
   }
 }
 

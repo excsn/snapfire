@@ -1,7 +1,8 @@
-use std::time::Duration;
+mod common;
 
 use advanced_tera_app::services::{self, fleet};
-use advanced_tera_app::{build_app, render, RenderMode};
+use advanced_tera_app::state::Fleet;
+use common::{app, render};
 use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::FailureKind;
@@ -13,8 +14,7 @@ fn the_applications_contract_is_internally_valid() {
 
 #[test]
 fn a_loader_reaches_the_backend_through_the_bound_handle() {
-  let app = build_app(Duration::ZERO);
-  let handle = app.services().bind_anonymous();
+  let handle = services::build(Fleet::seed()).bind_anonymous();
 
   let mut args = ValueMap::new();
   args.insert("section".to_owned(), Value::str("servers"));
@@ -26,8 +26,7 @@ fn a_loader_reaches_the_backend_through_the_bound_handle() {
 
 #[test]
 fn a_call_outside_the_contract_never_reaches_the_backend() {
-  let app = build_app(Duration::ZERO);
-  let handle = app.services().bind_anonymous();
+  let handle = services::build(Fleet::seed()).bind_anonymous();
 
   let err = block_on(handle.call(fleet::NAME, "purge", ValueMap::new())).unwrap_err();
   assert_eq!(err.kind, FailureKind::NotFound);
@@ -40,8 +39,8 @@ fn a_call_outside_the_contract_never_reaches_the_backend() {
 
 #[test]
 fn a_failing_backend_still_only_costs_its_own_segment() {
-  let app = build_app(Duration::ZERO);
-  let html = block_on(render(&app, "/dash/down", RenderMode::Html)).unwrap();
+  let host = app();
+  let html = render(&host, "/dash/down");
   assert!(html.contains("Backend unavailable"));
   assert!(html.contains("(2 servers)"), "a different capability still answers");
 }

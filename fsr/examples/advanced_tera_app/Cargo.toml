@@ -8,23 +8,21 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-snapfire_fsr_auth = { path = "../../auth" }
 snapfire_fsr_core = { path = "../../core" }
-snapfire_fsr_payload = { path = "../../payload" }
+snapfire_fsr_host = { path = "../../host" }
 snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_service = { path = "../../service" }
-snapfire_fsr_session = { path = "../../session" }
 snapfire_fsr_tera = { path = "../../tera" }
-actix-web = "4"
-actix-files = "0.6"
 fibre_logging = "0.5"
-form_urlencoded = "1"
-serde_json = { version = "1", features = ["preserve_order"] }
 parking_lot = "0.12"
 futures-util = "0.3"
 tera = { version = "2", features = ["fast"] }
-thiserror = "2"
-tracing = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [dev-dependencies]
+snapfire_fsr_payload = { path = "../../payload" }
+bytes = "1"
 futures = "0.3"
+http = "1"
+http-body-util = "0.1"
+serde_json = "1"

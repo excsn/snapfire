@@ -873,3 +873,94 @@ fn the_auth_section_and_the_users_file_are_checked() {
   let err = Host::from(dir.join("app.toml")).err().expect("an unknown provider is an error").to_string();
   assert!(err.contains("auth.provider `oidc` is not a provider"), "{err}");
 }
+
+fn formed_dir() -> PathBuf {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("ttl = \"10m\"", "ttl = \"10m\"\ncsrf = \"always\"");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  dir
+}
+
+struct ItemsTitle;
+
+impl snapfire_fsr_runtime::Metadata for ItemsTitle {
+  fn describe(&self, ctx: &snapfire_fsr_runtime::RequestCtx, data: &snapfire_fsr_core::Data) -> futures::future::BoxFuture<'static, Result<snapfire_fsr_runtime::Meta, snapfire_fsr_runtime::LoadError>> {
+    let count = match data.get("items") {
+      Some(Value::Seq(items)) => items.len(),
+      _ => 0,
+    };
+    let who = ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "nobody".to_owned());
+    Box::pin(async move { Ok(snapfire_fsr_runtime::Meta { title: Some(format!("{count} items for {who}")), description: None }) })
+  }
+}
+
+fn formed() -> Arc<Host> {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a"), Value::str("b")])));
+  let host = Host::from(formed_dir().join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .action("remember", |ctx, input| async move {
+      let word = match &input {
+        Value::Map(map) => map.get("word").cloned().unwrap_or(Value::Null),
+        _ => Value::Null,
+      };
+      ctx.session.insert("word", word.clone());
+      Ok(word)
+    })
+    .action("recall", |ctx, _input| async move { Ok(ctx.session.get("word").unwrap_or(Value::Null)) })
+    .meta("index", Arc::new(ItemsTitle))
+    .build()
+    .unwrap();
+  Arc::new(host)
+}
+
+#[tokio::test]
+async fn a_form_posts_an_action_with_its_token_and_lands_back_on_the_referer() {
+  let host = formed();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let html = body_of(response).await;
+  let token = field(&html, "csrf_token").expect("csrf = always mints a token for an anonymous session");
+  assert!(!cookie.is_empty(), "and establishes the session so the token verifies next time");
+  assert!(html.contains("<title>2 items for nobody</title>"), "the Rust metadata titled the document: {html}");
+
+  let form = |body: String| {
+    Request::post("/_sf/action/remember")
+      .header(header::COOKIE, &cookie)
+      .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+      .header(header::REFERER, "http://localhost/hello/norm?from=form")
+      .body(Bytes::from(body))
+      .unwrap()
+  };
+  let response = host.handle(form("word=hi&_csrf=nope".to_owned())).await;
+  assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+  let response = host.handle(form(format!("word=hi&_csrf={token}"))).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/hello/norm?from=form");
+
+  let response = host
+    .handle(Request::post("/_sf/action/recall").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/json").body(Bytes::from("null")).unwrap())
+    .await;
+  assert_eq!(body_of(response).await, "\"hi\"", "the form's field reached the action as a string and the session kept it");
+
+  let response = host.handle(form(format!("word=again&_csrf={token}"))).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER, "the token is good for the session's life");
+}
+
+#[tokio::test]
+async fn a_payload_request_may_only_name_an_encoding_that_exists() {
+  let host = formed();
+  let response = host.handle(Request::get("/?__payload&enc=cbor").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+  assert!(body_of(response).await.contains("unsupported payload encoding `cbor`"));
+  let response = host.handle(Request::get("/?__payload&enc=json").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(body_of(response).await.starts_with("V {\"fmt\":"));
+  let response = host.handle(Request::get("/?enc=cbor").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "a document request ignores enc");
+
+  let plain = self::host().0;
+  let response = plain.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(!body_of(response).await.contains("csrf_token"), "csrf = identified is the default");
+}

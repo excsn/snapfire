@@ -31,4 +31,4 @@ snapfire_fsr_session = { path = "../session" }
 
 ## Status
 
-Pre-release and unpublished; nothing here is on crates.io yet, no compatibility is promised across versions and the API moves with the rest of FSR. `DevProvider` is the only provider that ships, so an application that needs a real identity source writes its own `IdentityProvider`. The crate is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which wires the flow endpoints, the login route and the logout form. It carries 5 integration tests in `tests/auth.rs`.
+Pre-release and unpublished; nothing here is on crates.io yet, no compatibility is promised across versions and the API moves with the rest of FSR. `DevProvider` is the only provider that ships, so an application that needs a real identity source writes its own `IdentityProvider`. The stock host, `snapfire_fsr_host`, serves the flow endpoints over it from an `[auth]` section, with `DevProvider::from_toml` as the `file` provider; the `advanced_tera_app` example under `fsr/examples/` runs on that host with its own login route and logout form. It carries 5 integration tests in `tests/auth.rs`.

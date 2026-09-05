@@ -50,6 +50,7 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::source<F, Fut>(self, name, f: F) -> Self` where `F: Fn(RequestCtx) -> Fut + Send + Sync + 'static`, `Fut: Future<Output = Result<Data, LoadError>> + Send + 'static`: claims `name` as `Rust`.
 * `AppBuilder::source_override<F, Fut>(self, name, f: F) -> Self`: claims `name` as `RustOverride`; `build` refuses when the plan names no such source.
 * `AppBuilder::source_impl(self, name, source: Arc<dyn DataSource>) -> Self`
+* `AppBuilder::meta(self, name, meta: Arc<dyn Metadata>) -> Self`: describes the segment whose data source is `name`, title and description, once its data has loaded; registered after the lowered `meta` bodies, so one under the same name replaces the lowered one. The assembler asks the innermost described segment on a plan.
 * `AppBuilder::action<F, Fut>(self, id, f: F) -> Self` where `F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static`, `Fut: Future<Output = Result<Value, ActionError>> + Send + 'static`
 * `AppBuilder::action_override<F, Fut>(self, id, f: F) -> Self`: `build` refuses when the plan lowers no such action.
 * `AppBuilder::action_impl(self, id, handler: Arc<dyn ActionHandler>) -> Self`

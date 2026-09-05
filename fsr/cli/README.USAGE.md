@@ -229,6 +229,8 @@ export const addToCart = action<AddToCart>(async ({ input, session }) => {
 
 The input type must be declared under `schemas/`; the host checks a submitted value against it before the body runs.
 
+A plain form can post an action too: `<form method="post" action="/_sf/action/cart.addToCart">` with a hidden `_csrf` input holding the `csrf_token` prop a page or layout receives. The host verifies the token, hands the fields to the action as strings and answers 303 back to the page that posted. The token exists once the session is signed in, or for every session with `csrf = "always"` under `[session]`, which a form anonymous visitors post needs.
+
 ## Writing a Route Handler
 
 `route.ts` exports one function per HTTP method it answers. A plain function reads the request body as `input` unchecked; an `action<T>` has the body checked against `T` first, the way an action's input is. The value returned is the JSON response; `fail` sets the status by its kind.
@@ -253,7 +255,7 @@ The handler runs before any page is matched, sees the same `session`, `identity`
 
 ## Writing Middleware
 
-`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method` and `request.path` plus the same `query`, `session`, `identity`, `locale` and `services` a loader gets. `request.path` has no locale prefix: the host strips it before anything reads the path, so `/fr_FR/basket` reaches the middleware as `/basket` with `locale` set to `fr_FR`. What it returns decides the request: nothing continues; `redirect` answers with a `Location` and status 307 unless `status` says otherwise; `status` with an optional `body` answers outright, text for a string and JSON for anything else; `rewrite` serves another path under the same location; `headers` join the response in every case.
+`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method`, `request.path` and `request.payload`, true for a navigation's payload and false for a document, plus the same `query`, `session`, `identity`, `locale` and `services` a loader gets. `request.path` has no locale prefix: the host strips it before anything reads the path, so `/fr_FR/basket` reaches the middleware as `/basket` with `locale` set to `fr_FR`. What it returns decides the request: nothing continues; `redirect` answers with a `Location` and status 307 unless `status` says otherwise; `status` with an optional `body` answers outright, text for a string and JSON for anything else; `rewrite` serves another path under the same location; `headers` join the response in every case.
 
 ```ts
 import type { MiddlewareCtx, MiddlewareResult } from "@snapfire/fsr";

@@ -1,0 +1,31 @@
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:8080"
+
+[document]
+title = "SnapFire FSR"
+import_map = "js/importmap.json"
+entry = "/static/js/app/main.js"
+
+[session]
+key = "tera-app-dev-signing-key-not-a-secret"
+ttl = "8h"
+csrf = "always"
+
+[cache]
+capacity = 1024
+ttl = "5m"
+
+[auth]
+provider = "file"
+login = "/login"
+
+[[static]]
+route = "/static/js/fsr"
+dir = "../../client/dist"
+
+[[static]]
+route = "/static/js/app"
+dir = "js/dist"
