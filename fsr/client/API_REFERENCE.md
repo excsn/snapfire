@@ -17,6 +17,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [SfNode](#sfnode)
   * [Segment](#segment)
   * [Payload](#payload)
+  * [Head](#head)
   * [decodeNode](#decodenode)
   * [parsePayload](#parsepayload)
   * [Row Grammar](#row-grammar)
@@ -39,6 +40,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [clearRouterCache](#clearroutercache)
   * [navigate](#navigate)
   * [refresh](#refresh)
+  * [applyHead](#applyhead)
 * [7. Actions](#7-actions)
   * [action](#action)
 * [8. The React Mounter](#8-the-react-mounter)
@@ -174,7 +176,12 @@ A parsed response.
 * `encoding: string`, the `enc` field of the `V` row.
 * `tree: SfNode`, the `N` row.
 * `segments: Segment | null`, the `G` row when the response carried one.
+* `heads: Head[]`, the `H` rows in arrival order: the eager wave's, then one per resolution that described the document.
 * `resolutions: { slot: number; node: SfNode }[]`, the `S` rows in arrival order.
+
+### Head
+
+* `title?: string`, `description?: string`. A field left out keeps what the document has.
 
 ### decodeNode
 
@@ -186,7 +193,7 @@ Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m,
 
 * `parsePayload(text: string): Payload`
 
-Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G` or `S`. Throws when no `N` row was present.
+Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H` or `S`. Throws when no `N` row was present.
 
 ### Row Grammar
 
@@ -331,6 +338,12 @@ Applying walks the old and new segment spines together, children paired in order
 Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended and applies it as `navigate` does, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state.
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
+
+### applyHead
+
+* `applyHead(head: Head): void`
+
+Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
 
 ## 7. Actions
 

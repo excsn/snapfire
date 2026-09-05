@@ -361,9 +361,23 @@ pub fn body_reads_request(body: &Body) -> bool {
   })
 }
 
-/// The route parameters a body reads, by name, without duplicates.
-pub fn body_params_read(body: &Body) -> Vec<String> {
-  let mut out = Vec::new();
+/// True when a body reads anything of the request other than its input: a
+/// parameter, the query, the session, the identity or the clock. A `meta`
+/// body's input is its loader's data, which is not the request.
+pub fn body_reads_ambient(body: &Body) -> bool {
+  let mut found = false;
+  for expr in body_exprs(body) {
+    expr.visit(&mut |e| {
+      if matches!(e, Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Now) {
+        found = true;
+      }
+    });
+  }
+  found
+}
+
+/// Every expression a body holds, in order, branches and loops included.
+fn body_exprs(body: &Body) -> Vec<&Expr> {
   fn exprs<'a>(body: &'a Body, into: &mut Vec<&'a Expr>) {
     for stmt in body {
       match stmt {
@@ -388,7 +402,13 @@ pub fn body_params_read(body: &Body) -> Vec<String> {
   }
   let mut all = Vec::new();
   exprs(body, &mut all);
-  for expr in all {
+  all
+}
+
+/// The route parameters a body reads, by name, without duplicates.
+pub fn body_params_read(body: &Body) -> Vec<String> {
+  let mut out = Vec::new();
+  for expr in body_exprs(body) {
     expr.visit(&mut |e| {
       if let Expr::Param(name) = e {
         if !out.contains(name) {

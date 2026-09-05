@@ -34,7 +34,7 @@ The route handlers a host dispatches before matching a page.
 * `Handlers::ids(&self) -> Vec<String>`; `Handlers::is_empty(&self) -> bool`.
 * `App::invalidate(&self, plan_key: &str) -> usize` (async): drops every cached subtree under the plan `cache_key` and says how many went.
 * `App::builder(routes: Routes) -> AppBuilder`: from routes alone, no plan file.
-* `App::from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: the plan file's text; its routes, its lowered sources, actions and components and its declared actions are remembered for `build`.
+* `App::from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: the plan file's text; its routes, its lowered sources with their `meta` bodies, actions and components and its declared actions are remembered for `build`. A lowered source's `meta` is registered on the runtime as an `IrMeta` under the source id when the source itself binds as lowered; a source Rust overrides loses its `meta` with it. A `meta` that reads the request beyond its data keeps its route out of `prerenderable`.
 
 ### AppBuilder
 

@@ -1,5 +1,5 @@
 import { patchIsland, scan } from "./boot.js";
-import { parsePayload, Payload, Segment, SfNode } from "./reader.js";
+import { Head, parsePayload, Payload, Segment, SfNode } from "./reader.js";
 import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
 
 let current: Segment | null = null;
@@ -154,6 +154,20 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
   return true;
 }
 
+/** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
+export function applyHead(head: Head): void {
+  if (head.title !== undefined) document.title = head.title;
+  if (head.description !== undefined) {
+    let meta = document.head.querySelector('meta[name="description"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "description");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute("content", head.description);
+  }
+}
+
 /** False when the payload could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. */
 function apply(payload: Payload, force: boolean): boolean {
   if (!current || !payload.segments) return false;
@@ -162,6 +176,7 @@ function apply(payload: Payload, force: boolean): boolean {
   for (const r of payload.resolutions) {
     fillSlot(r.slot, r.node, keyOfSlot(payload.segments, r.slot));
   }
+  for (const head of payload.heads) applyHead(head);
   scan(document);
   return true;
 }

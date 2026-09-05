@@ -132,6 +132,9 @@ pub struct SourceEntry {
   pub reason: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub body: Option<Body>,
+  /// The module's `meta`, describing the document from this source's data.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub meta: Option<Body>,
 }
 
 impl SourceEntry {
@@ -143,11 +146,17 @@ impl SourceEntry {
       export: None,
       reason: None,
       body: Some(body),
+      meta: None,
     }
   }
 
+  pub fn with_meta(mut self, meta: Option<Body>) -> Self {
+    self.meta = meta;
+    self
+  }
+
   pub fn rust(id: impl Into<String>) -> Self {
-    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None }
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None }
   }
 }
 

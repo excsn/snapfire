@@ -20,11 +20,19 @@ export interface Segment {
   c: Segment[];
 }
 
+/** What a route says about the document; a field left out keeps what the document has. */
+export interface Head {
+  title?: string;
+  description?: string;
+}
+
 export interface Payload {
   format: number;
   encoding: string;
   tree: SfNode;
   segments: Segment | null;
+  /** The document's title and description, from the eager wave then from each resolution that set them, in order. */
+  heads: Head[];
   resolutions: { slot: number; node: SfNode }[];
 }
 
@@ -54,13 +62,14 @@ export function decodeNode(row: unknown): SfNode {
   }
 }
 
-/** Parses a complete wire response: a V row, the N tree row, then S rows. */
+/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H and S rows. */
 export function parsePayload(text: string): Payload {
   let format = 0;
   let encoding = "";
   let tree: SfNode | null = null;
   let segments: Segment | null = null;
   const resolutions: { slot: number; node: SfNode }[] = [];
+  const heads: Head[] = [];
 
   for (const line of text.split("\n")) {
     if (line.length === 0) continue;
@@ -73,6 +82,8 @@ export function parsePayload(text: string): Payload {
       tree = decodeNode(JSON.parse(line.slice(2)));
     } else if (tag === "G") {
       segments = JSON.parse(line.slice(2));
+    } else if (tag === "H") {
+      heads.push(JSON.parse(line.slice(2)));
     } else if (tag === "S") {
       const gap = line.indexOf(" ", 2);
       const slot = Number(line.slice(2, gap));
@@ -82,5 +93,5 @@ export function parsePayload(text: string): Payload {
     }
   }
   if (tree === null) throw new Error("payload has no N row");
-  return { format, encoding, tree, segments, resolutions };
+  return { format, encoding, tree, segments, heads, resolutions };
 }

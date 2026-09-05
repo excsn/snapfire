@@ -4,11 +4,25 @@ use snapfire_fsr_core::Node;
 use snapfire_fsr_payload::{node_to_row_json, HtmlSession, FORMAT_VERSION};
 
 use crate::assembler::{Assembly, PendingResolution};
+use crate::meta::Meta;
 use crate::segments::SegmentInfo;
 
 /// Installed once, ahead of the first fill. Moves a resolved template's content
 /// into its slot and wakes the boot runtime to rescan.
-pub const FILL_SCRIPT: &str = "<script>function __sfFill(n){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}</script>";
+pub const FILL_SCRIPT: &str = "<script>function __sfFill(n){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}}</script>";
+
+/// The `H` row's body: only the fields a segment set, so a reader leaves
+/// the rest alone.
+pub fn meta_to_json(meta: &Meta) -> Json {
+  let mut obj = serde_json::Map::new();
+  if let Some(title) = &meta.title {
+    obj.insert("title".to_owned(), json!(title));
+  }
+  if let Some(description) = &meta.description {
+    obj.insert("description".to_owned(), json!(description));
+  }
+  Json::Object(obj)
+}
 
 pub fn segments_to_json(info: &SegmentInfo) -> Json {
   let mut obj = serde_json::Map::new();
@@ -43,15 +57,20 @@ impl PendingSet {
 }
 
 /// The wire encoding of a streamed response: a `V` row, the `N` tree row, the
-/// `G` segment sidecar row, then one `S` row per resolution in completion
-/// order. A resolution may introduce new slots, which join the set.
+/// `G` segment sidecar row, an `H` row when the document has a title or a
+/// description, then one `S` row per resolution in completion order, each
+/// followed by an `H` row when the resolved segment described the document.
+/// A resolution may introduce new slots, which join the set.
 pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
-  let header = format!(
+  let mut header = format!(
     "V {}\nN {}\nG {}\n",
     json!({ "fmt": FORMAT_VERSION, "enc": "json" }),
     node_to_row_json(&assembly.tree),
     segments_to_json(&assembly.segments)
   );
+  if !assembly.meta.is_empty() {
+    header.push_str(&format!("H {}\n", meta_to_json(&assembly.meta)));
+  }
   let pending = PendingSet::new(assembly.pending);
 
   stream::once(async move { header }).chain(stream::unfold(pending, |mut state| async move {
@@ -60,7 +79,10 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     for p in resolved.pending {
       state.set.push(p.future);
     }
-    let row = format!("S {} {}\n", resolved.slot.0, node_to_row_json(&resolved.node));
+    let mut row = format!("S {} {}\n", resolved.slot.0, node_to_row_json(&resolved.node));
+    if !resolved.meta.is_empty() {
+      row.push_str(&format!("H {}\n", meta_to_json(&resolved.meta)));
+    }
     Some((row, state))
   }))
 }
@@ -139,7 +161,11 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     }
     let slot = resolved.slot.0;
     let body = state.session.serialize(&resolved.node);
-    let chunk = format!("<template data-sf-fill=\"{slot}\"><!--sf-g:{}-->{body}<!--/sf-g--></template><script>__sfFill({slot})</script>", escape_key(&resolved.key));
+    let mut chunk = format!("<template data-sf-fill=\"{slot}\"><!--sf-g:{}-->{body}<!--/sf-g--></template><script>__sfFill({slot})", escape_key(&resolved.key));
+    if !resolved.meta.is_empty() {
+      chunk.push_str(&format!(";__sfHead({})", meta_to_json(&resolved.meta).to_string().replace('<', "\\u003c")));
+    }
+    chunk.push_str("</script>");
     Some((chunk, state))
   }))
 }

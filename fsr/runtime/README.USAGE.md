@@ -392,18 +392,30 @@ assembly.pending;   // Vec<PendingResolution>, one per deferred slot reached so 
 assembly.segments;  // SegmentInfo, the sidecar naming every segment and where it sits
 ```
 
-The head node is the application's, not the runtime's. The example app computes it from a metadata source on the route before assembling, so the title is data like any other:
+The head is the application's, not the runtime's: a `Head` with the default title, an optional default description and everything else the host puts in the head. A `Node` converts to one with an empty title.
 
 ```rust
-let title = match source.load(&ctx).await {
-  Ok(data) => match data.get("title") {
-    Some(Value::Str(title)) => title.clone(),
-    _ => "SnapFire FSR".to_owned(),
-  },
-  Err(_) => "SnapFire FSR".to_owned(),
-};
-let assembly = assemble(&runtime, &plan, &ctx, &head_node(&title)).await?;
+let head = Head::new("SnapFire FSR", Node::raw("<meta charset=\"utf-8\">"));
+let assembly = assemble(&runtime, &plan, &ctx, &head).await?;
+assert_eq!(assembly.meta.title.as_deref(), Some("SnapFire FSR"));
 ```
+
+A segment describes the document from its own data by registering a `Metadata` under its source's id. The innermost described segment wins, its `describe` runs once after the eager wave with the data that source loaded, and the head slot then carries `rest` followed by the chosen title and description. `assembly.meta` holds what was settled, defaults included.
+
+```rust
+struct ProductMeta;
+
+impl Metadata for ProductMeta {
+  fn describe(&self, _ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
+    let name = match data.get("name") { Some(Value::Str(s)) => s.clone(), _ => String::new() };
+    Box::pin(async move { Ok(Meta { title: Some(format!("{name} · Shop")), description: None }) })
+  }
+}
+
+let runtime = Runtime::builder().sources(sources).evaluators(evaluators).meta("product", Arc::new(ProductMeta)).build();
+```
+
+A deferred segment is not in the eager wave, so the document ships with the defaults and the resolution carries the segment's `Meta`: `html_stream` calls `__sfHead` after the fill and `wire_stream` follows the `S` row with an `H` row.
 
 One shape to know: a node whose evaluator emitted exactly one chunk collapses to that node rather than a one-element `Node::Seq`; its child segments then carry an empty `path`, meaning the whole node. With two or more chunks the tree is a `Seq`; each child segment carries `path: [index]`.
 
@@ -481,8 +493,9 @@ The first item is three rows in one string:
 * `V {"fmt":1,"enc":"json"}`, the format version and encoding.
 * `N <row json>`, the payload tree.
 * `G <segment json>`, the segment sidecar.
+* `H {"title":..,"description":..}`, when the document has either, only the fields it has.
 
-Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order. The sidecar encoding is compact: `k` is the segment key and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
+Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order, each followed by an `H` row when the resolved segment described the document. The sidecar encoding is compact: `k` is the segment key and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
 
 ```rust
 use snapfire_fsr_runtime::segments_to_json;

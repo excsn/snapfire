@@ -16,7 +16,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_lower::{lower_actions_with, lower_handlers_with, lower_loader_with, lower_middleware_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
+use snapfire_fsr_lower::{lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
 use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
@@ -260,7 +260,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let loader_module = format!("{rel}/layout.loader.ts");
       let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
       let body = lower_loader_with(&loader_module, &text, &defaults)?;
-      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body));
+      let meta = lower_meta_with(&loader_module, &text, &defaults)?;
+      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta));
       report.sources.push((id.clone(), loader_module));
       Some(id.clone())
     } else {
@@ -285,7 +286,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let module = format!("{rel}/page.loader.ts");
       let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
       let body = lower_loader_with(&module, &text, &defaults)?;
-      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body));
+      let meta = lower_meta_with(&module, &text, &defaults)?;
+      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta));
       report.sources.push((route.id.clone(), module));
       Some(route.id.clone())
     } else {
@@ -482,7 +484,7 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>) -> String {
     let _ = writeln!(out, "  \"{}\": {{{}}};", route.pattern, if params.is_empty() { String::new() } else { format!(" {} ", params.join("; ")) });
   }
   out.push_str(
-    "}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  session: Session;\n  identity: Identity | null;\n  services: Services;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n}\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
+    "}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  session: Session;\n  identity: Identity | null;\n  services: Services;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
   out
 }

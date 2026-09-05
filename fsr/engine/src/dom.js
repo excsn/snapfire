@@ -8,6 +8,21 @@ globalThis.document = document;
 // React decides at import whether `input` events exist by asking the document for `oninput`; without it React falls back to a polyfill that only watches the focused element on keyup, so a controlled text input never sees a change.
 const documentProto = Object.getPrototypeOf(document);
 if (!("oninput" in documentProto)) documentProto.oninput = null;
+// linkedom's `document.title` reads nothing from a parsed document; the navigator sets it on every route change.
+Object.defineProperty(documentProto, "title", {
+  configurable: true,
+  get() {
+    return this.querySelector("title")?.textContent ?? "";
+  },
+  set(value) {
+    let el = this.querySelector("title");
+    if (!el) {
+      el = this.createElement("title");
+      (this.head ?? this.documentElement).appendChild(el);
+    }
+    el.textContent = String(value);
+  },
+});
 globalThis.window = globalThis;
 globalThis.self = globalThis;
 if (typeof globalThis.UIEvent !== "function") globalThis.UIEvent = class UIEvent extends Event {};

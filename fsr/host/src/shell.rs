@@ -1,6 +1,6 @@
 use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, SlotName};
-use snapfire_fsr_runtime::{Chunk, Evaluator, NodeChunks};
+use snapfire_fsr_runtime::{Chunk, Evaluator, Head, NodeChunks};
 
 /// The document around a client-rendered route: doctype, the head slot, the
 /// mount point, the content slot. It emits no application markup.
@@ -18,16 +18,12 @@ impl Evaluator for DocumentShell {
   }
 }
 
-/// What the head slot carries: the title, the stylesheets, the inlined
-/// import map and the entry module, built once at boot.
-pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> Node {
+/// What the head slot carries: the stylesheets, the inlined import map and
+/// the entry module, built once at boot, with the configured title as the
+/// default a route's `meta` overrides.
+pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> Head {
   let mut head = String::new();
   head.push_str("<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-  if !title.is_empty() {
-    head.push_str("<title>");
-    head.push_str(&escape(title));
-    head.push_str("</title>");
-  }
   for href in styles {
     head.push_str("<link rel=\"stylesheet\" href=\"");
     head.push_str(&escape(href));
@@ -43,7 +39,7 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Opt
     head.push_str(&escape(entry));
     head.push_str("\"></script>");
   }
-  Node::raw(head)
+  Head::new(title, Node::raw(head))
 }
 
 fn escape(text: &str) -> String {

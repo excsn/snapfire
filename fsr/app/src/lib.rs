@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, PlanNode};
-use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrSource};
+use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrMeta, IrSource};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   HandlerMatch, HandlerMatcher, LoadError, MatchitMatcher, NodeCache, RequestCtx, Runtime, TableResolver,
@@ -203,6 +203,8 @@ pub struct AppBuilder {
   rust_handlers: Vec<(String, String, Arc<dyn ActionHandler>, Owner)>,
   declared_actions: Vec<String>,
   lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
+  /// By source id: the loader module's `meta` body.
+  lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
   lowered_components: Vec<(String, Component)>,
   contract: Option<Arc<Contract>>,
@@ -233,6 +235,7 @@ impl App {
       rust_handlers: Vec::new(),
       declared_actions: Vec::new(),
       lowered_sources: Vec::new(),
+      lowered_metas: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
       contract: None,
@@ -258,6 +261,10 @@ impl App {
     builder.lowered_sources = parsed
       .lowered_sources()
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body)))
+      .collect();
+    builder.lowered_metas = parsed
+      .lowered_sources()
+      .filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta)))
       .collect();
     builder.lowered_actions = parsed
       .lowered_actions()
@@ -438,7 +445,12 @@ impl AppBuilder {
       }
     }
 
-    let fixed_sources: Vec<String> = self.lowered_sources.iter().filter(|(_, body)| !snapfire_fsr_ir::body_reads_request(body)).map(|(name, _)| name.clone()).collect();
+    let fixed_sources: Vec<String> = self
+      .lowered_sources
+      .iter()
+      .filter(|(name, body)| !snapfire_fsr_ir::body_reads_request(body) && !self.lowered_metas.iter().any(|(m, meta)| m == name && snapfire_fsr_ir::body_reads_ambient(meta)))
+      .map(|(name, _)| name.clone())
+      .collect();
     let reads: HashMap<String, Vec<String>> = self.lowered_sources.iter().map(|(name, body)| (name.clone(), snapfire_fsr_ir::body_params_read(body))).collect();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
       match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
@@ -612,6 +624,11 @@ impl AppBuilder {
     let mut runtime = Runtime::builder().sources(self.sources).evaluators(self.evaluators).keyer(Arc::new(ReadsKeyer { reads }));
     if let Some(cache) = self.cache {
       runtime = runtime.cache(cache);
+    }
+    for (name, meta) in std::mem::take(&mut self.lowered_metas) {
+      if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
+        runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta)));
+      }
     }
 
     Ok(App {
