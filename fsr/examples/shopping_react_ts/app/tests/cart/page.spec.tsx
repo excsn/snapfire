@@ -42,6 +42,8 @@ test("checkout places the order through the mocked service", async () => {
   assert.equal(c.trace.calls[0].args, { lines: [{ product_id: 1, quantity: 2 }] });
   assert.equal(c.session.cart, {});
   assert.ok(screen.getByText("Order #7 placed"), "the toast is the intermission");
+  assert.ok(screen.getByText("Order processing"), "the cart shows the order going through");
+  assert.equal(screen.queryByText("Your cart is empty"), null, "never the empty cart the checkout just made");
   assert.equal(location.pathname, "/", "nothing moves while it shows");
   await advance(2000);
   assert.equal(location.pathname, "/order/7", "then the page goes to the order");
