@@ -1,8 +1,8 @@
-import { assert, ctx, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { assert, ctx, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
 
 const agents = [
   { id: 1n, name: "builder-eu-1", region: "eu", status: "up", queue_depth: 3n, cpu: 61.5 },
-  { id: 3n, name: "builder-us-1", region: "us", status: "down", queue_depth: 7n, cpu: 0.5 },
+  { id: 3n, name: "builder-us-1", region: "us", status: "down", queue_depth: 7n, cpu: f64(0) },
 ];
 const alerts = [{ id: 21n, agent_id: 3n, level: "page", text: "builder-us-1 stopped answering" }];
 const jobs = [{ id: 11n, name: "compile", seconds: 92n }];

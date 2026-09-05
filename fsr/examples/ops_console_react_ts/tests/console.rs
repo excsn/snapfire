@@ -144,7 +144,7 @@ fn acknowledging_an_alert_and_watching_an_agent_reach_the_backend_and_the_sessio
 
   let mut input = ValueMap::new();
   input.insert("alert_id".to_owned(), Value::int(21i64));
-  let left = block_on(app.call_action("index.ackAlert", session.clone(), Value::Map(input))).unwrap();
+  let left = block_on(app.call_action("layout.alerts.ackAlert", session.clone(), Value::Map(input))).unwrap();
   assert_eq!(left, Value::Map(ValueMap::from_iter([("open".to_owned(), Value::Int(1))])));
   assert!(transport.calls().iter().any(|(method, _, _)| method == "fleet.acknowledgeAlert"));
 

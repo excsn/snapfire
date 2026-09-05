@@ -1,8 +1,10 @@
 export type RefValue = { readonly kind: "action" | "module"; readonly id: string };
 export type VariantValue = { readonly tag: string; readonly payload?: SfValue };
+export type DoubleValue = { readonly value: number };
 
 const REF_MARK = Symbol.for("sf.ref");
 const VARIANT_MARK = Symbol.for("sf.variant");
+const DOUBLE_MARK = Symbol.for("sf.double");
 
 export function ref(kind: "action" | "module", id: string): RefValue {
   const v = { kind, id } as RefValue;
@@ -19,12 +21,23 @@ export function variant(tag: string, payload?: SfValue): VariantValue {
   return Object.freeze(v);
 }
 
+/** A number the server must read as a double, whatever its magnitude. JS has one number type, so `0` and `2` encode as integers and a contract saying `f64` refuses them; `f64(0)` says which one was meant. Decoding never returns this: a double comes back as a plain number. */
+export function f64(value: number): DoubleValue {
+  const v = { value } as DoubleValue;
+  (v as never as { [k: symbol]: boolean })[DOUBLE_MARK] = true;
+  return Object.freeze(v);
+}
+
 export function isRef(v: unknown): v is RefValue {
   return typeof v === "object" && v !== null && (v as { [k: symbol]: unknown })[REF_MARK] === true;
 }
 
 export function isVariant(v: unknown): v is VariantValue {
   return typeof v === "object" && v !== null && (v as { [k: symbol]: unknown })[VARIANT_MARK] === true;
+}
+
+export function isDouble(v: unknown): v is DoubleValue {
+  return typeof v === "object" && v !== null && (v as { [k: symbol]: unknown })[DOUBLE_MARK] === true;
 }
 
 export type SfValue =
@@ -46,6 +59,7 @@ export type SfValue =
   | SfValue[]
   | RefValue
   | VariantValue
+  | DoubleValue
   | { [key: string]: SfValue };
 
 const TYPED_ARRAYS: Record<string, new (buf: ArrayBuffer) => SfValue> = {
@@ -189,6 +203,13 @@ export function encodeValue(v: SfValue): unknown {
     }
   }
   if (Array.isArray(v)) return v.map(encodeValue);
+  if (isDouble(v)) {
+    const n = v.value;
+    if (Number.isNaN(n)) return { $: "f", v: "nan" };
+    if (n === Infinity) return { $: "f", v: "inf" };
+    if (n === -Infinity) return { $: "f", v: "-inf" };
+    return { $: "f", v: n };
+  }
   if (isRef(v)) return { $: "ref", k: v.kind, id: v.id };
   if (isVariant(v)) {
     return v.payload === undefined ? { $: "var", t: v.tag } : { $: "var", t: v.tag, p: encodeValue(v.payload) };

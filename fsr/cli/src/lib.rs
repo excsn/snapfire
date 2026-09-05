@@ -424,6 +424,25 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       } else {
         None
       };
+      let slot_actions = slot_dir.join("actions.ts");
+      if slot_actions.is_file() {
+        let module = format!("{slot_rel}/actions.ts");
+        let text = std::fs::read_to_string(&slot_actions).map_err(|e| BuildError::Io(slot_actions.clone(), e))?;
+        for lowered in lower_actions_with(&module, &text, &defaults)? {
+          let action_id = format!("{slot_id}.{}", lowered.export);
+          if let Some(name) = &lowered.input {
+            if !contract.types.contains_key(name) {
+              return Err(BuildError::UnknownInput { action: action_id, name: name.clone() });
+            }
+          }
+          let mut entry = ActionEntry::lowered(action_id.clone(), module.clone(), lowered.body);
+          entry.export = Some(lowered.export);
+          entry.input = lowered.input;
+          actions.push(entry);
+          report.actions.push((action_id, module.clone()));
+        }
+      }
+
       let loading = ["loading.tsx", "loading.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
       let error = ["error.tsx", "error.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
       for module in [Some(&page), loading.as_ref(), error.as_ref()].into_iter().flatten() {

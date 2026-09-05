@@ -1,4 +1,4 @@
-import { decodeValue, encodeValue, ref, variant } from "@snapfire/fsr-client";
+import { decodeValue, encodeValue, f64, ref, variant } from "@snapfire/fsr-client";
 import { assert, test } from "@snapfire/fsr-client/testing";
 
 test("integers are tagged on the way out and come back as numbers while they fit", () => {
@@ -29,4 +29,13 @@ test("maps with a dollar key, variants and references survive a round trip", () 
   assert.equal(encodeValue(variant("some", 2n)), { $: "var", t: "some", p: { $: "i", v: "2" } });
   assert.equal(decodeValue(encodeValue(variant("none"))), variant("none"));
   assert.equal(decodeValue(encodeValue(ref("action", "cart.add"))), ref("action", "cart.add"));
+});
+
+test("f64 says double where the number alone cannot", () => {
+  assert.equal(encodeValue(0), 0, "a whole number is an integer, which is what a contract saying f64 refuses");
+  assert.equal(encodeValue(f64(0)), { $: "f", v: 0 });
+  assert.equal(encodeValue(f64(2.5)), { $: "f", v: 2.5 });
+  assert.equal(encodeValue(f64(Infinity)), { $: "f", v: "inf" });
+  assert.equal(decodeValue(encodeValue(f64(0))), 0, "it comes back a plain number: the tag is for the way out");
+  assert.equal(encodeValue({ cpu: f64(0), name: "idle" }), { cpu: { $: "f", v: 0 }, name: "idle" }, "and it nests");
 });

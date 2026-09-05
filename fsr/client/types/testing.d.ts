@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
 import { type Root } from "react-dom/client";
+export { f64 } from "./values.js";
+export type { DoubleValue } from "./values.js";
 type Method = (args: never) => unknown;
 export interface Mock<Input = unknown> {
 	session?: Record<string, unknown>;
@@ -82,4 +84,3 @@ export declare const fireEvent: {
 	submit(el: Element): Promise<void>;
 	keyDown(el: Element, key: string): Promise<void>;
 };
-export {};
