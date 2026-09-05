@@ -14,6 +14,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Mounting in axum](#mounting-in-axum)
 * [Serving with actix](#serving-with-actix)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
+* [Posting a Form to an Action](#posting-a-form-to-an-action)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Caching Rendered Segments](#caching-rendered-segments)
@@ -82,6 +83,7 @@ title = "Shopping"
 [session]
 key = "a signing key"             # required
 ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
+csrf = "identified"               # when a CSRF token is minted: once signed in, or always
 
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
@@ -193,6 +195,21 @@ let host = Host::from(".")?
   .build()?;
 ```
 
+A Rust route titles its document the way a loader's `meta` does: `meta` describes the segment whose data source it names once that data has loaded, with the request context in hand, so a title can ask a service. The innermost described segment on the plan wins.
+
+```rust
+struct SectionTitle;
+
+impl Metadata for SectionTitle {
+  fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
+    let section = ctx.params.get("section").cloned();
+    Box::pin(async move { Ok(Meta { title: section.map(|s| format!("{s} - Fleet")), description: None }) })
+  }
+}
+
+let host = Host::from(".")?.meta("layout_loader", Arc::new(SectionTitle)).build()?;
+```
+
 `not_found` sets the tree the host renders, with status 404, for a path no route matches; it replaces the one `routes/not-found.tsx` put in the plan file. The page receives the path it is answering as `params.path`.
 
 ```rust
@@ -214,6 +231,20 @@ let host = Host::from(".")?
 
 let answer = host.call_handler("GET", "/api/health", session, Value::Null).await?;
 ```
+
+## Posting a Form to an Action
+
+The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields reach the action as strings; a success answers 303 back to the page that posted, by its `Referer`, and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified, or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
+
+```html
+<form method="post" action="/_sf/action/add_server">
+  <input name="name">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <button>add</button>
+</form>
+```
+
+A payload request may name the encoding it wants with `enc`; `json` is the one that exists and anything else is 406.
 
 ## Middleware in Rust
 

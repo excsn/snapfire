@@ -92,6 +92,17 @@ impl Sessions {
   }
 
   /// Logout: deletes the record and returns the expiring cookie.
+  /// Saves the session whether or not it changed, so its id survives to the
+  /// next request; the cookie to set when the session is fresh. For a host
+  /// that bound something to the id, such as a CSRF token, before the
+  /// session held anything.
+  pub async fn establish(&self, opened: &Opened) -> Option<String> {
+    let (data, identity) = opened.cell.snapshot();
+    let tokens = opened.tokens.snapshot();
+    self.store.save(&opened.id, SessionRecord { data, identity, tokens }).await;
+    opened.fresh.then(|| self.set_cookie(&opened.id))
+  }
+
   pub async fn destroy(&self, opened: &Opened) -> String {
     self.store.delete(&opened.id).await;
     let secure = if self.config.secure { "; Secure" } else { "" };

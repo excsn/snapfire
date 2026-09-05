@@ -72,6 +72,7 @@ The session layer facade. Holds the store, the config and an `HmacCodec` built f
 * `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`. Any key length is accepted.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
 * `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when neither `opened.cell` nor `opened.tokens` is dirty. Otherwise it saves the record and returns `Some(set_cookie)` when `opened.fresh` is `true`, `None` when it is not.
+* `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` is `true`; for a host that bound something to the id, such as a CSRF token, before the session held anything.
 * `async fn destroy(&self, opened: &Opened) -> String`. Deletes the record and always returns the expiring cookie. It does not clear the cells.
 * `fn csrf_token(&self, id: &SessionId) -> String`. Deterministic for a given id and key.
 * `fn verify_csrf(&self, id: &SessionId, token: &str) -> bool`. A token signed for one id never verifies for another; a non-hex token returns `false`.

@@ -1,12 +1,14 @@
-use futures::executor::block_on;
-use std::time::Duration;
+mod common;
 
-use advanced_tera_app::{build_app, render, AppError, RenderMode};
+use common::{app, render};
+use futures::executor::block_on;
+use snapfire_fsr_host::{HostError, RenderMode};
+use snapfire_fsr_runtime::SessionCell;
 
 #[test]
 fn html_serves_the_walked_page_shape() {
-  let app = build_app(Duration::ZERO);
-  let html = block_on(render(&app, "/dash/servers", RenderMode::Html)).unwrap();
+  let host = app();
+  let html = render(&host, "/dash/servers");
 
   assert!(html.starts_with("<!--sf-g:"), "the root segment delimiter leads: {html}");
   assert!(html.contains("<!doctype html>"), "layout owns the shell: {html}");
@@ -29,8 +31,8 @@ fn html_serves_the_walked_page_shape() {
 
 #[test]
 fn payload_mode_serves_wire_rows() {
-  let app = build_app(Duration::ZERO);
-  let payload = block_on(render(&app, "/dash/servers", RenderMode::Payload)).unwrap();
+  let host = app();
+  let payload = block_on(host.render_to_string("/dash/servers", RenderMode::Payload, SessionCell::default())).unwrap();
 
   assert!(payload.starts_with("V {\"fmt\":1,\"enc\":\"json\"}\nN "), "version row then tree row: {payload}");
   assert!(payload.contains("[\"c\",{\"m\":\"components/ServerChart.tsx#default\""), "island rides as a client row");
@@ -39,9 +41,9 @@ fn payload_mode_serves_wire_rows() {
 
 #[test]
 fn unmatched_paths_are_not_found() {
-  let app = build_app(Duration::ZERO);
-  let err = block_on(render(&app, "/nope", RenderMode::Html)).unwrap_err();
-  assert!(matches!(err, AppError::NotFound(_)));
+  let host = app();
+  let err = block_on(host.render_to_string("/nope", RenderMode::Html, SessionCell::default())).unwrap_err();
+  assert!(matches!(err, HostError::NotFound(_)));
 }
 
 #[test]
@@ -49,8 +51,8 @@ fn island_props_round_trip_through_the_degraded_tera_context() {
   use snapfire_fsr_core::{TypedArray, Value};
   use snapfire_fsr_payload::json_to_value;
 
-  let app = build_app(Duration::ZERO);
-  let html = block_on(render(&app, "/dash/servers", RenderMode::Html)).unwrap();
+  let host = app();
+  let html = render(&host, "/dash/servers");
 
   let props_json = html
     .split_once("data-sf-props=\"sf-i0\">")
@@ -68,8 +70,8 @@ fn island_props_round_trip_through_the_degraded_tera_context() {
 
 #[test]
 fn a_down_backend_degrades_the_segment_never_the_page() {
-  let app = build_app(Duration::ZERO);
-  let html = block_on(render(&app, "/dash/down", RenderMode::Html)).unwrap();
+  let host = app();
+  let html = render(&host, "/dash/down");
 
   assert!(html.contains("<nav>SnapFire FSR "), "the layout survives the failure");
   assert!(html.contains("<title>down (2 servers) - SnapFire FSR</title>"), "metadata still computes");
@@ -80,8 +82,8 @@ fn a_down_backend_degrades_the_segment_never_the_page() {
 
 #[test]
 fn the_index_lists_the_routes_and_the_dev_credentials() {
-  let app = build_app(Duration::ZERO);
-  let html = block_on(render(&app, "/", RenderMode::Html)).unwrap();
+  let host = app();
+  let html = render(&host, "/");
 
   for route in ["/dash/servers", "/slow/servers", "/dash/down", "/login"] {
     assert!(html.contains(&format!("href=\"{route}\"")), "the index links {route}: {html}");

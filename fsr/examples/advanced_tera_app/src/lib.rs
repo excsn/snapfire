@@ -1,49 +1,19 @@
 pub mod actions;
-pub mod http;
 pub mod loaders;
-pub mod render;
 pub mod routes;
 pub mod services;
 pub mod state;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use snapfire_fsr_auth::{Auth, DevProvider};
-use snapfire_fsr_core::ModuleId;
-use snapfire_fsr_runtime::{
-  ActionRegistry, DataSources, Evaluators, FibreCache, MatchitMatcher, Runtime, TableResolver,
-};
-use snapfire_fsr_service::Services;
-use snapfire_fsr_session::{MemorySessionStore, SessionConfig, Sessions};
+use snapfire_fsr_core::{ModuleId, Value};
+use snapfire_fsr_host::{Config, Host, HostBuilder, HostError};
 use snapfire_fsr_tera::TeraEvaluator;
 
-pub use render::{call_action, negotiate_encoding, render, respond, respond_with, AppError, Incoming, RenderMode};
-
-pub struct AppCore {
-  pub(crate) matcher: MatchitMatcher,
-  pub(crate) resolver: TableResolver,
-  pub(crate) runtime: Arc<Runtime>,
-  pub(crate) actions: ActionRegistry,
-  pub(crate) sessions: Sessions,
-  pub(crate) auth: Auth,
-  pub(crate) services: Arc<Services>,
-  pub(crate) renders: state::Renders,
-}
-
-impl AppCore {
-  pub fn sessions(&self) -> &Sessions {
-    &self.sessions
-  }
-
-  pub fn auth(&self) -> &Auth {
-    &self.auth
-  }
-
-  pub fn services(&self) -> &Arc<Services> {
-    &self.services
-  }
-}
+/// No plan file: every route, source and action is bound in Rust.
+const EMPTY_PLAN: &str = r#"{"version":2,"routes":[]}"#;
 
 fn templates() -> tera::Tera {
   let mut tera = tera::Tera::new();
@@ -63,46 +33,48 @@ fn templates() -> tera::Tera {
   tera
 }
 
-pub fn build_app(chart_delay: Duration) -> AppCore {
+/// The stock host over `config/`, with the fleet, the loaders, the action and
+/// the Tera evaluator bound in Rust. `chart_delay` is how long the deferred
+/// chart takes, so a test can make it instant.
+pub fn builder(chart_delay: Duration) -> Result<HostBuilder, HostError> {
   let fleet = state::Fleet::seed();
-
-  let services = services::build(fleet.clone());
   let renders = state::Renders::default();
+  let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
+  let counting = renders.clone();
+  let builder = Host::from_config_with(config, EMPTY_PLAN.to_owned(), None)?
+    .services(services::build(fleet))
+    .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
+    .route("/dash/{section}", routes::dash_plan())
+    .route("/slow/{section}", routes::slow_plan())
+    .route("/login", routes::login_plan())
+    .route("/", routes::index_plan())
+    .middleware(move |ctx, request| {
+      let renders = counting.clone();
+      async move {
+        let (page, payload) = match &request {
+          Value::Map(line) => (
+            !matches!(line.get("path"), Some(Value::Str(path)) if path.starts_with("/_sf/")) && line.get("method") == Some(&Value::str("GET")),
+            line.get("payload") == Some(&Value::Bool(true)),
+          ),
+          _ => (false, false),
+        };
+        if page {
+          renders.next();
+          if !payload {
+            let visits = match ctx.session.get("visits") {
+              Some(Value::Int(n)) => n + 1,
+              _ => 1,
+            };
+            ctx.session.insert("visits", Value::Int(visits));
+          }
+        }
+        Ok(Value::Null)
+      }
+    });
+  let builder = loaders::register(builder, chart_delay, renders);
+  Ok(actions::register(builder))
+}
 
-  let mut sources = DataSources::new();
-  loaders::register(&mut sources, chart_delay, renders.clone());
-
-  let mut evaluators = Evaluators::new();
-  evaluators.register(
-    |m: &ModuleId| m.path.ends_with(".tera"),
-    Arc::new(TeraEvaluator::new(templates())),
-  );
-
-  let mut action_registry = ActionRegistry::new();
-  actions::register(&mut action_registry);
-
-  let sessions = Sessions::new(
-    Arc::new(MemorySessionStore::new(4096, Duration::from_secs(8 * 3600))),
-    b"tera-app-dev-signing-key-not-a-secret",
-    SessionConfig::default(),
-  );
-
-  let auth = Auth::new(Arc::new(
-    DevProvider::new("/login").user("alice", "wonder").user("bob", "builder"),
-  ));
-
-  AppCore {
-    matcher: routes::matcher(),
-    resolver: routes::resolver(),
-    runtime: Runtime::builder()
-      .sources(sources)
-      .evaluators(evaluators)
-      .cache(Arc::new(FibreCache::bounded(1024, Duration::from_secs(300))))
-      .build(),
-    actions: action_registry,
-    sessions,
-    auth,
-    services,
-    renders,
-  }
+pub fn build(chart_delay: Duration) -> Result<Host, HostError> {
+  builder(chart_delay)?.build()
 }

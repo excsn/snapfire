@@ -107,6 +107,15 @@ pub struct SessionSection {
   pub capacity: u64,
   #[serde(default)]
   pub secure: bool,
+  /// When the host mints the session's CSRF token into requests: `identified`,
+  /// once the session has an identity, or `always`. A token joins the render
+  /// memo key, so `always` memoises every page per session.
+  #[serde(default = "default_csrf")]
+  pub csrf: String,
+}
+
+fn default_csrf() -> String {
+  "identified".to_owned()
 }
 
 /// The render memo: evaluated subtrees keyed by plan node, params, identity
@@ -353,6 +362,9 @@ impl Config {
       return Err(HostError::Config(at.clone(), "missing section `session`; `session.key` is required".to_owned()));
     }
     let session: SessionSection = store.get_into_struct("session").map_err(fail)?;
+    if !matches!(session.csrf.as_str(), "identified" | "always") {
+      return Err(HostError::Config(at.clone(), format!("session.csrf `{}` is not a choice; identified or always", session.csrf)));
+    }
     let cache: Option<CacheSection> = if store.path_exists("cache") { Some(store.get_into_struct("cache").map_err(fail)?) } else { None };
 
     let mut clients = BTreeMap::new();

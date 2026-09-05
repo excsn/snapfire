@@ -1,58 +1,37 @@
-use std::time::Duration;
+mod common;
 
-use futures::executor::block_on;
-use futures_util::StreamExt;
-use advanced_tera_app::{build_app, respond_with, RenderMode};
-
-fn render_with(app: &advanced_tera_app::AppCore, opened: &snapfire_fsr_session::Opened) -> String {
-  let csrf = app.sessions().csrf_token(&opened.id);
-  block_on(async {
-    let chunks: Vec<String> = respond_with(app, "/dash/servers", RenderMode::Html, incoming(opened, csrf))
-      .await
-      .unwrap()
-      .collect()
-      .await;
-    chunks.concat()
-  })
-}
-
-fn incoming(opened: &snapfire_fsr_session::Opened, csrf: String) -> advanced_tera_app::Incoming {
-  advanced_tera_app::Incoming::new(
-    opened.cell.clone(),
-    Some(csrf),
-    std::sync::Arc::new(opened.tokens.clone()),
-  )
-}
+use common::{app, csrf_in, get, render, session_cookie, text};
 
 #[test]
 fn visits_count_across_the_cookie_round_trip() {
-  let app = build_app(Duration::ZERO);
+  let host = app();
 
-  let first = block_on(app.sessions().open(None));
-  let html = render_with(&app, &first);
+  let response = get(&host, "/dash/servers", None);
+  let cookie = session_cookie(&response);
+  let html = text(response);
   assert!(html.contains("visits 1"), "first visit: {html}");
-  let cookie = block_on(app.sessions().persist(&first)).expect("dirty fresh session sets a cookie");
 
-  let header = cookie.split(';').next().unwrap().to_owned();
-  let second = block_on(app.sessions().open(Some(&header)));
-  let html = render_with(&app, &second);
+  let html = text(get(&host, "/dash/servers", Some(&cookie)));
   assert!(html.contains("visits 2"), "the session remembered: {html}");
+
+  let html = text(get(&host, "/dash/servers?__payload", Some(&cookie)));
+  assert!(html.contains("visits 2"), "a navigation is the same page, not a visit: {html}");
 }
 
 #[test]
 fn the_form_embeds_the_session_csrf_token() {
-  let app = build_app(Duration::ZERO);
-  let opened = block_on(app.sessions().open(None));
-  let token = app.sessions().csrf_token(&opened.id);
-  let html = render_with(&app, &opened);
-  assert!(html.contains(&format!("name=\"_csrf\" value=\"{token}\"")), "hidden csrf input: {html}");
-  assert!(app.sessions().verify_csrf(&opened.id, &token));
+  let host = app();
+  let response = get(&host, "/dash/servers", None);
+  let cookie = session_cookie(&response);
+  let token = csrf_in(&text(response));
+  assert!(!token.is_empty());
+  assert_eq!(csrf_in(&text(get(&host, "/dash/servers", Some(&cookie)))), token, "the token is the session's");
 }
 
 #[test]
 fn anonymous_render_still_works_without_a_session_layer() {
-  let app = build_app(Duration::ZERO);
-  let html = block_on(advanced_tera_app::render(&app, "/dash/servers", RenderMode::Html)).unwrap();
-  assert!(html.contains("visits 1"), "an anonymous cell still counts from one");
+  let host = app();
+  let html = render(&host, "/dash/servers");
+  assert!(html.contains("visits 0"), "a render outside the edge runs no middleware, so nothing counts: {html}");
   assert!(html.contains("name=\"_csrf\" value=\"\""), "no token without a session layer, form still renders");
 }

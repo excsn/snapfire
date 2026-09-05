@@ -13,7 +13,7 @@ use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
 use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrMeta, IrSource, IrStore};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, NodeCache, RequestCtx, Resolver, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Resolver, Runtime, TableResolver,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -225,6 +225,8 @@ pub struct AppBuilder {
   lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
   /// By source id: the loader module's `meta` body.
   lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
+  /// By source id: metadata a Rust host describes a segment with.
+  rust_metas: Vec<(String, Arc<dyn Metadata>)>,
   lowered_stores: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
   lowered_components: Vec<(String, Component)>,
@@ -257,6 +259,7 @@ impl App {
       declared_actions: Vec::new(),
       lowered_sources: Vec::new(),
       lowered_metas: Vec::new(),
+      rust_metas: Vec::new(),
       lowered_stores: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
@@ -457,6 +460,15 @@ impl AppBuilder {
 
   pub fn route_override(mut self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self {
     self.routes = self.routes.replace(pattern, plan);
+    self
+  }
+
+  /// Describes the segment whose data source is `name` once its data has
+  /// loaded: the title and description the document takes. The innermost
+  /// described segment on a plan wins; a lowered `meta` under the same name
+  /// is replaced.
+  pub fn meta(mut self, name: impl Into<String>, meta: Arc<dyn Metadata>) -> Self {
+    self.rust_metas.push((name.into(), meta));
     self
   }
 
@@ -672,6 +684,9 @@ impl AppBuilder {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
         runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta)));
       }
+    }
+    for (name, meta) in std::mem::take(&mut self.rust_metas) {
+      runtime = runtime.meta(name, meta);
     }
     for (name, store) in std::mem::take(&mut self.lowered_stores) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {

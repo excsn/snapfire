@@ -1,13 +1,15 @@
-use std::time::Duration;
+mod common;
 
+use common::app;
 use futures::executor::block_on;
 use futures_util::StreamExt;
-use advanced_tera_app::{build_app, respond, RenderMode};
+use snapfire_fsr_host::RenderMode;
+use snapfire_fsr_runtime::SessionCell;
 
 fn chunks(path: &str, mode: RenderMode) -> Vec<String> {
-  let app = build_app(Duration::ZERO);
+  let host = app();
   block_on(async {
-    let stream = respond(&app, path, mode).await.unwrap();
+    let stream = host.render(path, mode, SessionCell::default()).await.unwrap();
     stream.collect::<Vec<_>>().await
   })
 }
