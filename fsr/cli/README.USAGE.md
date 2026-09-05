@@ -515,6 +515,14 @@ fsr serve app --listen 127.0.0.1:8080
 fsr dev app
 ```
 
+To serve with no backend at all, an overlay names a client's transport as `mock` and `clients/<name>.mock.json` holds the responses, an object of method name to value with `{"$fail": {"kind": "unavailable", "message": "..."}}` for a failure. `APP_ENV=mock fsr serve app` picks the overlay up through the configuration ladder and the report shows `mock` and the file beside the client.
+
+```toml
+# config/mock.toml
+[clients.fleet]
+transport = "mock"
+```
+
 ## Serving Locales
 
 A `[locales]` section in `config/app.toml` names the locales, spelled as the application wants to read them, and the default, which serves unprefixed. Every other locale serves under its tag: `/fr_FR/about` is `/about` in French, the prefix matched in any case or separator and stripped before the route matches. A request without a prefix follows the cookie, then `Accept-Language`, then the default; `remember = true` writes the cookie when a prefix chose the locale, so an unprefixed link from a French page stays French. The default may be prefixed too, `/en_US/about`, which renders `/about` with a canonical link pointing at it.

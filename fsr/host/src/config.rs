@@ -147,12 +147,33 @@ fn default_cache_ttl() -> String {
 pub struct ClientConfig {
   #[serde(default)]
   pub document: Option<String>,
-  pub base_url: String,
+  /// Required unless `transport` is `mock`.
+  #[serde(default)]
+  pub base_url: Option<String>,
+  /// `mock` answers from `responses` and reaches nothing; absent, the
+  /// document decides between HTTP and gRPC.
+  #[serde(default)]
+  pub transport: Option<String>,
+  /// The recorded responses a mock client answers with, relative to the app
+  /// directory; `clients/<name>.mock.json` when absent.
+  #[serde(default)]
+  pub responses: Option<String>,
   /// Which custody entry goes out as a bearer token on this client's calls:
   /// `true` for `access_token`, a string for another key. Absent, the
   /// client carries no token.
   #[serde(default)]
   pub bearer: Option<BearerKey>,
+}
+
+impl ClientConfig {
+  pub fn is_mock(&self) -> bool {
+    self.transport.as_deref() == Some("mock")
+  }
+
+  /// Where the mock's responses are read from, relative to the app directory.
+  pub fn responses_file(&self, name: &str) -> String {
+    self.responses.clone().unwrap_or_else(|| format!("clients/{name}.mock.json"))
+  }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -380,6 +401,13 @@ impl Config {
     names.dedup();
     for name in names {
       let client: ClientConfig = store.get_into_struct(&format!("clients.{name}")).map_err(fail)?;
+      match client.transport.as_deref() {
+        None | Some("mock") => {}
+        Some(other) => return Err(HostError::Value(format!("clients.{name}.transport"), other.to_owned())),
+      }
+      if client.base_url.is_none() && !client.is_mock() {
+        return Err(HostError::Config(at.clone(), format!("clients.{name}.base_url is required unless transport = \"mock\"")));
+      }
       clients.insert(name, client);
     }
 

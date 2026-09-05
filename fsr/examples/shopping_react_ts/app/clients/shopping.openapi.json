@@ -142,6 +142,23 @@
           }
         }
       }
+    },
+    "/ledger": {
+      "get": {
+        "operationId": "getLedger",
+        "responses": {
+          "200": {
+            "description": "the catalogue's ledger counters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ledger"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -324,6 +341,27 @@
             "items": {
               "$ref": "#/components/schemas/PlacedLine"
             }
+          }
+        }
+      },
+      "Ledger": {
+        "type": "object",
+        "required": [
+          "sequence",
+          "issued",
+          "note"
+        ],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "issued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "note": {
+            "type": "string"
           }
         }
       }

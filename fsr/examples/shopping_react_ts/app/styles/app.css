@@ -895,3 +895,30 @@ hr {
     grid-template-columns: 1fr;
   }
 }
+
+.widths-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+}
+
+.widths-table th,
+.widths-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line, #e5e5e5);
+}
+
+.widths-table .exact,
+.widths-table .lossy {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.widths-table .exact {
+  color: #1f9d63;
+}
+
+.widths-table .lossy {
+  color: #cf3f3f;
+  text-decoration: line-through;
+}

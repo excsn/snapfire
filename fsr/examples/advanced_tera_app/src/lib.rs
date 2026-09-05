@@ -28,6 +28,7 @@ fn templates() -> tera::Tera {
       ("error_section.tera", include_str!("../templates/error_section.tera")),
       ("login.tera", include_str!("../templates/login.tera")),
       ("index.tera", include_str!("../templates/index.tera")),
+      ("hydrate.tera", include_str!("../templates/hydrate.tera")),
     ])
     .expect("templates parse");
   tera
@@ -46,6 +47,7 @@ pub fn builder(chart_delay: Duration) -> Result<HostBuilder, HostError> {
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/dash/{section}", routes::dash_plan())
     .route("/slow/{section}", routes::slow_plan())
+    .route("/hydrate", routes::hydrate_plan())
     .route("/login", routes::login_plan())
     .route("/", routes::index_plan())
     .middleware(move |ctx, request| {

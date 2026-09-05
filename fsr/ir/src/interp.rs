@@ -526,8 +526,8 @@ impl Env {
       Expr::BigInt(e) => match self.eval_sync(e)? {
         v @ Value::Int(_) => Ok(v),
         Value::UInt(n) => Ok(Value::Int(n as i128)),
-        Value::F64(f) if f.fract() == 0.0 => Ok(Value::Int(f as i128)),
-        Value::F32(f) if f.fract() == 0.0 => Ok(Value::Int(f as i128)),
+        Value::F64(f) if f.fract() == 0.0 && f.abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
+        Value::F32(f) if f.fract() == 0.0 && (f as f64).abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
         Value::Bool(b) => Ok(Value::Int(i128::from(b))),
         Value::Str(s) => s
           .trim()
@@ -789,8 +789,8 @@ impl Env {
         Expr::BigInt(e) => match self.eval(e).await? {
           v @ Value::Int(_) => Ok(v),
           Value::UInt(n) => Ok(Value::Int(n as i128)),
-          Value::F64(f) if f.fract() == 0.0 => Ok(Value::Int(f as i128)),
-          Value::F32(f) if f.fract() == 0.0 => Ok(Value::Int(f as i128)),
+          Value::F64(f) if f.fract() == 0.0 && f.abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
+          Value::F32(f) if f.fract() == 0.0 && (f as f64).abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
           Value::Bool(b) => Ok(Value::Int(i128::from(b))),
           Value::Str(s) => s
             .trim()
@@ -955,6 +955,10 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
   })
 }
 
+/// JavaScript's `Number.MAX_SAFE_INTEGER`; a double past it has no exact
+/// integer to promote to.
+const SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+
 fn number(what: &str, value: &Value) -> Result<f64, Fail> {
   match value {
     Value::Int(n) => Ok(*n as f64),
@@ -1083,10 +1087,10 @@ pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
     Value::Bool(b) => b.to_string(),
     Value::Int(n) => n.to_string(),
     Value::UInt(n) => n.to_string(),
-    Value::F64(f) if f.fract() == 0.0 && f.is_finite() => format!("{}", *f as i128),
+    Value::F64(f) if *f == 0.0 => "0".to_owned(),
     Value::F64(f) => f.to_string(),
-    Value::F32(f) if f.fract() == 0.0 && f.is_finite() => format!("{}", *f as i128),
-    Value::F32(f) => f.to_string(),
+    Value::F32(f) if *f == 0.0 => "0".to_owned(),
+    Value::F32(f) => (*f as f64).to_string(),
     Value::Str(s) => s.clone(),
     other => return Err(type_error("String", "a scalar", other)),
   })

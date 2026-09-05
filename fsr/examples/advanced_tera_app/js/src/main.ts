@@ -12,5 +12,13 @@ registerIsland("components/LatencyChart.tsx#default", {
   when: "visible",
 });
 
+for (const when of ["load", "visible", "idle"] as const) {
+  registerIsland(`components/MountStamp.tsx#${when}`, {
+    loader: () => import("./MountStamp.js").then((m) => m.default),
+    mount: reactMounter,
+    when,
+  });
+}
+
 boot();
 enableNavigation();

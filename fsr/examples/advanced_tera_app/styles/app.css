@@ -545,3 +545,34 @@ button:hover {
   margin-top: 20px;
   font-size: 13px;
 }
+
+/* Hydration timing */
+
+.hydrate .spacer {
+  min-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0;
+  color: var(--ink-mute);
+  text-align: center;
+}
+
+.hydrate .spacer p {
+  max-width: 420px;
+}
+
+.stamp {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  min-height: 28px;
+  color: var(--ink-soft);
+}
+
+.stamp-at b {
+  font-family: var(--mono);
+  color: var(--ink);
+}

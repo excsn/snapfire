@@ -54,6 +54,7 @@ export function Header({ q = "", category = "" }: { q?: string | null; category?
       </form>
       <nav className="site-nav">
         <a href="/about">About</a>
+        <a href="/widths">Widths</a>
         <a className="cart-link" href="/cart" aria-label={`Cart, ${items} items`}>
           <span className="cart-icon">🛒</span>
           <span className={items > 0 ? "badge" : "badge badge-empty"}>{items}</span>

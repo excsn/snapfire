@@ -13,6 +13,12 @@ pub fn index_plan() -> PlanNode {
   layout_over(page)
 }
 
+pub fn hydrate_plan() -> PlanNode {
+  let mut page = PlanNode::new(NodeId(5), ModuleId::new("hydrate.tera", "default"));
+  page.data_source = Some(DataSourceId("hydrate_loader".into()));
+  layout_over(page)
+}
+
 pub fn login_plan() -> PlanNode {
   let mut page = PlanNode::new(NodeId(3), ModuleId::new("login.tera", "default"));
   page.data_source = Some(DataSourceId("chrome_loader".into()));
