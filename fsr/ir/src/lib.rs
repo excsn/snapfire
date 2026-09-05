@@ -1,5 +1,5 @@
 //! The IR: the form a loader or action body takes once the build has read it,
-//! and the interpreter that runs it. See `_private_docs/IR.md`.
+//! and the interpreter that runs it. See `_private_docs/design/IR.md`.
 
 pub mod ast;
 pub mod bind;

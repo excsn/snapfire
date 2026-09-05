@@ -1,5 +1,5 @@
 //! Reads a `*.test.ts` file into test cases the runner replays through the
-//! interpreter. The dialect is `_private_docs/TESTING.md` section 2: `test`
+//! interpreter. The dialect is `_private_docs/design/TESTING.md` section 2: `test`
 //! blocks whose statements are a `ctx({ ... })` mock, a `load` or action run
 //! and assertions, plus module-level `const` fixtures the tests share.
 //! Anything else fails the file with its line, since a test that silently did

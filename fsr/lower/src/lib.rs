@@ -1,5 +1,5 @@
 //! Reads a TypeScript loader or actions module and lowers each body to the IR.
-//! The recognised language is the one `_private_docs/IR.md` states; anything
+//! The recognised language is the one `_private_docs/design/IR.md` states; anything
 //! outside it is residue, reported with the line and the construct.
 
 pub mod component;
