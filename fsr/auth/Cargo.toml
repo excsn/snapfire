@@ -13,7 +13,6 @@ snapfire_fsr_runtime = { path = "../runtime" }
 snapfire_fsr_session = { path = "../session" }
 form_urlencoded = "1"
 futures-util = "0.3"
-rand = "0.8"
 
 [dev-dependencies]
 futures = "0.3"
