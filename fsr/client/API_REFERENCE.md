@@ -207,6 +207,7 @@ A parsed response.
 * `heads: Head[]`, the `H` rows in arrival order: the eager wave's, then one per resolution that described the document.
 * `seeds: { [key: string]: SfValue }[]`, the `T` rows in arrival order, each already decoded.
 * `locale: string | null`, the `L` row, the locale the response was rendered in as the application spells it; `null` when the server sent none.
+* `entry: string | null`, the `E` row, a module to load before the response's islands can mount, a mounted site's entry; `null` when the document's own entry covers them.
 * `resolutions: { slot: number; node: SfNode }[]`, the `S` rows in arrival order.
 
 ### Head
@@ -223,7 +224,7 @@ Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m,
 
 * `parsePayload(text: string): Payload`
 
-Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H`, `T`, `L` or `S`. Throws when no `N` row was present.
+Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H`, `T`, `L`, `E` or `S`. Throws when no `N` row was present.
 
 ### Row Grammar
 
@@ -237,6 +238,7 @@ Each row is a tag character, a space, then its body, terminated by a newline.
 | `H` | `{"title":…,"description":…}` | What the route says about the document |
 | `T` | an encoded value map | The store keys the route seeded |
 | `L` | a JSON string | The locale the response was rendered in |
+| `E` | a JSON string | A module to import before the response's islands can mount, a mounted site's entry |
 | `S` | slot id, a space, then a node row | One resolved slot |
 
 `S` rows arrive in completion order, not slot order; a resolution may introduce further slots that arrive later in the same stream.

@@ -258,6 +258,7 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 * `pub segments: SegmentInfo`: the root sidecar, keyed by `runtime.keyer` from the plan root and the request params.
 * `pub meta: Meta`: the document's title and description as the eager wave settled them, the head's defaults where no segment said otherwise.
 * `pub locale: Locale`: the request's, for the `L` row.
+* `pub entry: Option<String>`: the head's `entry`, for the `E` row.
 
 ### `PendingResolution`
 
@@ -291,7 +292,7 @@ Segment information produced inside a resolution is discarded; a deferred subtre
 
 ### `Head`
 
-`pub struct Head { pub title: String, pub description: Option<String>, pub rest: Node }`. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides.
+`pub struct Head { pub title: String, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
 
 * `pub fn new(title: impl Into<String>, rest: Node) -> Self`: no default description.
 * `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped; `rest` alone when neither.
@@ -472,6 +473,8 @@ The wire encoding of a streamed response. The first item is three newline-termin
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
 
 Then one item per resolution, `S <slot id> <node row json>\n` followed by an `H` row when `Resolved::meta` is not empty and a `T` row when `Resolved::store` is not, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+
+An `E` row, `E "<src>"`, follows the `L` row when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
 
 ### `meta_to_json`
 

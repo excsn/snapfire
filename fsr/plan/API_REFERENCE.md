@@ -54,6 +54,12 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 * `Manifest::lowered_sources(&self) -> impl Iterator<Item = &SourceEntry>`: the rows whose owner is `Lowered`.
 * `Manifest::lowered_actions(&self) -> impl Iterator<Item = &ActionEntry>`
 
+### Manifest::namespaced
+
+* `namespaced(&self, name: &str, at: &str, shell: &str) -> Manifest`: the manifest as a site's artifact. Every route, intercept and handler pattern goes under `at` (`under`); every node module, source, fallback, error and cache key, every row id, module and input, every `call`'s service and every island or component placement's module is prefixed `<name>:`, the document module `shell` excepted; an id already carrying the prefix is left alone.
+* `under(at: &str, pattern: &str) -> String`: `at` joined with a pattern, `/` being `at` itself.
+* `renumber(node: &mut Node, next: &mut u32)`: fresh ids in tree order, for a tree assembled from two plans.
+
 ### RouteEntry
 
 * `pub struct RouteEntry { pub pattern: String, pub plan: Node }`

@@ -139,3 +139,80 @@ fn a_loaders_store_export_lowers_beside_its_meta() {
   let store = &layout["store"][0]["return"]["object"][0]["field"];
   assert_eq!(store[0], "cart/count", "{layout}");
 }
+
+#[test]
+fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", "import { TipList } from \"../../src/Tips\";\nexport default function Page() {\n  return <div><TipList /></div>;\n}\n"),
+    ("routes/index/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load(ctx: Ctx<\"/\">) {\n  return { items: await ctx.services.ledger.list({}) };\n}\n"),
+    ("routes/index/actions.ts", "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Add } from \"../../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
+    ("schemas/inputs.ts", "export interface Add {\n  n: number;\n}\n"),
+    ("routes/api/ping/route.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function GET(ctx: Ctx) {\n  return { ok: true, locale: ctx.locale };\n}\n"),
+    ("src/Tips.tsx", "export function TipList() {\n  return <ul>tips</ul>;\n}\n"),
+    ("clients/ledger.openapi.json", r##"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{"/list":{"get":{"operationId":"list","responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Invoice"}}}}}}}}},"components":{"schemas":{"Invoice":{"type":"object","required":["id"],"properties":{"id":{"type":"integer","format":"int64"}}}}}}"##),
+  ]);
+  let mut options = Options::default();
+  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: None });
+  let built = build(&dir, &options).unwrap();
+  let plan = built.manifest.to_json();
+  for expected in [
+    "\"pattern\": \"/billing\"",
+    "\"pattern\": \"/billing/api/ping\"",
+    "\"module\": \"shell#document\"",
+    "\"module\": \"billing:routes/layout.tsx#default\"",
+    "\"id\": \"billing:index\"",
+    "\"id\": \"billing:index.add\"",
+    "\"id\": \"billing:api.ping.GET\"",
+    "\"service\": \"billing:ledger\"",
+    "\"module\": \"billing:src/Tips.tsx#TipList\"",
+  ] {
+    assert!(plan.contains(expected), "missing {expected} in {plan}\n{}", built.report);
+  }
+  assert!(built.contract.services.contains_key("billing:ledger") && built.contract.types.contains_key("billing:Invoice"), "{:?}", built.contract.services.keys().collect::<Vec<_>>());
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
+  let islands = file("generated/islands.ts");
+  assert!(islands.contains("registerIsland(\"billing:routes/index/page.tsx#default\", { loader: () => import(\"../routes/index/page.js\")"), "{islands}");
+  let client = file("generated/client.ts");
+  assert!(client.contains("call(\"billing:index.add\")") && client.contains("  index: {"), "{client}");
+  let declarations = file("generated/services.d.ts");
+  assert!(declarations.contains("ledger") && !declarations.contains("billing:"), "the TypeScript surface keeps the unprefixed names: {declarations}");
+  let fsr = file("generated/fsr.ts");
+  assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_shell_emits_its_contract_and_a_site_built_against_it_gets_the_declarations() {
+  let shell = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/layout.loader.ts", "export async function load() {\n  return { count: 2, who: \"norm\" };\n}\nexport const store = ({ data }: { data: { count: number; who: string } }) => ({ \"cart/count\": data.count, \"session/who\": data.who });\n"),
+    ("routes/index/page.tsx", PAGE),
+    ("importmap.json", r#"{"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#),
+  ]);
+  let built = build(&shell, &Options::default()).unwrap();
+  let (_, contract) = built.files.iter().find(|(n, _)| n == "generated/shell.json").expect("a shell writes its contract");
+  let json: serde_json::Value = serde_json::from_str(contract).unwrap();
+  assert_eq!(json["version"], 1);
+  assert_eq!(json["store"]["cart/count"], "number");
+  assert_eq!(json["store"]["session/who"], "string");
+  assert_eq!(json["imports"]["react"], "/static/js/vendor/react/react.bundle.mjs");
+  std::fs::create_dir_all(shell.join("generated")).unwrap();
+  std::fs::write(shell.join("generated/shell.json"), contract).unwrap();
+
+  let site = app(&[
+    ("routes/index/page.tsx", PAGE),
+    ("importmap.json", r#"{"imports":{"react":"/elsewhere/react.mjs","chart":"/billing/static/js/vendor/chart.mjs"}}"#),
+  ]);
+  let mut options = Options::default();
+  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: Some(shell.join("generated/shell.json")) });
+  let built = build(&site, &options).unwrap();
+  assert!(built.files.iter().all(|(n, _)| n != "generated/shell.json"), "a site emits no contract of its own");
+  let (_, declarations) = built.files.iter().find(|(n, _)| n == "generated/shell.d.ts").expect("a site gets the shell's declarations");
+  assert!(declarations.contains("export interface ShellStore {\n  \"cart/count\": number;\n  \"session/who\": string;\n}"), "{declarations}");
+  assert!(declarations.contains("export type ShellImport = \"@snapfire/fsr-client\" | \"react\";"), "{declarations}");
+  let report = built.report.to_string();
+  assert!(report.contains("shell     ") && report.contains("2 store keys, 2 imports") && report.contains("react mapped differently here"), "{report}");
+  std::fs::remove_dir_all(&shell).unwrap();
+  std::fs::remove_dir_all(&site).unwrap();
+}

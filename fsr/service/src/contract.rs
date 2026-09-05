@@ -318,3 +318,85 @@ impl Contract {
     Ok(())
   }
 }
+
+fn namespace_json(value: &mut serde_json::Value, prefix: &str) {
+  match value {
+    serde_json::Value::Object(map) => {
+      if let Some(serde_json::Value::String(named)) = map.get_mut("named") {
+        if !named.starts_with(prefix) {
+          *named = format!("{prefix}{named}");
+        }
+      }
+      for child in map.values_mut() {
+        namespace_json(child, prefix);
+      }
+    }
+    serde_json::Value::Array(items) => items.iter_mut().for_each(|i| namespace_json(i, prefix)),
+    _ => {}
+  }
+}
+
+impl Contract {
+  /// The contract as a site's: every type and service named `<name>:<its
+  /// name>`, every named reference following, every cache tag prefixed the
+  /// same way unless it starts with `@`, which marks a tag shared with the
+  /// shell on purpose.
+  pub fn namespaced(&self, name: &str) -> Contract {
+    let prefix = format!("{name}:");
+    let mut json = serde_json::to_value(self).expect("a contract serializes");
+    for table in ["types", "services"] {
+      if let Some(serde_json::Value::Object(map)) = json.get_mut(table) {
+        let entries: Vec<(String, serde_json::Value)> = std::mem::take(map).into_iter().collect();
+        for (key, value) in entries {
+          let key = if key.starts_with(&prefix) { key } else { format!("{prefix}{key}") };
+          map.insert(key, value);
+        }
+      }
+    }
+    namespace_json(&mut json, &prefix);
+    if let Some(serde_json::Value::Object(services)) = json.get_mut("services") {
+      for service in services.values_mut() {
+        for method in service.get_mut("methods").and_then(|m| m.as_object_mut()).into_iter().flat_map(|m| m.values_mut()) {
+          for key in ["cache", "writes"] {
+            let tags = match key {
+              "cache" => method.get_mut("cache").and_then(|c| c.get_mut("tags")),
+              _ => method.get_mut("writes"),
+            };
+            for tag in tags.and_then(|t| t.as_array_mut()).into_iter().flatten() {
+              if let serde_json::Value::String(tag) = tag {
+                if !tag.starts_with('@') && !tag.starts_with(&prefix) {
+                  *tag = format!("{prefix}{tag}");
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    serde_json::from_value(json).expect("a namespaced contract deserializes")
+  }
+}
+
+#[cfg(test)]
+mod namespace_tests {
+  use super::*;
+
+  #[test]
+  fn types_services_references_and_tags_carry_the_name() {
+    let contract = Contract::from_json(r#"{
+      "types": { "Invoice": { "record": { "fields": [ { "name": "id", "type": "i64" }, { "name": "lines", "type": { "list": { "named": "Line" } } } ] } }, "Line": { "record": { "fields": [] } } },
+      "services": { "ledger": { "methods": {
+        "list": { "params": [], "returns": { "list": { "named": "Invoice" } }, "cache": { "ttl": "15s", "tags": ["invoices", "@catalog"], "scope": "shared" } },
+        "pay": { "params": [ { "name": "invoice", "type": { "named": "Invoice" } } ], "returns": "bool", "writes": ["invoices"] }
+      } } }
+    }"#).unwrap();
+    let json = contract.namespaced("billing").to_json();
+    for expected in ["\"billing:Invoice\"", "\"billing:Line\"", "\"billing:ledger\"", "\"named\": \"billing:Line\"", "\"billing:invoices\"", "\"@catalog\""] {
+      assert!(json.contains(expected), "missing {expected} in {json}");
+    }
+    assert!(!json.contains("\"named\": \"Invoice\""), "{json}");
+    assert!(!json.contains("\"invoices\""), "{json}");
+    let back = Contract::from_json(&json).unwrap();
+    assert!(back.services.contains_key("billing:ledger") && back.types.contains_key("billing:Line"));
+  }
+}

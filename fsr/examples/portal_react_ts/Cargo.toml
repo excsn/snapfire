@@ -1,0 +1,24 @@
+[package]
+name = "portal_react_ts"
+version = "0.1.0"
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_host = { path = "../../host" }
+snapfire_fsr_sites = { path = "../../sites" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+snapfire_fsr_cli = { path = "../../cli" }
+
+[dev-dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+snapfire_fsr_runtime = { path = "../../runtime" }
+futures = "0.3"
+serde_json = "1"

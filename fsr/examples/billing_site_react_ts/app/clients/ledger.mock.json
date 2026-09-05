@@ -1,0 +1,34 @@
+{
+  "listInvoices": [
+    {
+      "id": 1,
+      "customer": "Northwind",
+      "total": 1250.5,
+      "status": "open"
+    },
+    {
+      "id": 2,
+      "customer": "Contoso",
+      "total": 320.0,
+      "status": "overdue"
+    },
+    {
+      "id": 3,
+      "customer": "Fabrikam",
+      "total": 88.25,
+      "status": "paid"
+    }
+  ],
+  "getInvoice": {
+    "id": 1,
+    "customer": "Northwind",
+    "total": 1250.5,
+    "status": "open"
+  },
+  "payInvoice": {
+    "id": 1,
+    "customer": "Northwind",
+    "total": 1250.5,
+    "status": "paid"
+  }
+}

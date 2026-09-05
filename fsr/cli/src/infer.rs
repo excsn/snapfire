@@ -120,6 +120,9 @@ pub struct Inferer<'a> {
   pub session: Option<&'a str>,
   /// The contract type of `ctx.input`, for an action.
   pub input: Option<&'a str>,
+  /// The type of `input` when it is not a contract type: a store body's
+  /// `data`, which is what its loader returned.
+  pub input_type: Option<Ts>,
 }
 
 impl<'a> Inferer<'a> {
@@ -187,7 +190,7 @@ impl<'a> Inferer<'a> {
         Some("subject") => Ts::Str,
         _ => Ts::Unknown,
       },
-      Expr::Input => self.input.map(|n| Ts::Named(n.to_owned())).unwrap_or(Ts::Unknown),
+      Expr::Input => self.input_type.clone().or_else(|| self.input.map(|n| Ts::Named(n.to_owned()))).unwrap_or(Ts::Unknown),
       Expr::Now => Ts::Big,
       Expr::Var(name) => env.iter().rev().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or(Ts::Unknown),
       Expr::Lit(lit) => match lit {
@@ -332,7 +335,7 @@ mod tests {
   #[test]
   fn a_join_over_the_session_types_its_lines() {
     let c = contract();
-    let inferer = Inferer { contract: &c, session: Some("Session"), input: None };
+    let inferer = Inferer { contract: &c, session: Some("Session"), input: None, input_type: None };
     let held = || Expr::Session("cart".into()).index(Expr::Str(Box::new(Expr::var("p").field("id"))));
     let body = vec![
       Stmt::Let { name: "catalog".into(), expr: Expr::call("shop", "list", vec![]) },
@@ -351,7 +354,7 @@ mod tests {
   #[test]
   fn what_cannot_be_settled_is_unknown() {
     let c = contract();
-    let inferer = Inferer { contract: &c, session: None, input: None };
+    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None };
     let body = vec![Stmt::Return(Expr::object(vec![("a", Expr::Session("cart".into())), ("b", Expr::call("nope", "x", vec![]))]))];
     assert_eq!(inferer.returns(&body).print(Flavour::Server), "{ a: unknown; b: unknown }");
   }

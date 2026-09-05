@@ -1,0 +1,29 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8100"
+
+[document]
+title = "Acme portal"
+
+[session]
+key = "portal-example-dev-key-not-a-secret"
+ttl = "1h"
+
+[auth]
+provider = "file"
+login = "/login"
+
+[clients.directory]
+transport = "mock"
+
+[sites]
+poll = "5s"
+
+[sites.billing]
+artifact = "../billing_site_react_ts"
+
+[[static]]
+route = "/static/js/fsr"
+dir = "../../../client/dist"

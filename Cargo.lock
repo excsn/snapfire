@@ -4836,6 +4836,7 @@ dependencies = [
  "snapfire_fsr_plan",
  "snapfire_fsr_runtime",
  "snapfire_fsr_service",
+ "snapfire_fsr_sites",
  "tar",
  "thiserror 2.0.20",
  "tokio",
@@ -4887,6 +4888,7 @@ dependencies = [
  "snapfire_fsr_auth",
  "snapfire_fsr_core",
  "snapfire_fsr_payload",
+ "snapfire_fsr_plan",
  "snapfire_fsr_runtime",
  "snapfire_fsr_service",
  "snapfire_fsr_session",
@@ -5002,6 +5004,18 @@ dependencies = [
  "sha2 0.10.9",
  "snapfire_fsr_core",
  "snapfire_fsr_runtime",
+]
+
+[[package]]
+name = "snapfire_fsr_sites"
+version = "0.1.0"
+dependencies = [
+ "snapfire_fsr_core",
+ "snapfire_fsr_host",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "xxhash-rust",
 ]
 
 [[package]]

@@ -33,6 +33,16 @@ impl Routes {
 
   /// The tree rendered, with status 404, for a path no route matches. Replaces
   /// the plan file's when it has one.
+  /// Adds every route and intercept of another plan file as plan-file
+  /// entries, the way a mounted site's join a shell's. Its not-found tree is
+  /// left aside: one application answers the unmatched path.
+  pub fn extend_manifest(&mut self, source: &str) -> Result<(), BindError> {
+    let manifest = Manifest::from_json(source)?;
+    self.entries.extend(manifest.routes()?.into_iter().map(|(pattern, plan)| (pattern, plan, Owner::PlanFile)));
+    self.intercepts.extend(manifest.intercepts()?);
+    Ok(())
+  }
+
   pub fn not_found(mut self, plan: impl IntoPlan) -> Self {
     match plan.into_plan() {
       Ok(plan) => self.not_found = Some(plan),

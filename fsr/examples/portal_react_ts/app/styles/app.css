@@ -1,0 +1,192 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --line: #dde3ea;
+  --ink: #1b2430;
+  --ink-soft: #5b6b7c;
+  --accent: #1f6feb;
+  --accent-soft: #e7f0ff;
+  --ok: #1a9c5b;
+  --bad: #c9403f;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 54px;
+  padding: 0 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.topnav {
+  display: flex;
+  gap: 4px;
+}
+
+.topnav a {
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--ink-soft);
+}
+
+.topnav a:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.pill-who {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.who {
+  margin: 0 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.who + .pill-who,
+a.pill-who[data-sf-native] {
+  margin-left: auto;
+}
+
+.signout,
+.signin button {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.portal-main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.portal-foot {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+}
+
+.lede {
+  margin: 0 0 20px;
+  color: var(--ink-soft);
+}
+
+.teams {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.team {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  padding: 14px 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.team .lead {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.team code {
+  margin-left: auto;
+}
+
+.signin {
+  display: grid;
+  gap: 12px;
+  max-width: 320px;
+}
+
+.signin label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.signin input {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.denied {
+  color: var(--bad);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+}
+
+.facts dt {
+  color: var(--ink-soft);
+}

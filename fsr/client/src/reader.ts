@@ -41,6 +41,8 @@ export interface Payload {
   seeds: { [key: string]: SfValue }[];
   /** The locale the response was rendered in, as the application spells it; null when the server has none. */
   locale: string | null;
+  /** A module to load before this response's islands can mount, a mounted site's entry; null when the document's own entry covers them. */
+  entry: string | null;
   resolutions: { slot: number; node: SfNode }[];
 }
 
@@ -80,6 +82,7 @@ export function parsePayload(text: string): Payload {
   const heads: Head[] = [];
   const seeds: { [key: string]: SfValue }[] = [];
   let locale: string | null = null;
+  let entry: string | null = null;
 
   for (const line of text.split("\n")) {
     if (line.length === 0) continue;
@@ -98,6 +101,8 @@ export function parsePayload(text: string): Payload {
       seeds.push(decodeValue(JSON.parse(line.slice(2))) as { [key: string]: SfValue });
     } else if (tag === "L") {
       locale = JSON.parse(line.slice(2)) as string;
+    } else if (tag === "E") {
+      entry = JSON.parse(line.slice(2)) as string;
     } else if (tag === "S") {
       const gap = line.indexOf(" ", 2);
       const slot = Number(line.slice(2, gap));
@@ -107,5 +112,5 @@ export function parsePayload(text: string): Payload {
     }
   }
   if (tree === null) throw new Error("payload has no N row");
-  return { format, encoding, tree, segments, heads, seeds, locale, resolutions };
+  return { format, encoding, tree, segments, heads, seeds, locale, entry, resolutions };
 }

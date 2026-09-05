@@ -21,6 +21,8 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Caching Service Answers](#caching-service-answers)
 * [Reloading the Application in Place](#reloading-the-application-in-place)
+* [Serving a Site](#serving-a-site)
+* [Mounting Sites](#mounting-sites)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
@@ -113,6 +115,19 @@ bearer = true                     # send custody's access_token as a bearer; a s
 [clients.inventory]
 transport = "mock"                # answer from clients/inventory.mock.json and reach nothing
 responses = "clients/inventory.mock.json"   # the default; relative to the app directory
+
+[site]                            # optional: this application is a site, see Serving a Site
+name = "billing"                  # prefixes every id the build emits, billing:
+at = "/billing"                   # every route and link sits under it
+
+[sites]                           # optional: this application mounts sites, see Mounting Sites
+root = "/srv/sites"               # where name@version artifacts resolve
+poll = "30s"                      # reread the table this often; absent, only on SIGHUP
+
+[sites.billing]
+artifact = "billing@1.4.2"        # <root>/billing/1.4.2, or a path against the project root
+hash = "3a098783bbb3ebc5"         # optional: refuse an artifact whose content hash differs
+allow_engine = false              # refuse an artifact with engine-owned rows, the default
 ```
 
 A key the host does not know is an error naming the key. So is a section it does not know, so a typo cannot silently do nothing.
@@ -508,6 +523,43 @@ print!("{report}");
 
 The reloader is a builder for the application as it now stands, with whatever the first builder added in Rust added again. `fsr serve` sets one that rereads the project, and `fsr dev` asks for it after a change to the generated files instead of restarting the process. A Rust host with no reloader is reloaded with a builder it made itself, `reload_with`.
 
+## Serving a Site
+
+An application with a `[site]` section is a site: `fsr build` prefixes every id it emits with `<name>:` and puts every route under `at`, so two sites can carry the same files, and the host serves it alone the same way it serves any application. A site's clients register under the prefix too, `billing:ledger`, since its bodies were lowered to call them by that name; the report's `site` row names the site and its prefix and every other row shows the prefixed ids. Its stylesheets are inferred under `<at>/static/css` and its bundle under the public path the build was given, so both keep working once the site is mounted.
+
+```toml
+[site]
+name = "billing"
+at = "/billing"
+shell = "../portal/app/generated/shell.json"   # what the site is built against, see the cli guide
+```
+
+```rust
+let host = Host::from("../billing")?.build()?;
+assert!(host.report().to_string().contains("site      billing                at /billing"));
+let html = host.render_to_string("/billing/invoice/1", RenderMode::Html, SessionCell::default()).await?;
+assert!(html.contains("data-sf-module=\"billing:routes/invoice/[id]/page.tsx#default\""));
+```
+
+Nothing in a site's own code knows it is one: routes are written as `routes/invoice/[id]/`, links as `/billing/invoice/1`, since a link is served exactly as written, and a body calls `services.ledger` while the build spells it `billing:ledger` in the plan.
+
+## Mounting Sites
+
+The host mounts a site from its artifact, the project directory a site's build leaves behind with `config/` beside `app/`, and serves it under the site's prefix with the shell's root layout wrapped around it. One document, one session, one navigation across the shell and every site.
+
+```rust
+use snapfire_fsr_host::{Host, Mount};
+
+let billing = Mount::load("billing", "/srv/sites/billing/1.4.2", "1.4.2", "3a098783bbb3ebc5", false)?;
+let host = Host::from(".")?.mount(billing).build()?;
+```
+
+What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set, and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default`, or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash, and one more naming what was ignored.
+
+A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site, and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix, and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes, and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table.
+
+`snapfire_fsr_sites` turns the `[sites]` table into mounts, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
+
 ## Refreshing the Browser in Development
 
 In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream, and `POST /__fsr/changed` tells every open document that something changed. `POST /__fsr/reload` calls `reload` and answers with the new report, or the error. `fsr dev` posts `changed` after a rebundle and `reload` after a change to the generated files; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
@@ -522,7 +574,7 @@ Every event names the bundle the server sees now, a hash over the modules `dist/
 
 ## Reading the Report
 
-`Host::report` is the application's report as of the last reload, plus the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
+`Host::report` is the application's report as of the last reload, plus the `site` row when the application is a site, the `sites` rows when it mounts any, and the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
 
 ```
 routes    /                      plan file
@@ -542,7 +594,7 @@ inferred  static /static/js/app from dist/.snapfire-build.json
 
 ## Error Handling
 
-`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches, `Leak` a bundle under `dist/` carrying a loader, an actions module, a handler or the middleware, or importing one, each named with its reason.
+`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches, `Leak` a bundle under `dist/` carrying a loader, an actions module, a handler or the middleware, or importing one, each named with its reason, `Mount` a site that could not be mounted, naming the site and why.
 
 ```rust
 use snapfire_fsr_host::HostError;

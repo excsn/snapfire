@@ -1,0 +1,131 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Ledger",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/invoices": {
+      "get": {
+        "operationId": "listInvoices",
+        "responses": {
+          "200": {
+            "description": "every invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Invoice"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-sf-cache": {
+          "ttl": "15s",
+          "scope": "shared",
+          "tags": [
+            "invoices"
+          ]
+        }
+      }
+    },
+    "/invoices/{id}": {
+      "get": {
+        "operationId": "getInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "one invoice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invoice"
+                }
+              }
+            }
+          }
+        },
+        "x-sf-cache": {
+          "ttl": "15s",
+          "scope": "shared",
+          "tags": [
+            "invoices"
+          ]
+        }
+      }
+    },
+    "/invoices/{id}/pay": {
+      "post": {
+        "operationId": "payInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the invoice as it stands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invoice"
+                }
+              }
+            }
+          }
+        },
+        "x-sf-writes": [
+          "invoices"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Invoice": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer",
+          "total",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "customer": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number",
+            "format": "double"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

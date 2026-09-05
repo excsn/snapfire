@@ -13,6 +13,7 @@ members = [
   "fsr/lower",
   "fsr/payload",
   "fsr/plan",
+  "fsr/sites",
   "fsr/runtime",
   "fsr/service",
   "fsr/session",

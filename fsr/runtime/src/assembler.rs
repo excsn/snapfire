@@ -185,6 +185,8 @@ pub struct Assembly {
   /// The store keys the eager wave settled on, outermost segment first.
   pub store: Data,
   pub locale: crate::ctx::Locale,
+  /// The head's `entry`: a module the browser loads for this response's islands.
+  pub entry: Option<String>,
 }
 
 impl std::fmt::Debug for Assembly {
@@ -711,5 +713,5 @@ pub async fn assemble(
     keep: SegmentInfo::keep_of(plan),
   };
   let meta = Meta { title: meta.title.or_else(|| (!head.title.is_empty()).then(|| head.title.clone())), description: meta.description.or_else(|| head.description.clone()) };
-  Ok(Assembly { tree, pending, segments, meta, store, locale: ctx.locale.clone() })
+  Ok(Assembly { tree, pending, segments, meta, store, locale: ctx.locale.clone(), entry: head.entry.clone() })
 }

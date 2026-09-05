@@ -522,3 +522,168 @@ impl Manifest {
     out
   }
 }
+
+/// Gives every node of a tree a fresh id in tree order, so a tree assembled
+/// from two plans has no id twice.
+pub fn renumber(node: &mut Node, next: &mut u32) {
+  node.id = *next;
+  *next += 1;
+  for child in &mut node.children {
+    renumber(&mut child.node, next);
+  }
+}
+
+/// `at` joined with a pattern: `/` under `/billing` is `/billing`, `/x` is `/billing/x`.
+pub fn under(at: &str, pattern: &str) -> String {
+  let at = at.trim_end_matches('/');
+  if pattern == "/" {
+    at.to_owned()
+  } else {
+    format!("{at}{pattern}")
+  }
+}
+
+fn prefix_str(value: &mut serde_json::Value, prefix: &str) {
+  if let serde_json::Value::String(s) = value {
+    if !s.starts_with(prefix) {
+      *s = format!("{prefix}{s}");
+    }
+  }
+}
+
+/// Every reference a body can make outside itself: a service by name, an
+/// island or a component by module.
+fn namespace_body(value: &mut serde_json::Value, prefix: &str) {
+  match value {
+    serde_json::Value::Object(map) => {
+      if let Some(call) = map.get_mut("call") {
+        if let Some(service) = call.get_mut("service") {
+          prefix_str(service, prefix);
+        }
+      }
+      for key in ["island", "component"] {
+        if let Some(placed) = map.get_mut(key) {
+          if let Some(module) = placed.get_mut("module") {
+            prefix_str(module, prefix);
+          }
+        }
+      }
+      for child in map.values_mut() {
+        namespace_body(child, prefix);
+      }
+    }
+    serde_json::Value::Array(items) => items.iter_mut().for_each(|i| namespace_body(i, prefix)),
+    _ => {}
+  }
+}
+
+fn namespace_node(node: &mut serde_json::Value, prefix: &str, shell: &str) {
+  if let Some(module) = node.get_mut("module") {
+    if module.as_str() != Some(shell) {
+      prefix_str(module, prefix);
+    }
+  }
+  for key in ["source", "fallback", "error", "cache_key"] {
+    if let Some(value) = node.get_mut(key) {
+      prefix_str(value, prefix);
+    }
+  }
+  for child in node.get_mut("children").and_then(|c| c.as_array_mut()).into_iter().flatten() {
+    if let Some(inner) = child.get_mut("node") {
+      namespace_node(inner, prefix, shell);
+    }
+  }
+}
+
+impl Manifest {
+  /// The manifest as a site's artifact: every id prefixed `<name>:` and every
+  /// pattern under `at`, so two sites can carry the same files. The document
+  /// module `shell` stays the host's. Inputs name types and are prefixed the
+  /// way `Contract::namespaced` prefixes them.
+  pub fn namespaced(&self, name: &str, at: &str, shell: &str) -> Manifest {
+    let prefix = format!("{name}:");
+    let mut json = serde_json::to_value(self).expect("a manifest serializes");
+    for key in ["routes", "intercepts"] {
+      for entry in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
+        if let Some(pattern) = entry.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
+          entry["pattern"] = serde_json::Value::String(under(at, &pattern));
+        }
+        if let Some(plan) = entry.get_mut("plan") {
+          namespace_node(plan, &prefix, shell);
+        }
+      }
+    }
+    if let Some(not_found) = json.get_mut("not_found") {
+      if !not_found.is_null() {
+        namespace_node(not_found, &prefix, shell);
+      }
+    }
+    for key in ["sources", "actions", "handlers", "components"] {
+      for row in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
+        for field in ["id", "module", "input"] {
+          if let Some(value) = row.get_mut(field) {
+            prefix_str(value, &prefix);
+          }
+        }
+        if key == "handlers" {
+          if let Some(pattern) = row.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
+            row["pattern"] = serde_json::Value::String(under(at, &pattern));
+          }
+        }
+        for field in ["body", "meta", "store"] {
+          if let Some(body) = row.get_mut(field) {
+            namespace_body(body, &prefix);
+          }
+        }
+      }
+    }
+    if let Some(middleware) = json.get_mut("middleware") {
+      namespace_body(middleware, &prefix);
+    }
+    serde_json::from_value(json).expect("a namespaced manifest deserializes")
+  }
+}
+
+#[cfg(test)]
+mod namespace_tests {
+  use super::*;
+
+  #[test]
+  fn every_id_carries_the_name_and_every_pattern_sits_under_at() {
+    let manifest = Manifest::from_json(r#"{
+      "version": 2,
+      "routes": [
+        { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
+          { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
+            { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default", "source": "index", "deferred": true, "fallback": "routes/index/loading.tsx#default", "error": "routes/error.tsx#default" } } ] } } ] } }
+      ],
+      "sources": [ { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "call": { "service": "ledger", "method": "list", "args": [] } } } ] } ],
+      "actions": [ { "id": "index.add", "owner": "lowered", "module": "routes/index/actions.ts", "input": "Add", "body": [ { "return": "locale" } ] } ],
+      "handlers": [ { "id": "api.x.GET", "method": "GET", "pattern": "/api/x", "owner": "lowered", "module": "routes/api/x/route.ts", "body": [] } ],
+      "components": [ { "module": "routes/index/page.tsx#default", "body": { "render": { "island": { "module": "src/ui/Tips.tsx#TipList", "when": "load", "props": [], "children": [] } } } } ],
+      "middleware": [ { "return": { "call": { "service": "ledger", "method": "ping", "args": [] } } } ]
+    }"#).unwrap();
+    let json = manifest.namespaced("billing", "/billing", "shell#document").to_json();
+    for expected in [
+      "\"pattern\": \"/billing\"",
+      "\"module\": \"shell#document\"",
+      "\"module\": \"billing:routes/layout.tsx#default\"",
+      "\"source\": \"billing:layout\"",
+      "\"cache_key\": \"billing:routes/layout.tsx#default\"",
+      "\"fallback\": \"billing:routes/index/loading.tsx#default\"",
+      "\"error\": \"billing:routes/error.tsx#default\"",
+      "\"id\": \"billing:index\"",
+      "\"service\": \"billing:ledger\"",
+      "\"id\": \"billing:index.add\"",
+      "\"input\": \"billing:Add\"",
+      "\"pattern\": \"/billing/api/x\"",
+      "\"id\": \"billing:api.x.GET\"",
+      "\"module\": \"billing:src/ui/Tips.tsx#TipList\"",
+    ] {
+      assert!(json.contains(expected), "missing {expected} in {json}");
+    }
+    assert!(!json.contains("\"service\": \"ledger\""), "{json}");
+    assert_eq!(under("/billing", "/"), "/billing");
+    assert_eq!(under("/billing/", "/x/{id}"), "/billing/x/{id}");
+  }
+}

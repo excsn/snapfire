@@ -27,7 +27,7 @@ fn main() -> ExitCode {
         [one] => Some(one.as_str()),
         _ => return usage(),
       };
-      match test::run(&app, &Options::default(), filter) {
+      match test::run(&app, &Options::beside(&app), filter) {
         Ok(summary) => {
           print!("{summary}");
           if summary.failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
@@ -81,7 +81,7 @@ fn main() -> ExitCode {
       }
     }
     "dev" => {
-      let mut options = DevOptions::default();
+      let mut options = DevOptions::beside(&app);
       let mut rest = rest.iter();
       while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {
@@ -101,7 +101,7 @@ fn main() -> ExitCode {
       }
     }
     "build" | "check" => {
-      let mut options = Options::default();
+      let mut options = Options::beside(&app);
       let mut rest = rest.iter();
       while let Some(flag) = rest.next() {
         match (flag.as_str(), rest.next()) {

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use snapfire_fsr_host::config::Config;
-use snapfire_fsr_host::Host;
+use snapfire_fsr_host::{Host, HostError};
 
 use crate::BuildError;
 
@@ -31,8 +31,14 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
   print!("{}", host.report());
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
   println!("fsr server on http://{listen}/");
+  let root = project_root(app);
+  let poll = Config::load(&root).ok().and_then(|config| snapfire_fsr_sites::poll_of(&config));
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(format!("runtime: {e}")))?;
-  runtime.block_on(host.serve(&listen)).map_err(|e| BuildError::Serve(format!("serve {listen}: {e}")))
+  runtime.block_on(async {
+    snapfire_fsr_sites::watch(host.clone(), root, poll);
+    host.serve(&listen).await
+  })
+  .map_err(|e| BuildError::Serve(format!("serve {listen}: {e}")))
 }
 
 /// The stock host over `app`, refusing a configuration that names a different app directory.
@@ -57,5 +63,9 @@ pub fn host_for(app: &Path) -> Result<Host, BuildError> {
     return Err(BuildError::Serve(format!("{} names {} as the app directory, not {}", root.display(), config.app.display(), given.display())));
   }
   let builder = Host::from_config(config).map_err(|e| BuildError::Serve(e.to_string()))?;
-  builder.reloader(move || Host::from(&root)).build().map_err(|e| BuildError::Serve(e.to_string()))
+  let builder = snapfire_fsr_sites::mount_all(builder).map_err(|e| BuildError::Serve(e.to_string()))?;
+  builder
+    .reloader(move || snapfire_fsr_sites::mount_all(Host::from(&root)?).map_err(|e| HostError::Value("sites".to_owned(), e.to_string())))
+    .build()
+    .map_err(|e| BuildError::Serve(e.to_string()))
 }

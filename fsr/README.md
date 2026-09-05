@@ -30,7 +30,7 @@ cargo build
 ../../../target/debug/fsr dev app
 ```
 
-The [storefront example](examples/shopping_react_ts/README.md) is a checkout in four commands, and the [ops console](examples/ops_console_react_ts/README.md) beside it exercises what the storefront does not: the store the islands share, nested layouts, a variant per slot and both kinds of intercept. The [guide](docs/guide/README.md) is the learning layer, one question per chapter with a lab on the running example. Each crate under this directory carries a `README.md`, a `README.USAGE.md` and an `API_REFERENCE.md`.
+The [storefront example](examples/shopping_react_ts/README.md) is a checkout in four commands, and the [ops console](examples/ops_console_react_ts/README.md) beside it exercises what the storefront does not: the store the islands share, nested layouts, a variant per slot and both kinds of intercept. The [portal](examples/portal_react_ts/README.md) mounts the [billing site](examples/billing_site_react_ts/README.md) under a path of its own: one team's build output served under another's header, one session and one navigation across both. The [guide](docs/guide/README.md) is the learning layer, one question per chapter with a lab on the running example. Each crate under this directory carries a `README.md`, a `README.USAGE.md` and an `API_REFERENCE.md`.
 
 ## Status
 
