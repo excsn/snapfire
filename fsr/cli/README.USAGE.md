@@ -43,7 +43,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **App directory** is the directory that holds `routes/`; `fsr` writes `generated/` under it.
 * **Route** is a directory under `routes/` that holds `page.tsx`.
 * **Pattern** comes from the directory path: `index` is `/`, `[id]` is `{id}`, `[...rest]` is `{*rest}`.
-* **Source id** is the route's static segments joined with `.`, `index` for the root; it names the loader.
+* **Source id** is the route's segments joined with `.`, `index` for the root, a parameter contributing `$<name>`, so `routes/product/[id]` is `product.$id`; it names the loader. The marker is why a route and its parameterised child are two ids rather than one. Its props type drops it: `product.$id` is `ProductIdProps`.
 * **Action id** is `<source id>.<export>`, so `routes/cart/actions.ts` exporting `checkout` is `cart.checkout`.
 * **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request`; it continues, redirects, rewrites, responds or adds headers.
 * **Locale** is a request attribute the host resolves from the path prefix, the cookie and `Accept-Language` under a `[locales]` section, read as `ctx.locale` in every body and as `useLocale()` in a component; the prefix is stripped before the route matches, so no route carries a locale segment.

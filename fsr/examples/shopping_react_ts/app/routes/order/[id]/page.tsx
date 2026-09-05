@@ -1,9 +1,9 @@
-import type { OrderProps } from "@generated/client";
+import type { OrderIdProps } from "@generated/client";
 import { Island } from "@snapfire/fsr-client/react";
 import { OrderHelp } from "@src/ui/OrderHelp";
 import { money } from "@src/ui/money";
 
-export default function OrderPage({ order }: OrderProps) {
+export default function OrderPage({ order }: OrderIdProps) {
   const items = order.lines.reduce((n, l) => n + Number(l.quantity), 0);
 
   return (

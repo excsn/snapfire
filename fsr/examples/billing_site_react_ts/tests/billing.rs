@@ -18,7 +18,7 @@ async fn the_site_runs_alone_under_its_prefix_with_its_ids_prefixed() {
   let host = billing();
   let report = host.report().to_string();
   assert!(report.contains("site      billing                at /billing"), "{report}");
-  assert!(report.contains("/billing/invoice/{id}") && report.contains("billing:invoice.pay") && report.contains("services  billing:ledger"), "{report}");
+  assert!(report.contains("/billing/invoice/{id}") && report.contains("billing:invoice.$id.pay") && report.contains("services  billing:ledger"), "{report}");
 
   let response = host.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
@@ -38,7 +38,7 @@ async fn the_site_runs_alone_under_its_prefix_with_its_ids_prefixed() {
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "nothing lives outside the prefix");
 
   let response = host
-    .handle(Request::post("/_sf/action/billing:invoice.pay").header("content-type", "application/json").body(Bytes::from(r#"{"id": 1}"#)).unwrap())
+    .handle(Request::post("/_sf/action/billing:invoice.$id.pay").header("content-type", "application/json").body(Bytes::from(r#"{"id": 1}"#)).unwrap())
     .await;
   assert_eq!(response.status(), StatusCode::OK);
   assert!(body_of(response).await.contains("paid"));

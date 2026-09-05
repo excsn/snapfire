@@ -1,6 +1,6 @@
 import type { Ctx } from "@snapfire/fsr";
 
-export async function load({ params, services }: Ctx<"/agents/view/{id}">) {
+export async function load({ params, services }: Ctx<"/agents/{id}">) {
   const id = BigInt(params.id);
   return { agent: await services.fleet.getAgent({ id }), jobs: await services.fleet.listJobs({ id }) };
 }

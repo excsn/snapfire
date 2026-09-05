@@ -1,13 +1,13 @@
 import { Link } from "@snapfire/fsr-client/react";
 
-import { actions, type ProductProps } from "@generated/client";
+import { actions, type ProductIdProps } from "@generated/client";
 import { addedToCart, failed } from "@src/ui/feedback";
 import { money } from "@src/ui/money";
 import { stockLine } from "@src/ui/ProductCard";
 import { Stars } from "@src/ui/Stars";
 import { Thumb } from "@src/ui/Thumb";
 
-export default function QuickLook({ product, stock: level, inCart }: ProductProps) {
+export default function QuickLook({ product, stock: level, inCart }: ProductIdProps) {
   const line = stockLine(product.stock);
   const held = Number(inCart);
 

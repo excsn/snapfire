@@ -196,7 +196,7 @@ fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
   let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::routes::plan()).unwrap();
-  assert_eq!(manifest.sources(), vec!["layout", "index", "layout.promo", "cart", "order", "product", "widths"], "the root layout's loader and its promo slot's are sources like any other");
+  assert_eq!(manifest.sources(), vec!["layout", "index", "layout.promo", "cart", "order.$id", "product.$id", "widths"], "the root layout's loader and its promo slot's are sources like any other");
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));
   assert!(manifest.modules().contains(&"routes/error.tsx#default".to_owned()), "error modules count");

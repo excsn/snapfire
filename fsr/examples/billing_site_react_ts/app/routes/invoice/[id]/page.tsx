@@ -1,8 +1,8 @@
-import type { InvoiceProps } from "@generated/client";
+import type { InvoiceIdProps } from "@generated/client";
 
 import { PayButton } from "@src/ui/PayButton";
 
-export default function InvoicePage({ invoice }: InvoiceProps) {
+export default function InvoicePage({ invoice }: InvoiceIdProps) {
   return (
     <div className="page invoice">
       <h1>{invoice.customer}</h1>

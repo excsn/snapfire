@@ -216,3 +216,57 @@ fn a_shell_emits_its_contract_and_a_site_built_against_it_gets_the_declarations(
   std::fs::remove_dir_all(&shell).unwrap();
   std::fs::remove_dir_all(&site).unwrap();
 }
+
+#[test]
+fn a_route_and_its_parameterised_child_get_ids_of_their_own() {
+  let dir = app(&[
+    ("routes/agents/page.tsx", PAGE),
+    ("routes/agents/page.loader.ts", "export async function load() {\n  return { list: 1 };\n}\n"),
+    ("routes/agents/[id]/page.tsx", PAGE),
+    ("routes/agents/[id]/page.loader.ts", "export async function load() {\n  return { one: 2 };\n}\n"),
+    ("routes/docs/[...rest]/page.tsx", PAGE),
+    ("routes/docs/[...rest]/page.loader.ts", "export async function load() {\n  return { path: \"x\" };\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+
+  let sources: Vec<&str> = built.report.sources.iter().map(|(id, _)| id.as_str()).collect();
+  assert!(sources.contains(&"agents") && sources.contains(&"agents.$id"), "{sources:?}");
+  assert!(sources.contains(&"docs.$rest"), "a catch-all is a parameter like any other: {sources:?}");
+
+  let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
+  assert!(client.contains("export type AgentsProps = { list: number };"), "{client}");
+  assert!(client.contains("export type AgentsIdProps = { one: number };"), "the marker is not part of the name: {client}");
+}
+
+#[test]
+fn a_directory_named_after_the_parameter_beside_it_is_refused_on_the_type_name() {
+  let dir = app(&[("routes/agents/page.tsx", PAGE), ("routes/agents/x/page.tsx", PAGE), ("routes/agents/[x]/page.tsx", PAGE)]);
+  match fails(&dir) {
+    BuildError::ClaimedId { kind, id, first, second } => {
+      assert_eq!(kind, "props type");
+      assert_eq!(id, "AgentsXProps");
+      assert!([first.as_str(), second.as_str()] == ["agents.x", "agents.$x"], "the ids differ; the name the marker is dropped from does not: {first} and {second}");
+    }
+    other => panic!("{other}"),
+  }
+}
+
+#[test]
+fn two_rows_claiming_one_id_are_refused_by_name() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", PAGE),
+    ("routes/slots/promo/page.tsx", PAGE),
+    ("routes/slots/promo/page.loader.ts", "export async function load() {\n  return { a: 1 };\n}\n"),
+    ("routes/layout/promo/page.tsx", PAGE),
+    ("routes/layout/promo/page.loader.ts", "export async function load() {\n  return { b: 2 };\n}\n"),
+  ]);
+  match fails(&dir) {
+    BuildError::ClaimedId { kind, id, first, second } => {
+      assert_eq!(kind, "source");
+      assert_eq!(id, "layout.promo", "a slot under the root layout and a route at `layout/promo` derive the same id");
+      assert!(first.contains("promo") && second.contains("promo"), "{first} and {second}");
+    }
+    other => panic!("{other}"),
+  }
+}
