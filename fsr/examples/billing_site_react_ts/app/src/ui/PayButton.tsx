@@ -12,7 +12,7 @@ export function PayButton({ id, status }: { id: bigint | number; status: string 
       disabled={busy}
       onClick={async () => {
         setBusy(true);
-        const result = await actions.invoice.pay({ id: BigInt(id) });
+        const result = await actions.invoice.$id.pay({ id: BigInt(id) });
         setNow(result.status);
         setBusy(false);
       }}

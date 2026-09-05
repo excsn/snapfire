@@ -12,7 +12,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | A setting held in the session, written optimistically, seeded back on every request | row density in `routes/settings/`, read by `src/ui/AgentRows.tsx` |
 | A nested layout with a parallel slot beside it and a slot of its own | `routes/agents/layout.tsx` under `routes/layout.tsx`, `routes/slots/alerts/` |
 | Both fallback spellings for a slot | `{alerts ?? …}` in the root layout, `<Slot name="peek">…</Slot>` in the agents layout |
-| Two routes with a variant each, in slots two layouts apart | `routes/settings/page.drawer.tsx` for the root, `routes/agents/view/[id]/page.peek.tsx` for the agents layout |
+| Two routes with a variant each, in slots two layouts apart | `routes/settings/page.drawer.tsx` for the root, `routes/agents/[id]/page.peek.tsx` for the agents layout |
 | The three kinds of link | `full` on an agent's name, `into="peek"` on its peek button, a plain link from an alert the server intercepts only when the origin shares the declaring layout |
 | Two segments streaming behind their own fallbacks in one document | the alerts slot and an agent page, each with a `loading.tsx` |
 | An island timed on idle and one timed on visibility | `island(TipList, { when: "idle" })` on the summary, `<Island when="visible">` around the job timeline |
@@ -20,7 +20,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | The whole console over a file instead of a backend | `config/mock.toml`, `app/clients/fleet.mock.json`, `APP_ENV=mock` |
 | The fleet's reads cached for seconds on the contract's say-so, an acknowledgement dropping the alerts | `x-sf-cache` and `x-sf-writes` in `app/clients/fleet.openapi.json`, `[cache.data]` in `config/app.toml`, the `cached` rows of the report |
 | Sessions and sign-in behind a service, nothing held by the host | `store = "service"` and `provider = "service"` in `config/app.toml`, `src/backend/identity.rs`, `app/clients/identity.openapi.json`, `tests/identity.rs` |
-| An error boundary on a nested segment | `routes/agents/view/[id]/error.tsx` |
+| An error boundary on a nested segment | `routes/agents/[id]/error.tsx` |
 | Two locales, the default unprefixed and French under `/fr_FR/`, remembered in a cookie once chosen | `[locales]` in `config/app.toml`, the picker in `src/ui/LanguagePicker.tsx`, `useLocale()` in `routes/help/page.tsx` |
 | A login the host serves over a users file, a guarded route, the identity and the CSRF token as layout props, a loader whose backend call carries the session's token | `[auth]` in `config/app.toml`, `config/auth.toml`, `routes/login/`, `routes/account/`, the guard in `middleware.ts`, `src/ui/Header.tsx` |
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { get, optimistic } from "@snapfire/fsr-client";
 
-import { actions, type ProductProps } from "@generated/client";
+import { actions, type ProductIdProps } from "@generated/client";
 import { cartCount } from "@src/store";
 import { categoryLabel } from "@src/ui/categories";
 import { addedToCart, failed } from "@src/ui/feedback";
@@ -11,7 +11,7 @@ import { stockLine } from "@src/ui/ProductCard";
 import { Stars } from "@src/ui/Stars";
 import { Thumb } from "@src/ui/Thumb";
 
-export default function ProductPage({ product, stock: level, inCart }: ProductProps) {
+export default function ProductPage({ product, stock: level, inCart }: ProductIdProps) {
   const [quantity, setQuantity] = useState(1);
   const stock = Number(product.stock);
   const line = stockLine(product.stock);

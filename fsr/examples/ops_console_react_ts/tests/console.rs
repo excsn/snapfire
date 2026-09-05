@@ -97,7 +97,7 @@ fn two_layouts_seed_the_store_and_the_inner_one_wins_the_region() {
 #[test]
 fn a_document_streams_the_alerts_slot_and_the_agent_page_behind_their_own_fallbacks() {
   let app = console(fleet());
-  let parts: Vec<String> = block_on(async { app.render("/agents/view/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
+  let parts: Vec<String> = block_on(async { app.render("/agents/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
   assert_eq!(parts.len(), 3, "the document, then two resolutions");
   assert!(parts[0].contains("data-sf-slot=\"1\"") && parts[0].contains("data-sf-slot=\"2\""), "{}", parts[0]);
   assert!(parts[0].contains("skeleton-title"), "the agent page's fallback: {}", parts[0]);
@@ -123,13 +123,13 @@ fn each_route_carries_a_variant_for_a_slot_of_a_different_layout() {
   let (drawer, _) = app.intercept_for("/settings", Some("/"), None).expect("the root layout declares the drawer, and the summary sits under it");
   assert_eq!(drawer.children[0].1.children[0].0 .0, "drawer");
   assert!(app.intercept_for("/settings", Some("/agents"), None).is_some(), "so does the agent list");
-  let (peek, _) = app.intercept_for("/agents/view/1", Some("/agents"), None).expect("the agents layout declares the peek slot");
+  let (peek, _) = app.intercept_for("/agents/1", Some("/agents"), None).expect("the agents layout declares the peek slot");
   assert_eq!(peek.children[0].1.children[0].1.children[0].0 .0, "peek");
-  assert!(app.intercept_for("/agents/view/1", Some("/"), None).is_none(), "the summary shares the root layout only, which declares no slot for this route");
-  assert!(app.intercept_for("/agents/view/1", None, Some("peek")).is_some(), "`into` names the slot whatever the origin");
-  assert!(app.intercept_for("/agents/view/1", None, Some("drawer")).is_none(), "a slot this route has no variant for");
+  assert!(app.intercept_for("/agents/1", Some("/"), None).is_none(), "the summary shares the root layout only, which declares no slot for this route");
+  assert!(app.intercept_for("/agents/1", None, Some("peek")).is_some(), "`into` names the slot whatever the origin");
+  assert!(app.intercept_for("/agents/1", None, Some("drawer")).is_none(), "a slot this route has no variant for");
 
-  let payload = block_on(app.render_navigation_to_string("/agents/view/1", None, Some("peek"), SessionCell::default())).unwrap();
+  let payload = block_on(app.render_navigation_to_string("/agents/1", None, Some("peek"), SessionCell::default())).unwrap();
   let sidecar = payload.lines().find(|l| l.starts_with("G ")).unwrap();
   assert!(sidecar.contains("\"n\":\"peek\""), "{sidecar}");
   assert!(sidecar.contains("\"keep\":[\"content\"]"), "the agents layout keeps its page: {sidecar}");

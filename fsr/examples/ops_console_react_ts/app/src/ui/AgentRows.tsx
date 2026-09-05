@@ -19,12 +19,12 @@ export function AgentRows({ agents, watching: held }: { agents: Agent[]; watchin
       {agents.map((a) => (
         <li key={String(a.id)} className={chosen === String(a.id) ? "agent-row agent-row-on" : "agent-row"}>
           <span className={a.status === "up" ? "dot dot-up" : "dot dot-down"} title={a.status} />
-          <Link href={`/agents/view/${a.id}${tail}`} full className="agent-name" onClick={() => set(selected, String(a.id))}>
+          <Link href={`/agents/${a.id}${tail}`} full className="agent-name" onClick={() => set(selected, String(a.id))}>
             {a.name}
           </Link>
           <span className="agent-region">{a.region}</span>
           <span className="agent-queue">{String(a.queue_depth)} queued</span>
-          <Link href={`/agents/view/${a.id}${tail}`} into="peek" className="btn btn-small">
+          <Link href={`/agents/${a.id}${tail}`} into="peek" className="btn btn-small">
             peek
           </Link>
           {held.includes(String(a.id)) ? (

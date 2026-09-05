@@ -151,9 +151,10 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 ### Ids
 
-* Source id: the static segments joined with `.`; `index` for the root. Parameter segments contribute nothing.
+* Source id: every segment joined with `.`; `index` for the root. A parameter contributes `$<name>`, a catch-all `$<name>` too, so `routes/product/[id]` is `product.$id` and `routes/docs/[...rest]` is `docs.$rest`. The marker is what makes an id injective: a directory name is alphanumerics, `_` and `-` only, so no static segment can produce a `$` part and a route can never share an id with its parameterised child.
 * Action id: `<source id>.<export>` for each export `lower_actions` returns.
-* Layout id: `layout` for `routes/layout.tsx`, `<static segments joined with .>.layout` deeper; it names the layout's loader as a source.
+* Layout id: `layout` for `routes/layout.tsx`, `<segments joined with .>.layout` deeper, parameters marked the same way; it names the layout's loader as a source.
+* Two rows deriving one id stop the build with `ClaimedId`, naming the kind, the id and both files. Route, source, action, handler and props-type names are each checked. The marker keeps ids apart but `props_name` drops it, so `routes/a/x` beside `routes/a/[x]` builds two distinct ids and one type name, and is refused on that.
 * Handler id: `<route id>.<METHOD>` for each export of `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; the row also carries the method and the pattern. An `action<T>` export names `T` as its input, which must be a schema type or the build fails with `UnknownHandlerInput`.
 
 ### Modules

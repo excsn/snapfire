@@ -19,7 +19,7 @@ export default function Alerts({ alerts }: LayoutAlertsProps) {
           <li key={String(a.id)} className={level(a.level)}>
             <span className="alert-level">{a.level}</span>
             <span className="alert-text">{a.text}</span>
-            <Link href={`/agents/view/${a.agent_id}`} className="alert-open" title="Open the agent">
+            <Link href={`/agents/${a.agent_id}`} className="alert-open" title="Open the agent">
               open
             </Link>
             <button className="btn btn-small" onClick={() => void ack(a.id, alerts.length)}>

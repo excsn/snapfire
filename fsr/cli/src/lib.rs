@@ -38,6 +38,8 @@ pub enum BuildError {
   Import { document: String, error: ImportError },
   #[error("type `{name}` is declared in both {first} and {second}")]
   DuplicateType { name: String, first: String, second: String },
+  #[error("two {kind} rows claim `{id}`: {first} and {second}")]
+  ClaimedId { kind: String, id: String, first: String, second: String },
   #[error("the contract does not hold together: {0}")]
   Contract(#[from] ContractError),
   #[error("action `{action}` names input type `{name}`, which no schema under schemas/ declares")]
@@ -666,6 +668,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   ]);
   let mut report = report;
   report.types = types::status(app)?;
+  claimed(&report, &routes, &handler_routes, &layout_ids)?;
   Ok(Built { manifest, contract, report, files, defaults })
 }
 
@@ -826,12 +829,46 @@ fn write_action_tree(out: &mut String, entries: &[(Vec<String>, String)], prefix
   }
 }
 
-/// `index` is `IndexProps`, `product` is `ProductProps`, `admin.users` is
-/// `AdminUsersProps`.
+/// Refuses two rows claiming one id. Ids are derived from directory names, so
+/// a collision reaches the host as `Bind(Claimed(..))` naming neither file and
+/// the generated module as a type declared twice; this names both.
+fn claimed(report: &Report, routes: &[Route], handler_routes: &[Route], layout_ids: &[String]) -> Result<(), BuildError> {
+  for (kind, rows) in [("source", &report.sources), ("action", &report.actions), ("handler", &report.handlers)] {
+    let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for (id, module) in rows {
+      if let Some(first) = seen.insert(id, module) {
+        return Err(BuildError::ClaimedId { kind: kind.to_owned(), id: id.clone(), first: first.to_owned(), second: module.clone() });
+      }
+    }
+  }
+  for (kind, rows) in [("route", routes), ("handler route", handler_routes)] {
+    let mut seen: std::collections::HashMap<&str, &Path> = std::collections::HashMap::new();
+    for route in rows {
+      if let Some(first) = seen.insert(&route.id, &route.dir) {
+        return Err(BuildError::ClaimedId {
+          kind: kind.to_owned(),
+          id: route.id.clone(),
+          first: first.display().to_string(),
+          second: route.dir.display().to_string(),
+        });
+      }
+    }
+  }
+  let mut named: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
+  for id in routes.iter().map(|r| r.id.as_str()).chain(layout_ids.iter().map(String::as_str)) {
+    if let Some(first) = named.insert(props_name(id), id) {
+      return Err(BuildError::ClaimedId { kind: "props type".to_owned(), id: props_name(id), first: first.to_owned(), second: id.to_owned() });
+    }
+  }
+  Ok(())
+}
+
+/// `index` is `IndexProps`, `product.$id` is `ProductIdProps`, `admin.users` is
+/// `AdminUsersProps`. A parameter's `$` marker is not part of the name.
 fn props_name(id: &str) -> String {
   let mut name = String::new();
   for part in id.split(['.', '-', '_']) {
-    let mut chars = part.chars();
+    let mut chars = part.trim_start_matches('$').chars();
     if let Some(first) = chars.next() {
       name.extend(first.to_uppercase());
       name.push_str(chars.as_str());
@@ -1120,8 +1157,11 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
 }
 
 /// `routes/index` is `/`; `routes/product/[id]` is `/product/{id}`;
-/// `routes/docs/[...rest]` is `/docs/{*rest}`. The id is the static segments
-/// joined with `.`, `index` for the root.
+/// `routes/docs/[...rest]` is `/docs/{*rest}`. The id is every segment joined
+/// with `.`, `index` for the root, a parameter contributing `$<name>`. The
+/// marker is what makes the id injective: a directory name is alphanumerics,
+/// `_` and `-` only, so no static segment can produce a `$` part and
+/// `routes/a/x` can never share an id with `routes/a/[x]`.
 fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
   let rel = dir.strip_prefix(root).unwrap_or(dir);
   let mut segments = Vec::new();
@@ -1134,8 +1174,10 @@ fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
     if let Some(inner) = name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
       if let Some(rest) = inner.strip_prefix("...") {
         segments.push(format!("{{*{rest}}}"));
+        id_parts.push(format!("${rest}"));
       } else {
         segments.push(format!("{{{inner}}}"));
+        id_parts.push(format!("${inner}"));
       }
       continue;
     }
