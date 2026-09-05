@@ -49,6 +49,8 @@ export interface Payload {
 	}[];
 	/** The locale the response was rendered in, as the application spells it; null when the server has none. */
 	locale: string | null;
+	/** A module to load before this response's islands can mount, a mounted site's entry; null when the document's own entry covers them. */
+	entry: string | null;
 	resolutions: {
 		slot: number;
 		node: SfNode;

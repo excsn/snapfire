@@ -7,6 +7,9 @@ import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
+export { f64 } from "./values.js";
+export type { DoubleValue } from "./values.js";
+
 /** What `fsr test` installs before a spec file loads. */
 interface Sf {
   ctx(spec: string): number;

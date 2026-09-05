@@ -20,5 +20,7 @@ export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 export declare function patchIsland(el: Element, props: Props): Promise<boolean>;
 /** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. Idempotent. */
 export declare function scan(root: ParentNode): void;
+/** Imports an entry module once and rescans, so the islands it registers mount. Call it before the scan that will miss them, so a miss is not reported while its registration is in flight. */
+export declare function loadEntry(src: string): void;
 /** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export declare function boot(): void;

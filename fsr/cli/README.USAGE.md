@@ -207,7 +207,9 @@ export async function load({ services }: Ctx) {
 }
 ```
 
-Its props type is `LayoutPromoProps`, its source id `layout.promo`, and it is keyed, cached and kept across navigation like any segment. `<Slot name="modal" />` declares a region nothing fills on a document load; children on it, or `{promo ?? <p>…</p>}` in the prop form, are the fallback the region shows until something does.
+Its props type is `LayoutPromoProps`, its source id `layout.promo`, and it is keyed, cached and kept across navigation like any segment. `<Slot name="modal" />` declares a region nothing fills on a document load, and children on it are the fallback the region shows until something does.
+
+The two forms are not interchangeable. A prop is a slot only because `slots/<name>/` exists beside the layout, and that directory puts a page on every plan under the layout, an intercept included, so the prop is always filled and `{promo ?? <p>…</p>}` never reaches its right-hand side. Write the prop form as placement, `{promo}`, and reach for `<Slot name>` with children when a region really can be empty, which is the intercept-only slot a `page.<slot>.tsx` fills on a navigation.
 
 `page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one, and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr-client/react` or the `data-sf-full` and `data-sf-into` attributes on any anchor.
 

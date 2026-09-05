@@ -7,7 +7,7 @@ import { level } from "@src/ui/level";
 
 export default function Alerts({ alerts }: LayoutAlertsProps) {
   async function ack(id: bigint | number, open: number): Promise<void> {
-    await optimistic(openAlerts, open - 1, () => actions.index.ackAlert({ alert_id: id }));
+    await optimistic(openAlerts, open - 1, () => actions.layout.alerts.ackAlert({ alert_id: id }));
   }
 
   return (
