@@ -1,8 +1,8 @@
 # SnapFire FSR (Full Stack Runtime)
 
-SnapFire FSR provides a full-stack application model built from composable primitives.
+SnapFire FSR provides a full-stack application model built from composable primitives. *Designed to be your unstoppable, high-performance daily driver.*
 
-***Designed to be your unstoppable, high-performance daily driver.***
+***Write the UI in whatever you want. FSR runs the application.***
 
 ## Why FSR?
 
@@ -11,6 +11,7 @@ Most modern full-stack frameworks are JavaScript wrappers trying to solve system
 FSR is a native, systems-level engine built from the ground up, preserving the declarative ergonomics found in frameworks like Next.js but implementing them directly on a high-performance Rust core. TypeScript is the application language; Rust is the runtime.
 
 * **Byte-identical SSR, faster.** Components compile down to an intermediate representation the host renders in Rust, with no JavaScript engine in the serving path. The output matches React's server renderer byte for byte and beats React in QuickJS on every page of the storefront; the numbers are in [docs/benches/render.md](docs/benches/render.md).
+* **Many teams, one site, one render.** A team builds its routes as a *site*, an artifact with its own name and path prefix, and a shell mounts it from a table in its configuration. The site's pages render inside the shell's root layout, share its session, its store, its import map and its vendored React, and a click from the shell into a site is a soft navigation that keeps the header's island alive. This is what Next.js calls multi-zones, minus the proxy, the second sign-in and the document load at every boundary. Moving a version is moving a pointer: the host rereads its table on a signal and swaps the mount in place, hash-pinned and refused if it does not match. See [the sites chapter](docs/guide/205-sites.md).
 * **Resilient parallel loaders.** The plan assembler resolves segments concurrently and isolates a backend failure to the segment that asked. One failing service degrades one region of the page, never the request.
 * **Island hydration without mismatches.** React hydrates over the server's own markup, timed per island: on load, when visible or when idle. The storefront renders every page with zero console errors, and a hydration mismatch fails a test under `fsr test` before it reaches a browser.
 * **Type-safe server actions.** Every action gets a typed, generated call site; input is checked against the schema before the body runs; the session is mutated from a page click and the route revalidates in place.

@@ -1,6 +1,7 @@
 //! Route discovery, the contract and the build that emits a plan file and the
-//! generated TypeScript from them. The binary in `main.rs` is a thin front over
-//! `build` and `write`.
+//! generated TypeScript from them. `build` analyses, `write` puts the generated
+//! files on disk and `emit` does both and then the browser bundle, which is the
+//! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
 pub mod dev;
 pub mod serve;
@@ -10,6 +11,8 @@ pub mod test;
 pub mod types;
 pub mod vendor;
 pub mod xwpm;
+
+pub use dev::{emit, DevOptions, Emitted};
 
 use std::fmt;
 use std::fmt::Write as _;

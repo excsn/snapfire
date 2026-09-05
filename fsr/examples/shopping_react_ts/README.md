@@ -28,15 +28,13 @@ Then open <http://127.0.0.1:8080>. Boot prints the routes, the sources, the acti
 
 Step 2 is the browser build of the client library, which git does not carry. Step 3 is best effort: skip it and the app still runs, the editor just types every import as `any`. There is no `npm install`, because `app/vendor/` holds the runtime modules and is committed.
 
-Step 4 is three commands the loop runs for you and redoes as files change. By hand they are, in this order:
+Step 4 is what the loop redoes as files change. By hand it is:
 
 ```sh
-cargo build                     # the plan, the contracts and the generated TypeScript, written by build.rs
-cd app && ../../../../target/debug/snapfirec --config tsconfig.build.json --source-map --public-path /static/js/app --import-map importmap.json
-cd .. && cargo run
+cargo run                       # build.rs emits the plan, the contracts, the generated TypeScript and the browser bundle
 ```
 
-The bundle must follow the build, because it compiles the island registry that `build.rs` writes.
+`build.rs` calls `snapfire_fsr_cli::emit`, which generates and then bundles, in that order because the bundle compiles the island registry the generation writes. It finds the compiler at `$SNAPFIREC`, else in this repository's `target/`, so step 1 has to have happened.
 
 ## Three servers, one binary
 

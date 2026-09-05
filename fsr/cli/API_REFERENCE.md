@@ -15,6 +15,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [build](#build)
   * [Built](#built)
   * [write](#write)
+  * [emit](#emit)
   * [Report](#report)
 * [3. Discovery Rules](#3-discovery-rules)
   * [Clients](#clients)
@@ -41,8 +42,9 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 ### fsr build
 
-* `fsr build <app dir> [--shell <module id>] [--slot <name>]`
-* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.json`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, then prints `wrote <path>` for each.
+* `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]`
+* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.json`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
+* The bundle follows the generation because it compiles the island registry the generation writes. `--public-path` defaults to `/static/js/app`, or `<at>/static/js/app` for a site; `--snapfirec` defaults to `$SNAPFIREC`, else beside this binary, else `PATH`.
 * Exit 0 on success, 1 on any `BuildError`, 2 on a usage error.
 
 ### fsr check
@@ -107,6 +109,14 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * `pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError>`
 * Removes every `*.json` under `generated/contracts/`, then writes every entry of `built.files` under `app`, creating directories as needed. Returns the paths written.
+
+### emit
+
+* `pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError>`
+* `pub struct Emitted { pub built: Built, pub written: Vec<PathBuf> }`
+* `build`, then `write`, then `snapfirec` over `tsconfig.build.json` into `<app>/dist` with `options.public_path` and the layout's import map. The order is load-bearing: the bundle compiles the island registry the generation writes.
+* The whole artifact a host reads, and what a `build.rs` calls. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.
+* `Dev` naming the compiler when it cannot start, or its exit status when it fails.
 
 ### Report
 
