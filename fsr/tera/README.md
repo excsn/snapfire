@@ -34,4 +34,4 @@ A `Tera` instance is built by the application and handed over, so an application
 
 ## Status
 
-Pre-release, unpublished, no stability guarantee on any name here. The crate carries no tests of its own: it is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, whose 21 integration tests cover rendering, streaming, actions, sessions, auth and services through these templates.
+Pre-release, unpublished, no stability guarantee on any name here. `tests/tera.rs` covers the seam: chunk order, the three functions, props in both directions, and every way the split can refuse. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, whose 21 integration tests cover rendering, streaming, actions, sessions, auth and services through these templates.
