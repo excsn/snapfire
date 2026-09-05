@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { navigate } from "@snapfire/fsr-client";
 
 import { actions, type CartProps } from "@generated/client";
@@ -6,6 +8,9 @@ import { money } from "@src/ui/money";
 import { Thumb } from "@src/ui/Thumb";
 
 export default function Cart({ lines }: CartProps) {
+  const [placing, setPlacing] = useState(false);
+  const [placingItems, setPlacingItems] = useState(0);
+  const [placingTotal, setPlacingTotal] = useState(0);
   const items = lines.reduce((n, l) => n + Number(l.quantity), 0);
   const subtotal = lines.reduce((sum, l) => sum + Number(l.price_cents) * Number(l.quantity), 0);
 
@@ -29,18 +34,30 @@ export default function Cart({ lines }: CartProps) {
 
   async function checkout(): Promise<void> {
     if (!(await confirmOrder(items, subtotal))) return;
+    setPlacingItems(items);
+    setPlacingTotal(subtotal);
+    setPlacing(true);
     try {
       const order = await actions.cart.checkout();
       await orderPlaced(order.id, order.total_cents, order.lines.length);
       void navigate(`/order/${String(order.id)}`);
     } catch (e) {
+      setPlacing(false);
       failed(e);
     }
   }
 
   return (
     <main className="page cart">
-      {lines.length === 0 ? (
+      {placing ? (
+        <section className="order-processing">
+          <p className="spinner" />
+          <h1>Order processing</h1>
+          <p>
+            {placingItems} item{placingItems === 1 ? "" : "s"}, {money(placingTotal)}. Hold on while we place it.
+          </p>
+        </section>
+      ) : lines.length === 0 ? (
         <section className="empty">
           <p className="empty-glyph">🛒</p>
           <h1>Your cart is empty</h1>
