@@ -4879,6 +4879,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "log",
+ "parking_lot",
  "serde",
  "serde_json",
  "snapfire_fsr",

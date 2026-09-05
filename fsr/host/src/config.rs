@@ -99,8 +99,13 @@ pub struct DocumentConfig {
 pub struct SessionSection {
   /// The cookie signing key. Required, so a deployment never runs on a default.
   pub key: String,
+  /// `memory`, or `service` with `client` naming the `[clients.<name>]`
+  /// entry whose contract declares `getSession`, `putSession` and
+  /// `deleteSession`.
   #[serde(default = "default_store")]
   pub store: String,
+  #[serde(default)]
+  pub client: Option<String>,
   #[serde(default = "default_ttl")]
   pub ttl: String,
   #[serde(default = "default_capacity")]
@@ -205,9 +210,12 @@ pub struct AuthSection {
   pub login: String,
   #[serde(default)]
   pub users: Option<String>,
+  /// The `[clients.<name>]` entry a `service` provider sends `authenticate` to.
+  #[serde(default)]
+  pub client: Option<String>,
 }
 
-pub const PROVIDERS: &[&str] = &["file"];
+pub const PROVIDERS: &[&str] = &["file", "service"];
 
 fn default_login() -> String {
   "/login".to_owned()
@@ -433,7 +441,7 @@ impl Config {
 
     let auth: Option<AuthSection> = if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
       let mut json = serde_json::Map::new();
-      for key in ["provider", "login", "users"] {
+      for key in ["provider", "login", "users", "client"] {
         if let Some(value) = store.get(&format!("auth.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }
@@ -442,6 +450,13 @@ impl Config {
       if !PROVIDERS.contains(&section.provider.as_str()) {
         return Err(HostError::Config(at.clone(), format!("auth.provider `{}` is not a provider; the providers are {}", section.provider, PROVIDERS.join(", "))));
       }
+      if section.provider == "service" {
+        match &section.client {
+          Some(client) if clients.contains_key(client) => {}
+          Some(client) => return Err(HostError::Config(at.clone(), format!("auth.client names `{client}`, which is not a [clients] entry"))),
+          None => return Err(HostError::Config(at.clone(), "auth.provider = \"service\" needs auth.client".to_owned())),
+        }
+      }
       if !section.login.starts_with('/') {
         return Err(HostError::Config(at.clone(), format!("auth.login `{}` must be a path", section.login)));
       }
@@ -449,6 +464,13 @@ impl Config {
     } else {
       None
     };
+    if session.store == "service" {
+      match &session.client {
+        Some(client) if clients.contains_key(client) => {}
+        Some(client) => return Err(HostError::Config(at.clone(), format!("session.client names `{client}`, which is not a [clients] entry"))),
+        None => return Err(HostError::Config(at.clone(), "session.store = \"service\" needs session.client".to_owned())),
+      }
+    }
 
     let root = located.root.clone();
     let app = root.join(&app_section.dir);

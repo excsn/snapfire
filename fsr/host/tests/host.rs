@@ -1019,3 +1019,178 @@ async fn a_mock_response_can_be_a_failure_and_the_transport_name_is_checked() {
   let error = Host::from(mocked_dir("{}", "smtp").join("app.toml")).err().expect("an unknown transport is refused").to_string();
   assert!(error.contains("clients.shop.transport") && error.contains("smtp"), "{error}");
 }
+
+const IDENTITY_OPENAPI: &str = r##"{
+  "openapi": "3.0.3",
+  "info": { "title": "Identity", "version": "1.0.0" },
+  "paths": {
+    "/authenticate": { "post": { "operationId": "authenticate",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Credentials" } } } },
+      "responses": { "200": { "description": "signed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Signed" } } } } } } },
+    "/sessions/{id}": {
+      "get": { "operationId": "getSession", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "stored", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Stored" } } } } } },
+      "put": { "operationId": "putSession", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Stored" } } } },
+        "responses": { "204": { "description": "stored" } } },
+      "delete": { "operationId": "deleteSession", "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "204": { "description": "forgotten" } } }
+    }
+  },
+  "components": { "schemas": {
+    "Credentials": { "type": "object", "required": ["user", "password"], "properties": { "user": { "type": "string" }, "password": { "type": "string" } } },
+    "Signed": { "type": "object", "required": ["subject", "claims", "access_token"], "properties": { "subject": { "type": "string" }, "claims": { "type": "object", "additionalProperties": { "type": "string" } }, "access_token": { "type": "string" } } },
+    "Stored": { "type": "object", "required": ["record"], "properties": { "record": { "type": "string" } } }
+  } }
+}"##;
+
+/// The identity service as a transport with state: accounts and the sessions
+/// the host hands it, plus the last bearer the shop saw.
+#[derive(Default)]
+struct IdentityService {
+  sessions: parking_lot::Mutex<std::collections::HashMap<String, String>>,
+  shop_bearer: parking_lot::Mutex<Option<String>>,
+}
+
+fn str_arg(args: &ValueMap, key: &str) -> String {
+  match args.get(key) {
+    Some(Value::Str(s)) => s.clone(),
+    other => panic!("{key} is not a string: {other:?}"),
+  }
+}
+
+impl snapfire_fsr_service::Transport for IdentityService {
+  fn call(&self, call: snapfire_fsr_service::Call) -> futures::future::BoxFuture<'static, Result<Value, snapfire_fsr_runtime::ServiceError>> {
+    use snapfire_fsr_runtime::{FailureKind, ServiceError};
+    let path = format!("{}.{}", call.service, call.method);
+    let result = match path.as_str() {
+      "shop.list" => {
+        *self.shop_bearer.lock() = match call.metadata.get("authorization") {
+          Some(Value::Str(s)) => Some(s.clone()),
+          _ => None,
+        };
+        Ok(Value::Seq(vec![Value::str("a")]))
+      }
+      "identity.authenticate" => {
+        if str_arg(&call.args, "user") == "alice" && str_arg(&call.args, "password") == "wonder" {
+          let mut claims = ValueMap::new();
+          claims.insert("role".to_owned(), Value::str("admin"));
+          let mut signed = ValueMap::new();
+          signed.insert("subject".to_owned(), Value::str("alice"));
+          signed.insert("claims".to_owned(), Value::Map(claims));
+          signed.insert("access_token".to_owned(), Value::str("svc-token-alice"));
+          Ok(Value::Map(signed))
+        } else {
+          Err(ServiceError::new(FailureKind::Unauthorized, "identity", "authenticate", "unknown user or wrong password"))
+        }
+      }
+      "identity.getSession" => match self.sessions.lock().get(&str_arg(&call.args, "id")) {
+        Some(record) => {
+          let mut stored = ValueMap::new();
+          stored.insert("record".to_owned(), Value::Str(record.clone()));
+          Ok(Value::Map(stored))
+        }
+        None => Err(ServiceError::new(FailureKind::NotFound, "identity", "getSession", "no such session")),
+      },
+      "identity.putSession" => {
+        self.sessions.lock().insert(str_arg(&call.args, "id"), str_arg(&call.args, "record"));
+        Ok(Value::Null)
+      }
+      "identity.deleteSession" => {
+        self.sessions.lock().remove(&str_arg(&call.args, "id"));
+        Ok(Value::Null)
+      }
+      other => Err(ServiceError::new(FailureKind::Internal, call.service.clone(), call.method.clone(), format!("unexpected {other}"))),
+    };
+    Box::pin(futures::future::ready(result))
+  }
+}
+
+fn remote_dir() -> PathBuf {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("clients")).unwrap();
+  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
+  std::fs::write(dir.join("clients/identity.openapi.json"), IDENTITY_OPENAPI).unwrap();
+  std::fs::write(
+    dir.join("app.toml"),
+    r#"
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:0"
+
+[document]
+title = "Remote"
+
+[session]
+key = "test-key"
+store = "service"
+client = "identity"
+
+[auth]
+provider = "service"
+client = "identity"
+login = "/login"
+
+[clients.shop]
+base_url = "http://127.0.0.1:1"
+bearer = true
+
+[clients.identity]
+base_url = "http://127.0.0.1:1"
+"#,
+  )
+  .unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn sessions_and_sign_in_live_behind_the_identity_client() {
+  let identity = Arc::new(IdentityService::default());
+  let host = Host::from(remote_dir().join("app.toml")).unwrap().services_over(identity.clone()).build().unwrap();
+  let report = host.report.to_string();
+  assert!(report.contains("session   service via identity"), "{report}");
+  assert!(report.contains("auth      service via identity, login page /login"), "{report}");
+
+  let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  let cookie = cookie_of(&response);
+  assert_eq!(identity.sessions.lock().len(), 1, "the flow state was stored through putSession");
+
+  let response = host
+    .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=nope")).unwrap())
+    .await;
+  assert_eq!(location(&response), "/login?error=denied&return_to=%2Fwho", "the service's 401 is a denial");
+
+  let response = host.handle(Request::get("/login?return_to=%2Fwho").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let response = host
+    .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap())
+    .await;
+  assert_eq!(location(&response), "/who");
+  let stored = identity.sessions.lock().values().next().cloned().expect("the session is in the service");
+  assert!(stored.contains("\"alice\"") && stored.contains("svc-token-alice"), "identity and custody travel in the record: {stored}");
+
+  let response = host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  let html = body_of(response).await;
+  assert!(html.contains("alice"), "the loader read the identity the service holds: {html}");
+  assert_eq!(identity.shop_bearer.lock().as_deref(), Some("Bearer svc-token-alice"), "the token the service issued rides the shop call");
+  let token = field(&html, "csrf_token").expect("a token once signed in");
+
+  let response = host
+    .handle(Request::post("/auth/logout").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from(format!("_csrf={token}"))).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(identity.sessions.lock().len(), 0, "logout deleted the session in the service");
+}
+
+#[test]
+fn a_service_store_or_provider_needs_a_client_that_exists() {
+  let dir = remote_dir();
+  let text = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("client = \"identity\"\n\n[auth]", "client = \"vault\"\n\n[auth]");
+  std::fs::write(dir.join("app.toml"), text).unwrap();
+  let error = Host::from(dir.join("app.toml")).err().expect("a client that is not declared is refused").to_string();
+  assert!(error.contains("session.client") && error.contains("vault"), "{error}");
+}

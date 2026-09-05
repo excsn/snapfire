@@ -90,7 +90,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### SessionSection
 
-* `key: String`, required. `store` (default `memory`, the only value accepted), `ttl` (default `8h`), `capacity` (default 4096), `secure` (default false), `csrf` (default `identified`; `always` mints the token for every session and establishes a fresh session on its first response, and any other value is `HostError::Config`).
+* `key: String`, required. `store` (default `memory`; `service` keeps every record behind the client `client` names, over `ServiceSessionStore`; any other value is `HostError::Value`), `client: Option<String>` (required with `service` and must be a `[clients]` entry, else `HostError::Config`), `ttl` (default `8h`), `capacity` (default 4096), `secure` (default false), `csrf` (default `identified`; `always` mints the token for every session and establishes a fresh session on its first response, and any other value is `HostError::Config`).
 
 ### CacheSection
 
@@ -112,7 +112,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### AuthSection
 
-* `pub struct config::AuthSection { pub provider: String, pub login: String, pub users: Option<String> }`, the `[auth]` section. `provider` is one of `config::PROVIDERS`, `["file"]`; `login` is the application's login page, `/login` by default, and must start with `/`; `users` is the `file` provider's table, `auth.toml` by default, relative to `config_dir` and read on its own rather than through the ladder.
+* `pub struct config::AuthSection { pub provider: String, pub login: String, pub users: Option<String>, pub client: Option<String> }`, the `[auth]` section. `provider` is one of `config::PROVIDERS`, `["file", "service"]`; `login` is the application's login page, `/login` by default, and must start with `/`; `users` is the `file` provider's table, `auth.toml` by default, relative to `config_dir` and read on its own rather than through the ladder; `client` is the `[clients]` entry a `service` provider sends `authenticate` to, required with it and checked against the table.
 
 ### BearerKey
 
@@ -201,13 +201,23 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### HostReport
 
 * `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
-* `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
+* `Display` prints the app's report, then `services` rows as `<http, grpc or mock> <base url or responses file>`, `static` rows, `config` sources and `inferred` lines.
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 * `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
 * `dev: bool`: `Display` prints one `dev` row naming the two paths when true.
 * `locales: Vec<String>`: the configured locales, the default first, empty without a `[locales]` section; `Display` prints one `locales` row, `en_US (default, unprefixed), fr_FR`, when set.
-* `auth: Option<(String, String)>`: the provider name (`file`, else `custom` for one the builder was handed) and the login page; `Display` prints one `auth` row naming both and the three routes, plus `bearer    none; no client carries a token` when `bearer` is empty.
+* `auth: Option<(String, String)>`: the provider name (`file`, `service via <client>`, else `custom` for one the builder was handed) and the login page; `Display` prints one `auth` row naming both and the three routes, plus `bearer    none; no client carries a token` when `bearer` is empty.
 * `bearer: Vec<(String, String)>`: client and custody key for every client whose `bearer` names one; `Display` prints a `bearer` row per client.
+* `session: Option<String>`: the client the sessions live behind when `session.store` is `service`; `Display` prints one `session` row, `service via <client>`. The `auth` name for a `service` provider reads `service via <client>`.
+
+### ServiceSessionStore
+
+* `pub struct ServiceSessionStore`, a `SessionStore` over a client: `new(services: Arc<Services>, client: impl Into<String>) -> Self`. `load` calls `getSession { id }` and reads `record` from the answer, `None` on a `not_found` failure and, logged, on any other; `save` calls `putSession { id, record }`; `delete` calls `deleteSession { id }`. The record is `encode_record`'s string.
+* `pub fn encode_record(record: &SessionRecord) -> String` and `pub fn decode_record(text: &str) -> Option<SessionRecord>`: the record as one JSON string in the payload encoding, `{ data, identity, tokens }` with `identity` as `{ subject, claims }` or `null`.
+
+### ServiceProvider
+
+* `pub struct ServiceProvider`, an `IdentityProvider` over a client: `new(services: Arc<Services>, client: impl Into<String>, login_path: impl Into<String>) -> Self`. `begin` sends the browser to the login page with `return_to`; `callback` sends the form's `user` and `password` to `authenticate` and reads `subject`, `claims` and `access_token` from a map answer. A failure of kind `unauthorized`, `not_found` or `invalid` is `AuthError::Denied` with the service's message; any other failure, a non-map answer or one without a `subject` is `AuthError::Invalid`.
 
 ### Body
 

@@ -1,0 +1,3 @@
+{
+  "authenticate": { "subject": "alice", "claims": { "role": "admin" }, "access_token": "svc-token-alice" }
+}

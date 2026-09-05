@@ -4,8 +4,8 @@ use std::sync::Arc;
 use ops_console_react_ts::backend;
 use snapfire_fsr_host::Host;
 
-/// One application, two servers: the fleet service the browser never talks to
-/// and the FSR host it does. Everything under `app/` is TypeScript the build
+/// One application, three servers: the fleet and identity services the
+/// browser never talks to and the FSR host it does. Everything under `app/` is TypeScript the build
 /// lowers; there is no Rust route here at all.
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -13,6 +13,7 @@ async fn main() -> std::io::Result<()> {
   let _logging = fibre_logging::init::init_from_file(&logging).map_err(|e| eprintln!("logging disabled: {e}")).ok();
 
   let fleet_addr = ("127.0.0.1", 8091);
+  let identity_addr = ("127.0.0.1", 8092);
   let console_addr = ("127.0.0.1", 8090);
 
   let host = Host::from(env!("CARGO_MANIFEST_DIR")).and_then(|builder| builder.build()).map_err(std::io::Error::other)?;
@@ -28,8 +29,13 @@ async fn main() -> std::io::Result<()> {
 
   print!("{}", host.report);
   println!("fleet backend on http://{}:{}/agents", fleet_addr.0, fleet_addr.1);
+  println!("identity service on http://{}:{}/sessions", identity_addr.0, identity_addr.1);
   println!("ops console on http://{}:{}/", console_addr.0, console_addr.1);
 
-  futures_util::try_join!(backend::fleet::serve(backend::fleet::Fleet::seed(), fleet_addr), snapfire_fsr_host::actix::serve(host, console_addr))?;
+  futures_util::try_join!(
+    backend::fleet::serve(backend::fleet::Fleet::seed(), fleet_addr),
+    backend::identity::serve(backend::identity::Identity::seed(), identity_addr),
+    snapfire_fsr_host::actix::serve(host, console_addr)
+  )?;
   Ok(())
 }
