@@ -8,6 +8,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Body](#body)
   * [Stmt](#stmt)
   * [Expr](#expr)
+  * [Tmpl](#tmpl)
   * [Entry](#entry)
   * [Lit](#lit)
   * [ArithOp](#arithop)
@@ -84,6 +85,10 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `body_reads_request(body: &Body) -> bool` is true when any statement reads the request or writes the session.
 * `body_params_read(body: &Body) -> Vec<String>` is every route parameter the body reads, by name, without duplicates.
 
+### Tmpl
+
+A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, `Fragment`, `If`, `For`, `Let`, `Component { module, props, children }`, `Slot` and `Island { module, props, children, when }`, a component placed as its own island with `when` its hydration timing, `"load"`, `"visible"` or `"idle"`, when the use named one.
+
 ### Entry
 
 One member of an object or array literal.
@@ -128,7 +133,7 @@ Runs a body. `Clone`; the default carries the system clock.
 
 * `Interpreter::default() -> Interpreter`
 * `Interpreter::with_clock(clock: Arc<dyn Clock>) -> Interpreter`
-* `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<String, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what React's server renderer writes. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
+* `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what React's server renderer writes, as `Rendered { html, islands }`. A `Tmpl::Island` renders its component apart, with the caller's children on the slot stack like a `Component`, and leaves `ISLAND_MARK`, its index in `islands` and a NUL in `html` where it sits; `RenderedIsland { module, props, when, body }` holds the evaluated props and the island's own `Rendered`. A root `Slot` with no caller leaves `ROOT_SLOT`. `bind::rendered_nodes(&Rendered) -> Vec<Node>` turns the markup into nodes: raw pieces, `Node::Slot("content")` at `ROOT_SLOT` and, at an island, `Node::raw("<sf-s data-sf-island[ data-sf-when=\"…\"]>")`, a `Node::Client` whose `ssr` is the island's body and `Node::raw("</sf-s>")`. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
 * `render::ROOT_SLOT`: what a root component's own `Slot` writes into the markup, since it has no caller. `IrEvaluator` splits the markup there and emits a `Client` node whose `children` carry the pieces around a `Node::Slot("content")`, which is how a layout places its page.
 * `Interpreter::run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`. `input` is `None` for a loader; a body reads `Expr::Input` as `Value::Null` then. Session writes go to a draft copied from `ctx.session` at entry and are committed to the cell, key by key, only on success.
 

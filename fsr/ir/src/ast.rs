@@ -106,6 +106,10 @@ pub enum Tmpl {
   Let { name: String, expr: Expr, then: Box<Tmpl> },
   /// Props are `Entry::Field` or `Entry::Spread`; `children` render in the caller's scope wherever the callee places its `Slot`.
   Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  /// A component placed as its own island: rendered like `Component`, then
+  /// wrapped as a nested client node the browser mounts in its own root,
+  /// `when` its hydration timing.
+  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String> },
   /// The caller's children, `{children}` in the callee.
   Slot,
 }

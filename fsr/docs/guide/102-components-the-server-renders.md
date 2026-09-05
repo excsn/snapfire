@@ -36,6 +36,20 @@ Children and spreads are ordinary. A component that takes `children` places them
 
 Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, `dangerouslySetInnerHTML`, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works, since it always could.
 
+## A component as its own island
+
+A page hydrates as one React root, so a component inside it shares that root: it re-renders with the page and hydrates when the page does. To give a component a root of its own, with its own timing and state the page never touches, place it with `Island` from the React adapter:
+
+```tsx
+import { Island } from "@snapfire/fsr-client/react";
+
+<Island when="visible">
+  <OrderHelp orderId={order.id} />
+</Island>
+```
+
+The build lowers the use: the server renders `OrderHelp` with its props as a nested island in a region of the page's markup, the page's root adopts that region and never reconciles it, and the browser mounts `OrderHelp` in its own root when it scrolls into view. `island(OrderHelp, { when: "visible" })` at module level is the same thing as a component. The storefront's order page does this for its help section, which is why the checklist's island timed on visibility is there.
+
 ## Writing for the server without thinking about it
 
 The pages in the storefront were written as ordinary React and seven of eight lowered on the first try. The eighth built a query string with `new URLSearchParams`, which the build cannot follow; it became a template with `encodeURIComponent`. That is the whole cost so far: write React as a function of props, keep state and effects in handlers; the server render falls out. A component that needs more is a component the browser renders, which the report says plainly rather than a build that fails.

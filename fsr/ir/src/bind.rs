@@ -7,7 +7,53 @@ use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalEr
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
-use crate::render::Components;
+use crate::render::{Components, Rendered, ISLAND_MARK, ROOT_SLOT};
+
+/// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
+/// where a root slot sits and, where an island sits, its region: an
+/// `<sf-s data-sf-island>` wrapper the outer root adopts and never
+/// reconciles, holding a nested client node whose body is the island's own
+/// markup, islands inside it included. `when` rides on the wrapper as
+/// `data-sf-when`, which the boot runtime reads over the registry's timing.
+pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
+  let mut out = Vec::new();
+  let mut rest = rendered.html.as_str();
+  while let Some(start) = rest.find('\u{0}') {
+    let (before, marked) = rest.split_at(start);
+    if !before.is_empty() {
+      out.push(Node::raw(before));
+    }
+    let end = marked[1..].find('\u{0}').map(|e| e + 1).expect("a marker is closed by a NUL");
+    let marker = &marked[..=end];
+    rest = &marked[end + 1..];
+    if marker == ROOT_SLOT {
+      out.push(Node::Slot(SlotName("content".to_owned())));
+      continue;
+    }
+    let index: usize = marker[ISLAND_MARK.len()..marker.len() - 1].parse().expect("an island marker carries its index");
+    let island = &rendered.islands[index];
+    let module: ModuleId = island.module.parse().unwrap_or_else(|_| ModuleId::new(island.module.clone(), "default"));
+    let open = match &island.when {
+      Some(when) => format!("<sf-s data-sf-island data-sf-when=\"{when}\">"),
+      None => "<sf-s data-sf-island>".to_owned(),
+    };
+    out.push(Node::raw(open));
+    out.push(Node::Client { module, props: island.props.clone(), children: Vec::new(), ssr: Some(Box::new(island_body(&island.body))) });
+    out.push(Node::raw("</sf-s>"));
+  }
+  if !rest.is_empty() {
+    out.push(Node::raw(rest));
+  }
+  out
+}
+
+fn island_body(body: &Rendered) -> Node {
+  if body.islands.is_empty() {
+    return Node::raw(body.html.clone());
+  }
+  let mut nodes = rendered_nodes(body);
+  if nodes.len() == 1 { nodes.pop().unwrap() } else { Node::Seq(nodes) }
+}
 
 /// A lowered loader answering a data source id. The body must return an
 /// object; its fields are the source's data.
@@ -158,20 +204,11 @@ impl Evaluator for IrEvaluator {
     Box::pin(stream::once(async move {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
-      let html = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
-      if !html.contains(crate::render::ROOT_SLOT) {
-        return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(html))) }));
+      let rendered = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
+      if rendered.islands.is_empty() && !rendered.html.contains(ROOT_SLOT) {
+        return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
       }
-      let mut children = Vec::new();
-      for (i, piece) in html.split(crate::render::ROOT_SLOT).enumerate() {
-        if i > 0 {
-          children.push(Node::Slot(SlotName("content".to_owned())));
-        }
-        if !piece.is_empty() {
-          children.push(Node::raw(piece));
-        }
-      }
-      Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }))
+      Ok(Chunk::Node(Node::Client { module, props, children: rendered_nodes(&rendered), ssr: None }))
     }))
   }
 }

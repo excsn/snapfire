@@ -50,7 +50,32 @@ fn escape_attr(input: &str, out: &mut String) {
 struct Out {
   html: String,
   text_open: bool,
+  islands: Vec<RenderedIsland>,
 }
+
+/// A component's markup with the islands placed inside it. Each island sits
+/// in `html` as `ISLAND_MARK` followed by its index in `islands` and a NUL,
+/// the way a root slot sits as `ROOT_SLOT`; the evaluator turns both into
+/// nodes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rendered {
+  pub html: String,
+  pub islands: Vec<RenderedIsland>,
+}
+
+/// A component rendered as an island: its module, the props it was given
+/// and its own markup, which may hold islands of its own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderedIsland {
+  pub module: String,
+  pub props: ValueMap,
+  pub when: Option<String>,
+  pub body: Rendered,
+}
+
+/// The start of an island's place in the markup: `ISLAND_MARK`, the island's
+/// index in decimal, then a NUL.
+pub const ISLAND_MARK: &str = "\u{0}sf-island:";
 
 impl Out {
   fn text(&mut self, text: &str) {
@@ -82,12 +107,12 @@ struct Slot {
 
 impl Interpreter {
   /// Renders `component` with `props` bound as `$props`.
-  pub fn render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<String, Fail> {
+  pub fn render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
     let mut env = Env::detached(self.clock(), vec![("$props".to_owned(), Value::Map(props.clone()))]);
     let mut out = Out::default();
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
-    Ok(out.html)
+    Ok(Rendered { html: out.html, islands: out.islands })
   }
 }
 
@@ -216,6 +241,27 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       env.scope = outer;
       env.scope.truncate(depth);
       result?;
+    }
+    Tmpl::Island { module, props, children, when } => {
+      let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+      let mut map = ValueMap::new();
+      for (name, value) in entries(env, props, false)? {
+        if name != "children" {
+          map.insert(name, value);
+        }
+      }
+      let depth = env.scope.len();
+      let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]);
+      slots.push(Slot { children: children.clone(), scope: outer.clone() });
+      let mut inner = Out::default();
+      let result = render_component(env, &component, library, slots, &mut inner);
+      slots.pop();
+      env.scope = outer;
+      env.scope.truncate(depth);
+      result?;
+      let index = out.islands.len();
+      out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), body: Rendered { html: inner.html, islands: inner.islands } });
+      out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     }
     Tmpl::Slot => {
       let Some(slot) = slots.pop() else {
@@ -376,7 +422,7 @@ mod tests {
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
       },
     };
-    let html = (Interpreter::default().render(&component, &props(&[("items", Value::Seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap();
+    let html = (Interpreter::default().render(&component, &props(&[("items", Value::Seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap().html;
     assert_eq!(html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
   }
 
@@ -403,7 +449,7 @@ mod tests {
       },
     };
     let lines = Value::Seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
-    let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap();
+    let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap().html;
     assert_eq!(html, "<ul><li data-i=\"0\">1</li><li data-i=\"1\">3<b>many</b></li></ul>");
   }
 
@@ -426,7 +472,7 @@ mod tests {
       render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new() }, Tmpl::Expr(p("product").field("name"))]),
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
-    let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap();
+    let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap().html;
     assert_eq!(html, "<span title=\"4.5 out of 5\">★★★★★</span>Filament");
   }
 
@@ -466,7 +512,7 @@ mod tests {
     attrs.insert("onClick".to_owned(), Value::str("handler"));
     attrs.insert("hidden".to_owned(), Value::Bool(true));
     let items = Value::Seq(vec![Value::Map(props(&[("name", Value::str("A")), ("attrs", Value::Map(attrs))])), Value::Map(props(&[("name", Value::str("B")), ("attrs", Value::Null)]))]);
-    let html = (Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap();
+    let html = (Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap().html;
     assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p></div></main>");
   }
 
@@ -481,7 +527,7 @@ mod tests {
         Tmpl::Expr(Expr::Lit(Lit::Null)),
       ]),
     };
-    let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
+    let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap().html;
     assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
   }
 
@@ -501,8 +547,55 @@ mod tests {
     ];
     for (expr, expected) in cases {
       let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()) };
-      let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap();
+      let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap().html;
       assert_eq!(html, expected, "{expr:?}");
     }
+  }
+}
+
+#[cfg(test)]
+mod island_tests {
+  use super::*;
+  use crate::ast::{Entry, Expr, Tmpl};
+  use crate::bind::rendered_nodes;
+  use snapfire_fsr_core::Node;
+
+  #[test]
+  fn an_island_renders_apart_and_binds_as_a_nested_client_node_in_a_region() {
+    let mut library = Components::new();
+    library.insert(
+      "src/ui/Help.tsx#Help".to_owned(),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] } }),
+    );
+    let page = Component {
+      body: Vec::new(),
+      render: Tmpl::Element {
+        tag: "main".to_owned(),
+        attrs: Vec::new(),
+        children: vec![
+          Tmpl::Text("before".to_owned()),
+          Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()) },
+          Tmpl::Text("after".to_owned()),
+        ],
+      },
+    };
+    let mut props = ValueMap::new();
+    props.insert("id".to_owned(), Value::int(7i64));
+    let rendered = Interpreter::default().render(&page, &props, &library).unwrap();
+    assert_eq!(rendered.html, format!("<main>before{ISLAND_MARK}0\u{0}after</main>"));
+    assert_eq!(rendered.islands.len(), 1);
+    assert_eq!(rendered.islands[0].body.html, "<p>help <!-- -->7</p>");
+    assert_eq!(rendered.islands[0].when.as_deref(), Some("visible"));
+
+    let nodes = rendered_nodes(&rendered);
+    assert_eq!(nodes.len(), 5, "{nodes:?}");
+    assert_eq!(nodes[0], Node::raw("<main>before"));
+    assert_eq!(nodes[1], Node::raw("<sf-s data-sf-island data-sf-when=\"visible\">"));
+    let Node::Client { module, props: island_props, ssr: Some(body), .. } = &nodes[2] else { panic!("{:?}", nodes[2]) };
+    assert_eq!(module.to_string(), "src/ui/Help.tsx#Help");
+    assert_eq!(island_props.get("id"), Some(&Value::int(7i64)));
+    assert_eq!(**body, Node::raw("<p>help <!-- -->7</p>"));
+    assert_eq!(nodes[3], Node::raw("</sf-s>"));
+    assert_eq!(nodes[4], Node::raw("after</main>"));
   }
 }

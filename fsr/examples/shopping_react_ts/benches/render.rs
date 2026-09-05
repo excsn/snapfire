@@ -40,7 +40,7 @@ impl Hooks for NoHooks {
     Ok(None)
   }
   fn fetch(&self, _method: String, _url: String, _body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
-    Box::pin(async { FetchResponse { status: 404, body: "{}".to_owned() } })
+    Box::pin(async { FetchResponse { status: 404, body: "{}".to_owned(), headers: Vec::new() } })
   }
 }
 
@@ -150,7 +150,7 @@ fn bench(c: &mut Criterion) {
 
   for page in pages() {
     let component = components.get(page.module).cloned().expect("the page lowered");
-    let ir_html = interpreter.render(&component, &page.props, &components).expect("ir renders");
+    let ir_html = interpreter.render(&component, &page.props, &components).expect("ir renders").html;
     let module = bench_module(&prepared, &page);
     let engine = engine_for(&resolution, &prepared.dom, &module, &rt);
     let json = value_to_json(&Value::Map(page.props.clone())).to_string();

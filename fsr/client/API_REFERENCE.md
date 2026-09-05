@@ -45,6 +45,8 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [action](#action)
 * [8. The React Mounter](#8-the-react-mounter)
   * [reactMounter](#reactmounter)
+  * [Island](#island)
+  * [island](#island-1)
 * [9. Error Handling](#9-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
@@ -264,7 +266,7 @@ Registers or replaces the entry for a module id in the process-wide registry. `m
 
 * `scan(root: ParentNode): void`
 
-Mounts every unmounted island marker under `root`. Selects `sf-i:not([data-sf-mounted])`, skips a marker with no `data-sf-module`, stamps `data-sf-mounted` before scheduling, then schedules according to the entry's timing. Idempotent, so rescanning a root that is already mounted does nothing.
+Mounts every unmounted island marker under `root`. Selects `sf-i:not([data-sf-mounted])`, skips a marker with no `data-sf-module`, stamps `data-sf-mounted` before scheduling, then schedules according to the `data-sf-when` of the `sf-s` region the marker sits in, when a page or layout placed it with one, else the entry's timing. Idempotent, so rescanning a root that is already mounted does nothing.
 
 Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root` first and then across the document. A missing or empty script yields `{}`.
 
@@ -296,6 +298,7 @@ What the server writes and this package reads.
 | `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script | `boot` |
 | `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment`, the fill of a streamed segment | `navigate`, `refresh` |
 | `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
+| `<sf-s data-sf-island data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which adopts it; `scan`, which reads the timing |
 | `<script type="application/json" data-sf-segments>` | streamed HTML response | `enableNavigation` |
 
 ## 6. Navigation
@@ -367,7 +370,20 @@ Its own entry point, so the core package never imports React.
 
 Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root.
 
-`children` is set when `el` holds an `<sf-s>` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. The page inside hydrates in its own root.
+The element is wrapped in a regions provider: every `sf-s[data-sf-island]` under `el` that is not inside a nested island, in document order, which each `Island` rendered under this root takes in turn. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. The page inside hydrates in its own root.
+
+### Island
+
+* `function Island({ when, children }: IslandProps): ReactElement`
+* `interface IslandProps { when?: MountTiming; children?: ReactNode }`
+
+Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-when` when `when` is given, and its own props script; the child is never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the next region under the root already holds and `suppressHydrationWarning`, taken once per instance from the mounter's regions, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Mounted fresh with no server markup it renders an empty region.
+
+### island
+
+* `function island<P extends object>(component: ComponentType<P>, options?: { when?: MountTiming }): (props: P) => ReactElement`
+
+`component` as a component that places it with `Island` and `options.when` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`, then `<LazyChart series={data} />`. The build recognises the module-level `const` the same way.
 
 ### reactPatcher
 

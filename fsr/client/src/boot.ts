@@ -90,7 +90,7 @@ function schedule(entry: IslandEntry, moduleId: string, el: Element, props: Prop
   }
 }
 
-/** Mounts every unmounted island marker under `root`, honoring each island's timing. Idempotent. */
+/** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. Idempotent. */
 export function scan(root: ParentNode): void {
   for (const el of Array.from(root.querySelectorAll("sf-i:not([data-sf-mounted])"))) {
     const moduleId = el.getAttribute("data-sf-module");
@@ -101,7 +101,8 @@ export function scan(root: ParentNode): void {
       continue;
     }
     el.setAttribute("data-sf-mounted", "");
-    schedule(entry, moduleId, el, propsFor(root, el.id));
+    const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when") as MountTiming | null;
+    schedule(placed ? { ...entry, when: placed } : entry, moduleId, el, propsFor(root, el.id));
   }
 }
 

@@ -1,4 +1,6 @@
 import type { OrderProps } from "@generated/client";
+import { Island } from "@snapfire/fsr-client/react";
+import { OrderHelp } from "@src/ui/OrderHelp";
 import { money } from "@src/ui/money";
 
 export default function OrderPage({ order }: OrderProps) {
@@ -25,6 +27,9 @@ export default function OrderPage({ order }: OrderProps) {
           Back to shopping
         </a>
       </section>
+      <Island when="visible">
+        <OrderHelp orderId={order.id} />
+      </Island>
     </main>
   );
 }

@@ -12,6 +12,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Building and Serving the Package](#building-and-serving-the-package)
 * [Registering an Island](#registering-an-island)
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
+* [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
@@ -170,6 +171,21 @@ registerIsland("components/Preferences.tsx#default", {
 ```
 
 Pick `"load"` for anything above the fold or interactive immediately, `"visible"` for content the reader has to scroll to, `"idle"` for work that can wait for a quiet main thread. `"visible"` observes the element with an `IntersectionObserver` and disconnects on the first intersection; `"idle"` uses `requestIdleCallback` where the browser has it and a 1ms `setTimeout` where it does not.
+
+## Placing a Component as an Island
+
+A page or a layout is an island; a component inside one is part of that island's root until it is placed as its own. `Island` from the React adapter does that, with the timing on the use:
+
+```tsx
+import { Island } from "@snapfire/fsr-client/react";
+import { OrderHelp } from "@src/ui/OrderHelp";
+
+<Island when="visible">
+  <OrderHelp orderId={order.id} />
+</Island>
+```
+
+The build lowers the use: the server renders `OrderHelp` with its props as a nested island inside an `<sf-s data-sf-island data-sf-when="visible">` region of the page's markup, with its own props script, and registers the module in `generated/islands.ts`. In the browser the page's root adopts the region as it stands and never reconciles it, while `scan` mounts `OrderHelp` in a root of its own when it scrolls into view, so its state is its own and the page's re-renders leave it alone. `island(OrderHelp, { when: "visible" })` at module level gives a component that places itself the same way wherever it is used. `when` on the region wins over the registry's timing for that use; a use without one takes the registry's, else `"load"`. A component from another framework works the same way once its module has a mounter registered, since the registry picks the mounter by module.
 
 ## Writing a Mounter for Another Framework
 
