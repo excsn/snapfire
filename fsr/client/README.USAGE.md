@@ -498,20 +498,33 @@ The store lives as long as the document. A soft navigation keeps it and writes w
 The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">`, and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. A payload for a route a mounted site serves carries an `E` row naming the site's entry module; the navigator imports it once, then scans again, so the site's islands register and mount on first arrival without a document load. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
 
 ```tsx
-import { Link, useLocale } from "@snapfire/fsr-client/react";
+import { localePath } from "@snapfire/fsr-client";
+import { useLocale } from "@snapfire/fsr-client/react";
 
 export function LanguagePicker() {
   const locale = useLocale();
+
+  function go(tag: string, event: { preventDefault: () => void }) {
+    event.preventDefault();
+    window.location.assign(localePath(tag));
+  }
+
   return (
     <nav aria-label="Language">
-      <Link href="/en_US/" full className={locale === "en_US" ? "on" : ""}>English</Link>
-      <Link href="/fr_FR/" full className={locale === "fr_FR" ? "on" : ""}>Français</Link>
+      <a href="/en_US/" data-sf-native className={locale === "en_US" ? "on" : ""} onClick={(e) => go("en_US", e)}>English</a>
+      <a href="/fr_FR/" data-sf-native className={locale === "fr_FR" ? "on" : ""} onClick={(e) => go("fr_FR", e)}>Français</a>
     </nav>
   );
 }
 ```
 
-A link is served exactly as written: `/fr_FR/` is the French document and `/cart` is whatever the request resolves to, the cookie the host wrote when a prefix chose French, then the browser's `Accept-Language`, then the default. Outside React, `currentLocale` reads it and `subscribeLocale` follows it.
+A link is served exactly as written: `/fr_FR/` is the French document and `/cart` is whatever the request resolves to, the cookie the host wrote when a prefix chose French, then the browser's `Accept-Language`, then the default. Nothing is ever prefixed behind your back.
+
+Which is why a switcher has to say where it is going. `localePath("fr_FR")` is the page the document is showing with the current locale's prefix replaced, so choosing a language keeps the reader where they are instead of sending them to whatever page the switcher happens to live on. It reads `currentDocumentPath()` rather than `location.pathname`, and the difference is real: an intercepted navigation puts the target's URL in the address bar while the page underneath stays, so a switcher in a drawer opened over `/agents` sees `/settings` in the address bar and `/agents` here.
+
+The call sits in the handler rather than the `href` for two reasons. The `href` is then a literal a browser with no JavaScript can follow, and the component stays one the build can lower: a library call in the render tree is residue and would drop the whole page to client rendering.
+
+Outside React, `currentLocale` reads the locale and `subscribeLocale` follows it.
 
 ```ts
 import { currentLocale, subscribeLocale } from "@snapfire/fsr-client";

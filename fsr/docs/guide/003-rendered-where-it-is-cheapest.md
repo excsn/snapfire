@@ -18,6 +18,8 @@ The build reads the page the way it reads a loader. JSX is a tree of elements, t
 
 The output follows React's own server renderer in the places hydration can tell: adjacent text nodes are separated by an empty comment, empty strings write nothing, a controlled `<select>` marks its option selected. Follow those and React's hydration accepts the markup as its own and attaches its handlers without touching the DOM. Miss one and React throws the markup away and renders from scratch, which the browser console reports as a hydration mismatch. The storefront's three pages hydrate clean.
 
+That fidelity is measured rather than asserted. A bench renders each of those pages twice, once through the interpreter and once through React's own `renderToString` in the QuickJS the test runner already embeds, and fails on any byte of difference before it reports a number. The numbers are the second reason to keep the interpreter: it is currently 1.8x ahead of React in QuickJS on the catalog and about 3.7x on the two small pages, and a fresh QuickJS context costs around 20 ms to bring up before it renders anything, which is what an isolate-per-request design would pay. [docs/benches/render.md](../benches/render.md) has the method, what it does not measure and every run kept.
+
 **A component that runs on the server without an engine is a component the build could read.** The report says which ones it could:
 
 ```

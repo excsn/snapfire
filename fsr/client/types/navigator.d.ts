@@ -22,5 +22,9 @@ export declare function clearRouterCache(): void;
 export declare function refresh(): Promise<void>;
 /** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
 export declare function navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>;
+/** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */
+export declare function currentDocumentPath(): string;
+/** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten, and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
+export declare function localePath(to: string, from?: string): string;
 /** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched and owns history from then on. */
 export declare function enableNavigation(options?: NavigationOptions): void;
