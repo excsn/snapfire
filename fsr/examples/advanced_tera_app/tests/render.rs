@@ -14,7 +14,7 @@ fn html_serves_the_walked_page_shape() {
   assert!(html.contains("<!doctype html>"), "layout owns the shell: {html}");
   assert!(html.contains("data-sf-segments"), "the navigator sidecar ships with the page");
   assert!(html.contains("<title>servers (2 servers) - SnapFire FSR</title>"), "metadata computed from loader data: {html}");
-  assert!(html.contains("<nav>SnapFire FSR "), "layout loader data rendered");
+  assert!(html.contains("class=\"brand\" href=\"/\">SnapFire FSR</a>"), "layout loader data rendered");
   assert!(html.contains("<a href=\"/slow/servers\">"), "nav links for the navigator");
   assert!(html.contains("<h1>servers</h1>"), "route param reached the template");
   assert!(html.contains("<td>web-1</td>") && html.contains("<td>0.41</td>"), "page loader data rendered");
@@ -73,7 +73,7 @@ fn a_down_backend_degrades_the_segment_never_the_page() {
   let host = app();
   let html = render(&host, "/dash/down");
 
-  assert!(html.contains("<nav>SnapFire FSR "), "the layout survives the failure");
+  assert!(html.contains("class=\"brand\" href=\"/\">SnapFire FSR</a>"), "the layout survives the failure");
   assert!(html.contains("<title>down (2 servers) - SnapFire FSR</title>"), "metadata still computes");
   assert!(html.contains("<h2>Backend unavailable</h2>"), "the route's error partial renders: {html}");
   assert!(html.contains("the servers backend is unreachable"));
@@ -89,5 +89,5 @@ fn the_index_lists_the_routes_and_the_dev_credentials() {
     assert!(html.contains(&format!("href=\"{route}\"")), "the index links {route}: {html}");
   }
   assert!(html.contains("alice"), "the dev credentials are on the page: {html}");
-  assert!(html.contains("<nav>SnapFire FSR "), "the index sits in the layout");
+  assert!(html.contains("class=\"brand\" href=\"/\">SnapFire FSR</a>"), "the index sits in the layout");
 }

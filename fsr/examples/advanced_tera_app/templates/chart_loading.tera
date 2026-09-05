@@ -1,1 +1,1 @@
-<div class="skl">loading latency</div>
+<section class="card chart-late skl" aria-busy="true"><h2>Latency</h2><p class="skl-text">loading latency</p><div class="skl-chart"><span></span><span></span><span></span><span></span><span></span><span></span></div></section>

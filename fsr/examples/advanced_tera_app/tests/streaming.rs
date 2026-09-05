@@ -30,7 +30,7 @@ fn slow_route_streams_html_fill() {
   let parts = chunks("/slow/servers", RenderMode::Html);
   assert_eq!(parts.len(), 2);
 
-  assert!(parts[0].contains("<div data-sf-slot=\"1\"><div class=\"skl\">loading latency</div>"));
+  assert!(parts[0].contains("<div data-sf-slot=\"1\"><section class=\"card chart-late skl\" aria-busy=\"true\"><h2>Latency</h2><p class=\"skl-text\">loading latency</p>"));
   assert!(parts[0].contains("function __sfFill"), "fill script ships before any fill");
   assert!(parts[0].contains("sf-i0"), "the eager inline island takes id 0");
   assert!(!parts[0].contains("<template data-sf-fill"), "no template in the first flush");
