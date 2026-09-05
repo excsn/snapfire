@@ -28,6 +28,7 @@ One cargo feature, `grpc`, adds `import_proto` and `GrpcTransport` with protox, 
 | Give application code a caller for one request | `Services::bind`, `Services::bind_anonymous` |
 | Attach the subject, a bearer token or a request id | `IdentityInterceptor`, `CredentialInterceptor`, `TraceInterceptor` |
 | Stop a call before it leaves | an `Interceptor` that does not call `Next::run` |
+| Reuse a backend's answer for a while | `Method::cached(Freshness)`, `Method::writes`, `ServicesBuilder::data_cache`, `Services::invalidate_tags` |
 | Implement a method in the same process | `LocalTransport` |
 | Reach a backend over HTTP | `HttpTransport`, `Route` |
 | Import an OpenAPI document | `import` |

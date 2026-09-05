@@ -46,6 +46,8 @@ The bundle must follow the build, because it compiles the island registry that `
 | 8081 | the shopping service over HTTP, described by `app/clients/shopping.openapi.json` |
 | 8082 | the inventory service over gRPC, described by `app/clients/inventory.proto` |
 
+The shopping document says how long its answers hold: `listProducts` and `getProduct` carry `x-sf-cache`, shared for thirty seconds under the `catalog` tag, the list with a two-minute stale window, and `placeOrder` carries `x-sf-writes: ["catalog"]`, so an order drops both. `[cache.data]` in `config/app.toml` turns that on and the report lists it under `cached`; the inventory over gRPC is uncached, since a proto carries no annotation yet.
+
 The two backends stand in for services this application does not own. It reaches both through one typed registry; neither the loaders nor the pages can tell which transport a call uses.
 
 ## What is where

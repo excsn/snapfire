@@ -13,6 +13,9 @@ ttl = "1h"
 capacity = 1000
 ttl = "1m"
 
+[cache.data]
+capacity = 500
+
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
 

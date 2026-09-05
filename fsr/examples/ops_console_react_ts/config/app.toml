@@ -11,6 +11,12 @@ ttl = "1h"
 store = "service"
 client = "identity"
 
+[cache]
+capacity = 500
+ttl = "1m"
+
+[cache.data]
+
 [locales]
 supported = ["en_US", "fr_FR"]
 default = "en_US"

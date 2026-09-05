@@ -19,6 +19,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
 * [Caching Rendered Segments](#caching-rendered-segments)
+* [Caching Service Answers](#caching-service-answers)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
@@ -90,6 +91,9 @@ store = "memory"                  # or "service", with client naming the [client
 
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
+
+[cache.data]                      # optional: answer cached methods from memory
+capacity = 500                    # entries per policy; cache.capacity when absent
 ttl = "1m"                        # the default
 
 [locales]                         # optional: without it every request is `en`
@@ -402,6 +406,24 @@ assert_eq!(host.invalidate("routes/product/[id]/page.tsx#default").await, 1);
 ```
 
 `invalidate` takes a module name and drops every entry under it, across all params and identities, and says how many went. A subtree with a streamed descendant, a failed source or the head slot is never written, so a page behind `loading.tsx` keeps its layout out of the cache too. Without a `[cache]` section nothing is cached and `invalidate` answers zero.
+
+## Caching Service Answers
+
+`[cache.data]` under the section installs the data cache from `snapfire_fsr_service` over every method whose contract declares `cache`, which an OpenAPI document spells as `x-sf-cache` on the operation and a Rust host as `Method::cached`. The report lists every cached method with its policy and every method that drops tags:
+
+```text
+cached    fleet.listAgents       ttl 15s shared [agents]
+          fleet.listAlerts       ttl 15s shared [alerts]
+writes    fleet.acknowledgeAlert [alerts]
+```
+
+A loader's call to a cached method is answered from memory for the policy's `ttl`, one entry per distinct arguments; a render that follows fingerprints the same data and so hits the render memo too. An identified call bypasses a `private` method's cache, shares a `shared` one and gets its own entry under `subject`, as the service guide says. An action that calls a method with `writes` drops the tags it names; `invalidate_tags` does the same from Rust.
+
+```rust
+host.invalidate_tags(["catalog"]);
+```
+
+Without `[cache.data]` no method is cached whatever the contract says. `fsr test` renders with it off, since a spec's mocks are the calls it counts.
 
 ## Taking a Name Back
 

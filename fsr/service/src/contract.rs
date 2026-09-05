@@ -137,16 +137,103 @@ pub enum TypeDef {
   Union { variants: Vec<Variant> },
 }
 
+/// Who a cached answer may be served to. `Private` bypasses the cache for
+/// any identified call; `Shared` answers everyone alike; `Subject` keeps one
+/// entry per subject.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+  #[default]
+  Private,
+  Shared,
+  Subject,
+}
+
+impl Scope {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+      Self::Private => "private",
+      Self::Shared => "shared",
+      Self::Subject => "subject",
+    }
+  }
+}
+
+/// How long a method's answer may be reused, declared by the data owner on
+/// the contract: `ttl` and `stale` in the duration spelling (`30s`, `5m`),
+/// `tags` the writes that drop it, `scope` who may share it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Freshness {
+  pub ttl: String,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub tags: Vec<String>,
+  #[serde(default)]
+  pub scope: Scope,
+  /// A window after `ttl` in which the last answer is served while a refresh
+  /// runs behind it; `shared` scope only.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub stale: Option<String>,
+}
+
+impl Freshness {
+  pub fn ttl(ttl: impl Into<String>) -> Self {
+    Self { ttl: ttl.into(), ..Default::default() }
+  }
+
+  pub fn tags<I, S>(mut self, tags: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    self.tags = tags.into_iter().map(Into::into).collect();
+    self
+  }
+
+  pub fn shared(mut self) -> Self {
+    self.scope = Scope::Shared;
+    self
+  }
+
+  pub fn per_subject(mut self) -> Self {
+    self.scope = Scope::Subject;
+    self
+  }
+
+  pub fn stale(mut self, window: impl Into<String>) -> Self {
+    self.stale = Some(window.into());
+    self
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Method {
   #[serde(default)]
   pub params: Vec<Field>,
   pub returns: Type,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cache: Option<Freshness>,
+  /// The tags a successful call drops.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub writes: Vec<String>,
 }
 
 impl Method {
   pub fn new(params: Vec<Field>, returns: Type) -> Self {
-    Self { params, returns }
+    Self { params, returns, cache: None, writes: Vec::new() }
+  }
+
+  pub fn cached(mut self, freshness: Freshness) -> Self {
+    self.cache = Some(freshness);
+    self
+  }
+
+  pub fn writes<I, S>(mut self, tags: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    self.writes = tags.into_iter().map(Into::into).collect();
+    self
   }
 }
 

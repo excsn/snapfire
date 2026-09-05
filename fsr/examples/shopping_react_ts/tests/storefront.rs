@@ -1,9 +1,10 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use futures::executor::block_on;
 use futures::StreamExt;
 use shopping_react_ts::routes::about_plan;
-use snapfire_fsr_host::{Host, RenderMode};
+use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_service::MockTransport;
@@ -54,9 +55,18 @@ fn hold(session: &snapfire_fsr_runtime::SessionCell, product_id: i64, quantity: 
   session.insert("cart", Value::Map(cart));
 }
 
+/// The configuration with the data cache off: these tests count calls under a
+/// plain executor, where no cache could run anyway.
+fn storefront() -> snapfire_fsr_host::HostBuilder {
+  let mut config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+  if let Some(cache) = config.cache.as_mut() {
+    cache.data = None;
+  }
+  Host::from_config(config).unwrap()
+}
+
 fn app_over(transport: Arc<MockTransport>) -> Host {
-  Host::from(env!("CARGO_MANIFEST_DIR"))
-    .unwrap()
+  storefront()
     .route("/about", about_plan())
     .services_over(transport)
     .build()
@@ -392,15 +402,13 @@ fn the_middleware_redirects_rewrites_and_adds_a_header() {
 
 #[test]
 fn middleware_written_in_rust_must_override_the_lowered_one() {
-  let refused = Host::from(env!("CARGO_MANIFEST_DIR"))
-    .unwrap()
+  let refused = storefront()
     .services_over(Arc::new(MockTransport::new()))
     .middleware(|_ctx, _request| async { Ok(Value::Null) })
     .build();
   let Err(err) = refused else { panic!("the plan lowers middleware.ts") };
   assert!(matches!(err, snapfire_fsr_host::HostError::Bind(snapfire_fsr::BindError::MiddlewareClaimed)), "{err}");
-  let app = Host::from(env!("CARGO_MANIFEST_DIR"))
-    .unwrap()
+  let app = storefront()
     .services_over(Arc::new(MockTransport::new()))
     .middleware_override(|_ctx, _request| async { Ok(Value::Null) })
     .build()
@@ -413,8 +421,7 @@ fn middleware_written_in_rust_must_override_the_lowered_one() {
 fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
   let out = std::env::temp_dir().join(format!("fsr-prerender-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&out);
-  let app = Host::from(env!("CARGO_MANIFEST_DIR"))
-    .unwrap()
+  let app = storefront()
     .route("/about", about_plan())
     .services_over(Arc::new(MockTransport::new()))
     .prerendered(&out)
@@ -510,15 +517,13 @@ fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
 
 #[test]
 fn a_handler_written_in_rust_sits_beside_the_lowered_ones() {
-  let app = Host::from(env!("CARGO_MANIFEST_DIR"))
-    .unwrap()
+  let app = storefront()
     .services_over(Arc::new(MockTransport::new()))
     .handler("GET", "/api/health", |_ctx, _input| async { Ok(Value::str("ok")) })
     .build()
     .unwrap();
   assert_eq!(block_on(app.call_handler("GET", "/api/health", SessionCell::default(), Value::Null)).unwrap(), Value::str("ok"));
-  let refused = Host::from(env!("CARGO_MANIFEST_DIR"))
-    .unwrap()
+  let refused = storefront()
     .services_over(Arc::new(MockTransport::new()))
     .handler("GET", "/api/cart", |_ctx, _input| async { Ok(Value::Null) })
     .build();

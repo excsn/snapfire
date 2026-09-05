@@ -4966,6 +4966,7 @@ name = "snapfire_fsr_service"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "fibre_cache",
  "futures",
  "futures-util",
  "http 1.5.0",

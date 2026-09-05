@@ -350,6 +350,13 @@ Put the document under `clients/` named after the service. Every operation becom
 app/clients/shopping.openapi.json      services.shopping.listProducts, getProduct, placeOrder
 ```
 
+An operation may say how long its answer holds with `x-sf-cache`, and a mutating one which tags it drops with `x-sf-writes`; with `[cache.data]` in `config/app.toml` the host answers the method from memory and the report lists it under `cached`. `scope` is `private` unless the operation says `shared` or `subject`, so a signed-in user's call is never served someone else's answer by default.
+
+```json
+"get": { "operationId": "listProducts", "x-sf-cache": { "ttl": "30s", "tags": ["catalog"], "scope": "shared", "stale": "2m" } }
+"post": { "operationId": "placeOrder", "x-sf-writes": ["catalog"] }
+```
+
 ## Declaring the Session and Action Inputs
 
 Schemas are plain exported interfaces in the subset the contract holds: `string`, `number`, `bigint`, `boolean`, `null`, arrays, `Record<string, T>`, named references, `?` and `| null` for optional, plus `type X = "a" | "b"` for a union of tags.

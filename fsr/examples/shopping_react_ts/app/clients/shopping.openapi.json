@@ -48,6 +48,14 @@
               }
             }
           }
+        },
+        "x-sf-cache": {
+          "ttl": "30s",
+          "tags": [
+            "catalog"
+          ],
+          "scope": "shared",
+          "stale": "2m"
         }
       }
     },
@@ -79,6 +87,13 @@
           "404": {
             "description": "no such product"
           }
+        },
+        "x-sf-cache": {
+          "ttl": "30s",
+          "tags": [
+            "catalog"
+          ],
+          "scope": "shared"
         }
       }
     },
@@ -109,7 +124,10 @@
           "409": {
             "description": "a line exceeds the stock held"
           }
-        }
+        },
+        "x-sf-writes": [
+          "catalog"
+        ]
       }
     },
     "/orders/{id}": {
@@ -157,6 +175,10 @@
               }
             }
           }
+        },
+        "x-sf-cache": {
+          "ttl": "10s",
+          "scope": "shared"
         }
       }
     }
