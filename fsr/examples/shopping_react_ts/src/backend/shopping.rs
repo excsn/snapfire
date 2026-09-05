@@ -52,6 +52,14 @@ async fn get_order(catalog: Data<Catalog>, id: Path<u64>) -> HttpResponse {
   }
 }
 
+/// Counters past 2^53, so a consumer that parses this as JSON numbers
+/// silently corrupts them while the value model does not.
+async fn get_ledger() -> HttpResponse {
+  HttpResponse::Ok()
+    .content_type("application/json; charset=utf-8")
+    .body(format!(r#"{{"sequence":{},"issued":{},"note":"both past 2^53"}}"#, 9_007_199_254_740_993_i64, i64::MAX))
+}
+
 async fn document() -> HttpResponse {
   HttpResponse::Ok()
     .content_type("application/json; charset=utf-8")
@@ -67,6 +75,7 @@ pub async fn serve(catalog: Catalog, addr: (&str, u16)) -> std::io::Result<()> {
       .route("/products/{id}", web::get().to(get_product))
       .route("/orders", web::post().to(place_order))
       .route("/orders/{id}", web::get().to(get_order))
+      .route("/ledger", web::get().to(get_ledger))
   })
   .bind(addr)?
   .run()

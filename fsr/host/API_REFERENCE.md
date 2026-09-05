@@ -98,7 +98,9 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### ClientConfig
 
-* `document: Option<String>`, inferred as `clients/<name>.openapi.json` when absent, falling back to `clients/<name>.proto` when only that file exists; `base_url: String`. A `.proto` document is reached with `GrpcTransport`, anything else with `HttpTransport`. The table key is the service name. `bearer: Option<BearerKey>`: which custody entry the client's calls carry as a bearer token; absent, none.
+* `document: Option<String>`, inferred as `clients/<name>.openapi.json` when absent, falling back to `clients/<name>.proto` when only that file exists; `base_url: Option<String>`, required unless the transport is `mock`. A `.proto` document is reached with `GrpcTransport`, anything else with `HttpTransport`. The table key is the service name. `bearer: Option<BearerKey>`: which custody entry the client's calls carry as a bearer token; absent, none.
+* `transport: Option<String>`: `mock` answers from `responses` over a `MockTransport` and reaches nothing; any other value is `HostError::Value`. `responses: Option<String>`: the mock's file, relative to the app directory, `clients/<name>.mock.json` when absent; an object of method name to a response in the payload's JSON encoding, or to `{"$fail": {"kind": "<FailureKind>", "message": "..."}}`.
+* `is_mock(&self) -> bool`; `responses_file(&self, name: &str) -> String`.
 
 ### StaticRoot
 

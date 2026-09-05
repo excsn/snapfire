@@ -1,0 +1,3 @@
+# APP_ENV=mock: the fleet answers from a file and no backend runs.
+[clients.fleet]
+transport = "mock"

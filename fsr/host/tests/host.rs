@@ -964,3 +964,58 @@ async fn a_payload_request_may_only_name_an_encoding_that_exists() {
   let response = plain.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
   assert!(!body_of(response).await.contains("csrf_token"), "csrf = identified is the default");
 }
+
+fn mocked_dir(responses: &str, transport: &str) -> PathBuf {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("clients")).unwrap();
+  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
+  std::fs::write(dir.join("clients/shop.mock.json"), responses).unwrap();
+  std::fs::write(
+    dir.join("app.toml"),
+    format!(
+      r#"
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:0"
+
+[document]
+title = "Mocked"
+
+[session]
+key = "test-key"
+
+[clients.shop]
+transport = "{transport}"
+"#
+    ),
+  )
+  .unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_mock_client_answers_from_its_responses_file_and_reaches_nothing() {
+  let host = Host::from(mocked_dir(r#"{"list": ["socks", "hat"]}"#, "mock").join("app.toml")).unwrap().build().unwrap();
+  assert_eq!(host.report.services, vec![("shop".to_owned(), "mock".to_owned(), "clients/shop.mock.json".to_owned())]);
+  let report = host.report.to_string();
+  assert!(report.contains("services  shop                   mock        clients/shop.mock.json"), "{report}");
+
+  let response = host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let html = body_of(response).await;
+  assert!(html.contains("socks") && html.contains("hat"), "the loader's call answered from the file: {html}");
+}
+
+#[tokio::test]
+async fn a_mock_response_can_be_a_failure_and_the_transport_name_is_checked() {
+  let host = Host::from(mocked_dir(r#"{"list": {"$fail": {"kind": "unavailable", "message": "the shop is closed"}}}"#, "mock").join("app.toml")).unwrap().build().unwrap();
+  let response = host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+  let html = body_of(response).await;
+  assert!(html.contains("the shop is closed"), "the failure reached the render: {html}");
+
+  let error = Host::from(mocked_dir("{}", "smtp").join("app.toml")).err().expect("an unknown transport is refused").to_string();
+  assert!(error.contains("clients.shop.transport") && error.contains("smtp"), "{error}");
+}

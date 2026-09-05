@@ -23,7 +23,7 @@ export default function Summary({ total, busy, regions }: IndexProps) {
         ))}
       </ul>
       <p>
-        <Link href="/agents">Every agent</Link> · <Link href="/help">How this works</Link>
+        <Link href="/agents">Every agent</Link> · <Link href="/help">How this works</Link> · <Link href="/state/one">Island state</Link>
       </p>
       <Tips />
     </div>

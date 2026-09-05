@@ -1,0 +1,17 @@
+{
+  "listAgents": [
+    { "id": 1, "name": "builder-eu-1", "region": "eu", "status": "up", "queue_depth": 3, "cpu": 61.5 },
+    { "id": 2, "name": "builder-eu-2", "region": "eu", "status": "up", "queue_depth": 0, "cpu": 8.25 },
+    { "id": 3, "name": "builder-us-1", "region": "us", "status": "down", "queue_depth": 7, "cpu": 0.5 }
+  ],
+  "getAgent": { "id": 1, "name": "builder-eu-1", "region": "eu", "status": "up", "queue_depth": 3, "cpu": 61.5 },
+  "listJobs": [
+    { "id": 11, "name": "compile", "seconds": 92 },
+    { "id": 12, "name": "link", "seconds": 14 }
+  ],
+  "listAlerts": [
+    { "id": 21, "agent_id": 3, "level": "page", "text": "builder-us-1 stopped answering" },
+    { "id": 22, "agent_id": 1, "level": "warn", "text": "queue over 3" }
+  ],
+  "acknowledgeAlert": { "$fail": { "kind": "unavailable", "message": "the mock records nothing" } }
+}

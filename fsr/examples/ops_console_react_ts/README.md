@@ -16,6 +16,8 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | The three kinds of link | `full` on an agent's name, `into="peek"` on its peek button, a plain link from an alert the server intercepts only when the origin shares the declaring layout |
 | Two segments streaming behind their own fallbacks in one document | the alerts slot and an agent page, each with a `loading.tsx` |
 | An island timed on idle and one timed on visibility | `island(TipList, { when: "idle" })` on the summary, `<Island when="visible">` around the job timeline |
+| A counter held in a nested layout that survives a navigation between the two routes beneath it | `routes/state/layout.tsx`, `routes/state/one/`, `routes/state/two/` |
+| The whole console over a file instead of a backend | `config/mock.toml`, `app/clients/fleet.mock.json`, `APP_ENV=mock` |
 | An error boundary on a nested segment | `routes/agents/view/[id]/error.tsx` |
 | Two locales, the default unprefixed and French under `/fr_FR/`, remembered in a cookie once chosen | `[locales]` in `config/app.toml`, the picker in `src/ui/LanguagePicker.tsx`, `useLocale()` in `routes/help/page.tsx` |
 | A login the host serves over a users file, a guarded route, the identity and the CSRF token as layout props, a loader whose backend call carries the session's token | `[auth]` in `config/app.toml`, `config/auth.toml`, `routes/login/`, `routes/account/`, the guard in `middleware.ts`, `src/ui/Header.tsx` |
@@ -34,6 +36,8 @@ cd ../examples/ops_console_react_ts && ../../../target/debug/fsr types app
 ```
 
 Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`.
+
+To run it with no backend at all, `APP_ENV=mock ../../../target/debug/fsr serve app` picks up `config/mock.toml`, which names the fleet client's transport as `mock`, and the fleet answers from `app/clients/fleet.mock.json`. The report says so beside the client; acknowledging an alert fails on purpose, since the file records nothing.
 
 ## Try it
 

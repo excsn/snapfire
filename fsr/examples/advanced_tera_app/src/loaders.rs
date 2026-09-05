@@ -44,6 +44,7 @@ impl Metadata for SectionTitle {
 pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -> HostBuilder {
   let chrome_renders = renders.clone();
   let layout_renders = renders.clone();
+  let hydrate_renders = renders.clone();
   let page_renders = renders;
   builder
     .source("chrome_loader", move |_ctx| {
@@ -69,6 +70,19 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
       }
     })
     .meta("layout_loader", Arc::new(SectionTitle))
+    .source("hydrate_loader", move |_ctx| {
+      let renders = hydrate_renders.clone();
+      async move {
+        let mut data = ValueMap::new();
+        data.insert("renders".to_owned(), Value::int(renders.get() as i64));
+        for when in ["load", "visible", "idle"] {
+          let mut stamp = ValueMap::new();
+          stamp.insert("when".to_owned(), Value::str(when));
+          data.insert(format!("stamp_{when}"), Value::Map(stamp));
+        }
+        Ok(data)
+      }
+    })
     .source("servers_loader", move |ctx| {
       let renders = page_renders.clone();
       async move {

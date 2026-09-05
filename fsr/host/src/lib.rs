@@ -25,17 +25,17 @@ use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
 use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode, Value, ValueMap};
 use snapfire_fsr_runtime::{
-  assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator,
+  assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator, FailureKind,
   FibreCache, Head, LoadError, Locale, Matcher, Metadata, RequestCtx, Resolver, SessionCell,
 };
 use snapfire_fsr_service::{
-  Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, NoCredentials, Services, TraceInterceptor, Transport,
+  Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials, Services, TraceInterceptor, Transport,
 };
 use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionStore, Sessions};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
-pub use config::{AuthSection, BearerKey, Config};
+pub use config::{AuthSection, BearerKey, ClientConfig, Config};
 pub use locale::{Locales, LocalesSection, Resolution};
 
 /// The encodings a payload request may name in `enc`; the wire's `V` row
@@ -1061,6 +1061,47 @@ fn with_headers(response: &mut Response<Body>, headers: &[(String, String)]) {
   }
 }
 
+/// A `mock` client's transport from its responses file: an object of method
+/// name to the response in the payload's JSON encoding, or to
+/// `{"$fail": {"kind": "<failure kind>", "message": "..."}}` for a failure.
+fn mock_transport(config: &Config, name: &str, client: &ClientConfig) -> Result<Option<(Arc<dyn Transport>, String)>, HostError> {
+  if !client.is_mock() {
+    return Ok(None);
+  }
+  let file = client.responses_file(name);
+  let path = config.resolve(&file);
+  let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
+  let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| HostError::Config(path.clone(), e.to_string()))?;
+  let Some(entries) = json.as_object() else {
+    return Err(HostError::Config(path, "expected an object of method name to response".to_owned()));
+  };
+  let mut mock = MockTransport::new();
+  for (method, response) in entries {
+    let key = format!("{name}.{method}");
+    match response.get("$fail") {
+      Some(fail) => {
+        let kind = match fail.get("kind").and_then(|k| k.as_str()).unwrap_or("internal") {
+          "unauthorized" => FailureKind::Unauthorized,
+          "not_found" => FailureKind::NotFound,
+          "invalid" => FailureKind::Invalid,
+          "conflict" => FailureKind::Conflict,
+          "timeout" => FailureKind::Timeout,
+          "unavailable" => FailureKind::Unavailable,
+          "internal" => FailureKind::Internal,
+          other => return Err(HostError::Config(path, format!("{method}: unknown failure kind `{other}`"))),
+        };
+        let message = fail.get("message").and_then(|m| m.as_str()).unwrap_or("mocked failure").to_owned();
+        mock = mock.fails(key, kind, message);
+      }
+      None => {
+        let value = snapfire_fsr_payload::json_to_value(response).map_err(|e| HostError::Config(path.clone(), format!("{method}: {e}")))?;
+        mock = mock.returns(key, value);
+      }
+    }
+  }
+  Ok(Some((Arc::new(mock), file)))
+}
+
 fn json_response(status: StatusCode, json: &serde_json::Value) -> Response<Body> {
   Response::builder()
     .status(status)
@@ -1335,11 +1376,17 @@ impl HostBuilder {
             let imported = snapfire_fsr_service::import_proto(&path, name).map_err(|error| HostError::Import { document, error })?;
             contract.types.extend(imported.contract.types.clone());
             contract.services.extend(imported.contract.services.clone());
+            if let Some((transport, file)) = mock_transport(&config, name, client)? {
+              transports.push((name.clone(), transport));
+              service_rows.push((name.clone(), "mock".to_owned(), file));
+              continue;
+            }
+            let base_url = client.base_url.clone().unwrap_or_default();
             if self.transport_override.is_none() {
-              let transport = snapfire_fsr_service::GrpcTransport::new(&client.base_url, &imported).map_err(|e| HostError::Transport(name.clone(), e))?;
+              let transport = snapfire_fsr_service::GrpcTransport::new(&base_url, &imported).map_err(|e| HostError::Transport(name.clone(), e))?;
               transports.push((name.clone(), Arc::new(transport)));
             }
-            service_rows.push((name.clone(), "grpc".to_owned(), client.base_url.clone()));
+            service_rows.push((name.clone(), "grpc".to_owned(), base_url));
             continue;
           }
           let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
@@ -1347,12 +1394,18 @@ impl HostBuilder {
             .map_err(|error| HostError::Import { document, error })?;
           contract.types.extend(imported.contract.types.clone());
           contract.services.extend(imported.contract.services.clone());
-          let mut transport = HttpTransport::new(&client.base_url);
+          if let Some((transport, file)) = mock_transport(&config, name, client)? {
+            transports.push((name.clone(), transport));
+            service_rows.push((name.clone(), "mock".to_owned(), file));
+            continue;
+          }
+          let base_url = client.base_url.clone().unwrap_or_default();
+          let mut transport = HttpTransport::new(&base_url);
           for (path, route) in &imported.routes {
             transport = transport.route(path.clone(), route.clone());
           }
           transports.push((name.clone(), Arc::new(transport)));
-          service_rows.push((name.clone(), "http".to_owned(), client.base_url.clone()));
+          service_rows.push((name.clone(), "http".to_owned(), base_url));
         }
         let mut builder = Services::builder()
           .contract(contract)

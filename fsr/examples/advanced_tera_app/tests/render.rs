@@ -85,9 +85,19 @@ fn the_index_lists_the_routes_and_the_dev_credentials() {
   let host = app();
   let html = render(&host, "/");
 
-  for route in ["/dash/servers", "/slow/servers", "/dash/down", "/login"] {
+  for route in ["/dash/servers", "/slow/servers", "/dash/down", "/hydrate", "/login"] {
     assert!(html.contains(&format!("href=\"{route}\"")), "the index links {route}: {html}");
   }
   assert!(html.contains("alice"), "the dev credentials are on the page: {html}");
   assert!(html.contains("class=\"brand\" href=\"/\">SnapFire FSR</a>"), "the index sits in the layout");
+}
+
+#[test]
+fn the_hydrate_page_places_one_island_per_timing() {
+  let host = app();
+  let html = render(&host, "/hydrate");
+  for when in ["load", "visible", "idle"] {
+    assert!(html.contains(&format!("data-sf-module=\"components/MountStamp.tsx#{when}\"")), "an island registered for {when}: {html}");
+    assert!(html.contains(&format!("{{\"when\":\"{when}\"}}")), "its props name the timing: {html}");
+  }
 }

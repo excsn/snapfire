@@ -22,6 +22,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
+* [Running Without a Backend](#running-without-a-backend)
 * [Reading the Report](#reading-the-report)
 * [Error Handling](#error-handling)
 
@@ -101,6 +102,10 @@ login = "/login"                  # the application's login page, the default
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
 bearer = true                     # send custody's access_token as a bearer; a string names another key
+
+[clients.inventory]
+transport = "mock"                # answer from clients/inventory.mock.json and reach nothing
+responses = "clients/inventory.mock.json"   # the default; relative to the app directory
 ```
 
 A key the host does not know is an error naming the key. So is a section it does not know, so a typo cannot silently do nothing.
@@ -405,6 +410,33 @@ assert_eq!(transport.calls().len(), 1);
 ```
 
 `handle` drives the whole edge, cookies included, without a socket.
+
+## Running Without a Backend
+
+A client whose `transport` is `mock` answers every call from a file and opens no connection, so the whole application runs with nothing else started. The contract is still imported from the document, so a method the document does not declare is refused before the file is consulted. An overlay in the configuration ladder is the natural place for it, so `APP_ENV=mock` switches a deployment over and nothing else changes.
+
+```toml
+# config/mock.toml
+[clients.fleet]
+transport = "mock"
+```
+
+The file is an object of method name to response, written in the payload's JSON encoding, so a plain number is an integer or a double by its shape and the tagged forms carry `bigint`, typed arrays and the rest. A `$fail` entry answers with a failure of the named kind, which is how a degraded segment is rehearsed.
+
+```json
+{
+  "listAgents": [{ "id": 1, "name": "builder-eu-1", "region": "eu", "status": "up", "queue_depth": 3, "cpu": 61.5 }],
+  "acknowledgeAlert": { "$fail": { "kind": "unavailable", "message": "the mock records nothing" } }
+}
+```
+
+The report names the file where a live client would show its base URL:
+
+```text
+services  fleet                  mock        clients/fleet.mock.json
+```
+
+`base_url` may be left out of a mock client; every other client needs one. A `transport` other than `mock` is a configuration error.
 
 ## Refreshing the Browser in Development
 

@@ -31,6 +31,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Add a route in Rust | `HostBuilder::route`, `route_override` |
 | Replace the document shell | `HostBuilder::shell` |
 | Test without a backend | `HostBuilder::services_over` with a `MockTransport`, then `Host::render_to_string` and `Host::call_action` |
+| Run without a backend | `[clients.<name>] transport = "mock"` over `clients/<name>.mock.json` |
 | Keep sessions somewhere else | `HostBuilder::session_store` |
 | Sign users in | `[auth]` over `config/auth.toml`, or `HostBuilder::identity` with any `IdentityProvider` |
 | Send the session's token to one backend | `[clients.<name>] bearer = true` |
