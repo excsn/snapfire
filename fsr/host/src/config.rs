@@ -58,11 +58,16 @@ pub struct ServerConfig {
   /// build time, relative to the app directory. Absent, nothing is prerendered.
   #[serde(default)]
   pub prerender: Option<String>,
+  /// Whether the document carries the live-refresh script and the host
+  /// answers `/__fsr/events` and `/__fsr/changed`. Absent, it follows
+  /// `RELEASE_ENV`: on when that is `development`, its default.
+  #[serde(default)]
+  pub dev: Option<bool>,
 }
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), prerender: None }
+    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), prerender: None, dev: None }
   }
 }
 
@@ -394,6 +399,12 @@ impl Config {
 
   pub fn session_ttl(&self) -> Result<Duration, HostError> {
     parse_duration(&self.session.ttl).ok_or_else(|| HostError::Value("session.ttl".to_owned(), self.session.ttl.clone()))
+  }
+
+  /// Whether development conveniences are on: `server.dev` when written,
+  /// else whether `RELEASE_ENV` is `development`, which it is when unset.
+  pub fn dev(&self) -> bool {
+    self.server.dev.unwrap_or_else(|| Deployment::from_env().release_env == "development")
   }
 
   /// The cache lifetime, `None` when no `[cache]` section is written.

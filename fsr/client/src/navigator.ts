@@ -293,6 +293,8 @@ function linkOf(target: EventTarget | null): Element | null {
 
 /** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched and owns history from then on. */
 export function enableNavigation(options: NavigationOptions = {}): void {
+  const g = globalThis as { __sf?: Record<string, unknown> };
+  g.__sf = Object.assign(g.__sf ?? {}, { refresh });
   const sidecar = document.querySelector("script[data-sf-segments]");
   if (sidecar?.textContent) {
     current = JSON.parse(sidecar.textContent);

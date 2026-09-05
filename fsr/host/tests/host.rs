@@ -346,3 +346,61 @@ async fn without_a_cache_section_nothing_is_cached() {
   host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert_eq!(host.invalidate("routes/hello/page.tsx#default").await, 0);
 }
+
+#[tokio::test]
+async fn development_documents_carry_the_refresh_script_and_the_host_announces_changes() {
+  use http_body_util::BodyExt;
+
+  let dir = app_dir();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  assert!(host.report.dev, "RELEASE_ENV is unset, so this is development");
+  assert!(host.report.to_string().contains("dev       live refresh on /__fsr/events"), "{}", host.report);
+  let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("new EventSource(\"/__fsr/events\")"), "{html}");
+  assert!(html.contains("<title>Test &lt;app&gt;</title>"), "the head is otherwise the same: {html}");
+
+  let response = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("content-type").unwrap(), "text/event-stream");
+  let mut body = response.into_body();
+  let first = body.frame().await.unwrap().unwrap().into_data().unwrap();
+  assert_eq!(&first[..], b"data: {\"bundle\":\"-\"}\n\n", "no bundle under this app, so its id is `-`");
+  assert!(html.contains("var b=\"-\""), "the document carries the id it was rendered against: {html}");
+  let told = host.handle(Request::post("/__fsr/changed").body(Bytes::new()).unwrap()).await;
+  assert_eq!(told.status(), StatusCode::NO_CONTENT);
+  let next = body.frame().await.unwrap().unwrap().into_data().unwrap();
+  assert_eq!(&next[..], b"data: {\"bundle\":\"-\"}\n\n");
+  std::fs::create_dir_all(dir.join("dist")).unwrap();
+  std::fs::write(dir.join("dist/.snapfire-build.json"), "{\"outputs\":[\"main.js\",\"main.js.map\"]}").unwrap();
+  std::fs::write(dir.join("dist/main.js"), "one").unwrap();
+  host.changed();
+  let with_bundle = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert!(with_bundle.starts_with("data: {\"bundle\":\"") && !with_bundle.contains("\"-\""), "a bundle that appeared has an id: {with_bundle}");
+  std::fs::write(dir.join("dist/main.js.map"), "a map").unwrap();
+  host.changed();
+  let same = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert_eq!(same, with_bundle, "a source map is not part of the id");
+  std::fs::write(dir.join("dist/main.js"), "two").unwrap();
+  host.changed();
+  let edited = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert_ne!(edited, with_bundle, "an edited module changes the id");
+  let served = host.handle(Request::get("/static/app.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(served.headers().get("cache-control").unwrap(), "no-cache", "statics revalidate in development");
+}
+
+#[tokio::test]
+async fn dev_off_in_the_configuration_drops_the_script_and_the_endpoints() {
+  let dir = app_dir();
+  let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), base.replace("[server]\n", "[server]\ndev = false\n")).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  assert!(!host.report.dev);
+  assert!(!host.report.to_string().contains("dev "), "{}", host.report);
+  let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("EventSource"), "{html}");
+  let response = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await;
+  assert_ne!(response.status(), StatusCode::OK);
+  host.changed();
+}

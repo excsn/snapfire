@@ -33,11 +33,13 @@ An application with a Rust project puts three lines in `build.rs`: build, write,
 
 | Changed | It does |
 | --- | --- |
-| a page, a component or CSS | rebundles; reload the page |
+| a page, a component or CSS | rebundles; the open page refreshes itself |
 | a loader, an action, a schema or a client document | regenerates, rebundles, restarts |
 | Rust under `src/`, `build.rs`, `Cargo.toml` or `config/` | rebuilds, restarts |
 | `config/` beside an app with no Cargo project | restarts the stock host |
 | a test | nothing; `fsr test` is its own command |
+
+The browser follows along. A served document in development carries a script listening on the host's `/__fsr/events`; the loop tells the host after a rebundle and the host tells every open document. A stylesheet edit re-links the stylesheets and refreshes the route's payload in place, so the layout keeps its state; an edited module reloads the page, since the one it hydrated with is stale; a restart drops the stream and the reconnect does the same check. `server.dev = false` turns it off, and `prerender` never writes the script.
 
 The restart rule is the one worth knowing: the loop restarts the server only when the generated files actually differ. Editing a page never restarts, because the bundle's output names are stable and the host reads it from disk; a restart would drop every in-memory session. A step that fails leaves the running server up and waits, so a typo never takes the page down. Stopping the loop stops the server with it.
 
@@ -49,6 +51,6 @@ A route whose loader reads no parameter, no query, no session, no identity and n
 
 ## The lab
 
-Run `fsr dev app` in the storefront and wait for the host. Edit the heading text in `routes/index/page.tsx` and save: the log shows one snapfirec run and no restart; a reload shows the new text with the cart still held. Now edit `routes/index/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
+Run `fsr dev app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again, since the plan changed, then a restart, and the page reloads with the new text. Now edit `routes/index/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
 
 Then break something: add `try {` without a closing brace to the loader. The loop prints the parse error with its line and waits; the previous server keeps serving. Fix it and the loop picks up where it left off.
