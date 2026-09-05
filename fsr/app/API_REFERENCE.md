@@ -23,7 +23,14 @@ The binding rule: a plan file plus Rust registrations become an `App`, or a refu
 
 Everything a request needs, plus what was bound to produce it.
 
-* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub middleware: Option<Arc<dyn ActionHandler>>, pub not_found: Option<PlanNode>, pub prerenderable: Vec<String>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match. `middleware` runs before every request with `{ method, path }` as its input; what its value means is the host's reading, `snapfire_fsr_host::Preflight`. `prerenderable` lists the patterns with no parameter whose every source is lowered and reads nothing of the request, in route order.
+* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub middleware: Option<Arc<dyn ActionHandler>>, pub not_found: Option<PlanNode>, pub intercepts: Intercepts, pub prerenderable: Vec<String>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `intercepts` holds the plan file's intercept trees, one per `page.<slot>.tsx`, under the pattern of their route. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match. `middleware` runs before every request with `{ method, path }` as its input; what its value means is the host's reading, `snapfire_fsr_host::Preflight`. `prerenderable` lists the patterns with no parameter whose every source is lowered and reads nothing of the request, in route order.
+
+### Intercepts
+
+The intercept trees from the plan file, matched on their route's pattern. Whether one applies to a navigation is the host's call.
+
+* `pub struct Intercepts`, `Default`.
+* `Intercepts::plan_for(&self, path: &str) -> Option<(PlanNode, Params)>`: the tree and the matched params for `path`, or `None` when no intercept matches.
 
 ### Handlers
 
@@ -68,7 +75,7 @@ Routes from the plan file, from Rust or both. A pattern claimed twice is refused
 
 * `pub struct Routes`, `Default`.
 * `Routes::new() -> Self`
-* `Routes::from_manifest(source: &str) -> Result<Self, BindError>`: every route in the file, owned by `PlanFile`, plus the file's not-found tree when it has one.
+* `Routes::from_manifest(source: &str) -> Result<Self, BindError>`: every route in the file, owned by `PlanFile`, plus the file's not-found tree when it has one and its intercepts, whose sources count as declared.
 * `Routes::add(self, pattern, plan: impl IntoPlan) -> Self`: owned by `Rust`; a plan that fails to convert is kept as the error `build` returns.
 * `Routes::replace(self, pattern, plan: impl IntoPlan) -> Self`: owned by `RustOverride`, replacing the entry with that pattern.
 * `Routes::not_found(self, plan: impl IntoPlan) -> Self`: the tree for a path no route matches, replacing the plan file's; its sources count as declared.

@@ -31,11 +31,14 @@ pub struct ComponentSet {
   /// Modules that are layouts: their `children` is the child segment, placed
   /// inside `<sf-s>` so the browser can adopt it without reconciling it.
   pub layouts: Vec<String>,
+  /// Per layout module, the slots its `slots/` directory declares, so a prop
+  /// of that name is a region rather than a value.
+  pub slots: Vec<(String, Vec<String>)>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new() }
   }
 
   /// Lowers `module` (a `path#export` under the app) and everything it
@@ -93,8 +96,10 @@ impl ComponentSet {
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
-        let layout_root = self.layouts.iter().any(|m| *m == format!("{file}#{export}"));
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root };
+        let module = format!("{file}#{export}");
+        let layout_root = self.layouts.iter().any(|m| *m == module);
+        let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new() };
         let result = cl.component(&function);
         (result, cl.lowerer.unbound.take())
       };
@@ -519,14 +524,46 @@ struct ComponentLowerer<'a, 'p> {
   children_name: Option<String>,
   /// A layout: its slot is wrapped in `<sf-s>`.
   layout_root: bool,
+  /// The slots a layout's `slots/` directory declares.
+  slot_names: Vec<String>,
+  /// Destructured props of a layout that name a slot: the local name and the slot.
+  slot_props: Vec<(String, String)>,
 }
 
 impl ComponentLowerer<'_, '_> {
-  fn slot(&self) -> Tmpl {
+  fn slot(&self, name: &str) -> Tmpl {
     if self.layout_root {
-      Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot] }
+      let attrs = if name == "content" { Vec::new() } else { vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str(name))] };
+      Tmpl::Element { tag: "sf-s".to_owned(), attrs, children: vec![Tmpl::Slot(name.to_owned())] }
     } else {
-      Tmpl::Slot
+      Tmpl::Slot(name.to_owned())
+    }
+  }
+
+  /// The slot an expression stands for: `children` or `props.children` is
+  /// `content`; in a layout, a prop named after one of its slots is that slot.
+  fn slot_of_expr(&self, expr: &js::Expr) -> Option<String> {
+    match expr {
+      js::Expr::Ident(id) => {
+        let name = id.sym.as_ref();
+        if self.children_name.as_deref() == Some(name) {
+          return Some("content".to_owned());
+        }
+        self.slot_props.iter().find(|(local, _)| local == name).map(|(_, slot)| slot.clone())
+      }
+      js::Expr::Member(m) => {
+        let js::Expr::Ident(obj) = &*m.obj else { return None };
+        let js::MemberProp::Ident(prop) = &m.prop else { return None };
+        if self.props_name.as_deref() != Some(obj.sym.as_ref()) {
+          return None;
+        }
+        let prop = prop.sym.as_ref();
+        if prop == "children" {
+          return Some("content".to_owned());
+        }
+        (self.layout_root && self.slot_names.iter().any(|n| n == prop)).then(|| prop.to_owned())
+      }
+      _ => None,
     }
   }
 }
@@ -598,6 +635,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           },
           _ => None,
         });
+        if self.layout_root {
+          for prop in &obj.props {
+            let (local, key) = match prop {
+              js::ObjectPatProp::Assign(a) => (a.key.id.sym.to_string(), a.key.id.sym.to_string()),
+              js::ObjectPatProp::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
+                (Some(key), js::Pat::Ident(local)) => (local.id.sym.to_string(), key),
+                _ => continue,
+              },
+              js::ObjectPatProp::Rest(_) => continue,
+            };
+            if self.slot_names.contains(&key) {
+              self.slot_props.push((local, key));
+            }
+          }
+        }
         bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned()))
       }
       other => Err(self.lowerer.residue(other.span(), "the props parameter must be a name or a destructuring")),
@@ -686,6 +738,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// A JSX child or a component's return: a tree when the expression holds
   /// JSX anywhere a render would reach, text otherwise.
   fn child_expr(&mut self, expr: &'p js::Expr) -> Lowered<Tmpl> {
+    if let Some(name) = self.slot_of_expr(expr) {
+      return Ok(self.slot(&name));
+    }
     match expr {
       js::Expr::Paren(p) => self.child_expr(&p.expr),
       js::Expr::JSXElement(el) => self.element(el),
@@ -717,17 +772,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(Tmpl::For { over, params, body: Box::new(body?) })
       }
       js::Expr::Ident(id) if id.sym.as_ref() == "null" || id.sym.as_ref() == "undefined" => Ok(Tmpl::Fragment(Vec::new())),
-      js::Expr::Ident(id) if self.children_name.as_deref() == Some(id.sym.as_ref()) => Ok(self.slot()),
-      js::Expr::Member(m) if self.is_props_children(m) => Ok(self.slot()),
       js::Expr::Lit(js::Lit::Null(_)) => Ok(Tmpl::Fragment(Vec::new())),
       other => Ok(Tmpl::Expr(self.lowerer.expr(other)?)),
     }
-  }
-
-  fn is_props_children(&self, member: &js::MemberExpr) -> bool {
-    let js::Expr::Ident(obj) = &*member.obj else { return false };
-    let js::MemberProp::Ident(prop) = &member.prop else { return false };
-    self.props_name.as_deref() == Some(obj.sym.as_ref()) && prop.sym.as_ref() == "children"
   }
 
   /// A `.map` callback with statements: `const`s then a `return` of a tree.
@@ -863,6 +910,68 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Some((target.sym.to_string(), when)))
   }
 
+  /// `<Slot name="modal" />` in a layout: the plan child of that name, in a
+  /// region navigation fills and empties.
+  fn slot_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+    if !self.layout_root {
+      return Err(self.lowerer.residue(el.span, "`<Slot>` outside a layout"));
+    }
+    let mut name = None;
+    for attr in &el.opening.attrs {
+      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { return Err(self.lowerer.residue(el.span, "a spread on `<Slot>`")) };
+      if attr_name(&attr.name) != "name" {
+        return Err(self.lowerer.residue(attr.span, "`<Slot>` takes `name` and nothing else"));
+      }
+      match self.attr_value(attr)? {
+        Expr::Lit(Lit::Str(value)) => name = Some(value),
+        _ => return Err(self.lowerer.residue(attr.span, "a slot's `name` is written out")),
+      }
+    }
+    let Some(name) = name else { return Err(self.lowerer.residue(el.span, "`<Slot>` needs a `name`")) };
+    let has_children = el.children.iter().any(|c| match c {
+      js::JSXElementChild::JSXText(text) => !jsx_text(&text.value.to_atom_lossy()).is_empty(),
+      _ => true,
+    });
+    if has_children {
+      return Err(self.lowerer.residue(el.span, "children on `<Slot>`; a slot is filled by a route"));
+    }
+    Ok(self.slot(&name))
+  }
+
+  /// `<Link href="/x" full into="modal" prefetch="none">` from the client
+  /// library: an `<a>` carrying the data attributes the navigator reads.
+  fn link_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+    let mut attrs = Vec::new();
+    for attr in &el.opening.attrs {
+      let attr = match attr {
+        js::JSXAttrOrSpread::JSXAttr(attr) => attr,
+        js::JSXAttrOrSpread::SpreadElement(spread) => {
+          attrs.push(Entry::Spread(self.lowerer.expr(&spread.expr)?));
+          continue;
+        }
+      };
+      let raw = attr_name(&attr.name);
+      if raw == "key" || raw == "ref" || is_handler_name(&raw) {
+        continue;
+      }
+      if raw == "style" {
+        attrs.push(Entry::Field("style".to_owned(), self.style(attr)?));
+        continue;
+      }
+      let value = self.attr_value(attr)?;
+      let name = match raw.as_str() {
+        "full" => "data-sf-full",
+        "into" => "data-sf-into",
+        "prefetch" => "data-sf-prefetch",
+        "native" => "data-sf-native",
+        other => html_attr_name(other),
+      };
+      attrs.push(Entry::Field(name.to_owned(), value));
+    }
+    let children = self.children(&el.children)?;
+    Ok(Tmpl::Element { tag: "a".to_owned(), attrs, children })
+  }
+
   fn island_timing(&self, value: Expr, span: Span) -> Lowered<String> {
     match value {
       Expr::Lit(Lit::Str(timing)) if matches!(timing.as_str(), "load" | "visible" | "idle") => Ok(timing),
@@ -883,6 +992,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     if name == "Island" && self.is_client_react_import("Island") {
       return self.island_element(el);
+    }
+    if name == "Slot" && self.is_client_react_import("Slot") {
+      return self.slot_element(el);
+    }
+    if name == "Link" && self.is_client_react_import("Link") {
+      return self.link_element(el);
     }
     if let Some((target, when)) = self.island_alias(name)? {
       let lowered = self.component_ref(&target, el)?;
@@ -1285,10 +1400,10 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     let layout = &lowered.iter().find(|(m, _)| m == "src/ui/Page.tsx#Page").unwrap().1;
     let Tmpl::Fragment(parts) = &layout.render else { panic!() };
     let Tmpl::Element { children: main, .. } = &parts[1] else { panic!() };
-    assert_eq!(main, &vec![Tmpl::Slot]);
+    assert_eq!(main, &vec![Tmpl::Slot("content".to_owned())]);
     let header = &lowered.iter().find(|(m, _)| m == "src/ui/Header.tsx#Header").unwrap().1;
     let Tmpl::Element { children, .. } = &header.render else { panic!() };
-    assert_eq!(children[1], Tmpl::Slot, "`props.children` is the slot when props are bound whole");
+    assert_eq!(children[1], Tmpl::Slot("content".to_owned()), "`props.children` is the slot when props are bound whole");
   }
 
   #[test]
@@ -1374,6 +1489,54 @@ export default function Order({ id }: { id: number }) {
     assert!(matches!(&children[1], Tmpl::Island { module, props, when, .. } if module == "src/ui/Chart.tsx#Chart" && matches!(&props[0], Entry::Field(name, _) if name == "series") && when.as_deref() == Some("idle")), "{:?}", children[1]);
     assert!(matches!(&children[2], Tmpl::Island { when: None, .. }), "no timing means the registry's: {:?}", children[2]);
     assert!(lowered.iter().any(|(m, _)| m == "src/ui/Help.tsx#Help") && lowered.iter().any(|(m, _)| m == "src/ui/Chart.tsx#Chart"), "an island's component is lowered like any other");
+  }
+
+  #[test]
+  fn a_layout_places_a_named_slot_by_element_and_by_prop() {
+    let files = [
+      (
+        "routes/layout.tsx",
+        "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed, title }: { children: unknown; feed: unknown; title: string }) {\n  return <div><h1>{title}</h1>{children}<aside>{feed}</aside><Slot name=\"modal\" /></div>;\n}\n",
+      ),
+    ];
+    let mut set = ComponentSet::new(&app(&files));
+    set.layouts.push("routes/layout.tsx#default".to_owned());
+    set.slots.push(("routes/layout.tsx#default".to_owned(), vec!["feed".to_owned()]));
+    set.lower("routes/layout.tsx#default").unwrap();
+    let layout = &set.components[0].1;
+    let Tmpl::Element { children, .. } = &layout.render else { panic!("{:?}", layout.render) };
+    assert_eq!(children[1], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
+    let Tmpl::Element { children: aside, .. } = &children[2] else { panic!("{:?}", children[2]) };
+    assert_eq!(aside[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str("feed"))], children: vec![Tmpl::Slot("feed".to_owned())] }, "a prop named after a slots/ directory is that slot");
+    assert_eq!(children[3], Tmpl::Element { tag: "sf-s".to_owned(), attrs: vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str("modal"))], children: vec![Tmpl::Slot("modal".to_owned())] });
+  }
+
+  #[test]
+  fn a_slot_outside_a_layout_or_with_children_is_residue() {
+    let page = [("routes/a/page.tsx", "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <Slot name=\"x\" />;\n}\n")];
+    let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("outside a layout"), "{err}");
+    let filled = [("routes/layout.tsx", "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function L() {\n  return <Slot name=\"x\"><p>fallback</p></Slot>;\n}\n")];
+    let mut set = ComponentSet::new(&app(&filled));
+    set.layouts.push("routes/layout.tsx#default".to_owned());
+    let err = set.lower("routes/layout.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("children on `<Slot>`"), "{err}");
+  }
+
+  #[test]
+  fn a_link_lowers_to_an_anchor_the_navigator_reads() {
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ id }: { id: number }) {\n  return <p><Link href={`/photo/${id}`} className=\"x\" full>full</Link><Link href=\"/photo/1\" into=\"modal\" prefetch=\"none\">quick</Link></p>;\n}\n")];
+    let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
+    let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
+    let Tmpl::Element { tag, attrs, children: text } = &children[0] else { panic!("{:?}", children[0]) };
+    assert_eq!(tag, "a");
+    assert!(matches!(&attrs[0], Entry::Field(name, _) if name == "href"));
+    assert_eq!(attrs[1], Entry::Field("class".to_owned(), Expr::lit_str("x")));
+    assert_eq!(attrs[2], Entry::Field("data-sf-full".to_owned(), Expr::Lit(Lit::Bool(true))));
+    assert_eq!(text, &vec![Tmpl::Text("full".to_owned())]);
+    let Tmpl::Element { attrs, .. } = &children[1] else { panic!("{:?}", children[1]) };
+    assert_eq!(attrs[1], Entry::Field("data-sf-into".to_owned(), Expr::lit_str("modal")));
+    assert_eq!(attrs[2], Entry::Field("data-sf-prefetch".to_owned(), Expr::lit_str("none")));
   }
 
   #[test]

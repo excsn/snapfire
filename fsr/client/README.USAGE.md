@@ -13,6 +13,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Registering an Island](#registering-an-island)
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
+* [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
@@ -187,6 +188,38 @@ import { OrderHelp } from "@src/ui/OrderHelp";
 
 The build lowers the use: the server renders `OrderHelp` with its props as a nested island inside an `<sf-s data-sf-island data-sf-when="visible">` region of the page's markup, with its own props script, and registers the module in `generated/islands.ts`. In the browser the page's root adopts the region as it stands and never reconciles it, while `scan` mounts `OrderHelp` in a root of its own when it scrolls into view, so its state is its own and the page's re-renders leave it alone. `island(OrderHelp, { when: "visible" })` at module level gives a component that places itself the same way wherever it is used. `when` on the region wins over the registry's timing for that use; a use without one takes the registry's, else `"load"`. A component from another framework works the same way once its module has a mounter registered, since the registry picks the mounter by module.
 
+## Filling a Layout's Slots
+
+A layout has one slot for its page and as many named ones as it places. A parallel segment under `slots/<name>/` beside the layout arrives as a prop of that name; a slot an intercepted route opens in is placed with `Slot`:
+
+```tsx
+import { Slot } from "@snapfire/fsr-client/react";
+
+export default function Layout({ cartCount, children, promo }: LayoutProps & { children: ReactNode; promo: ReactNode }) {
+  return (
+    <>
+      <Header cartCount={cartCount} />
+      {promo}
+      {children}
+      <Slot name="modal" />
+    </>
+  );
+}
+```
+
+Both are `<sf-s data-sf-name>` regions in the server's markup, which the layout's root adopts and never reconciles, the way it adopts `children`. Navigation fills and empties them: a soft navigation to a route with a `page.modal.tsx` writes the variant into the `modal` region of the nearest live layout that declares it and leaves the page alone, and the navigation away empties it again. A document load renders the page, never the variant. The promo keeps its DOM across every page under the layout, since its key never changes.
+
+The navigator sends the document's path with every soft request, which is how the server knows an intercept applies. A link says otherwise with `Link`:
+
+```tsx
+import { Link } from "@snapfire/fsr-client/react";
+
+<Link href={`/product/${id}`} full>Full details</Link>
+<Link href={`/product/${id}`} into="modal">Quick look</Link>
+```
+
+`full` asks for the document's rendering of the target whatever the origin; `into` names the slot outright, for a link the server would not match. On any anchor the same is `data-sf-full` and `data-sf-into`. `refresh` re-renders an open intercept in its slot over the page it keeps.
+
 ## Writing a Mounter for Another Framework
 
 A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller, so return whatever the framework needs for teardown:
@@ -289,6 +322,12 @@ import { navigate, refresh } from "@snapfire/fsr-client";
 
 await navigate("/servers/eu");
 await navigate("/servers/eu", false);
+```
+
+A third argument chooses how the target is asked for: `{ full: true }` is the document's rendering of a route that would otherwise open in a layout's slot, `{ into: "modal" }` names the slot outright. Without either the request carries the document's path, and the server intercepts when the target has a `page.<slot>.tsx` under a layout the origin shares.
+
+```ts
+await navigate("/product/7", true, { full: true });
 ```
 
 `refresh` drops the router cache, re-fetches the current route and hands every kept island its new props in place, which is the revalidation an action performs for you: a layout's cart count follows the mutation and a page keeps what the user typed.

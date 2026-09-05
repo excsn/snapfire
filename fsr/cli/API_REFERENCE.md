@@ -92,8 +92,8 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 ### Report
 
-* `pub struct Report { pub routes: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
-* `routes` pairs a pattern with its directory relative to `app`; `sources` and `actions` pair an id with the module that lowered to it; `services` pairs a service with its document; `schemas` pairs a type with its file; `types` pairs a package with `types::status`'s row.
+* `pub struct Report { pub routes: Vec<(String, String)>, pub layouts: Vec<(String, String)>, pub slots: Vec<(String, String)>, pub intercepts: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub handlers: Vec<(String, String)>, pub middleware: Option<String>, pub components: Vec<(String, String, String)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
+* `routes` pairs a pattern with its directory relative to `app`; `layouts` pairs the pattern a layout wraps with its module; `slots` pairs a parallel slot's source id with its page module; `intercepts` pairs `<pattern> into <slot>` with the `page.<slot>.tsx` module; `sources` and `actions` pair an id with the module that lowered to it; `services` pairs a service with its document; `schemas` pairs a type with its file; `types` pairs a package with `types::status`'s row.
 * `Display` prints the six sections in that order, source and action rows labelled `lowered`, service rows `http` or `grpc` by their document's extension.
 
 ## 3. Discovery Rules
@@ -112,6 +112,9 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### Routes
 
 * A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. A `layout.tsx` in any directory on the way from `routes/` to a route wraps that route's page, outermost first. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
+* `slots/<name>/` beside a `layout.tsx` is a parallel slot of that layout, a child in the slot `<name>` of every route under it, with `page.tsx`, `page.loader.ts`, `loading.tsx` and `error.tsx` read the way a route's are and the source id `layout.<name>` (`<layout id>.<name>` for a nested layout). It is not a route: `slots/` elsewhere is `BuildError::SlotsWithoutLayout`, a slot without `page.tsx` is `SlotWithoutPage` and one with a page or handler directory beneath it is `SlotRoute`. A layout also declares every slot its template places with `<Slot name>`.
+* `page.<slot>.tsx` beside a route's `page.tsx` is an intercept: an entry under the route's pattern in the manifest's `intercepts`, holding the layouts down to the nearest one declaring `<slot>`, that layout with the variant as its `<slot>` child and its page and every other slot in `keep`, and each layout above with its own slots in `keep`. The variant shares the route's source and error module and streams behind `loading.<slot>.tsx` alone. A slot no layout above declares is `SlotUndeclared`; a second variant on one route is `ManyVariants`.
+* Node ids are assigned in tree order per plan, the shell at 0.
 * A segment is a name of ASCII letters, digits, `_` and `-`, `[name]` for a parameter or `[...name]` for a catch-all. Anything else is `BuildError::Segment`.
 * `index` as the first segment is the root. `index` deeper in a path is a literal segment.
 * Routes are sorted by pattern before ids are assigned.
@@ -221,6 +224,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `DuplicateType { name: String, first: String, second: String }`
 * `Contract(ContractError)`, from `Contract::validate`.
 * `UnknownInput { action: String, name: String }`
+* `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)`, `SlotUndeclared { path: PathBuf, file: String, slot: String }` and `ManyVariants(PathBuf)`, from the slot and variant rules above.
 * `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
 * `Http(String, String)`, the URL and the failure.
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.

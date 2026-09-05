@@ -110,8 +110,10 @@ pub enum Tmpl {
   /// wrapped as a nested client node the browser mounts in its own root,
   /// `when` its hydration timing.
   Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String> },
-  /// The caller's children, `{children}` in the callee.
-  Slot,
+  /// The caller's children where the callee places `{children}`, named
+  /// `content`; at a layout's root, the plan child of that name, so a
+  /// `<Slot name="modal" />` names a second segment beside the page.
+  Slot(String),
 }
 
 /// A lowered component: `let`s run once with `$props` bound, then the tree.

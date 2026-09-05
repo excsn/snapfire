@@ -15,6 +15,7 @@ FSR is a native, systems-level engine built from the ground up, preserving the d
 * **Island hydration without mismatches.** React hydrates over the server's own markup, timed per island: on load, when visible or when idle. The storefront renders every page with zero console errors, and a hydration mismatch fails a test under `fsr test` before it reaches a browser.
 * **Type-safe server actions.** Every action gets a typed, generated call site; input is checked against the schema before the body runs; the session is mutated from a page click and the route revalidates in place.
 * **Streaming by convention.** A `loading.tsx` beside a page defers it: the document ships with the fallback and the page streams into its slot when the loader finishes.
+* **Slots without sigils.** A layout's parallel segments live under `slots/` beside it and a route's `page.modal.tsx` opens in a layout's slot on a click, over the page the browser already has; a document load of the same URL is the full page. No `@`, `(.)` or `default.tsx`.
 * **Tests without Node.** Body tests replay a loader or action through the same interpreter that serves it. Page specs run in QuickJS over a DOM inside the same process, hydrate over the server's markup, click through actions and navigate between routes.
 
 ## Core architecture

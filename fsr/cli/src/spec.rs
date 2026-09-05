@@ -533,7 +533,7 @@ impl Hooks for SpecHooks {
     Ok(Some(html))
   }
 
-  fn fetch(&self, method: String, url: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
+  fn fetch(&self, method: String, url: String, body: Option<String>, headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
     let target = url.strip_prefix("http://localhost").unwrap_or(&url).to_owned();
     let (path, query) = target.split_once('?').map(|(p, q)| (p.to_owned(), q.to_owned())).unwrap_or((target.clone(), String::new()));
     let mock = match self.get(self.current.load(Ordering::Relaxed)) {
@@ -585,7 +585,7 @@ impl Hooks for SpecHooks {
           return response;
         }
       };
-      let mut response = hooks.dispatch(method, path, query, target, body).await;
+      let mut response = hooks.dispatch(method, path, query, target, body, headers).await;
       response.headers.extend(preflight.headers.iter().cloned());
       response
     })
@@ -609,13 +609,13 @@ struct FetchHooks {
 }
 
 impl FetchHooks {
-  async fn dispatch(&self, method: String, path: String, query: String, target: String, body: Option<String>) -> FetchResponse {
+  async fn dispatch(&self, method: String, path: String, query: String, target: String, body: Option<String>, headers: Vec<(String, String)>) -> FetchResponse {
     let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
     let Some(id) = action.filter(|_| method == "POST") else {
       if let Some(found) = self.handlers.1.match_request(&method, &path) {
         return self.handler(found.id, found.params, query, body).await;
       }
-      return self.page(method, path, query, target).await;
+      return self.page(method, path, query, target, headers).await;
     };
     let Some(body_ir) = self.actions.get(&id).cloned() else {
       let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
@@ -668,8 +668,8 @@ impl FetchHooks {
     }
   }
 
-  /// A route rendered by the host under the current ctx: the document, or the wire payload when the query carries `__payload`.
-  async fn page(&self, method: String, path: String, query: String, target: String) -> FetchResponse {
+  /// A route rendered by the host under the current ctx: the document, or the wire payload when the query carries `__payload`, intercepted the way the host would when the navigator says where it comes from.
+  async fn page(&self, method: String, path: String, query: String, target: String, headers: Vec<(String, String)>) -> FetchResponse {
     let Some(host) = self.host.clone() else {
       let message = format!("fsr test answers POST /_sf/action/<id>, and GET of a route when config/app.toml is beside the app; not {method} {path}");
       return json_response(404, serde_json::json!({ "kind": "not_found", "message": message }));
@@ -682,7 +682,14 @@ impl FetchHooks {
     };
     let session = mock.ctx.session.clone();
     let mode = if query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
-    match host.render_to_string(&target, mode, session.clone()).await {
+    let header = |name: &str| headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
+    let (from, into) = (header("x-sf-from"), header("x-sf-into"));
+    let rendered = if mode == RenderMode::Payload && (from.is_some() || into.is_some()) {
+      host.render_navigation_to_string(&target, from, into, session.clone()).await
+    } else {
+      host.render_to_string(&target, mode, session.clone()).await
+    };
+    match rendered {
       Ok(body) => FetchResponse::new(200, body),
       Err(HostError::NotFound(path)) => match host.render_not_found(&target, mode, session).await {
         Ok(Some(chunks)) => FetchResponse::new(404, chunks.collect::<Vec<String>>().await.concat()),

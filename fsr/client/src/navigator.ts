@@ -82,6 +82,36 @@ function pendingOf(node: SfNode, slot: number): SfNode | null {
   return null;
 }
 
+/** Empties what an old child segment occupies: its delimited region, delimiters included, or, while it is still streaming, its slot element. The `<sf-s>` around it stays for the next fill. */
+function removeChild(old: Segment): boolean {
+  const region = findRegion(old.k);
+  if (region) {
+    let node: Node | null = region.start;
+    while (node) {
+      const next: Node | null = node.nextSibling;
+      node.parentNode?.removeChild(node);
+      if (node === region.end) break;
+      node = next;
+    }
+    return true;
+  }
+  if (old.s === undefined) return false;
+  const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
+  if (!el) return false;
+  el.remove();
+  return true;
+}
+
+/** The `<sf-s data-sf-name>` a kept layout region holds for `name`: the one under the layout's own island, not a nested one's. */
+function namedSlotOf(region: Region, name: string): Element | null {
+  const island = islandOf(region);
+  if (!island) return null;
+  for (const slot of Array.from(island.el.querySelectorAll(`sf-s[data-sf-name="${name}"]`))) {
+    if (slot.parentElement?.closest("sf-i") === island.el) return slot;
+  }
+  return null;
+}
+
 /** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. */
 function replaceChild(old: Segment, html: string): boolean {
   const region = findRegion(old.k);
@@ -118,7 +148,7 @@ function patchProps(region: Region, node: SfNode): void {
   void patchIsland(island.el, node.props);
 }
 
-/** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Slot-addressed children resolve through S rows instead. */
+/** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied, and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
 function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean): boolean {
   const swap = () => replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
   if (oldSeg.k !== newSeg.k) {
@@ -132,16 +162,42 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
     if (!region) return false;
     region.start.data = `sf-g:${escapeKey(newSeg.k)}`;
   }
-  if (oldSeg.c.length !== newSeg.c.length) return swap();
+  const named = newSeg.c.every((c) => c.n !== undefined) && oldSeg.c.every((c) => c.n !== undefined);
+  if (!named && oldSeg.c.length !== newSeg.c.length) return swap();
   if (newNode.kind === "client") {
     const region = findRegion(oldSeg.k);
     if (region) patchProps(region, newNode);
   } else if (force && newSeg.c.length === 0) {
     return swap();
   }
+  const keep = newSeg.keep ?? [];
+  const carried: Segment[] = [];
+  if (named) {
+    for (const oldChild of oldSeg.c) {
+      if (newSeg.c.some((c) => c.n === oldChild.n)) continue;
+      if (keep.includes(oldChild.n ?? "")) {
+        carried.push(oldChild);
+        continue;
+      }
+      if (!removeChild(oldChild)) return false;
+    }
+  }
   for (let i = 0; i < newSeg.c.length; i++) {
-    const oldChild = oldSeg.c[i];
     const newChild = newSeg.c[i];
+    const oldChild = named ? oldSeg.c.find((c) => c.n === newChild.n) : oldSeg.c[i];
+    if (!oldChild) {
+      const region = findRegion(newSeg.k);
+      const slot = region && newChild.n !== undefined ? namedSlotOf(region, newChild.n) : null;
+      if (!slot) return false;
+      if (newChild.s !== undefined) {
+        const pending = pendingOf(newNode, newChild.s);
+        if (!pending) return false;
+        slot.innerHTML = nodeToHtml(pending, ids);
+      } else {
+        slot.innerHTML = renderSegment(subtreeAt(newNode, newChild.p ?? []), newChild, ids);
+      }
+      continue;
+    }
     if (newChild.s !== undefined) {
       // Streaming again: the old child's place takes the slot with its
       // fallback; the resolution fills it with the delimited content.
@@ -151,8 +207,27 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
     }
     if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force)) return false;
   }
+  newSeg.c.push(...carried);
   return true;
 }
+
+/** The slot an intercepted payload fills: the child, of the segment that keeps its page, that is not kept. */
+function interceptSlot(seg: Segment): string | null {
+  if (seg.keep && seg.keep.length > 0) {
+    return seg.c.find((c) => c.n !== undefined && !seg.keep?.includes(c.n))?.n ?? null;
+  }
+  for (const child of seg.c) {
+    const found = interceptSlot(child);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+/** The slot the current URL is rendered into, when the last navigation was intercepted; a refresh asks for the same. */
+let openSlot: string | null = null;
+
+/** The document's path and search as the navigator last left them, which is where the next navigation comes from. */
+let currentPath = "";
 
 /** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
@@ -173,6 +248,7 @@ function apply(payload: Payload, force: boolean): boolean {
   if (!current || !payload.segments) return false;
   if (!diff(current, payload.segments, payload.tree, force)) return false;
   current = payload.segments;
+  openSlot = interceptSlot(payload.segments);
   for (const r of payload.resolutions) {
     fillSlot(r.slot, r.node, keyOfSlot(payload.segments, r.slot));
   }
@@ -186,11 +262,41 @@ interface Cached {
   at: number;
 }
 
-/** Payload text by `pathname + search` or the fetch still bringing it. */
+/** Payload text by where the navigation comes from and where it goes, or the fetch still bringing it. */
 const cache = new Map<string, Cached | Promise<Cached | null>>();
 let cacheMs = 30_000;
 
 export type PrefetchTiming = "hover" | "none";
+
+/** How a navigation asks for its payload: `from` is the document's path, which lets the server intercept the target into a live layout's slot; `into` names that slot outright; neither is a full page. */
+interface Ask {
+  from: string | null;
+  into: string | null;
+}
+
+export interface NavigateOptions {
+  /** The document's rendering of the target, never an intercept. */
+  full?: boolean;
+  /** Renders the target into this slot of the nearest live layout that declares it. */
+  into?: string;
+}
+
+function askFor(options: NavigateOptions): Ask {
+  if (options.full) return { from: null, into: null };
+  if (options.into) return { from: null, into: options.into };
+  return { from: currentPath, into: null };
+}
+
+function askOf(anchor: Element): NavigateOptions {
+  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined };
+}
+
+function headersOf(ask: Ask): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (ask.from !== null) headers["x-sf-from"] = ask.from;
+  if (ask.into !== null) headers["x-sf-into"] = ask.into;
+  return headers;
+}
 
 export interface NavigationOptions {
   /** Whether a link's payload is fetched ahead of its click (on hover, focus or touch) or never. Defaults to `"hover"`. */
@@ -203,14 +309,14 @@ function payloadUrl(url: URL): string {
   return `${url.pathname}${url.search}${url.search ? "&" : "?"}__payload`;
 }
 
-function cacheKey(url: URL): string {
-  return `${url.pathname}${url.search}`;
+function cacheKey(url: URL, ask: Ask): string {
+  return `${ask.from ?? ""}|${ask.into ?? ""}|${url.pathname}${url.search}`;
 }
 
-async function fetchPayload(url: URL): Promise<Cached | null> {
-  const key = cacheKey(url);
+async function fetchPayload(url: URL, ask: Ask): Promise<Cached | null> {
+  const key = cacheKey(url, ask);
   const inflight = (async () => {
-    const res = await fetch(payloadUrl(url));
+    const res = await fetch(payloadUrl(url), { headers: headersOf(ask) });
     if (!res.ok) return null;
     return { text: await res.text(), at: performance.now() };
   })();
@@ -227,20 +333,21 @@ async function fetchPayload(url: URL): Promise<Cached | null> {
 }
 
 /** The route's payload from the cache while it is fresh, else fetched and cached. `null` is a response that was not ok. */
-async function payloadFor(url: URL): Promise<Cached | null> {
-  const held = cache.get(cacheKey(url));
+async function payloadFor(url: URL, ask: Ask): Promise<Cached | null> {
+  const held = cache.get(cacheKey(url, ask));
   if (held instanceof Promise) return held;
   if (held && performance.now() - held.at < cacheMs) return held;
-  return fetchPayload(url);
+  return fetchPayload(url, ask);
 }
 
 /** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. */
-export function prefetch(href: string): Promise<void> {
+export function prefetch(href: string, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
   if (url.origin !== window.location.origin) return Promise.resolve();
-  const held = cache.get(cacheKey(url));
+  const ask = askFor(options);
+  const held = cache.get(cacheKey(url, ask));
   if (held instanceof Promise || (held && performance.now() - held.at < cacheMs)) return Promise.resolve();
-  return fetchPayload(url).then(() => undefined);
+  return fetchPayload(url, ask).then(() => undefined);
 }
 
 /** Drops every held payload, which is what a mutation calls for. */
@@ -253,7 +360,7 @@ export async function refresh(): Promise<void> {
   const bail = () => window.location.reload();
   if (!current) return bail();
   cache.clear();
-  const res = await fetch(payloadUrl(new URL(window.location.href)));
+  const res = await fetch(payloadUrl(new URL(window.location.href)), { headers: headersOf({ from: null, into: openSlot }) });
   if (!res.ok) return bail();
   let patched = false;
   try {
@@ -264,9 +371,10 @@ export async function refresh(): Promise<void> {
   if (!patched) return bail();
 }
 
-export async function navigate(href: string, push = true): Promise<void> {
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
+export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
-  const held = await payloadFor(url);
+  const held = await payloadFor(url, askFor(options));
   if (!held) {
     window.location.assign(href);
     return;
@@ -282,7 +390,8 @@ export async function navigate(href: string, push = true): Promise<void> {
     return;
   }
   if (push) history.pushState(null, "", href);
-  window.scrollTo(0, 0);
+  currentPath = `${url.pathname}${url.search}`;
+  if (openSlot === null) window.scrollTo(0, 0);
 }
 
 function linkOf(target: EventTarget | null): Element | null {
@@ -299,6 +408,8 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   if (sidecar?.textContent) {
     current = JSON.parse(sidecar.textContent);
   }
+  openSlot = null;
+  currentPath = `${window.location.pathname}${window.location.search}`;
   if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -310,13 +421,13 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
     event.preventDefault();
-    void navigate(url.pathname + url.search);
+    void navigate(url.pathname + url.search, true, askOf(anchor));
   });
   if ((options.prefetch ?? "hover") === "hover") {
     const warm = (event: Event) => {
       const anchor = linkOf(event.target);
       if (!anchor || anchor.getAttribute("data-sf-prefetch") === "none") return;
-      void prefetch(anchor.getAttribute("href") ?? "");
+      void prefetch(anchor.getAttribute("href") ?? "", askOf(anchor));
     };
     document.addEventListener("mouseover", warm);
     document.addEventListener("focusin", warm);

@@ -143,7 +143,7 @@ fn a_call_the_contract_rejects_never_reaches_the_backend() {
 
   let html = block_on(app.render_to_string("/product/notanumber", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(html.contains("routes/error.tsx#default"));
-  assert!(transport.calls().is_empty(), "the loader refused before the wire");
+  assert!(transport.calls().iter().all(|(path, _, _)| path != "shopping.getProduct"), "the loader refused before the wire: {:?}", transport.calls());
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
   let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::routes::plan()).unwrap();
-  assert_eq!(manifest.sources(), vec!["layout", "index", "cart", "order", "product"], "the root layout's loader is a source like any other");
+  assert_eq!(manifest.sources(), vec!["layout", "index", "layout.promo", "cart", "order", "product"], "the root layout's loader and its promo slot's are sources like any other");
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
   assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));
   assert!(manifest.modules().contains(&"routes/error.tsx#default".to_owned()), "error modules count");
@@ -264,7 +264,7 @@ fn the_order_page_reads_the_placed_order_back() {
   assert!(html.contains("<a href=\"/product/1\">Filament</a>"), "each line links back to its product");
   assert!(html.contains("$48.00"));
   let calls = transport.calls();
-  assert_eq!(calls.len(), 1);
+  assert_eq!(calls.len(), 2, "the order's loader and the promo slot's");
   assert_eq!(calls[0].0, "shopping.getOrder");
 }
 
@@ -277,11 +277,11 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
-  let region = html.find("<sf-s data-sf-island data-sf-when=\"visible\"><sf-i id=\"sf-i2\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">").expect(&html);
+  let region = html.find("<sf-s data-sf-island data-sf-when=\"visible\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">").expect(&html);
   let page = html.find("data-sf-module=\"routes/order/[id]/page.tsx#default\"").unwrap();
   assert!(page < region, "the island sits inside the page's markup");
   assert!(html[region..].contains("<p>Quote order #<!-- -->5001<!-- --> when you write to us.</p>"), "rendered in Rust with the page's data: {html}");
-  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i2\">{\"orderId\":5001}</script></sf-s>"), "its own props script, inside the region: {html}");
+  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i3\">{\"orderId\":5001}</script></sf-s>"), "its own props script, inside the region: {html}");
   let payload = block_on(app.render_to_string("/order/5001", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("[\"c\",{\"m\":\"src/ui/OrderHelp.tsx#OrderHelp\""), "a nested client node on the wire: {payload}");
 }
@@ -469,9 +469,10 @@ fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
 
   let first = render("/");
   assert_eq!(render("/"), first);
-  assert_eq!(transport.calls().iter().filter(|(p, _, _)| p == "shopping.listProducts").count(), 2, "data resolves before render, so a hit still asks the service");
+  assert_eq!(transport.calls().iter().filter(|(p, _, _)| p == "shopping.listProducts").count(), 4, "data resolves before render, so a hit still asks the service, for the page and for the promo slot");
   assert_eq!(block_on(app.invalidate("routes/index/page.tsx#default")), 1, "two renders with one answer share an entry");
-  assert_eq!(block_on(app.invalidate("routes/layout.tsx#default")), 1, "the layout's subtree, page included, is its own entry");
+  assert_eq!(block_on(app.invalidate("routes/slots/promo/page.tsx#default")), 1, "a parallel slot is an entry of its own");
+  assert_eq!(block_on(app.invalidate("routes/layout.tsx#default")), 1, "the layout's subtree, page and slots included, is its own entry");
   assert_eq!(block_on(app.invalidate("shell#document")), 0, "the shell uses the head and is never written");
   assert_eq!(block_on(app.invalidate("routes/index/page.tsx#default")), 0);
 
@@ -520,11 +521,62 @@ fn the_catalog_filters_by_the_query_string() {
   let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![])));
   let app = app_over(transport.clone());
 
+  let catalog_calls = || transport.calls().into_iter().filter(|(_, args, _)| args.get("tag") != Some(&Value::str("snack"))).collect::<Vec<_>>();
   block_on(app.render_to_string("/?tag=printing&__payload", RenderMode::Html, SessionCell::default())).unwrap();
-  let (_, args, _) = transport.calls().into_iter().next().unwrap();
+  let (_, args, _) = catalog_calls().into_iter().next().unwrap();
   assert_eq!(args.get("tag"), Some(&Value::str("printing")), "the query reached the loader");
 
   block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
-  let (_, args, _) = transport.calls().into_iter().nth(1).unwrap();
+  let (_, args, _) = catalog_calls().into_iter().nth(1).unwrap();
   assert!(args.get("tag").is_none(), "no query, no argument");
+}
+
+#[test]
+fn a_soft_navigation_from_a_page_under_the_layout_opens_the_product_in_its_modal_slot() {
+  let transport = Arc::new(
+    MockTransport::new()
+      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.getProduct", product(1, "Filament", 2400, 12))
+      .returns("inventory.getStock", stock(1)),
+  );
+  let host = app_over(transport);
+
+  let payload = block_on(host.render_navigation_to_string("/product/1", Some("/?q=pla"), None, SessionCell::default())).unwrap();
+  let sidecar = payload.lines().find(|l| l.starts_with("G ")).unwrap();
+  assert!(sidecar.contains("\"keep\":[\"content\",\"promo\"]"), "the layout keeps its page and its promo: {sidecar}");
+  assert!(sidecar.contains("\"n\":\"modal\""), "{sidecar}");
+  assert!(payload.contains("routes/product/[id]/page.modal.tsx#default"), "{payload}");
+  assert!(!payload.contains("routes/product/[id]/page.tsx#default"), "the page itself is not rendered: {payload}");
+  assert!(!payload.contains("routes/index/page.tsx#default") && !payload.contains("routes/slots/promo/page.tsx#default"), "nothing kept is rendered: {payload}");
+  assert!(payload.contains("H {\"title\":\"Filament · Shopping\""), "the variant's loader describes the document: {payload}");
+
+  let full = block_on(host.render_navigation_to_string("/product/1", None, None, SessionCell::default())).unwrap();
+  assert!(full.contains("routes/product/[id]/page.tsx#default") && !full.contains("page.modal"), "no origin means the document's rendering: {full}");
+
+  let named = block_on(host.render_navigation_to_string("/product/1", None, Some("modal"), SessionCell::default())).unwrap();
+  assert!(named.contains("page.modal.tsx"), "`into` names the slot outright: {named}");
+  let other = block_on(host.render_navigation_to_string("/product/1", None, Some("drawer"), SessionCell::default())).unwrap();
+  assert!(!other.contains("page.modal.tsx"), "a slot the route has no variant for is the page: {other}");
+
+  let document = block_on(host.render_to_string("/product/1", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(document.contains("<sf-s data-sf-name=\"modal\"></sf-s>"), "a document load leaves the modal slot empty: {document}");
+  assert!(document.contains("routes/product/[id]/page.tsx#default"), "{document}");
+}
+
+#[test]
+fn the_promo_slot_renders_beside_the_page_from_its_own_loader() {
+  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![{
+    let mut snack = product(8, "Crackers", 395, 3);
+    if let Value::Map(map) = &mut snack {
+      map.insert("tags".to_owned(), Value::Seq(vec![Value::str("food"), Value::str("snack")]));
+    }
+    snack
+  }])));
+  let host = app_over(transport.clone());
+  let html = block_on(host.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(html.contains("<sf-s data-sf-name=\"promo\"><!--sf-g:routes/slots/promo/page.tsx#default-->"), "the slot's segment sits in its region: {html}");
+  assert!(html.contains("Snacks at the counter"), "{html}");
+  assert!(html.contains("\"n\":\"promo\""), "the sidecar names it: {html}");
+  assert_eq!(transport.calls().iter().filter(|(name, _, _)| name.ends_with("listProducts")).count(), 2, "the catalog's loader and the promo's each ran once");
+  assert!(host.report.to_string().contains("layout.promo"), "{}", host.report);
 }

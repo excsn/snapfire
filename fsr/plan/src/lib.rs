@@ -59,6 +59,10 @@ pub struct Manifest {
   /// static file.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub middleware: Option<Body>,
+  /// One row per `page.<slot>.tsx`: the pattern of the route it belongs to
+  /// and the tree a soft navigation renders into a live layout's slot.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub intercepts: Vec<RouteEntry>,
 }
 
 /// A handler row: `method` and `pattern` are what the host matches, `id` is
@@ -278,6 +282,8 @@ pub struct Node {
   pub cache_key: Option<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub children: Vec<Child>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub keep: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -311,6 +317,7 @@ impl Node {
       Some(raw) => Some(module(raw, &format!("{at}/error"))?),
       None => None,
     };
+    plan.keep = self.keep.iter().cloned().map(SlotName).collect();
 
     let mut slots: Vec<&str> = Vec::new();
     for child in &self.children {
@@ -340,6 +347,7 @@ impl Node {
         .iter()
         .map(|(slot, node)| Child { slot: slot.0.clone(), node: Node::from_plan(node) })
         .collect(),
+      keep: plan.keep.iter().map(|k| k.0.clone()).collect(),
     }
   }
 
@@ -370,8 +378,26 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None, handlers: Vec::new(), middleware: None }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new() }
   }
+
+  pub fn with_intercepts(mut self, intercepts: Vec<RouteEntry>) -> Self {
+    self.intercepts = intercepts;
+    self
+  }
+
+  /// The intercepts the way the runtime wants them, checked like routes.
+  pub fn intercepts(&self) -> Result<Vec<(String, PlanNode)>, PlanError> {
+    let mut out = Vec::with_capacity(self.intercepts.len());
+    for entry in &self.intercepts {
+      if entry.pattern.is_empty() {
+        return Err(PlanError::EmptyPattern);
+      }
+      out.push((entry.pattern.clone(), entry.plan.to_plan(&format!("intercept {}", entry.pattern), &mut Vec::new())?));
+    }
+    Ok(out)
+  }
+
   pub fn with_middleware(mut self, middleware: Option<Body>) -> Self {
     self.middleware = middleware;
     self
@@ -465,7 +491,7 @@ impl Manifest {
   /// Every data source named anywhere in the file.
   pub fn sources(&self) -> Vec<String> {
     let mut out = Vec::new();
-    for entry in &self.routes {
+    for entry in self.routes.iter().chain(&self.intercepts) {
       entry.plan.sources_into(&mut out);
     }
     if let Some(node) = &self.not_found {
@@ -478,7 +504,7 @@ impl Manifest {
   /// modules, which is what an evaluator has to cover.
   pub fn modules(&self) -> Vec<String> {
     let mut out = Vec::new();
-    for entry in &self.routes {
+    for entry in self.routes.iter().chain(&self.intercepts) {
       entry.plan.modules_into(&mut out);
     }
     if let Some(node) = &self.not_found {

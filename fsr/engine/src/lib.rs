@@ -123,7 +123,8 @@ pub trait Hooks {
   fn session(&self, id: u32) -> Result<String, String>;
   fn calls(&self, id: u32) -> Result<String, String>;
   fn render(&self, module: &str, props: &str) -> Result<Option<String>, String>;
-  fn fetch(&self, method: String, url: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse>;
+  /// `headers` are the request's, as the page gave them.
+  fn fetch(&self, method: String, url: String, body: Option<String>, headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse>;
 }
 
 struct PendingCall {
@@ -155,6 +156,7 @@ struct PendingFetch {
   method: String,
   url: String,
   body: Option<String>,
+  headers: Vec<(String, String)>,
 }
 
 #[derive(Default)]
@@ -237,10 +239,11 @@ impl Engine {
       let s = state.clone();
       globals.set(
         "__sf_fetch",
-        Function::new(ctx.clone(), move |url: String, method: String, body: Option<String>| -> u32 {
+        Function::new(ctx.clone(), move |url: String, method: String, body: Option<String>, flat: Vec<String>| -> u32 {
           let id = s.next_fetch.get() + 1;
           s.next_fetch.set(id);
-          s.fetches.borrow_mut().push(PendingFetch { id, method, url, body });
+          let headers = flat.chunks_exact(2).map(|pair| (pair[0].clone(), pair[1].clone())).collect();
+          s.fetches.borrow_mut().push(PendingFetch { id, method, url, body, headers });
           id
         })?,
       )?;
@@ -320,7 +323,7 @@ impl Engine {
     }
     for fetch in fetches {
       let state = self.state.clone();
-      let future = self.hooks.fetch(fetch.method, fetch.url, fetch.body);
+      let future = self.hooks.fetch(fetch.method, fetch.url, fetch.body, fetch.headers);
       state.in_flight.set(state.in_flight.get() + 1);
       let id = fetch.id;
       tokio::task::spawn_local(async move {
@@ -435,7 +438,7 @@ mod tests {
     fn render(&self, _module: &str, _props: &str) -> Result<Option<String>, String> {
       Ok(None)
     }
-    fn fetch(&self, method: String, url: String, body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
+    fn fetch(&self, method: String, url: String, body: Option<String>, _headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
       Box::pin(async move { FetchResponse { headers: Vec::new(), status: 200, body: format!("{{\"echo\":\"{method} {url} {}\"}}", body.unwrap_or_default().replace('"', "'")) } })
     }
   }

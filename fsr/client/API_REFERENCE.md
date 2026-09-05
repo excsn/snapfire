@@ -47,6 +47,9 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [reactMounter](#reactmounter)
   * [Island](#island)
   * [island](#island-1)
+  * [Slot](#slot)
+  * [Link](#link)
+  * [island](#island-1)
 * [9. Error Handling](#9-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
@@ -166,9 +169,11 @@ One node of the payload tree, discriminated by `kind`.
 One node of the segment sidecar tree.
 
 * `k: string`, the segment key. Equal keys across two responses mean the region is kept.
+* `n?: string`, the slot this segment fills in its parent; absent at the root.
 * `p?: number[]`, the path to the subtree relative to the parent segment's node. `[]` means the whole node, `[i]` means child `i` of a `seq`.
 * `s?: number`, the slot id for a deferred segment. A segment carries `p` or `s`, never both.
 * `c: Segment[]`, child segments.
+* `keep?: string[]`, slots of this segment the payload left unfilled and the browser keeps as they stand.
 
 ### Payload
 
@@ -298,12 +303,15 @@ What the server writes and this package reads.
 | `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script | `boot` |
 | `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment`, the fill of a streamed segment | `navigate`, `refresh` |
 | `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
+| `<sf-s data-sf-name="…">` | a layout's markup, around a named slot: a parallel segment or the region an intercept opens in, empty when nothing fills it | `Slot` and `reactMounter`, which adopt it; `navigate`, which fills and empties it |
 | `<sf-s data-sf-island data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which adopts it; `scan`, which reads the timing |
 | `<script type="application/json" data-sf-segments>` | streamed HTML response | `enableNavigation` |
 
 ## 6. Navigation
 
-Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator and one router cache: payload text by `pathname + search` or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads.
+Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator, the document's current path and one router cache: payload text by the origin, the slot asked for and `pathname + search`, or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads.
+
+A request for a payload says where it comes from: `x-sf-from` carries the document's path and search, which lets the server render the target into a slot of a live layout, an intercept; `x-sf-into` names that slot outright; a full navigation sends neither. `interface NavigateOptions { full?: boolean; into?: string }` chooses, and an anchor chooses with `data-sf-full` and `data-sf-into`.
 
 ### enableNavigation
 
@@ -312,13 +320,13 @@ Segment patching in place of a page load. The functions share one module-level s
 
 Registers `refresh` as `window.__sf.refresh`, which the host's development script calls, reads `script[data-sf-segments]` into the module's current sidecar, sets `cacheMs` when given, then installs a `click` listener on `document` and a `popstate` listener on `window`. With `prefetch` at `"hover"`, `mouseover`, `focusin` and passive `touchstart` listeners on `document` call `prefetch` with the href of the enclosing `a[href]`, unless it carries `data-sf-native` or `data-sf-prefetch="none"`.
 
-A click is ignored when `defaultPrevented` is set, when `button` is not 0, when any of `metaKey`, `ctrlKey`, `shiftKey` or `altKey` is held, when the target has no enclosing `a[href]` or when the href resolves to another origin. Otherwise the default is prevented and `navigate` is called with the path plus search.
+A click is ignored when `defaultPrevented` is set, when `button` is not 0, when any of `metaKey`, `ctrlKey`, `shiftKey` or `altKey` is held, when the target has no enclosing `a[href]` or when the href resolves to another origin. Otherwise the default is prevented and `navigate` is called with the path plus search and the anchor's `data-sf-full` and `data-sf-into` as its options.
 
 ### prefetch
 
-* `prefetch(href: string): Promise<void>`
+* `prefetch(href: string, options?: NavigateOptions): Promise<void>`
 
-Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh payload for `<pathname><search>` or a fetch for it is in flight, resolves at once; otherwise fetches the payload form and holds the text with the time it arrived. A non-ok response holds nothing.
+Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh payload for the origin, the options and `<pathname><search>` or a fetch for it is in flight, resolves at once; otherwise fetches the payload form with the headers the options call for and holds the text with the time it arrived. A non-ok response holds nothing.
 
 ### clearRouterCache
 
@@ -328,17 +336,17 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 ### navigate
 
-* `navigate(href: string, push?: boolean): Promise<void>`
+* `navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>`
 
-Takes `<pathname><search>` from the router cache while its entry is younger than `cacheMs`, joins a fetch already in flight for it or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not. A fetched text is held. A non-ok response hands over to `window.location.assign(href)`. Otherwise the payload is parsed and applied, history is pushed when `push` is true (its default), then the window scrolls to the top.
+Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its entry is younger than `cacheMs`, joins a fetch already in flight for it or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given and `x-sf-into` set to `into`. A fetched text is held. A non-ok response hands over to `window.location.assign(href)`. Otherwise the payload is parsed and applied, history is pushed when `push` is true (its default), the current path is moved to the target, then the window scrolls to the top unless the payload was an intercept, which opens in place.
 
-Applying walks the old and new segment spines together, children paired in order whether positioned or slot-addressed. The first key mismatch replaces that region from the new payload; a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row or a region whose comment pair cannot be found in the DOM falls back to `window.location.reload()`.
+Applying walks the old and new segment spines together. The first key mismatch replaces that region from the new payload. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten. A child the old side had and the new side lacks is emptied, delimiters included, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
 
 ### refresh
 
 * `refresh(): Promise<void>`
 
-Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended and applies it as `navigate` does, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state.
+Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was, and applies it as `navigate` does, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps.
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
 
@@ -370,7 +378,7 @@ Its own entry point, so the core package never imports React.
 
 Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root.
 
-The element is wrapped in a regions provider: every `sf-s[data-sf-island]` under `el` that is not inside a nested island, in document order, which each `Island` rendered under this root takes in turn. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. The page inside hydrates in its own root.
+The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, in document order, which each `Island` rendered under this root takes in turn. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
 
 ### Island
 
@@ -384,6 +392,20 @@ Places its one child component as an island of its own. The build lowers the use
 * `function island<P extends object>(component: ComponentType<P>, options?: { when?: MountTiming }): (props: P) => ReactElement`
 
 `component` as a component that places it with `Island` and `options.when` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`, then `<LazyChart series={data} />`. The build recognises the module-level `const` the same way.
+
+### Slot
+
+* `function Slot({ name }: SlotProps): ReactElement`
+* `interface SlotProps { name: string }`
+
+A named slot of a layout: the region a parallel segment under `slots/<name>/` renders into, or the one an intercept `page.<name>.tsx` opens in. On the server the build lowers the use to `<sf-s data-sf-name>` around the segment, empty when nothing fills it. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the region of that name under the root already holds and `suppressHydrationWarning`, taken once per instance, so the root adopts the region and never reconciles it while `navigate` fills and empties it. A layout that destructures a prop named after a `slots/` directory gets the same region as that prop, from `reactMounter`, and needs no `Slot`.
+
+### Link
+
+* `function Link({ full, into, prefetch, native, ...rest }: LinkProps): ReactElement`
+* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean }`
+
+An `<a>` with the rest of its props, carrying `data-sf-full="true"` when `full`, `data-sf-into` when `into`, `data-sf-prefetch` when `prefetch` and `data-sf-native="true"` when `native`, which is what the navigator reads off a clicked or hovered anchor. The build lowers the use to the same `<a>`.
 
 ### reactPatcher
 

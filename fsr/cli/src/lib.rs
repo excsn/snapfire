@@ -41,6 +41,16 @@ pub enum BuildError {
   UnknownInput { action: String, name: String },
   #[error("{0}: holds both `page.tsx` and `route.ts`; a directory is a page or a handler")]
   PageAndRoute(PathBuf),
+  #[error("{0}: `slots/` belongs beside a `layout.tsx`, and this directory has none")]
+  SlotsWithoutLayout(PathBuf),
+  #[error("{0}: a slot needs a `page.tsx`")]
+  SlotWithoutPage(PathBuf),
+  #[error("{0}: a slot holds one `page.tsx` and no routes beneath it")]
+  SlotRoute(PathBuf),
+  #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
+  SlotUndeclared { path: PathBuf, file: String, slot: String },
+  #[error("{0}: one `page.<slot>.tsx` per route")]
+  ManyVariants(PathBuf),
   #[error("handler `{handler}` names input type `{name}`, which no schema under schemas/ declares")]
   UnknownHandlerInput { handler: String, name: String },
   #[error("`{0}` is not a package spec; write `name@version` or `name@version/subpath`")]
@@ -71,6 +81,10 @@ pub struct Report {
   pub middleware: Option<String>,
   /// The directory pattern a layout wraps and its module.
   pub layouts: Vec<(String, String)>,
+  /// A parallel slot's source id and its page module.
+  pub slots: Vec<(String, String)>,
+  /// `<pattern> into <slot>` and the `page.<slot>.tsx` a soft navigation renders there.
+  pub intercepts: Vec<(String, String)>,
   /// Module; `lowered` or `client`; for `client`, the line that decided it.
   pub components: Vec<(String, String, String)>,
   pub services: Vec<(String, String)>,
@@ -82,6 +96,8 @@ impl fmt::Display for Report {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     section(f, "routes", &self.routes, "")?;
     section(f, "layouts", &self.layouts, "")?;
+    section(f, "slots", &self.slots, "")?;
+    section(f, "intercepts", &self.intercepts, "")?;
     section(f, "sources", &self.sources, "lowered")?;
     section(f, "actions", &self.actions, "lowered")?;
     section(f, "handlers", &self.handlers, "lowered")?;
@@ -270,9 +286,53 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     report.layouts.push((prefix, module.clone()));
     islands.push(module.clone());
     layout_ids.push(id.clone());
-    layouts.push(LayoutInfo { dir, module, source });
+    let mut slots = Vec::new();
+    for slot_dir in sorted_dirs(&dir.join("slots"))? {
+      let name = slot_dir.file_name().unwrap_or_default().to_string_lossy().to_string();
+      if !slot_dir.join("page.tsx").is_file() {
+        return Err(BuildError::SlotWithoutPage(slot_dir));
+      }
+      if sorted_dirs(&slot_dir)?.iter().any(|d| d.join("page.tsx").is_file() || d.join("route.ts").is_file()) {
+        return Err(BuildError::SlotRoute(slot_dir));
+      }
+      let slot_rel = format!("{rel}/slots/{name}");
+      let slot_id = format!("{id}.{name}");
+      let page = format!("{slot_rel}/page.tsx#default");
+      let loader = slot_dir.join("page.loader.ts");
+      let source = if loader.is_file() {
+        let loader_module = format!("{slot_rel}/page.loader.ts");
+        let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
+        let body = lower_loader_with(&loader_module, &text, &defaults)?;
+        let meta = lower_meta_with(&loader_module, &text, &defaults)?;
+        sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta));
+        report.sources.push((slot_id.clone(), loader_module));
+        Some(slot_id.clone())
+      } else {
+        None
+      };
+      let loading = ["loading.tsx", "loading.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
+      let error = ["error.tsx", "error.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
+      for module in [Some(&page), loading.as_ref(), error.as_ref()].into_iter().flatten() {
+        islands.push(module.clone());
+      }
+      report.slots.push((slot_id.clone(), page.clone()));
+      layout_ids.push(slot_id);
+      slots.push(SlotInfo { name, page, source, loading, error });
+    }
+    layouts.push(LayoutInfo { dir, module, source, slots, placed: Vec::new() });
   }
   layouts.sort_by(|a, b| a.dir.cmp(&b.dir));
+
+  let mut set = ComponentSet::new(app);
+  set.layouts = layouts.iter().map(|l| l.module.clone()).collect();
+  set.slots = layouts.iter().map(|l| (l.module.clone(), l.slots.iter().map(|s| s.name.clone()).collect())).collect();
+  for layout in &mut layouts {
+    lower_into(&mut set, &layout.module, &mut report)?;
+    if let Some((_, component)) = set.components.iter().find(|(m, _)| *m == layout.module) {
+      layout.placed = slots_placed(&component.render);
+    }
+  }
+  let mut intercepts = Vec::new();
 
   for route in &routes {
     let rel = route.dir.strip_prefix(app).unwrap_or(&route.dir);
@@ -329,29 +389,48 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
 
     let content = Node {
-      id: wrapping.len() as u32 + 1,
+      id: 0,
       module: page.clone(),
-      source,
+      source: source.clone(),
       deferred: loading.is_some(),
-      fallback: loading,
-      error: local_error.or_else(|| error_module.clone()),
+      fallback: loading.clone(),
+      error: local_error.clone().or_else(|| error_module.clone()),
       cache_key: Some(page),
       children: Vec::new(),
+      keep: Vec::new(),
     };
     let content = wrap_in_layouts(content, &wrapping, error_module.as_deref());
-    entries.push(RouteEntry {
-      pattern: route.pattern.clone(),
-      plan: Node {
+    entries.push(RouteEntry { pattern: route.pattern.clone(), plan: shell_over(options, content) });
+
+    let variants = variant_files(&route.dir)?;
+    if variants.len() > 1 {
+      return Err(BuildError::ManyVariants(route.dir.clone()));
+    }
+    for (file, slot) in variants {
+      let module = format!("{rel}/{file}#default");
+      let Some(declaring) = wrapping.iter().rposition(|l| l.declares(&slot)) else {
+        return Err(BuildError::SlotUndeclared { path: route.dir.clone(), file, slot });
+      };
+      islands.push(module.clone());
+      let slot_loading = [format!("loading.{slot}.tsx"), format!("loading.{slot}.ts")].iter().find(|f| route.dir.join(f).is_file()).map(|f| format!("{rel}/{f}#default"));
+      if let Some(loading) = &slot_loading {
+        islands.push(loading.clone());
+      }
+      let variant = Node {
         id: 0,
-        module: options.shell.clone(),
-        source: None,
-        deferred: false,
-        fallback: None,
-        error: None,
-        cache_key: None,
-        children: vec![Child { slot: options.slot.clone(), node: content }],
-      },
-    });
+        module: module.clone(),
+        source: source.clone(),
+        deferred: slot_loading.is_some(),
+        fallback: slot_loading,
+        error: local_error.clone().or_else(|| error_module.clone()),
+        cache_key: Some(module.clone()),
+        children: Vec::new(),
+        keep: Vec::new(),
+      };
+      let plan = intercept_plan(variant, &slot, &wrapping[..=declaring], error_module.as_deref());
+      report.intercepts.push((format!("{} into {slot}", route.pattern), module));
+      intercepts.push(RouteEntry { pattern: route.pattern.clone(), plan: shell_over(options, plan) });
+    }
   }
 
   let mut handlers = Vec::new();
@@ -384,30 +463,17 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     None
   };
 
-  let not_found = not_found_module.map(|module| {
+  let mut not_found = not_found_module.map(|module| {
     let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| l.dir == routes_dir).collect();
-    let content = Node { id: wrapping.len() as u32 + 1, module: module.clone(), source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: Some(module), children: Vec::new() };
-    Node {
-      id: 0,
-      module: options.shell.clone(),
-      source: None,
-      deferred: false,
-      fallback: None,
-      error: None,
-      cache_key: None,
-      children: vec![Child { slot: options.slot.clone(), node: wrap_in_layouts(content, &wrapping, error_module.as_deref()) }],
-    }
+    let content = Node { id: 0, module: module.clone(), source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: Some(module), children: Vec::new(), keep: Vec::new() };
+    shell_over(options, wrap_in_layouts(content, &wrapping, error_module.as_deref()))
   });
+  for plan in entries.iter_mut().map(|e| &mut e.plan).chain(intercepts.iter_mut().map(|e| &mut e.plan)).chain(not_found.iter_mut()) {
+    renumber(plan, &mut 0);
+  }
 
-  let mut set = ComponentSet::new(app);
-  set.layouts = layouts.iter().map(|l| l.module.clone()).collect();
   for module in &islands {
-    match set.lower(module) {
-      Ok(()) => {}
-      Err(LowerError::Residue(residue)) => report.components.push((module.clone(), "client".to_owned(), format!("{}:{}: {}", residue.file, residue.line, residue.message))),
-      Err(LowerError::Parse { file, message }) => report.components.push((module.clone(), "client".to_owned(), format!("{file}: {message}"))),
-      Err(e) => return Err(e.into()),
-    }
+    lower_into(&mut set, module, &mut report)?;
   }
   let mut components = Vec::new();
   let mut islands = islands;
@@ -424,7 +490,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let session_type = session_import.as_ref().map(|_| "Session");
   let client = client_module(&contract, session_type, &routes, &layout_ids, &sources, &actions);
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware);
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
 
   let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];
@@ -610,7 +676,7 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
       }
       Tmpl::For { body, .. } => walk(body, out),
       Tmpl::Let { then, .. } => walk(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   walk(tmpl, &mut out);
@@ -656,25 +722,183 @@ struct LayoutInfo {
   dir: PathBuf,
   module: String,
   source: Option<String>,
+  /// The parallel slots under its `slots/` directory.
+  slots: Vec<SlotInfo>,
+  /// The named slots its template places, `content` aside.
+  placed: Vec<String>,
 }
 
-/// Nests `content` under each layout, outermost first, with node ids counting
-/// up from 1 so the tree's ids stay unique.
-fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: Option<&str>) -> Node {
-  let mut node = content;
-  for (depth, layout) in wrapping.iter().enumerate().rev() {
-    node = Node {
-      id: depth as u32 + 1,
-      module: layout.module.clone(),
-      source: layout.source.clone(),
+impl LayoutInfo {
+  fn declares(&self, slot: &str) -> bool {
+    self.slots.iter().any(|s| s.name == slot) || self.placed.iter().any(|p| p == slot)
+  }
+
+  /// Every slot of this layout, `content` first, that `filled` leaves out.
+  fn kept(&self, filled: &[String]) -> Vec<String> {
+    let mut kept = vec!["content".to_owned()];
+    for slot in self.slots.iter().map(|s| &s.name).chain(&self.placed) {
+      if !kept.contains(slot) {
+        kept.push(slot.clone());
+      }
+    }
+    kept.retain(|slot| !filled.contains(slot));
+    kept
+  }
+
+  fn node(&self, children: Vec<Child>, keep: Vec<String>, error: Option<&str>) -> Node {
+    Node {
+      id: 0,
+      module: self.module.clone(),
+      source: self.source.clone(),
       deferred: false,
       fallback: None,
       error: error.map(str::to_owned),
-      cache_key: Some(layout.module.clone()),
-      children: vec![Child { slot: "content".to_owned(), node }],
-    };
+      cache_key: Some(self.module.clone()),
+      children,
+      keep,
+    }
+  }
+}
+
+struct SlotInfo {
+  name: String,
+  page: String,
+  source: Option<String>,
+  loading: Option<String>,
+  error: Option<String>,
+}
+
+impl SlotInfo {
+  fn child(&self, error: Option<&str>) -> Child {
+    Child {
+      slot: self.name.clone(),
+      node: Node {
+        id: 0,
+        module: self.page.clone(),
+        source: self.source.clone(),
+        deferred: self.loading.is_some(),
+        fallback: self.loading.clone(),
+        error: self.error.clone().or_else(|| error.map(str::to_owned)),
+        cache_key: Some(self.page.clone()),
+        children: Vec::new(),
+        keep: Vec::new(),
+      },
+    }
+  }
+}
+
+/// Nests `content` under each layout, outermost first, each layout's
+/// parallel slots beside it. Ids are assigned afterwards by `renumber`.
+fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: Option<&str>) -> Node {
+  let mut node = content;
+  for layout in wrapping.iter().rev() {
+    let mut children = vec![Child { slot: "content".to_owned(), node }];
+    children.extend(layout.slots.iter().map(|s| s.child(error)));
+    node = layout.node(children, Vec::new(), error);
   }
   node
+}
+
+/// The tree a soft navigation renders for a `page.<slot>.tsx`: the layouts
+/// down to the one declaring `slot`, which takes `variant` there and keeps
+/// its page; every other slot along the way is kept too, so only the one
+/// region changes in the browser.
+fn intercept_plan(variant: Node, slot: &str, wrapping: &[&LayoutInfo], error: Option<&str>) -> Node {
+  let (declaring, above) = wrapping.split_last().expect("an intercept sits under the layout declaring its slot");
+  let mut node = declaring.node(vec![Child { slot: slot.to_owned(), node: variant }], declaring.kept(&[slot.to_owned()]), error);
+  for layout in above.iter().rev() {
+    node = layout.node(vec![Child { slot: "content".to_owned(), node }], layout.kept(&["content".to_owned()]), error);
+  }
+  node
+}
+
+fn shell_over(options: &Options, content: Node) -> Node {
+  Node {
+    id: 0,
+    module: options.shell.clone(),
+    source: None,
+    deferred: false,
+    fallback: None,
+    error: None,
+    cache_key: None,
+    children: vec![Child { slot: options.slot.clone(), node: content }],
+    keep: Vec::new(),
+  }
+}
+
+/// Ids in tree order from `next`, so a plan's ids are unique whatever its shape.
+fn renumber(node: &mut Node, next: &mut u32) {
+  node.id = *next;
+  *next += 1;
+  for child in &mut node.children {
+    renumber(&mut child.node, next);
+  }
+}
+
+/// `page.<slot>.tsx` files in a route directory: the file and the slot it names.
+fn variant_files(dir: &Path) -> Result<Vec<(String, String)>, BuildError> {
+  let mut out = Vec::new();
+  for file in sorted_files(dir, ".tsx")? {
+    let name = file.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let Some(middle) = name.strip_prefix("page.").and_then(|n| n.strip_suffix(".tsx")) else { continue };
+    if middle.is_empty() || middle == "loader" || middle.contains('.') {
+      continue;
+    }
+    out.push((name.clone(), middle.to_owned()));
+  }
+  Ok(out)
+}
+
+/// Lowers `module` into the set, recording residue as a client-only component.
+fn lower_into(set: &mut ComponentSet, module: &str, report: &mut Report) -> Result<(), BuildError> {
+  match set.lower(module) {
+    Ok(()) => Ok(()),
+    Err(LowerError::Residue(residue)) => {
+      report.components.push((module.to_owned(), "client".to_owned(), format!("{}:{}: {}", residue.file, residue.line, residue.message)));
+      Ok(())
+    }
+    Err(LowerError::Parse { file, message }) => {
+      report.components.push((module.to_owned(), "client".to_owned(), format!("{file}: {message}")));
+      Ok(())
+    }
+    Err(e) => Err(e.into()),
+  }
+}
+
+/// The named slots a template places, `content` aside, in tree order.
+fn slots_placed(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
+  use snapfire_fsr_ir::Tmpl;
+  let mut out = Vec::new();
+  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
+    match tmpl {
+      Tmpl::Slot(name) if name != "content" && !out.contains(name) => out.push(name.clone()),
+      Tmpl::Slot(_) | Tmpl::Text(_) | Tmpl::Expr(_) => {}
+      Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, out);
+        if let Some(e) = r#else {
+          walk(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, out),
+      Tmpl::Let { then, .. } => walk(then, out),
+    }
+  }
+  walk(tmpl, &mut out);
+  out
+}
+
+fn sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>, BuildError> {
+  if !dir.is_dir() {
+    return Ok(Vec::new());
+  }
+  let mut dirs: Vec<PathBuf> = std::fs::read_dir(dir)
+    .map_err(|e| BuildError::Io(dir.to_path_buf(), e))?
+    .filter_map(|e| e.ok().map(|e| e.path()))
+    .filter(|p| p.is_dir())
+    .collect();
+  dirs.sort();
+  Ok(dirs)
 }
 
 fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Route>) -> Result<(), BuildError> {
@@ -700,6 +924,12 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
     }
   }
   for child in children {
+    if child.file_name().is_some_and(|n| n == "slots") {
+      if !dir.join("layout.tsx").is_file() {
+        return Err(BuildError::SlotsWithoutLayout(child));
+      }
+      continue;
+    }
     discover(root, &child, out, handlers)?;
   }
   Ok(())

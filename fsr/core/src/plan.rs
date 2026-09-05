@@ -26,6 +26,10 @@ pub struct PlanNode {
   pub error: Option<ModuleId>,
   pub cache_key: Option<CacheKey>,
   pub children: Vec<(SlotName, PlanNode)>,
+  /// Slots this node leaves unfilled that the browser keeps as they stand
+  /// when the payload arrives: an intercepted route's plan names the page
+  /// under the layout here, so a modal opens over it.
+  pub keep: Vec<SlotName>,
 }
 
 impl PlanNode {
@@ -39,6 +43,7 @@ impl PlanNode {
       error: None,
       cache_key: None,
       children: Vec::new(),
+      keep: Vec::new(),
     }
   }
 }

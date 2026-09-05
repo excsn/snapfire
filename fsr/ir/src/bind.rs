@@ -7,7 +7,7 @@ use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalEr
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
-use crate::render::{Components, Rendered, ISLAND_MARK, ROOT_SLOT};
+use crate::render::{Components, Rendered, ISLAND_MARK, SLOT_MARK};
 
 /// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
 /// where a root slot sits and, where an island sits, its region: an
@@ -26,8 +26,8 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     let end = marked[1..].find('\u{0}').map(|e| e + 1).expect("a marker is closed by a NUL");
     let marker = &marked[..=end];
     rest = &marked[end + 1..];
-    if marker == ROOT_SLOT {
-      out.push(Node::Slot(SlotName("content".to_owned())));
+    if let Some(name) = marker.strip_prefix(SLOT_MARK) {
+      out.push(Node::Slot(SlotName(name[..name.len() - 1].to_owned())));
       continue;
     }
     let index: usize = marker[ISLAND_MARK.len()..marker.len() - 1].parse().expect("an island marker carries its index");
@@ -205,7 +205,7 @@ impl Evaluator for IrEvaluator {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
       let rendered = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
-      if rendered.islands.is_empty() && !rendered.html.contains(ROOT_SLOT) {
+      if rendered.islands.is_empty() && !rendered.html.contains(SLOT_MARK) {
         return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
       }
       Ok(Chunk::Node(Node::Client { module, props, children: rendered_nodes(&rendered), ssr: None }))

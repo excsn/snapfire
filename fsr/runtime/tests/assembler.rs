@@ -113,3 +113,56 @@ fn loader_data_reaches_props_and_params_ride_along() {
   let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(params), &Node::raw(""))).unwrap();
   assert_eq!(assembly.tree, Node::text("hello servers"));
 }
+
+struct NamedShell;
+
+impl Evaluator for NamedShell {
+  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+    Box::pin(stream::iter([
+      Ok(Chunk::Node(Node::raw("<a>"))),
+      Ok(Chunk::Slot(SlotName("content".into()))),
+      Ok(Chunk::Node(Node::raw("<b>"))),
+      Ok(Chunk::Slot(SlotName("modal".into()))),
+      Ok(Chunk::Node(Node::raw("<c>"))),
+    ]))
+  }
+}
+
+fn named_runtime() -> Arc<Runtime> {
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "layout.tera", Arc::new(NamedShell));
+  Runtime::new(DataSources::new(), evaluators)
+}
+
+fn layout_plan(children: Vec<(SlotName, PlanNode)>, keep: Vec<&str>) -> PlanNode {
+  let mut plan = PlanNode::new(NodeId(0), ModuleId::new("layout.tera", "default"));
+  plan.children = children;
+  plan.keep = keep.into_iter().map(|k| SlotName(k.into())).collect();
+  plan
+}
+
+#[test]
+fn a_named_slot_the_plan_leaves_unfilled_renders_nothing_and_names_the_segments_it_fills() {
+  let plan = layout_plan(vec![(SlotName("content".into()), leaf(1, "page.tsx"))], Vec::new());
+  let assembly = block_on(assemble(&named_runtime(), &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let Node::Seq(parts) = &assembly.tree else { panic!("{:?}", assembly.tree) };
+  assert_eq!(parts.len(), 4, "the empty modal slot contributes nothing: {parts:?}");
+  assert_eq!(parts[2], Node::raw("<b>"));
+  assert_eq!(parts[3], Node::raw("<c>"));
+  let sidecar = snapfire_fsr_runtime::segments_to_json(&assembly.segments);
+  assert_eq!(sidecar["c"].as_array().unwrap().len(), 1);
+  assert_eq!(sidecar["c"][0]["n"], "content");
+  assert!(sidecar.get("keep").is_none());
+}
+
+#[test]
+fn a_kept_slot_renders_nothing_and_the_sidecar_says_which() {
+  let plan = layout_plan(vec![(SlotName("modal".into()), leaf(1, "page.modal.tsx"))], vec!["content"]);
+  let assembly = block_on(assemble(&named_runtime(), &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let Node::Seq(parts) = &assembly.tree else { panic!("{:?}", assembly.tree) };
+  assert_eq!(parts.len(), 4);
+  assert!(matches!(&parts[2], Node::Client { module, .. } if module.path == "page.modal.tsx"), "{:?}", parts[2]);
+  let sidecar = snapfire_fsr_runtime::segments_to_json(&assembly.segments);
+  assert_eq!(sidecar["keep"], serde_json::json!(["content"]));
+  assert_eq!(sidecar["c"][0]["n"], "modal");
+}

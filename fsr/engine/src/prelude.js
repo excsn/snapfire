@@ -71,7 +71,11 @@ globalThis.console = {
 globalThis.fetch = (url, init = {}) =>
   new Promise((resolve, reject) => {
     const body = init.body === undefined || init.body === null ? null : String(init.body);
-    const id = __sf_fetch(String(url), String(init.method || "GET").toUpperCase(), body);
+    const headers = [];
+    const given = init.headers || {};
+    const entries = Array.isArray(given) ? given : Object.entries(given);
+    for (const [k, v] of entries) headers.push(String(k), String(v));
+    const id = __sf_fetch(String(url), String(init.method || "GET").toUpperCase(), body, headers);
     pending.set(id, { resolve, reject });
   });
 

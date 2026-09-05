@@ -55,7 +55,7 @@ struct Out {
 
 /// A component's markup with the islands placed inside it. Each island sits
 /// in `html` as `ISLAND_MARK` followed by its index in `islands` and a NUL,
-/// the way a root slot sits as `ROOT_SLOT`; the evaluator turns both into
+/// the way a root slot sits as a `SLOT_MARK`; the evaluator turns both into
 /// nodes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rendered {
@@ -96,8 +96,13 @@ impl Out {
 }
 
 /// What a root component's own `Slot` writes, since it has no caller: the
-/// evaluator splits the markup here and places the child segment.
-pub const ROOT_SLOT: &str = "\u{0}sf-slot\u{0}";
+/// prefix, then the slot's name, then a NUL. The evaluator splits the markup
+/// there and places the plan child of that name.
+pub const SLOT_MARK: &str = "\u{0}sf-slot:";
+
+pub fn slot_mark(name: &str) -> String {
+  format!("{SLOT_MARK}{name}\u{0}")
+}
 
 /// A caller's children and the scope they read, rendered wherever the callee places its `Slot`.
 struct Slot {
@@ -263,9 +268,9 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), body: Rendered { html: inner.html, islands: inner.islands } });
       out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     }
-    Tmpl::Slot => {
+    Tmpl::Slot(name) => {
       let Some(slot) = slots.pop() else {
-        out.html.push_str(ROOT_SLOT);
+        out.html.push_str(&slot_mark(name));
         return Ok(());
       };
       let inner = std::mem::replace(&mut env.scope, slot.scope.clone());
@@ -486,13 +491,13 @@ mod tests {
         render: Tmpl::Element {
           tag: "main".to_owned(),
           attrs: vec![Entry::Field("class".to_owned(), p("className"))],
-          children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot] }],
+          children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] }],
         },
       }),
     );
     library.insert(
       "src/ui/Card.tsx#Card".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot, Tmpl::Slot] } }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] } }),
     );
     let page = Component {
       body: vec![Stmt::Let { name: "header".to_owned(), expr: Expr::Object(vec![Entry::Field("title".to_owned(), Expr::lit_str("Picks")), Entry::Field("className".to_owned(), Expr::lit_str("wrong"))]) }],
