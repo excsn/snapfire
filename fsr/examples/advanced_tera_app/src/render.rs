@@ -4,7 +4,7 @@ use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
 use snapfire_fsr_core::{Node, Value};
 use snapfire_fsr_runtime::{
-  assemble, html_stream, wire_stream, ActionError, AssembleError, Matcher, RequestCtx, Resolver,
+  assemble, html_stream, wire_stream, ActionError, AssembleError, Head, Matcher, RequestCtx, Resolver,
   SessionCell,
 };
 use snapfire_fsr_service::{Credentials, NoCredentials};
@@ -36,16 +36,12 @@ pub fn negotiate_encoding(requested: Option<&str>) -> Result<&'static str, AppEr
   }
 }
 
-fn escape_title(raw: &str) -> String {
-  raw.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-fn head_node(title: &str) -> Node {
-  let mut head = format!("<title>{}</title>", escape_title(title));
+fn head_node(title: &str) -> Head {
+  let mut head = String::new();
   head.push_str("<script type=\"importmap\">");
   head.push_str(include_str!("../js/importmap.json"));
   head.push_str("</script><script type=\"module\" src=\"/static/js/app/main.js\"></script>");
-  Node::raw(head)
+  Head::new(title, Node::raw(head))
 }
 
 async fn compute_title(app: &AppCore, entry: snapfire_fsr_runtime::EntryId, ctx: &RequestCtx) -> String {

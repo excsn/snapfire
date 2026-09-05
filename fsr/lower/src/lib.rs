@@ -108,11 +108,34 @@ pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -
   let (first, body) = match function {
     Exported::Function(first, body) => (first, body),
     Exported::Action { .. } => return Err(LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }),
+    Exported::Expr(_, e) => return Err(parsed.residue(e.span(), "`load` must be a function with a block body").into()),
     Exported::Other(span) => return Err(parsed.residue(span, "`load` must be a function").into()),
   };
   let mut lowerer = Lowerer::new(&parsed, defaults);
   lowerer.bind_ctx(first)?;
   Ok(lowerer.block(body)?)
+}
+
+/// Lowers the exported `meta` of a loader module when there is one: a
+/// function of `{ data }`, the loader's result, returning the document's
+/// `title` and `description`. `None` when the module exports no `meta`.
+pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError> {
+  let parsed = parse(file, source)?;
+  let Some(exported) = parsed.exports().find_map(|(name, decl)| (name == "meta").then_some(decl)) else { return Ok(None) };
+  let mut lowerer = Lowerer::new(&parsed, defaults);
+  lowerer.meta = true;
+  let body = match exported {
+    Exported::Function(first, body) => {
+      lowerer.bind_ctx(first)?;
+      lowerer.block(body)?
+    }
+    Exported::Expr(first, expr) => {
+      lowerer.bind_ctx(first)?;
+      vec![Stmt::Return(lowerer.expr(expr)?)]
+    }
+    Exported::Action { .. } | Exported::Other(_) => return Err(parsed.residue(parsed.module.span, "`meta` must be a function of `{ data }`").into()),
+  };
+  Ok(Some(body))
 }
 
 /// Lowers every `export const name = action(...)` of an actions module.
@@ -152,6 +175,7 @@ pub fn lower_handlers_with(file: &str, source: &str, defaults: &SessionDefaults)
     let (input, first, body) = match exported {
       Exported::Function(first, body) => (None, first, body),
       Exported::Action { input, first, body } => (input, first, body),
+      Exported::Expr(_, e) => return Err(parsed.residue(e.span(), format!("`{name}` must be a function with a block body")).into()),
       Exported::Other(span) => return Err(parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into()),
     };
     let mut lowerer = Lowerer::new(&parsed, defaults);
@@ -178,6 +202,7 @@ pub fn lower_middleware_with(file: &str, source: &str, defaults: &SessionDefault
   let (first, body) = match function {
     Exported::Function(first, body) => (first, body),
     Exported::Action { .. } => return Err(LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }),
+    Exported::Expr(_, e) => return Err(parsed.residue(e.span(), "`middleware` must be a function with a block body").into()),
     Exported::Other(span) => return Err(parsed.residue(span, "`middleware` must be a function").into()),
   };
   let mut lowerer = Lowerer::new(&parsed, defaults);
@@ -194,6 +219,8 @@ pub(crate) struct Parsed {
 
 enum Exported<'a> {
   Function(Option<&'a js::Pat>, &'a [js::Stmt]),
+  /// An arrow whose body is one expression.
+  Expr(Option<&'a js::Pat>, &'a js::Expr),
   Action { input: Option<String>, first: Option<&'a js::Pat>, body: &'a [js::Stmt] },
   Other(Span),
 }
@@ -248,7 +275,7 @@ fn classify(init: &js::Expr) -> Exported<'_> {
   match init {
     js::Expr::Arrow(arrow) => match &*arrow.body {
       js::ArrowFunctionBody::FunctionBody(b) => Exported::Function(arrow.params.first(), &b.stmts),
-      js::ArrowFunctionBody::Expr(_) => Exported::Other(arrow.span),
+      js::ArrowFunctionBody::Expr(e) => Exported::Expr(arrow.params.first(), e),
     },
     js::Expr::Call(call) => {
       let is_action = matches!(&call.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(id) if id.sym.as_ref() == "action"));
@@ -315,6 +342,8 @@ pub(crate) struct Lowerer<'a> {
   roots: Vec<(String, Root)>,
   /// A middleware body reads the request line as `request`, which is its input.
   middleware: bool,
+  /// A meta body reads its loader's data as `data`, which is its input.
+  meta: bool,
   pub(crate) scope: Vec<(String, Expr)>,
   /// Module-level names a component lowerer has resolved, read after the scope.
   pub(crate) globals: Vec<(String, Expr)>,
@@ -326,7 +355,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false }
   }
 
   /// `session.key`, with the schema's default folded in when there is one.
@@ -380,6 +409,9 @@ impl<'a> Lowerer<'a> {
 
   fn root_named(&self, name: &str) -> Option<Root> {
     if self.middleware && name == "request" {
+      return Some(Root::Input);
+    }
+    if self.meta && name == "data" {
       return Some(Root::Input);
     }
     root_named(name)

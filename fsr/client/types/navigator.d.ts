@@ -1,3 +1,6 @@
+import { Head } from "./reader.js";
+/** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
+export declare function applyHead(head: Head): void;
 export type PrefetchTiming = "hover" | "none";
 export interface NavigationOptions {
 	/** Whether a link's payload is fetched ahead of its click (on hover, focus or touch) or never. Defaults to `"hover"`. */

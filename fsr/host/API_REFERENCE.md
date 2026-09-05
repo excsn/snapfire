@@ -187,7 +187,7 @@ Behind the `actix` feature.
 
 ### head
 
-* `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> Node`: `<meta charset>`, a viewport meta, an escaped `<title>` when non-empty, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, the entry as `<script type="module" src>`.
+* `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> snapfire_fsr_runtime::Head`: a head whose default title is `title` and whose `rest` is `<meta charset>`, a viewport meta, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, the entry as `<script type="module" src>`.
 
 ## 6. Error Handling
 

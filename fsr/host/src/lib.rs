@@ -21,10 +21,10 @@ use futures_util::StreamExt;
 use http::{header, HeaderValue, Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, StreamBody};
 use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
-use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value};
+use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode, Value};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator,
-  FibreCache, LoadError, Matcher, RequestCtx, Resolver, SessionCell,
+  FibreCache, Head, LoadError, Matcher, RequestCtx, Resolver, SessionCell,
 };
 use snapfire_fsr_service::{
   Contract, HttpTransport, IdentityInterceptor, Services, TraceInterceptor, Transport,
@@ -197,7 +197,7 @@ impl std::fmt::Display for HostReport {
 pub struct Host {
   app: App,
   sessions: Sessions,
-  head: Node,
+  head: Head,
   statics: Vec<(String, ServeDir)>,
   prerendered: Option<PathBuf>,
   report_listen: String,

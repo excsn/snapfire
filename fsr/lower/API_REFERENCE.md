@@ -7,7 +7,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 * [1. Lowering](#1-lowering)
   * [lower_loader](#lower_loader)
   * [lower_actions](#lower_actions)
-  * [lower_loader_with and lower_actions_with](#lower_loader_with-and-lower_actions_with)
+  * [lower_loader_with, lower_actions_with and lower_meta_with](#lower_loader_with-lower_actions_with-and-lower_meta_with)
   * [SessionDefaults](#sessiondefaults)
   * [LoweredAction](#loweredaction)
   * [read_schema](#read_schema)
@@ -35,11 +35,12 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 * `pub fn lower_actions(file: &str, source: &str) -> Result<Vec<LoweredAction>, LowerError>`
 * Lowers every `export const <name> = action(<arrow>)` or `action<T>(<arrow>)` in file order; other exports are skipped. The arrow must have a block body. The first `Residue` in any action fails the whole call.
 
-### lower_loader_with and lower_actions_with
+### lower_loader_with, lower_actions_with and lower_meta_with
 
 * `pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError>`
 * `pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredAction>, LowerError>`
 * As `lower_loader` and `lower_actions`, with every read of a session key that has a default lowered to `Coalesce(Session(key), default)`.
+* `pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `meta`, a function of `{ data }` whose `data` lowers to `Expr::Input`, as a block body or an arrow whose expression body becomes its `Return`. `None` when the module exports no `meta`; a `meta` that is not a function is a `Residue`.
 
 ### SessionDefaults
 

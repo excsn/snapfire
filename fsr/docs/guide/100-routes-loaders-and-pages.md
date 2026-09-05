@@ -33,6 +33,19 @@ Two things in that body are worth noticing. The two awaits do not depend on each
 
 The generated `Ctx<"/product/{id}">` knows the route's parameters, so a loader cannot read a parameter its pattern does not have. `query` is a plain record of strings, one value per key; it is how the catalog's search and category filter reach the loader: `query.q` and `query.category` are read like any other field and the recogniser treats them as request reads.
 
+## The loader can title the document
+
+Metadata is data on the route, not a component mechanism: no framework head component, nothing rendered to find the title. A loader module may export `meta`, a function of the data `load` returned, and the document's `<title>` and description meta come from it, over the title in `app.toml`.
+
+```ts
+export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({
+  title: `${data.product.name} · Shopping`,
+  description: `${data.product.name} for $${(Number(data.product.price_cents) / 100).toFixed(2)}`,
+});
+```
+
+The innermost route with a `meta` wins, so a layout's loader can set a default a page's overrides. A client-side navigation retitles the document from the payload, and a page behind `loading.tsx` retitles it the moment its data arrives, since the meta rides with the streamed segment. Reading `params`, `query`, `session` or `now` inside `meta` is allowed and marks the route dynamic the way it would in `load`.
+
 ## The page receives what the loader returned
 
 The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `IndexProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.

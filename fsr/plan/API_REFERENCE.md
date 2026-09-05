@@ -85,8 +85,9 @@ A layout is an ordinary node whose one child sits in the slot `content`; the bui
 
 ### SourceEntry
 
-* `pub struct SourceEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub reason: Option<String>, pub body: Option<Body> }`
+* `pub struct SourceEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub reason: Option<String>, pub body: Option<Body>, pub meta: Option<Body> }`. `meta` is the loader module's `meta`, describing the document from this source's data; absent from the file when `None`.
 * `SourceEntry::lowered(id, module, body: Body) -> Self`: owner `Lowered`, with the module and the body.
+* `SourceEntry::with_meta(self, meta: Option<Body>) -> Self`
 * `SourceEntry::rust(id) -> Self`: owner `Rust` and nothing else.
 * A `Lowered` row read from a file must carry a body; `PlanError::NoBody` otherwise.
 

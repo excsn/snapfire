@@ -30,6 +30,9 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Assembly`](#assembly)
   * [`PendingResolution`](#pendingresolution)
   * [`Resolved`](#resolved)
+  * [`Meta`](#meta)
+  * [`Metadata`](#metadata)
+  * [`Head`](#head)
 * [7. Segments](#7-segments)
   * [`SegmentKeyer`](#segmentkeyer)
   * [`DefaultKeyer`](#defaultkeyer)
@@ -52,6 +55,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`ActionRegistry`](#actionregistry)
 * [12. Streaming](#12-streaming)
   * [`wire_stream`](#wire_stream)
+  * [`meta_to_json`](#meta_to_json)
   * [`html_stream`](#html_stream)
   * [`segments_to_json`](#segments_to_json)
   * [`FILL_SCRIPT`](#fill_script)
@@ -185,6 +189,7 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub evaluators: Evaluators`
 * `pub keyer: Arc<dyn SegmentKeyer>`
 * `pub cache: Arc<dyn NodeCache>`
+* `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id, how a segment describes the document from its data.
 * `pub fn builder() -> RuntimeBuilder`
 * `pub fn new(sources: DataSources, evaluators: Evaluators) -> Arc<Self>`: default keyer, no cache.
 * `pub fn with_keyer(sources: DataSources, evaluators: Evaluators, keyer: Arc<dyn SegmentKeyer>) -> Arc<Self>`: no cache.
@@ -197,9 +202,10 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn evaluators(self, evaluators: Evaluators) -> Self`
 * `pub fn keyer(self, keyer: Arc<dyn SegmentKeyer>) -> Self`
 * `pub fn cache(self, cache: Arc<dyn NodeCache>) -> Self`
+* `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
 * `pub fn build(self) -> Arc<Runtime>`
 
-Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`.
+Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, no metadata.
 
 ## 6. Assembly
 
@@ -210,16 +216,19 @@ pub async fn assemble(
   runtime: &Arc<Runtime>,
   plan: &PlanNode,
   ctx: &RequestCtx,
-  head: &Node,
+  head: impl Into<Head>,
 ) -> Result<Assembly, AssembleError>
 ```
+
+`head` is a [`Head`](#head) or anything that converts to one: a `Node` or `&Node` becomes a head with an empty title, and `&Head` is cloned.
 
 Turns a plan plus a request into a payload. The order is fixed: every eager data source resolves to completion, then evaluation begins.
 
 * **Eager loads.** The walk collects `data_source` from the subtree root and every descendant, stopping at any node with `deferred` set that is not the root. The collected sources run concurrently under one `try_join_all`.
 * **Load outcomes.** A missing registration aborts with `AssembleError::MissingDataSource`. A `LoadError` is recorded against its node id; the wave continues.
 * **Failure degradation.** A node with a recorded failure renders its `error` module or the built-in error node when it has none. Its children are not built.
-* **Head.** `Chunk::Slot(SlotName("head"))` substitutes the `head` argument and marks the subtree head-using, which propagates to ancestors through non-deferred children.
+* **Metadata.** After the eager wave, the innermost node whose data source has a `Metadata` registered and whose data loaded, deferred children excluded, describes the document: its `describe` runs once with that node's data. A failure there is logged on target `fsr::load` and leaves the defaults. The result, defaults filled in from `head`, is `Assembly::meta`; a deferred subtree does the same for itself when it resolves and carries it in `Resolved::meta`.
+* **Head.** `Chunk::Slot(SlotName("head"))` substitutes `head.node(&meta)`, the head's `rest` followed by the title and description, and marks the subtree head-using, which propagates to ancestors through non-deferred children.
 * **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
 * **Slots inside an island.** A `Chunk::Node` holding a `Node::Slot` anywhere under it has each slot answered the way a `Chunk::Slot` is, in place, the child segment's path counting into the island's `children`; this is how a layout's page sits inside the layout's own markup.
 * **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props alone or `Node::raw("")` when it has none. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`.
@@ -246,6 +255,7 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 * `pub tree: Node`
 * `pub pending: Vec<PendingResolution>`
 * `pub segments: SegmentInfo`: the root sidecar, keyed by `runtime.keyer` from the plan root and the request params.
+* `pub meta: Meta`: the document's title and description as the eager wave settled them, the head's defaults where no segment said otherwise.
 
 ### `PendingResolution`
 
@@ -261,8 +271,29 @@ A deferred slot's eventual content.
 * `pub key: String`
 * `pub node: Node`
 * `pub pending: Vec<PendingResolution>`: nested deferral, new slots the resolution itself introduced.
+* `pub meta: Meta`: what the resolved subtree said about the document; empty when no segment in it has metadata.
 
 Segment information produced inside a resolution is discarded; a deferred subtree's identity is the slot-addressed `SegmentInfo` already in the first response.
+
+### `Meta`
+
+`pub struct Meta { pub title: Option<String>, pub description: Option<String> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. A field left `None` keeps what the document has.
+
+* `pub fn is_empty(&self) -> bool`
+
+### `Metadata`
+
+`pub trait Metadata: Send + Sync`. Registered on the runtime under a data source id.
+
+* `fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>>`: `data` is what that source loaded for the request.
+
+### `Head`
+
+`pub struct Head { pub title: String, pub description: Option<String>, pub rest: Node }`. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides.
+
+* `pub fn new(title: impl Into<String>, rest: Node) -> Self`: no default description.
+* `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped; `rest` alone when neither.
+* `From<Node>`, `From<&Node>`: an empty title. `From<&Head>`: a clone.
 
 ## 7. Segments
 
@@ -421,8 +452,13 @@ The wire encoding of a streamed response. The first item is three newline-termin
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
 * `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json).
+* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` has a title or a description.
 
-Then one item per resolution, `S <slot id> <node row json>\n`, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+Then one item per resolution, `S <slot id> <node row json>\n` followed by an `H` row when `Resolved::meta` is not empty, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+
+### `meta_to_json`
+
+`pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only the fields that are set, `title` then `description`.
 
 ### `html_stream`
 
@@ -437,6 +473,8 @@ Then one item per resolution:
 ```text
 <template data-sf-fill="{slot}">{subtree}</template><script>__sfFill({slot})</script>
 ```
+
+When the resolution carries metadata the script also calls `__sfHead({meta json})`, with `<` escaped as `\u003c`, so a streamed page retitles the document once it arrives.
 
 * Segment keys are escaped for the comment delimiter: `%` becomes `%25` and `-` becomes `%2D`, so a key can never contain `--`.
 * `<` in the sidecar JSON is escaped to `\u003c`, so it cannot terminate its own script tag.
@@ -453,7 +491,7 @@ The compact sidecar encoding, keys in this order: `k` the segment key, then `s` 
 
 ### `FILL_SCRIPT`
 
-`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n)`, installed once ahead of the first fill. It replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree.
+`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n)` and `__sfHead(h)`, installed once ahead of the first fill. `__sfHead` sets `document.title` and the description meta from the fields `h` carries, creating the meta element when the head has none. It replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree.
 
 ## 13. Error handling
 

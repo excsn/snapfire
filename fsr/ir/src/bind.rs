@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
-use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, LoadError, NodeChunks, RequestCtx};
+use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, LoadError, Meta, Metadata, NodeChunks, RequestCtx};
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
@@ -46,6 +46,43 @@ impl DataSource for IrSource {
           message: format!("a loader must return an object, got {}", kind_name(&other)),
         }),
       }
+    })
+  }
+}
+
+/// A lowered `meta` describing the document from its loader's data, which
+/// the body reads as its input. It must return an object; `title` and
+/// `description` are read from it and anything else is ignored.
+pub struct IrMeta {
+  source_id: String,
+  body: Arc<Body>,
+  interpreter: Interpreter,
+}
+
+impl IrMeta {
+  pub fn new(source_id: impl Into<String>, body: Body) -> Self {
+    Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  }
+}
+
+impl Metadata for IrMeta {
+  fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
+    let id = self.source_id.clone();
+    let body = self.body.clone();
+    let interpreter = self.interpreter.clone();
+    let ctx = ctx.clone();
+    let input = Value::Map(data.clone());
+    Box::pin(async move {
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+      let Value::Map(map) = outcome.value else {
+        return Err(LoadError { source_id: id, message: format!("meta must return an object, got {}", kind_name(&outcome.value)) });
+      };
+      let text = |key: &str| match map.get(key) {
+        Some(Value::Str(s)) => Ok(Some(s.clone())),
+        None | Some(Value::Null) => Ok(None),
+        Some(other) => Err(LoadError { source_id: id.clone(), message: format!("meta.{key} must be a string, got {}", kind_name(other)) }),
+      };
+      Ok(Meta { title: text("title")?, description: text("description")? })
     })
   }
 }

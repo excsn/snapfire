@@ -12,6 +12,7 @@ use crate::cache::{CacheEntry, NoCache, NodeCache};
 use crate::ctx::RequestCtx;
 use crate::data::{DataSources, LoadError};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
+use crate::meta::{Head, Meta, Metadata};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 
 #[derive(Debug, thiserror::Error)]
@@ -69,6 +70,8 @@ pub struct Runtime {
   pub evaluators: Evaluators,
   pub keyer: Arc<dyn SegmentKeyer>,
   pub cache: Arc<dyn NodeCache>,
+  /// By data source id: how a segment describes the document from its data.
+  pub metas: HashMap<String, Arc<dyn Metadata>>,
 }
 
 pub struct RuntimeBuilder {
@@ -76,6 +79,7 @@ pub struct RuntimeBuilder {
   evaluators: Evaluators,
   keyer: Arc<dyn SegmentKeyer>,
   cache: Arc<dyn NodeCache>,
+  metas: HashMap<String, Arc<dyn Metadata>>,
 }
 
 impl RuntimeBuilder {
@@ -99,12 +103,18 @@ impl RuntimeBuilder {
     self
   }
 
+  pub fn meta(mut self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self {
+    self.metas.insert(source_id.into(), meta);
+    self
+  }
+
   pub fn build(self) -> Arc<Runtime> {
     Arc::new(Runtime {
       sources: self.sources,
       evaluators: self.evaluators,
       keyer: self.keyer,
       cache: self.cache,
+      metas: self.metas,
     })
   }
 }
@@ -116,6 +126,7 @@ impl Runtime {
       evaluators: Evaluators::new(),
       keyer: Arc::new(DefaultKeyer),
       cache: Arc::new(NoCache),
+      metas: HashMap::new(),
     }
   }
 
@@ -147,12 +158,17 @@ pub struct Resolved {
   pub node: Node,
   /// Nested deferral: a resolution may introduce new pending slots.
   pub pending: Vec<PendingResolution>,
+  /// What the resolved subtree says about the document, when a segment in
+  /// it has metadata; the streams patch the title and description with it.
+  pub meta: Meta,
 }
 
 pub struct Assembly {
   pub tree: Node,
   pub pending: Vec<PendingResolution>,
   pub segments: SegmentInfo,
+  /// The title and description the eager wave settled on, defaults included.
+  pub meta: Meta,
 }
 
 impl std::fmt::Debug for Assembly {
@@ -192,8 +208,23 @@ fn params_value(params: &Params) -> Value {
 struct Session {
   runtime: Arc<Runtime>,
   ctx: RequestCtx,
-  head: Node,
+  head: Head,
   next_slot: AtomicU32,
+}
+
+/// The innermost node of `plan` whose loaded data has metadata registered,
+/// deferred children excluded since their data is not in this wave.
+fn describing_node<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, is_root: bool) -> Option<&'p PlanNode> {
+  if plan.deferred && !is_root {
+    return None;
+  }
+  for (_, child) in &plan.children {
+    if let Some(found) = describing_node(runtime, child, loaded, false) {
+      return Some(found);
+    }
+  }
+  let source = plan.data_source.as_ref()?;
+  (runtime.metas.contains_key(&source.0) && loaded.data.contains_key(&plan.id.0)).then_some(plan)
 }
 
 fn collect_loads<'p>(
@@ -328,8 +359,8 @@ impl Session {
       key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
-          Ok((node, pending, _segments)) => Resolved { slot, key: resolved_key, node, pending },
-          Err(e) => Resolved { slot, key: resolved_key, node: error_node(&e.to_string()), pending: Vec::new() },
+          Ok((node, pending, _segments, meta)) => Resolved { slot, key: resolved_key, node, pending, meta },
+          Err(e) => Resolved { slot, key: resolved_key, node: error_node(&e.to_string()), pending: Vec::new(), meta: Meta::default() },
         }
       }),
     }
@@ -338,11 +369,27 @@ impl Session {
   async fn resolve_subtree(
     self: &Arc<Self>,
     plan: &PlanNode,
-  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>), AssembleError> {
+  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta), AssembleError> {
     let loaded = self.load_eager(plan).await?;
+    let meta = self.describe(plan, &loaded).await;
     let mut pending = Vec::new();
-    let (node, children, _used_head) = self.build(plan, &loaded, &mut pending).await?;
-    Ok((node, pending, children))
+    let (node, children, _used_head) = self.build(plan, &loaded, &mut pending, &meta).await?;
+    Ok((node, pending, children, meta))
+  }
+
+  /// The metadata of the innermost described segment of `plan`, or none. A
+  /// failing `describe` degrades to the defaults rather than the page.
+  async fn describe(&self, plan: &PlanNode, loaded: &Loaded) -> Meta {
+    let Some(node) = describing_node(&self.runtime, plan, loaded, true) else { return Meta::default() };
+    let source = node.data_source.as_ref().expect("a describing node has a source");
+    let describer = &self.runtime.metas[&source.0];
+    match describer.describe(&self.ctx, &loaded.data[&node.id.0]).await {
+      Ok(meta) => meta,
+      Err(e) => {
+        tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment metadata failed");
+        Meta::default()
+      }
+    }
   }
 
   fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded) -> Option<String> {
@@ -386,6 +433,7 @@ impl Session {
     out_pending: &'a mut Vec<PendingResolution>,
     segments: &'a mut Vec<SegmentInfo>,
     path: &'a mut Vec<u32>,
+    meta: &'a Meta,
   ) -> BoxFuture<'a, Result<(Node, bool), AssembleError>> {
     Box::pin(async move {
       let mut used_head = false;
@@ -405,7 +453,7 @@ impl Session {
             segments.push(SegmentInfo { key, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new() });
             Ok((Node::Pending { slot: slot_id, fallback: Box::new(fallback) }, false))
           } else {
-            let (child_node, grandchildren, child_used_head) = self.build(child, loaded, out_pending).await?;
+            let (child_node, grandchildren, child_used_head) = self.build(child, loaded, out_pending, meta).await?;
             segments.push(SegmentInfo { key, path: path.clone(), slot: None, children: grandchildren });
             Ok((child_node, child_used_head))
           }
@@ -414,7 +462,7 @@ impl Session {
           let mut out = Vec::with_capacity(items.len());
           for (i, item) in items.into_iter().enumerate() {
             path.push(i as u32);
-            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path).await?;
+            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path, meta).await?;
             path.pop();
             used_head |= head;
             out.push(filled);
@@ -425,7 +473,7 @@ impl Session {
           let mut out = Vec::with_capacity(children.len());
           for (i, item) in children.into_iter().enumerate() {
             path.push(i as u32);
-            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path).await?;
+            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path, meta).await?;
             path.pop();
             used_head |= head;
             out.push(filled);
@@ -442,6 +490,7 @@ impl Session {
     node: &'a PlanNode,
     loaded: &'a Loaded,
     out_pending: &'a mut Vec<PendingResolution>,
+    meta: &'a Meta,
   ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool), AssembleError>> {
     Box::pin(async move {
       if let Some(failure) = loaded.failed.get(&node.id.0) {
@@ -476,7 +525,7 @@ impl Session {
           Chunk::Node(n) if has_slot(&n) => {
             let idx = parts.len();
             let mut inner: Vec<SegmentInfo> = Vec::new();
-            let (filled, child_used_head) = self.fill_slots(n, node, loaded, out_pending, &mut inner, &mut Vec::new()).await?;
+            let (filled, child_used_head) = self.fill_slots(n, node, loaded, out_pending, &mut inner, &mut Vec::new(), meta).await?;
             used_head |= child_used_head;
             parts.push(filled);
             for info in inner {
@@ -486,7 +535,7 @@ impl Session {
           Chunk::Node(n) => parts.push(n),
           Chunk::Slot(slot) if slot.0 == "head" => {
             used_head = true;
-            parts.push(self.head.clone());
+            parts.push(self.head.node(meta));
           }
           Chunk::Slot(slot) => {
             let child = node
@@ -504,7 +553,7 @@ impl Session {
               segments.push((usize::MAX, SegmentInfo { key, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new() }));
             } else {
               let (child_node, grandchildren, child_used_head) =
-                self.build(child, loaded, out_pending).await?;
+                self.build(child, loaded, out_pending, meta).await?;
               used_head |= child_used_head;
               let idx = parts.len();
               parts.push(child_node);
@@ -545,20 +594,22 @@ pub async fn assemble(
   runtime: &Arc<Runtime>,
   plan: &PlanNode,
   ctx: &RequestCtx,
-  head: &Node,
+  head: impl Into<Head>,
 ) -> Result<Assembly, AssembleError> {
+  let head: Head = head.into();
   let session = Arc::new(Session {
     runtime: Arc::clone(runtime),
     ctx: ctx.clone(),
     head: head.clone(),
     next_slot: AtomicU32::new(1),
   });
-  let (tree, pending, children) = session.resolve_subtree(plan).await?;
+  let (tree, pending, children, meta) = session.resolve_subtree(plan).await?;
   let segments = SegmentInfo {
     key: runtime.keyer.key(plan, &ctx.params, &ctx.query),
     path: Vec::new(),
     slot: None,
     children,
   };
-  Ok(Assembly { tree, pending, segments })
+  let meta = Meta { title: meta.title.or_else(|| (!head.title.is_empty()).then(|| head.title.clone())), description: meta.description.or_else(|| head.description.clone()) };
+  Ok(Assembly { tree, pending, segments, meta })
 }

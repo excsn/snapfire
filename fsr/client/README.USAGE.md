@@ -40,7 +40,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Slot**: a hole a deferred segment fills later. It renders as `<div data-sf-slot="N">` holding a fallback until its content arrives.
 * **Segment**: a region of the page with a comparable key, delimited in the HTML by `<!--sf-g:key-->` and `<!--/sf-g-->` comments. Same key across two responses means the region survives navigation.
 * **Segment sidecar**: the `G` row or the `script[data-sf-segments]` tag in an HTML response, carrying the segment tree the navigator diffs against.
-* **Payload response**: the line-oriented wire format, requested by adding `__payload` to a route's query string. One `V` row, one `N` row, an optional `G` row and one `S` row per resolved slot.
+* **Payload response**: the line-oriented wire format, requested by adding `__payload` to a route's query string. One `V` row, one `N` row, an optional `G` row, an optional `H` row with the document's title and description and one `S` row per resolved slot, each with an `H` row of its own when the slot's segment described the document.
 * **Action**: a server function with a stable id. The client holds the id, never a URL shape.
 * **Revalidation**: re-fetching the current route after a mutation and replacing the top-level segment regions, so the layout's DOM and its island state survive.
 
@@ -283,6 +283,14 @@ await refresh();
 
 Both request the payload form of the URL by appending `__payload` to the query string, `navigate` through the router cache; both fall back to a full load when the response is not usable.
 
+A navigation retitles the document: every `H` row of the applied payload goes through `applyHead`, which sets `document.title` and the description meta, so a streamed page that arrives after its slot retitles the document when its `S` row does. Call it yourself when you set the head from somewhere else:
+
+```ts
+import { applyHead } from "@snapfire/fsr-client";
+
+applyHead({ title: "Cart · Shopping" });
+```
+
 ## Calling an Action
 
 `action` turns a stable id into a callable. Input and result both cross as encoded values:
@@ -394,7 +402,7 @@ JavaScript has one number type, so the mapping in this direction is not symmetri
 
 ## Reading a Payload Response by Hand
 
-`parsePayload` reads a complete response body: the `V` version row, the `N` tree row, an optional `G` segment row and one `S` row per resolved slot:
+`parsePayload` reads a complete response body: the `V` version row, the `N` tree row, an optional `G` segment row, `H` head rows and one `S` row per resolved slot:
 
 ```ts
 import { parsePayload } from "@snapfire/fsr-client";

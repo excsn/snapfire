@@ -415,6 +415,27 @@ fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
 }
 
 #[test]
+fn a_loader_meta_titles_the_document_and_a_streamed_page_retitles_it_on_resolution() {
+  let transport = Arc::new(
+    MockTransport::new()
+      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.getProduct", product(1, "Nozzle", 1200, 3))
+      .returns("inventory.getStock", stock(1)),
+  );
+  let app = app_over(transport);
+  let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(html.contains("<title>Today&#39;s picks · Shopping</title></head>") || html.contains("<title>Today's picks · Shopping</title></head>"), "{html}");
+  let payload = block_on(app.render_to_string("/?q=nozzle", RenderMode::Payload, SessionCell::default())).unwrap();
+  assert!(payload.contains("\nH {\"title\":\"Results for nozzle · Shopping\"}\n"), "{payload}");
+
+  let parts: Vec<String> = block_on(async { app.render("/product/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
+  assert!(parts[0].contains("<title>Shopping</title>"), "the document ships with the default: {}", parts[0]);
+  assert!(parts[1].ends_with(";__sfHead({\"title\":\"Nozzle · Shopping\",\"description\":\"Nozzle for $12.00\"})</script>"), "{}", parts[1]);
+  let payload = block_on(app.render_to_string("/product/1", RenderMode::Payload, SessionCell::default())).unwrap();
+  assert!(payload.ends_with("\nH {\"title\":\"Nozzle · Shopping\",\"description\":\"Nozzle for $12.00\"}\n"), "{payload}");
+}
+
+#[test]
 fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
   let transport = Arc::new(
     MockTransport::new()
