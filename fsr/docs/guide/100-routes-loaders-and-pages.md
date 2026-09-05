@@ -68,6 +68,39 @@ A layout is an island like a page. It hydrates in its own root and the page hydr
 
 The line between them is firm: the page cannot read the layout's data and the layout cannot read the page's. Nothing but the session and the actions crosses it. That is what keeps a page under a React layout free to be anything.
 
+## A layout has slots, and a route can render into one
+
+Three rules cover what Next calls parallel and intercepting routes. A directory is a URL and nothing else. A layout declares its holes in code. A slot that is a route of its own lives under `slots/` beside the layout.
+
+A **parallel slot** is a segment beside the page with its own loader, loading and error boundary, rendered into a region the layout places. It lives under `slots/<name>/` beside the `layout.tsx`, holding the ordinary route files: `page.tsx`, `page.loader.ts`, `loading.tsx`, `error.tsx`. The layout places it as a prop of that name or as `<Slot name>`; either way the region is `<sf-s data-sf-name>` in the markup, which the layout's root adopts and never reconciles. Its props type is `Layout<Name>Props`, its source id `layout.<name>`, and it is keyed, cached and kept across navigation like any segment. The storefront's `routes/slots/promo/` shows snacks under the header on every page, loaded once per document by its own loader, and stays put when the page under it changes.
+
+```tsx
+import { Slot } from "@snapfire/fsr-client/react";
+
+export default function Layout({ cartCount, children, promo }: LayoutProps & { children: ReactNode; promo: ReactNode }) {
+  return (
+    <>
+      <Header cartCount={cartCount} />
+      {promo}
+      {children}
+      <Slot name="modal" />
+    </>
+  );
+}
+```
+
+An **intercept** is a second rendering of a URL, used when it is reached by a click rather than a document load. It is `page.<slot>.tsx` beside the route's `page.tsx`, sharing its loader, and it renders into the slot of that name on the nearest layout above it that declares one, the page under that layout staying exactly as the browser has it. The storefront's `routes/product/[id]/page.modal.tsx` is a quick look: a click on a product from the catalog opens it over the catalog, the URL becomes `/product/1`, back closes it, and a document load of the same URL, a shared link or a reload, is the full product page. A `loading.<slot>.tsx` beside it streams the variant behind a fallback of its own; without one it waits for its data.
+
+The server decides. The navigator sends the document's path with every soft request as `x-sf-from`; the host matches the target's intercept and applies it when the origin's route shares the layout declaring the slot. The payload then carries the layouts down to that one with the slot filled and the page marked kept, and the browser writes the region without touching anything else. A link opts out with `full` and names a slot outright with `into`, through `Link` from the React adapter or the `data-sf-full` and `data-sf-into` attributes on any anchor:
+
+```tsx
+import { Link } from "@snapfire/fsr-client/react";
+
+<Link href={`/product/${id}`} full>Full details</Link>
+```
+
+The report lists each slot under `slots` by its source id and each intercept under `intercepts` as the pattern and the slot it opens in. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it, a variant naming a slot no layout above declares and a second variant on one route each stop the build.
+
 ## A handler answers with a value
 
 A directory may hold a `route.ts` instead of a page. Its exports named `GET`, `POST`, `PUT`, `PATCH` or `DELETE` are handlers: the host matches the method and the pattern before any page, runs the body with the same context a loader gets plus the request body as `input` and answers with the returned value as JSON. A `fail` sets the status by its kind. Written as an `action<T>`, a handler has its input checked against `T` before the body runs; written as a plain function, `input` is whatever the request carried.

@@ -321,6 +321,44 @@ impl Host {
     self.render_plan(&plan, matched.params, query, mode, session).await
   }
 
+  /// The plan a route resolves `path` to, with its params.
+  fn plan_for(&self, path: &str) -> Option<(PlanNode, Params)> {
+    let matched = self.app.matcher.match_path(path)?;
+    let plan = self.app.resolver.resolve(matched.entry, &matched.params)?;
+    Some((plan, matched.params))
+  }
+
+  /// The intercept a soft navigation to `path` renders: the route's
+  /// `page.<slot>.tsx` plan when the navigation comes `from` a route whose
+  /// layouts reach the layout declaring the slot, or when `into` names that
+  /// slot outright. `path` and `from` are paths without their query.
+  pub fn intercept_for(&self, path: &str, from: Option<&str>, into: Option<&str>) -> Option<(PlanNode, Params)> {
+    let (plan, params) = self.app.intercepts.plan_for(path)?;
+    let applies = match into {
+      Some(slot) => intercept_slot(&plan).as_deref() == Some(slot),
+      None => from.and_then(|from| self.plan_for(from)).is_some_and(|(from_plan, _)| shares_layouts(&plan, &from_plan)),
+    };
+    applies.then_some((plan, params))
+  }
+
+  /// The payload for a soft navigation to `path` from `from`: the intercept
+  /// when one applies, the route's own tree otherwise. `path` may carry its
+  /// query; `from` is the document's `pathname` plus `search`.
+  pub async fn render_navigation(
+    &self,
+    path: &str,
+    from: Option<&str>,
+    into: Option<&str>,
+    session: SessionCell,
+  ) -> Result<BoxStream<'static, String>, HostError> {
+    let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
+    let from_bare = from.map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f));
+    match self.intercept_for(bare, from_bare, into) {
+      Some((plan, params)) => self.render_plan(&plan, params, parse_query(raw_query), RenderMode::Payload, session).await,
+      None => self.render(path, RenderMode::Payload, session).await,
+    }
+  }
+
   /// The application's not-found tree for a path no route matches, or `None`
   /// when it has none. `params.path` carries the path the tree is answering.
   pub async fn render_not_found(
@@ -373,6 +411,11 @@ impl Host {
   }
 
   /// Renders to one string, for tests.
+  pub async fn render_navigation_to_string(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell) -> Result<String, HostError> {
+    let chunks: Vec<String> = self.render_navigation(path, from, into, session).await?.collect().await;
+    Ok(chunks.concat())
+  }
+
   pub async fn render_to_string(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<String, HostError> {
     let chunks: Vec<String> = self.render(path, mode, session).await?.collect().await;
     Ok(chunks.concat())
@@ -630,8 +673,14 @@ impl Host {
 
     let mode = if raw_query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
     tracing::info!(target: "fsr::host", path = %path, payload = (mode == RenderMode::Payload), "request");
+    let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let (from, into) = match mode {
+      RenderMode::Payload => (header("x-sf-from"), header("x-sf-into")),
+      RenderMode::Html => (None, None),
+    };
+    let intercepted = (from.is_some() || into.is_some()) && self.intercept_for(&path, from.as_deref().map(|f| f.split('?').next().unwrap_or(f)), into.as_deref()).is_some();
 
-    if req.method() == Method::GET {
+    if req.method() == Method::GET && !intercepted {
       if let Some(text) = self.prerendered(&path, mode) {
         let content_type = match mode {
           RenderMode::Html => "text/html; charset=utf-8",
@@ -648,7 +697,12 @@ impl Host {
       }
     }
 
-    let rendered = match self.render(&target, mode, opened.cell.clone()).await {
+    let rendered = if intercepted {
+      self.render_navigation(&target, from.as_deref(), into.as_deref(), opened.cell.clone()).await
+    } else {
+      self.render(&target, mode, opened.cell.clone()).await
+    };
+    let rendered = match rendered {
       Ok(chunks) => Ok((StatusCode::OK, chunks)),
       Err(HostError::NotFound(path)) => match self.render_not_found(&target, mode, opened.cell.clone()).await {
         Ok(Some(chunks)) => Ok((StatusCode::NOT_FOUND, chunks)),
@@ -755,6 +809,32 @@ fn json_response(status: StatusCode, json: &serde_json::Value) -> Response<Body>
     .header(header::CONTENT_TYPE, "application/json")
     .body(http_body_util::Full::new(Bytes::from(json.to_string())).map_err(|never| match never {}).boxed_unsync())
     .expect("a json response")
+}
+
+/// The slot an intercept plan fills: the child of the node that keeps the
+/// page which the plan fills instead.
+fn intercept_slot(plan: &PlanNode) -> Option<String> {
+  if !plan.keep.is_empty() {
+    return plan.children.iter().find(|(name, _)| !plan.keep.contains(name)).map(|(name, _)| name.0.clone());
+  }
+  plan.children.iter().find_map(|(_, child)| intercept_slot(child))
+}
+
+/// True when every layout on the intercept plan's spine, down to the one
+/// declaring its slot, is the same module at the same depth on `from`.
+fn shares_layouts(intercept: &PlanNode, from: &PlanNode) -> bool {
+  if intercept.module != from.module {
+    return false;
+  }
+  if !intercept.keep.is_empty() {
+    return true;
+  }
+  let next = intercept.children.iter().find(|(name, _)| name.0 == "content");
+  let from_next = from.children.iter().find(|(name, _)| name.0 == "content");
+  match (next, from_next) {
+    (Some((_, a)), Some((_, b))) => shares_layouts(a, b),
+    _ => false,
+  }
 }
 
 fn text_response(status: StatusCode, text: String) -> Response<Body> {

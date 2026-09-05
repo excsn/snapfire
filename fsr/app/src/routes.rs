@@ -13,6 +13,7 @@ pub struct Routes {
   overrides: Vec<String>,
   failed: Option<BindError>,
   not_found: Option<PlanNode>,
+  intercepts: Vec<(String, PlanNode)>,
 }
 
 impl Routes {
@@ -27,7 +28,7 @@ impl Routes {
       .into_iter()
       .map(|(pattern, plan)| (pattern, plan, Owner::PlanFile))
       .collect();
-    Ok(Self { entries, overrides: Vec::new(), failed: None, not_found: manifest.not_found()? })
+    Ok(Self { entries, overrides: Vec::new(), failed: None, not_found: manifest.not_found()?, intercepts: manifest.intercepts()? })
   }
 
   /// The tree rendered, with status 404, for a path no route matches. Replaces
@@ -75,11 +76,15 @@ impl Routes {
   }
 
   pub(crate) fn plans(&self) -> impl Iterator<Item = &PlanNode> {
-    self.entries.iter().map(|(_, plan, _)| plan).chain(self.not_found.iter())
+    self.entries.iter().map(|(_, plan, _)| plan).chain(self.not_found.iter()).chain(self.intercepts.iter().map(|(_, plan)| plan))
   }
 
   pub(crate) fn take_not_found(&mut self) -> Option<PlanNode> {
     self.not_found.take()
+  }
+
+  pub(crate) fn take_intercepts(&mut self) -> Vec<(String, PlanNode)> {
+    std::mem::take(&mut self.intercepts)
   }
 
   pub(crate) fn resolved(self) -> Result<Vec<(String, PlanNode, Owner)>, BindError> {

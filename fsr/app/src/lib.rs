@@ -9,11 +9,11 @@ use std::future::Future;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use snapfire_fsr_core::{Data, ModuleId, PlanNode};
+use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
 use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrMeta, IrSource};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadError, MatchitMatcher, NodeCache, RequestCtx, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, NodeCache, RequestCtx, Resolver, Runtime, TableResolver,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -132,6 +132,9 @@ pub struct App {
   pub middleware: Option<Arc<dyn ActionHandler>>,
   /// Rendered with status 404 for a path the matcher does not match.
   pub not_found: Option<PlanNode>,
+  /// The trees a soft navigation renders into a live layout's slot, by the
+  /// pattern of the route they belong to.
+  pub intercepts: Intercepts,
   /// Patterns with no parameter whose every source is lowered and reads
   /// nothing of the request, so one render serves every request.
   pub prerenderable: Vec<String>,
@@ -148,6 +151,22 @@ impl std::fmt::Debug for App {
       .field("sources", &self.report.sources.len())
       .field("actions", &self.report.actions.len())
       .finish()
+  }
+}
+
+/// The intercept plans from the plan file: one per `page.<slot>.tsx`, matched
+/// on the route's pattern.
+#[derive(Default)]
+pub struct Intercepts {
+  matcher: MatchitMatcher,
+  resolver: TableResolver,
+}
+
+impl Intercepts {
+  pub fn plan_for(&self, path: &str) -> Option<(PlanNode, Params)> {
+    let matched = self.matcher.match_path(path)?;
+    let plan = self.resolver.resolve(matched.entry, &matched.params)?;
+    Some((plan, matched.params))
   }
 }
 
@@ -565,6 +584,15 @@ impl AppBuilder {
     handler_rows.sort_by(|a, b| a.0.cmp(&b.0));
 
     let not_found = self.routes.take_not_found();
+    let mut intercepts = Intercepts::default();
+    for (index, (pattern, plan)) in self.routes.take_intercepts().into_iter().enumerate() {
+      let entry = snapfire_fsr_runtime::EntryId(index as u32);
+      intercepts
+        .matcher
+        .insert(&pattern, entry)
+        .map_err(|e| BindError::Pattern { pattern: pattern.clone(), message: e.to_string() })?;
+      intercepts.resolver.insert(entry, plan);
+    }
     let resolved = self.routes.resolved()?;
     let prerenderable: Vec<String> = resolved
       .iter()
@@ -637,6 +665,7 @@ impl AppBuilder {
       handlers,
       middleware,
       not_found,
+      intercepts,
       prerenderable,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),

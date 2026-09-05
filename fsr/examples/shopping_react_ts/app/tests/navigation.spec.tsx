@@ -19,8 +19,8 @@ test("a click from the catalog to the cart swaps the page and keeps the document
   assert.ok(document.querySelector('sf-i[data-sf-module="routes/cart/page.tsx#default"][data-sf-mounted]'), "the cart hydrated in place");
   assert.equal(
     c.trace.calls.map((call) => call.method),
-    ["listProducts", "listProducts"],
-    "each page's loader ran once, through the mocks",
+    ["listProducts", "listProducts", "listProducts", "listProducts"],
+    "each page's loader and the promo slot's ran once per document, through the mocks",
   );
 });
 

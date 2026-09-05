@@ -9,6 +9,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Laying Out Routes](#laying-out-routes)
 * [Writing a Loader](#writing-a-loader)
 * [Writing a Layout](#writing-a-layout)
+* [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Writing Actions](#writing-actions)
 * [Writing a Route Handler](#writing-a-route-handler)
 * [Writing Middleware](#writing-middleware)
@@ -41,6 +42,8 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request`; it continues, redirects, rewrites, responds or adds headers.
 * **Handler** is an export of a directory's `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, answered with JSON rather than a document; its id is `<route id>.<METHOD>`. A directory is a page or a handler, never both.
 * **Layout** is `layout.tsx` in a routes directory: an island that wraps every page beneath it and renders the page where it puts `children`; its `layout.loader.ts` is its loader, named for the module it feeds the way `page.loader.ts` is.
+* **Slot** is a named region a layout places beside its page, as a prop of that name or `<Slot name>`. A parallel slot is `slots/<name>/` beside the layout, holding the ordinary route files, with the source id `layout.<name>`.
+* **Variant** is `page.<slot>.tsx` beside a route's `page.tsx`: the rendering a soft navigation opens in that slot of the nearest layout declaring it, sharing the page's loader. It streams behind `loading.<slot>.tsx` when there is one.
 * **Module id** is the page's path with `#default`, `routes/cart/page.tsx#default`; the client registers islands under it.
 * **Shell** is the module every route's root node renders through, `shell#document` unless told otherwise.
 * **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page.
@@ -64,8 +67,9 @@ app/
     error.tsx
     not-found.tsx
     layout.tsx     layout.loader.ts
+    slots/promo/   page.tsx  page.loader.ts
     index/         page.tsx  page.loader.ts
-    product/[id]/  page.tsx  page.loader.ts
+    product/[id]/  page.tsx  page.modal.tsx  page.loader.ts
     cart/          page.tsx  page.loader.ts  actions.ts
 ```
 
@@ -152,6 +156,37 @@ export async function load({ session }: Ctx) {
 ```
 
 Layouts nest: `routes/account/layout.tsx` sits inside `routes/layout.tsx` for every page under `account/`. A layout's loader takes the plain `Ctx`, since it serves many patterns. The page inside a layout cannot read the layout's data and the layout cannot read the page's; they share the session and the actions.
+
+## Filling a Layout's Slots
+
+A layout places named regions beside its page. `slots/<name>/` beside the `layout.tsx` is a parallel segment with the ordinary route files, `page.tsx`, `page.loader.ts`, `loading.tsx` and `error.tsx`, that the layout receives as a prop of that name:
+
+```tsx
+import { Slot } from "@snapfire/fsr-client/react";
+
+export default function Layout({ cartCount, children, promo }: LayoutProps & { children: ReactNode; promo: ReactNode }) {
+  return (
+    <>
+      <Header cartCount={cartCount} />
+      {promo}
+      {children}
+      <Slot name="modal" />
+    </>
+  );
+}
+```
+
+```ts
+export async function load({ services }: Ctx) {
+  return { snacks: await services.shopping.listProducts({ tag: "snack" }) };
+}
+```
+
+Its props type is `LayoutPromoProps`, its source id `layout.promo`, and it is keyed, cached and kept across navigation like any segment. `<Slot name="modal" />` declares a region nothing fills on a document load.
+
+`page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one, and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr-client/react` or the `data-sf-full` and `data-sf-into` attributes on any anchor.
+
+The report lists slots by source id and intercepts as `<pattern> into <slot>`. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it, a variant naming a slot no layout above declares and a second variant on one route each stop the build.
 
 ## Writing Actions
 

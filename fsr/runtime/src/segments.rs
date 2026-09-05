@@ -36,7 +36,18 @@ impl SegmentKeyer for DefaultKeyer {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SegmentInfo {
   pub key: String,
+  /// The slot this segment fills in its parent; empty at the root.
+  pub name: String,
   pub path: Vec<u32>,
   pub slot: Option<u32>,
   pub children: Vec<SegmentInfo>,
+  /// Slots of this segment the payload leaves unfilled and the browser keeps
+  /// as they stand.
+  pub keep: Vec<String>,
+}
+
+impl SegmentInfo {
+  pub fn keep_of(plan: &PlanNode) -> Vec<String> {
+    plan.keep.iter().map(|k| k.0.clone()).collect()
+  }
 }

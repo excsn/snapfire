@@ -13,15 +13,15 @@ test("hovering a link fetches its payload and the click that follows makes no re
   const cart = screen.getByLabelText("Cart, 2 items");
 
   await hover(cart);
-  assert.equal(c.trace.calls.map((call) => call.method), ["listProducts", "listProducts"], "the cart's loader ran on hover");
+  assert.equal(c.trace.calls.map((call) => call.method), ["listProducts", "listProducts", "listProducts", "listProducts"], "the cart's loader and the promo slot's ran on hover");
 
   await hover(cart);
-  assert.equal(c.trace.calls.length, 2, "a payload already held is not fetched again");
+  assert.equal(c.trace.calls.length, 4, "a payload already held is not fetched again");
 
   await fireEvent.click(cart);
   assert.equal(location.pathname, "/cart");
   assert.ok(screen.getByText("Shopping cart"));
-  assert.equal(c.trace.calls.length, 2, "the click applied the held payload");
+  assert.equal(c.trace.calls.length, 4, "the click applied the held payload");
 });
 
 test("a held payload expires and the next navigation fetches again", async () => {
@@ -29,12 +29,12 @@ test("a held payload expires and the next navigation fetches again", async () =>
   await load("/", { ctx: c });
   const cart = screen.getByLabelText("Cart, 2 items");
   await hover(cart);
-  assert.equal(c.trace.calls.length, 2);
+  assert.equal(c.trace.calls.length, 4);
 
   await advance(30_000);
   await fireEvent.click(cart);
   assert.equal(location.pathname, "/cart");
-  assert.equal(c.trace.calls.length, 3, "thirty seconds later the payload is fetched again");
+  assert.equal(c.trace.calls.length, 6, "thirty seconds later the payload is fetched again");
 });
 
 test("a link marked data-sf-prefetch=none is left alone until it is clicked", async () => {
@@ -44,9 +44,9 @@ test("a link marked data-sf-prefetch=none is left alone until it is clicked", as
   cart.setAttribute("data-sf-prefetch", "none");
 
   await hover(cart);
-  assert.equal(c.trace.calls.length, 1, "no fetch on hover");
+  assert.equal(c.trace.calls.length, 2, "no fetch on hover");
 
   await fireEvent.click(cart);
   assert.equal(location.pathname, "/cart");
-  assert.equal(c.trace.calls.length, 2, "the click fetched it");
+  assert.equal(c.trace.calls.length, 4, "the click fetched it");
 });

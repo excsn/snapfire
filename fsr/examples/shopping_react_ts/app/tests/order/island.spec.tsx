@@ -3,7 +3,7 @@ import { assert, ctx, fireEvent, load, screen, test } from "@snapfire/fsr-client
 const order = { id: 5001n, total_cents: 7200n, lines: [{ product_id: 1n, name: "PLA filament", quantity: 2n, line_cents: 4800n }] };
 
 test("a component placed with <Island> mounts in its own root at its own timing and keeps its state", async () => {
-  const c = ctx({ services: { shopping: { getOrder: () => order } } });
+  const c = ctx({ services: { shopping: { getOrder: () => order, listProducts: () => [] } } });
   await load("/order/5001", { ctx: c });
   const page = document.querySelector('sf-i[data-sf-module="routes/order/[id]/page.tsx#default"][data-sf-mounted]');
   assert.ok(page, "the page hydrated");

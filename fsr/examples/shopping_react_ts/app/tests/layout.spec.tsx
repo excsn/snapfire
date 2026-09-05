@@ -18,7 +18,9 @@ test("the layout hydrates over the page, keeps its state across a navigation and
   await fireEvent.change(input, "nozzle");
   assert.equal(input.value, "nozzle");
 
-  await fireEvent.click(screen.getByText("PLA filament"));
+  const link = screen.getByText("PLA filament");
+  link.setAttribute("data-sf-full", "");
+  await fireEvent.click(link);
   assert.equal(location.pathname, "/product/1");
   assert.ok(document.querySelector("header.site-header") === header, "the layout's DOM survived the navigation");
   assert.equal((screen.getByPlaceholderText("Search snapfire.shop") as HTMLInputElement).value, "nozzle", "and so did its state");

@@ -23,9 +23,13 @@ export type SfNode = {
 };
 export interface Segment {
 	k: string;
+	/** The slot this segment fills in its parent; absent at the root. */
+	n?: string;
 	p?: number[];
 	s?: number;
 	c: Segment[];
+	/** Slots of this segment the payload left unfilled and the browser keeps as they stand. */
+	keep?: string[];
 }
 /** What a route says about the document; a field left out keeps what the document has. */
 export interface Head {

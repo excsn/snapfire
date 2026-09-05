@@ -39,7 +39,7 @@ impl Hooks for NoHooks {
   fn render(&self, _module: &str, _props: &str) -> Result<Option<String>, String> {
     Ok(None)
   }
-  fn fetch(&self, _method: String, _url: String, _body: Option<String>) -> LocalBoxFuture<'static, FetchResponse> {
+  fn fetch(&self, _method: String, _url: String, _body: Option<String>, _headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
     Box::pin(async { FetchResponse { status: 404, body: "{}".to_owned(), headers: Vec::new() } })
   }
 }

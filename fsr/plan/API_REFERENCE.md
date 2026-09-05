@@ -33,7 +33,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body> }`. `sources`, `actions`, `components` and `handlers` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
@@ -42,12 +42,14 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 * `Manifest::with_handlers(self, handlers: Vec<HandlerEntry>) -> Self`
 * `Manifest::lowered_handlers(&self) -> impl Iterator<Item = &HandlerEntry>`
 * `Manifest::with_middleware(self, middleware: Option<Body>) -> Self`
+* `Manifest::with_intercepts(self, intercepts: Vec<RouteEntry>) -> Self`
+* `Manifest::intercepts(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the intercept trees in file order, checked like routes.
 * `Manifest::from_json(source: &str) -> Result<Self, PlanError>`: parses, checks the version and refuses a `lowered` source or action row with no body.
 * `Manifest::to_json(&self) -> String`: pretty-printed, in field order.
 * `Manifest::routes(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the runtime's trees in file order; refuses an empty pattern, a malformed module id, a node id used twice within one route and a slot used twice on one node.
 * `Manifest::not_found(&self) -> Result<Option<PlanNode>, PlanError>`: the not-found tree, checked like a route's, at `not_found`.
-* `Manifest::sources(&self) -> Vec<String>`: every data source any tree names, the not-found tree included, once, in tree order.
-* `Manifest::modules(&self) -> Vec<String>`: every module any tree names, fallback, error and not-found modules included, once, in tree order.
+* `Manifest::sources(&self) -> Vec<String>`: every data source any tree names, the intercepts and the not-found tree included, once, in tree order.
+* `Manifest::modules(&self) -> Vec<String>`: every module any tree names, fallback, error, intercept and not-found modules included, once, in tree order.
 * `Manifest::action_ids(&self) -> Vec<String>`
 * `Manifest::lowered_sources(&self) -> impl Iterator<Item = &SourceEntry>`: the rows whose owner is `Lowered`.
 * `Manifest::lowered_actions(&self) -> impl Iterator<Item = &ActionEntry>`
@@ -62,11 +64,11 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 The serialized shape of a `PlanNode`. Every optional field is absent from the file rather than null and `deferred` is absent when false.
 
-* `pub struct Node { pub id: u32, pub module: String, pub source: Option<String>, pub deferred: bool, pub fallback: Option<String>, pub error: Option<String>, pub cache_key: Option<String>, pub children: Vec<Child> }`
+* `pub struct Node { pub id: u32, pub module: String, pub source: Option<String>, pub deferred: bool, pub fallback: Option<String>, pub error: Option<String>, pub cache_key: Option<String>, pub children: Vec<Child>, pub keep: Vec<String> }`. `keep`, absent when empty, names the slots this node leaves unfilled that the browser keeps as they stand when the tree arrives as a payload; an intercept's layout keeps its page there.
 * `Node::from_plan(plan: &PlanNode) -> Self`
 * `module`, `fallback` and `error` are module ids, `path#export`; `Manifest::routes` refuses any other spelling.
 
-A layout is an ordinary node whose one child sits in the slot `content`; the build nests the page under every layout on its path.
+A layout is an ordinary node whose page sits in the slot `content`; the build nests the page under every layout on its path, and a parallel slot under `slots/<name>/` beside the layout is a further child in the slot `<name>`. A slot the node has no child for renders nothing.
 
 ### Child
 

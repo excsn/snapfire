@@ -27,12 +27,18 @@ pub fn meta_to_json(meta: &Meta) -> Json {
 pub fn segments_to_json(info: &SegmentInfo) -> Json {
   let mut obj = serde_json::Map::new();
   obj.insert("k".to_owned(), json!(info.key));
+  if !info.name.is_empty() {
+    obj.insert("n".to_owned(), json!(info.name));
+  }
   if let Some(slot) = info.slot {
     obj.insert("s".to_owned(), json!(slot));
   } else {
     obj.insert("p".to_owned(), json!(info.path));
   }
   obj.insert("c".to_owned(), Json::Array(info.children.iter().map(segments_to_json).collect()));
+  if !info.keep.is_empty() {
+    obj.insert("keep".to_owned(), json!(info.keep));
+  }
   Json::Object(obj)
 }
 

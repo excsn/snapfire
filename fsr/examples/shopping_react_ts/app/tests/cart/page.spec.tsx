@@ -31,6 +31,7 @@ test("checkout places the order through the mocked service", async () => {
       shopping: {
         placeOrder: (args: { lines: { product_id: bigint; quantity: bigint }[] }) => ({ id: 7n, total_cents: 4800n, lines: args.lines.map((l) => ({ ...l, name: "PLA filament", line_cents: 4800n })) }),
         getOrder: ({ id }: { id: bigint }) => ({ id, total_cents: 4800n, lines: [{ product_id: 1n, name: "PLA filament", quantity: 2, line_cents: 4800n }] }),
+        listProducts: () => [],
       },
     },
   });
@@ -44,5 +45,5 @@ test("checkout places the order through the mocked service", async () => {
   assert.equal(location.pathname, "/", "nothing moves while it shows");
   await advance(2000);
   assert.equal(location.pathname, "/order/7", "then the page goes to the order");
-  assert.equal(c.trace.calls.map((call) => call.method), ["placeOrder", "getOrder"]);
+  assert.equal(c.trace.calls.map((call) => call.method), ["placeOrder", "getOrder", "listProducts"], "the order page's loader and the layout's promo slot's");
 });
