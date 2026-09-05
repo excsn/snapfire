@@ -1,5 +1,5 @@
 import { loadEntry, patchIsland, scan } from "./boot.js";
-import { setLocale } from "./locale.js";
+import { currentLocale, setLocale } from "./locale.js";
 import { Head, parsePayload, Payload, Segment, SfNode } from "./reader.js";
 import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
 import { seed, transaction } from "./store.js";
@@ -236,6 +236,8 @@ let openSlot: string | null = null;
 
 /** The document's path and search as the navigator last left them, which is where the next navigation comes from. */
 let currentPath = "";
+/** The path the document is rooted at, which an intercept does not change: opening a drawer over the agent list puts `/settings` in the address bar while the page underneath is still `/agents`. */
+let documentPath = "";
 
 /** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
@@ -404,7 +406,31 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   }
   if (push) history.pushState(null, "", href);
   currentPath = `${url.pathname}${url.search}`;
-  if (openSlot === null) window.scrollTo(0, 0);
+  if (openSlot === null) {
+    documentPath = currentPath;
+    window.scrollTo(0, 0);
+  }
+}
+
+/** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */
+export function currentDocumentPath(): string {
+  return documentPath;
+}
+
+/** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten, and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
+export function localePath(to: string, from?: string): string {
+  const path = from ?? documentPath ?? "";
+  const at = path || (typeof window === "undefined" ? "/" : `${window.location.pathname}${window.location.search}`);
+  const cut = at.indexOf("?");
+  const search = cut === -1 ? "" : at.slice(cut);
+  let rest = cut === -1 ? at : at.slice(0, cut);
+  const tag = currentLocale();
+  if (tag) {
+    if (rest === `/${tag}`) rest = "";
+    else if (rest.startsWith(`/${tag}/`)) rest = rest.slice(tag.length + 1);
+  }
+  if (rest === "/") rest = "";
+  return `/${to}${rest}${search}`;
 }
 
 function linkOf(target: EventTarget | null): Element | null {
@@ -423,6 +449,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   }
   openSlot = null;
   currentPath = `${window.location.pathname}${window.location.search}`;
+  documentPath = currentPath;
   if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {

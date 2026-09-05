@@ -66,7 +66,7 @@ cargo build
 ../../../target/debug/fsr dev app
 ```
 
-See the [storefront](examples/shopping_react_ts/README.md), [ops console](examples/ops_console_react_ts/README.md), [portal](examples/portal_react_ts/README.md).
+[examples/](examples/README.md) is the index: five applications in reading order, what each one shows, and the ports they take.
 
 
 ## Education

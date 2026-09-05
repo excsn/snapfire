@@ -518,6 +518,22 @@ Makes `tag` the document's locale: `<html lang>` in BCP 47 spelling, `data-sf-lo
 
 Reads `data-sf-locale` off the document element and sets it. Nothing written leaves the current locale. `boot` calls it before the first scan, so an island reading the locale hydrates against what the server rendered.
 
+### localePath
+
+* `localePath(to: string, from?: string): string`
+
+The page the document is showing, under locale `to`: its path with the current locale's prefix replaced. Nothing else is rewritten, and `from` is used as it stands when given, so this is the caller asking for one segment to change rather than a link being rewritten behind them.
+
+`from` defaults to `currentDocumentPath()` rather than `location.pathname`, and the difference matters: an intercepted navigation puts the target's URL in the address bar while the page underneath stays. A language switcher inside a drawer opened over `/agents` reads `/settings` from the address bar and `/agents` from here, and `/agents` is the page the reader is on.
+
+A path already under the current prefix has it swapped rather than stacked, so `/fr_FR/help` to `en_US` is `/en_US/help`. A query is carried. The result is always prefixed, including for the default locale, which is what remembers the choice.
+
+### currentDocumentPath
+
+* `currentDocumentPath(): string`
+
+The page the document is showing, which is not always what the address bar says: an intercepted navigation changes the URL and leaves the document rooted where it was. Empty before `enableNavigation` runs.
+
 ## 10. The React Mounter
 
 Its own entry point, so the core package never imports React.

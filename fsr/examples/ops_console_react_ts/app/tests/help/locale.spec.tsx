@@ -1,4 +1,4 @@
-import { currentLocale } from "@snapfire/fsr-client";
+import { currentLocale, localePath } from "@snapfire/fsr-client";
 import { assert, ctx, load, render, screen, test } from "@snapfire/fsr-client/testing";
 
 import Help from "@routes/help/page";
@@ -34,4 +34,18 @@ test("a component renders under the locale its ctx names, and the host's default
   assert.equal(english.hydrated, "routes/help/page.tsx#default");
   assert.equal(english.container.querySelector("h1")?.textContent, "How this works");
   english.unmount();
+});
+
+test("switching locale keeps the page the reader is on, not the one the switcher lives on", async () => {
+  const c = ctx({ session: { watching: {}, density: "comfortable" }, services: services() });
+
+  await load("/help", { ctx: c });
+  assert.equal(localePath("fr_FR"), "/fr_FR/help", "an unprefixed document takes the prefix");
+
+  await load("/fr_FR/help", { ctx: c });
+  assert.equal(localePath("en_US"), "/en_US/help", "a prefixed one swaps it rather than stacking");
+  assert.equal(localePath("fr_FR"), "/fr_FR/help", "and choosing the locale it is already in is the same page");
+
+  assert.equal(localePath("fr_FR", "/agents?region=eu"), "/fr_FR/agents?region=eu", "a path given explicitly keeps its query");
+  assert.equal(localePath("fr_FR", "/fr_FR"), "/fr_FR", "the root under a prefix is the prefix");
 });

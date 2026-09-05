@@ -7,7 +7,7 @@ export type { StoreKey, StoreListener } from "./store.js";
 export { decodeNode, parsePayload } from "./reader.js";
 export type { Head, Payload, Segment, SfNode } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
-export { applyHead, clearRouterCache, enableNavigation, navigate, prefetch, refresh } from "./navigator.js";
+export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, localePath, navigate, prefetch, refresh } from "./navigator.js";
 export type { NavigateOptions, NavigationOptions, PrefetchTiming } from "./navigator.js";
 export { boot, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
 export type { IslandEntry, Mounter, MountTiming, Patcher, Props } from "./boot.js";
