@@ -50,6 +50,29 @@ import { Island } from "@snapfire/fsr-client/react";
 
 The build lowers the use: the server renders `OrderHelp` with its props as a nested island in a region of the page's markup, the page's root adopts that region and never reconciles it, and the browser mounts `OrderHelp` in its own root when it scrolls into view. `island(OrderHelp, { when: "visible" })` at module level is the same thing as a component. The storefront's order page does this for its help section, which is why the checklist's island timed on visibility is there.
 
+## State two islands share
+
+Two islands are two roots, so a value both of them show cannot be a prop and cannot be context. It is a store key, and `useStore` reads like `useState`:
+
+```tsx
+import { useStore } from "@snapfire/fsr-client/react";
+import { cartCount } from "@src/store";
+
+const [items, setItems] = useStore(cartCount, 0);
+```
+
+The build lowers the read to the route's seed with the initial value as its fallback, so the server renders the same number the browser will, and the setter is a handler like any other. Writing the key re-renders every component reading it, in whichever root it sits, which is what makes the storefront's badge follow a click in the buy box.
+
+The key has to be one the build can read: a string literal, or a `key()` it can follow through an import, which is why the storefront declares its keys in [`src/store.ts`](../../examples/shopping_react_ts/app/src/store.ts) and imports them. A key computed at runtime is residue naming the line.
+
+A mutation still goes through an action, and the seed the revalidation carries is what the key ends up holding. `optimistic` puts the guess up first so the click lands before the round trip, and restores what was there if the call fails:
+
+```ts
+await optimistic(cartCount, (get(cartCount) ?? 0) + quantity, () =>
+  actions.cart.addToCart({ product_id: product.id, quantity: BigInt(quantity) }),
+);
+```
+
 ## Writing for the server without thinking about it
 
 The pages in the storefront were written as ordinary React and seven of eight lowered on the first try. The eighth built a query string with `new URLSearchParams`, which the build cannot follow; it became a template with `encodeURIComponent`. That is the whole cost so far: write React as a function of props, keep state and effects in handlers; the server render falls out. A component that needs more is a component the browser renders, which the report says plainly rather than a build that fails.
@@ -60,6 +83,8 @@ The one rule that matters is the invariant behind it: **a component is a functio
 
 Open [`Header.tsx`](../../examples/shopping_react_ts/app/src/ui/Header.tsx). It uses `useState` twice, has a `search` function and a form with `onSubmit`. Run `fsr check app` and it is `lowered`; load the catalog and view the source: the header is in the HTML with the search box's initial value and no handlers. Type in the box and submit; the browser owns that and it works.
 
-Now open [`Page.tsx`](../../examples/shopping_react_ts/app/src/ui/Page.tsx), the layout every page wraps itself in. It spreads its `header` prop into `<Header>` and places the page's `children` inside `<main>`. In the catalog's source the header closes and `<main class="page catalog">` opens on the same line, one tree from one render, and the report lists `src/ui/Page.tsx#Page` as `lowered` beside the pages that use it.
+Now open [`layout.tsx`](../../examples/shopping_react_ts/app/routes/layout.tsx), which wraps every page beneath it. It renders `<Header>` and places the page where its `children` go. In the catalog's source the header closes and `<main class="page catalog">` opens inside the layout's region, and the report lists `routes/layout.tsx#default` as `lowered` beside the pages under it.
+
+The header's badge is a store read. Load the catalog and view the source: the count is in the HTML, and a `script[data-sf-store]` near the end carries the seed the layout's loader produced. Open a product and add it to the cart; the badge moves before the response arrives, because [`page.tsx`](../../examples/shopping_react_ts/app/routes/product/%5Bid%5D/page.tsx) writes the key optimistically from a root the header does not share.
 
 Now give the header a second hook: `const ref = useRef(null)` on the form. Check again. The report marks every page that renders the header as `client`, with the line in `Header.tsx`. Remove it.

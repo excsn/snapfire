@@ -332,7 +332,7 @@ fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
 }
 
 /// `(source, imported name)` for a value import binding `local`.
-fn find_import(parsed: &Parsed, local: &str) -> Option<(String, String)> {
+pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, String)> {
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
     if import.type_only {
@@ -698,6 +698,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             };
             Expr::Object(vec![Entry::Field("current".to_owned(), current)])
           }
+          Some(("useStore", _)) => {
+            return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))
+          }
           Some((hook, _)) if hook != "useState" => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
           _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
             self.handlers.push(local);
@@ -710,11 +713,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       js::Pat::Array(arr) => {
         let js::Expr::Call(call) = init else {
-          return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState`"));
+          return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState` or `useStore`"));
         };
-        let is_use_state = matches!(&call.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(id) if id.sym.as_ref() == "useState"));
-        if !is_use_state {
-          return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState`"));
+        let called = match &call.callee {
+          js::Callee::Expr(e) => match &**e {
+            js::Expr::Ident(id) => id.sym.to_string(),
+            _ => String::new(),
+          },
+          _ => String::new(),
+        };
+        if called == "useStore" {
+          return self.store_stmt(decl, arr, call);
+        }
+        if called != "useState" {
+          return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState` or `useStore`"));
         }
         let expr = match call.args.first() {
           Some(a) => match &*a.expr {
@@ -746,6 +758,34 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       other => Err(self.lowerer.residue(other.span(), "a declaration pattern the build does not read")),
     }
+  }
+
+  /// `const [x, setX] = useStore(key, initial)` as `let x = <store key> ?? initial`,
+  /// with `setX` a handler. The key must lower to a string: a literal, or a
+  /// `key()` from the client's store, wherever it is declared.
+  fn store_stmt(&mut self, decl: &js::VarDeclarator, arr: &js::ArrayPat, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
+    let Some(first) = call.args.first() else {
+      return Err(self.lowerer.residue(decl.span, "`useStore` without a key"));
+    };
+    let key = match self.lowerer.expr(&first.expr)? {
+      Expr::Lit(Lit::Str(key)) => key,
+      _ => return Err(self.lowerer.residue(first.expr.span(), "a `useStore` key that is not a string the build can read")),
+    };
+    let initial = match call.args.get(1) {
+      Some(a) => self.lowerer.expr(&a.expr)?,
+      None => Expr::Lit(Lit::Null),
+    };
+    let mut names = arr.elems.iter().map(|e| match e {
+      Some(js::Pat::Ident(id)) => Some(id.id.sym.to_string()),
+      _ => None,
+    });
+    let held = names.next().flatten();
+    if let Some(Some(setter)) = names.next() {
+      self.handlers.push(setter);
+    }
+    let Some(name) = held else { return Ok(None) };
+    self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+    Ok(Some(Stmt::Let { name, expr: Expr::Coalesce(Box::new(Expr::Store(key)), Box::new(initial)) }))
   }
 
   /// A JSX child or a component's return: a tree when the expression holds
@@ -1556,6 +1596,39 @@ export default function Order({ id }: { id: number }) {
       let Tmpl::Element { children: p, .. } = &items[0] else { panic!("{:?}", items[0]) };
       assert_eq!(p, &vec![Tmpl::Text(text.to_owned())]);
     }
+  }
+
+  #[test]
+  fn a_store_read_lowers_to_the_key_with_its_initial_value() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [items, setItems] = useStore(cartCount, 0);\n  const [name] = useStore(\"user/name\", \"guest\");\n  return <p onClick={() => setItems(items + 1)}>{name}{items}</p>;\n}\n",
+      ),
+      ("src/store.ts", "import { key } from \"@snapfire/fsr-client/store\";\nexport const cartCount = key<number>(\"cart/count\");\n"),
+    ];
+    let lowered = lower(&files, "routes/index/page.tsx#default").unwrap();
+    let component = &lowered[0].1;
+    assert_eq!(
+      component.body,
+      vec![
+        Stmt::Let { name: "items".to_owned(), expr: Expr::Coalesce(Box::new(Expr::Store("cart/count".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0)))) },
+        Stmt::Let { name: "name".to_owned(), expr: Expr::Coalesce(Box::new(Expr::Store("user/name".to_owned())), Box::new(Expr::lit_str("guest"))) },
+      ],
+      "a key() through an import and a literal both lower to the key"
+    );
+    let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
+    assert!(attrs.is_empty(), "the setter is a handler: {attrs:?}");
+  }
+
+  #[test]
+  fn a_store_key_the_build_cannot_read_is_residue() {
+    let files = [(
+      "routes/index/page.tsx",
+      "import { useStore } from \"@snapfire/fsr-client/react\";\nexport default function P({ id }: { id: string }) {\n  const [n] = useStore(id, 0);\n  return <p>{n}</p>;\n}\n",
+    )];
+    let err = lower(&files, "routes/index/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`useStore` key"), "{err}");
   }
 
   #[test]

@@ -43,14 +43,27 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [applyHead](#applyhead)
 * [7. Actions](#7-actions)
   * [action](#action)
-* [8. The React Mounter](#8-the-react-mounter)
+* [8. The Store](#8-the-store)
+  * [StoreKey](#storekey)
+  * [key](#key)
+  * [get](#get)
+  * [set](#set)
+  * [clear](#clear)
+  * [subscribe](#subscribe)
+  * [transaction](#transaction)
+  * [derive](#derive)
+  * [optimistic](#optimistic)
+  * [seed](#seed)
+  * [adopt](#adopt)
+  * [snapshot](#snapshot)
+* [9. The React Mounter](#9-the-react-mounter)
   * [reactMounter](#reactmounter)
   * [Island](#island)
   * [island](#island-1)
   * [Slot](#slot)
+  * [useStore](#usestore)
   * [Link](#link)
-  * [island](#island-1)
-* [9. Error Handling](#9-error-handling)
+* [10. Error Handling](#10-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
@@ -61,8 +74,9 @@ Two ES module entry points, resolved through an import map. There is no package 
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
-| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 7, plus `ActionFailure` | none |
-| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter` | `react`, `react-dom/client` |
+| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 8, plus `ActionFailure` | none |
+| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore` and the placement elements | `react`, `react-dom/client` |
+| `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React.
 
@@ -184,6 +198,7 @@ A parsed response.
 * `tree: SfNode`, the `N` row.
 * `segments: Segment | null`, the `G` row when the response carried one.
 * `heads: Head[]`, the `H` rows in arrival order: the eager wave's, then one per resolution that described the document.
+* `seeds: { [key: string]: SfValue }[]`, the `T` rows in arrival order, each already decoded.
 * `resolutions: { slot: number; node: SfNode }[]`, the `S` rows in arrival order.
 
 ### Head
@@ -200,7 +215,7 @@ Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m,
 
 * `parsePayload(text: string): Payload`
 
-Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H` or `S`. Throws when no `N` row was present.
+Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H`, `T` or `S`. Throws when no `N` row was present.
 
 ### Row Grammar
 
@@ -211,6 +226,8 @@ Each row is a tag character, a space, then its body, terminated by a newline.
 | `V` | `{"fmt":1,"enc":"json"}` | Format version and encoding |
 | `N` | one node row | The initial tree |
 | `G` | one segment object | The segment sidecar |
+| `H` | `{"title":…,"description":…}` | What the route says about the document |
+| `T` | an encoded value map | The store keys the route seeded |
 | `S` | slot id, a space, then a node row | One resolved slot |
 
 `S` rows arrive in completion order, not slot order; a resolution may introduce further slots that arrive later in the same stream.
@@ -368,7 +385,85 @@ The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: ap
 
 `revalidate` defaults to true, which awaits `refresh()` after a successful call and before the result is returned. Pass `{ revalidate: false }` for a read-only action or to batch several mutations behind one manual `refresh`.
 
-## 8. The React Mounter
+## 8. The Store
+
+One keyed map per document, outside every island root, so two islands can show the same value. Its own entry point, `@snapfire/fsr-client/store`, re-exported from the core entry. Module state: there is one store per document, not one per import.
+
+A route seeds it from its loaders. The server renders components against the same seed, so a seeded key hydrates without a flash. The seed reaches the browser as `script[data-sf-store]` in a document, as a `T` row in a payload and as a `__sfStore(…)` call in a streamed resolution.
+
+### StoreKey
+
+* `type StoreKey<T> = string & { readonly __store?: T }`
+
+A key is the string it names. The type parameter is a phantom, carried for the reader and the compiler.
+
+### key
+
+* `key<T>(id: string): StoreKey<T>`
+
+Names a key. Declaring one in a module the build can follow is what lets a component in another file use it: the lowerer reads `key()` through an import and takes the string.
+
+### get
+
+* `get<T>(k: StoreKey<T>): T | undefined`
+
+What the key holds, or `undefined` when nothing has set it.
+
+### set
+
+* `set<T>(k: StoreKey<T>, value: T): void`
+
+Writes the key and notifies its listeners. A write of the value already held notifies nobody.
+
+### clear
+
+* `clear<T>(k: StoreKey<T>): void`
+
+Forgets the key and notifies, so readers fall back to their initial value.
+
+### subscribe
+
+* `subscribe(k: StoreKey<unknown> | string, listener: (value: unknown, key: string) => void): () => void`
+
+Registers a listener and returns the function that removes it.
+
+### transaction
+
+* `transaction(work: () => void): void`
+
+Runs `work` with notifications collapsed: each key dirtied fires once afterwards, however many times it was written. A nested call defers to the outermost. Synchronous.
+
+### derive
+
+* `derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void`
+
+Registers a key computed from others and computes it once now. It recomputes whenever a source changes.
+
+### optimistic
+
+* `optimistic<T, R>(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R>`
+
+Sets the key to `guess`, awaits `remote` and returns its result. A rejection restores what the key held, or clears it when it held nothing, and rethrows. A success leaves the guess in place: the revalidation an action runs carries the seed that replaces it.
+
+### seed
+
+* `seed(values: { [key: string]: SfValue }): void`
+
+Writes a whole map in one transaction. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value.
+
+### adopt
+
+* `adopt(): void`
+
+Reads the document's `script[data-sf-store]`, then any seed a streamed resolution left on `window.__sfSeed` before this module loaded, and installs `window.__sfSeedApply` so later resolutions seed as they arrive. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read. Idempotent.
+
+### snapshot
+
+* `snapshot(): { [key: string]: unknown }`
+
+Every key the store holds, for a test or a debugger.
+
+## 9. The React Mounter
 
 Its own entry point, so the core package never imports React.
 
@@ -400,6 +495,14 @@ Places its one child component as an island of its own. The build lowers the use
 
 A named slot of a layout: the region a parallel segment under `slots/<name>/` renders into, or the one an intercept `page.<name>.tsx` opens in. On the server the build lowers the use to `<sf-s data-sf-name>` around the segment, or around `children`, the fallback, while nothing fills it; the children are never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the region of that name under the root already holds and `suppressHydrationWarning`, taken once per instance, so the root adopts the region and never reconciles it while `navigate` fills and empties it. A layout that destructures a prop named after a `slots/` directory gets the same region as that prop, from `reactMounter`, and needs no `Slot`.
 
+### useStore
+
+* `function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void]`
+
+A store key as component state, over `useSyncExternalStore`. Reads the store's value, or `initial` while nothing has set the key; `initial` is captured on the first render, so a fresh object literal there is safe. The setter writes the store, which re-renders every component reading that key in any root.
+
+The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback, which is why a seeded key hydrates without a flash. The setter is dropped by lowering, like any handler.
+
 ### Link
 
 * `function Link({ full, into, prefetch, native, ...rest }: LinkProps): ReactElement`
@@ -415,7 +518,7 @@ Calls `render` on the root the mounter returned with `createElement(component, p
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 
-## 9. Error Handling
+## 10. Error Handling
 
 ### ActionFailure
 

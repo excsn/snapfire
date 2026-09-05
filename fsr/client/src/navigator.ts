@@ -1,6 +1,7 @@
 import { patchIsland, scan } from "./boot.js";
 import { Head, parsePayload, Payload, Segment, SfNode } from "./reader.js";
 import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
+import { seed, transaction } from "./store.js";
 
 let current: Segment | null = null;
 const ids: IdAlloc = { next: 0 };
@@ -252,6 +253,9 @@ export function applyHead(head: Head): void {
 /** False when the payload could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. */
 function apply(payload: Payload, force: boolean): boolean {
   if (!current || !payload.segments) return false;
+  transaction(() => {
+    for (const values of payload.seeds) seed(values);
+  });
   if (!diff(current, payload.segments, payload.tree, force)) return false;
   current = payload.segments;
   openSlot = interceptSlot(payload.segments);

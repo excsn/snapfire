@@ -1,6 +1,7 @@
 import { type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { MountTiming, Mounter, Patcher } from "./boot.js";
 import type { PrefetchTiming } from "./navigator.js";
+import { type StoreKey } from "./store.js";
 export interface IslandProps {
 	/** When the island hydrates: immediately, when scrolled into view or when the main thread is idle. Defaults to the registry's timing, else "load". */
 	when?: MountTiming;
@@ -20,6 +21,8 @@ export interface SlotProps {
 }
 /** A named slot of a layout: the region a parallel route renders into, or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment, or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands, and navigation fills and empties it without React reconciling it. */
 export declare function Slot({ name }: SlotProps): ReactElement;
+/** A store key as state: the value the store holds, or `initial` while nothing does, and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
+export declare function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void];
 export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 	/** Always the document's rendering of the target, never an intercept into a slot. */
 	full?: boolean;

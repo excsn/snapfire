@@ -16,7 +16,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_lower::{lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
+use snapfire_fsr_lower::{lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with, lower_store_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
 use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
@@ -275,7 +275,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
       let body = lower_loader_with(&loader_module, &text, &defaults)?;
       let meta = lower_meta_with(&loader_module, &text, &defaults)?;
-      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta));
+      let store = lower_store_with(&loader_module, &text, &defaults)?;
+      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
       report.sources.push((id.clone(), loader_module));
       Some(id.clone())
     } else {
@@ -302,7 +303,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
         let body = lower_loader_with(&loader_module, &text, &defaults)?;
         let meta = lower_meta_with(&loader_module, &text, &defaults)?;
-        sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta));
+        let store = lower_store_with(&loader_module, &text, &defaults)?;
+        sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
         report.sources.push((slot_id.clone(), loader_module));
         Some(slot_id.clone())
       } else {
@@ -345,7 +347,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
       let body = lower_loader_with(&module, &text, &defaults)?;
       let meta = lower_meta_with(&module, &text, &defaults)?;
-      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta));
+      let store = lower_store_with(&module, &text, &defaults)?;
+      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store));
       report.sources.push((route.id.clone(), module));
       Some(route.id.clone())
     } else {

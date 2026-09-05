@@ -24,6 +24,9 @@ pub enum Expr {
   Param(String),
   Query(String),
   Session(String),
+  /// A store key, read from the seed the route's `store` exports settled on.
+  /// Ambient in a render: a nested component reads it without a prop.
+  Store(String),
   Identity(Vec<String>),
   Input,
   Now,
@@ -229,7 +232,7 @@ impl Expr {
           out.push(name.clone());
         }
       }
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => {}
       Expr::Object(entries) | Expr::Array(entries) => {
         for entry in entries {
           match entry {
@@ -277,7 +280,7 @@ impl Expr {
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     f(self);
     match self {
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Lit(_) => {}
       Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -313,7 +316,7 @@ impl Expr {
   /// a parameter, the query, the session, the identity, the input or the clock.
   pub fn reads_request(&self) -> bool {
     match self {
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
       Expr::Call { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
@@ -336,7 +339,7 @@ impl Expr {
   pub fn has_call(&self) -> bool {
     match self {
       Expr::Call { .. } => true,
-      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => false,
+      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Computed(k, v) => k.has_call() || v.has_call(),
@@ -374,7 +377,7 @@ pub fn body_reads_ambient(body: &Body) -> bool {
   let mut found = false;
   for expr in body_exprs(body) {
     expr.visit(&mut |e| {
-      if matches!(e, Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Identity(_) | Expr::Now) {
+      if matches!(e, Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Now) {
         found = true;
       }
     });

@@ -21,6 +21,12 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
+* [Sharing State Across Islands](#sharing-state-across-islands)
+  * [Seeding the Store From a Loader](#seeding-the-store-from-a-loader)
+  * [Reading a Key in a Component](#reading-a-key-in-a-component)
+  * [Writing From Anywhere](#writing-from-anywhere)
+  * [Optimistic Updates](#optimistic-updates)
+  * [Derived Keys and Transactions](#derived-keys-and-transactions)
 * [Decoding Values From the Server](#decoding-values-from-the-server)
   * [Wide Integers](#wide-integers)
   * [Typed Arrays and Bytes](#typed-arrays-and-bytes)
@@ -45,6 +51,8 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Payload response**: the line-oriented wire format, requested by adding `__payload` to a route's query string. One `V` row, one `N` row, an optional `G` row, an optional `H` row with the document's title and description and one `S` row per resolved slot, each with an `H` row of its own when the slot's segment described the document.
 * **Action**: a server function with a stable id. The client holds the id, never a URL shape.
 * **Revalidation**: re-fetching the current route after a mutation and replacing the top-level segment regions, so the layout's DOM and its island state survive.
+* **Store**: one keyed map for the whole document, outside every island root. Islands do not share React context, so this is how two of them show the same number.
+* **Seed**: what a route's loaders settled the store on for this request, rendered into the document as `script[data-sf-store]` and carried by a navigation's `T` row. The server renders from it, so a component reading a key hydrates without a flash.
 
 ## Quick Start
 
@@ -378,6 +386,107 @@ await addServer({ name: "eu-3", load: 0.25 });
 await addServer({ name: "eu-4", load: 0.5 });
 await refresh();
 ```
+
+## Sharing State Across Islands
+
+Every island is its own root, so React context reaches none of the others. A number two of them show, a filter one sets and another reads, a menu that must close when something else opens: those live in the store, a keyed map the whole document shares.
+
+A key is a string. `key` names one and gives it a type:
+
+```ts
+// src/store.ts
+import { key } from "@snapfire/fsr-client/store";
+
+export const cartCount = key<number>("cart/count");
+```
+
+### Seeding the Store From a Loader
+
+Export `store` beside `load`, a function of the data the loader returned. What it returns is written to the store before anything mounts, and the server renders from the same values, so the first paint and the hydration agree:
+
+```ts
+// routes/layout.loader.ts
+export async function load({ session }: Ctx) {
+  const cartCount = Object.values(session.cart).reduce((n, q) => n + q, 0n);
+  return { cartCount };
+}
+
+export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/count": Number(data.cartCount) });
+```
+
+Every segment on the route may export one. They merge outermost first, so a page wins a key its layout also sets. A `store` export names its keys as literal strings, never through an imported `key`.
+
+### Reading a Key in a Component
+
+`useStore` is the React binding. It reads like `useState` and returns the store's value, or the initial one while nothing has set the key:
+
+```tsx
+import { useStore } from "@snapfire/fsr-client/react";
+import { cartCount } from "@src/store";
+
+export function CartBadge() {
+  const [items] = useStore(cartCount, 0);
+  return <span className="badge">{items}</span>;
+}
+```
+
+The build lowers this call, so the key has to be something it can read: a string literal, or a `key()` it can follow through an import. A key computed at runtime is refused with a diagnostic.
+
+### Writing From Anywhere
+
+The setter writes the store, and every component reading that key re-renders, whichever root it sits in:
+
+```tsx
+const [items, setItems] = useStore(cartCount, 0);
+<button onClick={() => setItems(items + 1)}>one more</button>
+```
+
+Outside a component, and outside React entirely, the module functions do the same:
+
+```ts
+import { get, set, subscribe } from "@snapfire/fsr-client";
+
+set(cartCount, 3);
+const held = get(cartCount);
+const stop = subscribe(cartCount, (value) => console.log("now", value));
+```
+
+### Optimistic Updates
+
+`optimistic` shows a value at once, runs the call, and puts the key back if it fails. A successful action revalidates, and the seed that revalidation carries replaces the guess with what the server settled on:
+
+```ts
+import { optimistic } from "@snapfire/fsr-client";
+
+await optimistic(cartCount, (get(cartCount) ?? 0) + quantity, () =>
+  actions.cart.addToCart({ product_id: id, quantity: BigInt(quantity) }),
+);
+```
+
+### Derived Keys and Transactions
+
+A derived key is computed from others and recomputed whenever one of them changes:
+
+```ts
+import { derive, key } from "@snapfire/fsr-client";
+
+const subtotal = key<number>("cart/subtotal");
+const shipping = key<number>("cart/shipping");
+const total = key<number>("cart/total");
+
+derive(total, [subtotal, shipping], (read) => (read(subtotal) ?? 0) + (read(shipping) ?? 0));
+```
+
+`transaction` collapses notifications, so a listener hears once per key however many times the block wrote it:
+
+```ts
+transaction(() => {
+  set(subtotal, 4200);
+  set(shipping, 500);
+});
+```
+
+The store lives as long as the document. A soft navigation keeps it and writes whatever the new route seeded; a full load starts it again from that document's seed. Anything that must outlive a reload belongs in the session.
 
 ## Decoding Values From the Server
 

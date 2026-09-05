@@ -111,9 +111,14 @@ struct Slot {
 }
 
 impl Interpreter {
-  /// Renders `component` with `props` bound as `$props`.
+  /// Renders `component` with `props` bound as `$props`. A `$store` prop is
+  /// lifted out of the scope into the environment, where a nested component's
+  /// `Expr::Store` still reaches it.
   pub fn render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
     let mut env = Env::detached(self.clock(), vec![("$props".to_owned(), Value::Map(props.clone()))]);
+    if let Some(Value::Map(store)) = props.get("$store") {
+      env.store = store.clone();
+    }
     let mut out = Out::default();
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
@@ -534,6 +539,28 @@ mod tests {
     };
     let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap().html;
     assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
+  }
+
+  #[test]
+  fn a_store_read_takes_the_seed_and_falls_back_without_one() {
+    let read = Expr::Coalesce(Box::new(Expr::Store("cart/count".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0))));
+    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] } };
+    let mut library = Components::new();
+    library.insert("src/ui/Badge.tsx#Badge".to_owned(), Arc::new(inner));
+    let outer = Component {
+      body: vec![Stmt::Let { name: "n".to_owned(), expr: read }],
+      render: Tmpl::Fragment(vec![
+        Tmpl::Expr(Expr::var("n")),
+        Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new() },
+      ]),
+    };
+    let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
+    assert_eq!(render(ValueMap::new()), "0<b>0</b>", "no seed leaves both reads on the fallback");
+    let mut store = ValueMap::new();
+    store.insert("cart/count".to_owned(), Value::Int(3));
+    let mut props = ValueMap::new();
+    props.insert("$store".to_owned(), Value::Map(store));
+    assert_eq!(render(props), "3<b>3</b>", "a nested component reads the seed without a prop");
   }
 
   #[test]

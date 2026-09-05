@@ -120,8 +120,20 @@ pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -
 /// function of `{ data }`, the loader's result, returning the document's
 /// `title` and `description`. `None` when the module exports no `meta`.
 pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError> {
+  lower_of_data(file, source, defaults, "meta")
+}
+
+/// Lowers the exported `store` of a loader module when there is one: a
+/// function of `{ data }` returning the store keys the route seeds. `None`
+/// when the module exports no `store`.
+pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError> {
+  lower_of_data(file, source, defaults, "store")
+}
+
+/// An export whose input is the loader's data, bound as `data`.
+fn lower_of_data(file: &str, source: &str, defaults: &SessionDefaults, export: &str) -> Result<Option<Body>, LowerError> {
   let parsed = parse(file, source)?;
-  let Some(exported) = parsed.exports().find_map(|(name, decl)| (name == "meta").then_some(decl)) else { return Ok(None) };
+  let Some(exported) = parsed.exports().find_map(|(name, decl)| (name == export).then_some(decl)) else { return Ok(None) };
   let mut lowerer = Lowerer::new(&parsed, defaults);
   lowerer.meta = true;
   let body = match exported {
@@ -133,7 +145,7 @@ pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> 
       lowerer.bind_ctx(first)?;
       vec![Stmt::Return(lowerer.expr(expr)?)]
     }
-    Exported::Action { .. } | Exported::Other(_) => return Err(parsed.residue(parsed.module.span, "`meta` must be a function of `{ data }`").into()),
+    Exported::Action { .. } | Exported::Other(_) => return Err(parsed.residue(parsed.module.span, format!("`{export}` must be a function of `{{ data }}`")).into()),
   };
   Ok(Some(body))
 }
@@ -767,6 +779,11 @@ impl<'a> Lowerer<'a> {
       .map_err(|_| self.residue(b.span, "a bigint literal outside 128 bits"))
   }
 
+  /// True when `name` is imported from the client library's store.
+  pub(crate) fn is_store_import(&self, name: &str) -> bool {
+    crate::component::find_import(self.parsed, name).is_some_and(|(source, _)| source == "@snapfire/fsr-client/store")
+  }
+
   /// A member read. Context roots become reads; anything else is a field.
   fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
     let prop = |this: &mut Self| -> Lowered<Result<String, Expr>> {
@@ -879,6 +896,7 @@ impl<'a> Lowerer<'a> {
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
+          "key" if self.is_store_import(name) => Ok(*one(self)?),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           _ => {
             self.unbound = Some(name.to_owned());

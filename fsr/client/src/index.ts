@@ -1,6 +1,8 @@
 export { actionRef, decodeValue, encodeValue, isRef, isVariant, moduleRef, ref, variant } from "./values.js";
 export type { SfValue, RefValue, VariantValue } from "./values.js";
 export { action, ActionFailure } from "./actions.js";
+export { adopt, clear, derive, get, key, optimistic, seed, set, snapshot, subscribe, transaction } from "./store.js";
+export type { StoreKey, StoreListener } from "./store.js";
 export { decodeNode, parsePayload } from "./reader.js";
 export type { Head, Payload, Segment, SfNode } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";

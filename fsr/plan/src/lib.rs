@@ -139,6 +139,9 @@ pub struct SourceEntry {
   /// The module's `meta`, describing the document from this source's data.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub meta: Option<Body>,
+  /// The module's `store`, seeding the browser's store from this source's data.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub store: Option<Body>,
 }
 
 impl SourceEntry {
@@ -151,6 +154,7 @@ impl SourceEntry {
       reason: None,
       body: Some(body),
       meta: None,
+      store: None,
     }
   }
 
@@ -159,8 +163,13 @@ impl SourceEntry {
     self
   }
 
+  pub fn with_store(mut self, store: Option<Body>) -> Self {
+    self.store = store;
+    self
+  }
+
   pub fn rust(id: impl Into<String>) -> Self {
-    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None }
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None }
   }
 }
 

@@ -43,11 +43,15 @@ export interface Payload {
 	segments: Segment | null;
 	/** The document's title and description, from the eager wave then from each resolution that set them, in order. */
 	heads: Head[];
+	/** The store keys the route seeds, from the eager wave then from each resolution that seeded, in order. */
+	seeds: {
+		[key: string]: SfValue;
+	}[];
 	resolutions: {
 		slot: number;
 		node: SfNode;
 	}[];
 }
 export declare function decodeNode(row: unknown): SfNode;
-/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H and S rows. */
+/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H, T and S rows. */
 export declare function parsePayload(text: string): Payload;

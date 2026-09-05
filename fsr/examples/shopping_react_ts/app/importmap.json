@@ -2,6 +2,7 @@
   "imports": {
     "@snapfire/fsr-client": "/static/js/fsr/index.js",
     "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
+    "@snapfire/fsr-client/store": "/static/js/fsr/store.js",
     "react": "/static/js/vendor/react/react.bundle.mjs",
     "sweetalert2": "/static/js/vendor/sweetalert2/sweetalert2.bundle.mjs",
     "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",

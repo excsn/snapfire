@@ -122,3 +122,20 @@ fn a_route_may_carry_a_variant_per_slot() {
   assert_eq!(plan["intercepts"][0]["plan"]["children"][0]["node"]["keep"], serde_json::json!(["content", "modal"]), "the other variant's slot is kept, and `feed` is no slot without a slots/ directory");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_loaders_store_export_lowers_beside_its_meta() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    (
+      "routes/layout.loader.ts",
+      "export async function load() {\n  return { count: 2 };\n}\nexport const meta = ({ data }: { data: { count: number } }) => ({ title: `${data.count} in the cart` });\nexport const store = ({ data }: { data: { count: number } }) => ({ \"cart/count\": data.count });\n",
+    ),
+    ("routes/index/page.tsx", PAGE),
+  ]);
+  let plan = plan_json(&dir);
+  let layout = plan["sources"].as_array().unwrap().iter().find(|s| s["id"] == "layout").expect("the layout is a source");
+  assert!(layout["meta"].is_array(), "{layout}");
+  let store = &layout["store"][0]["return"]["object"][0]["field"];
+  assert_eq!(store[0], "cart/count", "{layout}");
+}
