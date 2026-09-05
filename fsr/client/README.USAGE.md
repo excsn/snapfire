@@ -486,6 +486,8 @@ transaction(() => {
 });
 ```
 
+A derived key a component reads at first paint has to be seeded by the server too, with the same formula, or the first client render disagrees with the markup React is hydrating and React reports a mismatch. Register the derivation before `boot`: computing the value the seed already holds notifies nobody, and from then on every change to a source updates it. The ops console's headline is written this way, once in the root layout's `store` and once in `src/main.ts`.
+
 The store lives as long as the document. A soft navigation keeps it and writes whatever the new route seeded; a full load starts it again from that document's seed. Anything that must outlive a reload belongs in the session.
 
 ## Decoding Values From the Server

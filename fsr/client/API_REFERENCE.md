@@ -55,6 +55,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [optimistic](#optimistic)
   * [seed](#seed)
   * [adopt](#adopt)
+  * [reset](#reset)
   * [snapshot](#snapshot)
 * [9. The React Mounter](#9-the-react-mounter)
   * [reactMounter](#reactmounter)
@@ -456,6 +457,12 @@ Writes a whole map in one transaction. The navigator calls it for every `T` row 
 * `adopt(): void`
 
 Reads the document's `script[data-sf-store]`, then any seed a streamed resolution left on `window.__sfSeed` before this module loaded, and installs `window.__sfSeedApply` so later resolutions seed as they arrive. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read. Idempotent.
+
+### reset
+
+* `reset(): void`
+
+Forgets every key and notifies nobody, which is what a new document calls for: the listeners of the old one went with its roots, and the derived keys stay registered for the next seed. The spec runner's `load` calls it before each document.
 
 ### snapshot
 

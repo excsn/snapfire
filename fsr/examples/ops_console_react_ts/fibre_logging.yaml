@@ -1,0 +1,18 @@
+version: 1
+
+appenders:
+  console:
+    kind: console
+    encoder:
+      kind: pattern
+      pattern: "%d [%p] %t - %m%n"
+
+loggers:
+  root:
+    level: INFO
+    appenders:
+      - console
+  fsr:
+    level: DEBUG
+    appenders:
+      - console

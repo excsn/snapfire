@@ -31,7 +31,7 @@ export declare class AssertionError extends Error {
 	constructor(message: string);
 }
 /** Values the way a test reads them: `1n` and `1` stay distinct, strings are quoted. */
-export declare function show(value: unknown): string;
+export declare function show(value: unknown, depth?: number): string;
 export declare function equal(a: unknown, b: unknown): boolean;
 export declare const assert: {
 	ok(value: unknown, message?: string): void;

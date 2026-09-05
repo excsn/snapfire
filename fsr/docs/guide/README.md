@@ -1,6 +1,6 @@
 # The fsr guide
 
-This is the learning layer of fsr's documentation. The example's [README](../../examples/shopping_react_ts/README.md) gets a checkout running in four commands. Each crate's README and API reference say exactly what to type. This guide is for the part in between: how fsr approaches the problems of a full-stack application, why the pieces have the shape they have and where the seams are when you want to own one.
+This is the learning layer of fsr's documentation. The example's [README](../../examples/shopping_react_ts/README.md) gets a checkout running in four commands; the [ops console](../../examples/ops_console_react_ts/README.md) is the second example, built to exercise what the storefront never touches. Each crate's README and API reference say exactly what to type. This guide is for the part in between: how fsr approaches the problems of a full-stack application, why the pieces have the shape they have and where the seams are when you want to own one.
 
 Every chapter answers one question, reads in one sitting and names a lab: something to do to the running example that makes the chapter's claim observable and usually lets you watch it fail too. The labs are not decoration. A guide you only read is a guide you will misremember.
 
