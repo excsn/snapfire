@@ -269,6 +269,24 @@ fn the_order_page_reads_the_placed_order_back() {
 }
 
 #[test]
+fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
+  let mut order = ValueMap::new();
+  order.insert("id".to_owned(), Value::int(5001i64));
+  order.insert("total_cents".to_owned(), Value::int(4800i64));
+  order.insert("lines".to_owned(), Value::Seq(Vec::new()));
+  let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
+  let app = app_over(transport);
+  let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
+  let region = html.find("<sf-s data-sf-island data-sf-when=\"visible\"><sf-i id=\"sf-i2\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">").expect(&html);
+  let page = html.find("data-sf-module=\"routes/order/[id]/page.tsx#default\"").unwrap();
+  assert!(page < region, "the island sits inside the page's markup");
+  assert!(html[region..].contains("<p>Quote order #<!-- -->5001<!-- --> when you write to us.</p>"), "rendered in Rust with the page's data: {html}");
+  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i2\">{\"orderId\":5001}</script></sf-s>"), "its own props script, inside the region: {html}");
+  let payload = block_on(app.render_to_string("/order/5001", RenderMode::Payload, SessionCell::default())).unwrap();
+  assert!(payload.contains("[\"c\",{\"m\":\"src/ui/OrderHelp.tsx#OrderHelp\""), "a nested client node on the wire: {payload}");
+}
+
+#[test]
 fn checkout_places_the_order_and_empties_the_cart() {
   use snapfire_fsr_runtime::SessionCell;
 

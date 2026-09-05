@@ -71,6 +71,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 
 * The context parameter is the first parameter of the body: an identifier or an object pattern whose keys are `params`, `query`, `session`, `services`, `identity`, `input` or `now`, each optionally renamed with `key: local`. Any other key, a nested pattern or a rest element is residue.
 * Imports, type declarations and non-action exports are ignored.
+* In a component, `<Island when="visible">` with `Island` imported from `@snapfire/fsr-client/react` places its one component child as `Tmpl::Island`; a module-level `const Lazy = island(Chart, { when })` with `island` from the same module makes `<Lazy … />` the same. `when` must be written out as `"load"`, `"visible"` or `"idle"`; `<Island>` around an element, with any other attribute or with more than one child is residue.
 
 ### Statements
 

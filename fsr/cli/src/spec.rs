@@ -528,7 +528,8 @@ impl Hooks for SpecHooks {
       Value::Null => ValueMap::new(),
       _ => return Err("props must be an object".to_owned()),
     };
-    let html = self.interpreter.render(&component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
+    let rendered = self.interpreter.render(&component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
+    let html = if rendered.islands.is_empty() { rendered.html } else { snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(snapfire_fsr_ir::rendered_nodes(&rendered))) };
     Ok(Some(html))
   }
 

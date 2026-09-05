@@ -192,6 +192,7 @@ impl ComponentSet {
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>) -> Tmpl {
   match tmpl {
     Tmpl::Component { module, props, children } => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
+    Tmpl::Island { module, props, children, when } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect(), when },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
     Tmpl::Fragment(children) => Tmpl::Fragment(children.into_iter().map(|c| rewrite_modules(c, modules)).collect()),
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules))) },
@@ -806,9 +807,86 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Tmpl::Element { tag: name, attrs, children: children? })
   }
 
+  /// True when `name` is imported from the client library's React adapter.
+  fn is_client_react_import(&self, name: &str) -> bool {
+    find_import(self.lowerer.parsed, name).is_some_and(|(source, _)| source == "@snapfire/fsr-client/react")
+  }
+
+  /// `<Island when="visible"><Chart … /></Island>`: the one component child
+  /// as an island with that timing.
+  fn island_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+    let mut when = None;
+    for attr in &el.opening.attrs {
+      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { return Err(self.lowerer.residue(el.span, "a spread on `<Island>`")) };
+      if attr_name(&attr.name) != "when" {
+        return Err(self.lowerer.residue(attr.span, "`<Island>` takes `when` and nothing else"));
+      }
+      let value = self.attr_value(attr)?;
+      when = Some(self.island_timing(value, attr.span)?);
+    }
+    let mut elements = el.children.iter().filter(|c| match c {
+      js::JSXElementChild::JSXText(text) => !jsx_text(&text.value.to_atom_lossy()).is_empty(),
+      _ => true,
+    });
+    let (Some(js::JSXElementChild::JSXElement(child)), None) = (elements.next(), elements.next()) else {
+      return Err(self.lowerer.residue(el.span, "`<Island>` wraps exactly one component"));
+    };
+    let lowered = self.element(child)?;
+    self.island_of(lowered, when, child.span)
+  }
+
+  /// `const Lazy = island(Chart, { when: "visible" })` at module scope, when
+  /// `name` is such a `Lazy`: the component and the timing.
+  fn island_alias(&mut self, name: &str) -> Lowered<Option<(String, Option<String>)>> {
+    let Some(Global::Const(js::Expr::Call(call))) = find_value(self.lowerer.parsed, name) else { return Ok(None) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let js::Expr::Ident(callee) = &**callee else { return Ok(None) };
+    if callee.sym.as_ref() != "island" || !self.is_client_react_import("island") {
+      return Ok(None);
+    }
+    let Some(js::Expr::Ident(target)) = call.args.first().map(|a| &*a.expr) else {
+      return Err(self.lowerer.residue(call.span, "`island(...)` takes a component name first"));
+    };
+    let mut when = None;
+    if let Some(options) = call.args.get(1) {
+      let js::Expr::Object(obj) = &*options.expr else { return Err(self.lowerer.residue(options.span(), "`island(...)` options must be an object literal")) };
+      for prop in &obj.props {
+        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(options.span(), "a spread in `island(...)` options")) };
+        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` only")) };
+        if prop_name(&kv.key).as_deref() != Some("when") {
+          return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` only"));
+        }
+        let value = self.lowerer.expr(&kv.value)?;
+        when = Some(self.island_timing(value, options.span())?);
+      }
+    }
+    Ok(Some((target.sym.to_string(), when)))
+  }
+
+  fn island_timing(&self, value: Expr, span: Span) -> Lowered<String> {
+    match value {
+      Expr::Lit(Lit::Str(timing)) if matches!(timing.as_str(), "load" | "visible" | "idle") => Ok(timing),
+      _ => Err(self.lowerer.residue(span, "an island's `when` is \"load\", \"visible\" or \"idle\", written out")),
+    }
+  }
+
+  fn island_of(&self, lowered: Tmpl, when: Option<String>, span: Span) -> Lowered<Tmpl> {
+    match lowered {
+      Tmpl::Component { module, props, children } => Ok(Tmpl::Island { module, props, children, when }),
+      _ => Err(self.lowerer.residue(span, "an island must be a component, not an element")),
+    }
+  }
+
   fn component_ref(&mut self, name: &str, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     if name == "Fragment" || name == "React.Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
+    }
+    if name == "Island" && self.is_client_react_import("Island") {
+      return self.island_element(el);
+    }
+    if let Some((target, when)) = self.island_alias(name)? {
+      let lowered = self.component_ref(&target, el)?;
+      return self.island_of(lowered, when, el.span);
     }
     let mut props = Vec::new();
     for attr in &el.opening.attrs {
@@ -1263,4 +1341,48 @@ export default function Page({ title, kind = "note", ...rest }: { title: string;
     assert!(err.to_string().contains("`ui` is not a namespace import"), "{err}");
   }
 
+  #[test]
+  fn the_island_wrapper_and_the_island_alias_place_a_component_as_an_island() {
+    let files = [
+      (
+        "routes/order/page.tsx",
+        r#"
+import { Island, island } from "@snapfire/fsr-client/react";
+import { Help } from "../../src/ui/Help";
+import { Chart } from "../../src/ui/Chart";
+const LazyChart = island(Chart, { when: "idle" });
+export default function Order({ id }: { id: number }) {
+  return (
+    <main>
+      <Island when="visible">
+        <Help id={id} />
+      </Island>
+      <LazyChart series={[id]} />
+      <Island><Help id={0} /></Island>
+    </main>
+  );
+}
+"#,
+      ),
+      ("src/ui/Help.tsx", "export function Help({ id }: { id: number }) {\n  return <p>help {id}</p>;\n}\n"),
+      ("src/ui/Chart.tsx", "export function Chart({ series }: { series: number[] }) {\n  return <svg>{series.length}</svg>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/order/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/order/page.tsx#default").unwrap().1;
+    let Tmpl::Element { children, .. } = &page.render else { panic!("{:?}", page.render) };
+    assert!(matches!(&children[0], Tmpl::Island { module, props, when, .. } if module == "src/ui/Help.tsx#Help" && props.len() == 1 && when.as_deref() == Some("visible")), "{:?}", children[0]);
+    assert!(matches!(&children[1], Tmpl::Island { module, props, when, .. } if module == "src/ui/Chart.tsx#Chart" && matches!(&props[0], Entry::Field(name, _) if name == "series") && when.as_deref() == Some("idle")), "{:?}", children[1]);
+    assert!(matches!(&children[2], Tmpl::Island { when: None, .. }), "no timing means the registry's: {:?}", children[2]);
+    assert!(lowered.iter().any(|(m, _)| m == "src/ui/Help.tsx#Help") && lowered.iter().any(|(m, _)| m == "src/ui/Chart.tsx#Chart"), "an island's component is lowered like any other");
+  }
+
+  #[test]
+  fn an_island_around_an_element_or_with_a_computed_timing_is_residue() {
+    let element = [("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <Island when=\"visible\"><p>x</p></Island>;\n}\n")];
+    let err = lower(&element, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("an island must be a component"), "{err}");
+    let timing = [("routes/b/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Help } from \"../../src/ui/Help\";\nexport default function B({ n }: { n: number }) {\n  return <Island when={n > 0 ? \"visible\" : \"load\"}><Help /></Island>;\n}\n"), ("src/ui/Help.tsx", "export function Help() {\n  return <p>help</p>;\n}\n")];
+    let err = lower(&timing, "routes/b/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("written out"), "{err}");
+  }
 }
