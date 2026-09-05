@@ -47,6 +47,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Identity`](#identity)
   * [`SessionCell`](#sessioncell)
   * [`RequestCtx`](#requestctx)
+  * [`Locale`](#locale)
 * [10. Services](#10-services)
   * [`ServiceCaller`](#servicecaller)
   * [`ServiceHandle`](#servicehandle)
@@ -237,7 +238,7 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 Cache lookup and store happen per plan node that carries a `cache_key`. The composed key is:
 
 ```text
-{cache_key}|{sorted k=v params joined by &}|ident={subject}|csrf={token}|{fingerprint:016x}
+{cache_key}|{sorted k=v params joined by &}|ident={subject}|csrf={token}|locale={tag}|{fingerprint:016x}|{store fingerprint:016x}
 ```
 
 * `cache_key` is `PlanNode::cache_key`, the plan's own tag.
@@ -256,6 +257,7 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 * `pub pending: Vec<PendingResolution>`
 * `pub segments: SegmentInfo`: the root sidecar, keyed by `runtime.keyer` from the plan root and the request params.
 * `pub meta: Meta`: the document's title and description as the eager wave settled them, the head's defaults where no segment said otherwise.
+* `pub locale: Locale`: the request's, for the `L` row.
 
 ### `PendingResolution`
 
@@ -393,14 +395,27 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 
 * `pub params: Params`
 * `pub session: SessionCell`
+* `pub locale: Locale`: the request's locale as the host resolved it; the default `Locale` under a context nothing resolved.
 * `pub csrf: Option<String>`
 * `pub services: ServiceHandle`
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
-* `pub fn anonymous(params: Params) -> Self`: empty session, no CSRF token, unbound service handle. `query` is empty.
+* `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` is empty.
 * `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.
 
-Cloning a context shares the session cell and the service handle; only `params` and `csrf` are copied.
+Cloning a context shares the session cell and the service handle; only `params`, `locale` and `csrf` are copied.
+
+### `Locale`
+
+The request's locale as the application spells it, `fr_FR` or `fr`. `Clone + PartialEq + Eq + Default`; the default is an empty tag flagged as the default locale, which is what a context nothing resolved carries.
+
+* `pub tag: String`
+* `pub is_default: bool`: the application's default locale, which leaves segment keys and prerender paths unmarked the way an unprefixed URL is.
+* `pub fn new(tag: impl Into<String>, is_default: bool) -> Self`
+* `pub fn hyphenated(&self) -> String`: the BCP 47 spelling, `fr-FR` for `fr_FR`, which `<html lang>` carries.
+* `pub fn key_suffix(&self) -> String`: `@<tag>` for a locale that is not the default, else empty.
+
+The assembler appends `key_suffix` to every segment key the keyer produces, injects the tag as the `locale` prop of every node, folds it into the render memo key and writes it as the `L` row of a payload.
 
 ## 10. Services
 
@@ -453,12 +468,18 @@ The wire encoding of a streamed response. The first item is three newline-termin
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
 * `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json).
 * `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` has a title or a description.
+* `T <value map json>`, from [`seed_to_json`](#seed_to_json), when `assembly.store` holds a key.
+* `L <json string>`, the locale tag, when `assembly.locale` has one.
 
-Then one item per resolution, `S <slot id> <node row json>\n` followed by an `H` row when `Resolved::meta` is not empty, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+Then one item per resolution, `S <slot id> <node row json>\n` followed by an `H` row when `Resolved::meta` is not empty and a `T` row when `Resolved::store` is not, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
 
 ### `meta_to_json`
 
 `pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only the fields that are set, `title` then `description`.
+
+### `seed_to_json`
+
+`pub fn seed_to_json(seed: &Data) -> serde_json::Value`: the store keys a segment seeded, encoded as one value map the way `snapfire_fsr_payload::value_to_json` encodes a `Value::Map`.
 
 ### `html_stream`
 

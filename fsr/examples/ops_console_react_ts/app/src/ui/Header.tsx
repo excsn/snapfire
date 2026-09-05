@@ -1,8 +1,9 @@
+import type { Identity } from "@snapfire/fsr-authoring";
 import { Link, useStore } from "@snapfire/fsr-client/react";
 
 import { headline, openAlerts, region, selected, watching } from "@src/store";
 
-export function Header() {
+export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken?: string }) {
   const [open] = useStore(openAlerts, 0);
   const [held] = useStore(watching, 0);
   const [shown] = useStore(region, "all");
@@ -29,6 +30,19 @@ export function Header() {
         watching {held}
       </span>
       {chosen ? <span className="pill pill-selected">#{chosen}</span> : null}
+      {identity ? (
+        <form method="post" action="/auth/logout" className="who">
+          <Link href="/account" className="pill pill-who">
+            {identity.subject}
+          </Link>
+          <input type="hidden" name="_csrf" value={csrfToken ?? ""} />
+          <button className="signout">Sign out</button>
+        </form>
+      ) : (
+        <a href="/auth/login" data-sf-native className="pill pill-who signin">
+          Sign in
+        </a>
+      )}
       <Link href="/settings" into="drawer" className="gear" aria-label="Settings" title="Settings">
         ⚙
       </Link>

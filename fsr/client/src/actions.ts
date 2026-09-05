@@ -43,12 +43,14 @@ function kindOf(status: number): string {
   }
 }
 
-/** A callable for a stable action id. The client holds references, not URLs. A successful call revalidates the current route by default, so mutated segments refresh in place. */
+/** A callable for a stable action id. The client holds references, not URLs. A successful call revalidates the current route by default, so mutated segments refresh in place. The document's path rides as `x-sf-from`, which is how the server gives the action the document's locale. */
 export function action(id: string, opts?: { revalidate?: boolean }): (input?: SfValue) => Promise<SfValue> {
   return async (input: SfValue = {}) => {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
     const res = await fetch(`/_sf/action/${encodeURIComponent(id)}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(encodeValue(input)),
     });
     const text = await res.text();

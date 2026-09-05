@@ -1,0 +1,9 @@
+[[users]]
+name = "alice"
+password = "wonder"
+claims = { role = "admin" }
+
+[[users]]
+name = "bob"
+password = "builder"
+claims = { role = "operator" }

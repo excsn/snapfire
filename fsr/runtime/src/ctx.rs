@@ -77,9 +77,44 @@ impl SessionCell {
   }
 }
 
+/// The request's locale as the application spells it, `fr_FR` or `fr`,
+/// resolved by the host before anything loads. The default locale leaves
+/// segment keys and prerender paths unmarked, the way an unprefixed URL is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Locale {
+  pub tag: String,
+  pub is_default: bool,
+}
+
+impl Locale {
+  pub fn new(tag: impl Into<String>, is_default: bool) -> Self {
+    Self { tag: tag.into(), is_default }
+  }
+
+  /// The BCP 47 spelling, `fr-FR` for `fr_FR`: what `<html lang>` carries.
+  pub fn hyphenated(&self) -> String {
+    self.tag.replace('_', "-")
+  }
+
+  /// What a segment key carries for this locale: nothing for the default one.
+  pub fn key_suffix(&self) -> String {
+    if self.is_default || self.tag.is_empty() {
+      String::new()
+    } else {
+      format!("@{}", self.tag)
+    }
+  }
+}
+
+impl Default for Locale {
+  fn default() -> Self {
+    Self { tag: String::new(), is_default: true }
+  }
+}
+
 /// Everything a loader or action may know about the request: matched params,
-/// the session, the CSRF token the page should embed and the bound service
-/// handle. Serializable values only, per the boundary rules, plus the handle,
+/// the session, the locale, the CSRF token the page should embed and the
+/// bound service handle. Serializable values only, per the boundary rules, plus the handle,
 /// which is callable but carries nothing readable.
 #[derive(Clone, Default)]
 pub struct RequestCtx {
@@ -88,13 +123,14 @@ pub struct RequestCtx {
   /// winning. Keys starting with `__` are the runtime's own and are dropped.
   pub query: Params,
   pub session: SessionCell,
+  pub locale: Locale,
   pub csrf: Option<String>,
   pub services: ServiceHandle,
 }
 
 impl RequestCtx {
   pub fn anonymous(params: Params) -> Self {
-    Self { params, query: Params::new(), session: SessionCell::default(), csrf: None, services: ServiceHandle::default() }
+    Self { params, query: Params::new(), session: SessionCell::default(), locale: Locale::default(), csrf: None, services: ServiceHandle::default() }
   }
 
   pub fn identity_value(&self) -> Option<Value> {

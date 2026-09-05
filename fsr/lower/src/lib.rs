@@ -343,6 +343,7 @@ enum Root {
   Session,
   Services,
   Identity,
+  Locale,
   Input,
   Now,
   Ctx,
@@ -747,6 +748,7 @@ impl<'a> Lowerer<'a> {
     match self.root_of(id) {
       Some(Root::Input) => Ok(Expr::Input),
       Some(Root::Now) => Ok(Expr::Now),
+      Some(Root::Locale) => Ok(Expr::Locale),
       Some(Root::Params | Root::Query | Root::Session | Root::Identity) => Err(self.residue(id.span, format!("`{name}` as a whole; read one of its fields"))),
       Some(Root::Services) => Err(self.residue(id.span, "`services` as a value; call a method on it")),
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
@@ -821,6 +823,7 @@ impl<'a> Lowerer<'a> {
             return match name.as_str() {
               "input" => Ok(Expr::Input),
               "now" => Ok(Expr::Now),
+              "locale" => Ok(Expr::Locale),
               "params" | "query" | "session" | "identity" => Err(self.residue(member.span, format!("`ctx.{name}` as a whole; read one of its fields"))),
               "services" => Err(self.residue(member.span, "`ctx.services` as a value; call a method on it")),
               _ => Err(self.residue(member.span, format!("`{name}` is not a field of the context"))),
@@ -1127,6 +1130,7 @@ fn root_named(name: &str) -> Option<Root> {
     "session" => Root::Session,
     "services" => Root::Services,
     "identity" => Root::Identity,
+    "locale" => Root::Locale,
     "input" => Root::Input,
     "now" => Root::Now,
     _ => return None,

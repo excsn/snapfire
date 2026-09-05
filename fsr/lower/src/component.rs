@@ -701,6 +701,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Some(("useStore", _)) => {
             return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))
           }
+          Some(("useLocale", _)) => Expr::Locale,
           Some((hook, _)) if hook != "useState" => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
           _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
             self.handlers.push(local);
@@ -1629,6 +1630,19 @@ export default function Order({ id }: { id: number }) {
     )];
     let err = lower(&files, "routes/index/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("`useStore` key"), "{err}");
+  }
+
+  #[test]
+  fn use_locale_lowers_to_the_locale_read() {
+    let files = [(
+      "routes/help/page.tsx",
+      "import { useLocale } from \"@snapfire/fsr-client/react\";\nexport default function Help() {\n  const locale = useLocale();\n  return <p lang={locale}>{locale === \"fr_FR\" ? \"Bonjour\" : \"Hello\"}</p>;\n}\n",
+    )];
+    let lowered = lower(&files, "routes/help/page.tsx#default").unwrap();
+    let component = &lowered[0].1;
+    assert_eq!(component.body, vec![Stmt::Let { name: "locale".to_owned(), expr: Expr::Locale }]);
+    let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
+    assert_eq!(attrs, &[Entry::Field("lang".to_owned(), Expr::var("locale"))]);
   }
 
   #[test]

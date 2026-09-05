@@ -23,6 +23,8 @@ export interface SlotProps {
 export declare function Slot({ name }: SlotProps): ReactElement;
 /** A store key as state: the value the store holds, or `initial` while nothing does, and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
 export declare function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void];
+/** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */
+export declare function useLocale(): string;
 export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 	/** Always the document's rendering of the target, never an intercept into a slot. */
 	full?: boolean;

@@ -1,15 +1,22 @@
 use futures_util::stream;
-use snapfire_fsr_core::{Data, ModuleId, Node, SlotName};
+use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
 use snapfire_fsr_runtime::{Chunk, Evaluator, Head, NodeChunks};
 
 /// The document around a client-rendered route: doctype, the head slot, the
-/// mount point, the content slot. It emits no application markup.
+/// mount point, the content slot. It emits no application markup. The
+/// `locale` prop the assembler injects becomes `lang`, in its BCP 47
+/// spelling, and `data-sf-locale`, in the application's.
 pub struct DocumentShell;
 
 impl Evaluator for DocumentShell {
-  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+  fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+    let tag = match props.get("locale") {
+      Some(Value::Str(tag)) => tag.clone(),
+      _ => "en".to_owned(),
+    };
+    let open = format!("<!doctype html><html lang=\"{}\" data-sf-locale=\"{}\"><head>", escape(&tag.replace('_', "-")), escape(&tag));
     Box::pin(stream::iter([
-      Ok(Chunk::Node(Node::raw("<!doctype html><html lang=\"en\"><head>"))),
+      Ok(Chunk::Node(Node::raw(open))),
       Ok(Chunk::Slot(SlotName("head".into()))),
       Ok(Chunk::Node(Node::raw("</head><body><div id=\"app\">"))),
       Ok(Chunk::Slot(SlotName("content".into()))),
@@ -52,6 +59,12 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Opt
 /// load does not.
 pub fn dev_script(bundle: &str) -> String {
   format!("<script>(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first=true,s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}})()</script>", escape(bundle))
+}
+
+/// The canonical link a prefixed request for the default locale carries, so
+/// `/en_US/about` and `/about` are one page to a crawler.
+pub fn canonical(path: &str) -> String {
+  format!("<link rel=\"canonical\" href=\"{}\">", escape(path))
 }
 
 fn escape(text: &str) -> String {

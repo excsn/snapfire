@@ -59,6 +59,10 @@ if (new globalThis.MouseEvent("click").button !== 0) {
 globalThis.__sf.load = (html, url) => {
   globalThis.__sf_location(url);
   globalThis.document = L.parseHTML(String(html)).document;
+  const nested = globalThis.document.documentElement.querySelector("html");
+  if (nested) {
+    for (const name of nested.getAttributeNames()) globalThis.document.documentElement.setAttribute(name, nested.getAttribute(name));
+  }
 };
 globalThis.IntersectionObserver = class IntersectionObserver {
   constructor(cb) {

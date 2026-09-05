@@ -28,6 +28,9 @@ pub enum Expr {
   /// Ambient in a render: a nested component reads it without a prop.
   Store(String),
   Identity(Vec<String>),
+  /// The request's locale as the application spells it. Ambient in a render,
+  /// the way a store key is.
+  Locale,
   Input,
   Now,
   Var(String),
@@ -125,6 +128,111 @@ pub struct Component {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub body: Body,
   pub render: Tmpl,
+}
+
+impl Component {
+  /// Calls `f` on every expression in the body and the tree.
+  pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
+    body_visit(&self.body, f);
+    self.render.visit(f);
+  }
+
+  /// True when the component reads `$props.<name>`, or uses `$props` whole,
+  /// which is how a spread or a rest carries every prop along.
+  pub fn reads_prop(&self, name: &str) -> bool {
+    let mut aliases = vec!["$props".to_owned()];
+    for stmt in &self.body {
+      if let Stmt::Let { name, expr: Expr::Var(var) } = stmt {
+        if var == "$props" {
+          aliases.push(name.clone());
+        }
+      }
+    }
+    let mut found = false;
+    let mut bare = 0usize;
+    let mut wrapped = 0usize;
+    self.visit(&mut |expr| match expr {
+      Expr::Field(inner, field) if matches!(&**inner, Expr::Var(v) if aliases.contains(v)) => {
+        wrapped += 1;
+        if field == name {
+          found = true;
+        }
+      }
+      Expr::Var(v) if aliases.contains(v) => bare += 1,
+      _ => {}
+    });
+    let defined = aliases.len() - 1;
+    found || bare > wrapped + defined
+  }
+}
+
+/// Calls `f` on every expression a body holds, in statement order.
+pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
+  for stmt in body {
+    match stmt {
+      Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit(f),
+      Stmt::If { cond, then, r#else } => {
+        cond.visit(f);
+        body_visit(then, f);
+        body_visit(r#else, f);
+      }
+      Stmt::ForOf { over, body, .. } => {
+        over.visit(f);
+        body_visit(body, f);
+      }
+      Stmt::Guard { cond, .. } => cond.visit(f),
+      Stmt::SessionSet { path, value, .. } => {
+        path.iter().for_each(|p| p.visit(f));
+        value.visit(f);
+      }
+      Stmt::SessionDelete { path, .. } => path.iter().for_each(|p| p.visit(f)),
+    }
+  }
+}
+
+impl Tmpl {
+  /// Calls `f` on every expression in the tree, in tree order.
+  pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
+    let entries = |entries: &[Entry], f: &mut dyn FnMut(&Expr)| {
+      for entry in entries {
+        match entry {
+          Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
+          Entry::Computed(k, v) => {
+            k.visit(f);
+            v.visit(f);
+          }
+        }
+      }
+    };
+    match self {
+      Tmpl::Text(_) | Tmpl::Slot(_) => {}
+      Tmpl::Expr(e) => e.visit(f),
+      Tmpl::Element { attrs, children, .. } => {
+        entries(attrs, f);
+        children.iter().for_each(|c| c.visit(f));
+      }
+      Tmpl::Fragment(children) => children.iter().for_each(|c| c.visit(f)),
+      Tmpl::If { cond, then, r#else } => {
+        cond.visit(f);
+        then.visit(f);
+        if let Some(other) = r#else {
+          other.visit(f);
+        }
+      }
+      Tmpl::For { over, body, .. } => {
+        over.visit(f);
+        body.visit(f);
+      }
+      Tmpl::Let { expr, then, .. } => {
+        expr.visit(f);
+        then.visit(f);
+      }
+      Tmpl::Component { props, children, .. } | Tmpl::Island { props, children, .. } => {
+        entries(props, f);
+        children.iter().for_each(|c| c.visit(f));
+      }
+    }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,7 +340,7 @@ impl Expr {
           out.push(name.clone());
         }
       }
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Lit(_) => {}
       Expr::Object(entries) | Expr::Array(entries) => {
         for entry in entries {
           match entry {
@@ -280,7 +388,7 @@ impl Expr {
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     f(self);
     match self {
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Lit(_) => {}
       Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -314,9 +422,12 @@ impl Expr {
 
   /// True when the expression reads anything that differs between requests:
   /// a parameter, the query, the session, the identity, the input or the clock.
+  /// The locale is not counted: a route reading only it renders once per
+  /// configured locale, which is what prerendering does with it.
   pub fn reads_request(&self) -> bool {
     match self {
       Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
+      Expr::Locale => false,
       Expr::Call { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
@@ -339,7 +450,7 @@ impl Expr {
   pub fn has_call(&self) -> bool {
     match self {
       Expr::Call { .. } => true,
-      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Lit(_) => false,
+      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Computed(k, v) => k.has_call() || v.has_call(),
@@ -372,7 +483,8 @@ pub fn body_reads_request(body: &Body) -> bool {
 
 /// True when a body reads anything of the request other than its input: a
 /// parameter, the query, the session, the identity or the clock. A `meta`
-/// body's input is its loader's data, which is not the request.
+/// body's input is its loader's data, which is not the request, and the
+/// locale is left out for the reason `reads_request` gives.
 pub fn body_reads_ambient(body: &Body) -> bool {
   let mut found = false;
   for expr in body_exprs(body) {

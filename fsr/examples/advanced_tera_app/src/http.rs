@@ -103,6 +103,7 @@ async fn handle_action(req: &HttpRequest, app: &AppCore, opened: &Opened, body: 
     params: Default::default(),
     query: Default::default(),
     session: opened.cell.clone(),
+    locale: Default::default(),
     csrf: None,
     services: app.services.bind(opened.cell.identity(), Arc::new(opened.tokens.clone())),
   };

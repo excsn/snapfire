@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { boot, registeredIslands } from "./boot.js";
+import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
@@ -11,6 +12,7 @@ interface Sf {
   ctx(spec: string): number;
   use(id: number): void;
   session(id: number): string;
+  locale(id: number): string;
   calls(id: number): string;
   render(module: string, props: string): string | null;
   load(html: string, url: string): void;
@@ -33,6 +35,8 @@ export interface Mock<Input = unknown> {
   params?: Record<string, string>;
   query?: Record<string, string>;
   identity?: { subject: string; claims?: Record<string, unknown> };
+  /** The request's locale, as the configuration spells it; the host's default when absent. */
+  locale?: string;
 }
 
 export interface ServiceCall {
@@ -44,6 +48,7 @@ export interface ServiceCall {
 /** A request context an action runs under when a rendered page calls it. `session` and `trace` read back after every call. */
 export interface TestCtx {
   readonly id: number;
+  readonly locale: string;
   readonly session: Record<string, unknown>;
   readonly trace: { calls: ServiceCall[] };
 }
@@ -61,6 +66,7 @@ export function ctx(mock: Mock = {}): TestCtx {
     query: mock.query ?? {},
     input: mock.input === undefined ? null : encodeValue(mock.input as SfValue),
     identity: mock.identity ?? null,
+    locale: mock.locale ?? null,
     methods,
   };
   const id = sf().ctx(JSON.stringify(spec));
@@ -69,6 +75,7 @@ export function ctx(mock: Mock = {}): TestCtx {
   }
   return {
     id,
+    locale: sf().locale(id),
     get session() {
       return decodeValue(JSON.parse(sf().session(id))) as Record<string, unknown>;
     },
@@ -210,6 +217,7 @@ async function moduleOf(type: unknown): Promise<string | null> {
 /** Mounts `element` under a fresh container. A page the server renders is hydrated over its own markup, so a mismatch fails here the way it would in a browser; anything else mounts fresh. */
 export async function render(element: ReactElement, options: { ctx?: TestCtx; hydrate?: boolean } = {}): Promise<Rendered> {
   sf().use(options.ctx?.id ?? 0);
+  setLocale(options.ctx?.locale ?? sf().locale(0));
   const container = document.createElement("div");
   document.body.appendChild(container);
   const module = options.hydrate === false ? null : await moduleOf(element.type);

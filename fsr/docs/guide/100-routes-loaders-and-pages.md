@@ -58,6 +58,18 @@ Every segment on the route may export one and they merge outermost first, so a p
 
 The storefront's root layout seeds the cart's total, and the header shows it. Nothing passes it down: the header is a component inside the layout's island, the buy button is in the page's, and the number they agree on is the key. [Chapter 102](102-components-the-server-renders.md) is how a component reads and writes it.
 
+## The loader knows the locale
+
+With a `[locales]` section in the configuration, every request has a locale before anything runs: the path prefix, `/fr_FR/about`, then the cookie, then `Accept-Language`, then the default, which serves unprefixed. The prefix is stripped before the route matches, so no route carries a locale segment, and the loader reads `locale` beside `params`. A component reads `useLocale()`, which the build lowers, so the server renders what the browser hydrates against. A link is served as written: `/fr_FR/help` is French, `/help` is whatever the request resolves to.
+
+```ts
+export async function load({ locale, services }: Ctx) {
+  return { copy: await services.content.page({ slug: "help", locale }) };
+}
+```
+
+The ops console picks its language from the settings drawer, two document loads with a prefix each, and the host remembers the choice in a cookie.
+
 ## The page receives what the loader returned
 
 The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `IndexProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.

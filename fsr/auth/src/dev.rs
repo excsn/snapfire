@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use futures_util::future::{ready, BoxFuture};
+use serde::Deserialize;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::Identity;
 
@@ -31,6 +34,53 @@ impl DevProvider {
   pub fn user_with_claims(mut self, name: impl Into<String>, password: impl Into<String>, claims: ValueMap) -> Self {
     self.users.push(DevUser { name: name.into(), password: password.into(), claims });
     self
+  }
+
+  /// The table from a TOML file of `[[users]]` rows, each `name`, `password`
+  /// and an optional `claims` table. A file with no row is an error: a login
+  /// page nobody can pass is a misconfiguration, not an empty provider.
+  pub fn from_toml(login_path: impl Into<String>, path: impl AsRef<Path>) -> Result<Self, String> {
+    let path = path.as_ref();
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: UsersFile = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if file.users.is_empty() {
+      return Err(format!("{}: no [[users]] row", path.display()));
+    }
+    let mut provider = Self::new(login_path);
+    for row in file.users {
+      if row.name.is_empty() {
+        return Err(format!("{}: a [[users]] row has an empty name", path.display()));
+      }
+      let claims = row.claims.into_iter().map(|(k, v)| (k, toml_value(v))).collect();
+      provider = provider.user_with_claims(row.name, row.password, claims);
+    }
+    Ok(provider)
+  }
+}
+
+#[derive(Deserialize)]
+struct UsersFile {
+  #[serde(default)]
+  users: Vec<UserRow>,
+}
+
+#[derive(Deserialize)]
+struct UserRow {
+  name: String,
+  password: String,
+  #[serde(default)]
+  claims: toml::Table,
+}
+
+fn toml_value(value: toml::Value) -> Value {
+  match value {
+    toml::Value::String(s) => Value::Str(s),
+    toml::Value::Integer(i) => Value::int(i),
+    toml::Value::Float(f) => Value::F64(f),
+    toml::Value::Boolean(b) => Value::Bool(b),
+    toml::Value::Datetime(d) => Value::Str(d.to_string()),
+    toml::Value::Array(items) => Value::Seq(items.into_iter().map(toml_value).collect()),
+    toml::Value::Table(table) => Value::Map(table.into_iter().map(|(k, v)| (k, toml_value(v))).collect()),
   }
 }
 

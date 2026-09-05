@@ -755,3 +755,84 @@ h3 {
   font-size: 11px;
   color: var(--ink-mute);
 }
+
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.pill-who {
+  color: var(--ink);
+}
+
+.signout {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.signout:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.signin {
+  display: grid;
+  gap: 12px;
+  max-width: 320px;
+}
+
+.signin label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.signin input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.signin button {
+  height: 32px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.denied {
+  color: var(--bad);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 18px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--ink-soft);
+}
+
+.facts dd {
+  margin: 0;
+  font-family: var(--mono);
+}

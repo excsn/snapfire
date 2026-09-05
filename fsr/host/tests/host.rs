@@ -56,6 +56,8 @@ const PLAN: &str = r#"{
       "body": [ { "return": { "object": [ { "field": [ "greeting", { "template": [ { "lit": { "str": "hi " } }, { "param": "name" }, { "lit": { "str": " via " } }, { "query": "from" } ] } ] } ] } } ] }
   ],
   "actions": [
+    { "id": "index.where", "owner": "lowered", "module": "routes/index/actions.ts",
+      "body": [ { "return": "locale" } ] },
     { "id": "index.bump", "owner": "lowered", "module": "routes/index/actions.ts", "input": "Bump",
       "body": [
         { "session_set": { "key": "count", "value": { "arith": [ "add", { "coalesce": [ { "session": "count" }, { "lit": { "int": 0 } } ] }, { "field": [ "input", "by" ] } ] } } },
@@ -104,7 +106,9 @@ dir = "public"
 }
 
 fn rand_suffix() -> u128 {
-  std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+  static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+  let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  nanos * 1000 + u128::from(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 1000)
 }
 
 fn host() -> (Arc<Host>, Arc<MockTransport>) {
@@ -469,4 +473,403 @@ async fn a_soft_navigation_is_intercepted_when_its_origin_shares_the_declaring_l
   let response = host.handle(Request::get("/feed/photo/3").header("x-sf-from", "/feed").body(Bytes::new()).unwrap()).await;
   let body = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
   assert!(body.contains("<!doctype html>") && !body.contains("page.modal"), "a document is never intercepted: {body}");
+}
+
+fn localised_dir() -> PathBuf {
+  let dir = app_dir();
+  std::fs::write(
+    dir.join("app.toml"),
+    r#"
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:0"
+
+[document]
+title = "Test <app>"
+
+[session]
+key = "test-key"
+ttl = "10m"
+
+[locales]
+supported = ["en_US", "fr_FR", "de"]
+default = "en_US"
+remember = true
+
+[[static]]
+route = "/static"
+dir = "public"
+"#,
+  )
+  .unwrap();
+  dir
+}
+
+fn localised() -> Arc<Host> {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(localised_dir().join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .middleware(|ctx, input| async move {
+      let path = match &input {
+        Value::Map(map) => map.get("path").cloned().unwrap_or(Value::Null),
+        _ => Value::Null,
+      };
+      let mut headers = ValueMap::new();
+      headers.insert("x-locale".to_owned(), Value::Str(ctx.locale.tag.clone()));
+      headers.insert("x-path".to_owned(), path);
+      let mut out = ValueMap::new();
+      out.insert("headers".to_owned(), Value::Map(headers));
+      Ok(Value::Map(out))
+    })
+    .build()
+    .unwrap();
+  Arc::new(host)
+}
+
+async fn body_of(response: http::Response<snapfire_fsr_host::Body>) -> String {
+  String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap()
+}
+
+#[tokio::test]
+async fn a_locale_prefix_is_stripped_and_marks_the_document_and_every_segment() {
+  let host = localised();
+  assert_eq!(host.report.locales, vec!["en_US".to_owned(), "fr_FR".to_owned(), "de".to_owned()]);
+  assert!(host.report.to_string().contains("locales   en_US (default, unprefixed), fr_FR, de"), "{}", host.report);
+
+  let html = host.render_to_string("/fr_FR/hello/norm?from=test", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("<html lang=\"fr-FR\" data-sf-locale=\"fr_FR\">"), "{html}");
+  assert!(html.contains("hi norm via test"), "the route matched without its prefix: {html}");
+  assert!(html.contains("<!--sf-g:shell#document@fr_FR-->"), "{html}");
+  assert!(html.contains("<!--sf-g:routes/hello/page.tsx#default?name=norm&from=test@fr_FR-->"), "{html}");
+  assert!(!html.contains("rel=\"canonical\""), "{html}");
+
+  let html = host.render_to_string("/hello/norm?from=test", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("<html lang=\"en-US\" data-sf-locale=\"en_US\">"), "{html}");
+  assert!(html.contains("<!--sf-g:shell#document-->"), "the default locale leaves the key bare: {html}");
+
+  let html = host.render_to_string("/en-us/hello/norm?from=test", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("<html lang=\"en-US\" data-sf-locale=\"en_US\">"), "the prefix matches whatever its spelling: {html}");
+  assert!(html.contains("<link rel=\"canonical\" href=\"/hello/norm\">"), "a prefixed default locale points at the bare path: {html}");
+  assert!(html.contains("hi norm via test"), "{html}");
+
+  let payload = host.render_to_string("/de/hello/norm", RenderMode::Payload, SessionCell::default()).await.unwrap();
+  assert!(payload.contains("\nL \"de\"\n"), "{payload}");
+
+  assert!(matches!(host.render_to_string("/ja/hello/norm", RenderMode::Html, SessionCell::default()).await, Err(snapfire_fsr_host::HostError::NotFound(_))), "an unsupported prefix is a path");
+}
+
+#[tokio::test]
+async fn the_edge_takes_the_locale_from_the_prefix_the_cookie_then_the_header_and_remembers_a_prefix() {
+  let host = localised();
+
+  let response = host.handle(Request::get("/fr_FR/hello/x?from=y").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("x-locale").unwrap(), "fr_FR", "the middleware reads the locale");
+  assert_eq!(response.headers().get("x-path").unwrap(), "/hello/x", "and the stripped path");
+  let cookies: Vec<String> = response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
+  assert!(cookies.iter().any(|c| c.starts_with("sf_locale=fr_FR; Path=/; Max-Age=")), "the prefix is remembered: {cookies:?}");
+  let html = body_of(response).await;
+  assert!(html.contains("lang=\"fr-FR\""), "{html}");
+
+  let response = host.handle(Request::get("/hello/x?from=y").header(header::COOKIE, "sf_locale=fr_FR").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-locale").unwrap(), "fr_FR", "an unprefixed path follows the cookie");
+  assert!(!response.headers().get_all(header::SET_COOKIE).iter().any(|v| v.to_str().unwrap().starts_with("sf_locale=")), "nothing to remember");
+
+  let response = host.handle(Request::get("/hello/x?from=y").header(header::ACCEPT_LANGUAGE, "ja, de-AT;q=0.8, fr;q=0.5").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-locale").unwrap(), "de", "the header's best supported language");
+
+  let response = host.handle(Request::get("/hello/x?from=y").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-locale").unwrap(), "en_US", "nothing says: the default");
+
+  let response = host.handle(Request::get("/fr_FR/hello/x?from=y").header(header::COOKIE, "sf_locale=fr_FR").body(Bytes::new()).unwrap()).await;
+  assert!(!response.headers().get_all(header::SET_COOKIE).iter().any(|v| v.to_str().unwrap().starts_with("sf_locale=")), "the cookie already holds the prefix's locale");
+
+  let response = host.handle(Request::get("/fr_FR/static/app.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "static roots are never prefixed");
+  let response = host.handle(Request::post("/fr_FR/_sf/action/index.where").body(Bytes::from("{}")).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "nor is the action route");
+}
+
+#[tokio::test]
+async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
+  let host = localised();
+  let response = host.handle(Request::post("/_sf/action/index.where").header("x-sf-from", "/fr_FR/hello/x?from=y").body(Bytes::from("{}")).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(body_of(response).await, "\"fr_FR\"", "the document's prefix");
+
+  let response = host.handle(Request::post("/_sf/action/index.where").header("x-sf-from", "/hello/x").header(header::COOKIE, "sf_locale=de").body(Bytes::from("{}")).unwrap()).await;
+  assert_eq!(body_of(response).await, "\"de\"", "an unprefixed document's cookie");
+
+  let response = host.handle(Request::post("/_sf/action/index.where").body(Bytes::from("{}")).unwrap()).await;
+  assert!(!response.headers().get_all(header::SET_COOKIE).iter().any(|v| v.to_str().unwrap().starts_with("sf_locale=")), "an action never writes the locale cookie");
+  assert_eq!(body_of(response).await, "\"en_US\"", "nothing says: the default");
+
+  let value = host.call_action_in("index.where", SessionCell::default(), host.locales().locale("fr_FR"), Value::Map(ValueMap::new())).await.unwrap();
+  assert_eq!(value, Value::str("fr_FR"));
+  let value = host.call_action("index.where", SessionCell::default(), Value::Map(ValueMap::new())).await.unwrap();
+  assert_eq!(value, Value::str("en_US"));
+}
+
+#[tokio::test]
+async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_directory() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(localised_dir().join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
+  assert!(host.prerenderable().contains(&"/".to_owned()), "{}", host.report);
+
+  let written = host.prerender(&out).await.unwrap();
+  let served: Vec<&str> = written.iter().map(|(p, _)| p.as_str()).collect();
+  for path in ["/", "/fr_FR", "/de"] {
+    assert_eq!(served.iter().filter(|p| **p == path).count(), 2, "a document and a payload for {path}: {served:?}");
+  }
+  assert!(out.join("index.html").is_file());
+  assert!(out.join("fr_FR/index.html").is_file());
+  assert!(out.join("de/index.payload").is_file());
+
+  assert!(host.prerendered("/", RenderMode::Html).unwrap().contains("lang=\"en-US\""));
+  assert!(host.prerendered("/fr_FR", RenderMode::Html).unwrap().contains("lang=\"fr-FR\""));
+  assert!(host.prerendered("/fr-fr/", RenderMode::Html).unwrap().contains("lang=\"fr-FR\""));
+  assert!(host.prerendered("/de", RenderMode::Payload).unwrap().contains("\nL \"de\"\n"));
+  assert_eq!(host.prerendered("/ja", RenderMode::Html), None);
+
+  let response = host.handle(Request::get("/fr_FR").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").unwrap(), "1");
+  assert!(body_of(response).await.contains("lang=\"fr-FR\""));
+  let response = host.handle(Request::get("/").header(header::COOKIE, "sf_locale=de").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").unwrap(), "1");
+  assert!(body_of(response).await.contains("lang=\"de\""), "the cookie picks the prerendered locale");
+  std::fs::remove_dir_all(&out).unwrap();
+}
+
+#[test]
+fn a_bad_locales_section_refuses_to_start() {
+  let dir = app_dir();
+  std::fs::write(
+    dir.join("app.toml"),
+    "[app]\ndir = \".\"\n[session]\nkey = \"k\"\n[locales]\nsupported = [\"en\"]\ndefault = \"fr\"\n",
+  )
+  .unwrap();
+  let err = match Host::from(dir.join("app.toml")).unwrap().build() {
+    Ok(_) => panic!("a default outside the supported locales started"),
+    Err(e) => e.to_string(),
+  };
+  assert!(err.contains("locales.default `fr` is not among locales.supported"), "{err}");
+}
+
+const WHO_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default" } } ] } },
+    { "pattern": "/login", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/login/page.tsx#default" } } ] } },
+    { "pattern": "/who", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/who/page.tsx#default", "source": "who" } } ] } }
+  ],
+  "sources": [
+    { "id": "who", "owner": "lowered", "module": "routes/who/page.loader.ts",
+      "body": [ { "return": { "object": [
+        { "field": [ "subject", { "coalesce": [ { "identity": [ "subject" ] }, { "lit": { "str": "anonymous" } } ] } ] },
+        { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
+  ],
+  "actions": []
+}"#;
+
+const SHOP_OPENAPI: &str = r#"{
+  "openapi": "3.0.3",
+  "info": { "title": "Shop", "version": "1.0.0" },
+  "paths": { "/list": { "get": { "operationId": "list", "responses": { "200": { "description": "the items",
+    "content": { "application/json": { "schema": { "type": "array", "items": { "type": "string" } } } } } } } } }
+}"#;
+
+fn identified_dir(users: &str) -> PathBuf {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("clients")).unwrap();
+  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
+  std::fs::write(dir.join("auth.toml"), users).unwrap();
+  std::fs::write(
+    dir.join("app.toml"),
+    r#"
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:0"
+
+[document]
+title = "Test <app>"
+
+[session]
+key = "test-key"
+ttl = "10m"
+
+[locales]
+supported = ["en_US", "fr_FR"]
+
+[auth]
+provider = "file"
+login = "/login"
+
+[clients.shop]
+base_url = "http://127.0.0.1:1"
+bearer = true
+"#,
+  )
+  .unwrap();
+  dir
+}
+
+const USERS: &str = r#"
+[[users]]
+name = "alice"
+password = "wonder"
+claims = { role = "admin" }
+
+[[users]]
+name = "bob"
+password = "builder"
+"#;
+
+fn identified() -> (Arc<Host>, Arc<MockTransport>) {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(identified_dir(USERS).join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
+  (Arc::new(host), transport)
+}
+
+fn location(response: &http::Response<snapfire_fsr_host::Body>) -> String {
+  response.headers().get(header::LOCATION).expect("a location").to_str().unwrap().to_owned()
+}
+
+fn cookie_of(response: &http::Response<snapfire_fsr_host::Body>) -> String {
+  let set = response.headers().get_all(header::SET_COOKIE).iter().find(|v| v.to_str().unwrap().starts_with("sf_session=")).expect("a session cookie");
+  set.to_str().unwrap().split(';').next().unwrap().to_owned()
+}
+
+fn field(text: &str, name: &str) -> Option<String> {
+  let start = text.find(&format!("\"{name}\":\"")).map(|i| i + name.len() + 4)?;
+  let end = text[start..].find('"').map(|i| start + i)?;
+  Some(text[start..end].to_owned())
+}
+
+#[tokio::test]
+async fn the_login_flow_signs_a_session_in_through_the_file_provider() {
+  let (host, transport) = identified();
+  assert_eq!(host.report.auth, Some(("file".to_owned(), "/login".to_owned())));
+  assert_eq!(host.report.bearer, vec![("shop".to_owned(), "access_token".to_owned())]);
+  let report = host.report.to_string();
+  assert!(report.contains("auth      file, login page /login"), "{report}");
+  assert!(report.contains("bearer    shop                   access_token"), "{report}");
+
+  let response = host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+  let html = body_of(response).await;
+  assert!(html.contains("anonymous"), "{html}");
+  assert!(!html.contains("csrf_token"), "no token before sign-in: {html}");
+  assert_eq!(transport.last_metadata("authorization"), None, "an anonymous call carries no bearer");
+
+  let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/login?return_to=%2Fwho");
+  let cookie = cookie_of(&response);
+
+  let response = host.handle(Request::get("/login?return_to=%2Fwho").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "the login page is the application's route");
+
+  let response = host
+    .handle(
+      Request::post("/auth/callback")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from("user=alice&password=wonder"))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/who");
+
+  let response = host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  let html = body_of(response).await;
+  assert!(html.contains("alice"), "the loader read the identity: {html}");
+  assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer dev-token-alice"), "the loader's call carried the bearer");
+  let token = field(&html, "csrf_token").expect("the token is a prop once signed in");
+  assert!(!html.contains("dev-token-alice"), "custody never renders: {html}");
+
+  let response = host
+    .handle(Request::post("/auth/logout").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("_csrf=nope")).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+  let response = host
+    .handle(
+      Request::post("/auth/logout")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from(format!("_csrf={token}")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/");
+  let expiring = response.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap();
+  assert!(expiring.starts_with("sf_session=;") && expiring.contains("Max-Age=0"), "{expiring}");
+
+  let response = host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  let html = body_of(response).await;
+  assert!(html.contains("anonymous"), "signed out: {html}");
+}
+
+#[tokio::test]
+async fn a_wrong_password_returns_to_the_login_page_and_a_replay_is_invalid() {
+  let (host, _) = identified();
+  let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let callback = |body: &str| Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from(body.to_owned())).unwrap();
+
+  let response = host.handle(callback("user=alice&password=nope")).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/login?error=denied&return_to=%2Fwho");
+
+  let response = host.handle(callback("user=alice&password=wonder")).await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST, "the flow was consumed");
+
+  let response = host.handle(Request::get("/login").header(header::COOKIE, &cookie).header(header::REFERER, "http://localhost/who?x=1").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let response = host.handle(callback("user=alice&password=wonder")).await;
+  assert_eq!(location(&response), "/who?x=1", "the login page reseeded the flow from the referer");
+
+  let response = host.handle(Request::get("/auth/callback?user=bob&password=builder").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST, "a callback with no flow in progress");
+}
+
+#[tokio::test]
+async fn return_to_never_leaves_the_origin_and_the_routes_are_never_prefixed() {
+  let (host, _) = identified();
+  for bad in ["https://evil.example/x", "//evil.example", "evil"] {
+    let response = host.handle(Request::get(format!("/auth/login?return_to={bad}")).body(Bytes::new()).unwrap()).await;
+    assert_eq!(location(&response), "/login?return_to=%2F", "{bad}");
+  }
+  let response = host.handle(Request::get("/auth/login").header(header::REFERER, "http://localhost/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(location(&response), "/login?return_to=%2Fwho");
+
+  let response = host.handle(Request::get("/fr_FR/auth/login").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+  let (plain, _) = self::host();
+  let response = plain.handle(Request::get("/auth/login").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "no section, no routes");
+}
+
+#[test]
+fn the_auth_section_and_the_users_file_are_checked() {
+  let dir = identified_dir("");
+  let err = Host::from(dir.join("app.toml")).unwrap().build().err().expect("an empty table is an error").to_string();
+  assert!(err.contains("no [[users]] row"), "{err}");
+
+  let dir = identified_dir(USERS);
+  std::fs::write(dir.join("app.toml"), std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("provider = \"file\"", "provider = \"oidc\"")).unwrap();
+  let err = Host::from(dir.join("app.toml")).err().expect("an unknown provider is an error").to_string();
+  assert!(err.contains("auth.provider `oidc` is not a provider"), "{err}");
 }

@@ -120,6 +120,7 @@ globalThis.__sf = {
   ctx: (spec) => __sf_ctx(spec),
   use: (id) => __sf_use(id),
   session: (id) => __sf_session(id),
+  locale: (id) => __sf_locale(id),
   calls: (id) => __sf_calls(id),
   render: (module, props) => __sf_render(module, props),
   idle: () => new Promise((r) => idlers.push(r)),

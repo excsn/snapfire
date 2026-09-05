@@ -4808,9 +4808,11 @@ dependencies = [
  "form_urlencoded",
  "futures",
  "futures-util",
+ "serde",
  "snapfire_fsr_core",
  "snapfire_fsr_runtime",
  "snapfire_fsr_session",
+ "toml",
 ]
 
 [[package]]
@@ -4869,6 +4871,7 @@ dependencies = [
  "axum",
  "bytes",
  "c5store",
+ "form_urlencoded",
  "futures",
  "futures-util",
  "http 1.5.0",
@@ -4879,6 +4882,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snapfire_fsr",
+ "snapfire_fsr_auth",
  "snapfire_fsr_core",
  "snapfire_fsr_payload",
  "snapfire_fsr_runtime",

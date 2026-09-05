@@ -256,7 +256,14 @@ impl Run<'_> {
       Some(expr) => Some(self.eval(expr).await.map_err(|f| format!("input: {}", f.message))?),
       None => None,
     };
-    let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), csrf: None, services: handle };
+    let locale = match &mock.locale {
+      Some(expr) => match self.eval(expr).await.map_err(|f| format!("locale: {}", f.message))? {
+        Value::Str(tag) => snapfire_fsr_runtime::Locale::new(tag, false),
+        other => return Err(format!("locale must be a string, got {}", show(&other))),
+      },
+      None => snapfire_fsr_runtime::Locale::new("en", true),
+    };
+    let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
     let mock = MockCtx { ctx, input, transport, written: Vec::new() };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);

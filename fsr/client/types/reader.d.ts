@@ -47,11 +47,13 @@ export interface Payload {
 	seeds: {
 		[key: string]: SfValue;
 	}[];
+	/** The locale the response was rendered in, as the application spells it; null when the server has none. */
+	locale: string | null;
 	resolutions: {
 		slot: number;
 		node: SfNode;
 	}[];
 }
 export declare function decodeNode(row: unknown): SfNode;
-/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H, T and S rows. */
+/** Parses a complete wire response: a V row, the N tree row, the G sidecar, then H, T, L and S rows. */
 export declare function parsePayload(text: string): Payload;

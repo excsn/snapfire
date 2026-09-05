@@ -240,3 +240,26 @@ fn an_action_override_that_names_nothing_refuses_to_start() {
     .unwrap_err();
   assert_eq!(err, BindError::ActionOverridesNothing { id: "checkout".into() });
 }
+
+const IDENTIFIED: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/about", "plan": { "id": 0, "module": "routes/about/page.tsx#default", "source": "about" } },
+    { "pattern": "/account", "plan": { "id": 0, "module": "routes/account/page.tsx#default", "source": "about" } }
+  ],
+  "sources": [
+    { "id": "about", "owner": "lowered", "module": "routes/about/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "About" } } ] } ] } } ] }
+  ],
+  "actions": [],
+  "components": [
+    { "module": "routes/about/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "title" ] } } ] } } } },
+    { "module": "routes/account/page.tsx#default", "body": { "render": { "element": { "tag": "p", "children": [ { "expr": { "field": [ { "field": [ { "var": "$props" }, "identity" ] }, "subject" ] } } ] } } } }
+  ]
+}"#;
+
+#[test]
+fn a_page_reading_its_identity_prop_never_prerenders() {
+  let app = App::from_manifest(IDENTIFIED).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/about".to_owned()], "{}", app.report);
+}

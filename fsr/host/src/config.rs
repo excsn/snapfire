@@ -11,6 +11,7 @@ use c5store::error::ConfigError;
 use c5store::{create_c5store, C5Store, C5StoreOptions};
 use serde::Deserialize;
 
+use crate::locale::LocalesSection;
 use crate::HostError;
 
 /// The host's configuration after loading and inference. `root` is the
@@ -27,6 +28,11 @@ pub struct Config {
   pub cache: Option<CacheSection>,
   pub clients: BTreeMap<String, ClientConfig>,
   pub statics: Vec<StaticRoot>,
+  /// The locales the application serves; absent means one, `en`, with no
+  /// prefix, cookie or header consulted.
+  pub locales: Option<LocalesSection>,
+  /// The identity provider; absent means no login and no `/auth/` routes.
+  pub auth: Option<AuthSection>,
   /// Which settings were inferred rather than written, for the report.
   pub inferred: Vec<String>,
 }
@@ -133,6 +139,48 @@ pub struct ClientConfig {
   #[serde(default)]
   pub document: Option<String>,
   pub base_url: String,
+  /// Which custody entry goes out as a bearer token on this client's calls:
+  /// `true` for `access_token`, a string for another key. Absent, the
+  /// client carries no token.
+  #[serde(default)]
+  pub bearer: Option<BearerKey>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum BearerKey {
+  Toggle(bool),
+  Named(String),
+}
+
+impl BearerKey {
+  /// The custody key, `None` when written as `false`.
+  pub fn key(&self) -> Option<&str> {
+    match self {
+      Self::Toggle(true) => Some("access_token"),
+      Self::Toggle(false) => None,
+      Self::Named(key) => Some(key.as_str()),
+    }
+  }
+}
+
+/// The `[auth]` section: which provider signs users in and where its login
+/// page is. `users` is the `file` provider's table, relative to the
+/// configuration directory and read on its own, never through the ladder.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AuthSection {
+  pub provider: String,
+  #[serde(default = "default_login")]
+  pub login: String,
+  #[serde(default)]
+  pub users: Option<String>,
+}
+
+pub const PROVIDERS: &[&str] = &["file"];
+
+fn default_login() -> String {
+  "/login".to_owned()
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -142,7 +190,7 @@ pub struct StaticRoot {
   pub dir: String,
 }
 
-const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static"];
+const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static", "locales", "auth"];
 
 fn default_app_dir() -> String {
   "app".to_owned()
@@ -331,6 +379,37 @@ impl Config {
       None => Vec::new(),
     };
 
+    let locales: Option<LocalesSection> = if store.path_exists("locales") || !store.key_paths_with_prefix(Some("locales")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["supported", "default", "order", "remember", "cookie"] {
+        if let Some(value) = store.get(&format!("locales.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("locales: {e}")))?)
+    } else {
+      None
+    };
+
+    let auth: Option<AuthSection> = if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["provider", "login", "users"] {
+        if let Some(value) = store.get(&format!("auth.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      let section: AuthSection = serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("auth: {e}")))?;
+      if !PROVIDERS.contains(&section.provider.as_str()) {
+        return Err(HostError::Config(at.clone(), format!("auth.provider `{}` is not a provider; the providers are {}", section.provider, PROVIDERS.join(", "))));
+      }
+      if !section.login.starts_with('/') {
+        return Err(HostError::Config(at.clone(), format!("auth.login `{}` must be a path", section.login)));
+      }
+      Some(section)
+    } else {
+      None
+    };
+
     let root = located.root.clone();
     let app = root.join(&app_section.dir);
     let mut inferred = Vec::new();
@@ -389,12 +468,18 @@ impl Config {
       }
     }
 
-    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, inferred })
+    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, locales, auth, inferred })
   }
 
   /// A path from the file, against the app directory.
   pub fn resolve(&self, relative: &str) -> PathBuf {
     self.app.join(relative)
+  }
+
+  /// The directory the first configuration file came from, which is where
+  /// `auth.users` resolves; the project root when nothing was loaded.
+  pub fn config_dir(&self) -> PathBuf {
+    self.sources.first().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_else(|| self.root.clone())
   }
 
   pub fn session_ttl(&self) -> Result<Duration, HostError> {

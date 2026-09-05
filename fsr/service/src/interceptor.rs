@@ -79,6 +79,8 @@ pub struct CredentialInterceptor {
   credential: String,
   header: String,
   scheme: String,
+  /// The services the credential goes to; every service when empty.
+  services: Vec<String>,
 }
 
 impl CredentialInterceptor {
@@ -87,6 +89,7 @@ impl CredentialInterceptor {
       credential: credential.into(),
       header: "authorization".to_owned(),
       scheme: "Bearer ".to_owned(),
+      services: Vec::new(),
     }
   }
 
@@ -99,12 +102,21 @@ impl CredentialInterceptor {
     self.scheme = scheme.into();
     self
   }
+
+  /// Attaches the credential only on calls to the named services.
+  pub fn only(mut self, services: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    self.services = services.into_iter().map(Into::into).collect();
+    self
+  }
 }
 
 impl Interceptor for CredentialInterceptor {
   fn call(&self, mut call: Call, next: Next) -> BoxFuture<'static, Result<Value, ServiceError>> {
-    if let Some(Value::Str(token)) = call.credentials.get(&self.credential) {
-      call.set_metadata(self.header.clone(), format!("{}{token}", self.scheme));
+    let named = self.services.is_empty() || self.services.iter().any(|s| *s == call.service);
+    if named {
+      if let Some(Value::Str(token)) = call.credentials.get(&self.credential) {
+        call.set_metadata(self.header.clone(), format!("{}{token}", self.scheme));
+      }
     }
     next.run(call)
   }

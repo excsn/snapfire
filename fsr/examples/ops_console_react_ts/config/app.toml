@@ -9,8 +9,18 @@ title = "Ops console"
 key = "ops-console-example-dev-key-not-a-secret"
 ttl = "1h"
 
+[locales]
+supported = ["en_US", "fr_FR"]
+default = "en_US"
+remember = true
+
+[auth]
+provider = "file"
+login = "/login"
+
 [clients.fleet]
 base_url = "http://127.0.0.1:8091"
+bearer = true
 
 [[static]]
 route = "/static/js/fsr"

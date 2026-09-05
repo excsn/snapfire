@@ -33,6 +33,9 @@ impl Hooks for NoHooks {
   fn session(&self, _id: u32) -> Result<String, String> {
     Ok("{}".to_owned())
   }
+  fn locale(&self, _id: u32) -> Result<String, String> {
+    Ok("en".to_owned())
+  }
   fn calls(&self, _id: u32) -> Result<String, String> {
     Ok("[]".to_owned())
   }

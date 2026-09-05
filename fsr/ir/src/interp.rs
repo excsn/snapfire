@@ -140,7 +140,7 @@ pub(crate) enum Flow {
 }
 
 pub(crate) struct Env {
-  ctx: RequestCtx,
+  pub(crate) ctx: RequestCtx,
   input: Value,
   identity: Option<Value>,
   session: ValueMap,
@@ -174,6 +174,15 @@ impl Env {
       .find(|(n, _)| n == name)
       .map(|(_, v)| v.clone())
       .ok_or_else(|| Fail::internal(format!("`{name}` is not bound")))
+  }
+
+  /// The request's locale, or null under a context that has none.
+  fn locale(&self) -> Value {
+    if self.ctx.locale.tag.is_empty() {
+      Value::Null
+    } else {
+      Value::Str(self.ctx.locale.tag.clone())
+    }
   }
 
   fn touch(&mut self, key: &str) {
@@ -311,6 +320,7 @@ impl Env {
       Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Locale => Ok(self.locale()),
       Expr::Identity(path) => {
         let mut current = self.identity.clone().unwrap_or(Value::Null);
         for step in path {
@@ -561,7 +571,8 @@ impl Env {
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
         Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
-      Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
+        Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
+        Expr::Locale => Ok(self.locale()),
         Expr::Identity(path) => {
           let mut current = self.identity.clone().unwrap_or(Value::Null);
           for step in path {

@@ -182,6 +182,7 @@ impl<'a> Inferer<'a> {
         None => Ts::Unknown,
       },
       Expr::Store(_) => Ts::Unknown,
+      Expr::Locale => Ts::Str,
       Expr::Identity(path) => match path.first().map(String::as_str) {
         Some("subject") => Ts::Str,
         _ => Ts::Unknown,

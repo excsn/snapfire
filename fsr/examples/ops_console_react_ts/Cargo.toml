@@ -20,6 +20,9 @@ serde = { version = "1", features = ["derive"] }
 snapfire_fsr_cli = { path = "../../cli" }
 
 [dev-dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
 snapfire_fsr_core = { path = "../../core" }
 snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_service = { path = "../../service" }

@@ -168,3 +168,108 @@ fn nothing_prerenders_under_a_layout_that_reads_the_session() {
   let app = console(fleet());
   assert!(app.report.app.prerenderable.is_empty(), "{:?}", app.report.app.prerenderable);
 }
+
+#[test]
+fn a_prefixed_locale_renders_the_help_page_in_french_and_the_default_is_unprefixed() {
+  let app = console(fleet());
+  assert_eq!(app.report.locales, vec!["en_US".to_owned(), "fr_FR".to_owned()]);
+
+  let french = block_on(app.render_to_string("/fr_FR/help", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(french.contains("<html lang=\"fr-FR\" data-sf-locale=\"fr_FR\">"), "{french}");
+  assert!(french.contains("Comment ça marche"), "{french}");
+  assert!(french.contains("<!--sf-g:routes/help/page.tsx#default@fr_FR-->"), "every segment key carries the locale: {french}");
+  assert!(french.contains("<!--sf-g:routes/layout.tsx#default@fr_FR-->"), "{french}");
+
+  let english = block_on(app.render_to_string("/help", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(english.contains("<html lang=\"en-US\" data-sf-locale=\"en_US\">"), "{english}");
+  assert!(english.contains("How this works"), "{english}");
+  assert!(english.contains("<!--sf-g:routes/help/page.tsx#default-->"), "the default locale leaves the key bare: {english}");
+
+  let prefixed = block_on(app.render_to_string("/en_US/help", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(prefixed.contains("How this works"), "{prefixed}");
+  assert!(prefixed.contains("<link rel=\"canonical\" href=\"/help\">"), "{prefixed}");
+
+  let payload = block_on(app.render_to_string("/fr-fr/help", RenderMode::Payload, SessionCell::default())).unwrap();
+  assert!(payload.contains("\nL \"fr_FR\"\n"), "{payload}");
+  assert!(payload.contains("Comment ça marche"), "{payload}");
+}
+
+#[test]
+fn the_edge_remembers_a_chosen_locale_and_an_action_takes_the_documents() {
+  use bytes::Bytes;
+  use http::{header, Request};
+  let app = console(fleet());
+
+  let response = block_on(app.handle(Request::get("/fr_FR/settings").body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), 200);
+  let cookies: Vec<String> = response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
+  assert!(cookies.iter().any(|c| c.starts_with("sf_locale=fr_FR;")), "{cookies:?}");
+
+  let response = block_on(app.handle(Request::get("/help").header(header::COOKIE, "sf_locale=fr_FR").body(Bytes::new()).unwrap()));
+  let html = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
+  assert!(html.contains("Comment ça marche"), "an unprefixed link keeps the chosen language: {html}");
+
+  let response = block_on(app.handle(Request::get("/help").header(header::ACCEPT_LANGUAGE, "fr-CA, en;q=0.5").body(Bytes::new()).unwrap()));
+  let html = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
+  assert!(html.contains("Comment ça marche"), "the header's language: {html}");
+
+  let session = SessionCell::default();
+  watching(&session, &[]);
+  let mut input = ValueMap::new();
+  input.insert("density".to_owned(), Value::str("compact"));
+  let value = block_on(app.call_action_in("settings.setDensity", session, app.locales().locale("fr_FR"), Value::Map(input))).unwrap();
+  let Value::Map(map) = value else { panic!("a map") };
+  assert_eq!(map.get("density"), Some(&Value::str("compact")));
+}
+
+#[test]
+fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
+  use bytes::Bytes;
+  use http::{header, Request};
+  let transport = fleet();
+  let app = console(transport.clone());
+  assert_eq!(app.report.auth, Some(("file".to_owned(), "/login".to_owned())));
+  assert_eq!(app.report.bearer, vec![("fleet".to_owned(), "access_token".to_owned())]);
+  let location = |response: &http::Response<snapfire_fsr_host::Body>| response.headers().get(header::LOCATION).unwrap().to_str().unwrap().to_owned();
+  let text = |response: http::Response<snapfire_fsr_host::Body>| block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
+
+  let response = block_on(app.handle(Request::get("/account").body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), 307, "the middleware guards the account page");
+  assert_eq!(location(&response), "/auth/login?return_to=/account");
+
+  let response = block_on(app.handle(Request::get("/auth/login?return_to=/account").body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), 303);
+  assert_eq!(location(&response), "/login?return_to=%2Faccount");
+  let cookie = response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap()).find(|v| v.starts_with("sf_session=")).unwrap().split(';').next().unwrap().to_owned();
+
+  let response = block_on(app.handle(Request::get("/login?return_to=%2Faccount").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), 200);
+  let html = text(response);
+  assert!(html.contains("action=\"/auth/callback\""), "{html}");
+  assert!(html.contains("Sign in") && !html.contains("Sign out"), "{html}");
+
+  let response = block_on(app.handle(
+    Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap(),
+  ));
+  assert_eq!(response.status(), 303);
+  assert_eq!(location(&response), "/account");
+
+  let response = block_on(app.handle(Request::get("/account").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), 200);
+  let html = text(response);
+  assert!(html.contains("alice") && html.contains("admin"), "{html}");
+  assert!(html.contains("Sign out"), "the header shows the session: {html}");
+  assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer dev-token-alice"), "the loader's fleet call carried the token");
+  let start = html.find("name=\"_csrf\" value=\"").map(|i| i + 20).expect("the sign-out form carries the token");
+  let token = &html[start..start + html[start..].find('"').unwrap()];
+  assert!(!token.is_empty());
+
+  let response = block_on(app.handle(
+    Request::post("/auth/logout").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from(format!("_csrf={token}"))).unwrap(),
+  ));
+  assert_eq!(response.status(), 303);
+  assert_eq!(location(&response), "/");
+
+  let response = block_on(app.handle(Request::get("/account").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), 307, "signed out, the guard is back");
+}

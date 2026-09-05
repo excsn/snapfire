@@ -57,14 +57,20 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [adopt](#adopt)
   * [reset](#reset)
   * [snapshot](#snapshot)
-* [9. The React Mounter](#9-the-react-mounter)
+* [9. The Locale](#9-the-locale)
+  * [currentLocale](#currentlocale)
+  * [subscribeLocale](#subscribelocale)
+  * [setLocale](#setlocale)
+  * [adoptLocale](#adoptlocale)
+* [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
   * [Island](#island)
   * [island](#island-1)
   * [Slot](#slot)
   * [useStore](#usestore)
+  * [useLocale](#uselocale)
   * [Link](#link)
-* [10. Error Handling](#10-error-handling)
+* [11. Error Handling](#11-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
@@ -75,8 +81,8 @@ Two ES module entry points, resolved through an import map. There is no package 
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
-| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 8, plus `ActionFailure` | none |
-| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore` and the placement elements | `react`, `react-dom/client` |
+| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure` | none |
+| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React.
@@ -200,6 +206,7 @@ A parsed response.
 * `segments: Segment | null`, the `G` row when the response carried one.
 * `heads: Head[]`, the `H` rows in arrival order: the eager wave's, then one per resolution that described the document.
 * `seeds: { [key: string]: SfValue }[]`, the `T` rows in arrival order, each already decoded.
+* `locale: string | null`, the `L` row, the locale the response was rendered in as the application spells it; `null` when the server sent none.
 * `resolutions: { slot: number; node: SfNode }[]`, the `S` rows in arrival order.
 
 ### Head
@@ -216,7 +223,7 @@ Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m,
 
 * `parsePayload(text: string): Payload`
 
-Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H`, `T` or `S`. Throws when no `N` row was present.
+Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H`, `T`, `L` or `S`. Throws when no `N` row was present.
 
 ### Row Grammar
 
@@ -229,6 +236,7 @@ Each row is a tag character, a space, then its body, terminated by a newline.
 | `G` | one segment object | The segment sidecar |
 | `H` | `{"title":…,"description":…}` | What the route says about the document |
 | `T` | an encoded value map | The store keys the route seeded |
+| `L` | a JSON string | The locale the response was rendered in |
 | `S` | slot id, a space, then a node row | One resolved slot |
 
 `S` rows arrive in completion order, not slot order; a resolution may introduce further slots that arrive later in the same stream.
@@ -470,7 +478,35 @@ Forgets every key and notifies nobody, which is what a new document calls for: t
 
 Every key the store holds, for a test or a debugger.
 
-## 9. The React Mounter
+## 9. The Locale
+
+The document's locale as the application spells it, `fr_FR` or `fr`. The server writes it on the document as `<html lang="fr-FR" data-sf-locale="fr_FR">` and into every payload as an `L` row; `boot` adopts the attribute and a navigation applies the row.
+
+### currentLocale
+
+* `currentLocale(): string`
+
+The locale the document is in; an empty string before any document said.
+
+### subscribeLocale
+
+* `subscribeLocale(listener: (tag: string) => void): () => void`
+
+Calls `listener` whenever the locale changes. The returned function stops it.
+
+### setLocale
+
+* `setLocale(tag: string): void`
+
+Makes `tag` the document's locale: `<html lang>` in BCP 47 spelling, `data-sf-locale` as written, every listener told. The same tag again does nothing. The navigator calls it with each payload's `L` row.
+
+### adoptLocale
+
+* `adoptLocale(): void`
+
+Reads `data-sf-locale` off the document element and sets it. Nothing written leaves the current locale. `boot` calls it before the first scan, so an island reading the locale hydrates against what the server rendered.
+
+## 10. The React Mounter
 
 Its own entry point, so the core package never imports React.
 
@@ -510,6 +546,12 @@ A store key as component state, over `useSyncExternalStore`. Reads the store's v
 
 The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback, which is why a seeded key hydrates without a flash. The setter is dropped by lowering, like any handler.
 
+### useLocale
+
+* `useLocale(): string`
+
+The document's locale, re-rendering the island when a navigation changes it. The build lowers the call, so the server renders the same value the browser adopts.
+
 ### Link
 
 * `function Link({ full, into, prefetch, native, ...rest }: LinkProps): ReactElement`
@@ -525,7 +567,7 @@ Calls `render` on the root the mounter returned with `createElement(component, p
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 
-## 10. Error Handling
+## 11. Error Handling
 
 ### ActionFailure
 
