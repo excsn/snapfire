@@ -68,7 +68,7 @@ The serialized shape of a `PlanNode`. Every optional field is absent from the fi
 * `Node::from_plan(plan: &PlanNode) -> Self`
 * `module`, `fallback` and `error` are module ids, `path#export`; `Manifest::routes` refuses any other spelling.
 
-A layout is an ordinary node whose page sits in the slot `content`; the build nests the page under every layout on its path, and a parallel slot under `slots/<name>/` beside the layout is a further child in the slot `<name>`. A slot the node has no child for renders nothing.
+A layout is an ordinary node whose page sits in the slot `content`; the build nests the page under every layout on its path, and a parallel slot under `slots/<name>/` beside the layout is a further child in the slot `<name>`. A slot the node has no child for renders nothing, or the fallback the layout placed with it: the runtime hands a node with children or `keep` a `$slots` prop naming both, which the lowered placement reads and the IR evaluator strips before the node reaches the wire.
 
 ### Child
 

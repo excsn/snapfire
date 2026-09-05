@@ -328,17 +328,23 @@ impl Host {
     Some((plan, matched.params))
   }
 
-  /// The intercept a soft navigation to `path` renders: the route's
-  /// `page.<slot>.tsx` plan when the navigation comes `from` a route whose
-  /// layouts reach the layout declaring the slot, or when `into` names that
-  /// slot outright. `path` and `from` are paths without their query.
+  /// The intercept a soft navigation to `path` renders: of the route's
+  /// `page.<slot>.tsx` plans, in file order, the first whose slot `into`
+  /// names, or, without `into`, the first whose layouts the route of `from`
+  /// reaches down to the one declaring its slot. `path` and `from` are paths
+  /// without their query.
   pub fn intercept_for(&self, path: &str, from: Option<&str>, into: Option<&str>) -> Option<(PlanNode, Params)> {
-    let (plan, params) = self.app.intercepts.plan_for(path)?;
-    let applies = match into {
-      Some(slot) => intercept_slot(&plan).as_deref() == Some(slot),
-      None => from.and_then(|from| self.plan_for(from)).is_some_and(|(from_plan, _)| shares_layouts(&plan, &from_plan)),
+    let (plans, params) = self.app.intercepts.plans_for(path)?;
+    let from_plan = match into {
+      Some(_) => None,
+      None => Some(self.plan_for(from?)?.0),
     };
-    applies.then_some((plan, params))
+    let chosen = plans.into_iter().find(|plan| match (into, &from_plan) {
+      (Some(slot), _) => intercept_slot(plan).as_deref() == Some(slot),
+      (None, Some(from_plan)) => shares_layouts(plan, from_plan),
+      (None, None) => false,
+    })?;
+    Some((chosen, params))
   }
 
   /// The payload for a soft navigation to `path` from `from`: the intercept

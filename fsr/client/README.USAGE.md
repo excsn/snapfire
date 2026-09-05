@@ -207,7 +207,7 @@ export default function Layout({ cartCount, children, promo }: LayoutProps & { c
 }
 ```
 
-Both are `<sf-s data-sf-name>` regions in the server's markup, which the layout's root adopts and never reconciles, the way it adopts `children`. Navigation fills and empties them: a soft navigation to a route with a `page.modal.tsx` writes the variant into the `modal` region of the nearest live layout that declares it and leaves the page alone, and the navigation away empties it again. A document load renders the page, never the variant. The promo keeps its DOM across every page under the layout, since its key never changes.
+Both are `<sf-s data-sf-name>` regions in the server's markup, which the layout's root adopts and never reconciles, the way it adopts `children`. Children of `Slot`, or `{promo ?? <p>…</p>}` for the prop form, are the fallback the region shows while nothing fills it, rendered by the server and put back when a navigation empties the slot. Navigation fills and empties them: a soft navigation to a route with a `page.modal.tsx` writes the variant into the `modal` region of the nearest live layout that declares it and leaves the page alone, and the navigation away empties it again. A document load renders the page, never the variant. The promo keeps its DOM across every page under the layout, since its key never changes.
 
 The navigator sends the document's path with every soft request, which is how the server knows an intercept applies. A link says otherwise with `Link`:
 

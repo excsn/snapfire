@@ -537,6 +537,22 @@ mod tests {
   }
 
   #[test]
+  fn a_slot_placement_shows_its_fallback_until_the_plan_fills_it() {
+    let filled = Expr::Builtin { name: Builtin::Includes, args: vec![Expr::Coalesce(Box::new(Expr::Var("$props".to_owned()).field("$slots")), Box::new(Expr::Array(Vec::new()))), Expr::lit_str("modal")] };
+    let component = Component {
+      body: Vec::new(),
+      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] },
+    };
+    let render = |props: ValueMap| Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
+    assert_eq!(render(ValueMap::new()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
+    let mut props = ValueMap::new();
+    props.insert("$slots".to_owned(), Value::Seq(vec![Value::str("content")]));
+    assert_eq!(render(props.clone()), "<sf-s>closed</sf-s>");
+    props.insert("$slots".to_owned(), Value::Seq(vec![Value::str("content"), Value::str("modal")]));
+    assert_eq!(render(props), format!("<sf-s>{}</sf-s>", slot_mark("modal")));
+  }
+
+  #[test]
   fn builtins_follow_javascript() {
     let cases: Vec<(Expr, &str)> = vec![
       (Expr::Builtin { name: Builtin::ToFixed, args: vec![Expr::Lit(Lit::Float(24.0)), Expr::Lit(Lit::Float(2.0))] }, "24.00"),

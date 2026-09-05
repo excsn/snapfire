@@ -82,10 +82,14 @@ function pendingOf(node: SfNode, slot: number): SfNode | null {
   return null;
 }
 
-/** Empties what an old child segment occupies: its delimited region, delimiters included, or, while it is still streaming, its slot element. The `<sf-s>` around it stays for the next fill. */
+/** What a named slot held before navigation first filled it: its fallback, or nothing. Emptying the slot puts it back. */
+const fallbacks = new WeakMap<Element, string>();
+
+/** Empties what an old child segment occupies: its delimited region, delimiters included, or, while it is still streaming, its slot element. The `<sf-s>` around it stays for the next fill, holding its fallback again. */
 function removeChild(old: Segment): boolean {
   const region = findRegion(old.k);
   if (region) {
+    const parent = region.start.parentNode;
     let node: Node | null = region.start;
     while (node) {
       const next: Node | null = node.nextSibling;
@@ -93,6 +97,7 @@ function removeChild(old: Segment): boolean {
       if (node === region.end) break;
       node = next;
     }
+    if (parent instanceof Element && parent.hasAttribute("data-sf-name")) parent.innerHTML = fallbacks.get(parent) ?? "";
     return true;
   }
   if (old.s === undefined) return false;
@@ -189,6 +194,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
       const region = findRegion(newSeg.k);
       const slot = region && newChild.n !== undefined ? namedSlotOf(region, newChild.n) : null;
       if (!slot) return false;
+      if (!fallbacks.has(slot)) fallbacks.set(slot, slot.innerHTML);
       if (newChild.s !== undefined) {
         const pending = pendingOf(newNode, newChild.s);
         if (!pending) return false;

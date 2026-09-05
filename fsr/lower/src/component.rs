@@ -540,6 +540,19 @@ impl ComponentLowerer<'_, '_> {
     }
   }
 
+  /// A named slot with the markup to show while the plan leaves it unfilled:
+  /// the region holds the segment when `$props.$slots` names the slot and
+  /// the fallback otherwise.
+  fn slot_with_fallback(&self, name: &str, fallback: Vec<Tmpl>) -> Tmpl {
+    let filled = Expr::Builtin {
+      name: Builtin::Includes,
+      args: vec![Expr::Coalesce(Box::new(Expr::Var("$props".to_owned()).field("$slots")), Box::new(Expr::Array(Vec::new()))), Expr::lit_str(name)],
+    };
+    let inner = Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot(name.to_owned())), r#else: Some(Box::new(Tmpl::Fragment(fallback))) };
+    let attrs = if name == "content" { Vec::new() } else { vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str(name))] };
+    Tmpl::Element { tag: "sf-s".to_owned(), attrs, children: vec![inner] }
+  }
+
   /// The slot an expression stands for: `children` or `props.children` is
   /// `content`; in a layout, a prop named after one of its slots is that slot.
   fn slot_of_expr(&self, expr: &js::Expr) -> Option<String> {
@@ -752,6 +765,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let r#else = Some(Box::new(self.child_expr(&c.alt)?));
         Ok(Tmpl::If { cond, then, r#else })
       }
+      js::Expr::Bin(bin) if bin.op == js::BinaryOp::NullishCoalescing && self.layout_root && self.slot_of_expr(&bin.left).is_some() => {
+        let name = self.slot_of_expr(&bin.left).expect("checked by the guard");
+        let fallback = self.child_expr(&bin.right)?;
+        Ok(self.slot_with_fallback(&name, vec![fallback]))
+      }
       js::Expr::Bin(bin) if bin.op == js::BinaryOp::LogicalAnd && holds_jsx(&bin.right) => {
         let cond = self.lowerer.expr(&bin.left)?;
         let then = Box::new(self.child_expr(&bin.right)?);
@@ -928,14 +946,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     }
     let Some(name) = name else { return Err(self.lowerer.residue(el.span, "`<Slot>` needs a `name`")) };
-    let has_children = el.children.iter().any(|c| match c {
-      js::JSXElementChild::JSXText(text) => !jsx_text(&text.value.to_atom_lossy()).is_empty(),
-      _ => true,
-    });
-    if has_children {
-      return Err(self.lowerer.residue(el.span, "children on `<Slot>`; a slot is filled by a route"));
+    let fallback = self.children(&el.children)?;
+    if fallback.is_empty() {
+      return Ok(self.slot(&name));
     }
-    Ok(self.slot(&name))
+    Ok(self.slot_with_fallback(&name, fallback))
   }
 
   /// `<Link href="/x" full into="modal" prefetch="none">` from the client
@@ -1512,15 +1527,35 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
-  fn a_slot_outside_a_layout_or_with_children_is_residue() {
+  fn a_slot_outside_a_layout_is_residue() {
     let page = [("routes/a/page.tsx", "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <Slot name=\"x\" />;\n}\n")];
     let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("outside a layout"), "{err}");
-    let filled = [("routes/layout.tsx", "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function L() {\n  return <Slot name=\"x\"><p>fallback</p></Slot>;\n}\n")];
-    let mut set = ComponentSet::new(&app(&filled));
+  }
+
+  #[test]
+  fn a_slot_placement_carries_its_fallback_by_element_and_by_prop() {
+    let files = [(
+      "routes/layout.tsx",
+      "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function L({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed ?? <p>no feed</p>}<Slot name=\"modal\"><p>closed</p></Slot></div>;\n}\n",
+    )];
+    let mut set = ComponentSet::new(&app(&files));
     set.layouts.push("routes/layout.tsx#default".to_owned());
-    let err = set.lower("routes/layout.tsx#default").unwrap_err().to_string();
-    assert!(err.contains("children on `<Slot>`"), "{err}");
+    set.slots.push(("routes/layout.tsx#default".to_owned(), vec!["feed".to_owned()]));
+    set.lower("routes/layout.tsx#default").unwrap();
+    let Tmpl::Element { children, .. } = &set.components[0].1.render else { panic!() };
+    for (child, name, text) in [(&children[1], "feed", "no feed"), (&children[2], "modal", "closed")] {
+      let Tmpl::Element { tag, attrs, children: inner } = child else { panic!("{child:?}") };
+      assert_eq!(tag, "sf-s");
+      assert_eq!(attrs, &vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str(name))]);
+      let Tmpl::If { cond, then, r#else } = &inner[0] else { panic!("{:?}", inner[0]) };
+      assert!(matches!(cond, Expr::Builtin { name: Builtin::Includes, args } if args[1] == Expr::lit_str(name)), "{cond:?}");
+      assert_eq!(**then, Tmpl::Slot(name.to_owned()));
+      let Some(fallback) = r#else else { panic!() };
+      let Tmpl::Fragment(items) = &**fallback else { panic!("{fallback:?}") };
+      let Tmpl::Element { children: p, .. } = &items[0] else { panic!("{:?}", items[0]) };
+      assert_eq!(p, &vec![Tmpl::Text(text.to_owned())]);
+    }
   }
 
   #[test]
