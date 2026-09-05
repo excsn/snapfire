@@ -2,7 +2,8 @@ import type { ReactElement } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { boot, registeredIslands } from "./boot.js";
-import { clearRouterCache, enableNavigation } from "./navigator.js";
+import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
+import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 /** What `fsr test` installs before a spec file loads. */
@@ -120,13 +121,18 @@ export class AssertionError extends Error {
 }
 
 /** Values the way a test reads them: `1n` and `1` stay distinct, strings are quoted. */
-export function show(value: unknown): string {
+export function show(value: unknown, depth = 0): string {
   if (typeof value === "bigint") return `${value}n`;
   if (typeof value === "string") return JSON.stringify(value);
   if (value === null || typeof value !== "object") return String(value);
-  if (Array.isArray(value)) return `[${value.map(show).join(", ")}]`;
+  if (typeof (value as { nodeType?: unknown }).nodeType === "number") {
+    const el = value as { nodeName: string; id?: string; className?: unknown };
+    return `<${el.nodeName.toLowerCase()}${el.id ? `#${el.id}` : ""}${typeof el.className === "string" && el.className ? `.${el.className.split(" ").join(".")}` : ""}>`;
+  }
+  if (depth > 6) return "…";
+  if (Array.isArray(value)) return `[${value.map((v) => show(v, depth + 1)).join(", ")}]`;
   if (value instanceof Uint8Array) return `Uint8Array(${value.length})`;
-  const entries = Object.entries(value as Record<string, unknown>).map(([k, v]) => `${JSON.stringify(k)}: ${show(v)}`);
+  const entries = Object.entries(value as Record<string, unknown>).map(([k, v]) => `${JSON.stringify(k)}: ${show(v, depth + 1)}`);
   return `{ ${entries.join(", ")} }`;
 }
 
@@ -244,10 +250,34 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
   sf().load(html, path);
   clearRouterCache();
+  reset();
+  const late = applyFills();
   boot();
   enableNavigation();
+  for (const run of late) run();
   await settle();
   return { status: res.status, path };
+}
+
+/** What a browser's script engine does with a streamed document: moves each resolved template into its slot, and returns what its fill script would have said about the head and the store, to run once the document's own seed is in. linkedom runs no scripts, so the runner does this by hand. */
+function applyFills(): (() => void)[] {
+  const late: (() => void)[] = [];
+  for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))) {
+    const id = template.getAttribute("data-sf-fill");
+    const slot = document.querySelector(`[data-sf-slot="${id}"]`);
+    const script = template.nextElementSibling;
+    if (slot) slot.replaceWith((template as HTMLTemplateElement).content);
+    template.remove();
+    if (script?.tagName !== "SCRIPT" || !script.textContent?.startsWith("__sfFill(")) continue;
+    for (const call of script.textContent.split(";__sf").slice(1)) {
+      const open = call.indexOf("(");
+      const body = call.slice(open + 1, call.lastIndexOf(")"));
+      if (call.startsWith("Head(")) late.push(() => applyHead(JSON.parse(body)));
+      if (call.startsWith("Store(")) late.push(() => seed(decodeValue(JSON.parse(body)) as { [key: string]: SfValue }));
+    }
+    script.remove();
+  }
+  return late;
 }
 
 type Matcher = string | RegExp;

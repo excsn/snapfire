@@ -818,9 +818,11 @@ fn json_response(status: StatusCode, json: &serde_json::Value) -> Response<Body>
 }
 
 /// The slot an intercept plan fills: the child of the node that keeps the
-/// page which the plan fills instead.
+/// page which the plan fills instead. A node that keeps other slots but still
+/// fills its own `content` is a layout on the way down, not the one declaring
+/// the slot, so the walk continues through it.
 fn intercept_slot(plan: &PlanNode) -> Option<String> {
-  if !plan.keep.is_empty() {
+  if plan.keep.iter().any(|name| name.0 == "content") {
     return plan.children.iter().find(|(name, _)| !plan.keep.contains(name)).map(|(name, _)| name.0.clone());
   }
   plan.children.iter().find_map(|(_, child)| intercept_slot(child))
@@ -832,7 +834,7 @@ fn shares_layouts(intercept: &PlanNode, from: &PlanNode) -> bool {
   if intercept.module != from.module {
     return false;
   }
-  if !intercept.keep.is_empty() {
+  if intercept.keep.iter().any(|name| name.0 == "content") {
     return true;
   }
   let next = intercept.children.iter().find(|(name, _)| name.0 == "content");

@@ -27,6 +27,15 @@ const PLAN: &str = r#"{
     { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
       { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "children": [
         { "slot": "content", "node": { "id": 2, "module": "routes/feed/photo/page.tsx#default" } } ] } } ] } }
+    ,
+    { "pattern": "/deck", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "children": [
+          { "slot": "content", "node": { "id": 3, "module": "routes/deck/page.tsx#default" } } ] } } ] } } ] } },
+    { "pattern": "/deck/card/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "children": [
+          { "slot": "content", "node": { "id": 3, "module": "routes/deck/card/page.tsx#default" } } ] } } ] } } ] } }
   ],
   "intercepts": [
     { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
@@ -34,7 +43,11 @@ const PLAN: &str = r#"{
         { "slot": "modal", "node": { "id": 2, "module": "routes/feed/photo/page.modal.tsx#default" } } ] } } ] } },
     { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
       { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "keep": ["content", "modal"], "children": [
-        { "slot": "drawer", "node": { "id": 2, "module": "routes/feed/photo/page.drawer.tsx#default" } } ] } } ] } }
+        { "slot": "drawer", "node": { "id": 2, "module": "routes/feed/photo/page.drawer.tsx#default" } } ] } } ] } },
+    { "pattern": "/deck/card/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "keep": ["side"], "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "keep": ["content"], "children": [
+          { "slot": "peek", "node": { "id": 3, "module": "routes/deck/card/page.peek.tsx#default" } } ] } } ] } } ] } }
   ],
   "sources": [
     { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
@@ -433,6 +446,12 @@ async fn a_soft_navigation_is_intercepted_when_its_origin_shares_the_declaring_l
   let (first, _) = host.intercept_for("/feed/photo/3", Some("/feed"), None).unwrap();
   assert_eq!(first.children[0].1.children[0].0 .0, "modal", "without `into`, the first variant whose layout the origin shares");
   assert!(host.intercept_for("/feed", Some("/feed"), None).is_none(), "a route without a variant");
+
+  let (peek, _) = host.intercept_for("/deck/card/3", None, Some("peek")).expect("a slot a nested layout declares");
+  assert_eq!(peek.children[0].1.children[0].1.children[0].0 .0, "peek");
+  assert!(host.intercept_for("/deck/card/3", Some("/deck"), None).is_some(), "the origin shares both layouts down to the declaring one");
+  assert!(host.intercept_for("/deck/card/3", Some("/"), None).is_none(), "the index shares neither");
+  assert!(host.intercept_for("/deck/card/3", None, Some("content")).is_none(), "the layout on the way down is not the declaring one");
 
   let payload = host.render_navigation_to_string("/feed/photo/3", Some("/feed"), None, SessionCell::default()).await.unwrap();
   let sidecar = payload.lines().find(|l| l.starts_with("G ")).unwrap();

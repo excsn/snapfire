@@ -69,6 +69,11 @@ export function clear<T>(k: StoreKey<T>): void {
   notify(k);
 }
 
+/** Forgets every key without telling anyone, which is what a new document calls for: the listeners of the old one are gone with its roots, and the derived keys stay registered for the next seed to feed. */
+export function reset(): void {
+  values.clear();
+}
+
 /** Every key the store holds, for a test or a debugger. */
 export function snapshot(): { [key: string]: unknown } {
   return Object.fromEntries(values);
@@ -88,7 +93,7 @@ export function subscribe(k: StoreKey<unknown> | string, listener: StoreListener
   };
 }
 
-/** Runs `work` with notifications collapsed: a listener hears once per key however many times it was written. Nested calls defer to the outermost. */
+/** Runs `work` with notifications collapsed: a listener hears once per key however many times it was written. Nested calls defer to the outermost. A `work` that throws still notifies what it wrote, since the writes stay in the store. */
 export function transaction(work: () => void): void {
   if (depth > 0) {
     work();
@@ -102,8 +107,8 @@ export function transaction(work: () => void): void {
   } finally {
     depth = 0;
     dirtied = null;
+    for (const k of own) dispatch(k);
   }
-  for (const k of own) dispatch(k);
 }
 
 /** A key computed from others, recomputed whenever one of them changes. */

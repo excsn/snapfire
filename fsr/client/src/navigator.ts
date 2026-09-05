@@ -220,7 +220,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
 
 /** The slot an intercepted payload fills: the child, of the segment that keeps its page, that is not kept. */
 function interceptSlot(seg: Segment): string | null {
-  if (seg.keep && seg.keep.length > 0) {
+  if (seg.keep?.includes("content")) {
     return seg.c.find((c) => c.n !== undefined && !seg.keep?.includes(c.n))?.n ?? null;
   }
   for (const child of seg.c) {

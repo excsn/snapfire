@@ -96,6 +96,8 @@ test("a click from the catalog to the cart swaps the page and keeps the document
 });
 ```
 
+A route with a `loading.tsx` reaches a browser as a stream, and `load` reads it whole: each resolved template is moved into its slot before the islands mount, and what the fill script would have said about the title and the store is applied once the document's own seed is in, so a spec sees the resolved page, the retitled document and the seeded keys, never the skeleton. The store is emptied before every `load`, the way a full load empties it in a browser, so a key one test wrote cannot leak into the next test's hydration. What `load` does not do is run the application's entry module: `src/main.ts` and whatever it wires, a `derive`, a listener, a global, are the browser's, and a spec sees a derived key only as the server seeded it. A mock returns what the contract says, and one thing it cannot spell: an integral value for a `number` field, since `0` encodes as an integer and the contract refuses an integer where a double is declared, so a mock writes `0.5` where the backend would write `0.0`.
+
 ## Route tests are the other layer
 
 A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, nineteen tests over a mock transport that assert on the HTML a route renders, the chunks a deferred route streams and the props it ships. They are Rust because they assert on the host; an application with no Rust project gets the document half of that from `load` in a spec. The two layers are enough: a body test says a loader produces these props from these responses; a route test says a URL produces this document from these props.

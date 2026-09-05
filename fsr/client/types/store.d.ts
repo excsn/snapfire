@@ -12,13 +12,15 @@ export declare function get<T>(k: StoreKey<T>): T | undefined;
 export declare function set<T>(k: StoreKey<T>, value: T): void;
 /** Forgets the key, as though nothing had ever set it. */
 export declare function clear<T>(k: StoreKey<T>): void;
+/** Forgets every key without telling anyone, which is what a new document calls for: the listeners of the old one are gone with its roots, and the derived keys stay registered for the next seed to feed. */
+export declare function reset(): void;
 /** Every key the store holds, for a test or a debugger. */
 export declare function snapshot(): {
 	[key: string]: unknown;
 };
 /** Calls `listener` whenever the key changes; the returned function stops it. */
 export declare function subscribe(k: StoreKey<unknown> | string, listener: StoreListener): () => void;
-/** Runs `work` with notifications collapsed: a listener hears once per key however many times it was written. Nested calls defer to the outermost. */
+/** Runs `work` with notifications collapsed: a listener hears once per key however many times it was written. Nested calls defer to the outermost. A `work` that throws still notifies what it wrote, since the writes stay in the store. */
 export declare function transaction(work: () => void): void;
 /** A key computed from others, recomputed whenever one of them changes. */
 export declare function derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[] | string[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void;
