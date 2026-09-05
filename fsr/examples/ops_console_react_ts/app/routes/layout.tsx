@@ -10,7 +10,7 @@ export default function Layout({ children, alerts, identity, csrf_token }: { chi
       <Header identity={identity} csrfToken={csrf_token} />
       <div className="shell">
         <main className="shell-main">{children}</main>
-        <aside className="shell-side">{alerts ?? <p className="quiet">Nothing is on fire.</p>}</aside>
+        <aside className="shell-side">{alerts}</aside>
       </div>
       <Slot name="drawer">
         <p className="drawer-hint">Settings open here.</p>
