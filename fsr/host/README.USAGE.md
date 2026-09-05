@@ -20,6 +20,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Caching Service Answers](#caching-service-answers)
+* [Reloading the Application in Place](#reloading-the-application-in-place)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
@@ -53,7 +54,7 @@ use snapfire_fsr_host::Host;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
   let host = Host::from_cwd().and_then(|b| b.build()).map_err(std::io::Error::other)?;
-  print!("{}", host.report);
+  print!("{}", host.report());
   let listen = host.listen().to_owned();
   Arc::new(host).serve(&listen).await
 }
@@ -284,7 +285,7 @@ assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction
 A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads, and so does a page or layout reading its `identity` or `csrf_token` prop, since a render for nobody cannot supply them. A route that reads only the locale still qualifies: that is what the render per locale is for.
 
 ```rust
-let written = host.prerender(&host.report.prerender.clone().unwrap()).await?;
+let written = host.prerender(&host.report().prerender.clone().unwrap()).await?;
 for (pattern, file) in written {
   println!("{pattern} -> {}", file.display());
 }
@@ -493,9 +494,23 @@ services  fleet                  mock        clients/fleet.mock.json
 
 `base_url` may be left out of a mock client; every other client needs one. A `transport` other than `mock` is a configuration error.
 
+## Reloading the Application in Place
+
+Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them through the reloader the builder was given, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload, and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone.
+
+```rust
+let host = Host::from(".")?
+  .reloader(|| Host::from(".").map(|b| b.source_override("catalog", catalog)))
+  .build()?;
+let report = host.reload()?;
+print!("{report}");
+```
+
+The reloader is a builder for the application as it now stands, with whatever the first builder added in Rust added again. `fsr serve` sets one that rereads the project, and `fsr dev` asks for it after a change to the generated files instead of restarting the process. A Rust host with no reloader is reloaded with a builder it made itself, `reload_with`.
+
 ## Refreshing the Browser in Development
 
-In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream, and `POST /__fsr/changed` tells every open document that something changed. `fsr dev` posts it after a rebundle that did not restart the server; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
+In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream, and `POST /__fsr/changed` tells every open document that something changed. `POST /__fsr/reload` calls `reload` and answers with the new report, or the error. `fsr dev` posts `changed` after a rebundle and `reload` after a change to the generated files; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
 
 ```rust
 host.changed();
@@ -507,7 +522,7 @@ Every event names the bundle the server sees now, a hash over the modules `dist/
 
 ## Reading the Report
 
-`Host::report` is the application's report plus the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
+`Host::report` is the application's report as of the last reload, plus the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
 
 ```
 routes    /                      plan file
@@ -527,7 +542,7 @@ inferred  static /static/js/app from dist/.snapfire-build.json
 
 ## Error Handling
 
-`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches.
+`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches, `Leak` a bundle under `dist/` carrying a loader, an actions module, a handler or the middleware, or importing one, each named with its reason.
 
 ```rust
 use snapfire_fsr_host::HostError;

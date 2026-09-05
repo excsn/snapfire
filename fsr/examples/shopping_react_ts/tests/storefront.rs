@@ -609,5 +609,5 @@ fn the_promo_slot_renders_beside_the_page_from_its_own_loader() {
   assert!(html.contains("Snacks at the counter"), "{html}");
   assert!(html.contains("\"n\":\"promo\""), "the sidecar names it: {html}");
   assert_eq!(transport.calls().iter().filter(|(name, _, _)| name.ends_with("listProducts")).count(), 2, "the catalog's loader and the promo's each ran once");
-  assert!(host.report.to_string().contains("layout.promo"), "{}", host.report);
+  assert!(host.report().to_string().contains("layout.promo"), "{}", host.report());
 }

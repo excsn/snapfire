@@ -11,7 +11,7 @@ async fn main() -> std::io::Result<()> {
     .map_err(|e| eprintln!("logging disabled: {e}"))
     .ok();
   let host = Arc::new(build(Duration::from_millis(1500)).map_err(std::io::Error::other)?);
-  print!("{}", host.report);
+  print!("{}", host.report());
   println!("advanced_tera_app on http://{}/dash/servers and /slow/servers", host.listen());
   let listen = host.listen().to_owned();
   host.serve(&listen).await

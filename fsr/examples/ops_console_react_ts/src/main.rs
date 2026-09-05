@@ -20,14 +20,14 @@ async fn main() -> std::io::Result<()> {
   let host = Arc::new(host);
 
   if std::env::args().any(|arg| arg == "--prerender") {
-    let out = host.report.prerender.clone().ok_or_else(|| std::io::Error::other("server.prerender is not configured"))?;
+    let out = host.report().prerender.clone().ok_or_else(|| std::io::Error::other("server.prerender is not configured"))?;
     for (pattern, file) in host.prerender(&out).await.map_err(std::io::Error::other)? {
       println!("{pattern:<22} {}", file.display());
     }
     return Ok(());
   }
 
-  print!("{}", host.report);
+  print!("{}", host.report());
   println!("fleet backend on http://{}:{}/agents", fleet_addr.0, fleet_addr.1);
   println!("identity service on http://{}:{}/sessions", identity_addr.0, identity_addr.1);
   println!("ops console on http://{}:{}/", console_addr.0, console_addr.1);

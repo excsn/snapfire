@@ -33,7 +33,7 @@ async fn sessions_and_sign_in_are_calls_to_the_identity_service() {
   config.clients.get_mut("identity").unwrap().base_url = Some(format!("http://127.0.0.1:{port}"));
   config.clients.get_mut("fleet").unwrap().transport = Some("mock".to_owned());
   let host = Arc::new(Host::from_config(config).unwrap().build().unwrap());
-  assert!(host.report.to_string().contains("session   service via identity"));
+  assert!(host.report().to_string().contains("session   service via identity"));
 
   let response = host.handle(Request::get("/auth/login?return_to=/account").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
