@@ -1,4 +1,5 @@
 import { patchIsland, scan } from "./boot.js";
+import { setLocale } from "./locale.js";
 import { Head, parsePayload, Payload, Segment, SfNode } from "./reader.js";
 import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
 import { seed, transaction } from "./store.js";
@@ -263,6 +264,7 @@ function apply(payload: Payload, force: boolean): boolean {
     fillSlot(r.slot, r.node, keyOfSlot(payload.segments, r.slot));
   }
   for (const head of payload.heads) applyHead(head);
+  if (payload.locale !== null) setLocale(payload.locale);
   scan(document);
   return true;
 }

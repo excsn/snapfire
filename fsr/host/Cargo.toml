@@ -13,6 +13,7 @@ actix = ["dep:actix-web"]
 
 [dependencies]
 snapfire_fsr = { path = "../app" }
+snapfire_fsr_auth = { path = "../auth" }
 snapfire_fsr_core = { path = "../core" }
 snapfire_fsr_payload = { path = "../payload" }
 snapfire_fsr_runtime = { path = "../runtime" }
@@ -20,6 +21,7 @@ snapfire_fsr_service = { path = "../service", features = ["grpc"] }
 snapfire_fsr_session = { path = "../session" }
 bytes = "1"
 c5store = { version = "^0", features = ["toml"] }
+form_urlencoded = "1"
 futures-util = "0.3"
 http = "1"
 http-body = "1"

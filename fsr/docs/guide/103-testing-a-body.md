@@ -26,7 +26,7 @@ test("held lines carry the catalog's rows and the held quantity", async () => {
 });
 ```
 
-`ctx()` takes what the request would have carried: `session`, `services`, `input`, `params`, `query`, `identity`. A service method is a plain function of its arguments or a value when the arguments do not matter. The route in the type argument makes `params` type-check; the input type, `ctx<AddToCart>`, does the same for an action.
+`ctx()` takes what the request would have carried: `session`, `services`, `input`, `params`, `query`, `identity`, `locale`. A service method is a plain function of its arguments or a value when the arguments do not matter. The route in the type argument makes `params` type-check; the input type, `ctx<AddToCart>`, does the same for an action.
 
 ## The mock cannot lie
 

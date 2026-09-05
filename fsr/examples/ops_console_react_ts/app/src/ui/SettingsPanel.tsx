@@ -3,6 +3,7 @@ import { useStore } from "@snapfire/fsr-client/react";
 
 import { actions, type Agent } from "@generated/client";
 import { density, watching } from "@src/store";
+import { LanguagePicker } from "@src/ui/LanguagePicker";
 
 export function SettingsPanel({ watched }: { watched: Agent[] }) {
   const [rows] = useStore(density, "comfortable");
@@ -17,6 +18,10 @@ export function SettingsPanel({ watched }: { watched: Agent[] }) {
 
   return (
     <div className="settings">
+      <section>
+        <h2>Language</h2>
+        <LanguagePicker />
+      </section>
       <section>
         <h2>Rows</h2>
         <div className="segmented" role="radiogroup" aria-label="Row density">

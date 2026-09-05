@@ -111,13 +111,16 @@ struct Slot {
 }
 
 impl Interpreter {
-  /// Renders `component` with `props` bound as `$props`. A `$store` prop is
-  /// lifted out of the scope into the environment, where a nested component's
-  /// `Expr::Store` still reaches it.
+  /// Renders `component` with `props` bound as `$props`. A `$store` prop and
+  /// a `locale` prop are lifted out of the scope into the environment, where
+  /// a nested component's `Expr::Store` and `Expr::Locale` still reach them.
   pub fn render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
     let mut env = Env::detached(self.clock(), vec![("$props".to_owned(), Value::Map(props.clone()))]);
     if let Some(Value::Map(store)) = props.get("$store") {
       env.store = store.clone();
+    }
+    if let Some(Value::Str(tag)) = props.get("locale") {
+      env.ctx.locale = snapfire_fsr_runtime::Locale::new(tag.clone(), false);
     }
     let mut out = Out::default();
     let mut slots = Vec::new();

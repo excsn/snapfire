@@ -35,6 +35,17 @@ impl Auth {
     }
   }
 
+  /// Where the flow in progress will land, when one is in progress.
+  pub fn pending_return_to(&self, opened: &Opened) -> Option<String> {
+    match opened.tokens.get(FLOW_STATE_KEY) {
+      Some(Value::Map(state)) => match state.get("return_to") {
+        Some(Value::Str(path)) => Some(path.clone()),
+        _ => None,
+      },
+      _ => None,
+    }
+  }
+
   pub async fn callback(&self, opened: &Opened, params: ValueMap) -> Result<String, AuthError> {
     let state = match opened.tokens.remove(FLOW_STATE_KEY) {
       Some(Value::Map(state)) => state,

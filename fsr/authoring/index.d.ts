@@ -11,6 +11,8 @@ export interface Ctx<Params = Record<string, string>, Session = Record<string, a
   query: Record<string, string>;
   session: Session;
   identity: Identity | null;
+  /** The request's locale as the configuration spells it, `fr_FR` or `fr`; `en` without a `[locales]` section. */
+  locale: string;
   services: Services;
   now: bigint;
 }

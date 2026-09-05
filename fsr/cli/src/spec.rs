@@ -410,6 +410,8 @@ struct CtxSpec {
   input: serde_json::Value,
   #[serde(default)]
   identity: Option<IdentitySpec>,
+  #[serde(default)]
+  locale: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -446,7 +448,7 @@ impl SpecHooks {
     self.ctxs.borrow_mut().clear();
     self.records.lock().clear();
     self.current.store(0, Ordering::Relaxed);
-    let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None }).expect("the empty ctx builds");
+    let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None, locale: None }).expect("the empty ctx builds");
     self.ctxs.borrow_mut().push(Rc::new(empty));
   }
 
@@ -481,8 +483,19 @@ impl SpecHooks {
     let handle = services.bind(identity.clone(), Arc::new(snapfire_fsr_service::NoCredentials));
     let params: Params = spec.params.into_iter().collect();
     let query: Params = spec.query.into_iter().collect();
-    let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), csrf: None, services: handle };
+    let locale = self.locale_of(spec.locale.as_deref());
+    let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
     Ok(MockCtx { ctx, input })
+  }
+
+  /// The locale a ctx runs under: the one it names, else the host's default,
+  /// else `en`, which is what a document without a `[locales]` section says.
+  fn locale_of(&self, named: Option<&str>) -> snapfire_fsr_runtime::Locale {
+    let default = self.host.as_ref().map(|h| h.locales().default.clone()).unwrap_or_else(|| "en".to_owned());
+    match named {
+      Some(tag) => snapfire_fsr_runtime::Locale::new(tag, tag == default),
+      None => snapfire_fsr_runtime::Locale::new(default, true),
+    }
   }
 
   fn get(&self, id: u32) -> Result<Rc<MockCtx>, String> {
@@ -514,6 +527,10 @@ impl Hooks for SpecHooks {
     Ok(value_to_json(&Value::Map(session)).to_string())
   }
 
+  fn locale(&self, id: u32) -> Result<String, String> {
+    Ok(self.get(id)?.ctx.locale.tag.clone())
+  }
+
   fn calls(&self, id: u32) -> Result<String, String> {
     self.get(id)?;
     let calls = self.records.lock().get(&id).cloned().unwrap_or_default();
@@ -523,11 +540,14 @@ impl Hooks for SpecHooks {
   fn render(&self, module: &str, props: &str) -> Result<Option<String>, String> {
     let Some(component) = self.components.get(module).cloned() else { return Ok(None) };
     let json: serde_json::Value = serde_json::from_str(props).map_err(|e| format!("props: {e}"))?;
-    let props = match json_to_value(&json).map_err(|e| format!("props: {e}"))? {
+    let mut props = match json_to_value(&json).map_err(|e| format!("props: {e}"))? {
       Value::Map(map) => map,
       Value::Null => ValueMap::new(),
       _ => return Err("props must be an object".to_owned()),
     };
+    if let Ok(current) = self.get(self.current.load(Ordering::Relaxed)) {
+      props.entry("locale".to_owned()).or_insert_with(|| Value::Str(current.ctx.locale.tag.clone()));
+    }
     let rendered = self.interpreter.render(&component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
     let html = if rendered.islands.is_empty() { rendered.html } else { snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(snapfire_fsr_ir::rendered_nodes(&rendered))) };
     Ok(Some(html))

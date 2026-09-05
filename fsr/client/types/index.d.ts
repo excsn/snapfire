@@ -2,6 +2,7 @@ export { actionRef, decodeValue, encodeValue, isRef, isVariant, moduleRef, ref, 
 export type { SfValue, RefValue, VariantValue } from "./values.js";
 export { action, ActionFailure } from "./actions.js";
 export { adopt, clear, derive, get, key, optimistic, reset, seed, set, snapshot, subscribe, transaction } from "./store.js";
+export { adoptLocale, currentLocale, setLocale, subscribeLocale } from "./locale.js";
 export type { StoreKey, StoreListener } from "./store.js";
 export { decodeNode, parsePayload } from "./reader.js";
 export type { Head, Payload, Segment, SfNode } from "./reader.js";

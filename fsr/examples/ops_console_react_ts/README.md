@@ -17,6 +17,8 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | Two segments streaming behind their own fallbacks in one document | the alerts slot and an agent page, each with a `loading.tsx` |
 | An island timed on idle and one timed on visibility | `island(TipList, { when: "idle" })` on the summary, `<Island when="visible">` around the job timeline |
 | An error boundary on a nested segment | `routes/agents/view/[id]/error.tsx` |
+| Two locales, the default unprefixed and French under `/fr_FR/`, remembered in a cookie once chosen | `[locales]` in `config/app.toml`, the picker in `src/ui/LanguagePicker.tsx`, `useLocale()` in `routes/help/page.tsx` |
+| A login the host serves over a users file, a guarded route, the identity and the CSRF token as layout props, a loader whose backend call carries the session's token | `[auth]` in `config/app.toml`, `config/auth.toml`, `routes/login/`, `routes/account/`, the guard in `middleware.ts`, `src/ui/Header.tsx` |
 
 Nothing here is prerendered: the root layout reads the session for the header, so every route is dynamic. The storefront's `/about` is the example of a prerendered page.
 
@@ -31,7 +33,7 @@ cd ../examples/ops_console_react_ts && ../../../target/debug/fsr types app
 ../../../target/debug/fsr dev app
 ```
 
-Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091.
+Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`.
 
 ## Try it
 

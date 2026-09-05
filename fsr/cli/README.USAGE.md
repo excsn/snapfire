@@ -26,6 +26,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
+* [Serving Locales](#serving-locales)
 * [Prerendering](#prerendering)
 * [Reading the Report](#reading-the-report)
 * [Reading the Plan File](#reading-the-plan-file)
@@ -42,6 +43,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Source id** is the route's static segments joined with `.`, `index` for the root; it names the loader.
 * **Action id** is `<source id>.<export>`, so `routes/cart/actions.ts` exporting `checkout` is `cart.checkout`.
 * **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request`; it continues, redirects, rewrites, responds or adds headers.
+* **Locale** is a request attribute the host resolves from the path prefix, the cookie and `Accept-Language` under a `[locales]` section, read as `ctx.locale` in every body and as `useLocale()` in a component; the prefix is stripped before the route matches, so no route carries a locale segment.
 * **Handler** is an export of a directory's `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, answered with JSON rather than a document; its id is `<route id>.<METHOD>`. A directory is a page or a handler, never both.
 * **Layout** is `layout.tsx` in a routes directory: an island that wraps every page beneath it and renders the page where it puts `children`; its `layout.loader.ts` is its loader, named for the module it feeds the way `page.loader.ts` is.
 * **Slot** is a named region a layout places beside its page, as a prop of that name or `<Slot name>`. A parallel slot is `slots/<name>/` beside the layout, holding the ordinary route files, with the source id `layout.<name>`.
@@ -250,7 +252,7 @@ The handler runs before any page is matched, sees the same `session`, `identity`
 
 ## Writing Middleware
 
-`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method` and `request.path` plus the same `query`, `session`, `identity` and `services` a loader gets. What it returns decides the request: nothing continues; `redirect` answers with a `Location` and status 307 unless `status` says otherwise; `status` with an optional `body` answers outright, text for a string and JSON for anything else; `rewrite` serves another path under the same location; `headers` join the response in every case.
+`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method` and `request.path` plus the same `query`, `session`, `identity`, `locale` and `services` a loader gets. `request.path` has no locale prefix: the host strips it before anything reads the path, so `/fr_FR/basket` reaches the middleware as `/basket` with `locale` set to `fr_FR`. What it returns decides the request: nothing continues; `redirect` answers with a `Location` and status 307 unless `status` says otherwise; `status` with an optional `body` answers outright, text for a string and JSON for anything else; `rewrite` serves another path under the same location; `headers` join the response in every case.
 
 ```ts
 import type { MiddlewareCtx, MiddlewareResult } from "@snapfire/fsr";
@@ -437,16 +439,44 @@ fsr serve app --listen 127.0.0.1:8080
 fsr dev app
 ```
 
+## Serving Locales
+
+A `[locales]` section in `config/app.toml` names the locales, spelled as the application wants to read them, and the default, which serves unprefixed. Every other locale serves under its tag: `/fr_FR/about` is `/about` in French, the prefix matched in any case or separator and stripped before the route matches. A request without a prefix follows the cookie, then `Accept-Language`, then the default; `remember = true` writes the cookie when a prefix chose the locale, so an unprefixed link from a French page stays French. The default may be prefixed too, `/en_US/about`, which renders `/about` with a canonical link pointing at it.
+
+```toml
+[locales]
+supported = ["en_US", "fr_FR"]
+default = "en_US"
+remember = true
+```
+
+A loader, an action, a handler and the middleware read `ctx.locale`. A component reads `useLocale()` from `@snapfire/fsr-client/react`, which the build lowers, so the server renders the same value the browser hydrates against. An action runs in the locale of the document that called it. A link is served exactly as written; nothing prefixes a URL the application did not write.
+
+```ts
+export async function load({ locale, services }: Ctx) {
+  return { copy: await services.content.page({ slug: "about", locale }) };
+}
+```
+
+```tsx
+export default function Help() {
+  const locale = useLocale();
+  return locale === "fr_FR" ? <h1>Comment ça marche</h1> : <h1>How this works</h1>;
+}
+```
+
+The shell writes `<html lang="fr-FR" data-sf-locale="fr_FR">`. Every segment key outside the default locale carries `@fr_FR`, so a switch swaps every segment. A body test names the locale with `ctx({ locale: "fr_FR" })`; a page spec loads a prefixed path, `load("/fr_FR/help")`. Without the section every request is `en`.
+
 ## Prerendering
 
-`fsr prerender app` renders every route that reads nothing of the request once, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. It prints what it wrote. The host serves those files from then on; the boot report's `prerender` rows say which routes qualify.
+`fsr prerender app` renders every route that reads nothing of the request once per locale, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. The default locale lands at the top and every other under its tag, `fr_FR/about/index.html`. It prints what it wrote. The host serves those files from then on; the boot report's `prerender` rows say which routes qualify.
 
 ```sh
 fsr prerender app
 fsr prerender app --out build/static
 ```
 
-A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. A Rust source disqualifies its route.
+A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route.
 
 ## Reading the Report
 

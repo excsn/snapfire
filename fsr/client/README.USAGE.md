@@ -22,6 +22,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
 * [Sharing State Across Islands](#sharing-state-across-islands)
+* [Reading the Locale](#reading-the-locale)
   * [Seeding the Store From a Loader](#seeding-the-store-from-a-loader)
   * [Reading a Key in a Component](#reading-a-key-in-a-component)
   * [Writing From Anywhere](#writing-from-anywhere)
@@ -489,6 +490,33 @@ transaction(() => {
 A derived key a component reads at first paint has to be seeded by the server too, with the same formula, or the first client render disagrees with the markup React is hydrating and React reports a mismatch. Register the derivation before `boot`: computing the value the seed already holds notifies nobody, and from then on every change to a source updates it. The ops console's headline is written this way, once in the root layout's `store` and once in `src/main.ts`.
 
 The store lives as long as the document. A soft navigation keeps it and writes whatever the new route seeded; a full load starts it again from that document's seed. Anything that must outlive a reload belongs in the session.
+
+## Reading the Locale
+
+The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">`, and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
+
+```tsx
+import { Link, useLocale } from "@snapfire/fsr-client/react";
+
+export function LanguagePicker() {
+  const locale = useLocale();
+  return (
+    <nav aria-label="Language">
+      <Link href="/en_US/" full className={locale === "en_US" ? "on" : ""}>English</Link>
+      <Link href="/fr_FR/" full className={locale === "fr_FR" ? "on" : ""}>Français</Link>
+    </nav>
+  );
+}
+```
+
+A link is served exactly as written: `/fr_FR/` is the French document and `/cart` is whatever the request resolves to, the cookie the host wrote when a prefix chose French, then the browser's `Accept-Language`, then the default. Outside React, `currentLocale` reads it and `subscribeLocale` follows it.
+
+```ts
+import { currentLocale, subscribeLocale } from "@snapfire/fsr-client";
+
+const stop = subscribeLocale((tag) => document.title = `${document.title} (${tag})`);
+console.log(currentLocale());
+```
 
 ## Decoding Values From the Server
 

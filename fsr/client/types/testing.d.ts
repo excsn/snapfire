@@ -11,6 +11,8 @@ export interface Mock<Input = unknown> {
 		subject: string;
 		claims?: Record<string, unknown>;
 	};
+	/** The request's locale, as the configuration spells it; the host's default when absent. */
+	locale?: string;
 }
 export interface ServiceCall {
 	service: string;
@@ -20,6 +22,7 @@ export interface ServiceCall {
 /** A request context an action runs under when a rendered page calls it. `session` and `trace` read back after every call. */
 export interface TestCtx {
 	readonly id: number;
+	readonly locale: string;
 	readonly session: Record<string, unknown>;
 	readonly trace: {
 		calls: ServiceCall[];

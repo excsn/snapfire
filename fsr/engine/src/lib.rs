@@ -121,6 +121,8 @@ pub trait Hooks {
   fn ctx(&self, spec: &str) -> Result<u32, String>;
   fn use_ctx(&self, id: u32) -> Result<(), String>;
   fn session(&self, id: u32) -> Result<String, String>;
+  /// The locale tag a ctx runs under.
+  fn locale(&self, id: u32) -> Result<String, String>;
   fn calls(&self, id: u32) -> Result<String, String>;
   fn render(&self, module: &str, props: &str) -> Result<Option<String>, String>;
   /// `headers` are the request's, as the page gave them.
@@ -253,6 +255,8 @@ impl Engine {
       globals.set("__sf_use", Function::new(ctx.clone(), move |ctx: Ctx<'_>, id: u32| h.use_ctx(id).map_err(|m| throw(&ctx, m)))?)?;
       let h = hooks.clone();
       globals.set("__sf_session", Function::new(ctx.clone(), move |ctx: Ctx<'_>, id: u32| h.session(id).map_err(|m| throw(&ctx, m)))?)?;
+      let h = hooks.clone();
+      globals.set("__sf_locale", Function::new(ctx.clone(), move |ctx: Ctx<'_>, id: u32| h.locale(id).map_err(|m| throw(&ctx, m)))?)?;
       let h = hooks.clone();
       globals.set("__sf_calls", Function::new(ctx.clone(), move |ctx: Ctx<'_>, id: u32| h.calls(id).map_err(|m| throw(&ctx, m)))?)?;
       let h = hooks.clone();
@@ -431,6 +435,9 @@ mod tests {
     }
     fn session(&self, _id: u32) -> Result<String, String> {
       Ok("{}".to_owned())
+    }
+    fn locale(&self, _id: u32) -> Result<String, String> {
+      Ok("en".to_owned())
     }
     fn calls(&self, _id: u32) -> Result<String, String> {
       Ok("[]".to_owned())

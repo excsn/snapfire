@@ -109,6 +109,7 @@ pub async fn respond_with(
     params: matched.params,
     query: Default::default(),
     session: incoming.session,
+    locale: Default::default(),
     csrf: incoming.csrf,
     services,
   };

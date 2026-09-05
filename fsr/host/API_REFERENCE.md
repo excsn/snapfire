@@ -16,12 +16,15 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [CacheSection](#cachesection)
   * [ClientConfig](#clientconfig)
   * [StaticRoot](#staticroot)
+  * [LocalesSection](#localessection)
   * [parse_duration](#parse_duration)
 * [2. Building](#2-building)
   * [Host::from](#hostfrom)
   * [HostBuilder](#hostbuilder)
 * [3. The Host](#3-the-host)
   * [Host](#host)
+  * [Locales](#locales)
+  * [Resolution](#resolution)
   * [Preflight](#preflight)
   * [RenderMode](#rendermode)
   * [HostReport](#hostreport)
@@ -33,6 +36,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * [5. The Shell](#5-the-shell)
   * [DocumentShell](#documentshell)
   * [head](#head)
+  * [canonical](#canonical)
 * [6. Error Handling](#6-error-handling)
   * [HostError](#hosterror)
 
@@ -56,10 +60,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub inferred: Vec<String> }`
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub inferred: Vec<String> }`
 * `Config::load(path) -> Result<Config, HostError>`: `locate`, then `load_located`.
 * `Config::load_located(located: Located) -> Result<Config, HostError>`: `NoConfig` when `sources` is empty; otherwise c5store over the sources in that order with default options, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `from_store`.
-* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients` and `static`, requires `session`, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
+* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients`, `static` and `locales`, requires `session`, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
 * `Config::dev(&self) -> bool`: `server.dev` when written, else whether `Deployment::from_env().release_env` is `development`, which it is when the variable is unset.
@@ -96,6 +100,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 * `route: String`, `dir: String` relative to the app directory. A trailing slash on `route` is ignored. A written root with the same `route` as an inferred one replaces it.
 
+### LocalesSection
+
+* `pub struct locale::LocalesSection { pub supported: Vec<String>, pub default: Option<String>, pub order: Vec<String>, pub remember: bool, pub cookie: String }`, the `[locales]` section. `supported` is at least one tag of letters, digits, `_` and `-`, spelled as the application wants to see it; `default` is among them, the first when absent; `order` names the sources consulted, any subset of `prefix`, `cookie` and `header`, all three in that order when absent; `remember` is false by default; `cookie` is `sf_locale` by default. Checked at `build`, which fails with `HostError::Config` naming the offence.
+
 ### parse_duration
 
 * `pub fn config::parse_duration(raw: &str) -> Option<Duration>`: `<n>`, `<n>s`, `<n>m`, `<n>h`, `<n>d`.
@@ -126,24 +134,41 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 * `pub struct Host { pub report: HostReport, .. }`
 * `report(&self) -> &HostReport`; `listen(&self) -> &str`, the configured address.
-* `render(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<BoxStream<'static, String>, HostError>`; `path` may carry a query string, decoded into `ctx.query`. Services are bound with the session's identity and no credentials.
+* `locales(&self) -> &Locales`: the locales the host serves and how it resolves a request's.
+* `render(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<BoxStream<'static, String>, HostError>`; `path` may carry a locale prefix, stripped before the route matches and resolved into `ctx.locale`, and a query string, decoded into `ctx.query`. Services are bound with the session's identity and no credentials. A prefixed request for the default locale carries `canonical` in its head.
 * `render_to_string(&self, path, mode, session) -> Result<String, HostError>`.
 * `intercept_for(&self, path: &str, from: Option<&str>, into: Option<&str>) -> Option<(PlanNode, Params)>`: the intercept a soft navigation to `path` renders, of the route's variants in file order: with `into`, the one whose slot it names; otherwise the first whose layouts, module for module from the shell down to the one declaring its slot, the route of `from`, the origin's path, shares. Both paths are without their query.
 * `render_navigation(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell) -> Result<BoxStream<'static, String>, HostError>`: the payload for a soft navigation: the intercept when `intercept_for` finds one, else `render` in `Payload` mode. `path` may carry its query; `from` may too.
 * `render_navigation_to_string(&self, path, from, into, session) -> Result<String, HostError>`.
 * `render_not_found(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<Option<BoxStream<'static, String>>, HostError>`: the application's not-found tree for `path`, with `params.path` set to the path without its query string, or `None` when the application has none.
-* `call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`.
+* `call_action(&self, id: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: `call_action_in` under the default locale.
+* `call_action_in(&self, id: &str, session: SessionCell, locale: Locale, input: Value) -> Result<Value, ActionError>`: runs the action with `locale` as its `ctx.locale`.
 * `prerenderable(&self) -> &[String]`: the patterns one render serves for every request: no parameter, every source lowered and reading nothing of the request (`snapfire_fsr_ir::body_reads_request`), no Rust source.
-* `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`; returns what it wrote.
+* `prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError>`: renders each of those anonymously once per supported locale and writes `<out>/<path>/index.html` and `index.payload`, `/` at the top of `out`, a locale other than the default under its tag, `<out>/fr_FR/<path>/`; returns what it wrote, each path with its prefix.
 * `changed(&self)`: tells every open `/__fsr/events` stream that something changed; nothing when `dev` is off.
 * `invalidate(&self, plan_key: &str) -> usize`: drops every cached subtree under the plan `cache_key`, a lowered page's or layout's module name, and says how many went; zero without a `[cache]` section.
-* `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its query string ignored; `None` without a directory or a file.
-* `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path }` as its input and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
-* `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, whose query string becomes `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
-* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`; then a page, `__payload` in the query selecting the payload mode, and in that mode an `x-sf-from` or `x-sf-into` header makes it `render_navigation`, which skips the prerender directory when an intercept applies; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed.
+* `prerendered(&self, path: &str, mode: RenderMode) -> Option<String>`: the text held under the prerender directory for the path, its locale prefix choosing the locale's directory and its query string ignored; `None` without a directory or a file.
+* `preflight(&self, method: &str, path: &str, session: SessionCell) -> Result<Preflight, ActionError>`: runs the middleware with `{ method, path }` as its input, the path stripped of its locale prefix, the locale in `ctx.locale` and the query string of `path` as `ctx.query`; `Preflight::pass()` when the application has none; `Internal` when the value is not one `Preflight::from_value` reads.
+* `call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError>`: the handler matching the method and the path, its locale prefix stripped and resolved into `ctx.locale` and its query string becoming `ctx.query`, run with `input` as the request body; `NotFound` when none matches.
+* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the locale, `Locales::resolve` over the path, the `Cookie` header and `Accept-Language`, or for the action route over the `x-sf-from` header's path instead of the request's, the stripped path standing in for the rest and a prefixed `/_sf/` or `/__fsr/` path answered `404`; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows; then `POST /_sf/action/<id>` with a JSON body, `400` on a body that does not parse, the failure kind's status on error; then a handler matching the method and path, its JSON body as the input or `null` when empty, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`; then a page, `__payload` in the query selecting the payload mode, and in that mode an `x-sf-from` or `x-sf-into` header makes it `render_navigation`, which skips the prerender directory when an intercept applies; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed; so is the locale cookie a `Resolution` asks for.
 * With `dev` on, `handle` answers `GET /__fsr/events` with a `text/event-stream` body, one `data: {"bundle":"<id>"}` event on open and one per `changed`, and `POST /__fsr/changed` with 204 after calling `changed`, both before statics, middleware and sessions; static files gain `Cache-Control: no-cache`. The bundle id is a hash over every output `dist/.snapfire-build.json` lists, source maps aside, `-` without a bundle; a served document's head carries `dev_script` with the id of that moment and `prerender` writes the plain head.
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
+
+### Locales
+
+* `pub struct locale::Locales { pub supported: Vec<String>, pub default: String, pub order: Vec<Source>, pub remember: bool, pub cookie: String }`, the checked section; `locale::Source` is `Prefix`, `Cookie` or `Header`.
+* `Locales::single() -> Locales`: what a host without a `[locales]` section holds: `en` alone, no source consulted.
+* `Locales::from_section(&LocalesSection) -> Result<Locales, String>`.
+* `is_default(&self, tag) -> bool`; `locale(&self, tag) -> snapfire_fsr_runtime::Locale`, the tag with its default flag; `default_locale(&self) -> Locale`.
+* `find(&self, tag) -> Option<&str>`: the supported locale `tag` spells, case and `-` against `_` ignored. `nearest(&self, tag) -> Option<&str>`: that, else the first supported locale of the same language.
+* `split_prefix(&self, path) -> Option<(&str, &str)>`: the supported locale the first path segment spells and the rest of the path, `/` at least; `None` when there is no such prefix or `prefix` is not a source.
+* `from_accept_language(&self, header) -> Option<&str>`: the nearest supported locale of the header's tags taken by descending weight, `*` ignored. `from_cookie(&self, header) -> Option<&str>`: the supported locale the cookie names.
+* `resolve(&self, path, cookie: Option<&str>, accept_language: Option<&str>) -> Resolution`: the sources in `order`, the first answering; the default when none does.
+
+### Resolution
+
+* `pub struct locale::Resolution { pub locale: Locale, pub path: String, pub prefixed: bool, pub set_cookie: Option<String> }`: the locale, the path without its prefix, whether it had one, and the `Set-Cookie` value to append when `remember` is on and the prefix chose a locale the cookie does not hold, `sf_locale=<tag>; Path=/; Max-Age=31536000; SameSite=Lax`.
 
 ### Preflight
 
@@ -158,11 +183,12 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### HostReport
 
-* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
+* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
 * `Display` prints the app's report, then `services` rows as `<http or grpc> <base url>`, `static` rows, `config` sources and `inferred` lines.
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 * `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
 * `dev: bool`: `Display` prints one `dev` row naming the two paths when true.
+* `locales: Vec<String>`: the configured locales, the default first, empty without a `[locales]` section; `Display` prints one `locales` row, `en_US (default, unprefixed), fr_FR`, when set.
 
 ### Body
 
@@ -191,12 +217,16 @@ Behind the `actix` feature.
 
 ### DocumentShell
 
-* `pub struct shell::DocumentShell`, an `Evaluator` emitting `<!doctype html><html lang="en"><head>`, the `head` slot, `</head><body><div id="app">`, the `content` slot, `</div></body></html>`.
+* `pub struct shell::DocumentShell`, an `Evaluator` emitting `<!doctype html><html lang="<locale>" data-sf-locale="<locale>"><head>`, the `head` slot, `</head><body><div id="app">`, the `content` slot, `</div></body></html>`. `lang` is the `locale` prop in BCP 47 spelling, `fr-FR` for `fr_FR`; `data-sf-locale` is the prop as written; `en` for both without the prop.
 
 ### head
 
 * `pub fn shell::dev_script(bundle: &str) -> String`: the `<script>` a development document carries, with `bundle` as the id it was rendered against. It opens `EventSource("/__fsr/events")`; an event whose `bundle` differs reloads, the first event after a connect is otherwise ignored, and any later one re-links every stylesheet with a `__sf` query string and calls `window.__sf.refresh`, or reloads when nothing is registered there.
 * `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> snapfire_fsr_runtime::Head`: a head whose default title is `title` and whose `rest` is `<meta charset>`, a viewport meta, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, the entry as `<script type="module" src>`.
+
+### canonical
+
+* `pub fn shell::canonical(path: &str) -> String`: `<link rel="canonical" href="<path>">`, which a prefixed request for the default locale carries in its head.
 
 ## 6. Error Handling
 

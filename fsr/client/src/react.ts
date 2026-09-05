@@ -3,6 +3,7 @@ import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { MountTiming, Mounter, Patcher } from "./boot.js";
 import type { PrefetchTiming } from "./navigator.js";
+import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 
 /** The `<sf-s>` a layout renders its child segment into, when `el` is a layout: the first one under it that is not inside a nested island, is not an island's own region and is not a named slot. */
@@ -120,6 +121,11 @@ export function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void] 
   };
   const value = useSyncExternalStore((changed: () => void) => subscribe(k, changed), read, read);
   return [value, useCallback((next: T) => set(k, next), [k])];
+}
+
+/** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */
+export function useLocale(): string {
+  return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
 }
 
 export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {

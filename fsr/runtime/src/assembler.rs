@@ -184,6 +184,7 @@ pub struct Assembly {
   pub meta: Meta,
   /// The store keys the eager wave settled on, outermost segment first.
   pub store: Data,
+  pub locale: crate::ctx::Locale,
 }
 
 impl std::fmt::Debug for Assembly {
@@ -462,11 +463,12 @@ impl Session {
     let subject = self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned());
     let csrf = self.ctx.csrf.as_deref().unwrap_or("-");
     Some(format!(
-      "{}|{}|ident={}|csrf={}|{:016x}|{:016x}",
+      "{}|{}|ident={}|csrf={}|locale={}|{:016x}|{:016x}",
       plan_key.0,
       pairs.join("&"),
       subject,
       csrf,
+      self.ctx.locale.tag,
       subtree_data_fingerprint(node, data),
       store.fingerprint()
     ))
@@ -485,8 +487,19 @@ impl Session {
     Ok(None)
   }
 
+  /// The keyer's key for a segment, marked with the locale when it is not
+  /// the default one, so a locale switch swaps every segment.
+  fn segment_key(&self, plan: &PlanNode) -> String {
+    let mut key = self.runtime.keyer.key(plan, &self.ctx.params, &self.ctx.query);
+    key.push_str(&self.ctx.locale.key_suffix());
+    key
+  }
+
   fn inject_ctx_props(&self, props: &mut Data) {
     props.insert("params".to_owned(), params_value(&self.ctx.params));
+    if !self.ctx.locale.tag.is_empty() {
+      props.insert("locale".to_owned(), Value::Str(self.ctx.locale.tag.clone()));
+    }
     if let Some(identity) = self.ctx.identity_value() {
       props.insert("identity".to_owned(), identity);
     }
@@ -514,7 +527,7 @@ impl Session {
       match node {
         Node::Slot(slot) => {
           let Some(child) = self.child_for(plan, &slot)? else { return Ok((Node::raw(""), false)) };
-          let key = self.runtime.keyer.key(child, &self.ctx.params, &self.ctx.query);
+          let key = self.segment_key(child);
           let keep = SegmentInfo::keep_of(child);
           if child.deferred {
             let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
@@ -615,7 +628,7 @@ impl Session {
           }
           Chunk::Slot(slot) => {
             let Some(child) = self.child_for(node, &slot)? else { continue };
-            let key = self.runtime.keyer.key(child, &self.ctx.params, &self.ctx.query);
+            let key = self.segment_key(child);
             let keep = SegmentInfo::keep_of(child);
             if child.deferred {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
@@ -677,7 +690,7 @@ pub async fn assemble(
   });
   let (tree, pending, children, meta, store) = session.resolve_subtree(plan).await?;
   let segments = SegmentInfo {
-    key: runtime.keyer.key(plan, &ctx.params, &ctx.query),
+    key: session.segment_key(plan),
     name: String::new(),
     path: Vec::new(),
     slot: None,
@@ -685,5 +698,5 @@ pub async fn assemble(
     keep: SegmentInfo::keep_of(plan),
   };
   let meta = Meta { title: meta.title.or_else(|| (!head.title.is_empty()).then(|| head.title.clone())), description: meta.description.or_else(|| head.description.clone()) };
-  Ok(Assembly { tree, pending, segments, meta, store })
+  Ok(Assembly { tree, pending, segments, meta, store, locale: ctx.locale.clone() })
 }

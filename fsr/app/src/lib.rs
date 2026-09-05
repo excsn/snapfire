@@ -615,6 +615,7 @@ impl AppBuilder {
           && declared_sources(plan).iter().all(|name| {
             fixed_sources.contains(name) && matches!(self.claimed.iter().rev().find(|(claimed, _)| claimed == name).map(|(_, o)| *o), Some(Owner::Lowered))
           })
+          && !plan_reads_request_props(plan, &self.lowered_components)
       })
       .map(|(pattern, _, _)| pattern.clone())
       .collect();
@@ -738,6 +739,15 @@ impl snapfire_fsr_runtime::SegmentKeyer for ReadsKeyer {
     }
     key
   }
+}
+
+/// True when a lowered page or layout on the plan reads the `identity` or
+/// `csrf_token` prop the assembler injects, which a render for nobody cannot
+/// supply.
+fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(String, Component)]) -> bool {
+  let module = plan.module.to_string();
+  let reads = components.iter().any(|(name, component)| *name == module && (component.reads_prop("identity") || component.reads_prop("csrf_token")));
+  reads || plan.children.iter().any(|(_, child)| plan_reads_request_props(child, components))
 }
 
 fn declared_sources(plan: &snapfire_fsr_core::PlanNode) -> Vec<String> {

@@ -14,6 +14,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Mounting in axum](#mounting-in-axum)
 * [Serving with actix](#serving-with-actix)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
+* [Serving Locales](#serving-locales)
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Taking a Name Back](#taking-a-name-back)
@@ -84,6 +85,11 @@ ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
 ttl = "1m"                        # the default
+
+[locales]                         # optional: without it every request is `en`
+supported = ["en_US", "fr_FR"]
+default = "en_US"                 # served unprefixed; the first supported one when absent
+remember = true                   # write the cookie when a prefix chose the locale
 
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
@@ -227,7 +233,7 @@ assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction
 
 ## Prerendering the Routes That Never Change
 
-A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once, anonymously, into the configured directory. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads.
+A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads. A route that reads only the locale still qualifies: that is what the render per locale is for.
 
 ```rust
 let written = host.prerender(&host.report.prerender.clone().unwrap()).await?;
@@ -238,6 +244,33 @@ assert!(host.prerendered("/about", RenderMode::Html).is_some());
 ```
 
 `fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
+
+## Serving Locales
+
+A `[locales]` section makes the locale a request attribute the host resolves before anything else, the way it resolves the session. The sources are consulted in `order`, `prefix`, `cookie` and `header` by default, and the first that answers wins. A path prefix is a supported tag in any case or separator, `/fr_FR/about`, `/fr-fr/about` or `/FR_FR/about`, stripped before the route matches, so no route carries a locale segment. The cookie is `sf_locale` unless `cookie` says otherwise. `Accept-Language` is matched by weight, exact tag first and then language alone, so `fr-CA` reaches `fr_FR`. Nothing answering, the default serves.
+
+```toml
+[locales]
+supported = ["en_US", "fr_FR", "de"]
+default = "en_US"
+order = ["prefix", "cookie", "header"]
+remember = true
+cookie = "sf_locale"
+```
+
+The default locale is served unprefixed and may be prefixed too: `/en_US/about` renders the same page as `/about` with a canonical link pointing at the bare path. With `remember` on, a prefix that chose a locale the cookie does not hold writes the cookie, so an unprefixed link from a French page stays French. A link is served exactly as written; the host never adds a prefix to a URL the application did not write.
+
+What the application sees: `ctx.locale` in every loader, action, handler and middleware, spelled as `supported` spells it; a `locale` prop on every node the assembler renders, which the shell writes as `<html lang="fr-FR" data-sf-locale="fr_FR">`; every segment key marked `@fr_FR` outside the default locale, so a switch swaps every segment and misses the render memo; an `L` row in the payload. Middleware reads the stripped path. An action takes the locale of the document that called it, from the `x-sf-from` header the client sends, then the cookie and the header. Static roots, the action route and the live-refresh endpoints are never prefixed.
+
+```rust
+let host = Host::from(".")?.build()?;
+assert_eq!(host.locales().default, "en_US");
+let html = host.render_to_string("/fr_FR/about", RenderMode::Html, SessionCell::default()).await?;
+assert!(html.contains("<html lang=\"fr-FR\" data-sf-locale=\"fr_FR\">"));
+let value = host.call_action_in("cart.checkout", session, host.locales().locale("fr_FR"), input).await?;
+```
+
+Without the section there is one locale, `en`, no source is consulted and nothing is a prefix.
 
 ## Caching Rendered Segments
 

@@ -280,3 +280,32 @@ fn the_input_type_reads_from_the_parameter_annotation() {
   let older = lower_actions("actions.ts", ACTIONS).unwrap();
   assert_eq!(older[0].input.as_deref(), Some("AddToCart"), "the type-argument spelling still reads");
 }
+
+#[test]
+fn a_loader_reads_the_locale_whole_and_through_the_context() {
+  let src = r#"
+import type { Ctx } from "../../generated/ctx";
+
+export async function load({ locale, services }: Ctx) {
+  const copy = await services.shopping.listProducts({ tag: locale });
+  return { copy, french: locale === "fr_FR" };
+}
+"#;
+  let body = lower_loader("routes/help/page.loader.ts", src).unwrap();
+  assert_eq!(
+    body,
+    vec![
+      Stmt::Let { name: "copy".to_owned(), expr: Expr::call("shopping", "listProducts", vec![("tag", Expr::Locale)]) },
+      Stmt::Return(Expr::object(vec![("copy", Expr::var("copy")), ("french", Expr::Compare(CompareOp::Eq, Box::new(Expr::Locale), Box::new(Expr::lit_str("fr_FR"))))])),
+    ]
+  );
+
+  let via_ctx = r#"
+export async function load(ctx: Ctx) {
+  return { locale: ctx.locale };
+}
+"#;
+  let body = lower_loader("routes/help/page.loader.ts", via_ctx).unwrap();
+  assert_eq!(body, vec![Stmt::Return(Expr::object(vec![("locale", Expr::Locale)]))]);
+  assert!(!snapfire_fsr_ir::body_reads_request(&body), "the locale alone leaves a route prerenderable, once per locale");
+}

@@ -69,7 +69,8 @@ impl PendingSet {
 
 /// The wire encoding of a streamed response: a `V` row, the `N` tree row, the
 /// `G` segment sidecar row, an `H` row when the document has a title or a
-/// description, then one `S` row per resolution in completion order, each
+/// description, a `T` row when the route seeds the store, an `L` row naming
+/// the locale when the request has one, then one `S` row per resolution in completion order, each
 /// followed by an `H` row when the resolved segment described the document.
 /// A resolution may introduce new slots, which join the set.
 pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
@@ -84,6 +85,9 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   }
   if !assembly.store.is_empty() {
     header.push_str(&format!("T {}\n", seed_to_json(&assembly.store)));
+  }
+  if !assembly.locale.tag.is_empty() {
+    header.push_str(&format!("L {}\n", json!(assembly.locale.tag)));
   }
   let pending = PendingSet::new(assembly.pending);
 

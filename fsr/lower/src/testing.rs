@@ -31,6 +31,7 @@ pub struct Mock {
   pub params: Vec<(String, Expr)>,
   pub query: Vec<(String, Expr)>,
   pub identity: Option<Expr>,
+  pub locale: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -320,7 +321,7 @@ impl<'a> TestLowerer<'a> {
     }
   }
 
-  /// `ctx({ session, services, input, params, query, identity })`.
+  /// `ctx({ session, services, input, params, query, identity, locale })`.
   fn mock(&mut self, call: &js::CallExpr) -> Lowered<Mock> {
     let mut mock = Mock::default();
     let Some(first) = call.args.first() else { return Ok(mock) };
@@ -335,6 +336,7 @@ impl<'a> TestLowerer<'a> {
         "query" => mock.query = self.entries(value)?,
         "input" | "request" => mock.input = Some(self.lowerer.expr(value)?),
         "identity" => mock.identity = Some(self.lowerer.expr(value)?),
+        "locale" => mock.locale = Some(self.lowerer.expr(value)?),
         "services" => {
           let js::Expr::Object(services) = value else {
             return Err(self.lowerer.residue(value.span(), "`services` must be an object of services"));
