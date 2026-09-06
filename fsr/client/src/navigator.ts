@@ -505,8 +505,15 @@ function timingOf(anchor: Element): PrefetchTiming {
   return own === "hover" || own === "viewport" || own === "none" ? own : fallbackPrefetch;
 }
 
-const watched = new WeakSet<Element>();
+let watched = new WeakSet<Element>();
 let viewport: IntersectionObserver | null = null;
+
+/** Drops the observer and what it watched, so a second `enableNavigation` observes the document again under the timing it was given rather than the one before it. */
+function resetViewport(): void {
+  viewport?.disconnect();
+  viewport = null;
+  watched = new WeakSet<Element>();
+}
 
 /** Observes every link under `root` whose timing is `viewport` and is not observed already; a link that enters the view is prefetched once and dropped. Called after every application, since a navigation brings new links. */
 function watchLinks(root: ParentNode): void {
@@ -638,6 +645,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     void navigate(url.pathname + url.search, true, askOf(anchor));
   });
   fallbackPrefetch = options.prefetch ?? "hover";
+  resetViewport();
   const warm = (event: Event) => {
     const anchor = linkOf(event.target);
     if (!anchor || timingOf(anchor) !== "hover") return;
