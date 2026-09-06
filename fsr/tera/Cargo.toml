@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_tera"
-version = "0.5.0"
+version.workspace = true
 description = "Tera evaluator for SnapFire FSR: string rendering with marker-and-split islands and slots."
 
 edition = { workspace = true }
@@ -8,9 +8,9 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-snapfire_fsr_core = { path = "../core" }
-snapfire_fsr_payload = { path = "../payload" }
-snapfire_fsr_runtime = { path = "../runtime" }
+snapfire_fsr_core.workspace = true
+snapfire_fsr_payload.workspace = true
+snapfire_fsr_runtime.workspace = true
 tera = { version = "2", features = ["fast"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 base64 = "0.22"

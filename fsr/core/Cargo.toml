@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_core"
-version = "0.5.0"
+version.workspace = true
 description = "Vocabulary types for SnapFire FSR: the payload tree, the render plan and the value model."
 
 edition = { workspace = true }

@@ -1,12 +1,12 @@
 [package]
 name = "snapfire_fsr_sites"
-version = "0.5.0"
+version.workspace = true
 edition = "2021"
 description = "Where a mounted site's artifact comes from: the [sites] table resolved, hashed and mounted on the stock host, reread on a signal or a poll"
 
 [dependencies]
-snapfire_fsr_core = { path = "../core" }
-snapfire_fsr_host = { path = "../host" }
+snapfire_fsr_core.workspace = true
+snapfire_fsr_host.workspace = true
 thiserror = "1"
 tokio = { version = "1", features = ["rt", "time", "signal", "macros"] }
 tracing = "0.1"

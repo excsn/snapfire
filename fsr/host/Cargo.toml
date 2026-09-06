@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_host"
-version = "0.5.0"
+version.workspace = true
 description = "The stock host for SnapFire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
 
 edition = { workspace = true }
@@ -14,15 +14,15 @@ tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
 
 [dependencies]
 parking_lot = "0.12"
-snapfire_fsr = { path = "../app" }
-snapfire_fsr_ir = { path = "../ir" }
-snapfire_fsr_auth = { path = "../auth" }
-snapfire_fsr_core = { path = "../core" }
-snapfire_fsr_payload = { path = "../payload" }
-snapfire_fsr_plan = { path = "../plan" }
-snapfire_fsr_runtime = { path = "../runtime" }
-snapfire_fsr_service = { path = "../service", features = ["grpc"] }
-snapfire_fsr_session = { path = "../session" }
+snapfire_fsr.workspace = true
+snapfire_fsr_ir.workspace = true
+snapfire_fsr_auth.workspace = true
+snapfire_fsr_core.workspace = true
+snapfire_fsr_payload.workspace = true
+snapfire_fsr_plan.workspace = true
+snapfire_fsr_runtime.workspace = true
+snapfire_fsr_service = { workspace = true, features = ["grpc"] }
+snapfire_fsr_session.workspace = true
 bytes = "1"
 c5store = { version = "^0", features = ["toml"] }
 form_urlencoded = "1"

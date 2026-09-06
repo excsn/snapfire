@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+  "core",
+  "engine",
+  "app",
+  "auth",
+  "cli",
+  "host",
+  "ir",
+  "lower",
+  "payload",
+  "plan",
+  "sites",
+  "runtime",
+  "service",
+  "session",
+  "tera",
+]
+exclude = [
+  # Their own workspace, so they build the way a consumer's crate would.
+  "examples",
+]
+
+[workspace.package]
+version = "0.5.0"
+edition = "2024"
+license = "MPL-2.0"
+authors = ["Norm O <normo.pub@gmail.com>"]
+
+# Every crate here is published together at one version, so a release moves
+# this block and the `version` above, and nothing else.
+[workspace.dependencies]
+snapfire_fsr = { path = "app", version = "0.5.0" }
+snapfire_fsr_auth = { path = "auth", version = "0.5.0" }
+snapfire_fsr_cli = { path = "cli", version = "0.5.0" }
+snapfire_fsr_core = { path = "core", version = "0.5.0" }
+snapfire_fsr_engine = { path = "engine", version = "0.5.0" }
+snapfire_fsr_host = { path = "host", version = "0.5.0" }
+snapfire_fsr_ir = { path = "ir", version = "0.5.0" }
+snapfire_fsr_lower = { path = "lower", version = "0.5.0" }
+snapfire_fsr_payload = { path = "payload", version = "0.5.0" }
+snapfire_fsr_plan = { path = "plan", version = "0.5.0" }
+snapfire_fsr_runtime = { path = "runtime", version = "0.5.0" }
+snapfire_fsr_service = { path = "service", version = "0.5.0" }
+snapfire_fsr_session = { path = "session", version = "0.5.0" }
+snapfire_fsr_sites = { path = "sites", version = "0.5.0" }
+snapfire_fsr_tera = { path = "tera", version = "0.5.0" }

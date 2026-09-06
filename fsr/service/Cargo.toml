@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_service"
-version = "0.5.0"
+version.workspace = true
 description = "The typed service boundary for SnapFire FSR: the contract artifact, the registry and transports."
 
 edition = { workspace = true }
@@ -8,10 +8,10 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-snapfire_fsr_core = { path = "../core" }
-snapfire_fsr_payload = { path = "../payload" }
-snapfire_fsr_runtime = { path = "../runtime" }
-snapfire_fsr_session = { path = "../session" }
+snapfire_fsr_core.workspace = true
+snapfire_fsr_payload.workspace = true
+snapfire_fsr_runtime.workspace = true
+snapfire_fsr_session.workspace = true
 fibre_cache = { version = "0.4", features = ["tokio"] }
 futures-util = "0.3"
 indexmap = { version = "2", features = ["serde"] }
