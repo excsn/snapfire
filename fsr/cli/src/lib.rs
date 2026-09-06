@@ -766,6 +766,7 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
     std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
     written.push(path);
   }
+  written.extend(types::refresh_embedded(app)?);
   Ok(written)
 }
 
