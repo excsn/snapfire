@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_cli"
-version = "0.5.0"
+version.workspace = true
 description = "fsr: discovers an application's routes, lowers its loaders and actions and emits the plan file."
 
 edition = { workspace = true }
@@ -24,17 +24,17 @@ parking_lot = "0.12"
 notify = "8"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-snapfire_fsr_core = { path = "../core" }
-snapfire_fsr_engine = { path = "../engine" }
-snapfire_fsr_host = { path = "../host" }
+snapfire_fsr_core.workspace = true
+snapfire_fsr_engine.workspace = true
+snapfire_fsr_host.workspace = true
 
-snapfire_fsr_sites = { path = "../sites" }
-snapfire_fsr_ir = { path = "../ir" }
-snapfire_fsr_lower = { path = "../lower" }
-snapfire_fsr_payload = { path = "../payload" }
-snapfire_fsr_plan = { path = "../plan" }
-snapfire_fsr_runtime = { path = "../runtime" }
-snapfire_fsr_service = { path = "../service", features = ["grpc"] }
+snapfire_fsr_sites.workspace = true
+snapfire_fsr_ir.workspace = true
+snapfire_fsr_lower.workspace = true
+snapfire_fsr_payload.workspace = true
+snapfire_fsr_plan.workspace = true
+snapfire_fsr_runtime.workspace = true
+snapfire_fsr_service = { workspace = true, features = ["grpc"] }
 tar = "0.4.46"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
