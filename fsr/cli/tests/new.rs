@@ -25,7 +25,7 @@ fn a_scaffolded_project_builds_with_every_module_lowered() {
 
   let built = build(&root.join("app"), &Options::beside(&root.join("app"))).unwrap();
   assert_eq!(built.report.routes.len(), 1, "{}", built.report);
-  assert_eq!(built.report.sources, vec![("index".to_owned(), "routes/index/page.loader.ts".to_owned())], "{}", built.report);
+  assert_eq!(built.report.sources, vec![("$root".to_owned(), "routes/page.loader.ts".to_owned())], "{}", built.report);
   let residue: Vec<&(String, String, String)> = built.report.components.iter().filter(|(_, how, _)| how != "lowered").collect();
   assert!(residue.is_empty(), "every module lowers, but {residue:?}\n{}", built.report);
 }
@@ -52,12 +52,12 @@ fn a_body_calls_the_head_helpers_before_anything_is_generated() {
   create(&root, offline()).unwrap();
   let app = root.join("app");
   std::fs::write(
-    app.join("routes/index/page.loader.ts"),
+    app.join("routes/page.loader.ts"),
     "import type { Ctx } from \"@snapfire/fsr\";\nimport { canonical, og } from \"@snapfire/fsr/head\";\n\nexport async function load(_ctx: Ctx<\"/\">) {\n  return { greeting: \"hi\" };\n}\n\nexport const meta = ({ data }: { data: { greeting: string } }) => ({\n  title: data.greeting,\n  head: [og(\"title\", data.greeting), canonical(\"/\")],\n});\n",
   )
   .unwrap();
   assert!(!app.join("generated").exists(), "nothing is generated yet");
 
   let built = build(&app, &Options::beside(&app)).unwrap();
-  assert_eq!(built.report.sources, vec![("index".to_owned(), "routes/index/page.loader.ts".to_owned())], "{}", built.report);
+  assert_eq!(built.report.sources, vec![("$root".to_owned(), "routes/page.loader.ts".to_owned())], "{}", built.report);
 }

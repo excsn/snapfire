@@ -27,3 +27,19 @@ fn find_index_lowers_beside_find() {
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::FindIndex(..), .. }), "{body:?}");
   assert!(matches!(&body[1], Stmt::Let { expr: Expr::Find(..), .. }), "{body:?}");
 }
+
+#[test]
+fn a_residue_names_the_rewrite_that_does_the_same_thing() {
+  let dir = app(
+    "hint",
+    &[(
+      "routes/a/page.loader.ts",
+      "export async function load({ query }) {\n  while (query.more) {\n    poll();\n  }\n  return {};\n}\n",
+    )],
+  );
+  let err = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_err().to_string();
+  let (first, hint) = err.split_once('\n').unwrap_or_else(|| panic!("a residue is two lines: {err}"));
+  assert!(first.ends_with("`while`, a loop whose length the build cannot know"), "{first}");
+  assert!(first.starts_with("routes/a/page.loader.ts:2:3:"), "the line and column stay first: {first}");
+  assert!(hint.starts_with("  ") && hint.contains("`map`, `filter`, `reduce`"), "the hint is indented and names the rewrite: {hint:?}");
+}
