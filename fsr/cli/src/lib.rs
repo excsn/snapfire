@@ -9,6 +9,7 @@ pub mod serve;
 pub mod spec;
 pub mod infer;
 pub mod test;
+pub mod typecheck;
 pub mod types;
 pub mod vendor;
 pub mod xwpm;
@@ -21,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::{read_schema, read_session_defaults, LowerError, SessionDefaults, EXT_DIR};
+use snapfire_fsr_ir::ast::Consts;
 use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
@@ -71,6 +73,8 @@ pub enum BuildError {
   Xwpm(String),
   #[error("{0}")]
   Dev(String),
+  #[error("typecheck: {0}")]
+  Typecheck(String),
   #[error("{0}")]
   Serve(String),
 }
@@ -108,6 +112,10 @@ pub struct Report {
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
   pub types: Vec<(String, String)>,
+  /// The plan file as written and as it would be without whitespace, in bytes.
+  /// The build writes it pretty so it reads and diffs; the second number is
+  /// what a deployment would ship.
+  pub plan: Option<(usize, usize)>,
 }
 
 impl fmt::Display for Report {
@@ -158,7 +166,12 @@ impl fmt::Display for Report {
       writeln!(f, "{label:<9} {service:<22} {kind:<11} {document}")?;
     }
     section(f, "schemas", &self.schemas, "")?;
-    section(f, "types", &self.types, "")
+    section(f, "types", &self.types, "")?;
+    if let Some((pretty, compact)) = self.plan {
+      let kb = |n: usize| format!("{:.1} KB", n as f64 / 1024.0);
+      writeln!(f, "{:<9} {:<22} {} written, {} without whitespace", "plan", "generated/plan.json", kb(pretty), kb(compact))?;
+    }
+    Ok(())
   }
 }
 
@@ -674,8 +687,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let session_type = session_import.as_ref().map(|_| "Session");
   let prefix = options.prefix();
-  let client = client_module(&contract, session_type, &routes, &layout_ids, &sources, &actions, &prefix);
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts);
+  let client = client_module(&contract, session_type, &routes, &layout_ids, &sources, &actions, &prefix, &set.consts);
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone());
+  report.plan = Some((manifest.to_json().len() + 1, serde_json::to_string(&manifest).expect("a manifest serializes").len() + 1));
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
@@ -692,7 +706,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {
     None => {
-      let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources)?;
+      let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts)?;
       files.push(("generated/shell.json".to_owned(), serde_json::to_string_pretty(&shell_contract).expect("a shell contract serializes") + "\n"));
     }
     Some(site) => {
@@ -781,12 +795,12 @@ pub fn write_overlay(app: &Path, built: &Built) -> Result<(), BuildError> {
 
 /// The shell contract of this build: every store key a loader's `store`
 /// export seeds, typed the way the browser reads it, plus the import map.
-fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, sources: &[SourceEntry]) -> Result<ShellContract, BuildError> {
+fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, sources: &[SourceEntry], consts: &Consts) -> Result<ShellContract, BuildError> {
   let mut store = std::collections::BTreeMap::new();
   for source in sources {
     let (Some(loader), Some(body)) = (&source.body, &source.store) else { continue };
-    let data = infer::Inferer { contract, session, input: None, input_type: None }.returns(loader);
-    let inferred = infer::Inferer { contract, session, input: None, input_type: Some(data) }.returns(body);
+    let data = infer::Inferer { contract, session, input: None, input_type: None, consts }.returns(loader);
+    let inferred = infer::Inferer { contract, session, input: None, input_type: Some(data), consts }.returns(body);
     if let infer::Ts::Record(fields) = inferred {
       for (key, ty) in fields {
         store.insert(key, ty.print(Flavour::Client));
@@ -913,21 +927,21 @@ fn testing_module() -> String {
 /// `generated/client.ts`: the contract's types as the browser sees them, the
 /// props of every page inferred from its loader's return and one typed callable
 /// per action, nested by route id.
-fn client_module(contract: &Contract, session: Option<&str>, routes: &[Route], layouts: &[String], sources: &[SourceEntry], actions: &[ActionEntry], prefix: &str) -> String {
+fn client_module(contract: &Contract, session: Option<&str>, routes: &[Route], layouts: &[String], sources: &[SourceEntry], actions: &[ActionEntry], prefix: &str, consts: &Consts) -> String {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   out.push_str("import { action as call } from \"@snapfire/fsr-client\";\n\n");
   out.push_str(&typescript::type_declarations(contract, Flavour::Client));
 
   for route in routes {
     let props = match sources.iter().find(|s| s.id == route.id).and_then(|s| s.body.as_ref()) {
-      Some(body) => infer::Inferer { contract, session, input: None, input_type: None }.returns(body).print(Flavour::Client),
+      Some(body) => infer::Inferer { contract, session, input: None, input_type: None, consts }.returns(body).print(Flavour::Client),
       None => "{}".to_owned(),
     };
     let _ = writeln!(out, "export type {} = {props};", props_name(&route.id));
   }
   for id in layouts {
     let props = match sources.iter().find(|s| s.id == *id).and_then(|s| s.body.as_ref()) {
-      Some(body) => infer::Inferer { contract, session, input: None, input_type: None }.returns(body).print(Flavour::Client),
+      Some(body) => infer::Inferer { contract, session, input: None, input_type: None, consts }.returns(body).print(Flavour::Client),
       None => "{}".to_owned(),
     };
     let _ = writeln!(out, "export type {} = {props};", props_name(id));
@@ -939,7 +953,7 @@ fn client_module(contract: &Contract, session: Option<&str>, routes: &[Route], l
   let mut tree: Vec<(Vec<String>, String)> = Vec::new();
   for action in actions {
     let Some(body) = &action.body else { continue };
-    let returns = infer::Inferer { contract, session, input: action.input.as_deref(), input_type: None }.returns(body).print(Flavour::Client);
+    let returns = infer::Inferer { contract, session, input: action.input.as_deref(), input_type: None, consts }.returns(body).print(Flavour::Client);
     let arg = match &action.input {
       Some(input) => format!("input: {input}"),
       None => String::new(),

@@ -3,7 +3,7 @@
 //! root, so this is a walk over the IR with the contract at hand; anything it
 //! cannot settle is `unknown`, never a guess.
 
-use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, Entry, Expr, Lit, Stmt};
+use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, Consts, Entry, Expr, Lit, Stmt};
 use snapfire_fsr_service::typescript::{type_name_for, Flavour};
 use snapfire_fsr_service::{Contract, Type, TypeDef};
 
@@ -123,6 +123,9 @@ pub struct Inferer<'a> {
   /// The type of `input` when it is not a contract type: a store body's
   /// `data`, which is what its loader returned.
   pub input_type: Option<Ts>,
+  /// The plan's named constants, so `Expr::Const` types as what it holds
+  /// rather than as unknown.
+  pub consts: &'a Consts,
 }
 
 impl<'a> Inferer<'a> {
@@ -179,6 +182,7 @@ impl<'a> Inferer<'a> {
 
   pub fn expr(&self, expr: &Expr, env: &[(String, Ts)]) -> Ts {
     match expr {
+      Expr::Const(key) => self.consts.get(key).map(|held| self.expr(held, env)).unwrap_or(Ts::Unknown),
       Expr::Param(_) | Expr::Query(_) => Ts::Str,
       Expr::Session(key) => match self.session {
         Some(name) => self.field_of(&Ts::Named(name.to_owned()), key),
@@ -342,7 +346,7 @@ mod tests {
   #[test]
   fn a_join_over_the_session_types_its_lines() {
     let c = contract();
-    let inferer = Inferer { contract: &c, session: Some("Session"), input: None, input_type: None };
+    let inferer = Inferer { contract: &c, session: Some("Session"), input: None, input_type: None, consts: &Consts::new() };
     let held = || Expr::Session("cart".into()).index(Expr::Str(Box::new(Expr::var("p").field("id"))));
     let body = vec![
       Stmt::Let { name: "catalog".into(), expr: Expr::call("shop", "list", vec![]) },
@@ -361,7 +365,7 @@ mod tests {
   #[test]
   fn what_cannot_be_settled_is_unknown() {
     let c = contract();
-    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None };
+    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None, consts: &Consts::new() };
     let body = vec![Stmt::Return(Expr::object(vec![("a", Expr::Session("cart".into())), ("b", Expr::call("nope", "x", vec![]))]))];
     assert_eq!(inferer.returns(&body).print(Flavour::Server), "{ a: unknown; b: unknown }");
   }

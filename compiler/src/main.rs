@@ -6,6 +6,7 @@ mod graph;
 mod importmap;
 mod sources;
 mod transforms;
+mod typecheck;
 mod watch;
 
 use anyhow::{Context, Result, bail};
@@ -71,6 +72,22 @@ struct Args {
   /// Import map to check every external against
   #[arg(long)]
   import_map: Option<PathBuf>,
+
+  /// Typecheck the same tsconfig with `snapfiretc`, which compiles nothing
+  #[arg(long)]
+  typecheck: bool,
+
+  /// A `tsc` for the typechecker to use as given; its version must be the requested one
+  #[arg(long)]
+  tsc: Option<PathBuf>,
+
+  /// The TypeScript version to typecheck with
+  #[arg(long)]
+  tsc_version: Option<String>,
+
+  /// The typechecker; beside this binary or on PATH when absent
+  #[arg(long)]
+  snapfiretc: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -101,6 +118,11 @@ fn main() -> Result<()> {
   };
 
   let outcome = build::full(&options, true)?;
+
+  if args.typecheck && !outcome.has_error {
+    let checking = typecheck::Options { tsc: args.tsc, version: args.tsc_version, checker: args.snapfiretc };
+    typecheck::run(&options.root, &options.config_path, &checking)?;
+  }
 
   if args.watch {
     return watch::run(&options, outcome);

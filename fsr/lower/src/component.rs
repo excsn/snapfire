@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Handler, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Builtin, Component, Consts, Entry, Expr, Handler, Lit, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
@@ -251,7 +251,8 @@ impl ComponentSet {
           if globals.iter().any(|(n, _)| *n == name) {
             return Err(residue.into());
           }
-          let Some(expr) = self.global(file, &name)? else { return Err(residue.into()) };
+          let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }
       }
@@ -340,14 +341,14 @@ impl ComponentSet {
     let Some(item) = find_value(&parsed, name) else { return Ok(None) };
     if let Global::Const(init) = &item {
       if let Some((module, member, reach)) = native_declaration(&parsed, init)? {
-        let key = format!("{module}.{member}");
-        if !self.natives.iter().any(|(n, _)| *n == key) {
-          self.natives.push((key, reach));
+        let native = format!("{module}.{member}");
+        if !self.natives.iter().any(|(n, _)| *n == native) {
+          self.natives.push((native, reach));
         }
         return Ok(Some((Expr::Ext { module, name: member, args: Vec::new() }, key)));
       }
     }
-    self.resolving.push(key);
+    self.resolving.push(key.clone());
     let result = self.lower_global(file, item);
     self.resolving.pop();
     match result {
@@ -388,7 +389,8 @@ impl ComponentSet {
           if globals.iter().any(|(n, _)| *n == name) {
             return Err(residue.into());
           }
-          let Some(expr) = self.global(file, &name)? else { return Err(residue.into()) };
+          let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }
       }

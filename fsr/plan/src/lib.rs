@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 use snapfire_fsr_core::{CacheKey, DataSourceId, ModuleId, NodeId, PlanNode, SlotName};
+use snapfire_fsr_ir::ast::Consts;
 use snapfire_fsr_ir::{Body, Component};
 
 /// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
@@ -47,6 +48,10 @@ pub struct Manifest {
   /// a row mounts in the browser only.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub components: Vec<ComponentEntry>,
+  /// The module-level constants bodies read by name, `<file>#<name>`, held
+  /// once however many bodies read them. `Expr::Const` names one.
+  #[serde(default, skip_serializing_if = "Consts::is_empty")]
+  pub consts: Consts,
   /// The tree a host renders, with status 404, for a path no route matches.
   /// Absent, the host answers with a plain text line.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -387,7 +392,13 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new() }
+  }
+
+  /// The constants bodies read by name.
+  pub fn with_consts(mut self, consts: Consts) -> Self {
+    self.consts = consts;
+    self
   }
 
   pub fn with_intercepts(mut self, intercepts: Vec<RouteEntry>) -> Self {

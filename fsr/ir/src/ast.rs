@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 /// an action body may return anything or nothing.
 pub type Body = Vec<Stmt>;
 
+/// The module-level constants a plan names, by `<file>#<name>`. A body reads
+/// one with `Expr::Const` rather than carrying its own copy.
+pub type Consts = std::collections::BTreeMap<String, Expr>;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stmt {
@@ -34,6 +38,9 @@ pub enum Expr {
   Input,
   Now,
   Var(String),
+  /// A module-level `const` the build named rather than inlined, `<file>#<name>`.
+  /// The plan's `consts` table holds it once however many bodies read it.
+  Const(String),
   Lit(Lit),
   Object(Vec<Entry>),
   Array(Vec<Entry>),
@@ -372,6 +379,7 @@ impl Expr {
   /// Every `Var` name the expression reads that it does not bind itself.
   pub fn free_vars(&self, out: &mut Vec<String>) {
     match self {
+      Expr::Const(_) => {}
       Expr::Var(name) => {
         if !out.contains(name) {
           out.push(name.clone());
@@ -426,7 +434,7 @@ impl Expr {
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     f(self);
     match self {
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
       Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -468,7 +476,7 @@ impl Expr {
       Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
       Expr::Locale => false,
       Expr::Call { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
-      Expr::Var(_) | Expr::Lit(_) => false,
+      Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
         Entry::Computed(k, v) => k.reads_request() || v.reads_request(),
@@ -490,7 +498,7 @@ impl Expr {
   pub fn has_call(&self) -> bool {
     match self {
       Expr::Call { .. } => true,
-      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Lit(_) => false,
+      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Computed(k, v) => k.has_call() || v.has_call(),

@@ -256,6 +256,8 @@ pub struct AppBuilder {
   cache: Option<Arc<dyn NodeCache>>,
   extensions: Extensions,
   catalogs: Option<Arc<snapfire_fsr_ir::Catalogs>>,
+  /// The plan's named constants, which `Expr::Const` reads.
+  consts: Option<Arc<snapfire_fsr_ir::ast::Consts>>,
   bearer_services: Vec<String>,
 }
 
@@ -289,6 +291,7 @@ impl App {
       action_claims: Vec::new(),
       extensions: Extensions::standard(),
       catalogs: None,
+      consts: None,
       bearer_services: Vec::new(),
       action_overrides: Vec::new(),
       services: None,
@@ -320,6 +323,9 @@ impl App {
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
       .collect();
     builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
+    if !parsed.consts.is_empty() {
+      builder.consts = Some(Arc::new(parsed.consts.clone()));
+    }
     builder.lowered_middleware = parsed.middleware.clone();
     for row in &parsed.handlers {
       match &row.body {
@@ -345,6 +351,11 @@ impl AppBuilder {
     self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
+    if !parsed.consts.is_empty() {
+      let mut merged = self.consts.as_deref().cloned().unwrap_or_default();
+      merged.extend(parsed.consts.iter().map(|(k, v)| (k.clone(), v.clone())));
+      self.consts = Some(Arc::new(merged));
+    }
     for row in &parsed.handlers {
       match &row.body {
         Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
@@ -586,7 +597,8 @@ impl AppBuilder {
         return Err(BindError::UnknownExtension { owner: module.clone(), name });
       }
     }
-    let interpreter = Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone());
+    let interpreter =
+      Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone()).with_consts(self.consts.clone());
 
     for name in &self.overrides {
       if !declared.contains(name) {
