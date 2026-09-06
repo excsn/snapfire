@@ -23,7 +23,7 @@ That fidelity is measured rather than asserted. A bench renders each of those pa
 **A component that runs on the server without an engine is a component the build could read.** The report says which ones it could:
 
 ```
-rendered  routes/index/page.tsx#default      lowered
+rendered  routes/page.tsx#default            lowered
           src/ui/Header.tsx#Header           lowered
           src/ui/Stars.tsx#Stars             lowered
 ```
@@ -59,7 +59,7 @@ The invariant this design keeps, whatever the engine decision, is that data reso
 
 ## The lab
 
-Load the catalog and view the source. The product cards are there in the HTML, inside an element that names `routes/index/page.tsx#default` and is followed by the props as JSON. Open the console: no errors; clicking "Add to cart" moves the badge, so React attached its handlers over the Rust output.
+Load the catalog and view the source. The product cards are there in the HTML, inside an element that names `routes/page.tsx#default` and is followed by the props as JSON. Open the console: no errors; clicking "Add to cart" moves the badge, so React attached its handlers over the Rust output.
 
 Look at the props script that follows the catalog's island. Beside the products it carries `"$h"`, a table whose keys name `ProductCard` and `Stars` with an id and a loop index, and whose values are the prices and the star strings the cards show, plus the inner markup of each card. That is what React read at hydration instead of calling `money` and `Math.round` for every card.
 

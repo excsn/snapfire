@@ -13,10 +13,15 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
   * [read_schema](#read_schema)
   * [read_session_defaults](#read_session_defaults)
   * [SchemaType](#schematype)
+  * [ComponentSet](#componentset)
+  * [ALIASES, STD_SPECIFIER and EXT_DIR](#aliases-std_specifier-and-ext_dir)
 * [2. The Recognised Language](#2-the-recognised-language)
   * [Modules](#modules)
   * [Statements](#statements)
   * [Expressions](#expressions)
+  * [Extensions](#extensions)
+  * [Hoisting](#hoisting)
+  * [Handlers](#handlers)
   * [Lambdas](#lambdas)
   * [Schemas](#schemas)
 * [3. Error Handling](#3-error-handling)
@@ -33,7 +38,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 ### lower_actions
 
 * `pub fn lower_actions(file: &str, source: &str) -> Result<Vec<LoweredAction>, LowerError>`
-* Lowers every `export const <name> = action(<arrow>)` or `action<T>(<arrow>)` in file order; other exports are skipped. The arrow must have a block body. The first `Residue` in any action fails the whole call.
+* Lowers every `export const <name> = action(<function>)` or `action<T>(<function>)` in file order; other exports are skipped. The function is an arrow with a block body, an arrow with an expression body, which lowers to a `Return` of the expression, or a function expression. An `action(...)` of anything else is a `Residue` naming the export. The first `Residue` in any action fails the whole call.
 
 ### lower_loader_with, lower_actions_with and lower_meta_with
 
@@ -64,6 +69,23 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 ### SchemaType
 
 * `pub struct SchemaType { pub name: String, pub def: TypeDef }`, with `TypeDef` from `snapfire_fsr_service`.
+
+### ComponentSet
+
+The cursor over one application: parsed files, lowered components and the resolution that follows imports. `component::ComponentSet`.
+
+* `ComponentSet::new(app: &Path) -> ComponentSet`; `with_defaults(self, defaults: SessionDefaults) -> ComponentSet`: the session defaults every body lowers with.
+* `lower(&mut self, module: &str) -> Result<(), LowerError>`: lowers `path#export` and everything it renders into `components`; a module already lowered is not read again.
+* `lower_loader(&mut self, file: &str) -> Result<Body, LowerError>`, `lower_meta` and `lower_store` (`Result<Option<Body>, LowerError>`), `lower_actions` (`Result<Vec<LoweredAction>, LowerError>`), `lower_handlers` (`Result<Vec<LoweredHandler>, LowerError>`) and `lower_middleware` (`Result<Body, LowerError>`): the body lowerers over a file under the app, each following the module-level names the body calls through the same resolution a component uses, so a loader calls the helper a component calls. A name that cannot be followed is the residue the free functions give.
+* `lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError>`: lowers every export of a module under `ext/`, `(file#export, kind)` with the kind `lowered`, `native render` or `native body`; an export that does not lower is `LowerError::Extension`.
+* `natives: Vec<(String, Reach)>`: every native pair declared so far, `module.member` and reach. `remaining: Vec<(String, String)>`: per lowered module, `file:line:column` of each render-path call candidate that was not hoisted and sits under no hoisted call, which the browser still makes.
+* `components`, `layouts`, `slots`, `rewrites`, `pure` and `rewritten` as the hoisting section says.
+
+### ALIASES, STD_SPECIFIER and EXT_DIR
+
+* `pub const ALIASES: &[(&str, &str)]`: `@app/`, `@routes/`, `@src/`, `@schemas/`, `@generated/` and `@ext/` with the app directory each stands for; `resolve_specifier(from, specifier) -> Option<String>` expands one or joins a relative specifier to `from`'s directory, `None` for a bare specifier.
+* `pub const STD_SPECIFIER: &str`, `@snapfire/fsr-client/std`: the module whose members lower to `Expr::Ext` and whose `native` declares a pair.
+* `pub const EXT_DIR: &str`, `ext`: the directory whose modules are extensions.
 
 ## 2. The Recognised Language
 
@@ -97,9 +119,15 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 * `e.map(f)`, `e.filter(f)`, `e.find(f)`, `e.some(f)`, `e.every(f)`, `e.reduce(f, init)`.
 * Any other call, `new`, an optional call, `this`, `++`, comma expressions, tagged templates, JSX, `yield` and assignment inside an expression are residue. A call to a name that is not a builtin names that name in the message.
 
+### Extensions
+
+* `X.m(args)` where `X` is a named import from `STD_SPECIFIER` lowers to `Expr::Ext { module: X, name: m, args }`; a member `standard_reach` does not know is residue naming it. A member whose reach is `body` on a component's render path is `LowerError::Reach` naming the line, a hard error the set never downgrades; the same call inside a handler, in a body, in middleware or in a helper lowered on its own is allowed, and the refusal follows an inlined helper to the render-path call that applies it, naming both. A `render` member is a hoist candidate like a helper call.
+* A module-level `export const f = native("module.member", g?)` with `native` from `STD_SPECIFIER` declares a native pair: the name must be a string literal of two non-empty parts, `LowerError::Extension` otherwise; the reach is `render` with `g` and `body` without. The set records it in `natives` and a call `f(args)` lowers to `Expr::Ext` with the same reach rules.
+* Every export of a module under `EXT_DIR` is lowered by `lower_extensions`; one that does not lower is `LowerError::Extension` carrying the residue. Elsewhere a helper that does not lower is residue at its call as before.
+
 ### Hoisting
 
-* In a component, a call to a module-level helper (`Expr::Apply`) and a `toLocaleString` (`Builtin::LocaleNumber`) is wrapped as `Expr::Hoist` when its inputs are props only: none of its free variables reaches a `useState`, `useStore` or `useRef` binding or a name computed from one through a `const`, a `.map` parameter or a block `const`, and it reads no store key, no request and no service. A call inside a lambda body, under another hoist, or with such an input stays a plain call. A `Tmpl::For` whose `over` reads state taints its parameters.
+* In a component, a call to a module-level helper (`Expr::Apply`), a `render` extension call (`Expr::Ext`) and a `toLocaleString` (`Builtin::LocaleNumber`) is wrapped as `Expr::Hoist` when its inputs are props only: none of its free variables reaches a `useState`, `useStore` or `useRef` binding or a name computed from one through a `const`, a `.map` parameter or a block `const`, and it reads no store key, no request and no service. A call inside a lambda body, under another hoist, or with such an input stays a plain call. A `Tmpl::For` whose `over` reads state taints its parameters.
 * `ComponentSet.rewrites: Vec<hoist::Rewrite>` holds one entry per component with a surviving hoist: `file`, `module`, where the reader hook goes (`hoist::Hook::Block { after }` after a block body's `{`, or `Hook::Expression(range)` around an arrow's expression body), the surviving `sites` as `(id, byte range of the call)` and the `loops` as the byte ranges of the JSX `.map` callbacks holding them. `ComponentSet::rewritten(&self) -> Vec<(String, String)>` is every such file with `hoist::apply` over its source.
 * `hoist::apply(source: &str, rewrites: &[&Rewrite]) -> String` splices from the end: prepends `hoist::IMPORT`, binds `const __sfh = __sfUseHoisted("<module>")` at the hook, replaces each call with `__sfh.r(<id>, () => (<call>))`, wraps each loop callback as `__sfh.l(<callback>)` and each chunk element as `__sfh.c(<id>, (__sfHtml) => <tag attrs dangerouslySetInnerHTML={__sfHtml} />, () => (<element>))`, braced when the element sits among JSX children. `hoist::decide(&mut Component, state: &[String]) -> Vec<u32>` is the value pass, unwrapping what does not qualify and returning the ids kept.
 * Subtrees: every element with children is a candidate, marked by a `$chunk` attribute holding its id, and `hoist::chunks(&mut Component, state, pure: &HashMap<String, bool>) -> Vec<u32>` keeps the outermost ones that are static and do work, removing every other marker. A subtree is static when every expression in it is props only, no element in it carries `$bound` (a handler, a `ref` or a spread, which the lowerer marks), it is not `sf-s`, it holds no island and no slot and every component it renders is pure; it does work when it holds an interpolation, a branch, a loop, a binding, a component or a non-literal attribute, so literal markup is left to React. `ComponentSet.pure` records per module whether it is pure: no state, static all the way down. `hoist::static_tree(&Tmpl, pure) -> bool` is the static test with no state at all. `Rewrite.chunks` carries `(id, element range, opening tag range, among children)`.
@@ -129,6 +157,8 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 * `Parse { file: String, message: String }`, with the parser's line, column and message in `message`.
 * `MissingExport { file: String, export: String }`.
 * `Residue(Residue)`, transparent in `Display`.
+* `Reach(Residue)`: a `body` extension on a component's render path; `Display` is the residue followed by why it is refused.
+* `Extension(Residue)`: an export under `ext/` that does not lower, or a `native` declaration the build cannot read; `Display` is the residue followed by the rule.
 
 ### Residue
 

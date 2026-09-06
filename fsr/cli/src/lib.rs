@@ -4,6 +4,7 @@
 //! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
 pub mod dev;
+pub mod new;
 pub mod serve;
 pub mod spec;
 pub mod infer;
@@ -19,7 +20,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_lower::{lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with, lower_store_with, read_schema, read_session_defaults, LowerError, SessionDefaults};
+use snapfire_fsr_lower::{read_schema, read_session_defaults, LowerError, SessionDefaults, EXT_DIR};
 use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
@@ -100,6 +101,10 @@ pub struct Report {
   pub hoisted: Vec<(String, usize, usize)>,
   /// Components placed as islands in server mode and how many handlers each answers.
   pub islands: Vec<(String, usize)>,
+  /// Each export under `ext/` as `file#name`, and whether it is `lowered`, `native render` or `native body`.
+  pub extensions: Vec<(String, String)>,
+  /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`.
+  pub browser: Vec<(String, String)>,
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
   pub types: Vec<(String, String)>,
@@ -130,6 +135,11 @@ impl fmt::Display for Report {
     for (i, (module, handlers)) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {:<11} {handlers} handler{}", "server", if *handlers == 1 { "" } else { "s" })?;
+    }
+    section(f, "extensions", &self.extensions, "")?;
+    for (i, (module, site)) in self.browser.iter().enumerate() {
+      let label = if i == 0 { "browser" } else { "" };
+      writeln!(f, "{label:<9} {module:<34} {site}")?;
     }
     for (i, (module, values, chunks)) in self.hoisted.iter().enumerate() {
       let label = if i == 0 { "hoisted" } else { "" };
@@ -372,6 +382,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   contracts.push((format!("{CONTRACTS_DIR}/schemas.json"), schemas));
   contract.validate()?;
 
+  let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS);
+  for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
+    let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
+    report.extensions.extend(set.lower_extensions(&rel)?);
+  }
+
   let mut routes = Vec::new();
   let mut handler_routes = Vec::new();
   discover(&routes_dir, &routes_dir, &mut routes, &mut handler_routes)?;
@@ -409,10 +425,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     let loader = dir.join("layout.loader.ts");
     let source = if loader.is_file() {
       let loader_module = format!("{rel}/layout.loader.ts");
-      let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
-      let body = lower_loader_with(&loader_module, &text, &defaults)?;
-      let meta = lower_meta_with(&loader_module, &text, &defaults)?;
-      let store = lower_store_with(&loader_module, &text, &defaults)?;
+      let body = set.lower_loader(&loader_module)?;
+      let meta = set.lower_meta(&loader_module)?;
+      let store = set.lower_store(&loader_module)?;
       sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
       report.sources.push((id.clone(), loader_module));
       Some(id.clone())
@@ -437,10 +452,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let loader = slot_dir.join("page.loader.ts");
       let source = if loader.is_file() {
         let loader_module = format!("{slot_rel}/page.loader.ts");
-        let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
-        let body = lower_loader_with(&loader_module, &text, &defaults)?;
-        let meta = lower_meta_with(&loader_module, &text, &defaults)?;
-        let store = lower_store_with(&loader_module, &text, &defaults)?;
+        let body = set.lower_loader(&loader_module)?;
+        let meta = set.lower_meta(&loader_module)?;
+        let store = set.lower_store(&loader_module)?;
         sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
         report.sources.push((slot_id.clone(), loader_module));
         Some(slot_id.clone())
@@ -450,8 +464,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let slot_actions = slot_dir.join("actions.ts");
       if slot_actions.is_file() {
         let module = format!("{slot_rel}/actions.ts");
-        let text = std::fs::read_to_string(&slot_actions).map_err(|e| BuildError::Io(slot_actions.clone(), e))?;
-        for lowered in lower_actions_with(&module, &text, &defaults)? {
+        for lowered in set.lower_actions(&module)? {
           let action_id = format!("{slot_id}.{}", lowered.export);
           if let Some(name) = &lowered.input {
             if !contract.types.contains_key(name) {
@@ -479,7 +492,6 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   layouts.sort_by(|a, b| a.dir.cmp(&b.dir));
 
-  let mut set = ComponentSet::new(app);
   set.layouts = layouts.iter().map(|l| l.module.clone()).collect();
   set.slots = layouts.iter().map(|l| (l.module.clone(), l.slots.iter().map(|s| s.name.clone()).collect())).collect();
   for layout in &mut layouts {
@@ -500,10 +512,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     let loader = route.dir.join("page.loader.ts");
     let source = if loader.is_file() {
       let module = format!("{rel}/page.loader.ts");
-      let text = std::fs::read_to_string(&loader).map_err(|e| BuildError::Io(loader.clone(), e))?;
-      let body = lower_loader_with(&module, &text, &defaults)?;
-      let meta = lower_meta_with(&module, &text, &defaults)?;
-      let store = lower_store_with(&module, &text, &defaults)?;
+      let body = set.lower_loader(&module)?;
+      let meta = set.lower_meta(&module)?;
+      let store = set.lower_store(&module)?;
       sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store));
       report.sources.push((route.id.clone(), module));
       Some(route.id.clone())
@@ -514,8 +525,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     let actions_file = route.dir.join("actions.ts");
     if actions_file.is_file() {
       let module = format!("{rel}/actions.ts");
-      let text = std::fs::read_to_string(&actions_file).map_err(|e| BuildError::Io(actions_file.clone(), e))?;
-      for lowered in lower_actions_with(&module, &text, &defaults)? {
+      for lowered in set.lower_actions(&module)? {
         let id = format!("{}.{}", route.id, lowered.export);
         if let Some(name) = &lowered.input {
           if !contract.types.contains_key(name) {
@@ -590,10 +600,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   for route in &handler_routes {
     let rel = route.dir.strip_prefix(app).unwrap_or(&route.dir);
     let rel = rel.to_string_lossy().replace('\\', "/");
-    let file = route.dir.join("route.ts");
     let module = format!("{rel}/route.ts");
-    let text = std::fs::read_to_string(&file).map_err(|e| BuildError::Io(file.clone(), e))?;
-    for lowered in lower_handlers_with(&module, &text, &defaults)? {
+    for lowered in set.lower_handlers(&module)? {
       let id = format!("{}.{}", route.id, lowered.method);
       if let Some(name) = &lowered.input {
         if !contract.types.contains_key(name) {
@@ -609,9 +617,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let middleware_file = app.join("middleware.ts");
   let middleware = if middleware_file.is_file() {
-    let text = std::fs::read_to_string(&middleware_file).map_err(|e| BuildError::Io(middleware_file.clone(), e))?;
     report.middleware = Some("middleware.ts".to_owned());
-    Some(lower_middleware_with("middleware.ts", &text, &defaults)?)
+    Some(set.lower_middleware("middleware.ts")?)
   } else {
     None
   };
@@ -650,6 +657,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   let rewritten = set.rewritten();
   report.hoisted.sort();
+  report.browser = set.remaining.iter().map(|(module, site)| (format!("{}{module}", options.prefix()), site.clone())).collect();
+  report.browser.sort();
   let mut components = Vec::new();
   let mut islands = islands;
   for (module, component) in set.components {
@@ -703,6 +712,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   files.extend([
     ("generated/services.d.ts".to_owned(), declarations),
+    ("generated/head.ts".to_owned(), HEAD_HELPERS.to_owned()),
     ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref())),
     ("generated/islands.ts".to_owned(), islands_module(&islands, options)),
     ("generated/client.ts".to_owned(), client),
@@ -792,11 +802,74 @@ fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, source
   Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, fsr: env!("CARGO_PKG_VERSION").to_owned() })
 }
 
+/// The head helpers a `meta` body imports from `@snapfire/fsr`. Plain
+/// functions, so the lowerer inlines each call the way it inlines any
+/// module-level helper.
+const HEAD_HELPERS: &str = r##"// Generated by fsr build. Do not edit.
+
+/** One element a `meta` body puts in the document head. */
+export interface HeadEl {
+  tag: string;
+  children?: string;
+  [attribute: string]: string | undefined;
+}
+
+/** One `<meta name>` element. */
+export function metaTag(name: string, content: string): HeadEl {
+  return { tag: "meta", name, content };
+}
+
+/** One `<link>` element. */
+export function linkTag(rel: string, href: string): HeadEl {
+  return { tag: "link", rel, href };
+}
+
+/** An Open Graph property: `og("title", t)` is `<meta property="og:title">`. */
+export function og(property: string, content: string): HeadEl {
+  return { tag: "meta", property: `og:${property}`, content };
+}
+
+/** A Twitter card property: `twitter("card", c)` is `<meta name="twitter:card">`. */
+export function twitter(name: string, content: string): HeadEl {
+  return { tag: "meta", name: `twitter:${name}`, content };
+}
+
+/** The canonical URL of this page. */
+export function canonical(href: string): HeadEl {
+  return { tag: "link", rel: "canonical", href };
+}
+
+/** What crawlers may do: "noindex, follow" and its kin. */
+export function robots(content: string): HeadEl {
+  return { tag: "meta", name: "robots", content };
+}
+
+/** The browser chrome colour for this page. */
+export function themeColor(content: string): HeadEl {
+  return { tag: "meta", name: "theme-color", content };
+}
+
+/** One icon. Two icons differing only in `sizes` are separate elements, so a page may override one of them. */
+export function icon(href: string, sizes: string): HeadEl {
+  return { tag: "link", rel: "icon", href, sizes };
+}
+
+/** This page in another locale, for search engines. */
+export function alternate(href: string, hreflang: string): HeadEl {
+  return { tag: "link", rel: "alternate", href, hreflang };
+}
+
+/** Structured data, already serialised. `JSON.stringify` is not lowerable, so build the string in the body. */
+export function jsonLd(json: string): HeadEl {
+  return { tag: "script", type: "application/ld+json", children: json };
+}
+"##;
+
 /// `generated/fsr.ts`: the per-route params, `Ctx`, `ActionCtx` and the typed
 /// `action` and `fail` a body imports.
 fn ctx_module(routes: &[Route], session_import: Option<&str>) -> String {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
-  out.push_str("import { action as declare, fail } from \"@snapfire/fsr-authoring\";\nimport type { Identity } from \"@snapfire/fsr-authoring\";\nimport type { Services } from \"./services\";\n");
+  out.push_str("import { action as declare, fail } from \"@snapfire/fsr-authoring\";\nimport type { Identity } from \"@snapfire/fsr-authoring\";\nimport type { Services } from \"./services\";\nimport type { HeadEl } from \"./head\";\n");
   match session_import {
     Some(path) => {
       let _ = writeln!(out, "import type {{ Session }} from \"{path}\";");
@@ -814,8 +887,9 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>) -> String {
     let _ = writeln!(out, "  \"{}\": {{{}}};", route.pattern, if params.is_empty() { String::new() } else { format!(" {} ", params.join("; ")) });
   }
   out.push_str(
-    "}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  services: Services;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
+    "}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  services: Services;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
+  out.push_str("\nexport type { HeadEl } from \"./head\";\n");
   out
 }
 
@@ -935,7 +1009,7 @@ fn claimed(report: &Report, routes: &[Route], handler_routes: &[Route], layout_i
   Ok(())
 }
 
-/// `index` is `IndexProps`, `product.$id` is `ProductIdProps`, `admin.users` is
+/// `$root` is `RootProps`, `product.$id` is `ProductIdProps`, `admin.users` is
 /// `AdminUsersProps`. A parameter's `$` marker is not part of the name.
 fn props_name(id: &str) -> String {
   let mut name = String::new();
@@ -998,7 +1072,7 @@ fn islands_module(islands: &[String], options: &Options) -> String {
   out
 }
 
-fn sorted_files(dir: &Path, suffix: &str) -> Result<Vec<PathBuf>, BuildError> {
+pub(crate) fn sorted_files(dir: &Path, suffix: &str) -> Result<Vec<PathBuf>, BuildError> {
   if !dir.is_dir() {
     return Ok(Vec::new());
   }
@@ -1308,20 +1382,19 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
 }
 
 /// `routes/index` is `/`; `routes/product/[id]` is `/product/{id}`;
-/// `routes/docs/[...rest]` is `/docs/{*rest}`. The id is every segment joined
-/// with `.`, `index` for the root, a parameter contributing `$<name>`. The
-/// marker is what makes the id injective: a directory name is alphanumerics,
-/// `_` and `-` only, so no static segment can produce a `$` part and
-/// `routes/a/x` can never share an id with `routes/a/[x]`.
+/// `routes/docs/[...rest]` is `/docs/{*rest}`. A directory holding a
+/// `page.tsx` is a route at its own path, so `routes/` itself is `/` and
+/// `routes/index/` is `/index`; no directory name is special. The id is every
+/// segment joined with `.`, `$root` for the root, a parameter contributing
+/// `$<name>`. The marker is what makes the id injective: a directory name is
+/// alphanumerics, `_` and `-` only, so no static segment can produce a `$`
+/// part and `routes/a/x` can never share an id with `routes/a/[x]`.
 fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
   let rel = dir.strip_prefix(root).unwrap_or(dir);
   let mut segments = Vec::new();
   let mut id_parts = Vec::new();
   for component in rel.components() {
     let name = component.as_os_str().to_string_lossy().to_string();
-    if name == "index" && segments.is_empty() && id_parts.is_empty() {
-      continue;
-    }
     if let Some(inner) = name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
       if let Some(rest) = inner.strip_prefix("...") {
         segments.push(format!("{{*{rest}}}"));
@@ -1339,6 +1412,6 @@ fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
     id_parts.push(name);
   }
   let pattern = if segments.is_empty() { "/".to_owned() } else { format!("/{}", segments.join("/")) };
-  let id = if id_parts.is_empty() { "index".to_owned() } else { id_parts.join(".") };
+  let id = if id_parts.is_empty() { "$root".to_owned() } else { id_parts.join(".") };
   Ok((pattern, id))
 }

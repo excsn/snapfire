@@ -116,6 +116,14 @@ globalThis.__sf_flush_idle = () => {
   return true;
 };
 
+globalThis.__sf_natives = {};
+globalThis.__sf_native = (name, args) => {
+  const f = globalThis.__sf_natives[name];
+  if (typeof f !== "function") throw new Error(`${name} has no browser half here; a body pair's Rust half does not run under fsr test, so a spec installs a stand-in with native("${name}", f)`);
+  const out = f(...JSON.parse(args));
+  return JSON.stringify(out === undefined ? null : out, (_, v) => (typeof v === "bigint" ? Number(v) : v));
+};
+
 globalThis.__sf = {
   ctx: (spec) => __sf_ctx(spec),
   use: (id) => __sf_use(id),
@@ -123,6 +131,7 @@ globalThis.__sf = {
   locale: (id) => __sf_locale(id),
   calls: (id) => __sf_calls(id),
   render: (module, props) => __sf_render(module, props),
+  ext: (name, args, locale) => __sf_ext(name, args, locale),
   idle: () => new Promise((r) => idlers.push(r)),
   advance: (ms) => {
     now += Math.max(0, Number(ms) || 0);

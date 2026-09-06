@@ -35,3 +35,31 @@ export function adoptLocale(): void {
   const tag = document.documentElement.getAttribute("data-sf-locale");
   if (tag) setLocale(tag);
 }
+
+/** A locale's message table: dotted keys to strings, already merged over the default locale's on the server. */
+export type Catalog = { readonly [key: string]: string };
+
+const catalogs = new Map<string, Catalog>();
+
+/** The message table held for `tag`, or null when the server has sent none. */
+export function catalog(tag: string): Catalog | null {
+  return catalogs.get(tag) ?? null;
+}
+
+/** Holds `table` as the messages of `tag`, replacing what was held. */
+export function setCatalog(tag: string, table: Catalog): void {
+  catalogs.set(tag, table);
+}
+
+/** Reads the catalog the server embedded in the document, `<script type="application/json" data-sf-i18n="fr_FR">`. Nothing embedded leaves what is held. */
+export function adoptCatalog(): void {
+  if (typeof document === "undefined") return;
+  const script = document.querySelector("script[data-sf-i18n]");
+  const tag = script?.getAttribute("data-sf-i18n");
+  if (!script || !tag) return;
+  try {
+    setCatalog(tag, JSON.parse(script.textContent ?? "{}") as Catalog);
+  } catch {
+    // A catalog that does not parse is left out; `t` answers the key itself.
+  }
+}

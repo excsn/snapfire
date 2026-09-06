@@ -68,7 +68,7 @@ fn console(transport: Arc<MockTransport>) -> Host {
   if let Some(cache) = config.cache.as_mut() {
     cache.data = None;
   }
-  Host::from_config(config).unwrap().services_over(transport).session_store(store).build().unwrap()
+  ops_console_react_ts::ext::register(Host::from_config(config).unwrap().services_over(transport).session_store(store)).build().unwrap()
 }
 
 fn watching(session: &SessionCell, ids: &[i64]) {

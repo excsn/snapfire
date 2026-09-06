@@ -280,7 +280,7 @@ impl<'a> Inferer<'a> {
         Ts::Map(v) => Ts::List(v),
         _ => Ts::List(Box::new(Ts::Unknown)),
       },
-      Expr::Length(_) | Expr::Num(_) => Ts::Num,
+      Expr::Length(_) | Expr::Num(_) | Expr::FindIndex(..) => Ts::Num,
       Expr::BigInt(_) => Ts::Big,
       Expr::Apply { f, args } => {
         let args = args.iter().map(|a| self.expr(a, env)).collect();
@@ -290,6 +290,12 @@ impl<'a> Inferer<'a> {
         Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max => Ts::Num,
         Builtin::Includes => Ts::Bool,
         Builtin::Range => Ts::List(Box::new(Ts::Big)),
+        _ => Ts::Str,
+      },
+      Expr::Ext { module, name, .. } => match (module.as_str(), name.as_str()) {
+        ("time", "add" | "diff" | "parse") => Ts::Num,
+        ("time", "now") => Ts::Big,
+        ("crypto", "verify") => Ts::Bool,
         _ => Ts::Str,
       },
     }

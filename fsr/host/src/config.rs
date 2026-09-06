@@ -11,6 +11,8 @@ use c5store::error::ConfigError;
 use c5store::{create_c5store, C5Store, C5StoreOptions};
 use serde::Deserialize;
 
+use snapfire_fsr_runtime::{HeadEl, Meta};
+
 use crate::locale::LocalesSection;
 use crate::HostError;
 
@@ -146,8 +148,37 @@ pub struct DocumentConfig {
   /// Stylesheet URLs linked from the head, in order.
   #[serde(default)]
   pub styles: Option<Vec<String>>,
+  /// Head elements every document carries, which a segment's `meta`
+  /// overrides one identity at a time. Each table names a `tag` and its
+  /// attributes; `children` is the element's text when it takes any.
+  #[serde(default)]
+  pub head: Vec<BTreeMap<String, String>>,
   #[serde(default = "default_shell")]
   pub shell: String,
+}
+
+impl DocumentConfig {
+  /// The configured head as the outermost `Meta`, the layer every segment
+  /// folds over.
+  pub fn head_meta(&self) -> Result<Meta, HostError> {
+    let mut head = Vec::new();
+    for table in &self.head {
+      let Some(tag) = table.get("tag") else {
+        return Err(HostError::Value("document.head".to_owned(), "each entry needs a `tag`".to_owned()));
+      };
+      let mut attrs = Vec::new();
+      let mut children = None;
+      for (key, value) in table {
+        match key.as_str() {
+          "tag" => {}
+          "children" => children = Some(value.clone()),
+          _ => attrs.push((key.clone(), value.clone())),
+        }
+      }
+      head.push(HeadEl { tag: tag.clone(), attrs, children });
+    }
+    Ok(Meta { title: None, description: None, head })
+  }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -632,6 +663,43 @@ impl Config {
     if app.join("vendor").is_dir() && !statics.iter().any(|s| s.route == "/static/js/vendor") {
       statics.push(StaticRoot { route: "/static/js/vendor".to_owned(), dir: "vendor".to_owned() });
       inferred.push("static /static/js/vendor from vendor/".to_owned());
+    }
+    let icons_route = match &site {
+      Some(site) => site.under("/static/icons"),
+      None => "/static/icons".to_owned(),
+    };
+    if app.join("icons").is_dir() {
+      if !statics.iter().any(|s| s.route == icons_route) {
+        statics.push(StaticRoot { route: icons_route.clone(), dir: "icons".to_owned() });
+        inferred.push(format!("static {icons_route} from icons/"));
+      }
+      let held = |name: &str| app.join("icons").join(name).is_file();
+      // Only what the file did not already state: an entry the application
+      // wrote for the same rel and size wins over what the directory implies.
+      let written: Vec<(Option<String>, Option<String>)> =
+        document.head.iter().map(|t| (t.get("rel").cloned(), t.get("sizes").cloned())).collect();
+      let mut linked = Vec::new();
+      for (file, mut attrs) in [
+        ("favicon.svg", vec![("rel", "icon"), ("type", "image/svg+xml")]),
+        ("favicon-32x32.png", vec![("rel", "icon"), ("type", "image/png"), ("sizes", "32x32")]),
+        ("favicon-16x16.png", vec![("rel", "icon"), ("type", "image/png"), ("sizes", "16x16")]),
+        ("apple-touch-icon.png", vec![("rel", "apple-touch-icon"), ("sizes", "180x180")]),
+        ("site.webmanifest", vec![("rel", "manifest")]),
+      ] {
+        let sizes = attrs.iter().find(|(k, _)| *k == "sizes").map(|(_, v)| (*v).to_owned());
+        if !held(file) || written.iter().any(|(rel, held_sizes)| rel.as_deref() == Some(attrs[0].1) && *held_sizes == sizes) {
+          continue;
+        }
+        attrs.push(("href", ""));
+        let mut table: BTreeMap<String, String> = attrs.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+        table.insert("tag".to_owned(), "link".to_owned());
+        table.insert("href".to_owned(), format!("{icons_route}/{file}"));
+        document.head.push(table);
+        linked.push(file);
+      }
+      if !linked.is_empty() {
+        inferred.push(format!("document.head links [{}] from icons/", linked.join(", ")));
+      }
     }
     if app.join("styles").is_dir() {
       if !statics.iter().any(|s| s.route == css_route) {

@@ -1,8 +1,9 @@
 import { loadEntry, patchIsland, scan } from "./boot.js";
-import { currentLocale, setLocale } from "./locale.js";
-import { Head, parsePayload, Payload, Segment, SfNode } from "./reader.js";
+import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
+import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
 import { seed, transaction } from "./store.js";
+import { SfValue } from "./values.js";
 
 let current: Segment | null = null;
 const ids: IdAlloc = { next: 0 };
@@ -253,33 +254,178 @@ export function applyHead(head: Head): void {
   }
 }
 
-/** False when the payload could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. */
-function apply(payload: Payload, force: boolean): boolean {
-  if (!current || !payload.segments) return false;
-  transaction(() => {
-    for (const values of payload.seeds) seed(values);
-  });
-  if (!diff(current, payload.segments, payload.tree, force)) return false;
-  current = payload.segments;
-  openSlot = interceptSlot(payload.segments);
-  for (const r of payload.resolutions) {
-    fillSlot(r.slot, r.node, keyOfSlot(payload.segments, r.slot));
+/** The eager wave of a payload: every row up to the `G` sidecar, which closes it. */
+interface Eager {
+  tree: SfNode;
+  segments: Segment;
+  heads: Head[];
+  seeds: { [key: string]: SfValue }[];
+  locale: string | null;
+  catalog: { [key: string]: string } | null;
+  entry: string | null;
+}
+
+/** Reads rows up to and including the sidecar, stepping the generator by hand so it stays open for the rows after. Null when the rows end first, or when a resolution arrives before it. */
+async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
+  let tree: SfNode | null = null;
+  const eager: Omit<Eager, "tree" | "segments"> = { heads: [], seeds: [], locale: null, catalog: null, entry: null };
+  for (;;) {
+    const { done, value: line } = await rows.next();
+    if (done) return null;
+    const row = parseRow(line);
+    switch (row.tag) {
+      case "V":
+        break;
+      case "N":
+        tree = row.tree;
+        break;
+      case "H":
+        eager.heads.push(row.head);
+        break;
+      case "T":
+        eager.seeds.push(row.seed);
+        break;
+      case "L":
+        eager.locale = row.locale;
+        break;
+      case "E":
+        eager.entry = row.entry;
+        break;
+      case "D":
+        eager.catalog = row.catalog;
+        break;
+      case "G":
+        return tree === null ? null : { ...eager, tree, segments: row.segments };
+      case "S":
+        return null;
+    }
   }
-  for (const head of payload.heads) applyHead(head);
-  if (payload.locale !== null) setLocale(payload.locale);
-  if (payload.entry !== null) loadEntry(payload.entry);
+}
+
+/** False when the eager wave could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. */
+function applyEager(eager: Eager, force: boolean): boolean {
+  if (!current) return false;
+  transaction(() => {
+    for (const values of eager.seeds) seed(values);
+  });
+  if (!diff(current, eager.segments, eager.tree, force)) return false;
+  current = eager.segments;
+  openSlot = interceptSlot(eager.segments);
+  for (const head of eager.heads) applyHead(head);
+  if (eager.locale !== null) {
+    if (eager.catalog !== null) setCatalog(eager.locale, eager.catalog);
+    setLocale(eager.locale);
+  }
+  if (eager.entry !== null) loadEntry(eager.entry);
   scan(document);
   return true;
 }
 
-interface Cached {
-  text: string;
-  at: number;
+/** Counts navigations, so the rows still arriving for one stop applying once a later one has taken the document. */
+let generation = 0;
+
+/** Applies the rows after the sidecar as they arrive: each resolution into its slot, each head and seed as it comes. Stops at a row that cannot be read, leaving the fallbacks that stand. */
+async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: number): Promise<void> {
+  try {
+    for await (const line of rows) {
+      if (gen !== generation) return;
+      const row = parseRow(line);
+      if (row.tag === "S") {
+        fillSlot(row.slot, row.node, keyOfSlot(segments, row.slot));
+        scan(document);
+      } else if (row.tag === "H") {
+        applyHead(row.head);
+      } else if (row.tag === "T") {
+        seed(row.seed);
+      }
+    }
+  } catch (err) {
+    console.warn("sf: a streamed payload stopped applying", err);
+  }
 }
 
-/** Payload text by where the navigation comes from and where it goes, or the fetch still bringing it. */
-const cache = new Map<string, Cached | Promise<Cached | null>>();
+/** A payload's rows as they arrive, readable from the first by every navigation that consumes it, before and after it is complete. */
+class Feed {
+  readonly lines: string[] = [];
+  done = false;
+  /** When the response finished, on the clock `performance.now` reads; 0 while it is still arriving. */
+  at = 0;
+  /** Whether the response was ok, known once its headers are. */
+  readonly ok: Promise<boolean>;
+  private settle: (ok: boolean) => void = () => {};
+  private waiters: (() => void)[] = [];
+
+  constructor() {
+    this.ok = new Promise((resolve) => {
+      this.settle = resolve;
+    });
+  }
+
+  open(ok: boolean): void {
+    this.settle(ok);
+  }
+
+  push(line: string): void {
+    this.lines.push(line);
+    this.wake();
+  }
+
+  finish(): void {
+    this.done = true;
+    this.at = performance.now();
+    this.settle(false);
+    this.wake();
+  }
+
+  private wake(): void {
+    const waiting = this.waiters;
+    this.waiters = [];
+    for (const wake of waiting) wake();
+  }
+
+  /** Resolves once every row has landed. */
+  async whole(): Promise<void> {
+    while (!this.done) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+  }
+
+  async *read(): AsyncGenerator<string> {
+    for (let i = 0; ; i++) {
+      while (i >= this.lines.length) {
+        if (this.done) return;
+        await new Promise<void>((resolve) => this.waiters.push(resolve));
+      }
+      yield this.lines[i];
+    }
+  }
+}
+
+/** Starts fetching a payload and hands back its feed at once; the rows land in it as the body streams. */
+function fetchFeed(url: URL, headers: Record<string, string>): Feed {
+  const feed = new Feed();
+  void (async () => {
+    try {
+      const res = await fetch(payloadUrl(url), { headers });
+      feed.open(res.ok);
+      if (!res.ok) return;
+      for await (const line of linesOf(res)) feed.push(line);
+    } catch {
+    } finally {
+      feed.finish();
+    }
+  })();
+  return feed;
+}
+
+/** Payload feeds by where the navigation comes from and where it goes, complete or still arriving. */
+const cache = new Map<string, Feed>();
 let cacheMs = 30_000;
+
+/** A held feed answers while it is still arriving and for `cacheMs` after it finished. */
+function fresh(feed: Feed): boolean {
+  return !feed.done || performance.now() - feed.at < cacheMs;
+}
 
 export type PrefetchTiming = "hover" | "none";
 
@@ -310,6 +456,8 @@ function headersOf(ask: Ask): Record<string, string> {
   const headers: Record<string, string> = {};
   if (ask.from !== null) headers["x-sf-from"] = ask.from;
   if (ask.into !== null) headers["x-sf-into"] = ask.into;
+  const held = currentLocale();
+  if (held && catalog(held) !== null) headers["x-sf-catalog"] = held;
   return headers;
 }
 
@@ -328,41 +476,29 @@ function cacheKey(url: URL, ask: Ask): string {
   return `${ask.from ?? ""}|${ask.into ?? ""}|${url.pathname}${url.search}`;
 }
 
-async function fetchPayload(url: URL, ask: Ask): Promise<Cached | null> {
+/** Fetches a payload into the cache; a response that is not ok leaves the cache without it. */
+function fetchPayload(url: URL, ask: Ask): Feed {
   const key = cacheKey(url, ask);
-  const inflight = (async () => {
-    const res = await fetch(payloadUrl(url), { headers: headersOf(ask) });
-    if (!res.ok) return null;
-    return { text: await res.text(), at: performance.now() };
-  })();
-  cache.set(key, inflight);
-  const entry = await inflight;
-  if (cache.get(key) === inflight) {
-    if (entry) {
-      cache.set(key, entry);
-    } else {
-      cache.delete(key);
-    }
-  }
-  return entry;
+  const feed = fetchFeed(url, headersOf(ask));
+  cache.set(key, feed);
+  void feed.ok.then((ok) => {
+    if (!ok && cache.get(key) === feed) cache.delete(key);
+  });
+  return feed;
 }
 
-/** The route's payload from the cache while it is fresh, else fetched and cached. `null` is a response that was not ok. */
-async function payloadFor(url: URL, ask: Ask): Promise<Cached | null> {
+/** The route's payload from the cache while it is fresh, else fetched and cached. */
+function payloadFor(url: URL, ask: Ask): Feed {
   const held = cache.get(cacheKey(url, ask));
-  if (held instanceof Promise) return held;
-  if (held && performance.now() - held.at < cacheMs) return held;
+  if (held && fresh(held)) return held;
   return fetchPayload(url, ask);
 }
 
-/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. */
-export function prefetch(href: string, options: NavigateOptions = {}): Promise<void> {
+/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. Resolves once the payload has arrived whole. */
+export async function prefetch(href: string, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
-  if (url.origin !== window.location.origin) return Promise.resolve();
-  const ask = askFor(options);
-  const held = cache.get(cacheKey(url, ask));
-  if (held instanceof Promise || (held && performance.now() - held.at < cacheMs)) return Promise.resolve();
-  return fetchPayload(url, ask).then(() => undefined);
+  if (url.origin !== window.location.origin) return;
+  await payloadFor(url, askFor(options)).whole();
 }
 
 /** Drops every held payload, which is what a mutation calls for. */
@@ -375,32 +511,38 @@ export async function refresh(): Promise<void> {
   const bail = () => window.location.reload();
   if (!current) return bail();
   cache.clear();
-  const res = await fetch(payloadUrl(new URL(window.location.href)), { headers: headersOf({ from: null, into: openSlot }) });
-  if (!res.ok) return bail();
-  let patched = false;
-  try {
-    patched = apply(parsePayload(await res.text()), true);
-  } catch {
-    patched = false;
-  }
-  if (!patched) return bail();
+  const gen = ++generation;
+  const feed = fetchFeed(new URL(window.location.href), headersOf({ from: null, into: openSlot }));
+  if (!(await feed.ok)) return bail();
+  const rows = feed.read();
+  const eager = await eagerOf(rows).catch(() => null);
+  if (gen !== generation) return;
+  if (!eager || !patch(eager, true)) return bail();
+  await drain(rows, eager.segments, gen);
 }
 
-/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
+/** `applyEager` with a throw counted as a patch that failed. */
+function patch(eager: Eager, force: boolean): boolean {
+  try {
+    return applyEager(eager, force);
+  } catch {
+    return false;
+  }
+}
+
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands, and the promise resolves once the payload has been applied whole. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
-  const held = await payloadFor(url, askFor(options));
-  if (!held) {
-    window.location.assign(href);
+  const gen = ++generation;
+  const feed = payloadFor(url, askFor(options));
+  if (!(await feed.ok)) {
+    if (gen === generation) window.location.assign(href);
     return;
   }
-  let patched = false;
-  try {
-    patched = apply(parsePayload(held.text), false);
-  } catch {
-    patched = false;
-  }
-  if (!patched) {
+  const rows = feed.read();
+  const eager = await eagerOf(rows).catch(() => null);
+  if (gen !== generation) return;
+  if (!eager || !patch(eager, false)) {
     window.location.assign(href);
     return;
   }
@@ -410,6 +552,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
     documentPath = currentPath;
     window.scrollTo(0, 0);
   }
+  await drain(rows, eager.segments, gen);
 }
 
 /** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */

@@ -301,3 +301,55 @@ mod tests {
     assert_eq!(ok.default, "en");
   }
 }
+
+/// The message catalogs under `<app>/locales/*.toml`, one file per locale
+/// named by its tag as the application spells it, `fr_FR.toml`. Tables
+/// nest: `[cart]` then `empty = "…"` is the key `cart.empty`. A value that is
+/// a string, a number or a boolean is kept as text; anything else is refused
+/// naming the file and the key. No directory is no catalogs.
+pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fsr_ir::Catalogs, String> {
+  let dir = app.join("locales");
+  let mut tables = std::collections::BTreeMap::new();
+  let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables)) };
+  let mut files: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "toml")).collect();
+  files.sort();
+  for file in files {
+    let tag = file.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let value: toml::Value = text.parse().map_err(|e| format!("{}: {e}", file.display()))?;
+    let mut table = std::collections::BTreeMap::new();
+    flatten(&file, "", &value, &mut table)?;
+    tables.insert(tag, table);
+  }
+  Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables))
+}
+
+fn flatten(file: &std::path::Path, prefix: &str, value: &toml::Value, out: &mut std::collections::BTreeMap<String, String>) -> Result<(), String> {
+  match value {
+    toml::Value::Table(table) => {
+      for (key, inner) in table {
+        let full = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        flatten(file, &full, inner, out)?;
+      }
+      Ok(())
+    }
+    toml::Value::String(s) => {
+      out.insert(prefix.to_owned(), s.clone());
+      Ok(())
+    }
+    toml::Value::Integer(n) => {
+      out.insert(prefix.to_owned(), n.to_string());
+      Ok(())
+    }
+    toml::Value::Float(f) => {
+      out.insert(prefix.to_owned(), f.to_string());
+      Ok(())
+    }
+    toml::Value::Boolean(b) => {
+      out.insert(prefix.to_owned(), b.to_string());
+      Ok(())
+    }
+    other => Err(format!("{}: `{prefix}` is {}; a message is a string", file.display(), other.type_str())),
+  }
+}
+

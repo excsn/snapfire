@@ -488,12 +488,12 @@ let stream = match mode {
 };
 ```
 
-The first item is three rows in one string:
+The first item is the eager wave in one string:
 
 * `V {"fmt":1,"enc":"json"}`, the format version and encoding.
 * `N <row json>`, the payload tree.
-* `G <segment json>`, the segment sidecar.
 * `H {"title":..,"description":..}`, when the document has either, only the fields it has.
+* `G <segment json>`, the segment sidecar, last: a navigator applies the tree, fallbacks in place, the moment it reads this row.
 
 Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order, each followed by an `H` row when the resolved segment described the document. The sidecar encoding is compact: `k` is the segment key and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
 

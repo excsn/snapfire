@@ -1,0 +1,14 @@
+[server]
+listen = "127.0.0.1:3000"
+
+[document]
+title = "{{name}}"
+
+[session]
+key = "{{name}}-development-key-not-a-secret"
+ttl = "24h"
+
+[cache]
+capacity = 1000
+ttl = "1m"
+{{statics}}

@@ -263,3 +263,35 @@ fn a_page_reading_its_identity_prop_never_prerenders() {
   let app = App::from_manifest(IDENTIFIED).unwrap().build().unwrap();
   assert_eq!(app.report.prerenderable, vec!["/about".to_owned()], "{}", app.report);
 }
+
+const BEARER: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/posts", "plan": { "id": 0, "module": "routes/posts/page.tsx#default", "source": "posts" } },
+    { "pattern": "/cart", "plan": { "id": 0, "module": "routes/cart/page.tsx#default", "source": "cart" } },
+    { "pattern": "/faq", "plan": { "id": 0, "module": "routes/faq/page.tsx#default", "source": "faq" } }
+  ],
+  "sources": [
+    { "id": "posts", "owner": "lowered", "module": "routes/posts/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "posts", { "call": { "service": "cms", "method": "list", "args": [] } } ] } ] } } ] },
+    { "id": "cart", "owner": "lowered", "module": "routes/cart/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "who", { "identity": [ "subject" ] } ] }, { "field": [ "n", { "session": "count" } ] } ] } } ] },
+    { "id": "faq", "owner": "lowered", "module": "routes/faq/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "docs", "method": "list", "args": [] } } ] } ] } } ] }
+  ],
+  "actions": []
+}"#;
+
+#[test]
+fn a_route_whose_only_request_reads_are_the_identity_prerenders_for_anonymous_visitors() {
+  let app = App::from_manifest(IDENTIFIED).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/about".to_owned()]);
+  assert_eq!(app.report.prerenderable_anonymous, vec!["/account".to_owned()], "a page reading its identity prop: {}", app.report);
+
+  let app = App::from_manifest(BEARER).unwrap().bearer_services(vec!["cms".to_owned()]).build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/faq".to_owned()], "a call through a client with no token reads nothing of the request");
+  assert_eq!(app.report.prerenderable_anonymous, vec!["/posts".to_owned()], "a call through a bearer client depends on the identity; a session read is dynamic");
+  let app = App::from_manifest(BEARER).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/posts".to_owned(), "/faq".to_owned()]);
+  assert!(app.report.prerenderable_anonymous.is_empty());
+}

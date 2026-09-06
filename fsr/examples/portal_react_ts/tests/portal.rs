@@ -25,7 +25,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   let portal = portal();
   let report = portal.report().to_string();
   assert!(report.contains("sites     billing                at /billing from"), "{report}");
-  assert!(report.contains("/billing/invoice/{id}") && report.contains("billing:index") && report.contains("billing:ledger         mock"), "{report}");
+  assert!(report.contains("/billing/invoice/{id}") && report.contains("billing:$root") && report.contains("billing:ledger         mock"), "{report}");
   assert!(report.contains("ignored [static /static/js/fsr, static /static/js/vendor, session]"), "{report}");
 
   let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
@@ -34,7 +34,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   assert_eq!(response.headers().get("x-billing").unwrap(), "invoices", "the site's middleware ran after it");
   let html = body_of(response).await;
   assert!(html.contains("class=\"brand\"") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
-  assert!(html.contains("Northwind") && html.contains("data-sf-module=\"billing:routes/index/page.tsx#default\""), "{html}");
+  assert!(html.contains("Northwind") && html.contains("data-sf-module=\"billing:routes/page.tsx#default\""), "{html}");
   assert!(html.contains("href=\"/billing/static/css/billing.css\""), "the site's stylesheet rides under its prefix: {html}");
 
   let response = portal.handle(Request::get("/").body(Bytes::new()).unwrap()).await;

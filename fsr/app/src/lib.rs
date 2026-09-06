@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{Component, IrAction, IrEvaluator, IrMeta, IrSource, IrStore};
+use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrSource, IrStore, Reach};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Resolver, Runtime, TableResolver,
@@ -44,6 +44,8 @@ pub enum BindError {
   NoContract { id: String, input: String },
   #[error("action `{id}` names input type `{input}`, which the contract does not define")]
   UnknownInput { id: String, input: String },
+  #[error("`{owner}` calls extension `{name}`, which nothing registers; the standard library has no such member and no `extension(\"{name}\", ..)` was bound")]
+  UnknownExtension { owner: String, name: String },
   #[error("handler `{0}` is lowered by the plan file and bound in Rust; mark the Rust one as an override")]
   HandlerClaimed(String),
   #[error("handler `{0}` is marked an override but the plan lowers no such handler")]
@@ -88,6 +90,10 @@ pub struct Report {
   pub middleware: Option<Owner>,
   /// Patterns one render serves for every request; the host prerenders these.
   pub prerenderable: Vec<String>,
+  /// Patterns one render serves for every anonymous request: their only
+  /// request reads are the identity and calls that carry its token, so the
+  /// host prerenders them and serves the file to visitors with no identity.
+  pub prerenderable_anonymous: Vec<String>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
 }
@@ -141,6 +147,11 @@ pub struct App {
   /// Patterns with no parameter whose every source is lowered and reads
   /// nothing of the request, so one render serves every request.
   pub prerenderable: Vec<String>,
+  /// Patterns whose only request reads are the identity, a page or layout's
+  /// `identity` prop or a call through a client that carries the session's
+  /// token: one anonymous render serves every anonymous request and a
+  /// signed-in visitor is rendered live.
+  pub prerenderable_anonymous: Vec<String>,
   pub runtime: Arc<Runtime>,
   pub services: Arc<Services>,
   pub actions: ActionRegistry,
@@ -243,6 +254,9 @@ pub struct AppBuilder {
   action_overrides: Vec<String>,
   services: Option<Arc<Services>>,
   cache: Option<Arc<dyn NodeCache>>,
+  extensions: Extensions,
+  catalogs: Option<Arc<snapfire_fsr_ir::Catalogs>>,
+  bearer_services: Vec<String>,
 }
 
 impl App {
@@ -273,6 +287,9 @@ impl App {
       evaluators: Evaluators::new(),
       actions: ActionRegistry::new(),
       action_claims: Vec::new(),
+      extensions: Extensions::standard(),
+      catalogs: None,
+      bearer_services: Vec::new(),
       action_overrides: Vec::new(),
       services: None,
       cache: None,
@@ -421,6 +438,36 @@ impl AppBuilder {
     self
   }
 
+  /// Registers the Rust half of a native pair under `name`, `module.member`,
+  /// the name its `native(..)` declaration under `ext/` gives; `reach` is
+  /// what that declaration says, `render` with a browser half and `body`
+  /// without. Replaces a standard member of the same name.
+  pub fn extension<F>(mut self, name: impl Into<String>, reach: Reach, f: F) -> Self
+  where
+    F: Fn(&snapfire_fsr_ir::Ambient, &[snapfire_fsr_core::Value]) -> Result<snapfire_fsr_core::Value, snapfire_fsr_ir::Fail> + Send + Sync + 'static,
+  {
+    self.extensions.register(name, reach, f);
+    self
+  }
+
+  /// The extensions bound so far: the standard library and every `extension`.
+  pub fn extensions(&self) -> &Extensions {
+    &self.extensions
+  }
+
+  /// The message catalogs `t` reads, by locale; none by default.
+  pub fn catalogs(mut self, catalogs: Arc<snapfire_fsr_ir::Catalogs>) -> Self {
+    self.catalogs = Some(catalogs);
+    self
+  }
+
+  /// The services whose calls carry the session's token, so a body calling
+  /// one depends on the identity the way a body reading `identity` does.
+  pub fn bearer_services(mut self, services: impl IntoIterator<Item = String>) -> Self {
+    self.bearer_services = services.into_iter().collect();
+    self
+  }
+
   pub fn cache(mut self, cache: Arc<dyn NodeCache>) -> Self {
     self.cache = Some(cache);
     self
@@ -502,18 +549,61 @@ impl AppBuilder {
   pub fn build(mut self) -> Result<App, BindError> {
     let declared: Vec<String> = self.routes.plans().flat_map(declared_sources).collect();
 
+    let check = |owner: &str, body: &snapfire_fsr_ir::Body| -> Result<(), BindError> {
+      match unknown_extension(body, &self.extensions) {
+        Some(name) => Err(BindError::UnknownExtension { owner: owner.to_owned(), name }),
+        None => Ok(()),
+      }
+    };
+    for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_stores) {
+      check(name, body)?;
+    }
+    for (id, _, body) in &self.lowered_actions {
+      check(id, body)?;
+    }
+    for (id, _, _, _, body) in &self.lowered_handlers {
+      check(id, body)?;
+    }
+    if let Some(body) = &self.lowered_middleware {
+      check("middleware", body)?;
+    }
+    for (module, component) in &self.lowered_components {
+      let mut found = None;
+      component.visit(&mut |e| {
+        if let (None, Expr::Ext { module, name, .. }) = (&found, e) {
+          let key = format!("{module}.{name}");
+          if !self.extensions.contains(&key) {
+            found = Some(key);
+          }
+        }
+      });
+      for handler in &component.handlers {
+        if found.is_none() {
+          found = unknown_extension(&handler.body, &self.extensions);
+        }
+      }
+      if let Some(name) = found {
+        return Err(BindError::UnknownExtension { owner: module.clone(), name });
+      }
+    }
+    let interpreter = Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone());
+
     for name in &self.overrides {
       if !declared.contains(name) {
         return Err(BindError::OverridesNothing { name: name.clone() });
       }
     }
 
-    let fixed_sources: Vec<String> = self
+    let statics: HashMap<String, Static> = self
       .lowered_sources
       .iter()
-      .filter(|(name, body)| !snapfire_fsr_ir::body_reads_request(body) && !self.lowered_metas.iter().any(|(m, meta)| m == name && snapfire_fsr_ir::body_reads_ambient(meta)))
-      .map(|(name, _)| name.clone())
+      .map(|(name, body)| {
+        let meta = self.lowered_metas.iter().find(|(m, _)| m == name).map(|(_, meta)| meta);
+        (name.clone(), classify(body, meta, &self.bearer_services))
+      })
       .collect();
+    let fixed_sources: Vec<String> = statics.iter().filter(|(_, class)| **class == Static::Fixed).map(|(name, _)| name.clone()).collect();
+    let anonymous_sources: Vec<String> = statics.iter().filter(|(_, class)| **class != Static::Dynamic).map(|(name, _)| name.clone()).collect();
     let reads: HashMap<String, Vec<String>> = self.lowered_sources.iter().map(|(name, body)| (name.clone(), snapfire_fsr_ir::body_params_read(body))).collect();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
       match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
@@ -521,7 +611,7 @@ impl AppBuilder {
         Some(_) => return Err(BindError::Claimed(name)),
         None => {
           self.claimed.push((name.clone(), Owner::Lowered));
-          self.sources.insert(name.clone(), Arc::new(IrSource::new(name, body)));
+          self.sources.insert(name.clone(), Arc::new(IrSource::new(name, body).with_interpreter(interpreter.clone())));
         }
       }
     }
@@ -537,13 +627,13 @@ impl AppBuilder {
         Some(_) => return Err(BindError::ActionClaimed(id)),
         None => {
           let handler: Arc<dyn ActionHandler> = match input {
-            None => Arc::new(IrAction::new(body)),
+            None => Arc::new(IrAction::new(body).with_interpreter(interpreter.clone())),
             Some(input) => {
               let contract = self.contract.clone().ok_or_else(|| BindError::NoContract { id: id.clone(), input: input.clone() })?;
               if !contract.types.contains_key(&input) {
                 return Err(BindError::UnknownInput { id: id.clone(), input });
               }
-              Arc::new(CheckedInput { input, contract, inner: IrAction::new(body) })
+              Arc::new(CheckedInput { input, contract, inner: IrAction::new(body).with_interpreter(interpreter.clone()) })
             }
           };
           self.action_claims.push((id.clone(), Owner::Lowered));
@@ -581,7 +671,7 @@ impl AppBuilder {
       (Some((_, Owner::Rust)), Some(_)) => return Err(BindError::MiddlewareClaimed),
       (Some((_, Owner::RustOverride)), None) => return Err(BindError::MiddlewareOverridesNothing),
       (Some((handler, owner)), _) => (Some(handler), Some(owner)),
-      (None, Some(body)) => (Some(Arc::new(IrAction::new(body))), Some(Owner::Lowered)),
+      (None, Some(body)) => (Some(Arc::new(IrAction::new(body).with_interpreter(interpreter.clone()))), Some(Owner::Lowered)),
       (None, None) => (None, None),
     };
 
@@ -606,13 +696,13 @@ impl AppBuilder {
         None => {}
       }
       let handler: Arc<dyn ActionHandler> = match input {
-        None => Arc::new(IrAction::new(body)),
+        None => Arc::new(IrAction::new(body).with_interpreter(interpreter.clone())),
         Some(input) => {
           let contract = self.contract.clone().ok_or_else(|| BindError::NoContract { id: id.clone(), input: input.clone() })?;
           if !contract.types.contains_key(&input) {
             return Err(BindError::UnknownInput { id: id.clone(), input });
           }
-          Arc::new(CheckedInput { input, contract, inner: IrAction::new(body) })
+          Arc::new(CheckedInput { input, contract, inner: IrAction::new(body).with_interpreter(interpreter.clone()) })
         }
       };
       handlers.matcher.insert(&method, &pattern, id.clone()).map_err(|e| BindError::Pattern { pattern: pattern.clone(), message: e.to_string() })?;
@@ -645,14 +735,23 @@ impl AppBuilder {
       intercepts.plans.insert(entry, plans);
     }
     let resolved = self.routes.resolved()?;
+    let lowered = |name: &String| matches!(self.claimed.iter().rev().find(|(claimed, _)| claimed == name).map(|(_, o)| *o), Some(Owner::Lowered));
     let prerenderable: Vec<String> = resolved
       .iter()
       .filter(|(pattern, plan, _)| {
         !pattern.contains('{')
-          && declared_sources(plan).iter().all(|name| {
-            fixed_sources.contains(name) && matches!(self.claimed.iter().rev().find(|(claimed, _)| claimed == name).map(|(_, o)| *o), Some(Owner::Lowered))
-          })
-          && !plan_reads_request_props(plan, &self.lowered_components)
+          && declared_sources(plan).iter().all(|name| fixed_sources.contains(name) && lowered(name))
+          && plan_reads_request_props(plan, &self.lowered_components) == Static::Fixed
+      })
+      .map(|(pattern, _, _)| pattern.clone())
+      .collect();
+    let prerenderable_anonymous: Vec<String> = resolved
+      .iter()
+      .filter(|(pattern, plan, _)| {
+        !pattern.contains('{')
+          && !prerenderable.contains(pattern)
+          && declared_sources(plan).iter().all(|name| anonymous_sources.contains(name) && lowered(name))
+          && plan_reads_request_props(plan, &self.lowered_components) != Static::Dynamic
       })
       .map(|(pattern, _, _)| pattern.clone())
       .collect();
@@ -674,7 +773,7 @@ impl AppBuilder {
     let mut components = Vec::new();
     let mut lowered = None;
     if !self.lowered_components.is_empty() {
-      let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components));
+      let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components)).with_interpreter(interpreter.clone());
       components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
       let evaluator = Arc::new(evaluator);
       let covers = evaluator.clone();
@@ -689,6 +788,7 @@ impl AppBuilder {
       handlers: handler_rows,
       middleware: middleware_owner,
       prerenderable: prerenderable.clone(),
+      prerenderable_anonymous: prerenderable_anonymous.clone(),
       components,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -709,7 +809,7 @@ impl AppBuilder {
     }
     for (name, meta) in std::mem::take(&mut self.lowered_metas) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
-        runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta)));
+        runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta).with_interpreter(interpreter.clone())));
       }
     }
     for (name, meta) in std::mem::take(&mut self.rust_metas) {
@@ -717,7 +817,7 @@ impl AppBuilder {
     }
     for (name, store) in std::mem::take(&mut self.lowered_stores) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
-        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store)));
+        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store).with_interpreter(interpreter.clone())));
       }
     }
 
@@ -730,12 +830,27 @@ impl AppBuilder {
       not_found,
       intercepts,
       prerenderable,
+      prerenderable_anonymous,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
       actions: self.actions,
       report,
     })
   }
+}
+
+/// The first extension `body` calls that `extensions` does not hold.
+fn unknown_extension(body: &snapfire_fsr_ir::Body, extensions: &Extensions) -> Option<String> {
+  let mut found = None;
+  body_visit(body, &mut |e| {
+    if let (None, Expr::Ext { module, name, .. }) = (&found, e) {
+      let key = format!("{module}.{name}");
+      if !extensions.contains(&key) {
+        found = Some(key);
+      }
+    }
+  });
+  found
 }
 
 /// A lowered middleware body as the handler the edge runs it through, for a
@@ -793,10 +908,66 @@ impl snapfire_fsr_runtime::SegmentKeyer for ReadsKeyer {
 /// True when a lowered page or layout on the plan reads the `identity` or
 /// `csrf_token` prop the assembler injects, which a render for nobody cannot
 /// supply.
-fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(String, Component)]) -> bool {
+/// How much of the request a body or a plan depends on: nothing, the
+/// identity alone, or more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Static {
+  Fixed,
+  Anonymous,
+  Dynamic,
+}
+
+/// `Static::Fixed` when the body reads nothing of the request, `Anonymous`
+/// when its only request reads are `identity` and calls through a service in
+/// `bearer`, `Dynamic` otherwise. A `meta` body's input is the loader's data,
+/// which is not the request.
+fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, bearer: &[String]) -> Static {
+  fn writes_session(body: &snapfire_fsr_ir::Body) -> bool {
+    body.iter().any(|stmt| match stmt {
+      snapfire_fsr_ir::Stmt::SessionSet { .. } | snapfire_fsr_ir::Stmt::SessionDelete { .. } => true,
+      snapfire_fsr_ir::Stmt::If { then, r#else, .. } => writes_session(then) || writes_session(r#else),
+      snapfire_fsr_ir::Stmt::ForOf { body, .. } => writes_session(body),
+      _ => false,
+    })
+  }
+  fn reads(body: &snapfire_fsr_ir::Body, input_is_request: bool, bearer: &[String]) -> Static {
+    let mut class = Static::Fixed;
+    body_visit(body, &mut |e| {
+      let read = match e {
+        Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Now => Static::Dynamic,
+        Expr::Input if input_is_request => Static::Dynamic,
+        Expr::Identity(_) => Static::Anonymous,
+        Expr::Call { service, .. } if bearer.contains(service) => Static::Anonymous,
+        _ => Static::Fixed,
+      };
+      class = class.max(read);
+    });
+    if writes_session(body) { Static::Dynamic } else { class }
+  }
+  let mut class = reads(body, true, bearer);
+  if let Some(meta) = meta {
+    class = class.max(reads(meta, false, bearer));
+  }
+  class
+}
+
+/// `Static::Dynamic` when a page or layout on the plan reads its
+/// `csrf_token` prop, `Anonymous` when one reads its `identity` prop and
+/// none the token, `Fixed` when none reads either.
+fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(String, Component)]) -> Static {
   let module = plan.module.to_string();
-  let reads = components.iter().any(|(name, component)| *name == module && (component.reads_prop("identity") || component.reads_prop("csrf_token")));
-  reads || plan.children.iter().any(|(_, child)| plan_reads_request_props(child, components))
+  let mut class = Static::Fixed;
+  for (name, component) in components.iter().filter(|(name, _)| *name == module) {
+    if component.reads_prop("csrf_token") {
+      class = Static::Dynamic;
+    } else if component.reads_prop("identity") {
+      class = class.max(Static::Anonymous);
+    }
+  }
+  for (_, child) in &plan.children {
+    class = class.max(plan_reads_request_props(child, components));
+  }
+  class
 }
 
 fn declared_sources(plan: &snapfire_fsr_core::PlanNode) -> Vec<String> {

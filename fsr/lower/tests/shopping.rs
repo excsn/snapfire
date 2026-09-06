@@ -237,6 +237,32 @@ export const bump = action(async ({ input }) => {
 }
 
 #[test]
+fn an_action_lowers_from_an_expression_body_and_a_function_expression() {
+  let src = r#"
+export const add = action(async ({ input }: ActionCtx<Add>) => input.n);
+export const twice = action<Add>(async function ({ input }) {
+  return input.n * 2n;
+});
+"#;
+  let actions = lower_actions("actions.ts", src).unwrap();
+  assert_eq!(actions.len(), 2);
+  assert_eq!(actions[0].export, "add");
+  assert_eq!(actions[0].input.as_deref(), Some("Add"));
+  assert_eq!(actions[0].body, vec![Stmt::Return(Expr::Input.field("n"))]);
+  assert_eq!(actions[1].export, "twice");
+  assert_eq!(actions[1].input.as_deref(), Some("Add"));
+  assert!(matches!(&actions[1].body[0], Stmt::Return(_)));
+}
+
+#[test]
+fn an_action_of_something_other_than_a_function_is_refused() {
+  let src = "const helper = async () => 1n;\nexport const add = action(helper);\n";
+  let r = residue(lower_actions("actions.ts", src).unwrap_err());
+  assert_eq!(r.line, 2);
+  assert!(r.message.contains("`add`") && r.message.contains("action"), "{r}");
+}
+
+#[test]
 fn a_missing_load_export_and_a_parse_error_name_themselves() {
   let err = lower_loader("page.loader.ts", "export const other = 1;").unwrap_err();
   assert!(matches!(err, LowerError::MissingExport { ref export, .. } if export == "load"), "{err}");

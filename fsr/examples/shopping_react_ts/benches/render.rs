@@ -42,6 +42,9 @@ impl Hooks for NoHooks {
   fn render(&self, _module: &str, _props: &str) -> Result<Option<String>, String> {
     Ok(None)
   }
+  fn ext(&self, name: &str, _: &str, _: &str) -> Result<String, String> {
+    Err(format!("no extension {name} here"))
+  }
   fn fetch(&self, _method: String, _url: String, _body: Option<String>, _headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
     Box::pin(async { FetchResponse { status: 404, body: "{}".to_owned(), headers: Vec::new() } })
   }
@@ -96,7 +99,7 @@ fn pages() -> Vec<Page> {
   let lines: Vec<Value> = (1..=3).map(|i| with_quantity(product(i, &format!("Filament {i}"), "printing", 5), i)).collect();
   let Value::Map(cart_props) = map(vec![("lines", Value::Seq(lines)), ("cartCount", Value::Int(6))]) else { unreachable!() };
   vec![
-    Page { name: "catalog_12", module: "routes/index/page.tsx#default", file: "routes/index/page.js", props: catalog_props },
+    Page { name: "catalog_12", module: "routes/page.tsx#default", file: "routes/page.js", props: catalog_props },
     Page { name: "product", module: "routes/product/[id]/page.tsx#default", file: "routes/product/[id]/page.js", props: product_props },
     Page { name: "cart_3", module: "routes/cart/page.tsx#default", file: "routes/cart/page.js", props: cart_props },
   ]

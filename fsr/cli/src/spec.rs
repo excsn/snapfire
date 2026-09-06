@@ -25,6 +25,7 @@ use snapfire_fsr_host::{Host, HostError, Preflight, PreflightAction, RenderMode}
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_ir::{Body, Interpreter};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
+use snapfire_fsr_plan::Manifest;
 use snapfire_fsr_runtime::{parse_query, HandlerMatcher, Identity, RequestCtx, ServiceError, SessionCell};
 use snapfire_fsr_service::Type;
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
@@ -40,6 +41,8 @@ const LINKEDOM: &str = "0.18.12";
 const DEV_BUILDS: &[&str] = &["react", "react/jsx-runtime", "react-dom/client"];
 const TESTING_SPECIFIER: &str = "@snapfire/fsr-client/testing";
 const TESTING_URL: &str = "/static/js/fsr/testing.js";
+const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
+const STD_URL: &str = "/static/js/fsr/std.js";
 
 /// The app compiled for the engine: where the modules landed, how a specifier reaches a file and the DOM bundle.
 pub struct Prepared {
@@ -70,7 +73,13 @@ pub fn prepare(app: &Path) -> Result<Prepared, BuildError> {
   let resolution = Resolution { import_map, roots, overrides: overrides.into_iter().filter(|(k, _)| k != "linkedom").collect() };
 
   let boot = test_dir.join("boot.js");
-  std::fs::write(&boot, "import { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n").map_err(|e| BuildError::Io(boot.clone(), e))?;
+  let mut boot_source = String::new();
+  for file in crate::sorted_files(&app.join(snapfire_fsr_lower::EXT_DIR), ".ts")? {
+    let name = file.file_name().unwrap_or_default().to_string_lossy().trim_end_matches(".ts").to_owned();
+    boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
+  }
+  boot_source.push_str("import { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
+  std::fs::write(&boot, boot_source).map_err(|e| BuildError::Io(boot.clone(), e))?;
   Ok(Prepared { app, test_dir, dist, resolution, dom, boot })
 }
 
@@ -105,6 +114,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app)?;
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
+  let natives = native_names(&built.manifest);
   let actions: HashMap<String, Arc<Body>> = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), Arc::new(b)))).collect();
   let mut handlers: HashMap<String, (Option<String>, Arc<Body>)> = HashMap::new();
   let mut handler_matcher = HandlerMatcher::new();
@@ -119,7 +129,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   let current = Arc::new(AtomicU32::new(0));
   let records = Records::default();
   let transport = Arc::new(JsTransport { ctx: None, current: current.clone(), calls: calls.clone(), records: records.clone() });
-  let host = page_host(&app, built, contract, transport)?;
+  let host = page_host(&app, built, contract, transport, &natives)?;
 
   for path in files {
     let rel = path.strip_prefix(&app).unwrap_or(&path).to_string_lossy().replace('\\', "/");
@@ -127,7 +137,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     if !compiled.is_file() {
       return Err(BuildError::Dev(format!("{rel}: snapfirec wrote no {}", compiled.display())));
     }
-    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), handlers.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone()));
+    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), handlers.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone(), &natives));
     let local = tokio::task::LocalSet::new();
     let outcome: Result<Vec<(String, Result<(), String>)>, BuildError> = runtime.block_on(local.run_until(async {
       let engine = Engine::new(resolution.clone(), &dom, hooks.clone(), calls.clone()).map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
@@ -176,7 +186,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
 }
 
 /// The stock host over the app, for the routes a spec loads, when the configuration the host reads is beside the app; the services are the spec's mocks.
-fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc<JsTransport>) -> Result<Option<Arc<Host>>, BuildError> {
+fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc<JsTransport>, natives: &[String]) -> Result<Option<Arc<Host>>, BuildError> {
   let root = serve::project_root(app);
   let config = match Config::load(&root) {
     Ok(config) => config,
@@ -193,9 +203,60 @@ fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc
     cache.data = None;
   }
   let host = Host::from_config_with(config, built.manifest.to_json(), Some((**contract).clone()))
-    .and_then(|builder| builder.services_over(transport).build())
+    .and_then(|builder| {
+      let mut builder = builder.services_over(transport);
+      for name in natives {
+        builder = builder.extension(name.clone(), snapfire_fsr_ir::Reach::Render, browser_half(name.clone()));
+      }
+      builder.build()
+    })
     .map_err(|e| BuildError::Dev(format!("the host that renders a loaded route: {e}")))?;
   Ok(Some(Arc::new(host)))
+}
+
+/// Every native pair the plan calls: an extension call whose name is not the
+/// standard library's.
+fn native_names(manifest: &Manifest) -> Vec<String> {
+  let mut names: Vec<String> = Vec::new();
+  let mut note = |e: &snapfire_fsr_ir::Expr| {
+    if let snapfire_fsr_ir::Expr::Ext { module, name, .. } = e {
+      if snapfire_fsr_ir::standard_reach(module, name).is_none() {
+        let key = format!("{module}.{name}");
+        if !names.contains(&key) {
+          names.push(key);
+        }
+      }
+    }
+  };
+  let bodies = manifest
+    .sources
+    .iter()
+    .flat_map(|s| [s.body.as_ref(), s.meta.as_ref(), s.store.as_ref()])
+    .chain(manifest.actions.iter().map(|a| a.body.as_ref()))
+    .chain(manifest.handlers.iter().map(|h| h.body.as_ref()))
+    .chain([manifest.middleware.as_ref()])
+    .flatten();
+  for body in bodies {
+    snapfire_fsr_ir::body_visit(body, &mut note);
+  }
+  for component in &manifest.components {
+    component.body.visit(&mut note);
+    for handler in &component.body.handlers {
+      snapfire_fsr_ir::body_visit(&handler.body, &mut note);
+    }
+  }
+  names
+}
+
+/// The Rust half `fsr test` gives a native pair: its browser half, reached
+/// through the engine, since the application's Rust does not run here.
+fn browser_half(name: String) -> impl Fn(&snapfire_fsr_ir::Ambient, &[Value]) -> Result<Value, snapfire_fsr_ir::Fail> + Send + Sync + 'static {
+  move |_, args| {
+    let json = value_to_json(&Value::Seq(args.to_vec())).to_string();
+    let answer = snapfire_fsr_engine::native(&name, &json).map_err(|m| snapfire_fsr_ir::Fail::new(snapfire_fsr_runtime::FailureKind::Internal, m))?;
+    let json: serde_json::Value = serde_json::from_str(&answer).map_err(|e| snapfire_fsr_ir::Fail::new(snapfire_fsr_runtime::FailureKind::Internal, format!("{name}: {e}")))?;
+    json_to_value(&json).map_err(|e| snapfire_fsr_ir::Fail::new(snapfire_fsr_runtime::FailureKind::Internal, format!("{name}: {e}")))
+  }
 }
 
 fn indent(text: &str) -> String {
@@ -316,12 +377,13 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path) -> Result<(), Buil
   for (i, (from, to)) in aliases.iter().enumerate() {
     tsconfig.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i + 1 == aliases.len() { "" } else { "," }));
   }
-  tsconfig.push_str("    }\n  },\n  \"include\": [\"../src/**/*\", \"../routes/**/*.tsx\", \"../generated/islands.ts\", \"../generated/client.ts\", \"../tests/**/*.spec.tsx\", \"../tests/**/*.spec.ts\"]\n}\n");
+  tsconfig.push_str("    }\n  },\n  \"include\": [\"../src/**/*\", \"../ext/**/*\", \"../routes/**/*.tsx\", \"../generated/islands.ts\", \"../generated/client.ts\", \"../tests/**/*.spec.tsx\", \"../tests/**/*.spec.ts\"]\n}\n");
   let path = test_dir.join("tsconfig.json");
   std::fs::write(&path, tsconfig).map_err(|e| BuildError::Io(path, e))?;
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = imports_of(&map);
   imports.insert(TESTING_SPECIFIER.to_owned(), serde_json::Value::String(TESTING_URL.to_owned()));
+  imports.entry(STD_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(STD_URL.to_owned()));
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).expect("serialisable");
   let path = test_dir.join("importmap.json");
@@ -449,8 +511,13 @@ struct SpecHooks {
 }
 
 impl SpecHooks {
-  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>) -> Self {
-    let hooks = Self { contract, actions, handlers, components, calls, interpreter: Interpreter::default(), ctxs: RefCell::new(Vec::new()), current, records, host };
+  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>, natives: &[String]) -> Self {
+    let mut extensions = snapfire_fsr_ir::Extensions::standard();
+    for name in natives {
+      extensions.register(name.clone(), snapfire_fsr_ir::Reach::Render, browser_half(name.clone()));
+    }
+    let interpreter = Interpreter::default().with_extensions(Arc::new(extensions)).with_catalogs(host.as_ref().and_then(|h| h.catalogs()));
+    let hooks = Self { contract, actions, handlers, components, calls, interpreter, ctxs: RefCell::new(Vec::new()), current, records, host };
     hooks.reset();
     hooks
   }
@@ -547,6 +614,17 @@ impl Hooks for SpecHooks {
     self.get(id)?;
     let calls = self.records.lock().get(&id).cloned().unwrap_or_default();
     Ok(value_to_json(&Value::Seq(calls)).to_string())
+  }
+
+  fn ext(&self, name: &str, args: &str, locale: &str) -> Result<String, String> {
+    let json: serde_json::Value = serde_json::from_str(args).map_err(|e| format!("{name}: {e}"))?;
+    let args = match json_to_value(&json).map_err(|e| format!("{name}: {e}"))? {
+      Value::Seq(items) => items,
+      _ => return Err(format!("{name}: arguments must be an array")),
+    };
+    let ambient = snapfire_fsr_ir::Ambient { locale: locale.to_owned(), now: 0, catalogs: self.interpreter.catalogs().cloned() };
+    let value = self.interpreter.extensions().call(name, &ambient, &args).map_err(|f| f.message)?;
+    Ok(value_to_json(&value).to_string())
   }
 
   fn render(&self, module: &str, props: &str) -> Result<Option<String>, String> {

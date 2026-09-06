@@ -15,17 +15,22 @@ use std::rc::Rc;
 
 use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Handler, Lit, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, SERVER_MODE, UNLOWERED_ATTR};
+use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
 use crate::hoist::{self, Candidates, Hook, Rewrite};
-use crate::{Lowered, LowerError, Lowerer, Parsed, Residue, SessionDefaults, parse_with, prop_name};
+use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
+use snapfire_fsr_ir::Body;
 
 /// The cursor over one application: parsed files, finished components and the
 /// resolution stack that turns recursion into a diagnostic.
 pub struct ComponentSet {
   app: PathBuf,
   parsed: HashMap<String, Rc<Parsed>>,
+  /// Modules the caller supplies rather than the app directory holding, so a
+  /// body may call into one the build has not written yet.
+  provided: HashMap<String, String>,
   defaults: SessionDefaults,
   pub components: Vec<(String, Component)>,
   resolving: Vec<String>,
@@ -41,11 +46,109 @@ pub struct ComponentSet {
   /// no slot, nothing ambient, and every component it renders pure too. A
   /// pure component inside a static subtree is rendered into the chunk.
   pub pure: HashMap<String, bool>,
+  /// The native pairs declared under `ext/`, `module.member` and reach, as
+  /// their declarations are met.
+  pub natives: Vec<(String, Reach)>,
+  /// Per lowered module, the render-path calls the browser still makes:
+  /// `file:line:column` of each candidate that was not hoisted.
+  pub remaining: Vec<(String, String)>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new() }
+  }
+
+  /// A module the set resolves and reads from `source` rather than from disk.
+  /// `generated/head.ts` is provided this way: its content is fixed, so a body
+  /// calls its helpers on a checkout where nothing has been generated yet.
+  pub fn provide(mut self, file: impl Into<String>, source: impl Into<String>) -> Self {
+    self.provided.insert(file.into(), source.into());
+    self
+  }
+
+  /// The session defaults every body lowers with.
+  pub fn with_defaults(mut self, defaults: SessionDefaults) -> Self {
+    self.defaults = defaults;
+    self
+  }
+
+  /// Lowers the exported `load` of a loader module under the app, following
+  /// the imports it calls.
+  pub fn lower_loader(&mut self, file: &str) -> Result<Body, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_loader_in(parsed, defaults, resolved))
+  }
+
+  /// The loader module's `meta`, when it exports one.
+  pub fn lower_meta(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, "meta"))
+  }
+
+  /// The loader module's `store`, when it exports one.
+  pub fn lower_store(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, "store"))
+  }
+
+  pub fn lower_actions(&mut self, file: &str) -> Result<Vec<LoweredAction>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_actions_in(parsed, defaults, resolved))
+  }
+
+  pub fn lower_handlers(&mut self, file: &str) -> Result<Vec<LoweredHandler>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_handlers_in(parsed, defaults, resolved))
+  }
+
+  pub fn lower_middleware(&mut self, file: &str) -> Result<Body, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_middleware_in(parsed, defaults, resolved))
+  }
+
+  /// Runs `lower` over `file`, binding each module-level name it could not
+  /// resolve through this set and trying again, until it lowers or a name
+  /// cannot be bound.
+  fn resolving_loop<T>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
+    self.load(file)?;
+    let mut resolved = Resolved { globals: Vec::new(), natives: self.natives.clone() };
+    loop {
+      let parsed = self.parsed[file].clone();
+      let defaults = self.defaults.clone();
+      match lower(&parsed, &defaults, &resolved) {
+        Ok(done) => return Ok(done),
+        Err((error, Some(name))) if !resolved.globals.iter().any(|(n, _)| *n == name) => match self.global(file, &name)? {
+          Some(expr) => {
+            resolved.globals.push((name, expr));
+            resolved.natives = self.natives.clone();
+          }
+          None => return Err(error),
+        },
+        Err((error, _)) => return Err(error),
+      }
+    }
+  }
+
+  /// Lowers every export of a module under `ext/`: each is an extension,
+  /// lowered or native, and one that does not lower fails the build. Returns
+  /// `(file#export, kind)` rows, the kind `lowered`, `native render` or
+  /// `native body`.
+  pub fn lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError> {
+    self.load(file)?;
+    let parsed = self.parsed[file].clone();
+    let names: Vec<String> = parsed.exports().map(|(name, _)| name.to_owned()).collect();
+    let mut rows = Vec::new();
+    for name in names {
+      let expr = match self.global(file, &name)? {
+        Some(expr) => expr,
+        None => return Err(LowerError::Extension(Residue { file: file.to_owned(), line: 1, column: 1, message: format!("`{name}` is not a value the build can follow") })),
+      };
+      let kind = match &expr {
+        Expr::Ext { module, name: member, args } if args.is_empty() => {
+          let key = format!("{module}.{member}");
+          let reach = self.natives.iter().find(|(n, _)| *n == key).map(|(_, r)| *r).unwrap_or(Reach::Render);
+          format!("native {}", reach.as_str())
+        }
+        _ => "lowered".to_owned(),
+      };
+      rows.push((format!("{file}#{name}"), kind));
+    }
+    Ok(rows)
   }
 
   /// Every file with a rewrite, with its rewritten source.
@@ -90,8 +193,10 @@ impl ComponentSet {
     if self.parsed.contains_key(file) {
       return Ok(());
     }
-    let path = self.app.join(file);
-    let source = std::fs::read_to_string(&path).map_err(|e| LowerError::Parse { file: file.to_owned(), message: e.to_string() })?;
+    let source = match self.provided.get(file) {
+      Some(source) => source.clone(),
+      None => std::fs::read_to_string(self.app.join(file)).map_err(|e| LowerError::Parse { file: file.to_owned(), message: e.to_string() })?,
+    };
     let parsed = parse_with(file, &source, file.ends_with(".tsx"))?;
     self.parsed.insert(file.to_owned(), Rc::new(parsed));
     Ok(())
@@ -103,10 +208,10 @@ impl ComponentSet {
   fn resolve_import(&self, from: &str, source: &str) -> Option<String> {
     let joined = crate::resolve_specifier(from, source)?;
     for candidate in [joined.clone(), format!("{joined}.tsx"), format!("{joined}.ts"), format!("{joined}/index.tsx"), format!("{joined}/index.ts")] {
-      if candidate.starts_with("generated/") {
-        return None;
+      if candidate.starts_with("generated/") && candidate != crate::HEAD_MODULE {
+        continue;
       }
-      if self.app.join(&candidate).is_file() {
+      if self.provided.contains_key(&candidate) || self.app.join(&candidate).is_file() {
         return Some(candidate);
       }
     }
@@ -123,12 +228,17 @@ impl ComponentSet {
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
+        lowerer.natives = self.natives.clone();
         lowerer.hoisting = Some(Candidates::default());
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
         let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new() };
         let result = cl.component(&function);
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
+        let result = match result {
+          Err(residue) if cl.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
+          other => other,
+        };
         (result, cl.lowerer.unbound.take(), hoisting)
       };
       match result {
@@ -155,6 +265,11 @@ impl ComponentSet {
       let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
       let chunks = hoist::chunks(&mut component, &state, &self.pure);
       self.pure.insert(module.clone(), pure);
+      let parsed = self.parsed[file].clone();
+      for range in candidates.remaining(&kept) {
+        let (line, column) = parsed.position(range.start);
+        self.remaining.push((module.clone(), format!("{file}:{line}:{column}")));
+      }
       if let Some(rewrite) = candidates.rewrite(&kept, &chunks, file, &module, hook) {
         self.rewrites.push(rewrite);
       }
@@ -199,10 +314,22 @@ impl ComponentSet {
       return self.global(&target, &imported);
     }
     let Some(item) = find_value(&parsed, name) else { return Ok(None) };
+    if let Global::Const(init) = &item {
+      if let Some((module, member, reach)) = native_declaration(&parsed, init)? {
+        let key = format!("{module}.{member}");
+        if !self.natives.iter().any(|(n, _)| *n == key) {
+          self.natives.push((key, reach));
+        }
+        return Ok(Some(Expr::Ext { module, name: member, args: Vec::new() }));
+      }
+    }
     self.resolving.push(key);
     let result = self.lower_global(file, item);
     self.resolving.pop();
-    result.map(Some)
+    match result {
+      Err(LowerError::Residue(residue)) if file.starts_with(&format!("{EXT_DIR}/")) => Err(LowerError::Extension(residue)),
+      other => other.map(Some),
+    }
   }
 
   fn lower_global(&mut self, file: &str, item: Global<'_>) -> Result<Expr, LowerError> {
@@ -212,6 +339,7 @@ impl ComponentSet {
       let defaults = self.defaults.clone();
       let mut lowerer = Lowerer::new(&parsed, &defaults);
       lowerer.globals = globals.clone();
+      lowerer.natives = self.natives.clone();
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
         Global::Function(params, body) => function_to_lambda(&mut lowerer, params, *body),
@@ -246,7 +374,7 @@ fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>) -> Tmpl {
 }
 
 #[derive(Clone, Copy)]
-enum FunctionBody<'a> {
+pub(crate) enum FunctionBody<'a> {
   Block(&'a [js::Stmt]),
   Expr(&'a js::Expr),
 }
@@ -367,6 +495,32 @@ fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
     }
   }
   None
+}
+
+/// `native("module.member", f?)` from the standard library: the pair's
+/// name and its reach, `render` with a browser half and `body` without.
+/// `None` for any other initialiser.
+fn native_declaration(parsed: &Parsed, init: &js::Expr) -> Result<Option<(String, String, Reach)>, LowerError> {
+  let js::Expr::Call(call) = init else { return Ok(None) };
+  let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+  let js::Expr::Ident(id) = &**callee else { return Ok(None) };
+  let Some((source, imported)) = find_import(parsed, id.sym.as_ref()) else { return Ok(None) };
+  if source != STD_SPECIFIER || imported != "native" {
+    return Ok(None);
+  }
+  let name = match call.args.first().map(|a| &*a.expr) {
+    Some(js::Expr::Lit(js::Lit::Str(s))) => s.value.to_atom_lossy().to_string(),
+    Some(other) => return Err(LowerError::Extension(parsed.residue(other.span(), "the name of a native pair must be a string literal"))),
+    None => return Err(LowerError::Extension(parsed.residue(call.span, "`native` takes the pair's name, `module.member`"))),
+  };
+  let Some((module, member)) = name.split_once('.') else {
+    return Err(LowerError::Extension(parsed.residue(call.span, format!("`{name}` is not a pair name; write `module.member`"))));
+  };
+  if module.is_empty() || member.is_empty() || module.contains('.') || member.contains('.') {
+    return Err(LowerError::Extension(parsed.residue(call.span, format!("`{name}` is not a pair name; write `module.member`"))));
+  }
+  let reach = if call.args.len() >= 2 { Reach::Render } else { Reach::Body };
+  Ok(Some((module.to_owned(), member.to_owned(), reach)))
 }
 
 /// `(source, imported name)` for a value import binding `local`.
@@ -1116,6 +1270,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn handler_fn(&mut self, params: &[js::Pat], body: FunctionBody<'p>, span: Span) -> Lowered<Vec<Stmt>> {
+    let hoisting = self.lowerer.hoisting.take();
+    let was_handler = std::mem::replace(&mut self.lowerer.in_handler, true);
+    let result = self.handler_fn_in(params, body, span);
+    self.lowerer.hoisting = hoisting;
+    self.lowerer.in_handler = was_handler;
+    result
+  }
+
+  fn handler_fn_in(&mut self, params: &[js::Pat], body: FunctionBody<'p>, span: Span) -> Lowered<Vec<Stmt>> {
     let depth = self.lowerer.scope.len();
     if let Some(first) = params.first() {
       let js::Pat::Ident(id) = first else { return Err(self.lowerer.residue(first.span(), "a handler's event parameter must be a name")) };

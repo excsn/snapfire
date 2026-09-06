@@ -21,6 +21,11 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Interpreter](#interpreter)
   * [Outcome](#outcome)
   * [Clock](#clock)
+  * [Extensions](#extensions)
+  * [Reach](#reach)
+  * [Ambient](#ambient)
+  * [The Standard Library](#the-standard-library)
+  * [Catalogs](#catalogs)
 * [4. Evaluation Rules](#4-evaluation-rules)
   * [Reads](#reads)
   * [Truthiness](#truthiness)
@@ -73,6 +78,7 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `Map(over, f)`, `Filter(over, f)`, `Reduce(over, init, f)`, `Find(over, f)`, `Some(over, f)`, `Every(over, f)`, all `Box<Expr>`; `f` must be a `Lambda`.
 * `Entries(Box<Expr>)`, `Keys(Box<Expr>)`, `Values(Box<Expr>)`, `Length(Box<Expr>)`.
 * `Str(Box<Expr>)`, `Num(Box<Expr>)`, `BigInt(Box<Expr>)`.
+* `Ext { module: String, name: String, args: Vec<Expr> }`: an extension call, `intl.number(n)`, answered by the interpreter's `Extensions` under `module.name` with the arguments evaluated and the request's locale and clock as `Ambient`. A name the registry lacks is `Internal`, ``extension `x.y` is not registered``. `has_call` is false for a standard member and true for any other, so an application's pair may sit on the async path. `Expr::ext(module, name, args)` builds one.
 * `Hoist { id: u32, expr: Box<Expr> }`: a render-path expression whose inputs are props only. Evaluates as `expr`; under a render the value is also recorded in the environment's `Hoists` under `id`, so the browser reads it instead of computing it. `id` is unique within the component's module. In a body it is `expr` and nothing more.
 * `Expr::lit_str(s: impl Into<String>) -> Expr`, `Expr::lit_int(n: impl Into<i128>) -> Expr`, `Expr::var(name: impl Into<String>) -> Expr`.
 * `Expr::field(self, name: impl Into<String>) -> Expr`, `Expr::index(self, key: Expr) -> Expr`.
@@ -135,10 +141,12 @@ One member of an object or array literal.
 
 ### Interpreter
 
-Runs a body. `Clone`; the default carries the system clock.
+Runs a body. `Clone`; the default carries the system clock and the standard library.
 
 * `Interpreter::default() -> Interpreter`
 * `Interpreter::with_clock(clock: Arc<dyn Clock>) -> Interpreter`
+* `Interpreter::with_extensions(self, extensions: Arc<Extensions>) -> Interpreter`: answers `Expr::Ext` from `extensions` in place of the standard library alone; `Interpreter::extensions(&self) -> &Arc<Extensions>` reads it back.
+* `Interpreter::with_catalogs(self, catalogs: Option<Arc<Catalogs>>) -> Interpreter`: the message catalogs every `Ambient` carries; none by default. `Interpreter::catalogs(&self) -> Option<&Arc<Catalogs>>`.
 * `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what React's server renderer writes, as `Rendered { html, islands }`. A `Tmpl::Island` renders its component apart, with the caller's children on the slot stack like a `Component`, and leaves `ISLAND_MARK`, its index in `islands` and a NUL in `html` where it sits; `RenderedIsland { module, props, when, body }` holds the evaluated props and the island's own `Rendered`. A root `Slot` with no caller leaves `ROOT_SLOT`. `bind::rendered_nodes(&Rendered) -> Vec<Node>` turns the markup into nodes: raw pieces, `Node::Slot("content")` at `ROOT_SLOT` and, at an island, `Node::raw("<sf-s data-sf-island[ data-sf-when=\"…\"]>")`, a `Node::Client` whose `ssr` is the island's body and `Node::raw("</sf-s>")`. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
 * `Interpreter::render_module(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: `render` for the component under `module`, which keys its hoisted values; `render` is this with an empty module. `Rendered.hoisted: ValueMap` holds every `Expr::Hoist` value the markup took, keyed `<module>|<id>` or `<module>|<id>@<i>.<j>` under `For` iterations, the callers' loops first, so a component placed from a loop keys below the iteration that placed it; a key recorded twice with different values is removed rather than left wrong. An island starts its own table: `RenderedIsland.body.hoisted`, and `RenderedIsland::mount_props(&self) -> ValueMap` is its props plus that table under `HOISTED_PROP`, `"$h"`, when it is not empty. `IrEvaluator` adds the same key to the root node's props. `interp::Hoists { module, path, table }` is the recorder: `key(id)` spells the key and `record(id, &value)` applies the collision rule. An element whose attributes carry `render::CHUNK_ATTR`, `$chunk`, with an integer id renders its children into a buffer of their own and records that markup as a string under the id before writing it; an attribute whose name starts with `$` is never printed, which also covers the lowerer's `$bound` mark.
 * `Interpreter::island_step(&self, module, component, props, state, handler: Option<usize>, event: &Value, library) -> Result<Stepped, Fail>`: one round trip of an island in server mode. The body's `let`s run with `state` standing in for the component's state bindings, the handler at `handler` runs with `$props`, `$state` and `$event` bound and the object it returns is merged into the state for the keys the component names, then the component renders from that state in server mode: `$on:` markers print as `data-sf-on="click:0 change:1"` and `$key` as `data-sf-key`, neither of which prints in a browser-mode render. `None` for `handler` renders as is. `Stepped { state, rendered }`. A missing handler index is `Internal`.
@@ -157,6 +165,62 @@ Runs a body. `Clone`; the default carries the system clock.
 What `Expr::Now` reads.
 
 * `pub trait Clock: Send + Sync { fn now(&self) -> i128; }`, milliseconds since the Unix epoch.
+
+### Extensions
+
+The registry an `Expr::Ext` is answered from, by `module.member`. `Clone`, `Default` (empty), `Debug` listing the names with their reach.
+
+* `Extensions::empty() -> Extensions`; `Extensions::standard() -> Extensions`: the standard library.
+* `register<F>(&mut self, name: impl Into<String>, reach: Reach, f: F)` where `F: Fn(&Ambient, &[Value]) -> Result<Value, Fail> + Send + Sync + 'static`; replaces what the name held.
+* `get(&self, name: &str) -> Option<&Extension>`; `Extension { reach: Reach, .. }` with `call(&self, &Ambient, &[Value]) -> Result<Value, Fail>`.
+* `contains(&self, name: &str) -> bool`; `names(&self) -> Vec<String>`, sorted.
+* `call(&self, name: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail>`: `Internal` naming the name when nothing holds it.
+* `ext::number`, `ext::text`, `ext::text_opt` and `ext::option` read an argument by index for an implementation: a number (`Int`, `UInt`, `F32` or `F64` as `f64`), a string, an optional string and a field of an optional options object, each `Internal` naming the extension on a wrong type.
+
+### Reach
+
+* `pub enum Reach { Render, Body }`, `Copy`, `Eq`; `as_str` is `render` or `body`.
+* `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path.
+* `pub const STANDARD: &[(&str, &str, Reach)]`: module, member and reach of every standard member; `standard_reach(module, name) -> Option<Reach>` looks one up. The registry `Extensions::standard` builds and the lowerer's checks are both taken from it.
+
+### Ambient
+
+* `pub struct Ambient { pub locale: String, pub now: i128, pub catalogs: Option<Arc<Catalogs>> }`, `Default`: what a call runs under, the request's locale as the application spells it, empty when none is set, the clock and the message catalogs the interpreter carries.
+* `bcp47(&self) -> String`: `fr-FR` for `fr_FR`, `en` when empty. The browser half converts the same way.
+
+### The Standard Library
+
+Every member takes its arguments positionally and answers a `Value`; `std::register` fills an `Extensions` with them. Numbers arrive as `F64`, `Int` or `UInt`; every date is UTC and every instant milliseconds since the epoch, as the browser half's `Date.UTC`.
+
+| Member | Reach | Arguments | Answer |
+| --- | --- | --- | --- |
+| `intl.number` | render | `n`, `{ minimumFractionDigits?, maximumFractionDigits? }?` | grouped for the locale, half away from zero to at most three fraction digits by default, trailing zeros dropped past the minimum; `NaN`, `∞` and `-∞` as JavaScript prints them |
+| `intl.currency` | render | `n`, `code` | the amount with the ISO code and the currency's own fraction digits, `USD 1,234.50`, `1.234,50 EUR`; a code that is not three letters is `Internal` |
+| `intl.date` | render | `when` (milliseconds or an ISO 8601 string), `style?` (`short`, `medium` by default, `long`, `full`) or `{ style }` | the calendar date in UTC at that `dateStyle` |
+| `intl.plural` | render | `n` | the cardinal category, `zero`, `one`, `two`, `few`, `many` or `other` |
+| `text.slug` | render | `s` | NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end |
+| `text.truncate` | render | `s`, `max`, `ellipsis?` (`…`) | the first `max` code points and the ellipsis when longer, else `s` |
+| `time.format` | render | `when`, `pattern` | `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced in UTC, every other character kept |
+| `time.add` | render | `when`, `amount`, `unit` (`ms`, `s`, `m`, `h`, `d`) | `when` plus `amount` units, `F64` |
+| `time.diff` | render | `later`, `earlier`, `unit` | the difference in units, fractional, `F64` |
+| `time.parse` | render | `s` | `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`, as `F64` milliseconds; `Null` for anything else |
+| `time.now` | body | | `Ambient.now` as `Int` |
+| `crypto.hash` | render | `s` | SHA-256 of the UTF-8 bytes as lowercase hex |
+| `crypto.verify` | render | `s`, `hash` | whether `hash` is the hash of `s`, compared in constant time, case insensitive |
+| `crypto.random` | body | `bytes` (at most 1024) | that many random bytes as hex |
+| `id.new` | body | | a UUID version 7 |
+| `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
+
+The locale is `Ambient::bcp47`; a tag ICU4X cannot parse falls back to `en`. `fsr/ir/tests/conformance.rs` runs every `render` member against the client's `dist/std.js` through node over nine locales and fails on any difference the file does not list as a known CLDR divergence; it skips itself when node or the build is absent.
+
+### Catalogs
+
+Message tables by locale, `catalog::Catalogs`, `Clone`, `Default`, `Eq`. `pub type Table = BTreeMap<String, String>`.
+
+* `Catalogs::from_tables(default: impl Into<String>, tables: BTreeMap<String, Table>) -> Catalogs`: holds every locale's table merged over the default locale's, so a key a locale lacks reads as the default's, and each merged table as JSON.
+* `is_empty(&self) -> bool`; `default_tag(&self) -> &str`; `rows(&self) -> Vec<(String, usize)>`: each locale with how many keys its own table held.
+* `table(&self, tag: &str) -> Option<&Arc<Table>>` and `json(&self, tag: &str) -> Option<Arc<str>>`: the merged table for `tag`, the default locale's when `tag` has none, `None` when neither exists.
+* `lookup(&self, tag: &str, key: &str) -> Option<&str>`.
 
 ## 4. Evaluation Rules
 

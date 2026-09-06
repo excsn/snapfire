@@ -1,6 +1,7 @@
 import { get, optimistic, set } from "@snapfire/fsr-client";
 import { Link, useStore } from "@snapfire/fsr-client/react";
 
+import { queueLabel } from "@ext/fleet";
 import { actions, type Agent } from "@generated/client";
 import { density, region, selected, watching } from "@src/store";
 
@@ -23,7 +24,7 @@ export function AgentRows({ agents, watching: held }: { agents: Agent[]; watchin
             {a.name}
           </Link>
           <span className="agent-region">{a.region}</span>
-          <span className="agent-queue">{String(a.queue_depth)} queued</span>
+          <span className="agent-queue">{queueLabel(Number(a.queue_depth))}</span>
           <Link href={`/agents/${a.id}${tail}`} into="peek" className="btn btn-small">
             peek
           </Link>

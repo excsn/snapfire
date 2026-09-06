@@ -38,6 +38,6 @@ A bare specifier that is not an alias is still an external: `react`, `sweetalert
 
 ## The lab
 
-Open `dist/routes/index/page.js` after a bundle and read its imports: `../../src/ui/Header.js`, relative, with the extension. The source said `@src/ui/Header`. Then open `tsconfig.build.json` at the app root and find the `paths` block that snapfirec read to do it.
+Open `dist/routes/page.js` after a bundle and read its imports: `../src/ui/Header.js`, relative, with the extension. The source said `@src/ui/Header`. Then open `tsconfig.build.json` at the app root and find the `paths` block that snapfirec read to do it.
 
 Now write `import { Header } from "@ui/Header"` in a page and run `fsr check app`. The report marks the page `client`, since the lowerer cannot follow the alias; run the bundle and snapfirec reports `@ui/Header` as an external the import map does not resolve. Two readers, two refusals, one line to fix.

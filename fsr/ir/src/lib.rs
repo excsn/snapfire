@@ -3,10 +3,15 @@
 
 pub mod ast;
 pub mod bind;
+pub mod catalog;
+pub mod ext;
 pub mod interp;
+pub mod std;
 pub mod render;
 
 pub use ast::{
   ArithOp, Body, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl, ParseError, body_params_read, body_reads_ambient, body_reads_request, body_visit};
 pub use bind::{rendered_nodes, IrAction, IrEvaluator, IrMeta, IrSource, IrStore};
+pub use catalog::Catalogs;
+pub use ext::{standard_reach, Ambient, Extension, Extensions, Reach, STANDARD};
 pub use interp::{Clock, Fail, Interpreter, Outcome};

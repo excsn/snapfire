@@ -94,6 +94,7 @@ fn a_deferred_slot_streams_its_resolution_row() {
   assert!(rows[0].starts_with("V {\"fmt\":1,\"enc\":\"json\"}\nN "));
   assert!(rows[0].contains("[\"p\",1,[\"r\",\"<skl></skl>\"]]"), "fallback rides inside Pending: {}", rows[0]);
   assert!(rows[0].contains("\nG {"), "segment sidecar row: {}", rows[0]);
+  assert!(rows[0].trim_end().lines().last().unwrap().starts_with("G {"), "the sidecar closes the eager wave: {}", rows[0]);
   assert!(rows[0].contains("\"s\":1"), "deferred segment is slot-addressed: {}", rows[0]);
   assert!(rows[1].starts_with("S 1 "), "resolution row: {}", rows[1]);
   assert!(rows[1].contains("<late>ready</late>"), "deferred loader data reached the late render: {}", rows[1]);

@@ -890,7 +890,7 @@ impl snapfire_fsr_runtime::Metadata for ItemsTitle {
       _ => 0,
     };
     let who = ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "nobody".to_owned());
-    Box::pin(async move { Ok(snapfire_fsr_runtime::Meta { title: Some(format!("{count} items for {who}")), description: None }) })
+    Box::pin(async move { Ok(snapfire_fsr_runtime::Meta { title: Some(format!("{count} items for {who}")), description: None, head: Vec::new() }) })
   }
 }
 
@@ -1493,4 +1493,105 @@ fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_
   std::fs::write(shell.join("app.toml"), toml + "\n[sites]\nroot = \"sites\"\n[sites.shop]\nartifact = \"shop@1\"\n[site]\nname = \"x\"\nat = \"/x\"\n").unwrap();
   let e = Host::from(shell.join("app.toml")).map(|_| ()).unwrap_err().to_string();
   assert!(e.contains("cannot mount sites"), "{e}");
+}
+
+const EXT_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } }
+  ],
+  "sources": [
+    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
+      "body": [ { "return": { "object": [
+        { "field": [ "label", { "ext": { "module": "fmt", "name": "pretty", "args": [ { "lit": { "float": 1234.5 } } ] } } ] },
+        { "field": [ "n", { "ext": { "module": "intl", "name": "number", "args": [ { "lit": { "float": 1234.5 } } ] } } ] }
+      ] } } ] }
+  ]
+}"#;
+
+#[tokio::test]
+async fn a_registered_native_pair_answers_a_lowered_body_and_an_unregistered_one_refuses_to_build() {
+  let dir = app_dir();
+  std::fs::write(dir.join("generated/plan.json"), EXT_PLAN).unwrap();
+  let err = Host::from(dir.join("app.toml")).unwrap().build().err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(err.contains("`index` calls extension `fmt.pretty`, which nothing registers"), "{err}");
+
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .extension("fmt.pretty", snapfire_fsr_ir::Reach::Render, |ambient, args| Ok(Value::Str(format!("{}:{}", ambient.bcp47(), args.len()))))
+    .build()
+    .unwrap();
+  let payload = host.render_to_string("/", RenderMode::Payload, SessionCell::default()).await.unwrap();
+  assert!(payload.contains("en:1"), "the pair ran under the default locale: {payload}");
+  assert!(payload.contains("1,234.5"), "the standard library is there too: {payload}");
+  assert_eq!(host.report().extensions, vec!["fmt.pretty".to_owned()]);
+  assert!(host.report().to_string().contains("natives   fmt.pretty             rust"), "{}", host.report());
+}
+
+#[tokio::test]
+async fn catalogs_under_locales_reach_the_document_the_payload_and_t() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("locales")).unwrap();
+  std::fs::write(dir.join("locales/en.toml"), "[hello]\nworld = \"Hello {name}\"\nnum = 3\n[items]\none = \"{count} item\"\nother = \"{count} items\"\n").unwrap();
+  std::fs::write(
+    dir.join("generated/plan.json"),
+    r#"{ "version": 2, "routes": [ { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ],
+      "sources": [ { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "object": [
+        { "field": [ "hi", { "ext": { "module": "i18n", "name": "t", "args": [ { "lit": { "str": "hello.world" } }, { "object": [ { "field": [ "name", { "lit": { "str": "Norm" } } ] } ] } ] } } ] },
+        { "field": [ "n", { "ext": { "module": "i18n", "name": "t", "args": [ { "lit": { "str": "items" } }, { "object": [ { "field": [ "count", { "lit": { "float": 2.0 } } ] } ] } ] } } ] }
+      ] } } ] } ] }"#,
+  )
+  .unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  assert_eq!(host.report().catalogs, vec![("en".to_owned(), 4)]);
+  assert!(host.report().to_string().contains("catalogs  en 4 keys"), "{}", host.report());
+  assert_eq!(host.catalogs().unwrap().lookup("en", "hello.num"), Some("3"));
+
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("<script type=\"application/json\" data-sf-i18n=\"en\">{\"hello.num\":\"3\",\"hello.world\":\"Hello {name}\",\"items.one\":\"{count} item\",\"items.other\":\"{count} items\"}</script>"), "{html}");
+  assert!(html.contains("Hello Norm") && html.contains("2 items"), "t ran in the loader: {html}");
+
+  let payload = host.render_to_string("/", RenderMode::Payload, SessionCell::default()).await.unwrap();
+  assert!(payload.contains("\nD {\"hello.num\""), "a payload carries the catalog when nothing says it is held: {payload}");
+
+  let host = Arc::new(host);
+  let held = host.handle(Request::get("/?__payload").header("x-sf-catalog", "en").body(Bytes::new()).unwrap()).await;
+  let text = body_of(held).await;
+  assert!(text.contains("\nL \"en\"") && !text.contains("\nD "), "the row is dropped for a navigator holding it: {text}");
+  let missing = host.handle(Request::get("/?__payload").header("x-sf-catalog", "fr").body(Bytes::new()).unwrap()).await;
+  assert!(body_of(missing).await.contains("\nD {"), "a navigator holding another locale gets it");
+}
+
+#[tokio::test]
+async fn a_route_reading_only_the_identity_prerenders_for_anonymous_visitors_and_renders_live_for_a_signed_in_one() {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let host = Host::from(identified_dir(USERS).join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
+  assert_eq!(host.prerenderable(), vec!["/".to_owned(), "/login".to_owned()]);
+  assert_eq!(host.prerenderable_anonymous(), vec!["/who".to_owned()], "the loader reads identity and calls a bearer client, nothing else");
+  assert!(host.report().to_string().contains("/who                   ") && host.report().to_string().contains("for anonymous visitors"), "{}", host.report());
+
+  let written = host.prerender(&out).await.unwrap();
+  assert!(written.iter().any(|(path, _)| path == "/who"), "{written:?}");
+  let host = Arc::new(host);
+
+  let response = host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").map(|v| v.to_str().unwrap()), Some("1"));
+  assert!(body_of(response).await.contains("anonymous"));
+
+  let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let response = host
+    .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  let response = host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-prerendered").is_none(), "a signed-in visitor is rendered live");
+  let html = body_of(response).await;
+  assert!(html.contains("alice") && !html.contains("anonymous"), "{html}");
+
+  let response = host.handle(Request::get("/login").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").map(|v| v.to_str().unwrap()), Some("1"), "a route reading nothing serves its file to everyone");
+  let _ = std::fs::remove_dir_all(&out);
 }

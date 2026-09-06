@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
   let identity_addr = ("127.0.0.1", 8092);
   let console_addr = ("127.0.0.1", 8090);
 
-  let host = Host::from(env!("CARGO_MANIFEST_DIR")).and_then(|builder| builder.build()).map_err(std::io::Error::other)?;
+  let host = Host::from(env!("CARGO_MANIFEST_DIR")).and_then(|builder| ops_console_react_ts::ext::register(builder).build()).map_err(std::io::Error::other)?;
   let host = Arc::new(host);
 
   if std::env::args().any(|arg| arg == "--prerender") {

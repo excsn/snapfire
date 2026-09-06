@@ -7,6 +7,7 @@ test("the order page hydrates over the placed order", async () => {
   const r = await render(<OrderPage order={order} />);
   assert.equal(r.hydrated, "routes/order/[id]/page.tsx#default");
   assert.ok(screen.getByText("Order #5001 placed"));
+  assert.ok(r.container.textContent?.includes("3 items, $72.00 charged."), "the count comes from the ext helper the server rendered");
   assert.equal(screen.getByText("PLA filament").getAttribute("href"), "/product/1");
   assert.equal(screen.getAllByText("× 2").length, 1);
   assert.equal(screen.getByText("Back to shopping").getAttribute("href"), "/");

@@ -67,20 +67,19 @@ impl PendingSet {
   }
 }
 
-/// The wire encoding of a streamed response: a `V` row, the `N` tree row, the
-/// `G` segment sidecar row, an `H` row when the document has a title or a
-/// description, a `T` row when the route seeds the store, an `L` row naming
-/// the locale when the request has one, an `E` row naming a module the browser must load for the
-/// response's islands when the head names one, then one `S` row per resolution in completion order, each
-/// followed by an `H` row when the resolved segment described the document.
-/// A resolution may introduce new slots, which join the set.
+/// The wire encoding of a streamed response: a `V` row, the `N` tree row, an
+/// `H` row when the document has a title or a description, a `T` row when the
+/// route seeds the store, an `L` row naming the locale when the request has
+/// one, an `E` row naming a module the browser must load for the response's
+/// islands when the head names one, a `D` row carrying the locale's message
+/// catalog as a JSON object when the head holds one, then the `G` segment
+/// sidecar row, which closes the eager wave: a navigator applies the tree the
+/// moment it reads `G`. Then one `S` row per resolution in completion order,
+/// each followed by an `H` row when the resolved segment described the
+/// document and a `T` row when it seeded the store. A resolution may
+/// introduce new slots, which join the set.
 pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
-  let mut header = format!(
-    "V {}\nN {}\nG {}\n",
-    json!({ "fmt": FORMAT_VERSION, "enc": "json" }),
-    node_to_row_json(&assembly.tree),
-    segments_to_json(&assembly.segments)
-  );
+  let mut header = format!("V {}\nN {}\n", json!({ "fmt": FORMAT_VERSION, "enc": "json" }), node_to_row_json(&assembly.tree));
   if !assembly.meta.is_empty() {
     header.push_str(&format!("H {}\n", meta_to_json(&assembly.meta)));
   }
@@ -93,6 +92,10 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   if let Some(entry) = &assembly.entry {
     header.push_str(&format!("E {}\n", json!(entry)));
   }
+  if let Some(catalog) = &assembly.catalog {
+    header.push_str(&format!("D {catalog}\n"));
+  }
+  header.push_str(&format!("G {}\n", segments_to_json(&assembly.segments)));
   let pending = PendingSet::new(assembly.pending);
 
   stream::once(async move { header }).chain(stream::unfold(pending, |mut state| async move {

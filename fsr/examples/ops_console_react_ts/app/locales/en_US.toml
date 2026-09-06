@@ -1,0 +1,8 @@
+[help]
+title = "How this works"
+panels = "Every panel on this page is rendered by the server. The alert count in the header, the region in the bar and the number of agents you watch are one store the whole document shares, seeded by the loaders and written by whichever panel changes them."
+streaming = "Nothing here is fetched by the browser. The panels arrive as one server-rendered tree, and the parts that are slower than the rest stream in behind their own placeholders."
+
+[agents]
+watching.one = "watching {count} agent"
+watching.other = "watching {count} agents"

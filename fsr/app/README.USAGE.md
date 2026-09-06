@@ -54,7 +54,7 @@ routes    /                      plan file
 sources   index                  lowered
           cart                   lowered
 actions   cart.addToCart         lowered
-rendered  routes/index/page.tsx#default lowered
+rendered  routes/page.tsx#default lowered
 ```
 
 ## Binding a Plan File
@@ -247,7 +247,7 @@ sources   cart                   rust override
           index                  lowered
 actions   cart.addToCart         lowered
           cart.checkout          rust
-rendered  routes/index/page.tsx#default lowered
+rendered  routes/page.tsx#default lowered
 ```
 
 ## The Binding Rule

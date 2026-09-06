@@ -82,7 +82,7 @@ let plan = Node {
   fallback: None,
   error: None,
   cache_key: None,
-  children: vec![Child { slot: "content".into(), node: Node { id: 1, module: "routes/index/page.tsx#default".into(), source: Some("index".into()), deferred: false, fallback: None, error: Some("routes/error.tsx#default".into()), cache_key: None, children: Vec::new() } }],
+  children: vec![Child { slot: "content".into(), node: Node { id: 1, module: "routes/page.tsx#default".into(), source: Some("$root".into()), deferred: false, fallback: None, error: Some("routes/error.tsx#default".into()), cache_key: None, children: Vec::new() } }],
 };
 let manifest = Manifest::new(vec![RouteEntry { pattern: "/".into(), plan }]);
 ```

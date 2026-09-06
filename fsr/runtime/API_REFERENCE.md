@@ -251,6 +251,8 @@ No key is composed at all, so neither `get` nor `put` runs, when the node has no
 
 ### `Assembly`
 
+* `catalog: Option<String>`: the head's `catalog`, written as the `D` row.
+
 What one call produced. `Debug` (which prints `pending` as a count); not `Clone`. Both streaming functions consume it by value.
 
 * `pub tree: Node`
@@ -291,6 +293,8 @@ Segment information produced inside a resolution is discarded; a deferred subtre
 * `fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>>`: `data` is what that source loaded for the request.
 
 ### `Head`
+
+* `catalog: Option<String>`: the locale's message catalog as JSON when the browser needs it for this response; the payload carries it as a `D` row and the host sets it per request.
 
 `pub struct Head { pub title: String, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
 
@@ -463,18 +467,18 @@ Both functions take the `Assembly` by value and yield `String` chunks. A resolut
 pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send
 ```
 
-The wire encoding of a streamed response. The first item is three newline-terminated rows in one string:
+The wire encoding of a streamed response. The first item is the eager wave, newline-terminated rows in one string, in this order:
 
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
-* `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json).
 * `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` has a title or a description.
 * `T <value map json>`, from [`seed_to_json`](#seed_to_json), when `assembly.store` holds a key.
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
+* `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
+* `D <catalog json>`, the head's catalog, when the head holds one.
+* `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json), always and always last: it closes the eager wave, so a navigator applies the tree the moment it reads it.
 
 Then one item per resolution, `S <slot id> <node row json>\n` followed by an `H` row when `Resolved::meta` is not empty and a `T` row when `Resolved::store` is not, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
-
-An `E` row, `E "<src>"`, follows the `L` row when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
 
 ### `meta_to_json`
 

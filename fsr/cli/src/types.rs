@@ -30,6 +30,7 @@ const FSR_CLIENT: &[(&str, &str)] = &[
   ("react.d.ts", include_str!("../../client/types/react.d.ts")),
   ("reader.d.ts", include_str!("../../client/types/reader.d.ts")),
   ("render.d.ts", include_str!("../../client/types/render.d.ts")),
+  ("std.d.ts", include_str!("../../client/types/std.d.ts")),
   ("store.d.ts", include_str!("../../client/types/store.d.ts")),
   ("testing.d.ts", include_str!("../../client/types/testing.d.ts")),
   ("values.d.ts", include_str!("../../client/types/values.d.ts")),
@@ -394,9 +395,13 @@ pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
 pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
   let layout = Layout::of(app)?;
   let types = layout.types.trim_end_matches('/');
-  let mut paths: Vec<(String, String)> = vec![("@snapfire/fsr".to_owned(), "./generated/fsr".to_owned()), ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned())];
+  let mut paths: Vec<(String, String)> = vec![
+    ("@snapfire/fsr".to_owned(), "./generated/fsr".to_owned()),
+    ("@snapfire/fsr/head".to_owned(), "./generated/head".to_owned()),
+    ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned()),
+  ];
   paths.extend(alias_paths());
-  let mut include: Vec<String> = vec!["src/**/*".to_owned(), "routes/**/*".to_owned(), "schemas/**/*".to_owned(), "tests/**/*".to_owned(), "generated/**/*".to_owned()];
+  let mut include: Vec<String> = vec!["src/**/*".to_owned(), "ext/**/*".to_owned(), "routes/**/*".to_owned(), "schemas/**/*".to_owned(), "tests/**/*".to_owned(), "generated/**/*".to_owned()];
   for (name, typed) in present(app, &layout)? {
     if typed.ambient {
       include.push(format!("{types}/{name}/{}", typed.entry));
@@ -425,7 +430,7 @@ pub fn tsconfig_build() -> String {
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
   }
-  out.push_str("    }\n  },\n  \"include\": [\"src/**/*\", \"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}\n");
+  out.push_str("    }\n  },\n  \"include\": [\"src/**/*\", \"ext/**/*\", \"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}\n");
   out
 }
 

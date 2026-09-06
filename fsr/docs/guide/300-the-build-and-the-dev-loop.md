@@ -53,6 +53,6 @@ A route whose loader reads no parameter, no query, no session, no identity and n
 
 ## The lab
 
-Run `fsr dev app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again, since the plan changed, then a restart, and the page reloads with the new text. Now edit `routes/index/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
+Run `fsr dev app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again, since the plan changed, then a restart, and the page reloads with the new text. Now edit `routes/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
 
 Then break something: add `try {` without a closing brace to the loader. The loop prints the parse error with its line and waits; the previous server keeps serving. Fix it and the loop picks up where it left off.

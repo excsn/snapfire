@@ -22,7 +22,7 @@ pub use ctx::{parse_query, Identity, Locale, RequestCtx, SessionCell};
 pub use data::{DataSource, DataSources, LoadError};
 pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
-pub use meta::{Head, Meta, Metadata};
+pub use meta::{Head, HeadEl, Meta, Metadata};
 pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};

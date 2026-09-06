@@ -2,11 +2,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use snapfire_fsr_cli::dev::DevOptions;
+use snapfire_fsr_cli::new::NewOptions;
 use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::vendor::Spec;
-use snapfire_fsr_cli::{build, dev, emit, serve, test, types, vendor, Options};
+use snapfire_fsr_cli::{build, dev, emit, new, serve, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -21,6 +22,39 @@ fn main() -> ExitCode {
   let rest = &args[2..];
 
   match command.as_str() {
+    "new" => {
+      let mut options = NewOptions::default();
+      for flag in rest {
+        match flag.as_str() {
+          "--no-fetch" => options.fetch = false,
+          _ => return usage(),
+        }
+      }
+      match new::create(&app, options) {
+        Ok(created) => {
+          for path in &created.written {
+            println!("wrote     {}", path.display());
+          }
+          for (specifier, file, bytes) in &created.vendored {
+            println!("added     {specifier:<28} {file}  {bytes} bytes");
+          }
+          for (package, version, from) in &created.typed {
+            println!("types     {package:<28} {from} {version}");
+          }
+          for note in &created.notes {
+            eprintln!("note      {note}");
+          }
+          for step in &created.next {
+            println!("next      {step}");
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
     "test" => {
       let filter = match rest {
         [] => None,

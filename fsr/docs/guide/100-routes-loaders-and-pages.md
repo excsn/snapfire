@@ -6,12 +6,12 @@ The question this chapter answers: how does a directory become a route, where do
 
 ## A directory is a route
 
-Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern: `routes/index/` is `/`, `routes/cart/` is `/cart`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart`; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
+Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern, with no name treated specially: `routes/` itself is `/`, `routes/cart/` is `/cart`, `routes/index/` is `/index`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart` and the one in `routes/` is `$root`, a name no directory can produce; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
 
 Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` and a `loading.tsx`. The build discovers all four, so adding a file is the whole of registering it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
 
 ```
-routes    /                      routes/index
+routes    /                      routes
           /cart                  routes/cart
           /product/{id}          routes/product/[id]
 ```
@@ -72,7 +72,7 @@ The ops console picks its language from the settings drawer, two document loads 
 
 ## The page receives what the loader returned
 
-The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `IndexProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.
+The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `RootProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.
 
 A page is an island: it is mounted in the browser and, when the build could lower it, rendered on the server first. [Chapter 102](102-components-the-server-renders.md) is what a page may say for that to work. Either way, the page's job is to render its props; anything that changes them goes through an action and comes back through the loader.
 
