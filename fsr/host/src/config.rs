@@ -553,10 +553,26 @@ impl Config {
     Self::from_store(&store, located)
   }
 
-  /// Reads the sections out of a store, which may have been loaded by the
-  /// binary for its own reasons, and infers what the file left out.
+  /// The sections out of a store the caller owns, rooted at `root`, with what
+  /// the store left out inferred. Nothing here reads the filesystem for
+  /// configuration, so an application that already loaded its own store hands
+  /// it over: `Config::from_store_at(&store.branch("fsr"), root)`.
+  pub fn from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Self, HostError> {
+    let root = root.as_ref();
+    Self::sections(store, root, root.to_path_buf())
+  }
+
+  /// `from_store_at` over a store loaded from the files `located` names,
+  /// which become the configuration's provenance and the path its errors
+  /// report.
   pub fn from_store<S: C5Store>(store: &S, located: Located) -> Result<Self, HostError> {
     let at = located.sources.first().cloned().unwrap_or_else(|| located.root.clone());
+    let mut config = Self::sections(store, &located.root, at)?;
+    config.sources = located.sources;
+    Ok(config)
+  }
+
+  fn sections<S: C5Store>(store: &S, root: &Path, at: PathBuf) -> Result<Self, HostError> {
     let fail = |e: ConfigError| HostError::Config(at.clone(), e.to_string());
 
     for key in store.key_paths_with_prefix(None) {
@@ -736,7 +752,7 @@ impl Config {
       return Err(HostError::Config(at.clone(), "a site cannot mount sites; drop [sites] or [site]".to_owned()));
     }
 
-    let root = located.root.clone();
+    let root = root.to_path_buf();
     let app = root.join(&app_section.dir);
     let mut inferred = Vec::new();
     let css_route = match &site {
@@ -835,7 +851,7 @@ impl Config {
       }
     }
 
-    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, locales, auth, typecheck, site, sites, inferred })
+    Ok(Self { root, app, sources: Vec::new(), server, document, session, cache, clients, statics, locales, auth, typecheck, site, sites, inferred })
   }
 
   /// A path from the file, against the app directory.
