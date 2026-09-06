@@ -115,8 +115,8 @@
             "type": "string"
           },
           "celsius": {
-            "type": "integer",
-            "format": "int64"
+            "type": "number",
+            "format": "double"
           }
         }
       },
