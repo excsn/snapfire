@@ -154,6 +154,29 @@ a {
   margin: 12px 0 20px;
 }
 
+.hero-lockup {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.hero-mark {
+  display: block;
+  flex: none;
+  height: clamp(40px, 7vw, 60px);
+  width: clamp(40px, 7vw, 60px);
+}
+
+.hero-tagline {
+  color: var(--ink);
+  font-size: clamp(1.2rem, 3vw, 1.6rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  margin: 0 0 18px;
+}
+
 .hero-lede {
   color: var(--dim);
   font-size: 1.15rem;
@@ -251,11 +274,29 @@ a {
   margin-bottom: 4px;
 }
 
+.product-links {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: auto;
+}
+
 .product-more {
   font-size: 14px;
   font-weight: 600;
-  margin-top: auto;
   text-decoration: none;
+}
+
+.product-link {
+  color: var(--dim);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.product-link:hover {
+  color: var(--accent);
 }
 
 /* Feature grid */
@@ -268,26 +309,31 @@ a {
 }
 
 .feature-card {
+  align-items: center;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  column-gap: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
   padding: 24px;
 }
 
 .card-icon {
   font-size: 22px;
-  margin-bottom: 10px;
+  line-height: 1;
 }
 
 .feature-card h3 {
   font-size: 1.05rem;
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 .feature-card p {
   color: var(--dim);
   font-size: 14px;
-  margin: 0;
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
 }
 
 /* Sections */

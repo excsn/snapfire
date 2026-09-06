@@ -1,5 +1,7 @@
 import type { CompilerProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
+import { CrateLinks } from "@src/ui/CrateLinks";
+import { COMPILER } from "@src/links";
 
 export default function Compiler({ flags }: CompilerProps) {
   return (
@@ -11,6 +13,9 @@ export default function Compiler({ flags }: CompilerProps) {
           Compile TypeScript for the browser. No Node.js required. It reads your sources, emits browser-native ES
           modules and stops if an import cannot be resolved. The binary is <code>snapfirec</code>.
         </p>
+        <div className="hero-cta">
+          <CrateLinks github={COMPILER.github} crate={COMPILER.crate} className="btn btn-secondary" />
+        </div>
       </section>
 
       <section className="feature-grid">

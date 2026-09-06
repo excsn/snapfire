@@ -1,16 +1,21 @@
 import type { SnapfireProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
+import { CrateLinks } from "@src/ui/CrateLinks";
+import { SNAPFIRE } from "@src/links";
 
 export default function Snapfire({ version }: SnapfireProps) {
   return (
     <div className="page">
       <section className="hero hero-small">
         <span className="hero-eyebrow">Where it started · v{version}</span>
-        <h1 className="hero-title">snapfire</h1>
+        <h1 className="hero-title">SnapFire Web</h1>
         <p className="hero-lede">
           A high-productivity templating library for Rust with an integrated, zero-configuration live-reload server.
           First-class Tera 2 and Actix Web integration.
         </p>
+        <div className="hero-cta">
+          <CrateLinks github={SNAPFIRE.github} crate={SNAPFIRE.crate} className="btn btn-secondary" />
+        </div>
       </section>
 
       <section className="feature-grid">

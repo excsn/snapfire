@@ -2,30 +2,30 @@ import type { FsrProps } from "@generated/client";
 import { Island, Link } from "@snapfire/fsr-client/react";
 import { TelemetryBadge } from "@src/ui/TelemetryBadge";
 import { IrInspector } from "@src/ui/IrInspector";
+import { CrateLinks } from "@src/ui/CrateLinks";
+import { FSR } from "@src/links";
 
 export default function FsrOverview({ chapters }: FsrProps) {
   return (
     <div className="page home">
       <section className="hero">
-        <span className="hero-eyebrow">Flagship · the full-stack runtime</span>
+        <span className="hero-eyebrow">SnapFire FSR</span>
         <h1 className="hero-title">
           Write TypeScript. <br />
           Run Rust. <br />
           Ditch Node.js.
         </h1>
         <p className="hero-lede">
-          SnapFire FSR lowers TypeScript loaders, actions, and JSX into an execution plan
-          evaluated natively in Rust at memory speed. No V8 isolates. No cold starts.
-          Pure native SSR with clean React hydration.
+          Loaders, actions and JSX are read at build time and lowered into an execution plan the host evaluates
+          directly, so a page render is a walk over data rather than a call into a JavaScript engine. What that buys
+          you: ~130µs renders, server islands, and bearer tokens your application code cannot reach.
         </p>
 
         <div className="hero-cta">
           <Link href="/fsr/docs" className="btn btn-primary">
             The guide, {chapters} chapters
           </Link>
-          <a href="https://github.com/excsn/snapfire" className="btn btn-secondary">
-            Read GitHub Source
-          </a>
+          <CrateLinks github={FSR.github} crate={FSR.crate} className="btn btn-secondary" />
         </div>
       </section>
 

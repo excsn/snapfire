@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Link href="/fsr/benches">Benchmarks</Link>
           <span className="nav-rule" />
           <Link href="/compiler">Compiler</Link>
-          <Link href="/snapfire">snapfire</Link>
+          <Link href="/snapfire">Web</Link>
           <a href="https://github.com/excsn/snapfire" target="_blank" rel="noreferrer">
             GitHub
           </a>

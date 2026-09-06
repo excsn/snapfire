@@ -1,20 +1,21 @@
 import type { IndexProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
+import { CrateLinks } from "@src/ui/CrateLinks";
+import { COMPILER, FSR, REPO, SNAPFIRE } from "@src/links";
 
 export default function Home({ chapters }: IndexProps) {
   return (
     <div className="page home">
       <section className="hero">
-        <span className="hero-eyebrow">The flagship</span>
-        <h1 className="hero-title">
-          Write TypeScript. <br />
-          Run Rust. <br />
-          Ditch Node.js.
+        <span className="hero-eyebrow">The flagship · a full-stack runtime</span>
+        <h1 className="hero-title hero-lockup">
+          <img className="hero-mark" src="/static/icons/snapfire-mark.png" alt="" width={128} height={128} />
+          SnapFire FSR
         </h1>
+        <p className="hero-tagline">Write TypeScript. Run Rust. Ditch Node.js.</p>
         <p className="hero-lede">
-          SnapFire FSR lowers TypeScript loaders, actions and JSX into an execution plan evaluated natively in Rust at
-          memory speed. No V8 isolates, no cold starts, no <code>node_modules</code>: pure native SSR with clean React
-          hydration.
+          A TypeScript application on a Rust runtime, with no Node.js anywhere in the serving path. FSR is the flagship
+          of three tools that share one compiler.
         </p>
         <div className="hero-cta">
           <Link href="/fsr" className="btn btn-primary">
@@ -23,6 +24,7 @@ export default function Home({ chapters }: IndexProps) {
           <Link href="/fsr/docs" className="btn btn-secondary">
             The guide, {chapters} chapters
           </Link>
+          <CrateLinks github={REPO} className="btn btn-secondary" />
         </div>
       </section>
 
@@ -43,9 +45,12 @@ export default function Home({ chapters }: IndexProps) {
             <li>Typed service calls generated from OpenAPI and Protobuf</li>
             <li>Server islands, sessions and identity in the host</li>
           </ul>
-          <Link href="/fsr" className="product-more">
-            Read on
-          </Link>
+          <div className="product-links">
+            <Link href="/fsr" className="product-more">
+              Read on
+            </Link>
+            <CrateLinks github={FSR.github} crate={FSR.crate} className="product-link" />
+          </div>
         </article>
 
         <article className="product-card">
@@ -64,9 +69,12 @@ export default function Home({ chapters }: IndexProps) {
             <li>Source maps, minification, import maps</li>
             <li>A preload manifest for what the page needs first</li>
           </ul>
-          <Link href="/compiler" className="product-more">
-            Read on
-          </Link>
+          <div className="product-links">
+            <Link href="/compiler" className="product-more">
+              Read on
+            </Link>
+            <CrateLinks github={COMPILER.github} crate={COMPILER.crate} className="product-link" />
+          </div>
         </article>
 
         <article className="product-card">
@@ -84,9 +92,12 @@ export default function Home({ chapters }: IndexProps) {
             <li>Live reload with no configuration</li>
             <li>Nothing development-only in a release binary</li>
           </ul>
-          <Link href="/snapfire" className="product-more">
-            Read on
-          </Link>
+          <div className="product-links">
+            <Link href="/snapfire" className="product-more">
+              Read on
+            </Link>
+            <CrateLinks github={SNAPFIRE.github} crate={SNAPFIRE.crate} className="product-link" />
+          </div>
         </article>
       </section>
     </div>
