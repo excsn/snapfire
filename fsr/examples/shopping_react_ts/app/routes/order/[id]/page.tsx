@@ -27,7 +27,7 @@ export default function OrderPage({ order }: OrderIdProps) {
           Back to shopping
         </a>
       </section>
-      <Island when="visible">
+      <Island when="visible" mode="server">
         <OrderHelp orderId={order.id} />
       </Island>
     </main>

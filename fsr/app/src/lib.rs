@@ -135,6 +135,9 @@ pub struct App {
   /// The trees a soft navigation renders into a live layout's slot, by the
   /// pattern of the route they belong to.
   pub intercepts: Intercepts,
+  /// The lowered components and their interpreter, for an island in server
+  /// mode to step and render again; `None` when nothing was lowered.
+  pub lowered: Option<Arc<IrEvaluator>>,
   /// Patterns with no parameter whose every source is lowered and reads
   /// nothing of the request, so one render serves every request.
   pub prerenderable: Vec<String>,
@@ -669,11 +672,13 @@ impl AppBuilder {
       })
       .collect();
     let mut components = Vec::new();
+    let mut lowered = None;
     if !self.lowered_components.is_empty() {
       let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components));
       components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
       let evaluator = Arc::new(evaluator);
       let covers = evaluator.clone();
+      lowered = Some(evaluator.clone());
       self.evaluators.register(move |m: &ModuleId| covers.covers(m), evaluator);
     }
 
@@ -719,6 +724,7 @@ impl AppBuilder {
     Ok(App {
       matcher,
       resolver,
+      lowered,
       handlers,
       middleware,
       not_found,

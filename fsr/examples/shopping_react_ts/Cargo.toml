@@ -27,6 +27,9 @@ protox = "0.9"
 tonic-prost-build = "0.14"
 
 [dev-dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
 snapfire_fsr_cli = { path = "../../cli" }
 snapfire_fsr_core = { path = "../../core" }
 snapfire_fsr_engine = { path = "../../engine" }

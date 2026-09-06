@@ -188,11 +188,31 @@ pub struct Compiler {
   targets: Option<Browsers>,
   jsx: Jsx,
   aliases: Aliases,
+  /// The root the sources are under and the directory read in its place when it holds the same relative path.
+  overlay: Option<(PathBuf, PathBuf)>,
 }
 
 impl Compiler {
   pub fn new(targets: Option<Browsers>, jsx: Jsx, aliases: Aliases) -> Self {
-    Self { targets, jsx, aliases }
+    Self { targets, jsx, aliases, overlay: None }
+  }
+
+  pub fn with_overlay(mut self, overlay: Option<(PathBuf, PathBuf)>) -> Self {
+    self.overlay = overlay;
+    self
+  }
+
+  /// The text of `path`: the overlay's copy when it has one, else the file itself.
+  pub fn read_source(&self, path: &Path) -> Result<String> {
+    if let Some((root, overlay)) = &self.overlay {
+      if let Ok(relative) = path.strip_prefix(root) {
+        let shadow = overlay.join(relative);
+        if shadow.is_file() {
+          return std::fs::read_to_string(&shadow).with_context(|| format!("Failed to read file: {:?}", shadow));
+        }
+      }
+    }
+    std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))
   }
 
   pub fn aliases(&self) -> &Aliases {
@@ -209,7 +229,7 @@ impl Compiler {
     minify: Option<Minify>,
     map: MapRequest,
   ) -> Result<Output> {
-    let content = std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
+    let content = self.read_source(path)?;
 
     let cm: Lrc<SourceMap> = Default::default();
     let globals = Globals::new();

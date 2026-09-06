@@ -37,5 +37,27 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch` and `native` ride as `data-sf-*` attributes. */
 export declare function Link({ full, into, prefetch, native, ...rest }: LinkProps): ReactElement;
+/** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
+export type Hoisted = {
+	readonly [key: string]: unknown;
+};
+/** The reader the build binds at the top of a component it rewrote: `r` in place of a render-path call whose inputs are props only, so hydration reads what the server rendered instead of computing it again; `l` around each JSX `.map` callback, so a read inside it knows its iteration. */
+export interface HoistReader {
+	/** The server's value for hoist `id` at the current loop indices, or `compute()` when it recorded none. */
+	r<T>(id: number, compute: () => T): T;
+	/** `f` with its index argument pushed onto the loop path while it runs. */
+	l<
+		A extends unknown[],
+		R
+	>(f: (...args: A) => R): (...args: A) => R;
+	/** The element for a static subtree: `hit` with the server's inner markup for chunk `id` when the table holds it, else `miss`, the original JSX. */
+	c(id: number, hit: (html: {
+		__html: string;
+	}) => ReactElement, miss: () => ReactElement): ReactElement;
+}
+/** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops, the callers' loops first. */
+export declare function useHoisted(module: string): HoistReader;
+/** `element` under the hoisted table `table`, the way the mounter places an island under the table its props carried. */
+export declare function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement;
 export declare const reactMounter: Mounter;
 export declare const reactPatcher: Patcher;

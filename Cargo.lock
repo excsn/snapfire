@@ -4887,6 +4887,7 @@ dependencies = [
  "snapfire_fsr",
  "snapfire_fsr_auth",
  "snapfire_fsr_core",
+ "snapfire_fsr_ir",
  "snapfire_fsr_payload",
  "snapfire_fsr_plan",
  "snapfire_fsr_runtime",

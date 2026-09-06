@@ -67,6 +67,11 @@ pub enum Expr {
   Str(Box<Expr>),
   Num(Box<Expr>),
   BigInt(Box<Expr>),
+  /// A render-path expression whose inputs are props only: the renderer
+  /// records its value under `id` and the enclosing loop indices, and the
+  /// browser reads that record instead of computing it. `id` is unique
+  /// within the component's module.
+  Hoist { id: u32, expr: Box<Expr> },
 }
 
 /// The pure functions a component may call by name. Each is one JavaScript
@@ -115,7 +120,7 @@ pub enum Tmpl {
   /// A component placed as its own island: rendered like `Component`, then
   /// wrapped as a nested client node the browser mounts in its own root,
   /// `when` its hydration timing.
-  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String> },
+  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] mode: Option<String> },
   /// The caller's children where the callee places `{children}`, named
   /// `content`; at a layout's root, the plan child of that name, so a
   /// `<Slot name="modal" />` names a second segment beside the page.
@@ -123,11 +128,34 @@ pub enum Tmpl {
 }
 
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
+/// `state` names the `let`s the browser can change, `useState` and `useStore`
+/// bindings in order; `handlers` are its event handlers as bodies, for an
+/// island in server mode, each returning the state it sets.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Component {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub body: Body,
   pub render: Tmpl,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub state: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub handlers: Vec<Handler>,
+}
+
+/// One event handler of a component, lowered: runs with `$props`, `$state`
+/// and `$event` bound and returns an object whose keys are the state names
+/// it sets. `element` is the attribute marker's id, so the renderer can bind
+/// it to its element.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Handler {
+  pub event: String,
+  pub body: Body,
+}
+
+impl Component {
+  pub fn new(body: Body, render: Tmpl) -> Self {
+    Self { body, render, state: Vec::new(), handlers: Vec::new() }
+  }
 }
 
 impl Component {
@@ -381,6 +409,7 @@ impl Expr {
           }
         }
       }
+      Expr::Hoist { expr, .. } => expr.free_vars(out),
     }
   }
 
@@ -417,6 +446,7 @@ impl Expr {
         args.iter().for_each(|e| e.visit(f));
       }
       Expr::Lambda { body, .. } => body.visit(f),
+      Expr::Hoist { expr, .. } => expr.visit(f),
     }
   }
 
@@ -444,6 +474,7 @@ impl Expr {
       Expr::Builtin { args, .. } => args.iter().any(Expr::reads_request),
       Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
       Expr::Lambda { body, .. } => body.reads_request(),
+      Expr::Hoist { expr, .. } => expr.reads_request(),
     }
   }
 
@@ -465,6 +496,7 @@ impl Expr {
       Expr::Builtin { args, .. } => args.iter().any(Expr::has_call),
       Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),
       Expr::Lambda { body, .. } => body.has_call(),
+      Expr::Hoist { expr, .. } => expr.has_call(),
     }
   }
 }

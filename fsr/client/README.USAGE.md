@@ -199,6 +199,18 @@ import { OrderHelp } from "@src/ui/OrderHelp";
 
 The build lowers the use: the server renders `OrderHelp` with its props as a nested island inside an `<sf-s data-sf-island data-sf-when="visible">` region of the page's markup, with its own props script, and registers the module in `generated/islands.ts`. In the browser the page's root adopts the region as it stands and never reconciles it, while `scan` mounts `OrderHelp` in a root of its own when it scrolls into view, so its state is its own and the page's re-renders leave it alone. `island(OrderHelp, { when: "visible" })` at module level gives a component that places itself the same way wherever it is used. `when` on the region wins over the registry's timing for that use; a use without one takes the registry's, else `"load"`. A component from another framework works the same way once its module has a mounter registered, since the registry picks the mounter by module.
 
+## Placing an Island in Server Mode
+
+An island whose events round-trip to the server. The browser holds its props and state, every bound event is sent to the server, Rust runs the handler and renders the component again, and the markup that comes back is patched into place. No component code runs in the browser, so the component has no JavaScript half to keep in step with the server.
+
+```tsx
+<Island when="visible" mode="server">
+  <OrderHelp orderId={order.id} />
+</Island>
+```
+
+`island(OrderHelp, { mode: "server" })` is the same as a module-level alias. The component is written as React; the mode decides where its handlers run. The build lowers each handler, which must be `const`s and calls to state setters, `e.preventDefault()` aside, and refuses the mode over a handler it cannot lower or over a component inside the island with state or handlers of its own. The server marks each bound element with `data-sf-on="click:0"` and the island's initial state rides in its props as `$s`; `scan` mounts an `sf-i` under an `sf-s[data-sf-mode="server"]` through `mountServer` instead of the registry, with `data-sf-pending` on the island while a round trip is out and a second event during one dropped. A list the server renders keeps a moved element across a patch when the element carries a `key`, which prints as `data-sf-key` in this mode.
+
 ## Filling a Layout's Slots
 
 A layout has one slot for its page and as many named ones as it places. A parallel segment under `slots/<name>/` beside the layout arrives as a prop of that name; a slot an intercepted route opens in is placed with `Slot`:

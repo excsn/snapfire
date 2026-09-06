@@ -1,4 +1,5 @@
 import { adoptLocale } from "./locale.js";
+import { isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt } from "./store.js";
 import { decodeValue, SfValue } from "./values.js";
 
@@ -56,6 +57,7 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
 
 /** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. False when nothing is mounted there or the island's entry has no patcher. */
 export async function patchIsland(el: Element, props: Props): Promise<boolean> {
+  if (isServerIsland(el)) return patchServer(el, props);
   const island = mounted.get(el);
   if (!island?.entry.patch) return false;
   const handle = await island.handle;
@@ -97,6 +99,11 @@ export function scan(root: ParentNode): void {
   for (const el of Array.from(root.querySelectorAll("sf-i:not([data-sf-mounted])"))) {
     const moduleId = el.getAttribute("data-sf-module");
     if (!moduleId) continue;
+    if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
+      el.setAttribute("data-sf-mounted", "");
+      mountServer(el, moduleId, propsFor(root, el.id));
+      continue;
+    }
     const entry = islands.get(moduleId);
     if (!entry) {
       missing.add(moduleId);

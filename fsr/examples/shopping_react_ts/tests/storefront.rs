@@ -287,11 +287,11 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
-  let region = html.find("<sf-s data-sf-island data-sf-when=\"visible\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">").expect(&html);
+  let region = html.find("<sf-s data-sf-island data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">").expect(&html);
   let page = html.find("data-sf-module=\"routes/order/[id]/page.tsx#default\"").unwrap();
   assert!(page < region, "the island sits inside the page's markup");
   assert!(html[region..].contains("<p>Quote order #<!-- -->5001<!-- --> when you write to us.</p>"), "rendered in Rust with the page's data: {html}");
-  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i3\">{\"orderId\":5001}</script></sf-s>"), "its own props script, inside the region: {html}");
+  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i3\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false}}</script></sf-s>"), "its own props script with the state a server island starts from, inside the region: {html}");
   let payload = block_on(app.render_to_string("/order/5001", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("[\"c\",{\"m\":\"src/ui/OrderHelp.tsx#OrderHelp\""), "a nested client node on the wire: {payload}");
 }
@@ -610,4 +610,43 @@ fn the_promo_slot_renders_beside_the_page_from_its_own_loader() {
   assert!(html.contains("\"n\":\"promo\""), "the sidecar names it: {html}");
   assert_eq!(transport.calls().iter().filter(|(name, _, _)| name.ends_with("listProducts")).count(), 2, "the catalog's loader and the promo's each ran once");
   assert!(host.report().to_string().contains("layout.promo"), "{}", host.report());
+}
+
+fn body_text(response: http::Response<snapfire_fsr_host::Body>) -> (u16, String) {
+  let status = response.status().as_u16();
+  let text = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
+  (status, text)
+}
+
+#[test]
+fn the_order_help_island_steps_on_the_server() {
+  let app = app_over(Arc::new(MockTransport::new()));
+  let module = "src/ui/OrderHelp.tsx#OrderHelp";
+  let post = |body: &str| {
+    let request = http::Request::post(format!("/_sf/island/{}", module.replace('#', "%23"))).header("content-type", "application/json").body(bytes::Bytes::from(body.to_owned())).unwrap();
+    body_text(block_on(app.handle(request)))
+  };
+
+  let (status, text) = post(r#"{"props":{"orderId":5001},"state":{"open":false},"handler":0,"event":null}"#);
+  assert_eq!(status, 200, "{text}");
+  let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+  assert_eq!(json["state"]["open"], serde_json::Value::Bool(true));
+  let html = json["html"].as_str().unwrap();
+  assert!(html.contains("data-sf-on=\"click:0\"") && html.contains("Hide contact options") && html.contains("help@snapfire.shop"), "{html}");
+  assert!(html.contains("Quote order #<!-- -->5001"), "the props rendered: {html}");
+
+  let (status, text) = post(r#"{"props":{"orderId":5001},"state":{"open":true},"handler":null,"event":null}"#);
+  assert_eq!(status, 200);
+  let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+  assert_eq!(json["state"]["open"], serde_json::Value::Bool(true), "no handler keeps the state");
+
+  let (status, text) = post(r#"{"props":{},"state":{"closed":1},"handler":0}"#);
+  assert_eq!(status, 400, "{text}");
+  assert!(text.contains("`closed` is not state"), "{text}");
+  let (status, text) = post(r#"{"props":{},"state":{},"handler":4}"#);
+  assert_eq!(status, 404, "{text}");
+  let (status, _) = post("not json");
+  assert_eq!(status, 400);
+  let request = http::Request::post("/_sf/island/src/ui/Nothing.tsx%23Nothing").header("content-type", "application/json").body(bytes::Bytes::from("{}")).unwrap();
+  assert_eq!(body_text(block_on(app.handle(request))).0, 404);
 }

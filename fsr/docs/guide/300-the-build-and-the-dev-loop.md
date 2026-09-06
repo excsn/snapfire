@@ -23,6 +23,8 @@ snapfirec compiles the browser side, `src/`, the pages under `routes/` and the t
 
 The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path and the entry script, so the two tools meet through a file rather than through configuration.
 
+They meet through a second directory too. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr-bundle/` with those calls turned into reads of what the server delivered, and `fsr dev` passes `--overlay .fsr-bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy, and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
+
 ## A Cargo project runs the build for you
 
 An application with a Rust project puts three lines in `build.rs`: build, write, done. `cargo build` then regenerates `generated/` whenever `routes/`, `schemas/` or `clients/` change, so the host never boots against a stale plan. The storefront does this, which is why its README's manual steps are `cargo build`, the bundle, `cargo run`, in that order.

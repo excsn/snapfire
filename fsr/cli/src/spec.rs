@@ -101,6 +101,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   if files.is_empty() {
     return Ok(());
   }
+  crate::write_overlay(&app, built)?;
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app)?;
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
@@ -336,9 +337,12 @@ fn compile(app: &Path, test_dir: &Path) -> Result<(), BuildError> {
   let snapfirec = dev::find_snapfirec(None);
   let config = format!("{TEST_DIR}/tsconfig.json");
   let import_map = format!("{TEST_DIR}/importmap.json");
-  let output = Command::new(&snapfirec)
-    .current_dir(app)
-    .args(["--config", &config, "--source-map", "--public-path", "/static/js/app", "--import-map", &import_map])
+  let mut command = Command::new(&snapfirec);
+  command.current_dir(app).args(["--config", &config, "--source-map", "--public-path", "/static/js/app", "--import-map", &import_map]);
+  if app.join(dev::BUNDLE_OVERLAY).is_dir() {
+    command.args(["--overlay", dev::BUNDLE_OVERLAY]);
+  }
+  let output = command
     .output()
     .map_err(|e| BuildError::Dev(format!("{}: {e}; put snapfirec beside fsr or on PATH", snapfirec.display())))?;
   if !output.status.success() {
@@ -556,9 +560,10 @@ impl Hooks for SpecHooks {
     if let Ok(current) = self.get(self.current.load(Ordering::Relaxed)) {
       props.entry("locale".to_owned()).or_insert_with(|| Value::Str(current.ctx.locale.tag.clone()));
     }
-    let rendered = self.interpreter.render(&component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
+    let rendered = self.interpreter.render_module(module, &component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
+    let hoisted = value_to_json(&Value::Map(rendered.hoisted.clone()));
     let html = if rendered.islands.is_empty() { rendered.html } else { snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(snapfire_fsr_ir::rendered_nodes(&rendered))) };
-    Ok(Some(html))
+    Ok(Some(serde_json::json!({ "html": html, "hoisted": hoisted }).to_string()))
   }
 
   fn fetch(&self, method: String, url: String, body: Option<String>, headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
@@ -638,6 +643,17 @@ struct FetchHooks {
 
 impl FetchHooks {
   async fn dispatch(&self, method: String, path: String, query: String, target: String, body: Option<String>, headers: Vec<(String, String)>) -> FetchResponse {
+    if method == "POST" {
+      if let Some(module) = path.strip_prefix("/_sf/island/").map(|m| percent_decode(m)) {
+        let Some(host) = &self.host else {
+          return json_response(500, serde_json::json!({ "kind": "internal", "message": "an island step needs the configuration beside the app" }));
+        };
+        let locale = self.current_ctx.as_ref().map(|c| c.ctx.locale.tag.clone()).unwrap_or_default();
+        let lowered = host.lowered();
+        let (status, json) = snapfire_fsr_host::island_step(lowered.as_deref(), &module, body.as_deref().unwrap_or("").as_bytes(), &locale);
+        return json_response(status.as_u16(), json);
+      }
+    }
     let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
     let Some(id) = action.filter(|_| method == "POST") else {
       if let Some(found) = self.handlers.1.match_request(&method, &path) {

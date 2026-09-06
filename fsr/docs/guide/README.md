@@ -20,13 +20,13 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [000. What fsr is made of](000-what-fsr-is-made-of.md), TypeScript as the application language, Rust as the runtime, the two artifacts that are the truth, what fsr refuses to do and the vocabulary map. Everyone.
 - [001. One contract, no client code](001-one-contract-no-client-code.md), how a service's own document becomes a typed call nobody wrote. Everyone.
 - [002. A body is data](002-a-body-is-data.md), why a loader is lowered rather than run, what residue is and why the report always says where a body runs. Everyone.
-- [003. Rendered where it is cheapest](003-rendered-where-it-is-cheapest.md), how a React page is rendered on the server with no JavaScript engine and what hydrates over it. Everyone.
+- [003. Rendered where it is cheapest](003-rendered-where-it-is-cheapest.md), how a React page is rendered on the server with no JavaScript engine, what hydrates over it and what the browser reads instead of computing again. Everyone.
 
 **The application**, or what you write:
 
 - [100. Routes, loaders and pages](100-routes-loaders-and-pages.md), the file conventions, params and query, the props a page receives and navigation that keeps the layout. App developers.
 - [101. Actions and the session](101-actions-and-the-session.md), schemas, session defaults, guards and the cart as the worked case. App developers.
-- [102. Components the server renders](102-components-the-server-renders.md), what a component may say, helpers, `useState` and what stays in the browser. App developers.
+- [102. Components the server renders](102-components-the-server-renders.md), what a component may say, helpers, `useState`, what stays in the browser, what the server computes for it and an island the server drives. App developers.
 - [103. Testing a body and a page](103-testing-a-body.md), mocks the contract checks, the trace, page tests over a DOM with hydration, loading a route and clicking through it, and `fsr test`. App developers.
 
 **The host**, or what runs it:

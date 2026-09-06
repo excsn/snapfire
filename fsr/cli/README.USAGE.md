@@ -617,9 +617,55 @@ fsr prerender app --out build/static
 
 A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route, and so does a page or layout on it reading its `identity` or `csrf_token` prop.
 
+## Hoisting Render-Path Calls
+
+A call in a component's render path runs twice: in Rust for the markup and in React at hydration, which must reproduce the markup byte for byte. When the call's inputs are props only, the build has the server do the work once. The plan marks the call, the renderer records its value, the island's props carry the table under `$h` and the bundle's copy of the module reads it:
+
+```tsx
+export function ProductCard({ product }: { product: Product }) { const __sfh = __sfUseHoisted("src/ui/ProductCard.tsx#ProductCard");
+  const off = __sfh.r(0, () => (percentOff(product.price_cents, product.list_price_cents)));
+  ...
+  <span className="price">{__sfh.r(3, () => (money(product.price_cents)))}</span>
+```
+
+That copy lives in `.fsr-bundle/` and snapfirec reads it in place of the source at the same path; the source itself, the editor and `fsr check` never see it. A read that finds no value, because the server did not evaluate that branch or the value changed with browser state, calls the original. Inputs are props only when nothing in the call reaches a `useState`, `useStore` or `useRef` binding, a value computed from one, or a store key; a call inside a lambda or under another hoisted call stays as written.
+
+A whole subtree goes the same way when everything in it is props only, no element in it carries a handler, a `ref` or a spread, it holds no island and no slot, and every component it renders is pure, with no state and nothing bound. The server records the element's inner markup and the browser hands it to React as the element's inner HTML, so React neither renders nor hydrates anything inside it:
+
+```tsx
+{__sfh.c(2, (__sfHtml) => <ul className="list" dangerouslySetInnerHTML={__sfHtml} />, () => (<ul className="list">
+  {items.map((it) => <li key={it.id}><Price cents={it.price} /></li>)}
+</ul>))}
+```
+
+Only the outermost static subtree is taken, and only one that does something: a run of literal markup is left to React, which costs nothing for it. A miss renders the original JSX, which is also what a remount does when the table has no entry. The report says what was hoisted:
+
+```
+hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees
+          src/ui/Stars.tsx#Stars             1 value, 1 subtree
+```
+
+## Placing an Island in Server Mode
+
+An island can run with no JavaScript half at all: its events round-trip to the server, Rust runs the handler and renders the component again, and the browser patches the markup in place. The component is written as React; the placement chooses the mode:
+
+```tsx
+<Island when="visible" mode="server">
+  <OrderHelp orderId={order.id} />
+</Island>
+```
+
+The build lowers the component's handlers into the plan beside its state. A handler is `const`s and calls to state setters, `setOpen(!open)`, `setN((prev) => prev - 1)` or `setQty(Number(e.target.value))`, a named handler by name or called, with `e.preventDefault()` allowed and dropped. Anything else in a handler, a branch, an action call, a call the build cannot follow, is refused with the line when the component is placed in server mode; in browser mode it is simply the browser's. A component inside the island may not have state or handlers of its own, only the island's component holds them. The host answers `POST /_sf/island/<module>` with the state after the handler and the markup rendered from it; the report lists what runs this way:
+
+```
+islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
+```
+
+`fsr test` steps such an island through the same function the host uses, so a spec that loads the page and clicks sees the patched markup.
+
 ## Reading the Report
 
-Six sections, each row naming what was found and where it came from. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
+Eight sections, each row naming what was found and where it came from. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
 ## Reading the Plan File
 

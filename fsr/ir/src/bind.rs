@@ -7,7 +7,7 @@ use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalEr
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
-use crate::render::{Components, Rendered, ISLAND_MARK, SLOT_MARK};
+use crate::render::{Components, Rendered, HOISTED_PROP, ISLAND_MARK, SLOT_MARK};
 
 /// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
 /// where a root slot sits and, where an island sits, its region: an
@@ -33,12 +33,16 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     let index: usize = marker[ISLAND_MARK.len()..marker.len() - 1].parse().expect("an island marker carries its index");
     let island = &rendered.islands[index];
     let module: ModuleId = island.module.parse().unwrap_or_else(|_| ModuleId::new(island.module.clone(), "default"));
-    let open = match &island.when {
-      Some(when) => format!("<sf-s data-sf-island data-sf-when=\"{when}\">"),
-      None => "<sf-s data-sf-island>".to_owned(),
-    };
+    let mut open = String::from("<sf-s data-sf-island");
+    if let Some(when) = &island.when {
+      open.push_str(&format!(" data-sf-when=\"{when}\""));
+    }
+    if let Some(mode) = &island.mode {
+      open.push_str(&format!(" data-sf-mode=\"{mode}\""));
+    }
+    open.push('>');
     out.push(Node::raw(open));
-    out.push(Node::Client { module, props: island.props.clone(), children: Vec::new(), ssr: Some(Box::new(island_body(&island.body))) });
+    out.push(Node::Client { module, props: island.mount_props(), children: Vec::new(), ssr: Some(Box::new(island_body(&island.body))) });
     out.push(Node::raw("</sf-s>"));
   }
   if !rest.is_empty() {
@@ -220,6 +224,15 @@ impl IrEvaluator {
     self.components.contains_key(&module.to_string())
   }
 
+  /// Every lowered component by module id, shared with the evaluator.
+  pub fn components(&self) -> Arc<Components> {
+    self.components.clone()
+  }
+
+  pub fn interpreter(&self) -> &Interpreter {
+    &self.interpreter
+  }
+
   pub fn modules(&self) -> Vec<String> {
     let mut modules: Vec<String> = self.components.keys().cloned().collect();
     modules.sort();
@@ -236,10 +249,13 @@ impl Evaluator for IrEvaluator {
     Box::pin(stream::once(async move {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
-      let rendered = interpreter.render(&component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
+      let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
       let mut props = props;
       props.shift_remove("$slots");
       props.shift_remove("$store");
+      if !rendered.hoisted.is_empty() {
+        props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
+      }
       if rendered.islands.is_empty() && !rendered.html.contains(SLOT_MARK) {
         return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
       }

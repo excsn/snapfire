@@ -201,6 +201,12 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
 
+### Server-mode islands
+
+* `POST /_sf/island/<module>`, the module id percent-encoded, with a JSON body `{ props, state, handler, event }`: one round trip of an island in server mode. `state` may name only the component's state; `handler` is the index of the handler that fired or null to render as is; `event` is what the browser saw. Answers `200` with `{ state, html }`, the state after the handler and the island's markup rendered from it, `400` with `{ kind: "invalid", message }` for a body that is not the shape or a state key the component lacks, `404` for a module that is not lowered or a handler index it lacks, and the interpreter's own status for a failure. The document's locale is the island's, from `x-sf-from` the way an action's is. The session cookie is set as on every response.
+* `pub fn island_step(lowered: Option<&IrEvaluator>, module: &str, body: &[u8], locale: &str) -> (StatusCode, serde_json::Value)`: the route's work without HTTP, which `fsr test` calls too.
+* `Host::lowered(&self) -> Option<Arc<IrEvaluator>>`: the lowered components and their interpreter, `None` when the plan lowered no component.
+
 ### Mount
 
 * `pub struct Mount { pub name: String, pub artifact: PathBuf, pub version: String, pub hash: String, pub allow_engine: bool, pub config: Config, pub plan: String, pub contract: Option<Contract> }`: a site's artifact as the host mounts it, its configuration read through the shell's ladder, its plan and contracts as its build wrote them. Where it came from is the caller's business; `artifact`, `version` and `hash` reach the report.

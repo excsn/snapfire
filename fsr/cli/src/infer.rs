@@ -259,6 +259,7 @@ impl<'a> Inferer<'a> {
         .map(|m| Ts::from_contract(&m.returns))
         .unwrap_or(Ts::Unknown),
       Expr::Lambda { .. } => Ts::Unknown,
+      Expr::Hoist { expr, .. } => self.expr(expr, env),
       Expr::Map(over, f) => {
         let elem = element(self.expr(over, env));
         Ts::List(Box::new(self.apply(f, vec![elem], env)))

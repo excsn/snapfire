@@ -40,6 +40,8 @@ pub enum BuildError {
   DuplicateType { name: String, first: String, second: String },
   #[error("two {kind} rows claim `{id}`: {first} and {second}")]
   ClaimedId { kind: String, id: String, first: String, second: String },
+  #[error("`{module}` cannot be an island in server mode: {reason}")]
+  ServerIsland { module: String, reason: String },
   #[error("the contract does not hold together: {0}")]
   Contract(#[from] ContractError),
   #[error("action `{action}` names input type `{name}`, which no schema under schemas/ declares")]
@@ -94,6 +96,10 @@ pub struct Report {
   pub intercepts: Vec<(String, String)>,
   /// Module; `lowered` or `client`; for `client`, the line that decided it.
   pub components: Vec<(String, String, String)>,
+  /// Module, how many of its render-path calls and how many of its static subtrees the server computes for the browser.
+  pub hoisted: Vec<(String, usize, usize)>,
+  /// Components placed as islands in server mode and how many handlers each answers.
+  pub islands: Vec<(String, usize)>,
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
   pub types: Vec<(String, String)>,
@@ -120,6 +126,21 @@ impl fmt::Display for Report {
     for (i, (module, owner, detail)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {owner:<11} {detail}")?;
+    }
+    for (i, (module, handlers)) in self.islands.iter().enumerate() {
+      let label = if i == 0 { "islands" } else { "" };
+      writeln!(f, "{label:<9} {module:<34} {:<11} {handlers} handler{}", "server", if *handlers == 1 { "" } else { "s" })?;
+    }
+    for (i, (module, values, chunks)) in self.hoisted.iter().enumerate() {
+      let label = if i == 0 { "hoisted" } else { "" };
+      let mut parts = Vec::new();
+      if *values > 0 {
+        parts.push(format!("{values} value{}", if *values == 1 { "" } else { "s" }));
+      }
+      if *chunks > 0 {
+        parts.push(format!("{chunks} subtree{}", if *chunks == 1 { "" } else { "s" }));
+      }
+      writeln!(f, "{label:<9} {module:<34} {}", parts.join(", "))?;
     }
     for (i, (service, document)) in self.services.iter().enumerate() {
       let label = if i == 0 { "services" } else { "" };
@@ -607,6 +628,28 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   for module in &islands {
     lower_into(&mut set, module, &mut report)?;
   }
+  for (module, component) in &set.components {
+    for placed in server_islands(&component.render) {
+      let Some((_, inner)) = set.components.iter().find(|(m, _)| *m == placed) else { continue };
+      if let Some(reason) = unlowered_handler(&inner.render) {
+        return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but a handler did not lower: {reason}") });
+      }
+      if let Some(nested) = nested_components(&inner.render).into_iter().find(|m| !set.pure.get(m).copied().unwrap_or(false)) {
+        return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but `{nested}` inside it has state or handlers of its own, which only the island's own component may hold") });
+      }
+      let row = (format!("{}{placed}", options.prefix()), inner.handlers.len());
+      if !report.islands.contains(&row) {
+        report.islands.push(row);
+      }
+    }
+  }
+  report.islands.sort();
+  for rewrite in &mut set.rewrites {
+    rewrite.module = format!("{}{}", options.prefix(), rewrite.module);
+    report.hoisted.push((rewrite.module.clone(), rewrite.sites.len(), rewrite.chunks.len()));
+  }
+  let rewritten = set.rewritten();
+  report.hoisted.sort();
   let mut components = Vec::new();
   let mut islands = islands;
   for (module, component) in set.components {
@@ -637,6 +680,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
+  files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {
     None => {
       let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources)?;
@@ -685,6 +729,7 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
       }
     }
   }
+  clear_overlay(app)?;
   let mut written = Vec::new();
   for (rel, content) in &built.files {
     let path = app.join(rel);
@@ -695,6 +740,33 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
     written.push(path);
   }
   Ok(written)
+}
+
+/// Removes the bundle overlay, so a file no longer rewritten does not shadow its source.
+fn clear_overlay(app: &Path) -> Result<(), BuildError> {
+  let overlay = app.join(dev::BUNDLE_OVERLAY);
+  if overlay.is_dir() {
+    std::fs::remove_dir_all(&overlay).map_err(|e| BuildError::Io(overlay, e))?;
+  }
+  Ok(())
+}
+
+/// Writes only the bundle overlay of `built`: the sources the build rewrote
+/// for the browser, under `.fsr-bundle`. `write` includes them; this is for a
+/// caller that compiles without writing the rest.
+pub fn write_overlay(app: &Path, built: &Built) -> Result<(), BuildError> {
+  clear_overlay(app)?;
+  for (rel, content) in &built.files {
+    if !rel.starts_with(dev::BUNDLE_OVERLAY) {
+      continue;
+    }
+    let path = app.join(rel);
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+    }
+    std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
+  }
+  Ok(())
 }
 
 /// The shell contract of this build: every store key a loader's `store`
@@ -1084,6 +1156,85 @@ fn lower_into(set: &mut ComponentSet, module: &str, report: &mut Report) -> Resu
     }
     Err(e) => Err(e.into()),
   }
+}
+
+/// The modules a template places as islands in server mode.
+fn server_islands(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
+  use snapfire_fsr_ir::Tmpl;
+  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
+    match tmpl {
+      Tmpl::Island { module, mode, children, .. } => {
+        if mode.as_deref() == Some(snapfire_fsr_ir::render::SERVER_MODE) && !out.contains(module) {
+          out.push(module.clone());
+        }
+        children.iter().for_each(|c| walk(c, out));
+      }
+      Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, out);
+        if let Some(e) = r#else {
+          walk(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, out),
+      Tmpl::Let { then, .. } => walk(then, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+  let mut out = Vec::new();
+  walk(tmpl, &mut out);
+  out
+}
+
+/// The line and reason left on the first element whose handler did not lower.
+fn unlowered_handler(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
+  use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
+  use snapfire_fsr_ir::Tmpl;
+  fn walk(tmpl: &Tmpl) -> Option<String> {
+    match tmpl {
+      Tmpl::Element { attrs, children, .. } => attrs
+        .iter()
+        .find_map(|e| match e {
+          Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == snapfire_fsr_ir::render::UNLOWERED_ATTR => Some(why.clone()),
+          _ => None,
+        })
+        .or_else(|| children.iter().find_map(walk)),
+      Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().find_map(walk),
+      Tmpl::If { then, r#else, .. } => walk(then).or_else(|| r#else.as_ref().and_then(|e| walk(e))),
+      Tmpl::For { body, .. } => walk(body),
+      Tmpl::Let { then, .. } => walk(then),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
+    }
+  }
+  walk(tmpl)
+}
+
+/// The modules a template renders as components, islands aside.
+fn nested_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
+  use snapfire_fsr_ir::Tmpl;
+  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
+    match tmpl {
+      Tmpl::Component { module, children, .. } => {
+        if !out.contains(module) {
+          out.push(module.clone());
+        }
+        children.iter().for_each(|c| walk(c, out));
+      }
+      Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, out);
+        if let Some(e) = r#else {
+          walk(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, out),
+      Tmpl::Let { then, .. } => walk(then, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+  let mut out = Vec::new();
+  walk(tmpl, &mut out);
+  out
 }
 
 /// The named slots a template places, `content` aside, in tree order.
