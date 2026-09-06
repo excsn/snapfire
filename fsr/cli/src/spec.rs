@@ -481,6 +481,8 @@ impl Transport for JsTransport {
 struct MockCtx {
   ctx: RequestCtx,
   input: Option<Value>,
+  /// What a browser's cookie would carry across the calls of one identity journey.
+  flow: snapfire_fsr_host::AuthFlow,
 }
 
 #[derive(Deserialize)]
@@ -575,7 +577,7 @@ impl SpecHooks {
     let query: Params = spec.query.into_iter().collect();
     let locale = self.locale_of(spec.locale.as_deref());
     let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
-    Ok(MockCtx { ctx, input })
+    Ok(MockCtx { ctx, input, flow: snapfire_fsr_host::AuthFlow::new() })
   }
 
   /// The locale a ctx runs under: the one it names, else the host's default,
@@ -743,6 +745,9 @@ impl FetchHooks {
         return json_response(status.as_u16(), json);
       }
     }
+    if path.starts_with("/auth/") {
+      return self.auth(method, path, query, body, headers).await;
+    }
     let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
     let Some(id) = action.filter(|_| method == "POST") else {
       if let Some(found) = self.handlers.1.match_request(&method, &path) {
@@ -769,6 +774,29 @@ impl FetchHooks {
       Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
       Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
     }
+  }
+
+  /// The identity routes through the host, against the spec's own session, so
+  /// a spec signs in the way a browser does and every later render sees the
+  /// identity the flow settled. A redirect comes back as it does at the edge,
+  /// which the spec follows itself.
+  async fn auth(&self, method: String, path: String, query: String, body: Option<String>, headers: Vec<(String, String)>) -> FetchResponse {
+    let Some(host) = self.host.clone() else {
+      return json_response(500, serde_json::json!({ "kind": "internal", "message": "the identity routes need the configuration beside the app" }));
+    };
+    let Some(mock) = self.current_ctx.clone() else {
+      return FetchResponse::new(500, "no current ctx");
+    };
+    let answered = host.auth_call(&mock.flow, &method, &path, &query, body.unwrap_or_default().as_bytes(), &headers, mock.ctx.session.clone()).await;
+    let Some((status, headers, text)) = answered else {
+      let message = format!("{method} {path}: this application mounts no identity provider, or that is not one of its three routes");
+      return json_response(404, serde_json::json!({ "kind": "not_found", "message": message }));
+    };
+    let mut response = FetchResponse::new(status, text);
+    for (name, value) in headers {
+      response = response.header(name, value);
+    }
+    response
   }
 
   /// A lowered handler run under the current ctx with the matched params, the URL's query and the request body as its input.

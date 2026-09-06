@@ -34,7 +34,7 @@ use snapfire_fsr_runtime::{
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials, Services, TraceInterceptor, Transport,
 };
-use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionStore, Sessions};
+use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -386,6 +386,27 @@ impl Mount {
 struct Mounted {
   auth: Auth,
   login_path: String,
+}
+
+/// What a cookie carries between the calls of one identity journey: the
+/// session id the flow is keyed by and the custody its state lives in. A
+/// caller driving [`Host::auth_call`] holds one per session.
+#[derive(Clone)]
+pub struct AuthFlow {
+  id: SessionId,
+  tokens: TokenCell,
+}
+
+impl AuthFlow {
+  pub fn new() -> Self {
+    Self { id: SessionId::generate(), tokens: TokenCell::new(ValueMap::new()) }
+  }
+}
+
+impl Default for AuthFlow {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 /// What a request carries into a body beyond its session: the CSRF token
@@ -900,6 +921,34 @@ impl Host {
     };
     let ctx = self.ctx(t, incoming, found.params, parse_query(raw_query), locale.clone());
     t.app.handlers.dispatch(&found.id, ctx, input).await
+  }
+
+  /// The identity routes against a session cell rather than a cookie, for a
+  /// runner that holds the session itself: `fsr test`. `None` when no
+  /// provider is mounted or the path is not one of the three. The identity
+  /// the flow settles lands in `session`, which is the cell a spec then
+  /// renders pages with; the cookie the routes would set is returned as a
+  /// header and is the caller's to ignore. `flow` carries what a cookie
+  /// carries between the calls of one journey, so it is one per session.
+  pub async fn auth_call(&self, flow: &AuthFlow, method: &str, path: &str, query: &str, body: &[u8], headers: &[(String, String)], session: SessionCell) -> Option<(u16, Vec<(String, String)>, String)> {
+    let tables = self.tables();
+    let mounted = tables.auth.as_ref()?;
+    if !path.starts_with("/auth/") {
+      return None;
+    }
+    let method = Method::from_bytes(method.as_bytes()).ok()?;
+    let uri = if query.is_empty() { path.to_owned() } else { format!("{path}?{query}") };
+    let mut builder = Request::builder().method(method).uri(uri);
+    for (name, value) in headers {
+      builder = builder.header(name, value);
+    }
+    let request = builder.body(Bytes::copy_from_slice(body)).ok()?;
+    let opened = Opened { id: flow.id.clone(), cell: session, tokens: flow.tokens.clone(), fresh: true };
+    let response = self.auth_route(mounted, &request, &opened, path, query).await?;
+    let (parts, body) = response.into_parts();
+    let headers = parts.headers.iter().filter_map(|(name, value)| value.to_str().ok().map(|v| (name.as_str().to_owned(), v.to_owned()))).collect();
+    let bytes = http_body_util::BodyExt::collect(body).await.ok()?.to_bytes();
+    Some((parts.status.as_u16(), headers, String::from_utf8_lossy(&bytes).into_owned()))
   }
 
   /// `call_action_in` under the default locale.

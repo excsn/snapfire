@@ -351,7 +351,7 @@ A private route is a line of middleware, with the literal `return_to` you want:
 if (request.path === "/account" && !identity?.subject) return { redirect: "/auth/login?return_to=/account" };
 ```
 
-`provider = "service"` with `client = "<name>"` asks that client's `authenticate` instead of a file, and `[session] store = "service"` with a `client` keeps the sessions behind one too, so the host holds neither accounts nor sessions; the console's identity service is the example, and `APP_ENV=mock` puts it behind a file like any other client. A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner does not serve the three `/auth/` routes, so the flow itself is a host test.
+`provider = "service"` with `client = "<name>"` asks that client's `authenticate` instead of a file, and `[session] store = "service"` with a `client` keeps the sessions behind one too, so the host holds neither accounts nor sessions; the console's identity service is the example, and `APP_ENV=mock` puts it behind a file like any other client. A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner also serves the three `/auth/` routes against the spec's session, so the flow itself is a spec, see [Running the Specs](#running-the-specs).
 
 ## Importing a Service
 
@@ -578,7 +578,16 @@ test("the entry module's derive is registered", () => {
 
 A `fetch` inside a spec is answered by the runner: `/_sf/action/<id>` runs the lowered action under the spec's `ctx`, a path matching a lowered handler runs it with the matched params and the body checked against its input type, and anything else renders the route through the stock host when a configuration is beside the app. `load(path, { ctx })` is that fetch plus the document it produces.
 
-Two things the runner cannot answer, so a spec must not expect them: the `/auth/` routes, which is why a signed-in page is `ctx({ identity })` rather than a login journey, and the Rust half of a native pair, which the runner answers from the browser half.
+The `/auth/` routes are answered too, against the spec's own session, so a spec signs in the way a browser does and every render after it is that user's. A journey starts at `/auth/login`, since that is what starts the flow; a callback with none in progress is a 400.
+
+```ts
+await load("/account", { ctx: c });                       // the guard sends an anonymous visitor to the login page
+await fetch("/auth/login?return_to=/account");            // the flow begins
+await fetch("/auth/callback", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "user=alice&password=wonder" });
+await load("/account", { ctx: c });                       // and now the page is alice's
+```
+
+One thing the runner cannot answer, so a spec must not expect it: the Rust half of a native pair, which it answers from the browser half.
 
 ## Building a Site
 
