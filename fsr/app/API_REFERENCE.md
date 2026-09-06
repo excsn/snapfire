@@ -6,7 +6,10 @@ The binding rule: a plan file plus Rust registrations become an `App`, or a refu
 
 * [1. Building](#1-building)
   * [App](#app)
+  * [Handlers](#handlers)
+  * [Intercepts](#intercepts)
   * [AppBuilder](#appbuilder)
+  * [mount_manifest and middleware_from](#mount_manifest-and-middleware_from)
 * [2. Routes and Plans](#2-routes-and-plans)
   * [Routes](#routes)
   * [Plan](#plan)

@@ -12,6 +12,8 @@ How to bind a plan file, add and replace routes, answer names in Rust, take lowe
 * [Answering a Data Source](#answering-a-data-source)
 * [Taking a Lowered Name Back](#taking-a-lowered-name-back)
 * [Answering an Action](#answering-an-action)
+* [Answering a Handler](#answering-a-handler)
+* [Answering the Middleware](#answering-the-middleware)
 * [Rendering a Module in Rust](#rendering-a-module-in-rust)
 * [Checking Action Input](#checking-action-input)
 * [Caching and Services](#caching-and-services)

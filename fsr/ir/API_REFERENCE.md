@@ -9,6 +9,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Stmt](#stmt)
   * [Expr](#expr)
   * [Tmpl](#tmpl)
+  * [Component](#component)
   * [Entry](#entry)
   * [Lit](#lit)
   * [ArithOp](#arithop)

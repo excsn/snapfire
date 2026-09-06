@@ -136,7 +136,7 @@ snapfiretc --which --tsc-version 7.0.2
 # tsc 7.0.2 from fetched
 ```
 
-The tarball is `@typescript/typescript-<platform>`, around 9 MB gzipped and 27 MB unpacked, and its sha512 is checked before anything is written: against this crate's pinned hash when it has one, else against `--expect` when the caller passes one, else against the registry document's own integrity. It is unpacked beside the target directory and renamed into place, so a cache entry is whole or absent and never half-written.
+The tarball is `@typescript/typescript-<platform>`, around 9 MB gzipped and 27 MB unpacked, holding `lib/tsc` beside the standard library's declaration files, or `lib/tsc.exe` on Windows, and its sha512 is checked before anything is written: against this crate's pinned hash when it has one, else against `--expect` when the caller passes one, else against the registry document's own integrity. It is unpacked beside the target directory and renamed into place, so a cache entry is whole or absent and never half-written.
 
 A machine that must not reach the network says so and gets an error rather than a hang:
 

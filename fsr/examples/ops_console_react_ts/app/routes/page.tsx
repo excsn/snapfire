@@ -1,12 +1,12 @@
 import { island, Link } from "@snapfire/fsr-client/react";
 
-import type { IndexProps } from "@generated/client";
+import type { RootProps } from "@generated/client";
 import { TipList } from "@src/ui/Tips";
 
 /** Nothing here is needed at first paint, so it hydrates when the main thread is idle. */
 const Tips = island(TipList, { when: "idle" });
 
-export default function Summary({ total, busy, regions }: IndexProps) {
+export default function Summary({ total, busy, regions }: RootProps) {
   return (
     <div className="page summary">
       <h1>Fleet</h1>

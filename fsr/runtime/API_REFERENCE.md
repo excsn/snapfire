@@ -57,6 +57,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
 * [12. Streaming](#12-streaming)
   * [`wire_stream`](#wire_stream)
   * [`meta_to_json`](#meta_to_json)
+  * [`seed_to_json`](#seed_to_json)
   * [`html_stream`](#html_stream)
   * [`segments_to_json`](#segments_to_json)
   * [`FILL_SCRIPT`](#fill_script)

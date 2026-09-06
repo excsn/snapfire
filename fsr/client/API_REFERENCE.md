@@ -34,9 +34,13 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [IslandEntry](#islandentry)
   * [registerIsland](#registerisland)
   * [scan](#scan)
+  * [loadEntry](#loadentry)
   * [boot](#boot)
   * [patchIsland](#patchisland)
   * [DOM Contract](#dom-contract)
+  * [isServerIsland](#isserverisland)
+  * [morph](#morph)
+  * [mountServer](#mountserver)
 * [6. Navigation](#6-navigation)
   * [enableNavigation](#enablenavigation)
   * [prefetch](#prefetch)
@@ -66,14 +70,19 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [setLocale](#setlocale)
   * [catalog, setCatalog and adoptCatalog](#catalog-setcatalog-and-adoptcatalog)
   * [adoptLocale](#adoptlocale)
+  * [currentDocumentPath](#currentdocumentpath)
+  * [localePath](#localepath)
 * [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
+  * [useHoisted](#usehoisted)
+  * [withHoisted](#withhoisted)
   * [Island](#island)
-  * [island](#island-1)
+  * [island(component, options)](#islandcomponent-options)
   * [Slot](#slot)
   * [useStore](#usestore)
   * [useLocale](#uselocale)
   * [Link](#link)
+  * [reactPatcher](#reactpatcher)
 * [11. The Standard Library](#11-the-standard-library)
   * [localeTag](#localetag)
   * [intl](#intl)
@@ -631,7 +640,7 @@ The element is wrapped in a regions provider: the root itself and every `sf-s[da
 
 Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-when` when `when` is given, and its own props script; the child is never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the next region under the root already holds and `suppressHydrationWarning`, taken once per instance from the mounter's regions, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Mounted fresh with no server markup it renders an empty region.
 
-### island
+### island(component, options)
 
 * `function island<P extends object>(component: ComponentType<P>, options?: { when?: MountTiming }): (props: P) => ReactElement`
 

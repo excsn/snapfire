@@ -13,6 +13,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Registering an Island](#registering-an-island)
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
+* [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
