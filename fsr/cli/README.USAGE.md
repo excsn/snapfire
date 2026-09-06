@@ -26,6 +26,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
+* [Typechecking](#typechecking)
 * [Building a Site](#building-a-site)
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
@@ -517,6 +518,41 @@ fsr build app
 fsr check app
 ```
 
+## Typechecking
+
+`build`, `check` and `dev` run `snapfiretc` over the `tsconfig.json` the build writes, which is the one carrying `strict`, the aliases and the specs. It runs beside snapfirec rather than after it, since neither reads the other's output, and it is the only thing in the toolchain that reads a type for meaning: snapfirec strips them.
+
+```sh
+fsr build app
+# typecheck tsc 7.0.2 from cache, clean
+```
+
+An error fails `build` and `check`, printing the diagnostics with TypeScript's own codes. `dev` prints them and leaves the server running, since the bundle carries no types either way.
+
+```
+routes/page.tsx(1,15): error TS2305: Module '"@generated/client"' has no exported member 'IndexProps'.
+typecheck tsc 7.0.2 from cache, 1 error
+```
+
+Which TypeScript runs is the application's to pin, in the configuration beside the app:
+
+```toml
+[typecheck]
+version = "7.0.2"
+enabled = true
+```
+
+The first check with no `version` in the file records the one it resolved, so every later build asks for the same compiler; a version already written by hand is never rewritten. A version the checker carries no hash for records its integrity beside it as `sha512`.
+
+The flags override the file for one run: `--tsc-version <version>`, `--tsc <path>` for a compiler already on the machine, `--snapfiretc <path>` for the checker itself and `--no-typecheck` to skip it.
+
+```sh
+fsr check app --tsc-version 7.0.2
+fsr build app --no-typecheck
+```
+
+The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`. When there is none, the build says so and carries on rather than failing, so an application that never asked for a typecheck still builds. It is `cargo install snapfire_typecheck` away, and [its guide](../../typecheck/README.USAGE.md) covers the cache, the version ladder and what it does with the network.
+
 ## Building a Site
 
 A `[site]` section in the configuration beside the app makes the build a site's: every id the build emits carries `<name>:`, every route pattern sits under `at` and the islands registry, the generated call sites and the contract carry the same spelling, so two sites can hold the same files and be mounted by one shell. `fsr build`, `check`, `dev`, `test`, `serve` and `prerender` all read the section beside the app.
@@ -799,6 +835,13 @@ fn main() {
 `emit` is generation and then the bundle. `build` and `write` are the generation alone, and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract, and for `emit` otherwise.
 
 `src` belongs in the watched list whenever a component outside `routes/` is placed with `<Island>`, since a change there has to reach `dist/`. `emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else, as the examples in this repository do.
+
+A build script is not beside either binary, so name the typechecker the same way; without one the build script finds none and emits without checking. `emit` returns what the checker said in `Emitted::checked` and fails with `BuildError::Typecheck` when a diagnostic is an error.
+
+```rust
+options.typecheck.checker = std::env::var_os("SNAPFIRETC").map(std::path::PathBuf::from);
+options.typecheck.enabled = false; // or skip it outright
+```
 
 ```
 # .gitignore
