@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "@snapfire/fsr-client": "/static/js/fsr/index.js",
+    "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
+    "@snapfire/fsr-client/std": "/static/js/fsr/std.js",
+    "@snapfire/fsr-client/store": "/static/js/fsr/store.js",
+    "react": "/static/js/vendor/react/react.bundle.mjs",
+    "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
+    "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs"
+  }
+}
