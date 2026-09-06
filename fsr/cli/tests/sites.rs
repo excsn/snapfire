@@ -18,8 +18,8 @@ fn pair(tag: &str) -> (PathBuf, PathBuf) {
   let base = root(tag);
   let shell = base.join("shell");
   let site = base.join("handbook");
-  create(&shell, NewOptions { fetch: false }).unwrap();
-  create(&site, NewOptions { fetch: false }).unwrap();
+  create(&shell, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&site, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
   (shell, site)
 }
 
@@ -88,7 +88,7 @@ fn a_shell_that_is_a_site_mounts_nothing() {
   sites::link(&shell, &site, "/handbook", None).unwrap();
 
   let third = root("nested-third");
-  create(&third, NewOptions { fetch: false }).unwrap();
+  create(&third, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
   let refused = sites::link(&site, &third, "/deeper", None).unwrap_err().to_string();
   assert!(refused.contains("a site cannot mount sites"), "{refused}");
 }

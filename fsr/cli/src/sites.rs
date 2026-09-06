@@ -206,11 +206,23 @@ fn writable(config: &Config) -> Result<PathBuf, BuildError> {
 /// with `.` and uppercase folded the way a directory usually spells them.
 fn derive_name(root: &Path) -> Result<String, BuildError> {
   let raw = root.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+  name_from(raw)
+}
+
+/// A directory name folded to what [`check_name`] allows.
+pub fn name_from(raw: &str) -> Result<String, BuildError> {
   let name: String = raw.to_ascii_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
   if name.is_empty() {
-    return Err(refuse(format!("{}: no name to derive; pass --name", root.display())));
+    return Err(refuse(format!("`{raw}` leaves no name to derive; pass --name")));
   }
   Ok(name)
+}
+
+/// The host's own rules on a site's name and the path it mounts at, so a
+/// command refuses what the configuration would refuse at boot.
+pub fn check(name: &str, at: &str) -> Result<(), BuildError> {
+  check_name(name)?;
+  check_at(at)
 }
 
 fn check_name(name: &str) -> Result<(), BuildError> {

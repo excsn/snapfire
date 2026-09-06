@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use snapfire_fsr_cli::new::{create, NewOptions};
+use snapfire_fsr_cli::new::{create, NewOptions, SiteScaffold};
 use snapfire_fsr_cli::{build, Options};
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -13,7 +13,7 @@ fn root(tag: &str) -> PathBuf {
 }
 
 fn offline() -> NewOptions {
-  NewOptions { fetch: false }
+  NewOptions { fetch: false, ..NewOptions::default() }
 }
 
 #[test]
@@ -60,4 +60,58 @@ fn a_body_calls_the_head_helpers_before_anything_is_generated() {
 
   let built = build(&app, &Options::beside(&app)).unwrap();
   assert_eq!(built.report.sources, vec![("$root".to_owned(), "routes/page.loader.ts".to_owned())], "{}", built.report);
+}
+
+#[test]
+fn a_shell_is_scaffolded_with_a_table_to_mount_into() {
+  let root = root("shell");
+  create(&root, NewOptions { shell: true, ..offline() }).unwrap();
+  let toml = std::fs::read_to_string(root.join("config/app.toml")).unwrap();
+  assert!(toml.contains("[sites]"), "{toml}");
+  assert!(!toml.contains("[site]\n"), "a shell is not a site: {toml}");
+}
+
+#[test]
+fn a_site_is_scaffolded_at_the_path_it_is_given() {
+  let root = root("site");
+  create(&root, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None }), ..offline() }).unwrap();
+  let toml = std::fs::read_to_string(root.join("config/app.toml")).unwrap();
+  assert!(toml.contains("[site]"), "{toml}");
+  assert!(toml.contains("at = \"/docs\""), "{toml}");
+  assert!(!toml.contains("shell = "), "no shell was named: {toml}");
+}
+
+#[test]
+fn into_writes_both_halves_and_the_site_names_the_shell() {
+  let base = root("into");
+  let shell = base.join("portal");
+  let site = base.join("docs");
+  create(&shell, NewOptions { shell: true, ..offline() }).unwrap();
+  let created = create(&site, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: Some(shell.clone()) }), ..offline() }).unwrap();
+
+  let linked = created.linked.expect("the project was linked into the shell");
+  assert_eq!(linked.name, "docs");
+  assert_eq!(linked.artifact, "../docs");
+  assert!(std::fs::read_to_string(shell.join("config/app.toml")).unwrap().contains("[sites.docs]"));
+  let toml = std::fs::read_to_string(site.join("config/app.toml")).unwrap();
+  assert!(toml.contains("shell = \"../portal/app/generated/shell.json\""), "{toml}");
+  assert_eq!(toml.matches("[site]").count(), 1, "the section is written once: {toml}");
+}
+
+#[test]
+fn a_scaffold_refused_by_the_host_s_rules_leaves_no_project() {
+  for (at, name) in [("docs", None), ("/docs/", None), ("/ok", Some("BadName".to_owned()))] {
+    let root = root("refused");
+    let options = NewOptions { site: Some(SiteScaffold { at: at.to_owned(), name, into: None }), ..offline() };
+    assert!(create(&root, options).is_err(), "{at} was accepted");
+    assert!(!root.join("config").exists(), "{at} left a project behind");
+  }
+}
+
+#[test]
+fn a_shell_that_is_also_a_site_is_refused() {
+  let root = root("both");
+  let options = NewOptions { shell: true, site: Some(SiteScaffold { at: "/x".to_owned(), name: None, into: None }), ..offline() };
+  let refused = create(&root, options).unwrap_err().to_string();
+  assert!(refused.contains("a site cannot mount sites"), "{refused}");
 }

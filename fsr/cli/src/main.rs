@@ -2,13 +2,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use snapfire_fsr_cli::dev::DevOptions;
-use snapfire_fsr_cli::new::NewOptions;
+use snapfire_fsr_cli::new::{NewOptions, SiteScaffold};
 use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -44,11 +44,28 @@ fn main() -> ExitCode {
     "sites" => sites_command(&args[1..]),
     "new" => {
       let mut options = NewOptions::default();
-      for flag in rest {
+      let (mut site, mut at, mut name, mut into) = (false, None, None, None);
+      let mut flags = rest.iter();
+      while let Some(flag) = flags.next() {
         match flag.as_str() {
           "--no-fetch" => options.fetch = false,
+          "--shell" => options.shell = true,
+          "--site" => site = true,
+          "--at" => at = flags.next().cloned(),
+          "--name" => name = flags.next().cloned(),
+          "--into" => into = flags.next().map(PathBuf::from),
           _ => return usage(),
         }
+      }
+      if site {
+        let Some(at) = at else {
+          eprintln!("fsr new --site needs --at <path>, the prefix a shell mounts it under");
+          return ExitCode::from(2);
+        };
+        options.site = Some(SiteScaffold { at, name, into });
+      } else if at.is_some() || name.is_some() || into.is_some() {
+        eprintln!("--at, --name and --into belong to --site");
+        return ExitCode::from(2);
       }
       match new::create(&app, options) {
         Ok(created) => {
@@ -60,6 +77,10 @@ fn main() -> ExitCode {
           }
           for (package, version, from) in &created.typed {
             println!("types     {package:<28} {from} {version}");
+          }
+          if let Some(linked) = &created.linked {
+            println!("wrote     [site] {} at {} in {}", linked.name, linked.at, linked.site_config.display());
+            println!("wrote     [sites.{}] in {}", linked.name, linked.shell_config.display());
           }
           for note in &created.notes {
             eprintln!("note      {note}");
