@@ -207,6 +207,31 @@ fn unpack_declarations(bytes: &[u8], dir: &Path) -> Result<usize, BuildError> {
   Ok(count)
 }
 
+/// Rewrites the declarations `fsr` carries for its own packages when the app's
+/// copies differ from them, so an application cannot typecheck against a
+/// client older than the binary that built it. Reads no network and creates no
+/// `types/` directory: an app that has never run `fsr types` is left alone.
+pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
+  let layout = Layout::of(app)?;
+  let root = app.join(&layout.types);
+  if !root.is_dir() {
+    return Ok(Vec::new());
+  }
+  let mut refreshed = Vec::new();
+  for (package, files) in [("@snapfire/fsr-client", FSR_CLIENT), ("@snapfire/fsr-authoring", FSR_AUTHORING)] {
+    let dir = root.join(package);
+    if !dir.is_dir() {
+      continue;
+    }
+    let stale = files.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true));
+    if stale {
+      write_embedded(app, &layout, package, files)?;
+      refreshed.push(dir);
+    }
+  }
+  Ok(refreshed)
+}
+
 fn write_embedded(app: &Path, layout: &Layout, package: &str, files: &[(&str, &str)]) -> Result<(), BuildError> {
   let dir = app.join(&layout.types).join(package);
   std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
