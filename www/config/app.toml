@@ -16,3 +16,6 @@ ttl = "1h"
 [[static]]
 route = "/static/js/fsr"
 dir = "../../fsr/client/dist"
+
+[typecheck]
+version = "7.0.2"
