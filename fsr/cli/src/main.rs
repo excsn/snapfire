@@ -4,14 +4,33 @@ use std::process::ExitCode;
 use snapfire_fsr_cli::dev::DevOptions;
 use snapfire_fsr_cli::new::NewOptions;
 use snapfire_fsr_cli::serve::ServeOptions;
+use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]\n       fsr check <app dir> [--shell <module id>] [--slot <name>]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
   ExitCode::from(2)
+}
+
+/// The typecheck rows of a report, and the exit code the diagnostics call for.
+fn types_row(checked: Option<&typecheck::Checked>, enabled: bool) -> ExitCode {
+  let Some(checked) = checked else {
+    if enabled {
+      eprintln!("note      types are not checked: no `{}` beside fsr or on PATH", typecheck::CHECKER);
+    }
+    return ExitCode::SUCCESS;
+  };
+  for diagnostic in &checked.diagnostics {
+    println!("{diagnostic}");
+  }
+  println!("typecheck {}", checked.row());
+  if let Some(path) = &checked.recorded {
+    println!("recorded  typecheck.version = \"{}\" in {}", checked.version, path.display());
+  }
+  if checked.errors() > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS }
 }
 
 fn main() -> ExitCode {
@@ -118,11 +137,18 @@ fn main() -> ExitCode {
       let mut options = DevOptions::beside(&app);
       let mut rest = rest.iter();
       while let Some(flag) = rest.next() {
+        if flag == "--no-typecheck" {
+          options.typecheck.enabled = false;
+          continue;
+        }
         match (flag.as_str(), rest.next()) {
           ("--shell", Some(value)) => options.build.shell = value.clone(),
           ("--slot", Some(value)) => options.build.slot = value.clone(),
           ("--public-path", Some(value)) => options.public_path = value.clone(),
           ("--snapfirec", Some(value)) => options.snapfirec = Some(PathBuf::from(value)),
+          ("--tsc", Some(value)) => options.typecheck.tsc = Some(PathBuf::from(value)),
+          ("--tsc-version", Some(value)) => options.typecheck.version = Some(value.clone()),
+          ("--snapfiretc", Some(value)) => options.typecheck.checker = Some(PathBuf::from(value)),
           _ => return usage(),
         }
       }
@@ -136,18 +162,32 @@ fn main() -> ExitCode {
     }
     "check" => {
       let mut options = Options::beside(&app);
+      let mut typecheck = Typecheck::beside(&app);
       let mut rest = rest.iter();
       while let Some(flag) = rest.next() {
+        if flag == "--no-typecheck" {
+          typecheck.enabled = false;
+          continue;
+        }
         match (flag.as_str(), rest.next()) {
           ("--shell", Some(value)) => options.shell = value.clone(),
           ("--slot", Some(value)) => options.slot = value.clone(),
+          ("--tsc", Some(value)) => typecheck.tsc = Some(PathBuf::from(value)),
+          ("--tsc-version", Some(value)) => typecheck.version = Some(value.clone()),
+          ("--snapfiretc", Some(value)) => typecheck.checker = Some(PathBuf::from(value)),
           _ => return usage(),
         }
       }
       match build(&app, &options) {
         Ok(built) => {
           print!("{}", built.report);
-          ExitCode::SUCCESS
+          match typecheck::run(&app, &typecheck) {
+            Ok(checked) => types_row(checked.as_ref(), typecheck.enabled),
+            Err(e) => {
+              eprintln!("{e}");
+              return ExitCode::from(1);
+            }
+          }
         }
         Err(e) => {
           eprintln!("{e}");
@@ -159,21 +199,29 @@ fn main() -> ExitCode {
       let mut options = DevOptions::beside(&app);
       let mut rest = rest.iter();
       while let Some(flag) = rest.next() {
+        if flag == "--no-typecheck" {
+          options.typecheck.enabled = false;
+          continue;
+        }
         match (flag.as_str(), rest.next()) {
           ("--shell", Some(value)) => options.build.shell = value.clone(),
           ("--slot", Some(value)) => options.build.slot = value.clone(),
           ("--public-path", Some(value)) => options.public_path = value.clone(),
           ("--snapfirec", Some(value)) => options.snapfirec = Some(PathBuf::from(value)),
+          ("--tsc", Some(value)) => options.typecheck.tsc = Some(PathBuf::from(value)),
+          ("--tsc-version", Some(value)) => options.typecheck.version = Some(value.clone()),
+          ("--snapfiretc", Some(value)) => options.typecheck.checker = Some(PathBuf::from(value)),
           _ => return usage(),
         }
       }
+      let checking = options.typecheck.enabled;
       match emit(&app, options) {
         Ok(emitted) => {
           print!("{}", emitted.built.report);
           for path in emitted.written {
             println!("wrote {}", path.display());
           }
-          ExitCode::SUCCESS
+          types_row(emitted.checked.as_ref(), checking)
         }
         Err(e) => {
           eprintln!("{e}");

@@ -18,7 +18,8 @@ members = [
   "fsr/service",
   "fsr/session",
   "fsr/tera",
-  "rs"
+  "rs",
+  "typecheck"
 ]
 exclude = [
   # Their own workspace, so they build the way a consumer's crate would.

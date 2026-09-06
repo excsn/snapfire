@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
+use crate::typecheck::{self, Checked, Typecheck};
 use crate::xwpm::Layout;
 use crate::{BuildError, Built, Options, build, write};
 
@@ -30,11 +31,13 @@ pub struct DevOptions {
   pub public_path: String,
   /// The compiler to bundle with; beside this binary or on PATH when absent.
   pub snapfirec: Option<PathBuf>,
+  /// Which TypeScript checks the application, and whether it is checked at all.
+  pub typecheck: Typecheck,
 }
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: "/static/js/app".to_owned(), snapfirec: None }
+    Self { build: Options::default(), public_path: "/static/js/app".to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() } }
   }
 }
 
@@ -47,7 +50,7 @@ impl DevOptions {
       Some(site) => format!("{}/static/js/app", site.at.trim_end_matches('/')),
       None => "/static/js/app".to_owned(),
     };
-    Self { build, public_path, snapfirec: None }
+    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app) }
   }
 }
 
@@ -137,6 +140,17 @@ impl Project {
     } else {
       Err(body.trim().to_owned())
     }
+  }
+
+  /// The bundle and the typecheck, which read none of each other's output
+  /// and so run at once. A checker that is not installed is not an error;
+  /// its absence is reported by the caller.
+  fn compile(&self) -> Result<Option<Checked>, BuildError> {
+    let checker = typecheck::spawn(&self.app, &self.options.typecheck)?;
+    let bundled = self.bundle();
+    let checked = typecheck::finish(checker, &self.options.typecheck);
+    bundled?;
+    checked
   }
 
   fn cargo_build(&self) -> Result<(), BuildError> {
@@ -244,6 +258,8 @@ impl Drop for Server {
 pub struct Emitted {
   pub built: Built,
   pub written: Vec<PathBuf>,
+  /// What the typechecker found, when one ran and found no error.
+  pub checked: Option<Checked>,
 }
 
 /// Everything a host reads: the plan and the generated modules, then the
@@ -258,8 +274,14 @@ pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
   let project = Project::open(app, options)?;
   let built = build(&project.app, &project.options.build)?;
   let written = write(&project.app, &built)?;
-  project.bundle()?;
-  Ok(Emitted { built, written })
+  let checked = project.compile()?;
+  if let Some(checked) = &checked {
+    if checked.errors() > 0 {
+      let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
+      return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));
+    }
+  }
+  Ok(Emitted { built, written, checked })
 }
 
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
@@ -311,9 +333,12 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
           }
         }
         if !failed {
-          if let Err(e) = project.bundle() {
-            eprintln!("{e}");
-            failed = true;
+          match project.compile() {
+            Ok(checked) => report_types(checked.as_ref()),
+            Err(e) => {
+              eprintln!("{e}");
+              failed = true;
+            }
           }
         }
       }
@@ -349,6 +374,16 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       }
     }
   }
+}
+
+/// A type error is printed and the server keeps running: the bundle carries
+/// no types, so what is served is what the sources say either way.
+fn report_types(checked: Option<&Checked>) {
+  let Some(checked) = checked else { return };
+  for diagnostic in &checked.diagnostics {
+    eprintln!("{diagnostic}");
+  }
+  println!("typecheck {}", checked.row());
 }
 
 /// Blocks for the first event, polling the server meanwhile, then keeps

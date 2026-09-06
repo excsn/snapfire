@@ -15,4 +15,6 @@ fibre_logging = "0.5"
 
 [build-dependencies]
 pulldown-cmark = "0.13.4"
+serde_json = "1.0.151"
 snapfire_fsr_cli = { path = "../fsr/cli" }
+snapfire_fsr_lower = { version = "0.1.0", path = "../fsr/lower" }

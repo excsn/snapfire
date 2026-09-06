@@ -35,6 +35,9 @@ pub struct Config {
   pub locales: Option<LocalesSection>,
   /// The identity provider; absent means no login and no `/auth/` routes.
   pub auth: Option<AuthSection>,
+  /// Which TypeScript `fsr` checks the application with; absent means the
+  /// checker's own default version.
+  pub typecheck: Option<TypecheckSection>,
   /// The application as a site: its name and the prefix its routes sit
   /// under, both fixed at build. Absent, the application is whole.
   pub site: Option<SiteSection>,
@@ -320,6 +323,24 @@ pub struct AuthSection {
 
 pub const PROVIDERS: &[&str] = &["file", "service"];
 
+/// The `[typecheck]` section, read by `fsr` rather than by the host: the
+/// TypeScript a build checks with, the integrity of a version the checker
+/// pins no hash for, and a compiler to use as given on a machine that cannot
+/// fetch one.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TypecheckSection {
+  #[serde(default)]
+  pub version: Option<String>,
+  #[serde(default)]
+  pub sha512: Option<String>,
+  #[serde(default)]
+  pub tsc: Option<String>,
+  /// Whether a build checks types; on when absent.
+  #[serde(default)]
+  pub enabled: Option<bool>,
+}
+
 fn default_login() -> String {
   "/login".to_owned()
 }
@@ -331,7 +352,7 @@ pub struct StaticRoot {
   pub dir: String,
 }
 
-const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static", "locales", "auth", "site", "sites"];
+const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static", "locales", "auth", "typecheck", "site", "sites"];
 
 fn default_app_dir() -> String {
   "app".to_owned()
@@ -570,6 +591,18 @@ impl Config {
     } else {
       None
     };
+    let typecheck: Option<TypecheckSection> = if store.path_exists("typecheck") || !store.key_paths_with_prefix(Some("typecheck")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["version", "sha512", "tsc", "enabled"] {
+        if let Some(value) = store.get(&format!("typecheck.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("typecheck: {e}")))?)
+    } else {
+      None
+    };
+
     if session.store == "service" {
       match &session.client {
         Some(client) if clients.contains_key(client) => {}
@@ -740,7 +773,7 @@ impl Config {
       }
     }
 
-    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, locales, auth, site, sites, inferred })
+    Ok(Self { root, app, sources: located.sources, server, document, session, cache, clients, statics, locales, auth, typecheck, site, sites, inferred })
   }
 
   /// A path from the file, against the app directory.

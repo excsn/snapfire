@@ -7,7 +7,7 @@ use snapfire_fsr_runtime::{FailureKind, RequestCtx, SessionCell};
 
 use crate::catalog::Catalogs;
 use crate::ext::{Ambient, Extensions};
-use crate::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
+use crate::ast::{ArithOp, Body, Builtin, CompareOp, Consts, Entry, Expr, Lit, LogicOp, Stmt};
 use crate::bind::kind_name;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -52,17 +52,18 @@ pub struct Interpreter {
   clock: Arc<dyn Clock>,
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
+  consts: Option<Arc<Consts>>,
 }
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None }
+    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None }
+    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None }
   }
 
   /// The message catalogs `i18n.t` reads; none by default, where every key answers as itself.
@@ -73,6 +74,17 @@ impl Interpreter {
 
   pub fn catalogs(&self) -> Option<&Arc<Catalogs>> {
     self.catalogs.as_ref()
+  }
+
+  /// The plan's module-level constants, which `Expr::Const` reads. A plan that
+  /// named none leaves this empty and no body refers to one.
+  pub fn with_consts(mut self, consts: Option<Arc<Consts>>) -> Self {
+    self.consts = consts;
+    self
+  }
+
+  pub fn consts(&self) -> Option<&Arc<Consts>> {
+    self.consts.as_ref()
   }
 
   /// The same interpreter answering `extensions` in place of the standard library alone.
@@ -123,6 +135,7 @@ impl Interpreter {
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
+      consts: self.consts.clone(),
     };
 
     for stmt in body {
@@ -175,6 +188,7 @@ pub(crate) struct Env {
   clock: Arc<dyn Clock>,
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
+  consts: Option<Arc<Consts>>,
   /// Where a render records hoisted values; `None` in a body, which hoists nothing.
   pub(crate) hoists: Option<Hoists>,
   /// Values that stand in for a component's state `let`s, when an island in
@@ -248,6 +262,7 @@ impl Env {
       clock: interpreter.clock.clone(),
       extensions: interpreter.extensions.clone(),
       catalogs: interpreter.catalogs.clone(),
+      consts: interpreter.consts.clone(),
       hoists: None,
       state: None,
       server_mode: false,
@@ -342,6 +357,7 @@ impl Env {
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
+      consts: self.consts.clone(),
       hoists: None,
       state: None,
       server_mode: false,
@@ -413,6 +429,13 @@ impl Env {
   /// a render, a test's assertion. One plain recursion and no future per node.
   pub(crate) fn eval_sync(&mut self, expr: &Expr) -> Result<Value, Fail> {
     match expr {
+      Expr::Const(key) => {
+        let held = self.consts.as_ref().and_then(|c| c.get(key)).cloned();
+        match held {
+          Some(expr) => self.eval_sync(&expr),
+          None => Err(Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))),
+        }
+      }
       Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
       Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
@@ -688,6 +711,13 @@ impl Env {
     }
     Box::pin(async move {
       match expr {
+        Expr::Const(key) => {
+          let held = self.consts.as_ref().and_then(|c| c.get(key)).cloned();
+          match held {
+            Some(expr) => self.eval(&expr).await,
+            None => Err(Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))),
+          }
+        }
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
         Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
