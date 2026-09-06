@@ -11,6 +11,6 @@ export const COMPILER = {
 };
 
 export const SNAPFIRE = {
-  github: "https://github.com/excsn/snapfire/tree/main/rs",
+  github: "https://github.com/excsn/snapfire/tree/main/web",
   crate: "https://crates.io/crates/snapfire",
 };
