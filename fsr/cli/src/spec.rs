@@ -768,7 +768,7 @@ impl FetchHooks {
     let Some(mock) = self.current_ctx.clone() else {
       return json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" }));
     };
-    let input = match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
+    let mut input = match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
       Some(Ok(json)) => match json_to_value(&json) {
         Ok(value) => value,
         Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
@@ -777,7 +777,9 @@ impl FetchHooks {
       None => Value::Null,
     };
     if let Some(name) = input_type {
-      if let Err(e) = self.contract.check_value(&Type::Named(name), &input, "input") {
+      let ty = Type::Named(name);
+      self.contract.conform(&ty, &mut input);
+      if let Err(e) = self.contract.check_value(&ty, &input, "input") {
         return json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() }));
       }
     }

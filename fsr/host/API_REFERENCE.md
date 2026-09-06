@@ -84,6 +84,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `listen` (default `127.0.0.1:8080`), `plan` (default `generated/plan.json`), `contracts` (default `generated/contracts`), a directory whose `*.json` files are merged in name order at boot.
 * `prerender: Option<String>`: the directory, relative to the app, that `prerender` writes and the host reads; absent by default.
 * `dev: Option<bool>`: whether the document carries the live-refresh script and the host answers `/__fsr/events` and `/__fsr/changed`; absent, it follows `RELEASE_ENV`.
+* `max_body: usize` (default 1048576): the most bytes a request body may carry. `serve` stops reading a larger body and answers 413 with a text naming the key; `handle` answers the same for a body handed to it whole, before a session is opened.
 
 ### DocumentConfig
 

@@ -140,6 +140,18 @@ async fn params_and_query_reach_a_lowered_loader() {
 }
 
 #[tokio::test]
+async fn a_body_over_the_limit_is_refused_before_anything_reads_it() {
+  let (host, _) = host();
+  let response = host
+    .handle(Request::post("/_sf/action/index.bump").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(vec![b' '; (1 << 20) + 1])).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+  assert!(response.headers().get(header::SET_COOKIE).is_none(), "no session was opened for it");
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert!(std::str::from_utf8(&body).unwrap().contains("server.max_body"), "{body:?}");
+}
+
+#[tokio::test]
 async fn the_edge_serves_static_files_actions_and_pages_with_a_session_cookie() {
   let (host, _) = host();
 

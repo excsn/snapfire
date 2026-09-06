@@ -118,6 +118,10 @@ pub struct ServerConfig {
   /// The directory of contract files `fsr build` writes, merged at boot in name order.
   #[serde(default = "default_contracts")]
   pub contracts: String,
+  /// The most bytes a request body may carry; a larger one is answered 413
+  /// before anything reads it. Default 1 MiB.
+  #[serde(default = "default_max_body")]
+  pub max_body: usize,
   /// Where `prerender` writes and the host reads a route rendered once at
   /// build time, relative to the app directory. Absent, nothing is prerendered.
   #[serde(default)]
@@ -131,7 +135,7 @@ pub struct ServerConfig {
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), prerender: None, dev: None }
+    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), max_body: default_max_body(), prerender: None, dev: None }
   }
 }
 
@@ -340,6 +344,9 @@ fn default_plan() -> String {
 }
 fn default_contracts() -> String {
   "generated/contracts".to_owned()
+}
+fn default_max_body() -> usize {
+  1 << 20
 }
 fn default_shell() -> String {
   "shell#document".to_owned()

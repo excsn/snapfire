@@ -31,6 +31,9 @@ pub struct ComponentSet {
   /// Modules the caller supplies rather than the app directory holding, so a
   /// body may call into one the build has not written yet.
   provided: HashMap<String, String>,
+  /// The module-level constants the plan names, so a body reading one carries
+  /// a reference rather than a copy of it.
+  pub consts: Consts,
   defaults: SessionDefaults,
   pub components: Vec<(String, Component)>,
   resolving: Vec<String>,
@@ -56,7 +59,7 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new() }
   }
 
   /// A module the set resolves and reads from `source` rather than from disk.
@@ -113,8 +116,8 @@ impl ComponentSet {
       match lower(&parsed, &defaults, &resolved) {
         Ok(done) => return Ok(done),
         Err((error, Some(name))) if !resolved.globals.iter().any(|(n, _)| *n == name) => match self.global(file, &name)? {
-          Some(expr) => {
-            resolved.globals.push((name, expr));
+          Some((expr, key)) => {
+            resolved.globals.push((name, self.name_if_large(key, expr)));
             resolved.natives = self.natives.clone();
           }
           None => return Err(error),
@@ -134,7 +137,7 @@ impl ComponentSet {
     let names: Vec<String> = parsed.exports().map(|(name, _)| name.to_owned()).collect();
     let mut rows = Vec::new();
     for name in names {
-      let expr = match self.global(file, &name)? {
+      let expr = match self.global(file, &name)?.map(|(expr, _)| expr) {
         Some(expr) => expr,
         None => return Err(LowerError::Extension(Residue { file: file.to_owned(), line: 1, column: 1, message: format!("`{name}` is not a value the build can follow"), hint: None })),
       };
@@ -254,12 +257,17 @@ impl ComponentSet {
       }
     };
     let mut modules: HashMap<String, String> = HashMap::new();
+    let mut islands: HashMap<String, IslandTiming> = HashMap::new();
     for (name, (line, column)) in refs {
-      let module = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None })?;
+      let (module, island) = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None })?;
       self.lower(&module)?;
-      modules.insert(format!("{file}#{name}"), module);
+      let placed = format!("{file}#{name}");
+      if let Some(timing) = island {
+        islands.insert(placed.clone(), timing);
+      }
+      modules.insert(placed, module);
     }
-    let mut component = Component { body: component.body, render: rewrite_modules(component.render, &modules), state: component.state, handlers: component.handlers };
+    let mut component = Component { body: component.body, render: rewrite_modules(component.render, &modules, &islands), state: component.state, handlers: component.handlers };
     if let Some((candidates, state, Some(hook))) = hoisting {
       let kept = hoist::decide(&mut component, &state);
       let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
@@ -280,29 +288,45 @@ impl ComponentSet {
   /// The module id a capitalised JSX tag names: a function in this file or a
   /// local import, lowered as its own component; `Ns.Name` is `Name` from the
   /// file a namespace import binds as `Ns`.
-  fn component_module(&mut self, file: &str, name: &str) -> Result<String, String> {
+  fn component_module(&mut self, file: &str, name: &str) -> Result<(String, Option<IslandTiming>), String> {
     let parsed = self.parsed[file].clone();
     if let Some((namespace, member)) = name.split_once('.') {
       let source = find_namespace_import(&parsed, namespace).ok_or_else(|| format!("`{namespace}` is not a namespace import; `<{name}>` needs `import * as {namespace}`"))?;
       let target = self.resolve_import(file, &source).ok_or_else(|| format!("`{namespace}` comes from `{source}`, which the build cannot follow"))?;
       self.load(&target).map_err(|e| e.to_string())?;
-      return Ok(format!("{target}#{member}"));
+      return self.exported_component(&target, member);
     }
     if find_function(&parsed, name).is_some() {
-      return Ok(format!("{file}#{name}"));
+      return Ok((format!("{file}#{name}"), None));
     }
     if let Some((source, imported)) = find_import(&parsed, name) {
       let target = self.resolve_import(file, &source).ok_or_else(|| format!("`{name}` comes from `{source}`, which the build cannot follow"))?;
       self.load(&target).map_err(|e| e.to_string())?;
-      return Ok(format!("{target}#{imported}"));
+      return self.exported_component(&target, &imported);
     }
     Err(format!("`{name}` is not a component this file declares or imports"))
+  }
+
+  /// `export` of `file` as a component module: the function itself, or, when
+  /// the export is `island(Comp, { when, mode })`, the component the alias
+  /// names with the timing and mode it set, so a page importing the alias
+  /// places the island the way the aliasing module declared it.
+  fn exported_component(&mut self, file: &str, export: &str) -> Result<(String, Option<IslandTiming>), String> {
+    let parsed = self.parsed[file].clone();
+    match island_alias_of(&parsed, export) {
+      Ok(Some(alias)) => {
+        let (module, _) = self.component_module(file, &alias.target)?;
+        Ok((module, Some((alias.when, alias.mode))))
+      }
+      Ok(None) => Ok((format!("{file}#{export}"), None)),
+      Err((_, message)) => Err(message),
+    }
   }
 
   /// A module-level name as an expression: a `const` inlined, a function as a
   /// lambda, an import resolved in its own file. `None` when the file has no
   /// such name.
-  fn global(&mut self, file: &str, name: &str) -> Result<Option<Expr>, LowerError> {
+  fn global(&mut self, file: &str, name: &str) -> Result<Option<(Expr, String)>, LowerError> {
     let key = format!("{file}#{name}");
     if self.resolving.iter().any(|m| *m == key) {
       return Err(LowerError::Parse { file: file.to_owned(), message: format!("`{name}` is recursive, which the build cannot unroll") });
@@ -320,7 +344,7 @@ impl ComponentSet {
         if !self.natives.iter().any(|(n, _)| *n == key) {
           self.natives.push((key, reach));
         }
-        return Ok(Some(Expr::Ext { module, name: member, args: Vec::new() }));
+        return Ok(Some((Expr::Ext { module, name: member, args: Vec::new() }, key)));
       }
     }
     self.resolving.push(key);
@@ -328,9 +352,22 @@ impl ComponentSet {
     self.resolving.pop();
     match result {
       Err(LowerError::Residue(residue)) if file.starts_with(&format!("{EXT_DIR}/")) => Err(LowerError::Extension(residue)),
-      other => other.map(Some),
+      other => other.map(|expr| Some((expr, key))),
     }
   }
+
+  /// A constant the plan names once, or the expression itself when naming it
+  /// would cost more than copying it. `CONST_WEIGHT` is where a copy per
+  /// reference starts to dominate the plan.
+  fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
+    if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Ext { .. }) {
+      return expr;
+    }
+    self.consts.entry(key.clone()).or_insert(expr);
+    Expr::Const(key)
+  }
+
+
 
   fn lower_global(&mut self, file: &str, item: Global<'_>) -> Result<Expr, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
@@ -360,15 +397,25 @@ impl ComponentSet {
 }
 
 /// Points every component reference at the module the set lowered it under.
-fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>) -> Tmpl {
+/// An island alias's `when` and `mode`.
+type IslandTiming = (Option<String>, Option<String>);
+
+/// Replaces each placed `file#Name` with the module it resolved to; a
+/// placement whose name is an island alias becomes the island the alias
+/// declared.
+fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
+  let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_modules(c, modules, islands)).collect();
   match tmpl {
-    Tmpl::Component { module, props, children } => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
-    Tmpl::Island { module, props, children, when, mode } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect(), when, mode },
-    Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
-    Tmpl::Fragment(children) => Tmpl::Fragment(children.into_iter().map(|c| rewrite_modules(c, modules)).collect()),
-    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules))) },
-    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(rewrite_modules(*body, modules)) },
-    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(rewrite_modules(*then, modules)) },
+    Tmpl::Component { module, props, children } => match islands.get(&module) {
+      Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone() },
+      None => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children) },
+    },
+    Tmpl::Island { module, props, children, when, mode } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode },
+    Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
+    Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules, islands))) },
+    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(rewrite_modules(*body, modules, islands)) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(rewrite_modules(*then, modules, islands)) },
     other => other,
   }
 }
@@ -377,6 +424,53 @@ fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>) -> Tmpl {
 pub(crate) enum FunctionBody<'a> {
   Block(&'a [js::Stmt]),
   Expr(&'a js::Expr),
+}
+
+/// What `const Lazy = island(Chart, { when, mode })` at module scope names.
+pub(crate) struct IslandAlias {
+  pub target: String,
+  pub when: Option<String>,
+  pub mode: Option<String>,
+}
+
+/// The alias `name` is in `parsed`, when it is one: `island` must come from
+/// the client's React package and the options are string literals.
+fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (Span, String)> {
+  let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return Ok(None) };
+  let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+  let js::Expr::Ident(callee) = &**callee else { return Ok(None) };
+  if callee.sym.as_ref() != "island" || !find_import(parsed, "island").is_some_and(|(source, _)| source == "@snapfire/fsr-client/react") {
+    return Ok(None);
+  }
+  let Some(js::Expr::Ident(target)) = call.args.first().map(|a| &*a.expr) else {
+    return Err((call.span, "`island(...)` takes a component name first".to_owned()));
+  };
+  let mut when = None;
+  let mut mode = None;
+  if let Some(options) = call.args.get(1) {
+    let js::Expr::Object(obj) = &*options.expr else { return Err((options.span(), "`island(...)` options must be an object literal".to_owned())) };
+    for prop in &obj.props {
+      let js::PropOrSpread::Prop(prop) = prop else { return Err((options.span(), "a spread in `island(...)` options".to_owned())) };
+      let js::Prop::KeyValue(kv) = &**prop else { return Err((options.span(), "`island(...)` options are `when` and `mode`".to_owned())) };
+      let value = match &*kv.value {
+        js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
+        _ => None,
+      };
+      match prop_name(&kv.key).as_deref() {
+        Some("when") => match value.as_deref() {
+          Some("load" | "visible" | "idle") => when = value,
+          _ => return Err((options.span(), "an island's `when` is \"load\", \"visible\" or \"idle\", written out".to_owned())),
+        },
+        Some("mode") => match value.as_deref() {
+          Some("browser") => mode = None,
+          Some("server") => mode = value,
+          _ => return Err((options.span(), "an island's `mode` is \"browser\" or \"server\", written out".to_owned())),
+        },
+        _ => return Err((options.span(), "`island(...)` options are `when` and `mode`".to_owned())),
+      }
+    }
+  }
+  Ok(Some(IslandAlias { target: target.sym.to_string(), when, mode }))
 }
 
 #[derive(Clone)]
@@ -1393,31 +1487,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// `const Lazy = island(Chart, { when: "visible" })` at module scope, when
   /// `name` is such a `Lazy`: the component and the timing.
   fn island_alias(&mut self, name: &str) -> Lowered<Option<(String, Option<String>, Option<String>)>> {
-    let Some(Global::Const(js::Expr::Call(call))) = find_value(self.lowerer.parsed, name) else { return Ok(None) };
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Ident(callee) = &**callee else { return Ok(None) };
-    if callee.sym.as_ref() != "island" || !self.is_client_react_import("island") {
-      return Ok(None);
+    match island_alias_of(self.lowerer.parsed, name) {
+      Ok(alias) => Ok(alias.map(|a| (a.target, a.when, a.mode))),
+      Err((span, message)) => Err(self.lowerer.residue(span, message)),
     }
-    let Some(js::Expr::Ident(target)) = call.args.first().map(|a| &*a.expr) else {
-      return Err(self.lowerer.residue(call.span, "`island(...)` takes a component name first"));
-    };
-    let mut when = None;
-    let mut mode = None;
-    if let Some(options) = call.args.get(1) {
-      let js::Expr::Object(obj) = &*options.expr else { return Err(self.lowerer.residue(options.span(), "`island(...)` options must be an object literal")) };
-      for prop in &obj.props {
-        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(options.span(), "a spread in `island(...)` options")) };
-        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` and `mode`")) };
-        let value = self.lowerer.expr(&kv.value)?;
-        match prop_name(&kv.key).as_deref() {
-          Some("when") => when = Some(self.island_timing(value, options.span())?),
-          Some("mode") => mode = self.island_mode(value, options.span())?,
-          _ => return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` and `mode`")),
-        }
-      }
-    }
-    Ok(Some((target.sym.to_string(), when, mode)))
   }
 
   /// `<Slot name="modal" />` in a layout: the plan child of that name, in a
@@ -2386,4 +2459,15 @@ export default function Order({ id }: { id: number }) {
     let err = lower(&timing, "routes/b/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("written out"), "{err}");
   }
+}
+
+/// Where copying a constant into every body that reads it starts to cost more
+/// than a table entry and an indirection.
+const CONST_WEIGHT: usize = 32;
+
+/// How many nodes an expression is.
+fn weight(expr: &Expr) -> usize {
+  let mut n = 0;
+  expr.visit(&mut |_| n += 1);
+  n
 }

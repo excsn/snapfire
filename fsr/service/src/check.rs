@@ -275,4 +275,77 @@ impl Contract {
     };
     self.check_value(&signature.returns, value, &format!("{service}.{method}()"))
   }
+
+  /// Rewrites `value` in place where JSON's one number type left a shape the
+  /// contract names exactly: an integral number for an `F64` or `F32` field
+  /// becomes that float, since no JSON encoder can spell `320.0`. Nothing
+  /// else changes; `check_value` reports what remains.
+  pub fn conform(&self, ty: &Type, value: &mut Value) {
+    match ty {
+      Type::F64 => {
+        if let Some(f) = integral(value) {
+          *value = Value::F64(f);
+        }
+      }
+      Type::F32 => {
+        if let Some(f) = integral(value) {
+          *value = Value::F32(f as f32);
+        }
+      }
+      Type::Optional(inner) => {
+        if !matches!(value, Value::Null) {
+          self.conform(inner, value);
+        }
+      }
+      Type::List(inner) => {
+        if let Value::Seq(items) = value {
+          for item in items {
+            self.conform(inner, item);
+          }
+        }
+      }
+      Type::Map(inner) => {
+        if let Value::Map(map) = value {
+          for item in map.values_mut() {
+            self.conform(inner, item);
+          }
+        }
+      }
+      Type::Named(name) => match self.types.get(name) {
+        Some(TypeDef::Record { fields }) => {
+          if let Value::Map(map) = value {
+            for field in fields {
+              if let Some(item) = map.get_mut(&field.name) {
+                self.conform(&field.ty, item);
+              }
+            }
+          }
+        }
+        Some(TypeDef::Union { variants }) => {
+          if let Value::Variant { tag, payload: Some(payload) } = value {
+            if let Some(ty) = variants.iter().find(|v| &v.tag == tag).and_then(|v| v.payload.as_ref()) {
+              self.conform(ty, payload);
+            }
+          }
+        }
+        None => {}
+      },
+      _ => {}
+    }
+  }
+
+  /// `conform` against a method's return type; an unknown method changes nothing.
+  pub fn conform_return(&self, service: &str, method: &str, value: &mut Value) {
+    if let Some(signature) = self.method(service, method) {
+      self.conform(&signature.returns, value);
+    }
+  }
+}
+
+fn integral(value: &Value) -> Option<f64> {
+  match value {
+    Value::Int(n) => Some(*n as f64),
+    Value::UInt(n) => Some(*n as f64),
+    _ => None,
+  }
 }
