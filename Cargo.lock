@@ -5087,7 +5087,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "futures",
  "futures-util",
@@ -5103,7 +5103,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_auth"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "form_urlencoded",
  "futures",
@@ -5117,7 +5117,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_cli"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "ctrlc",
  "flate2",
@@ -5145,7 +5145,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_core"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "criterion",
  "indexmap",
@@ -5154,7 +5154,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_engine"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -5166,7 +5166,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_host"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "actix-web",
  "axum",
@@ -5206,7 +5206,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_ir"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "fixed_decimal",
  "futures-util",
@@ -5232,7 +5232,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_lower"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "snapfire_fsr_ir",
  "snapfire_fsr_service",
@@ -5242,7 +5242,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_payload"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "criterion",
@@ -5252,7 +5252,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_plan"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5263,7 +5263,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_runtime"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "fibre_cache",
  "futures",
@@ -5281,7 +5281,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_service"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "bytes",
  "fibre_cache",
@@ -5309,7 +5309,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_session"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "fibre_cache",
  "futures",
@@ -5324,7 +5324,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_sites"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "snapfire_fsr_core",
  "snapfire_fsr_host",
@@ -5336,7 +5336,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_fsr_tera"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "futures",

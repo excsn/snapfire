@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_lower"
-version = "0.1.0"
+version = "0.5.0"
 description = "The recogniser for SnapFire FSR: reads a TypeScript loader or actions module and lowers each body to the IR, naming the line that stops it."
 
 edition = { workspace = true }

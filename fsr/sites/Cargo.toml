@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_sites"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
 description = "Where a mounted site's artifact comes from: the [sites] table resolved, hashed and mounted on the stock host, reread on a signal or a poll"
 

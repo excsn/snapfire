@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_runtime"
-version = "0.1.0"
+version = "0.5.0"
 description = "Request blocks for SnapFire FSR: matching, resolution, data sources, evaluation and assembly."
 
 edition = { workspace = true }

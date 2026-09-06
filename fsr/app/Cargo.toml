@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr"
-version = "0.1.0"
+version = "0.5.0"
 description = "The SnapFire FSR application host: binds a plan file to the implementations that answer it."
 
 edition = { workspace = true }

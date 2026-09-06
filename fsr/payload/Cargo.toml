@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_payload"
-version = "0.1.0"
+version = "0.5.0"
 description = "Payload encodings for SnapFire FSR: the JSON pair and the HTML serializer."
 
 edition = { workspace = true }

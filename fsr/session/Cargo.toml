@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_session"
-version = "0.1.0"
+version = "0.5.0"
 description = "Sessions for SnapFire FSR: signed cookies, the session store and CSRF."
 
 edition = { workspace = true }

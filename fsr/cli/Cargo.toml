@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_cli"
-version = "0.1.0"
+version = "0.5.0"
 description = "fsr: discovers an application's routes, lowers its loaders and actions and emits the plan file."
 
 edition = { workspace = true }
