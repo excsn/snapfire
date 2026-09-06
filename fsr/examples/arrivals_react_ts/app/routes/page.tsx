@@ -1,28 +1,46 @@
 import type { RootProps } from "@generated/client";
+import type { Flight } from "@generated/services";
 
-export default function BoardPage({ arrivals }: RootProps) {
+function Table({ heading, column, flights }: { heading: string; column: string; flights: Flight[] }) {
   return (
-    <table className="arrivals">
-      <thead>
-        <tr>
-          <th>Flight</th>
-          <th>From</th>
-          <th>Due</th>
-          <th>Gate</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {arrivals.map((arrival) => (
-          <tr key={arrival.flight} className={`status-${arrival.code}`}>
-            <td className="flight">{arrival.flight}</td>
-            <td>{arrival.from}</td>
-            <td>{arrival.due}</td>
-            <td className="gate">{arrival.gate}</td>
-            <td className="status">{arrival.status}</td>
+    <section className="table">
+      <h2>{heading}</h2>
+      <table className="flights">
+        <thead>
+          <tr>
+            <th>Flight</th>
+            <th>{column}</th>
+            <th>Scheduled</th>
+            <th>Expected</th>
+            <th>Gate</th>
+            <th>Status</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {flights.map((flight) => (
+            <tr key={flight.flight} className={`status-${flight.code}`}>
+              <td className="flight">{flight.flight}</td>
+              <td>{flight.city}</td>
+              <td className="time">{flight.scheduled}</td>
+              <td className="time">{flight.expected}</td>
+              <td className="gate">{flight.gate}</td>
+              <td className="status">{flight.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+export default function BoardPage({ at, arrivals, departures }: RootProps) {
+  return (
+    <div className="boards">
+      <p className="clock">
+        Field time <strong>{at}</strong>
+      </p>
+      <Table heading="Arrivals" column="From" flights={arrivals} />
+      <Table heading="Departures" column="To" flights={departures} />
+    </div>
   );
 }

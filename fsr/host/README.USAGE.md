@@ -12,6 +12,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Overriding per Deployment](#overriding-per-deployment)
 * [Serving with hyper](#serving-with-hyper)
 * [Mounting in axum](#mounting-in-axum)
+* [Pushing to an Open Page](#pushing-to-an-open-page)
 * [Serving with actix](#serving-with-actix)
 * [Terminating TLS](#terminating-tls)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
@@ -242,6 +243,28 @@ certbot renew --deploy-hook 'kill -HUP $(cat /run/app.pid)'
 The host re-reads both files and swaps what the next handshake presents. Connections already up keep the certificate they started on, and a file that will not read leaves the running certificate in place with the reason logged, so a bad renewal never takes the listener down. `reload = "usr1"`, `"usr2"` or `"none"` when SIGHUP is spoken for; `none` means a new certificate needs a restart, which is also the case on Windows, where there are no signals. `Host::reload_tls` is the same swap for a caller that has its own trigger.
 
 Without the `tls` feature a configured `[server.tls]` is a startup error rather than a plaintext listener. Certificates themselves stay outside: there is no ACME client here, and issuing and renewing are the deployment's, the way nginx has always had it.
+
+## Pushing to an Open Page
+
+A page follows the server without polling it. `Host::publish` names a topic, every open stream watching that topic hears it, and the browser decides what to do about it.
+
+```rust
+let host = Arc::new(host);
+let ticking = host.clone();
+tokio::spawn(async move {
+  let mut ticker = tokio::time::interval(Duration::from_secs(3));
+  loop {
+    ticker.tick().await;
+    ticking.publish("board");
+  }
+});
+```
+
+The endpoint is `GET /_sf/live?topics=a,b`, framework-owned like the action path and on whether or not `dev` is set. It answers with a `text/event-stream`: a comment frame at once so the browser knows the connection stands, then one `data: {"topic":"a"}` per publish of a topic that stream asked for. A topic nobody asked for is skipped, and a publish nobody is listening to costs a send into an empty channel.
+
+The browser half is `live(topics)` from `@snapfire/fsr-client`, which by default calls `refresh()`: the route's loaders run again and the page is patched in place. So the server says only that something changed, and what changed is answered the ordinary way, by a loader. A page that wants something else passes `onTopic`.
+
+Publishing reaches the streams this process is holding. Behind several replicas each instance reaches its own, so a topic that must reach every reader needs a bus behind `publish`, which is not built.
 
 ## Serving with actix
 

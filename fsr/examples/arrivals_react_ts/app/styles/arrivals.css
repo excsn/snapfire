@@ -19,21 +19,36 @@ body {
 }
 
 .board { max-width: 68rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
-.board header { border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
-.board h1 { margin: 0; font-size: 1.6rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.board header { border-bottom: 1px solid var(--rule); padding-bottom: 1rem; display: grid; grid-template-columns: auto auto; grid-template-areas: "title live" "strap strap"; justify-content: start; align-items: center; gap: 0 0.75rem; }
+.board h1 { grid-area: title; margin: 0; font-size: 1.6rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.strap { grid-area: strap; }
+
+.live { grid-area: live; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--rule); border-radius: 999px; padding: 0.15rem 0.5rem; }
+.live.on { color: var(--green); border-color: currentColor; }
+.live.on::before { content: ""; display: inline-block; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; margin-right: 0.35rem; vertical-align: 0.05rem; animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .live.on::before { animation: none; } }
 .strap { margin: 0.4rem 0 0; color: var(--dim); }
+
+.clock { margin: 0 0 1rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.clock strong { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.05rem; }
+
+.table { margin-bottom: 2rem; }
+.table h2 { font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); margin: 0 0 0.5rem; }
 
 .columns { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); margin-top: 1.25rem; }
 @media (max-width: 52rem) { .columns { grid-template-columns: 1fr; } }
 
-.arrivals { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.arrivals th { text-align: left; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--rule); }
-.arrivals td { padding: 0.7rem 0.6rem; border-bottom: 1px solid var(--rule); }
-.arrivals .flight, .arrivals .gate { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.arrivals .status { text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.06em; }
+.flights { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.flights th { text-align: left; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--rule); }
+.flights td { padding: 0.7rem 0.6rem; border-bottom: 1px solid var(--rule); }
+.flights .flight, .flights .gate, .flights .time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.flights .status { text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.06em; }
 .status-landed .status { color: var(--green); }
 .status-delayed .status { color: var(--red); }
 .status-on-time .status { color: var(--dim); }
+.status-departed .status { color: var(--dim); }
+.status-boarding .status { color: var(--amber); }
 
 .side { display: flex; flex-direction: column; gap: 1.25rem; }
 .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 1rem; }
@@ -45,7 +60,8 @@ body {
 .panel dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .gates ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
-.gates li { display: flex; align-items: center; gap: 0.5rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.gates li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.gates .at { color: var(--dim); }
 .gates .was { color: var(--dim); text-decoration: line-through; }
 .gates .now { color: var(--amber); }
 .quiet { color: var(--dim); margin: 0; }

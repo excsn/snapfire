@@ -47,6 +47,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [clearRouterCache](#clearroutercache)
   * [navigate](#navigate)
   * [refresh](#refresh)
+  * [live](#live)
   * [applyHead](#applyhead)
 * [7. Actions](#7-actions)
   * [action](#action)
@@ -453,6 +454,15 @@ Applying walks the old and new segment spines together. The first key mismatch r
 Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was, and applies it as `navigate` does, row by row as it streams, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps.
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
+
+### live
+
+* `live(topics: string[], options?: LiveOptions): () => void`
+* `LiveOptions`: `{ onTopic?: (topic: string) => void; path?: string }`
+
+Opens the host's event stream at `path`, `/_sf/live` by default, asking for `topics`, and returns the function that closes it. Every publish of a topic in the list calls `onTopic`, which defaults to `refresh()`, so the route's loaders run again and the page is patched in place without a navigation. The browser reconnects the stream on its own, so a restarted server resumes without a reload.
+
+Does nothing and returns a no-op where `EventSource` is absent, which is every server-side render, or when `topics` is empty. An island typically opens it in an effect and returns the closer, so leaving the page stops the stream.
 
 ### applyHead
 
