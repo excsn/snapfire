@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "compiler",
-  "examples/basic_site",
   "fsr/core",
   "fsr/engine",
   "fsr/app",
@@ -18,7 +17,8 @@ members = [
   "fsr/service",
   "fsr/session",
   "fsr/tera",
-  "rs",
+  "web",
+  "web/examples/basic_site",
   "typecheck"
 ]
 exclude = [
