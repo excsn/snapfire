@@ -1,39 +1,42 @@
-# SnapFire Project
+# SnapFire
 
 ![Project Status: Active](https://img.shields.io/badge/status-active-success.svg)
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](rs/LICENSE)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 
-## About SnapFire
+**Write the application in TypeScript. Run it in Rust.**
 
-SnapFire is a project focused on creating ergonomic, developer-friendly web templating engines with integrated live-reload functionality.
+SnapFire started as SnapFire Web, a Tera templating library with live reload. It is now a stack built around SnapFire FSR, a runtime where routes, data loading, actions, service clients, sessions, identity, caching, streaming and client navigation are primitives rather than features owned by a UI framework. Beside it sit a compiler that turns TypeScript into browser-native ES modules with no Node and a typechecker that fetches and pins its own `tsc`. SnapFire Web is still here and is now one renderer among several.
 
-The core goal is to provide a seamless and productive "hot reload" development experience, where changes to templates and static assets are instantly reflected in the browser. This is combined with a focus on production-readiness, ensuring that all development-only features are completely removed from final builds for maximum performance.
+Nothing in the chain needs Node, at build time or on the request path. There is no `node_modules`.
 
-## Implementations
+## The pieces
 
-### **Rust Implementation**
+Each one installs and is used from its own README.
 
-The primary and most complete implementation is written in Rust. It features a deep integration with the **Tera** templating engine and the **Actix Web** framework.
+| What you want | Where it is |
+| --- | --- |
+| A full-stack application: file routes, loaders and actions in TypeScript, rendered by Rust | [SnapFire FSR](fsr/README.md), the `fsr` executable |
+| TypeScript and CSS to browser ES modules, one binary, no `package.json` | [SnapFire Compiler](compiler/README.md), the `snapfirec` executable |
+| Types checked against a pinned TypeScript, fetched and verified rather than found installed | [SnapFire Typecheck](typecheck/README.md), the `snapfiretc` executable |
+| Tera templates with live reload inside an Actix application | [SnapFire Web](rs/README.md), the `snapfire` crate |
+| Seven applications in reading order, each carrying what the ones before it do not reach | [The SnapFire FSR examples](fsr/examples/README.md) |
+| One question per chapter, with a lab on the running example | [The SnapFire FSR guide](fsr/docs/guide/README.md) |
 
-**➡️ For detailed information, usage instructions, and the source code, please see the Rust project directory: [`/rs`](./rs)**
+## Layout
 
-### **Build Tool**
+| Directory | What it holds |
+| --- | --- |
+| `fsr/` | SnapFire FSR: the runtime crates, the client library, the CLI, the guide and the examples |
+| `compiler/` | `snapfirec` |
+| `typecheck/` | `snapfiretc` |
+| `rs/` | SnapFire Web, the `snapfire` crate: Tera and Actix |
+| `examples/basic_site` | SnapFire Web's own example |
+| `www/` | the project's site, built with SnapFire FSR |
 
-The other half of the project is `snapfirec`, a TypeScript and CSS compiler that produces browser-native ES Modules without Node.js or a `node_modules` folder. It pairs with the templating engine through the filesystem: compile into the directory the server watches, and a rebuild becomes a live reload.
-
-**➡️ See the compiler directory: [`/compiler`](./compiler)**
-
-Types are the one thing it does not read: `snapfiretc` checks them, in its own executable, against a TypeScript it pins, verifies and caches rather than one it finds installed.
-
-**➡️ See the typechecker directory: [`/typecheck`](./typecheck)**
-
-## Core Principles
-
--   **High Developer Experience:** The primary goal is to make the development feedback loop as fast and seamless as possible.
--   **Zero-Overhead Abstractions:** Development-only features must not impact the performance or binary size of production builds.
--   **Ergonomic API:** Library usage should feel simple, intuitive, and natural within the target language's ecosystem.
--   **Configurability:** Provide sensible defaults that work out-of-the-box, but allow power-users to override settings for custom setups.
+Every crate carries a `README.md` to skim, a `README.USAGE.md` to work from and an `API_REFERENCE.md` for the surface.
 
 ## License
 
-This project and its implementations are licensed under the **Mozilla Public License 2.0**. See the `LICENSE` file within each implementation's directory for the full text.
+Mozilla Public License 2.0. See `LICENSE`.
+
+[Excerion Sun LLC](https://www.excsn.com)
