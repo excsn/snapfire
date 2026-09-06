@@ -264,6 +264,17 @@ The endpoint is `GET /_sf/live?topics=a,b`, framework-owned like the action path
 
 The browser half is `live(topics)` from `@snapfire/fsr-client`, which by default calls `refresh()`: the route's loaders run again and the page is patched in place. So the server says only that something changed, and what changed is answered the ordinary way, by a loader. A page that wants something else passes `onTopic`.
 
+A topic is a string anyone can ask for, so anything private needs a rule:
+
+```rust
+builder.topics(|topic, session, identity| match topic.strip_prefix("room/") {
+  Some(room) => matches!(session.get("rooms"), Some(Value::Map(open)) if open.contains_key(room)),
+  None => identity.is_some(),
+})
+```
+
+It is asked once per topic as the stream opens, against the session the request's cookie names, and one refusal refuses the stream with 403 naming the topic rather than opening it half. Without a rule any topic may be followed by anyone. How a session comes to hold what the rule reads is the application's: `chat_react_ts` records the room in the session from the room's own loader, so opening a room is joining it.
+
 Publishing reaches the streams this process is holding. Behind several replicas each instance reaches its own, so a topic that must reach every reader needs a bus behind `publish`, which is not built.
 
 ## Serving with actix

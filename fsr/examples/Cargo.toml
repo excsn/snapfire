@@ -4,6 +4,7 @@ members = [
   "advanced_tera_app",
   "arrivals_react_ts",
   "billing_site_react_ts",
+  "chat_react_ts",
   "handbook_react_ts",
   "ops_console_react_ts",
   "portal_react_ts",

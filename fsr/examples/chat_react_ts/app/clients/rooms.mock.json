@@ -1,0 +1,15 @@
+{
+  "listRooms": [
+    { "id": "lobby", "name": "Lobby", "about": "Anyone, anything", "messages": 2 },
+    { "id": "deploys", "name": "Deploys", "about": "What went out and what came back", "messages": 1 },
+    { "id": "kitchen", "name": "Kitchen", "about": "Whose yoghurt", "messages": 0 }
+  ],
+  "getRoom": {
+    "room": { "id": "lobby", "name": "Lobby", "about": "Anyone, anything", "messages": 2 },
+    "messages": [
+      { "id": "1", "who": "alice", "body": "Morning.", "at": "09:01" },
+      { "id": "2", "who": "bob", "body": "Morning. Coffee is on.", "at": "09:02" }
+    ]
+  },
+  "postMessage": { "id": "3", "who": "you", "body": "Sent.", "at": "09:03" }
+}

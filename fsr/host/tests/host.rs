@@ -1841,3 +1841,31 @@ async fn live_needs_topics_and_publishing_to_nobody_costs_nothing() {
   let body = response.into_body().collect().await.unwrap().to_bytes();
   assert!(String::from_utf8_lossy(&body).contains("topics=a,b"), "the error says how to ask");
 }
+
+#[tokio::test]
+async fn a_topic_rule_decides_who_may_follow_what() {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(app_dir().join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .topics(|topic, session, identity| match topic.strip_prefix("room/") {
+      Some(room) => match session.get("rooms") {
+        Some(Value::Map(rooms)) => rooms.contains_key(room) && identity.is_some(),
+        _ => false,
+      },
+      None => true,
+    })
+    .build()
+    .unwrap();
+
+  let response = host.handle(Request::get("/_sf/live?topics=room/42").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::FORBIDDEN, "a visitor in no room follows no room");
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert!(String::from_utf8_lossy(&body).contains("room/42"), "the refusal names the topic");
+
+  let response = host.handle(Request::get("/_sf/live?topics=board").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "a topic the rule allows is still open to anyone");
+
+  let response = host.handle(Request::get("/_sf/live?topics=board,room/42").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::FORBIDDEN, "one refused topic refuses the stream rather than half of it");
+}

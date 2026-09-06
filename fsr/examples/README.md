@@ -1,6 +1,6 @@
 # FSR examples
 
-Seven applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Eight applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Read them in this order. Each has a `README.md` saying what it shows and where.
 
@@ -12,6 +12,7 @@ Read them in this order. Each has a `README.md` saying what it shows and where.
 | [billing_site_react_ts](billing_site_react_ts/README.md) | The site the portal mounts, and an application in its own right | The `[site]` section: every id prefixed `billing:`, every route under `/billing`, built against the shell's contract, and the same artifact running alone |
 | [handbook_react_ts](handbook_react_ts/README.md) | A documentation site with no server at all | A different build of the same framework: every route is fixed, so the binary writes the whole site to `site/` and exits, and anything can serve it |
 | [arrivals_react_ts](arrivals_react_ts/README.md) | An arrivals board over services that stall on purpose | Streaming where you can see it: the board goes out rendered with a skeleton per panel, and each parallel slot fills as its service answers |
+| [chat_react_ts](chat_react_ts/README.md) | Rooms, messages and who said what | The server talking to a page nobody asked: an action keeps a message, the host publishes the room's topic and every window following it revalidates, with the topic itself behind an authorisation rule |
 | [advanced_tera_app](advanced_tera_app/) | A Rust application rendering Tera templates on the stock host | The framework with no TypeScript at all: routes, loaders and actions bound in Rust, form-encoded actions for a page with no JavaScript, rendering through the `Evaluator` seam |
 
 ## Running one
@@ -44,6 +45,7 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8101 | `billing_site_react_ts` running alone |
 | 8110 | `handbook_react_ts`, only under `fsr dev`; the built site is files |
 | 8120 | `arrivals_react_ts` |
+| 8130 | `chat_react_ts` |
 
 ## The portal and the site together
 

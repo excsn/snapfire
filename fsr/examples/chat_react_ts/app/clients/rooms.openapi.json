@@ -1,0 +1,177 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Rooms",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/rooms": {
+      "get": {
+        "operationId": "listRooms",
+        "responses": {
+          "200": {
+            "description": "every room and how busy it is",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Room"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rooms/{id}": {
+      "get": {
+        "operationId": "getRoom",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the room and what has been said in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transcript"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rooms/{id}/messages": {
+      "post": {
+        "operationId": "postMessage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Said"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the message as it was kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Room": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "about",
+          "messages"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "about": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Transcript": {
+        "type": "object",
+        "required": [
+          "room",
+          "messages"
+        ],
+        "properties": {
+          "room": {
+            "$ref": "#/components/schemas/Room"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": [
+          "id",
+          "who",
+          "body",
+          "at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "who": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          }
+        }
+      },
+      "Said": {
+        "type": "object",
+        "required": [
+          "who",
+          "body"
+        ],
+        "properties": {
+          "who": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

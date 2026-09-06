@@ -32,7 +32,7 @@ use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator, FailureKind,
-  FibreCache, Head, LoadError, Locale, Matcher, Metadata, RequestCtx, Resolver, SessionCell,
+  FibreCache, Head, Identity, LoadError, Locale, Matcher, Metadata, RequestCtx, Resolver, SessionCell,
 };
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials, Services, TraceInterceptor, Transport,
@@ -328,6 +328,9 @@ pub struct Host {
   /// Topics the application publishes, read by every open `/_sf/live`
   /// stream. Always present: pushing is the application's, not the dev loop's.
   topics: tokio::sync::broadcast::Sender<String>,
+  /// Who may follow which topic. Absent, any topic may be followed by
+  /// anyone, which is right for a board on a wall and wrong for a room.
+  topic_rule: Option<TopicRule>,
   reloader: Option<Reloader>,
   csrf_always: bool,
   report_listen: String,
@@ -351,6 +354,11 @@ pub struct Host {
 /// How a host rebuilds its tables on `Host::reload`: the builder for the
 /// application as it now stands on disk.
 pub type Reloader = Box<dyn Fn() -> Result<HostBuilder, HostError> + Send + Sync>;
+
+/// Whether this visitor may follow this topic, asked once per topic when a
+/// stream opens. The session is the one the request's cookie names and the
+/// identity is whatever signed into it.
+pub type TopicRule = Arc<dyn Fn(&str, &SessionCell, Option<&Identity>) -> bool + Send + Sync>;
 
 /// Everything a request reads that a reload replaces. A request loads the
 /// current set once at the edge and keeps it for its lifetime, so a reload
@@ -483,6 +491,7 @@ pub struct HostBuilder {
   prerendered: Option<PathBuf>,
   identity: Option<Arc<dyn IdentityProvider>>,
   reloader: Option<Reloader>,
+  topic_rule: Option<TopicRule>,
   mounts: Vec<Mount>,
   /// Overrides `server.http2` for a host built in Rust.
   http2: Option<bool>,
@@ -560,6 +569,7 @@ impl Host {
       prerendered: None,
       identity: None,
       reloader: None,
+      topic_rule: None,
       mounts: Vec::new(),
       http2: None,
       pending: None,
@@ -1122,23 +1132,6 @@ impl Host {
       let sites: Vec<serde_json::Value> = t.report.sites.iter().map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash })).collect();
       return json_response(StatusCode::OK, &serde_json::json!({ "sites": sites }));
     }
-    if path == "/_sf/live" && req.method() == Method::GET {
-      let topics: Vec<String> = req
-        .uri()
-        .query()
-        .map(|query| {
-          form_urlencoded::parse(query.as_bytes())
-            .filter(|(key, _)| key == "topics")
-            .flat_map(|(_, value)| value.split(',').map(|t| t.trim().to_owned()).collect::<Vec<_>>())
-            .filter(|t| !t.is_empty())
-            .collect()
-        })
-        .unwrap_or_default();
-      if topics.is_empty() {
-        return text_response(StatusCode::BAD_REQUEST, "no topics: /_sf/live?topics=a,b".to_owned());
-      }
-      return self.live_events(topics);
-    }
     if self.changed.is_some() {
       if path == "/__fsr/events" && req.method() == Method::GET {
         return self.events(&t);
@@ -1181,6 +1174,30 @@ impl Host {
     let cookie = header("cookie");
     let accept_language = header("accept-language");
     let opened = self.sessions.open(cookie.as_deref()).await;
+
+    if path == "/_sf/live" && req.method() == Method::GET {
+      let topics: Vec<String> = req
+        .uri()
+        .query()
+        .map(|query| {
+          form_urlencoded::parse(query.as_bytes())
+            .filter(|(key, _)| key == "topics")
+            .flat_map(|(_, value)| value.split(',').map(|t| t.trim().to_owned()).collect::<Vec<_>>())
+            .filter(|t| !t.is_empty())
+            .collect()
+        })
+        .unwrap_or_default();
+      if topics.is_empty() {
+        return text_response(StatusCode::BAD_REQUEST, "no topics: /_sf/live?topics=a,b".to_owned());
+      }
+      if let Some(rule) = &self.topic_rule {
+        let identity = opened.cell.identity();
+        if let Some(refused) = topics.iter().find(|topic| !rule(topic, &opened.cell, identity.as_ref())) {
+          return text_response(StatusCode::FORBIDDEN, format!("not yours to follow: {refused}"));
+        }
+      }
+      return self.live_events(topics);
+    }
 
     let is_action = req.method() == Method::POST && path.starts_with("/_sf/action/");
     let visit = if is_action {
@@ -1980,6 +1997,18 @@ impl HostBuilder {
     self
   }
 
+  /// Who may follow which topic on `/_sf/live`, asked once per topic as a
+  /// stream opens; a refusal is 403 naming the topic. Without a rule any
+  /// topic may be followed by anyone, which is right for a board on a wall
+  /// and wrong for a room.
+  pub fn topics<F>(mut self, rule: F) -> Self
+  where
+    F: Fn(&str, &SessionCell, Option<&Identity>) -> bool + Send + Sync + 'static,
+  {
+    self.topic_rule = Some(Arc::new(rule));
+    self
+  }
+
   /// Negotiates HTTP/2 as well as HTTP/1.1 on a served connection, which
   /// `server.http2` also sets. The listener carries no TLS, so this is h2c.
   pub fn http2(mut self, on: bool) -> Self {
@@ -2153,6 +2182,7 @@ impl HostBuilder {
   pub fn build(mut self) -> Result<Host, HostError> {
     let reloader = self.reloader.take();
     let store = self.store.take();
+    let topic_rule = self.topic_rule.take();
     let http2 = self.http2;
     let (tables, config) = self.assemble()?;
     let ttl = config.session_ttl()?;
@@ -2203,6 +2233,7 @@ impl HostBuilder {
       sessions,
       changed,
       topics: tokio::sync::broadcast::channel(64).0,
+      topic_rule,
       reloader,
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
