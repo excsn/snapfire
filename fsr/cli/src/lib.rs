@@ -6,6 +6,7 @@
 pub mod dev;
 pub mod new;
 pub mod serve;
+pub mod sites;
 pub mod spec;
 pub mod infer;
 pub mod test;
@@ -77,6 +78,8 @@ pub enum BuildError {
   Typecheck(String),
   #[error("{0}")]
   Serve(String),
+  #[error("{0}")]
+  Sites(String),
 }
 
 /// What `build` found and emitted, in the order the report prints it.

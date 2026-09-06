@@ -6,9 +6,9 @@ use snapfire_fsr_cli::new::NewOptions;
 use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
-use snapfire_fsr_cli::{build, dev, emit, new, serve, test, types, vendor, Options};
+use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -41,6 +41,7 @@ fn main() -> ExitCode {
   let rest = &args[2..];
 
   match command.as_str() {
+    "sites" => sites_command(&args[1..]),
     "new" => {
       let mut options = NewOptions::default();
       for flag in rest {
@@ -288,6 +289,99 @@ fn main() -> ExitCode {
           }
           for (package, why) in &report.missing {
             println!("missing   {package:<28} {why}");
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    _ => usage(),
+  }
+}
+
+/// `fsr sites <subcommand>`: the one command group whose second argument names
+/// a subcommand rather than a directory.
+fn sites_command(args: &[String]) -> ExitCode {
+  let Some(sub) = args.first() else { return usage() };
+  match sub.as_str() {
+    "list" => {
+      let [_, shell] = args else { return usage() };
+      match sites::list(&PathBuf::from(shell)) {
+        Ok(rows) => {
+          if rows.is_empty() {
+            println!("no sites mounted");
+          }
+          for row in &rows {
+            let at = row.at.as_deref().unwrap_or("-");
+            println!("site      {:<20} {:<24} {:<8} {}", row.name, at, row.version, row.hash);
+            println!("          {}", row.artifact);
+            if let Some(note) = &row.note {
+              println!("          {note}");
+            }
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "link" => {
+      let (Some(shell), Some(site)) = (args.get(1), args.get(2)) else { return usage() };
+      let mut at = None;
+      let mut name = None;
+      let mut rest = args[3..].iter();
+      while let Some(flag) = rest.next() {
+        match flag.as_str() {
+          "--at" => at = rest.next().cloned(),
+          "--name" => name = rest.next().cloned(),
+          _ => return usage(),
+        }
+      }
+      let Some(at) = at else {
+        eprintln!("fsr sites link needs --at <path>, the prefix the shell mounts the site under");
+        return ExitCode::from(2);
+      };
+      match sites::link(&PathBuf::from(shell), &PathBuf::from(site), &at, name.as_deref()) {
+        Ok(linked) => {
+          if linked.site_kept {
+            println!("kept      [site] {} at {} in {}", linked.name, linked.at, linked.site_config.display());
+          } else {
+            println!("wrote     [site] {} at {} in {}", linked.name, linked.at, linked.site_config.display());
+            println!("          shell = {}", linked.shell_json);
+          }
+          println!("wrote     [sites.{}] in {}", linked.name, linked.shell_config.display());
+          println!("          artifact = {}", linked.artifact);
+          for command in &linked.next {
+            println!("next      {command}");
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "unlink" => {
+      let (Some(shell), Some(name)) = (args.get(1), args.get(2)) else { return usage() };
+      let mut keep_site = false;
+      for flag in &args[3..] {
+        match flag.as_str() {
+          "--keep-site" => keep_site = true,
+          _ => return usage(),
+        }
+      }
+      match sites::unlink(&PathBuf::from(shell), name, keep_site) {
+        Ok(unlinked) => {
+          println!("removed   [sites.{}] from {}", unlinked.name, unlinked.shell_config.display());
+          match &unlinked.site_config {
+            Some(path) => println!("removed   [site] from {}", path.display()),
+            None => println!("kept      the site's own [site]"),
           }
           ExitCode::SUCCESS
         }
