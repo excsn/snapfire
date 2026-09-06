@@ -317,17 +317,21 @@ It also hangs `refresh` on `window.__sf`, which is how the stock host's developm
 
 ## Prefetching and the Router Cache
 
-A link's payload is fetched when the pointer moves over it, when it takes focus or when it is touched, then held for thirty seconds. The click that follows applies the held payload with no round trip. So does a back or forward that lands on a route fetched inside the window. `enableNavigation` takes both settings:
+A link's payload is fetched when the pointer moves over it, when it takes focus or when it is touched, then held for thirty seconds. The click that follows applies the held payload with no round trip. So does a back or forward that lands on a route fetched inside the window. `enableNavigation` takes the document's timing and the lifetime:
 
 ```ts
 enableNavigation({ prefetch: "none" });
+enableNavigation({ prefetch: "viewport" });
 enableNavigation({ cacheMs: 5_000 });
 ```
 
-A link that should not be warmed says so, which is right for a link whose loader is expensive or whose route logs the visit:
+`"viewport"` fetches a link's payload as it scrolls into view rather than waiting for a pointer, which is what a long list of links wants; each link is fetched once and then left alone. It costs a request per link on screen, so it is the document's choice rather than the default.
+
+A link decides for itself, whichever way the document leans. `none` is right for a link whose loader is expensive or whose route logs the visit, and `viewport` for the one link on the page that is almost certainly next:
 
 ```html
 <a href="/reports/yearly" data-sf-prefetch="none">Yearly report</a>
+<a href="/checkout" data-sf-prefetch="viewport">Checkout</a>
 ```
 
 From code, `prefetch` warms a route ahead of time and `clearRouterCache` drops everything held. `refresh` drops it on its own, so an action that revalidates never leaves a payload from before the mutation behind:

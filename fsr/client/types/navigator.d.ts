@@ -1,7 +1,7 @@
 import { Head } from "./reader.js";
 /** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
 export declare function applyHead(head: Head): void;
-export type PrefetchTiming = "hover" | "none";
+export type PrefetchTiming = "hover" | "viewport" | "none";
 export interface NavigateOptions {
 	/** The document's rendering of the target, never an intercept. */
 	full?: boolean;
@@ -9,7 +9,7 @@ export interface NavigateOptions {
 	into?: string;
 }
 export interface NavigationOptions {
-	/** Whether a link's payload is fetched ahead of its click (on hover, focus or touch) or never. Defaults to `"hover"`. */
+	/** When a link's payload is fetched ahead of its click: on hover, focus or touch, as the link enters the viewport, or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
 	prefetch?: PrefetchTiming;
 	/** How long a fetched payload answers a navigation before it is fetched again. Defaults to 30 seconds. */
 	cacheMs?: number;

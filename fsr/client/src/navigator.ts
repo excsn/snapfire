@@ -318,6 +318,7 @@ function applyEager(eager: Eager, force: boolean): boolean {
   }
   if (eager.entry !== null) loadEntry(eager.entry);
   scan(document);
+  watchLinks(document);
   return true;
 }
 
@@ -333,6 +334,7 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
       if (row.tag === "S") {
         fillSlot(row.slot, row.node, keyOfSlot(segments, row.slot));
         scan(document);
+        watchLinks(document);
       } else if (row.tag === "H") {
         applyHead(row.head);
       } else if (row.tag === "T") {
@@ -427,7 +429,7 @@ function fresh(feed: Feed): boolean {
   return !feed.done || performance.now() - feed.at < cacheMs;
 }
 
-export type PrefetchTiming = "hover" | "none";
+export type PrefetchTiming = "hover" | "viewport" | "none";
 
 /** How a navigation asks for its payload: `from` is the document's path, which lets the server intercept the target into a live layout's slot; `into` names that slot outright; neither is a full page. */
 interface Ask {
@@ -462,7 +464,7 @@ function headersOf(ask: Ask): Record<string, string> {
 }
 
 export interface NavigationOptions {
-  /** Whether a link's payload is fetched ahead of its click (on hover, focus or touch) or never. Defaults to `"hover"`. */
+  /** When a link's payload is fetched ahead of its click: on hover, focus or touch, as the link enters the viewport, or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
   prefetch?: PrefetchTiming;
   /** How long a fetched payload answers a navigation before it is fetched again. Defaults to 30 seconds. */
   cacheMs?: number;
@@ -492,6 +494,35 @@ function payloadFor(url: URL, ask: Ask): Feed {
   const held = cache.get(cacheKey(url, ask));
   if (held && fresh(held)) return held;
   return fetchPayload(url, ask);
+}
+
+/** The document's timing for a link that names none. */
+let fallbackPrefetch: PrefetchTiming = "hover";
+
+/** A link's own timing, else the document's. */
+function timingOf(anchor: Element): PrefetchTiming {
+  const own = anchor.getAttribute("data-sf-prefetch");
+  return own === "hover" || own === "viewport" || own === "none" ? own : fallbackPrefetch;
+}
+
+const watched = new WeakSet<Element>();
+let viewport: IntersectionObserver | null = null;
+
+/** Observes every link under `root` whose timing is `viewport` and is not observed already; a link that enters the view is prefetched once and dropped. Called after every application, since a navigation brings new links. */
+function watchLinks(root: ParentNode): void {
+  if (typeof IntersectionObserver !== "function") return;
+  viewport ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      viewport?.unobserve(entry.target);
+      void prefetch(entry.target.getAttribute("href") ?? "", askOf(entry.target));
+    }
+  });
+  for (const anchor of Array.from(root.querySelectorAll("a[href]"))) {
+    if (watched.has(anchor) || timingOf(anchor) !== "viewport") continue;
+    watched.add(anchor);
+    viewport.observe(anchor);
+  }
 }
 
 /** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. Resolves once the payload has arrived whole. */
@@ -582,7 +613,7 @@ function linkOf(target: EventTarget | null): Element | null {
   return anchor;
 }
 
-/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched and owns history from then on. */
+/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched, or as they enter the viewport where one asks for that, and owns history from then on. */
 export function enableNavigation(options: NavigationOptions = {}): void {
   const g = globalThis as { __sf?: Record<string, unknown> };
   g.__sf = Object.assign(g.__sf ?? {}, { refresh });
@@ -606,16 +637,17 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     event.preventDefault();
     void navigate(url.pathname + url.search, true, askOf(anchor));
   });
-  if ((options.prefetch ?? "hover") === "hover") {
-    const warm = (event: Event) => {
-      const anchor = linkOf(event.target);
-      if (!anchor || anchor.getAttribute("data-sf-prefetch") === "none") return;
-      void prefetch(anchor.getAttribute("href") ?? "", askOf(anchor));
-    };
-    document.addEventListener("mouseover", warm);
-    document.addEventListener("focusin", warm);
-    document.addEventListener("touchstart", warm, { passive: true });
-  }
+  fallbackPrefetch = options.prefetch ?? "hover";
+  const warm = (event: Event) => {
+    const anchor = linkOf(event.target);
+    if (!anchor || timingOf(anchor) !== "hover") return;
+    void prefetch(anchor.getAttribute("href") ?? "", askOf(anchor));
+  };
+  document.addEventListener("mouseover", warm);
+  document.addEventListener("focusin", warm);
+  document.addEventListener("touchstart", warm, { passive: true });
+  watchLinks(document);
+  document.addEventListener("sf:fill", () => watchLinks(document));
   window.addEventListener("popstate", () => {
     void navigate(window.location.pathname + window.location.search, false);
   });

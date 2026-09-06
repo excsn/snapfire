@@ -1,52 +1,59 @@
-import { advance, assert, ctx, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { enableNavigation } from "@snapfire/fsr-client";
+import { assert, ctx, load, screen, settle, test } from "@snapfire/fsr-client/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "A spool.", tags: ["pla"], attributes: [] };
 
-function hover(el: Element): Promise<void> {
-  el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-  return settle();
+interface Entry {
+  target: Element;
+  isIntersecting: boolean;
 }
 
-test("hovering a link fetches its payload and the click that follows makes no request", async () => {
+/** linkedom has no IntersectionObserver, so the spec is the one that decides when a link comes into view. */
+function observeInstead(): { observed: Element[]; enter: (el: Element) => void } {
+  const observed: Element[] = [];
+  let callback: ((entries: Entry[]) => void) | null = null;
+  class Stub {
+    constructor(cb: (entries: Entry[]) => void) {
+      callback = cb;
+    }
+    observe(el: Element): void {
+      observed.push(el);
+    }
+    unobserve(el: Element): void {
+      const at = observed.indexOf(el);
+      if (at !== -1) observed.splice(at, 1);
+    }
+    disconnect(): void {}
+  }
+  (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = Stub;
+  return { observed, enter: (el) => callback?.([{ target: el, isIntersecting: true }]) };
+}
+
+test("a link is prefetched as it enters the viewport under that timing, and once only", async () => {
+  const view = observeInstead();
   const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: () => [filament] } } });
   await load("/", { ctx: c });
+  enableNavigation({ prefetch: "viewport" });
+
   const cart = screen.getByLabelText("Cart, 2 items");
+  assert.ok(view.observed.includes(cart), `every link is observed under viewport timing; observed ${view.observed.length}`);
 
-  await hover(cart);
-  assert.equal(c.trace.calls.map((call) => call.method), ["listProducts", "listProducts", "listProducts", "listProducts"], "the cart's loader and the promo slot's ran on hover");
+  const before = c.trace.calls.length;
+  view.enter(cart);
+  await settle();
+  assert.ok(c.trace.calls.length > before, "the cart's loader ran for the prefetch");
+  assert.equal(view.observed.includes(cart), false, "a link that has been prefetched is dropped");
 
-  await hover(cart);
-  assert.equal(c.trace.calls.length, 4, "a payload already held is not fetched again");
-
-  await fireEvent.click(cart);
-  assert.equal(location.pathname, "/cart");
-  assert.ok(screen.getByText("Shopping cart"));
-  assert.equal(c.trace.calls.length, 4, "the click applied the held payload");
+  const after = c.trace.calls.length;
+  view.enter(cart);
+  await settle();
+  assert.equal(c.trace.calls.length, after, "and the payload it holds answers the next look without another fetch");
 });
 
-test("a held payload expires and the next navigation fetches again", async () => {
-  const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: () => [filament] } } });
+test("hover timing leaves a link unobserved", async () => {
+  const view = observeInstead();
+  const c = ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } });
   await load("/", { ctx: c });
-  const cart = screen.getByLabelText("Cart, 2 items");
-  await hover(cart);
-  assert.equal(c.trace.calls.length, 4);
-
-  await advance(30_000);
-  await fireEvent.click(cart);
-  assert.equal(location.pathname, "/cart");
-  assert.equal(c.trace.calls.length, 6, "thirty seconds later the payload is fetched again");
-});
-
-test("a link marked data-sf-prefetch=none is left alone until it is clicked", async () => {
-  const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: () => [filament] } } });
-  await load("/", { ctx: c });
-  const cart = screen.getByLabelText("Cart, 2 items");
-  cart.setAttribute("data-sf-prefetch", "none");
-
-  await hover(cart);
-  assert.equal(c.trace.calls.length, 2, "no fetch on hover");
-
-  await fireEvent.click(cart);
-  assert.equal(location.pathname, "/cart");
-  assert.equal(c.trace.calls.length, 4, "the click fetched it");
+  enableNavigation({ prefetch: "hover" });
+  assert.equal(view.observed.length, 0, "nothing is watched while the document prefetches on hover");
 });
