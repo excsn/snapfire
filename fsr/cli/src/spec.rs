@@ -79,8 +79,19 @@ pub fn prepare(app: &Path) -> Result<Prepared, BuildError> {
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
   }
   boot_source.push_str("import { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
+  if let Some(entry) = entry_module(&app) {
+    boot_source.push_str(&format!("import \"./dist/src/{entry}.js\";\n"));
+  }
   std::fs::write(&boot, boot_source).map_err(|e| BuildError::Io(boot.clone(), e))?;
   Ok(Prepared { app, test_dir, dist, resolution, dom, boot })
+}
+
+/// The application's entry module, `src/main.ts` or `src/main.tsx`, which a
+/// spec's document imports so whatever it wires, a `derive`, a global or a
+/// listener, is in place the way it is in a browser. Absent, only the island
+/// registry runs.
+fn entry_module(app: &Path) -> Option<String> {
+  ["main.ts", "main.tsx"].iter().find(|name| app.join("src").join(name).is_file()).map(|name| name.trim_end_matches(".tsx").trim_end_matches(".ts").to_owned())
 }
 
 /// Fetches one more esm.sh build into `.fsr-test/vendor`, for a bench or a tool that needs a module the specs do not; cached by specifier and version.

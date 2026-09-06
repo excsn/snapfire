@@ -27,6 +27,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
 * [Typechecking](#typechecking)
+* [Running the Specs](#running-the-specs)
 * [Building a Site](#building-a-site)
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
@@ -552,6 +553,32 @@ fsr build app --no-typecheck
 ```
 
 The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`. When there is none, the build says so and carries on rather than failing, so an application that never asked for a typecheck still builds. It is `cargo install snapfire_typecheck` away, and [its guide](../../typecheck/README.USAGE.md) covers the cache, the version ladder and what it does with the network.
+
+## Running the Specs
+
+`fsr test <app>` compiles every `*.spec.ts` and `*.spec.tsx` under the app with snapfirec and runs each file in its own QuickJS context over linkedom, with a filter as its second argument:
+
+```sh
+fsr test app
+fsr test app cart
+```
+
+Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone.
+
+```ts
+import { get, set } from "@snapfire/fsr-client";
+import { assert, test } from "@snapfire/fsr-client/testing";
+import { headline, openAlerts } from "@src/store";
+
+test("the entry module's derive is registered", () => {
+  set(openAlerts, 2);
+  assert.equal(get(headline), "2 to look at");
+});
+```
+
+A `fetch` inside a spec is answered by the runner: `/_sf/action/<id>` runs the lowered action under the spec's `ctx`, a path matching a lowered handler runs it with the matched params and the body checked against its input type, and anything else renders the route through the stock host when a configuration is beside the app. `load(path, { ctx })` is that fetch plus the document it produces.
+
+Two things the runner cannot answer, so a spec must not expect them: the `/auth/` routes, which is why a signed-in page is `ctx({ identity })` rather than a login journey, and the Rust half of a native pair, which the runner answers from the browser half.
 
 ## Building a Site
 
