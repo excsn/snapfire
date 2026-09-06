@@ -41,6 +41,27 @@ fn args(pairs: Vec<(&str, Value)>) -> ValueMap {
 }
 
 #[test]
+fn conform_makes_an_integral_number_a_double_and_nothing_else() {
+  let contract = Contract::new().record("Line", vec![Field::new("total", Type::F64), Field::new("n", Type::I64), Field::new("more", Type::optional(Type::list(Type::F32)))]);
+  let mut line = ValueMap::new();
+  line.insert("total".to_owned(), Value::Int(320));
+  line.insert("n".to_owned(), Value::Int(2));
+  line.insert("more".to_owned(), Value::Seq(vec![Value::UInt(7), Value::F32(1.5)]));
+  let mut value = Value::Map(line);
+  assert!(contract.check_value(&Type::named("Line"), &value, "line").is_err(), "an integer where the contract says double is a mismatch before conforming");
+  contract.conform(&Type::named("Line"), &mut value);
+  let Value::Map(line) = &value else { panic!("{value:?}") };
+  assert_eq!(line["total"], Value::F64(320.0));
+  assert_eq!(line["n"], Value::Int(2));
+  assert_eq!(line["more"], Value::Seq(vec![Value::F32(7.0), Value::F32(1.5)]));
+  contract.check_value(&Type::named("Line"), &value, "line").unwrap();
+
+  let mut fractional = Value::Map(ValueMap::from_iter([("total".to_owned(), Value::F64(1.5)), ("n".to_owned(), Value::F64(2.5))]));
+  contract.conform(&Type::named("Line"), &mut fractional);
+  assert!(contract.check_value(&Type::named("Line"), &fractional, "line").is_err(), "a fraction where the contract says integer stays a mismatch");
+}
+
+#[test]
 fn the_artifact_round_trips_through_json() {
   let contract = users();
   let back = Contract::from_json(&contract.to_json()).unwrap();

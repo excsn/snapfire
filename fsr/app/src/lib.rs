@@ -868,8 +868,10 @@ struct CheckedInput {
 }
 
 impl ActionHandler for CheckedInput {
-  fn call(&self, ctx: RequestCtx, input: snapfire_fsr_core::Value) -> futures_util::future::BoxFuture<'static, Result<snapfire_fsr_core::Value, ActionError>> {
-    if let Err(e) = self.contract.check_value(&Type::Named(self.input.clone()), &input, "input") {
+  fn call(&self, ctx: RequestCtx, mut input: snapfire_fsr_core::Value) -> futures_util::future::BoxFuture<'static, Result<snapfire_fsr_core::Value, ActionError>> {
+    let ty = Type::Named(self.input.clone());
+    self.contract.conform(&ty, &mut input);
+    if let Err(e) = self.contract.check_value(&ty, &input, "input") {
       let error = ActionError::new(snapfire_fsr_runtime::FailureKind::Invalid, e.to_string());
       return Box::pin(async move { Err(error) });
     }

@@ -83,6 +83,7 @@ Only what cannot be inferred: where to listen, how to sign sessions, where each 
 listen = "127.0.0.1:8080"
 prerender = "dist/prerender"      # optional: where rendered-once routes live
 dev = false                       # optional: live refresh; absent, on unless RELEASE_ENV is set to something else than development
+max_body = 1048576                # optional: bytes a request body may carry; a larger one is 413
 
 [document]
 title = "Shopping"

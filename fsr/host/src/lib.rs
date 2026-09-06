@@ -298,6 +298,8 @@ pub struct Host {
   reloader: Option<Reloader>,
   csrf_always: bool,
   report_listen: String,
+  /// The most bytes a request body may carry, `server.max_body`.
+  max_body: usize,
   /// The `[session]` settings the running `Sessions` were built from; a
   /// reload whose settings differ is refused, since the store outlives it.
   session_shape: String,
@@ -976,6 +978,9 @@ impl Host {
   }
 
   pub async fn handle(&self, req: Request<Bytes>) -> Response<Body> {
+    if req.body().len() > self.max_body {
+      return self.too_large();
+    }
     let t = self.tables();
     let path = req.uri().path().to_owned();
 
@@ -1324,8 +1329,9 @@ impl Host {
           let host = host.clone();
           async move {
             let (parts, body) = req.into_parts();
-            let bytes = match body.collect().await {
+            let bytes = match http_body_util::Limited::new(body, host.max_body).collect().await {
               Ok(collected) => collected.to_bytes(),
+              Err(e) if e.is::<http_body_util::LengthLimitError>() => return Ok::<_, Infallible>(host.too_large()),
               Err(_) => Bytes::new(),
             };
             Ok::<_, Infallible>(host.handle(Request::from_parts(parts, bytes)).await)
@@ -1340,6 +1346,10 @@ impl Host {
 
   pub fn listen(&self) -> &str {
     &self.report_listen
+  }
+
+  fn too_large(&self) -> Response<Body> {
+    text_response(StatusCode::PAYLOAD_TOO_LARGE, format!("request body over {} bytes, the host's server.max_body", self.max_body))
   }
 }
 
@@ -1928,6 +1938,7 @@ impl HostBuilder {
       reloader,
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
+      max_body: config.server.max_body,
       report_listen: config.server.listen,
     })
   }

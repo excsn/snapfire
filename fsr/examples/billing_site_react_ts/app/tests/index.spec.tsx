@@ -2,7 +2,7 @@ import { assert, ctx, load, test } from "@snapfire/fsr-client/testing";
 
 const invoices = [
   { id: 1n, customer: "Northwind", total: 1250.5, status: "open" },
-  { id: 2n, customer: "Contoso", total: 320.5, status: "overdue" },
+  { id: 2n, customer: "Contoso", total: 320, status: "overdue" },
 ];
 
 test("the invoice list renders under the site's prefix with literal links", async () => {

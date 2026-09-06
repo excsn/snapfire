@@ -202,8 +202,9 @@ impl ServiceCaller for BoundServices {
     let service = service.to_owned();
     let method = method.to_owned();
     Box::pin(async move {
-      let value = running.await?;
+      let mut value = running.await?;
       if check {
+        contract.conform_return(&service, &method, &mut value);
         contract.check_return(&service, &method, &value).map_err(|e| {
           ServiceError::new(FailureKind::Internal, &service, &method, e.to_string())
         })?;
