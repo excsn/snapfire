@@ -1,0 +1,27 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8120"
+
+[document]
+title = "Arrivals"
+
+[[document.head]]
+tag = "link"
+rel = "icon"
+href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🛬</text></svg>"
+
+[session]
+key = "arrivals-example-dev-key-not-a-secret"
+ttl = "1h"
+
+[clients.board]
+transport = "mock"
+
+[[static]]
+route = "/static/js/fsr"
+dir = "../../../client/dist"
+
+[typecheck]
+version = "7.0.2"

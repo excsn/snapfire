@@ -1,0 +1,144 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Board",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/arrivals": {
+      "get": {
+        "operationId": "listArrivals",
+        "responses": {
+          "200": {
+            "description": "what is landing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Arrival"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/weather": {
+      "get": {
+        "operationId": "getWeather",
+        "responses": {
+          "200": {
+            "description": "the field, eventually",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Weather"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gates": {
+      "get": {
+        "operationId": "listGateChanges",
+        "responses": {
+          "200": {
+            "description": "gate changes, from the slowest system on the field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GateChange"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Arrival": {
+        "type": "object",
+        "required": [
+          "flight",
+          "from",
+          "due",
+          "status",
+          "code",
+          "gate"
+        ],
+        "properties": {
+          "flight": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "due": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "gate": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "Weather": {
+        "type": "object",
+        "required": [
+          "field",
+          "wind",
+          "visibility",
+          "celsius"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "wind": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "celsius": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "GateChange": {
+        "type": "object",
+        "required": [
+          "flight",
+          "was",
+          "now"
+        ],
+        "properties": {
+          "flight": {
+            "type": "string"
+          },
+          "was": {
+            "type": "string"
+          },
+          "now": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
