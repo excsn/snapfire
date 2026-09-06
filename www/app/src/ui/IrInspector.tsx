@@ -51,7 +51,7 @@ const SAMPLES: Sample[] = [
       "compare": [
         "eq",
         { "length": { "keys": { "session": "cart" } } },
-        { "lit": { "int": 0 } }
+        { "lit": { "float": 0 } }
       ]
     },
     "kind": "invalid",
@@ -126,10 +126,11 @@ export function IrInspector() {
           <pre className="code-editor">
             <code>
               {simulateResidue
-                ? `export async function load({ request }: Ctx) {
-  // Residue: Imperative while loop or raw fetch
-  while (true) {
-    doSomething();
+                ? `import type { Ctx } from "@snapfire/fsr";
+
+export async function load({ session }: Ctx) {
+  while (session.retries > 0) {
+    retry();
   }
   return { status: "ok" };
 }`
@@ -149,12 +150,8 @@ export function IrInspector() {
           <pre className={`code-editor ${simulateResidue ? "error-output" : ""}`}>
             <code>
               {simulateResidue
-                ? `error: residue detected in body
- --> app/routes/demo/page.loader.ts:3:3: \`while\`
-  |
-3 |   while (true) {
-  |   ^^^^^ a construct the IR language cannot represent
-  = note: bodies are pure deterministic data; no imperative runtimes in serving path.`
+                ? `routes/cart/page.loader.ts:4:3: \`while\`, a loop whose length the build cannot know
+  a body loops over data it already has: \`map\`, \`filter\`, \`reduce\`, \`find\` and \`for...of\``
                 : current.irCode}
             </code>
           </pre>

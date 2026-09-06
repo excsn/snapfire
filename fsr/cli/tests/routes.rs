@@ -144,9 +144,9 @@ fn a_loaders_store_export_lowers_beside_its_meta() {
 fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),
-    ("routes/index/page.tsx", "import { TipList } from \"../../src/Tips\";\nexport default function Page() {\n  return <div><TipList /></div>;\n}\n"),
-    ("routes/index/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load(ctx: Ctx<\"/\">) {\n  return { items: await ctx.services.ledger.list({}) };\n}\n"),
-    ("routes/index/actions.ts", "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Add } from \"../../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
+    ("routes/page.tsx", "import { TipList } from \"../src/Tips\";\nexport default function Page() {\n  return <div><TipList /></div>;\n}\n"),
+    ("routes/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load(ctx: Ctx<\"/\">) {\n  return { items: await ctx.services.ledger.list({}) };\n}\n"),
+    ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Add } from \"../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
     ("schemas/inputs.ts", "export interface Add {\n  n: number;\n}\n"),
     ("routes/api/ping/route.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function GET(ctx: Ctx) {\n  return { ok: true, locale: ctx.locale };\n}\n"),
     ("src/Tips.tsx", "import { money } from \"./money\";\nexport function TipList({ cents = 5 }: { cents?: number }) {\n  return <ul>{money(cents)}</ul>;\n}\n"),
@@ -162,8 +162,8 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
     "\"pattern\": \"/billing/api/ping\"",
     "\"module\": \"shell#document\"",
     "\"module\": \"billing:routes/layout.tsx#default\"",
-    "\"id\": \"billing:index\"",
-    "\"id\": \"billing:index.add\"",
+    "\"id\": \"billing:$root\"",
+    "\"id\": \"billing:$root.add\"",
     "\"id\": \"billing:api.ping.GET\"",
     "\"service\": \"billing:ledger\"",
     "\"module\": \"billing:src/Tips.tsx#TipList\"",
@@ -173,16 +173,16 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(built.contract.services.contains_key("billing:ledger") && built.contract.types.contains_key("billing:Invoice"), "{:?}", built.contract.services.keys().collect::<Vec<_>>());
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
   let islands = file("generated/islands.ts");
-  assert!(islands.contains("registerIsland(\"billing:routes/index/page.tsx#default\", { loader: () => import(\"../routes/index/page.js\")"), "{islands}");
+  assert!(islands.contains("registerIsland(\"billing:routes/page.tsx#default\", { loader: () => import(\"../routes/page.js\")"), "{islands}");
   let client = file("generated/client.ts");
-  assert!(client.contains("call(\"billing:index.add\")") && client.contains("  index: {"), "{client}");
+  assert!(client.contains("call(\"billing:$root.add\")") && client.contains("  $root: {"), "{client}");
   let declarations = file("generated/services.d.ts");
   assert!(declarations.contains("ledger") && !declarations.contains("billing:"), "the TypeScript surface keeps the unprefixed names: {declarations}");
   let fsr = file("generated/fsr.ts");
   assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
   let overlay = file(".fsr-bundle/src/Tips.tsx");
   assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.r(0, () => (money(cents)))"), "the reader keys under the prefixed module the host renders: {overlay}");
-  assert_eq!(built.report.hoisted, vec![("billing:routes/index/page.tsx#default".to_owned(), 0, 1), ("billing:src/Tips.tsx#TipList".to_owned(), 1, 1)], "the page's div around the pure TipList is a subtree of its own: {}", built.report);
+  assert_eq!(built.report.hoisted, vec![("billing:routes/page.tsx#default".to_owned(), 0, 1), ("billing:src/Tips.tsx#TipList".to_owned(), 1, 1)], "the page's div around the pure TipList is a subtree of its own: {}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

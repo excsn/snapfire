@@ -15,14 +15,28 @@ use swc_core::ecma::ast as js;
 use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 
 /// Why a body is not IR. `line` and `column` are one-based in the source file.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{file}:{line}:{column}: {message}")]
+/// `hint` names the rewrite that does the same thing in the IR, printed on a
+/// second indented line, per DX.md section 5.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Residue {
   pub file: String,
   pub line: usize,
   pub column: usize,
   pub message: String,
+  pub hint: Option<String>,
 }
+
+impl std::fmt::Display for Residue {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}:{}:{}: {}", self.file, self.line, self.column, self.message)?;
+    match &self.hint {
+      Some(hint) => write!(f, "\n  {hint}"),
+      None => Ok(()),
+    }
+  }
+}
+
+impl std::error::Error for Residue {}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LowerError {
@@ -330,7 +344,7 @@ impl Parsed {
 
   pub(crate) fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
     let loc = self.cm.lookup_char_pos(span.lo);
-    Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into() }
+    Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into(), hint: None }
   }
 
   /// The one-based line and column of a byte offset in the file's text.
@@ -549,6 +563,11 @@ impl<'a> Lowerer<'a> {
     self.parsed.residue(span, message)
   }
 
+  /// A residue that names the rewrite doing the same thing in the IR.
+  pub(crate) fn residue_with(&self, span: Span, message: impl Into<String>, hint: impl Into<String>) -> Residue {
+    Residue { hint: Some(hint.into()), ..self.parsed.residue(span, message) }
+  }
+
   /// The body's first parameter: `ctx` or a destructuring of it.
   fn bind_ctx(&mut self, first: Option<&js::Pat>) -> Lowered<()> {
     let Some(first) = first else { return Ok(()) };
@@ -657,7 +676,10 @@ impl<'a> Lowerer<'a> {
       },
       js::Stmt::Expr(expr_stmt) => self.effect(&expr_stmt.expr),
       js::Stmt::Block(block) => Err(self.residue(block.span, "a bare block")),
-      other => Err(self.residue(other.span(), describe_stmt(other))),
+      other => {
+        let (what, hint) = describe_stmt(other);
+        Err(self.residue_with(other.span(), what, hint))
+      }
     }
   }
 
@@ -887,7 +909,11 @@ impl<'a> Lowerer<'a> {
       )),
       js::Expr::Member(member) => self.member(member),
       js::Expr::Call(call) => self.call(call),
-      js::Expr::Arrow(arrow) => Err(self.residue(arrow.span, "a function value; lambdas go to `map`, `filter` and their kin")),
+      js::Expr::Arrow(arrow) => Err(self.residue_with(
+        arrow.span,
+        "a function value; lambdas go to `map`, `filter` and their kin",
+        "export helpers as bare functions rather than fields of an object, so each call site names one the build can follow",
+      )),
       js::Expr::OptChain(o) => match &*o.base {
         js::OptChainBase::Member(member) => self.member(member),
         js::OptChainBase::Call(call) => Err(self.residue(call.span, "an optional call")),
@@ -895,7 +921,10 @@ impl<'a> Lowerer<'a> {
       js::Expr::New(n) => Err(self.residue(n.span, "`new`")),
       js::Expr::Fn(f) => Err(self.residue(f.function.span, "a `function` expression")),
       js::Expr::Assign(a) => Err(self.residue(a.span, "an assignment inside an expression")),
-      other => Err(self.residue(other.span(), describe_expr(other))),
+      other => {
+        let (what, hint) = describe_expr(other);
+        Err(self.residue_with(other.span(), what, hint))
+      }
     }
   }
 
@@ -1096,7 +1125,11 @@ impl<'a> Lowerer<'a> {
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           _ => {
             self.unbound = Some(name.to_owned());
-            Err(self.residue(id.span, format!("a call to `{name}`, which the build cannot follow")))
+            Err(self.residue_with(
+              id.span,
+              format!("a call to `{name}`, which the build cannot follow"),
+              "the build reads a helper declared at module level, or imported from a file under the app; a bare package import is not followed, and neither is a name nothing declares",
+            ))
           }
         };
       }
@@ -1249,7 +1282,11 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Builtin { name, args })
       }
-      other => Err(self.residue(member.span, format!("`.{other}()`, which is not a builtin"))),
+      other => Err(self.residue_with(
+        member.span,
+        format!("`.{other}()`, which is not a builtin"),
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+      )),
     }
   }
 
@@ -1352,35 +1389,37 @@ fn prop_name(name: &js::PropName) -> Option<String> {
   }
 }
 
-fn describe_stmt(stmt: &js::Stmt) -> &'static str {
+/// What the construct is, and the rewrite that does the same thing in the IR.
+fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
   match stmt {
-    js::Stmt::Try(_) => "`try`",
-    js::Stmt::Throw(_) => "`throw`; use `fail(kind, message)`",
-    js::Stmt::While(_) | js::Stmt::DoWhile(_) => "`while`",
-    js::Stmt::For(_) | js::Stmt::ForIn(_) => "a `for` loop other than `for...of`",
-    js::Stmt::Switch(_) => "`switch`",
-    js::Stmt::Decl(js::Decl::Fn(_)) => "a nested function",
-    js::Stmt::Decl(js::Decl::Class(_)) => "a class",
-    js::Stmt::Decl(_) => "a declaration the build does not read",
-    js::Stmt::Break(_) | js::Stmt::Continue(_) => "`break` or `continue`",
-    js::Stmt::Labeled(_) => "a label",
-    js::Stmt::With(_) => "`with`",
-    js::Stmt::Debugger(_) => "`debugger`",
-    js::Stmt::Empty(_) => "an empty statement",
-    _ => "a statement outside the IR",
+    js::Stmt::Try(_) => ("`try`, and a body has no exceptions", "a service call that fails fails the body; `fail(kind, message)` is how a body stops on purpose"),
+    js::Stmt::Throw(_) => ("`throw`, and a body has no exceptions", "`fail(kind, message)` stops the body and the host maps the kind onto a status"),
+    js::Stmt::While(_) | js::Stmt::DoWhile(_) => ("`while`, a loop whose length the build cannot know", "a body loops over data it already has: `map`, `filter`, `reduce`, `find` and `for...of`"),
+    js::Stmt::For(_) | js::Stmt::ForIn(_) => ("a `for` loop other than `for...of`", "`for...of` over a list, or `map` and `filter`, which the interpreter runs directly"),
+    js::Stmt::Switch(_) => ("`switch`", "a chain of `if`, or a ternary when every arm is an expression"),
+    js::Stmt::Decl(js::Decl::Fn(_)) => ("a function declared inside a body", "declare it at module level and call it; the build follows a module-level helper"),
+    js::Stmt::Decl(js::Decl::Class(_)) => ("a class", "the value model has objects and lists; an object literal carries the same fields"),
+    js::Stmt::Decl(_) => ("a declaration the build does not read", "a body declares values with `const`"),
+    js::Stmt::Break(_) | js::Stmt::Continue(_) => ("`break` or `continue`", "`find` stops at the first match and `filter` selects, so neither needs to leave a loop early"),
+    js::Stmt::Labeled(_) => ("a label", "a body has no loops to jump out of; `find` and `filter` express the same intent"),
+    js::Stmt::With(_) => ("`with`", "read what the body needs from `ctx` by name"),
+    js::Stmt::Debugger(_) => ("`debugger`", "the body runs in Rust, where there is nothing to attach to; `fsr test` replays it instead"),
+    js::Stmt::Empty(_) => ("an empty statement", "remove the stray `;`"),
+    _ => ("a statement outside the IR", "the statements a body may use are `const`, `if`, `for...of`, `return`, `fail` and a session write"),
   }
 }
 
-fn describe_expr(expr: &js::Expr) -> &'static str {
+/// What the construct is, and the rewrite that does the same thing in the IR.
+fn describe_expr(expr: &js::Expr) -> (&'static str, &'static str) {
   match expr {
-    js::Expr::This(_) => "`this`",
-    js::Expr::Class(_) => "a class",
-    js::Expr::Seq(_) => "a comma expression",
-    js::Expr::Update(_) => "`++` or `--`",
-    js::Expr::Yield(_) => "`yield`",
-    js::Expr::TaggedTpl(_) => "a tagged template",
-    js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => "JSX",
-    js::Expr::MetaProp(_) => "`import.meta`",
-    _ => "an expression outside the IR",
+    js::Expr::This(_) => ("`this`, and a body has no receiver", "read what the body needs from `ctx`"),
+    js::Expr::Class(_) => ("a class", "the value model has objects and lists; an object literal carries the same fields"),
+    js::Expr::Seq(_) => ("a comma expression", "one expression per statement"),
+    js::Expr::Update(_) => ("`++` or `--`, which mutate", "a body's bindings do not change; bind the new value with `const n = n0 + 1`"),
+    js::Expr::Yield(_) => ("`yield`", "a body runs once and returns; there is no generator in the serving path"),
+    js::Expr::TaggedTpl(_) => ("a tagged template", "a plain template literal, or a module-level helper the build can follow"),
+    js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => ("JSX in a body", "a body returns data; the page it feeds is where the markup goes"),
+    js::Expr::MetaProp(_) => ("`import.meta`", "the build resolves every import, so nothing reads them while serving"),
+    _ => ("an expression outside the IR", "IR.md lists what a body may say"),
   }
 }

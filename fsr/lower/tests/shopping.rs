@@ -208,7 +208,8 @@ export async function load({ services }: Ctx) {
 "#;
   let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
   assert_eq!(r.line, 3);
-  assert_eq!(r.message, "`try`");
+  assert_eq!(r.message, "`try`, and a body has no exceptions");
+  assert!(r.hint.as_deref().is_some_and(|h| h.contains("`fail(kind, message)`")), "the residue names the rewrite: {:?}", r.hint);
 }
 
 #[test]

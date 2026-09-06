@@ -136,7 +136,7 @@ impl ComponentSet {
     for name in names {
       let expr = match self.global(file, &name)? {
         Some(expr) => expr,
-        None => return Err(LowerError::Extension(Residue { file: file.to_owned(), line: 1, column: 1, message: format!("`{name}` is not a value the build can follow") })),
+        None => return Err(LowerError::Extension(Residue { file: file.to_owned(), line: 1, column: 1, message: format!("`{name}` is not a value the build can follow"), hint: None })),
       };
       let kind = match &expr {
         Expr::Ext { module, name: member, args } if args.is_empty() => {
@@ -255,7 +255,7 @@ impl ComponentSet {
     };
     let mut modules: HashMap<String, String> = HashMap::new();
     for (name, (line, column)) in refs {
-      let module = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message })?;
+      let module = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None })?;
       self.lower(&module)?;
       modules.insert(format!("{file}#{name}"), module);
     }
