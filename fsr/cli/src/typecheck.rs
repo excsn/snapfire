@@ -134,6 +134,9 @@ pub fn spawn(app: &Path, options: &Typecheck) -> Result<Option<Child>, BuildErro
     return Ok(None);
   }
   let checker = find_checker(options.checker.as_deref());
+  if matches!(crate::install::ensure(&crate::install::CHECKER, &checker)?, crate::install::Ready::Skipped) {
+    return Ok(None);
+  }
   let mut command = Command::new(&checker);
   command.arg("--root").arg(app).args(["--config", "tsconfig.json", "--format", "json"]);
   if let Some(tsc) = &options.tsc {

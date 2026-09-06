@@ -17,13 +17,8 @@ fn usage() -> ExitCode {
 }
 
 /// The typecheck rows of a report, and the exit code the diagnostics call for.
-fn types_row(checked: Option<&typecheck::Checked>, enabled: bool) -> ExitCode {
-  let Some(checked) = checked else {
-    if enabled {
-      eprintln!("note      types are not checked: no `{}` beside fsr or on PATH", typecheck::CHECKER);
-    }
-    return ExitCode::SUCCESS;
-  };
+fn types_row(checked: Option<&typecheck::Checked>) -> ExitCode {
+  let Some(checked) = checked else { return ExitCode::SUCCESS };
   for diagnostic in &checked.diagnostics {
     println!("{diagnostic}");
   }
@@ -232,7 +227,7 @@ fn main() -> ExitCode {
         Ok(built) => {
           print!("{}", built.report);
           match typecheck::run(&app, &typecheck) {
-            Ok(checked) => types_row(checked.as_ref(), typecheck.enabled),
+            Ok(checked) => types_row(checked.as_ref()),
             Err(e) => {
               eprintln!("{e}");
               return ExitCode::from(1);
@@ -264,14 +259,13 @@ fn main() -> ExitCode {
           _ => return usage(),
         }
       }
-      let checking = options.typecheck.enabled;
       match emit(&app, options) {
         Ok(emitted) => {
           print!("{}", emitted.built.report);
           for path in emitted.written {
             println!("wrote {}", path.display());
           }
-          types_row(emitted.checked.as_ref(), checking)
+          types_row(emitted.checked.as_ref())
         }
         Err(e) => {
           eprintln!("{e}");

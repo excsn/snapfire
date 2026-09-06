@@ -11,6 +11,7 @@ pub mod spec;
 pub mod infer;
 pub mod test;
 pub mod bundle;
+pub mod install;
 pub mod typecheck;
 pub mod types;
 pub mod vendor;
@@ -79,6 +80,8 @@ pub enum BuildError {
   Types(String),
   #[error("bundle: {0}")]
   Bundle(String),
+  #[error("{0}")]
+  Tool(String),
   #[error("typecheck: {0}")]
   Typecheck(String),
   #[error("{0}")]

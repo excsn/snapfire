@@ -91,6 +91,7 @@ impl Project {
   }
 
   fn bundle(&self) -> Result<(), BuildError> {
+    crate::install::ensure(&crate::install::COMPILER, &self.snapfirec)?;
     let mut command = Command::new(&self.snapfirec);
     command
       .arg("--root")
