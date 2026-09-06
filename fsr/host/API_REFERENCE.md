@@ -94,6 +94,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `prerender: Option<String>`: the directory, relative to the app, that `prerender` writes and the host reads; absent by default.
 * `dev: Option<bool>`: whether the document carries the live-refresh script and the host answers `/__fsr/events` and `/__fsr/changed`; absent, it follows `RELEASE_ENV`.
 * `max_body: usize` (default 1048576): the most bytes a request body may carry. `serve` stops reading a larger body and answers 413 with a text naming the key; `handle` answers the same for a body handed to it whole, before a session is opened.
+* `http2: bool` (default false): whether a served connection negotiates HTTP/2 as well as HTTP/1.1. The listener carries no TLS and so no ALPN, which makes this h2c: a client opening with the HTTP/2 preface is served and a browser, which speaks HTTP/2 only over TLS, is not. `HostBuilder::http2` overrides it for a host built in Rust. Nothing else changes: the same `Host::handle` answers both versions.
 
 ### DocumentConfig
 
@@ -172,6 +173,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `services_over(self, transport: Arc<dyn Transport>) -> Self`: every client's calls go to this transport; the contract still comes from the documents.
 * `services(self, services: Arc<Services>) -> Self`: a registry built elsewhere, in place of the clients.
 * `session_store(self, store: Arc<dyn SessionStore>) -> Self`.
+* `http2(self, on: bool) -> Self`: negotiates HTTP/2 as well as HTTP/1.1 on a served connection, over `server.http2`.
 * `shell(self, evaluator: Arc<dyn Evaluator>) -> Self`.
 * `prerendered(self, dir: impl Into<PathBuf>) -> Self`: where prerendered documents are read from, over `server.prerender`.
 * `meta(self, name: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`: describes the segment whose data source is `name` once its data has loaded, the `AppBuilder` method of the same name.
@@ -272,6 +274,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 * `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
 * `dev: bool`: `Display` prints one `dev` row naming the two paths when true.
+* `http2: bool`: `Display` prints one `http2` row when true, saying it is h2c and that a browser wants ALPN over TLS.
 * `locales: Vec<String>`: the configured locales, the default first, empty without a `[locales]` section; `Display` prints one `locales` row, `en_US (default, unprefixed), fr_FR`, when set.
 * `auth: Option<(String, String)>`: the provider name (`file`, `service via <client>`, else `custom` for one the builder was handed) and the login page; `Display` prints one `auth` row naming both and the three routes, plus `bearer    none; no client carries a token` when `bearer` is empty.
 * `bearer: Vec<(String, String)>`: client and custody key for every client whose `bearer` names one; `Display` prints a `bearer` row per client.
@@ -304,8 +307,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### hyper
 
-* `Host::serve(self: Arc<Self>, listen: &str) -> std::io::Result<()>` binds and serves HTTP/1 until the listener fails.
-* `Host::serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()>`.
+* `Host::serve(self: Arc<Self>, listen: &str) -> std::io::Result<()>` binds and serves until the listener fails: HTTP/1.1, or HTTP/1.1 and h2c when `server.http2` is on.
+* `Host::serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()>`. Each connection is served by `hyper::server::conn::http1`, or by `hyper_util::server::conn::auto` when `http2` is on, which reads the connection preface and answers either version.
 
 ### actix
 

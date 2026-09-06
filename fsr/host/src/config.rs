@@ -134,11 +134,16 @@ pub struct ServerConfig {
   /// `RELEASE_ENV`: on when that is `development`, its default.
   #[serde(default)]
   pub dev: Option<bool>,
+  /// Whether `serve` negotiates HTTP/2 on the connection as well as HTTP/1.1.
+  /// The listener carries no TLS, so this is h2c: a client that opens with the
+  /// HTTP/2 preface is served, and a browser, which wants ALPN over TLS, is not.
+  #[serde(default)]
+  pub http2: bool,
 }
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), max_body: default_max_body(), prerender: None, dev: None }
+    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), max_body: default_max_body(), prerender: None, dev: None, http2: false }
   }
 }
 

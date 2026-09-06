@@ -165,6 +165,8 @@ pub enum RenderMode {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostReport {
   pub app: Report,
+  /// Whether a served connection negotiates HTTP/2 as well as HTTP/1.1.
+  pub http2: bool,
   /// Service, `http`, `grpc` or `mock`, base URL or responses file.
   pub services: Vec<(String, String, String)>,
   /// The client the sessions live behind, when the store is `service`.
@@ -257,6 +259,9 @@ impl std::fmt::Display for HostReport {
     if self.dev {
       writeln!(f, "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed", "dev")?;
     }
+    if self.http2 {
+      writeln!(f, "{:<9} h2c beside http/1.1; a browser wants alpn over tls, which a proxy in front terminates", "http2")?;
+    }
     if let Some((default, others)) = self.locales.split_first() {
       let rest = if others.is_empty() { String::new() } else { format!(", {}", others.join(", ")) };
       writeln!(f, "{:<9} {default} (default, unprefixed){rest}", "locales")?;
@@ -300,6 +305,9 @@ pub struct Host {
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
   max_body: usize,
+  /// Whether `serve_listener` negotiates HTTP/2 as well as HTTP/1.1 on a
+  /// connection, `server.http2`.
+  http2: bool,
   /// The `[session]` settings the running `Sessions` were built from; a
   /// reload whose settings differ is refused, since the store outlives it.
   session_shape: String,
@@ -441,6 +449,8 @@ pub struct HostBuilder {
   identity: Option<Arc<dyn IdentityProvider>>,
   reloader: Option<Reloader>,
   mounts: Vec<Mount>,
+  /// Overrides `server.http2` for a host built in Rust.
+  http2: Option<bool>,
   pending: Option<HostError>,
 }
 
@@ -516,6 +526,7 @@ impl Host {
       identity: None,
       reloader: None,
       mounts: Vec::new(),
+      http2: None,
       pending: None,
     })
   }
@@ -1372,6 +1383,7 @@ impl Host {
     loop {
       let (stream, _) = listener.accept().await?;
       let host = self.clone();
+      let http2 = self.http2;
       tokio::spawn(async move {
         let io = hyper_util::rt::TokioIo::new(stream);
         let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
@@ -1386,7 +1398,16 @@ impl Host {
             Ok::<_, Infallible>(host.handle(Request::from_parts(parts, bytes)).await)
           }
         });
-        if let Err(e) = hyper::server::conn::http1::Builder::new().serve_connection(io, service).await {
+        let ended = if http2 {
+          hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+            .serve_connection(io, service)
+            .await
+            .err()
+            .map(|e| e.to_string())
+        } else {
+          hyper::server::conn::http1::Builder::new().serve_connection(io, service).await.err().map(|e| e.to_string())
+        };
+        if let Some(e) = ended {
           tracing::debug!(target: "fsr::host", error = %e, "connection ended");
         }
       });
@@ -1795,6 +1816,13 @@ impl HostBuilder {
     self
   }
 
+  /// Negotiates HTTP/2 as well as HTTP/1.1 on a served connection, which
+  /// `server.http2` also sets. The listener carries no TLS, so this is h2c.
+  pub fn http2(mut self, on: bool) -> Self {
+    self.http2 = Some(on);
+    self
+  }
+
   /// The identity provider behind `/auth/login`, `/auth/callback` and
   /// `/auth/logout`, in place of the one `[auth]` names. The login page is
   /// `auth.login` when the section is written, `/login` otherwise.
@@ -1961,6 +1989,7 @@ impl HostBuilder {
   pub fn build(mut self) -> Result<Host, HostError> {
     let reloader = self.reloader.take();
     let store = self.store.take();
+    let http2 = self.http2;
     let (tables, config) = self.assemble()?;
     let ttl = config.session_ttl()?;
     let store: Arc<dyn SessionStore> = match store {
@@ -1988,6 +2017,7 @@ impl HostBuilder {
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
       max_body: config.server.max_body,
+      http2: http2.unwrap_or(config.server.http2),
       report_listen: config.server.listen,
     })
   }
@@ -2202,6 +2232,7 @@ impl HostBuilder {
     let auth = auth.map(|(mounted, _)| mounted);
     let report = HostReport {
       app: app.report.clone(),
+      http2: self.http2.unwrap_or(config.server.http2),
       services: service_rows,
       session: (config.session.store == "service").then(|| config.session.client.clone().unwrap_or_default()),
       cached: app
