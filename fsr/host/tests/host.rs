@@ -209,6 +209,59 @@ async fn hyper_serves_the_same_edge() {
   assert!(response.contains("hi hyper via tcp"), "{response}");
 }
 
+/// One request over a prior-knowledge HTTP/2 connection, since the listener
+/// carries no TLS and so no ALPN.
+async fn over_h2(addr: std::net::SocketAddr, path: &str) -> Result<(http::Version, String), Box<dyn std::error::Error + Send + Sync>> {
+  let io = hyper_util::rt::TokioIo::new(tokio::net::TcpStream::connect(addr).await?);
+  let (mut sender, conn) = hyper::client::conn::http2::handshake(hyper_util::rt::TokioExecutor::new(), io).await?;
+  tokio::spawn(conn);
+  let request = Request::get(path).header(header::HOST, "localhost").body(http_body_util::Empty::<Bytes>::new())?;
+  let response = sender.send_request(request).await?;
+  let version = response.version();
+  let body = response.into_body().collect().await?.to_bytes();
+  Ok((version, String::from_utf8_lossy(&body).into_owned()))
+}
+
+#[tokio::test]
+async fn http2_is_off_until_the_configuration_asks_for_it() {
+  let (host, _) = host();
+  assert!(!host.report().http2, "the default is http/1.1 alone");
+  assert!(!host.report().to_string().contains("h2c"), "{}", host.report());
+
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(host.clone().serve_listener(listener));
+
+  let attempt = tokio::time::timeout(std::time::Duration::from_secs(5), over_h2(addr, "/hello/h2?from=two")).await;
+  assert!(matches!(attempt, Ok(Err(_))), "an http/1.1 listener refuses the preface rather than answering it");
+}
+
+#[tokio::test]
+async fn http2_serves_a_prior_knowledge_client_beside_http1() {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Arc::new(Host::from(app_dir().join("app.toml")).unwrap().services_over(transport).http2(true).build().unwrap());
+  assert!(host.report().http2);
+  assert!(host.report().to_string().contains("h2c beside http/1.1"), "{}", host.report());
+
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(host.clone().serve_listener(listener));
+
+  let (version, body) = tokio::time::timeout(std::time::Duration::from_secs(5), over_h2(addr, "/hello/h2?from=two")).await.unwrap().unwrap();
+  assert_eq!(version, http::Version::HTTP_2);
+  assert!(body.contains("hi h2 via two"), "{body}");
+
+  let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+  stream
+    .write_all(b"GET /hello/one?from=tcp HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    .await
+    .unwrap();
+  let mut response = String::new();
+  stream.read_to_string(&mut response).await.unwrap();
+  assert!(response.starts_with("HTTP/1.1 200 OK"), "the same listener still answers http/1.1: {response}");
+  assert!(response.contains("hi one via tcp"), "{response}");
+}
+
 #[tokio::test]
 async fn the_tower_service_answers_like_the_edge() {
   use tower::ServiceExt;
