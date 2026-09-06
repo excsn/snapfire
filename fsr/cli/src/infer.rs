@@ -16,6 +16,10 @@ pub enum Ts {
   Null,
   Unknown,
   Named(String),
+  /// A TypeScript type expression written as-is, which indexing and field
+  /// access extend rather than resolve: the app's own declared type, kept
+  /// instead of re-derived from the values a constant happens to hold.
+  TsExpr(String),
   List(Box<Ts>),
   Map(Box<Ts>),
   Tuple(Vec<Ts>),
@@ -37,6 +41,7 @@ impl Ts {
       Ts::Null => "null".into(),
       Ts::Unknown => "unknown".into(),
       Ts::Named(n) => n.clone(),
+      Ts::TsExpr(t) => t.clone(),
       Ts::List(inner) => {
         let s = inner.print(flavour);
         if s.contains('|') || s.contains('&') { format!("({s})[]") } else { format!("{s}[]") }
@@ -173,6 +178,7 @@ impl<'a> Inferer<'a> {
           .unwrap_or(Ts::Unknown),
         _ => Ts::Unknown,
       },
+      Ts::TsExpr(t) => Ts::TsExpr(format!("{t}[\"{name}\"]")),
       Ts::Record(fields) => fields.iter().find(|(k, _)| k == name).map(|(_, t)| t.clone()).unwrap_or(Ts::Unknown),
       Ts::Inter(parts) => parts.iter().map(|p| self.field_of(p, name)).find(|t| *t != Ts::Unknown).unwrap_or(Ts::Unknown),
       Ts::Union(arms) => union(arms.iter().map(|a| if *a == Ts::Null { Ts::Null } else { self.field_of(a, name) }).collect()),
@@ -182,7 +188,10 @@ impl<'a> Inferer<'a> {
 
   pub fn expr(&self, expr: &Expr, env: &[(String, Ts)]) -> Ts {
     match expr {
-      Expr::Const(key) => self.consts.get(key).map(|held| self.expr(held, env)).unwrap_or(Ts::Unknown),
+      Expr::Const(key) => match const_binding(key) {
+        Some(binding) => Ts::TsExpr(binding),
+        None => self.consts.get(key).map(|held| self.expr(held, env)).unwrap_or(Ts::Unknown),
+      },
       Expr::Param(_) | Expr::Query(_) => Ts::Str,
       Expr::Session(key) => match self.session {
         Some(name) => self.field_of(&Ts::Named(name.to_owned()), key),
@@ -315,10 +324,26 @@ impl<'a> Inferer<'a> {
   }
 }
 
+/// `src/docs/guide.ts#CHAPTERS` as the type of that export, written against
+/// `generated/`, where the module this describes is emitted. A key naming
+/// anything but a file and an export types structurally instead.
+fn const_binding(key: &str) -> Option<String> {
+  let (file, name) = key.rsplit_once('#')?;
+  if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+    return None;
+  }
+  let module = file.strip_suffix(".tsx").or_else(|| file.strip_suffix(".ts")).unwrap_or(file);
+  if module.is_empty() || module.contains('"') {
+    return None;
+  }
+  Some(format!("(typeof import(\"../{module}\"))[\"{name}\"]"))
+}
+
 fn indexed(t: Ts) -> Ts {
   match t {
     Ts::Map(v) => *v,
     Ts::List(e) => *e,
+    Ts::TsExpr(t) => Ts::TsExpr(format!("{t}[number]")),
     Ts::Union(arms) => union(arms.into_iter().map(indexed).collect()),
     _ => Ts::Unknown,
   }
@@ -327,6 +352,7 @@ fn indexed(t: Ts) -> Ts {
 fn element(t: Ts) -> Ts {
   match non_null(t) {
     Ts::List(e) => *e,
+    Ts::TsExpr(t) => Ts::TsExpr(format!("{t}[number]")),
     _ => Ts::Unknown,
   }
 }
