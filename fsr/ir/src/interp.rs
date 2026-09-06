@@ -87,6 +87,9 @@ impl Interpreter {
     let mut env = Env {
       ctx: ctx.clone(),
       store: ValueMap::new(),
+      hoists: None,
+      state: None,
+      server_mode: false,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::new();
@@ -148,6 +151,62 @@ pub(crate) struct Env {
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
   clock: Arc<dyn Clock>,
+  /// Where a render records hoisted values; `None` in a body, which hoists nothing.
+  pub(crate) hoists: Option<Hoists>,
+  /// Values that stand in for a component's state `let`s, when an island in
+  /// server mode renders after a handler ran.
+  pub(crate) state: Option<ValueMap>,
+  /// Rendering an island in server mode: handler markers print as attributes
+  /// the browser binds, which a browser-mode render must never show React.
+  pub(crate) server_mode: bool,
+}
+
+/// The hoisted values of one island: keyed by the module, the hoist id and
+/// the indices of the loops enclosing it, `module|id@i.j`. A key recorded
+/// twice with different values is dead: the browser computes it instead.
+#[derive(Debug, Default, Clone)]
+pub struct Hoists {
+  pub module: String,
+  pub path: Vec<usize>,
+  pub table: ValueMap,
+  dead: Vec<String>,
+}
+
+impl Hoists {
+  pub fn new(module: impl Into<String>) -> Self {
+    Self { module: module.into(), path: Vec::new(), table: ValueMap::new(), dead: Vec::new() }
+  }
+
+  pub fn key(&self, id: u32) -> String {
+    let mut key = format!("{}|{id}", self.module);
+    if !self.path.is_empty() {
+      key.push('@');
+      for (i, index) in self.path.iter().enumerate() {
+        if i > 0 {
+          key.push('.');
+        }
+        key.push_str(&index.to_string());
+      }
+    }
+    key
+  }
+
+  pub fn record(&mut self, id: u32, value: &Value) {
+    let key = self.key(id);
+    if self.dead.contains(&key) {
+      return;
+    }
+    match self.table.get(&key) {
+      Some(existing) if existing == value => {}
+      Some(_) => {
+        self.table.shift_remove(&key);
+        self.dead.push(key);
+      }
+      None => {
+        self.table.insert(key, value.clone());
+      }
+    }
+  }
 }
 
 impl Env {
@@ -163,6 +222,9 @@ impl Env {
       scope,
       store: ValueMap::new(),
       clock,
+      hoists: None,
+      state: None,
+      server_mode: false,
     }
   }
 
@@ -252,6 +314,9 @@ impl Env {
       scope: self.scope.clone(),
       store: self.store.clone(),
       clock: self.clock.clone(),
+      hoists: None,
+      state: None,
+      server_mode: false,
     }
   }
 
@@ -423,6 +488,13 @@ impl Env {
       }
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
       Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+      Expr::Hoist { id, expr } => {
+        let value = self.eval_sync(expr)?;
+        if let Some(hoists) = &mut self.hoists {
+          hoists.record(*id, &value);
+        }
+        Ok(value)
+      }
       Expr::Apply { f, args } => {
         let mut values = Vec::with_capacity(args.len());
         for arg in args {
@@ -686,6 +758,7 @@ impl Env {
           self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
         Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+        Expr::Hoist { expr, .. } => self.eval(expr).await,
         Expr::Apply { f, args } => {
           let mut values = Vec::with_capacity(args.len());
           for arg in args {

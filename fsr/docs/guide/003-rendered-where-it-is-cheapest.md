@@ -36,6 +36,21 @@ The document is the shell: the head with its stylesheets and import map, then ea
 
 Navigation between routes fetches the same tree in its wire form rather than as HTML. Each segment of the page carries a key; the client walks the old and new trees together, replacing only the region whose key changed, so a layout's DOM and its island state survive a click. An action that succeeds re-fetches the current route by default, which is how the storefront's header badge follows the cart without anyone wiring it.
 
+## What the browser does not compute twice
+
+Hydration is React running the page again to find out where its handlers go, and every helper on the render path runs with it: `money`, `percentOff`, `categoryLabel`, once in Rust for the markup and once in the browser for a tree React then discards. The two have to agree byte for byte, and the browser paid for an answer the server already had.
+
+So the server ships the answers. A call whose inputs are props only, nothing that reaches a `useState`, a store key or the request, is computed once in Rust and delivered beside the props under `$h`, keyed by the module, the call and the loop it sits in. The build writes a copy of the component for the bundle in which that call reads the delivered value and keeps the original as its fallback, and snapfirec compiles the copy in place of the source. A whole subtree goes the same way when nothing in it can change in the browser, no handler, no state, no island: the server records its markup and the browser hands it to React as the element's inner HTML, so React renders nothing inside it and hydrates nothing inside it. The catalog's product cards are such subtrees. What is left for React to compute at hydration is what can actually change in the browser, and the report counts the rest:
+
+```
+hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees
+          src/ui/Stars.tsx#Stars             1 value, 1 subtree
+```
+
+None of this is written by the author or switched on. It is what the build does to every component it could read, and the source, the editor and `fsr check` never see the copy.
+
+An island can go one step further and have no browser half at all: placed in server mode, its events are sent to the server, Rust runs the handler and renders the island again, and the browser patches the markup it gets back into place. [Chapter 102](102-components-the-server-renders.md) shows both.
+
 ## Where this leaves an engine
 
 Components that read state the server cannot see, that suspend, that reach into libraries the build cannot follow, are residue. Today they render in the browser only. An engine that runs residue components on the server is the remaining piece and it is a deliberate open question, because the cost of an engine is paid per component per request and most of a storefront never needs it: the eight modules in the example lower after one helper was rewritten to avoid `new URLSearchParams`. When one arrives, a residue component will render on the server through it and the report will say so.
@@ -45,5 +60,7 @@ The invariant this design keeps, whatever the engine decision, is that data reso
 ## The lab
 
 Load the catalog and view the source. The product cards are there in the HTML, inside an element that names `routes/index/page.tsx#default` and is followed by the props as JSON. Open the console: no errors; clicking "Add to cart" moves the badge, so React attached its handlers over the Rust output.
+
+Look at the props script that follows the catalog's island. Beside the products it carries `"$h"`, a table whose keys name `ProductCard` and `Stars` with an id and a loop index, and whose values are the prices and the star strings the cards show, plus the inner markup of each card. That is what React read at hydration instead of calling `money` and `Math.round` for every card.
 
 Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. Every page that imports `Stars` is now marked `client`, each with the same line in `Stars.tsx` that decided it. The pages still load and still work; view the source again and the cards are gone from the HTML, present only as props. Put `Math.round` back.

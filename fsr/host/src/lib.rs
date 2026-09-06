@@ -26,7 +26,7 @@ use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
 use snapfire_fsr_plan::{renumber, Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner};
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
-use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode, Value, ValueMap};
+use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap};
 use snapfire_fsr_runtime::{
   assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator, FailureKind,
   FibreCache, Head, LoadError, Locale, Matcher, Metadata, RequestCtx, Resolver, SessionCell,
@@ -488,6 +488,12 @@ impl Host {
   /// The current tables, taken once per request.
   fn tables(&self) -> Arc<Tables> {
     self.live.read().clone()
+  }
+
+  /// The lowered components and their interpreter, for stepping an island in
+  /// server mode outside a request; `None` when nothing was lowered.
+  pub fn lowered(&self) -> Option<Arc<snapfire_fsr_ir::IrEvaluator>> {
+    self.tables().app.lowered.clone()
   }
 
   /// The locales the host serves and how it resolves a request's.
@@ -1042,6 +1048,12 @@ impl Host {
 
   async fn respond(&self, t: &Tables, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, path: String, target: String, raw_query: &str, visit: &Resolution) -> Response<Body> {
     if req.method() == Method::POST {
+      if let Some(module) = path.strip_prefix("/_sf/island/").map(percent_decoded) {
+        let (status, json) = island_step(t.app.lowered.as_deref(), &module, req.body(), &visit.locale.tag);
+        let mut response = json_response(status, &json);
+        self.set_cookie(opened, &mut response).await;
+        return response;
+      }
       if let Some(id) = path.strip_prefix("/_sf/action/").map(percent_decoded) {
         let id = id.as_str();
         let is_form = req.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
@@ -1507,6 +1519,58 @@ fn shares_layouts(intercept: &PlanNode, from: &PlanNode) -> bool {
   match (next, from_next) {
     (Some((_, a)), Some((_, b))) => shares_layouts(a, b),
     _ => false,
+  }
+}
+
+/// One round trip of an island in server mode: the body is `{ props, state,
+/// handler, event }`; `handler` is the index of the handler that fired or
+/// null to render as is. Answers `{ state, html }`: the state after the
+/// handler and the island's markup rendered from it, with handler markers.
+pub fn island_step(lowered: Option<&snapfire_fsr_ir::IrEvaluator>, module: &str, body: &[u8], locale: &str) -> (StatusCode, serde_json::Value) {
+  let Some(evaluator) = lowered else {
+    return (StatusCode::NOT_FOUND, serde_json::json!({ "kind": "not_found", "message": "no lowered component" }));
+  };
+  let components = evaluator.components();
+  let Some(component) = components.get(module).cloned() else {
+    return (StatusCode::NOT_FOUND, serde_json::json!({ "kind": "not_found", "message": format!("`{module}` is not a lowered component") }));
+  };
+  let input = match serde_json::from_slice::<serde_json::Value>(body).map_err(|e| e.to_string()).and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string())) {
+    Ok(Value::Map(map)) => map,
+    Ok(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "an island step is an object" })),
+    Err(e) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": format!("invalid island step: {e}") })),
+  };
+  let mut props = match input.get("props") {
+    Some(Value::Map(map)) => map.clone(),
+    None | Some(Value::Null) => ValueMap::new(),
+    Some(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "props must be an object" })),
+  };
+  let state = match input.get("state") {
+    Some(Value::Map(map)) => map.clone(),
+    None | Some(Value::Null) => ValueMap::new(),
+    Some(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "state must be an object" })),
+  };
+  if let Some(unknown) = state.keys().find(|k| !component.state.contains(k)) {
+    return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }));
+  }
+  let handler = match input.get("handler") {
+    None | Some(Value::Null) => None,
+    Some(Value::Int(i)) if *i >= 0 => Some(*i as usize),
+    Some(Value::F64(f)) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
+    Some(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "handler must be an index" })),
+  };
+  if handler.is_some_and(|h| h >= component.handlers.len()) {
+    return (StatusCode::NOT_FOUND, serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", handler.unwrap_or(0)) }));
+  }
+  let event = input.get("event").cloned().unwrap_or(Value::Null);
+  if !locale.is_empty() {
+    props.entry("locale".to_owned()).or_insert_with(|| Value::Str(locale.to_owned()));
+  }
+  match evaluator.interpreter().island_step(module, &component, &props, &state, handler, &event, &components) {
+    Ok(stepped) => {
+      let html = snapfire_fsr_payload::html_serialize(&Node::Seq(snapfire_fsr_ir::rendered_nodes(&stepped.rendered)));
+      (StatusCode::OK, serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(stepped.state)), "html": html }))
+    }
+    Err(fail) => (StatusCode::from_u16(fail.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
   }
 }
 

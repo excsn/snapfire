@@ -88,10 +88,15 @@ impl Project {
   }
 
   fn bundle(&self) -> Result<(), BuildError> {
-    let status = Command::new(&self.snapfirec)
+    let mut command = Command::new(&self.snapfirec);
+    command
       .arg("--root")
       .arg(&self.app)
-      .args(["--config", "tsconfig.build.json", "--source-map", "--public-path", &self.options.public_path, "--import-map", &self.layout.importmap])
+      .args(["--config", "tsconfig.build.json", "--source-map", "--public-path", &self.options.public_path, "--import-map", &self.layout.importmap]);
+    if self.app.join(BUNDLE_OVERLAY).is_dir() {
+      command.args(["--overlay", BUNDLE_OVERLAY]);
+    }
+    let status = command
       .status()
       .map_err(|e| BuildError::Dev(format!("{}: {e}; pass --snapfirec or put it on PATH", self.snapfirec.display())))?;
     if !status.success() {
@@ -245,6 +250,10 @@ pub struct Emitted {
 /// browser bundle. `build` and `write` alone leave `dist/` at whatever the
 /// last bundle wrote, which a host cannot tell from a current one, so this
 /// is what a build script and `fsr build` call.
+/// The directory under the app holding the sources the build rewrote for the
+/// browser, read by snapfirec in place of the originals at the same path.
+pub const BUNDLE_OVERLAY: &str = ".fsr-bundle";
+
 pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
   let project = Project::open(app, options)?;
   let built = build(&project.app, &project.options.build)?;

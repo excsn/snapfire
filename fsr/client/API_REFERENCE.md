@@ -343,7 +343,31 @@ What the server writes and this package reads.
 | `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
 | `<sf-s data-sf-name="…">` | a layout's markup, around a named slot: a parallel segment or the region an intercept opens in, empty when nothing fills it | `Slot` and `reactMounter`, which adopt it; `navigate`, which fills and empties it |
 | `<sf-s data-sf-island data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which adopts it; `scan`, which reads the timing |
+| `<sf-s data-sf-island data-sf-mode="server">` | the same region for an island in server mode | `scan`, which mounts the `sf-i` inside through `mountServer` and never through the registry |
+| `data-sf-on="click:0 change:1"` | the renderer, on an element of a server-mode island that binds handlers | `mountServer`, which delegates those event types on the island |
+| `data-sf-key` | the renderer, from an element's `key`, in server mode only | `morph`, which moves a keyed element rather than recreating it |
+| `data-sf-pending` | `mountServer`, on the island while a round trip is out | the application's styles |
+| `$s` in the props script | the renderer, the initial values of a server-mode island's state | `mountServer` |
+| `$h` in the props script | the renderer, the island's hoisted values | `reactMounter`, which lifts it into `useHoisted`'s context |
 | `<script type="application/json" data-sf-segments>` | streamed HTML response | `enableNavigation` |
+
+### mountServer
+
+* `function mountServer(el: Element, module: string, props: Props): void`
+
+Mounts `el` as an island in server mode: keeps `props` less `$s`, which is the state, and listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
+
+### isServerIsland
+
+* `function isServerIsland(el: Element): boolean`
+
+True when `mountServer` mounted `el`. `patchIsland` on such an element gives it the new props and renders it again on the server from them and the state it holds.
+
+### morph
+
+* `function morph(el: Element, html: string): void`
+
+Patches `el`'s children to match `html`: a text or comment node by content, an element by tag and position or by `data-sf-key`, attributes by name, with the nodes it can keep kept. A form control that has focus keeps its value; one that does not takes the server's. An `sf-i` inside is matched but never entered.
 
 ## 6. Navigation
 
@@ -542,7 +566,21 @@ Its own entry point, so the core package never imports React.
 
 * `const reactMounter: Mounter`
 
-Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root.
+Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root. A `$h` entry in `props` is the island's hoisted table: it is lifted out before the component sees its props and provided through `withHoisted`.
+
+### useHoisted
+
+* `function useHoisted(module: string): HoistReader`
+* `interface HoistReader { r<T>(id: number, compute: () => T): T; l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R; c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement }`
+* `type Hoisted = { readonly [key: string]: unknown }`
+
+The reader the build binds at the top of every component it rewrote, keyed under `module`. `r` returns the table's value for `<module>|<id>`, or `<module>|<id>@<i>.<j>` inside loops, and calls `compute` when the table has no such key or there is no table. `l` wraps a JSX `.map` callback: while it runs, its index argument is on the loop path, and the element it returns is placed under a provider carrying that path with the element's own `key`, so a component it renders keys its hoists below the iteration that placed it. The path starts from the enclosing provider's, so it continues through nested components. `c` is a static subtree: when the table holds a string under the key, `hit` renders the element with that markup as its inner HTML, which React neither renders nor hydrates inside; otherwise `miss` renders the original JSX.
+
+### withHoisted
+
+* `function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement`
+
+`element` under `table`, the way the mounter places an island under the table its props carried. `null` makes every read compute. The testing module's `render` uses it with the table the server render produced.
 
 The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, in document order, which each `Island` rendered under this root takes in turn. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
 

@@ -1,4 +1,4 @@
-import { createContext, createElement, useCallback, useContext, useState, useSyncExternalStore, type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { createContext, createElement, useCallback, useContext, useMemo, useState, useSyncExternalStore, type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { MountTiming, Mounter, Patcher } from "./boot.js";
@@ -149,12 +149,91 @@ export function Link({ full, into, prefetch, native, ...rest }: LinkProps): Reac
   return createElement("a", attrs);
 }
 
+/** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
+export type Hoisted = { readonly [key: string]: unknown };
+
+const HoistContext = createContext<Hoisted | null>(null);
+
+/** The props key an island's hoisted values arrive under, lifted out before the component sees its props. */
+const HOISTED_PROP = "$h";
+
+/** The reader the build binds at the top of a component it rewrote: `r` in place of a render-path call whose inputs are props only, so hydration reads what the server rendered instead of computing it again; `l` around each JSX `.map` callback, so a read inside it knows its iteration. */
+export interface HoistReader {
+  /** The server's value for hoist `id` at the current loop indices, or `compute()` when it recorded none. */
+  r<T>(id: number, compute: () => T): T;
+  /** `f` with its index argument pushed onto the loop path while it runs. */
+  l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R;
+  /** The element for a static subtree: `hit` with the server's inner markup for chunk `id` when the table holds it, else `miss`, the original JSX. */
+  c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement;
+}
+
+/** The loop indices a component was rendered under by its callers, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
+const PathContext = createContext<readonly number[]>([]);
+
+/** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops, the callers' loops first. */
+export function useHoisted(module: string): HoistReader {
+  const table = useContext(HoistContext);
+  const base = useContext(PathContext);
+  return useMemo(() => {
+    const path: number[] = [...base];
+    const key = (id: number): string => (path.length === 0 ? `${module}|${id}` : `${module}|${id}@${path.join(".")}`);
+    return {
+      r<T>(id: number, compute: () => T): T {
+        if (table === null) return compute();
+        const k = key(id);
+        return k in table ? (table[k] as T) : compute();
+      },
+      c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement {
+        if (table === null) return miss();
+        const k = key(id);
+        const html = table[k];
+        return typeof html === "string" ? hit({ __html: html }) : miss();
+      },
+      l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R {
+        return (...args: A): R => {
+          path.push(typeof args[1] === "number" ? args[1] : -1);
+          try {
+            const out = f(...args);
+            if (isElement(out)) {
+              return createElement(PathContext.Provider, { key: out.key, value: [...path] }, out) as R;
+            }
+            return out;
+          } finally {
+            path.pop();
+          }
+        };
+      },
+    };
+  }, [table, module, base]);
+}
+
+function isElement(value: unknown): value is ReactElement {
+  return typeof value === "object" && value !== null && "$$typeof" in value && "key" in value;
+}
+
+/** `element` under the hoisted table `table`, the way the mounter places an island under the table its props carried. */
+export function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement {
+  return createElement(HoistContext.Provider, { value: table }, element);
+}
+
+/** `props` without the hoisted table, and the table itself. */
+function splitHoisted(props: object): [object, Hoisted | null] {
+  const { [HOISTED_PROP]: hoisted, ...rest } = props as { [HOISTED_PROP]?: Hoisted };
+  return [rest, hoisted ?? null];
+}
+
 function withRegions(el: Element, element: ReactElement): ReactElement {
   return createElement(RegionsContext.Provider, { value: regionsOf(el) }, element);
 }
 
+function islandElement(component: unknown, props: object, el: Element): ReactElement {
+  const [own, hoisted] = splitHoisted(props);
+  const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, childrenFor(el));
+  return withRegions(el, withHoisted(hoisted, element));
+}
+
 export const reactMounter: Mounter = (component, props, el, hydrate) => {
-  const element = withRegions(el, createElement(component as never, { ...props, ...slotPropsFor(el) } as never, childrenFor(el)));
+  const element = islandElement(component, props, el);
   if (hydrate) {
     return hydrateRoot(el, element);
   }
@@ -164,5 +243,5 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
 };
 
 export const reactPatcher: Patcher = (handle, component, props, el) => {
-  (handle as Root).render(withRegions(el, createElement(component as never, { ...props, ...slotPropsFor(el) } as never, childrenFor(el))));
+  (handle as Root).render(islandElement(component, props, el));
 };

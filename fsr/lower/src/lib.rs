@@ -3,6 +3,7 @@
 //! outside it is residue, reported with the line and the construct.
 
 pub mod component;
+pub mod hoist;
 pub mod schema;
 pub mod testing;
 
@@ -255,6 +256,13 @@ pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, 
 }
 
 impl Parsed {
+  /// The byte range of `span` in the file's text.
+  pub(crate) fn range(&self, span: Span) -> std::ops::Range<usize> {
+    let lo = self.cm.lookup_byte_offset(span.lo).pos.0 as usize;
+    let hi = self.cm.lookup_byte_offset(span.hi).pos.0 as usize;
+    lo..hi
+  }
+
   pub(crate) fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
     let loc = self.cm.lookup_char_pos(span.lo);
     Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into() }
@@ -362,13 +370,27 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) globals: Vec<(String, Expr)>,
   /// The last name `ident` could not resolve, so a caller that can may bind it and retry.
   pub(crate) unbound: Option<String>,
+  /// Set by a component lowerer: every helper call and formatting builtin is
+  /// wrapped as a hoist candidate and its source span kept for the rewrite.
+  pub(crate) hoisting: Option<hoist::Candidates>,
 }
 
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, hoisting: None }
+  }
+
+  /// `expr` as a hoist candidate when a component is being lowered, else itself.
+  pub(crate) fn candidate(&mut self, span: Span, expr: Expr) -> Expr {
+    match &mut self.hoisting {
+      Some(candidates) => {
+        let range = self.parsed.range(span);
+        candidates.add(range, expr)
+      }
+      None => expr,
+    }
   }
 
   /// `session.key`, with the schema's default folded in when there is one.
@@ -888,7 +910,7 @@ impl<'a> Lowerer<'a> {
           for a in &call.args {
             args.push(self.expr(&a.expr)?);
           }
-          return Ok(Expr::Apply { f, args });
+          return Ok(self.candidate(call.span, Expr::Apply { f, args }));
         }
         let one = |this: &mut Self| -> Lowered<Box<Expr>> {
           let a = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
@@ -1035,7 +1057,7 @@ impl<'a> Lowerer<'a> {
               return Err(self.residue(a.expr.span(), "`toLocaleString` with a locale other than \"en-US\""));
             }
           }
-          return Ok(Expr::Builtin { name, args });
+          return Ok(self.candidate(call.span, Expr::Builtin { name, args }));
         }
         for a in &call.args {
           args.push(self.expr(&a.expr)?);

@@ -64,6 +64,10 @@ struct Args {
   #[arg(long)]
   public_path: Option<String>,
 
+  /// Directory whose files stand in for the root's at the same relative path
+  #[arg(long)]
+  overlay: Option<PathBuf>,
+
   /// Import map to check every external against
   #[arg(long)]
   import_map: Option<PathBuf>,
@@ -93,6 +97,7 @@ fn main() -> Result<()> {
     declaration: args.declaration,
     public_path: args.public_path.map(|p| if p.ends_with('/') { p } else { format!("{p}/") }),
     import_map: args.import_map,
+    overlay: args.overlay,
   };
 
   let outcome = build::full(&options, true)?;

@@ -4,6 +4,7 @@ import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { boot, registeredIslands } from "./boot.js";
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
+import { withHoisted, type Hoisted } from "./react.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
@@ -224,12 +225,13 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
   const container = document.createElement("div");
   document.body.appendChild(container);
   const module = options.hydrate === false ? null : await moduleOf(element.type);
-  const html = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props as SfValue)));
+  const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props as SfValue)));
   let root: Root;
   let hydrated: string | null = null;
-  if (html !== null) {
+  if (rendered !== null) {
+    const { html, hoisted } = JSON.parse(rendered) as { html: string; hoisted: SfValue };
     container.innerHTML = html;
-    root = hydrateRoot(container, element);
+    root = hydrateRoot(container, withHoisted(decodeValue(hoisted) as Hoisted, element));
     hydrated = module;
   } else {
     root = createRoot(container);

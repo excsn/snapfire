@@ -13,11 +13,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Lit, Stmt, Tmpl};
-use snapfire_fsr_ir::render::html_attr_name;
+use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Handler, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
+use crate::hoist::{self, Candidates, Hook, Rewrite};
 use crate::{Lowered, LowerError, Lowerer, Parsed, Residue, SessionDefaults, parse_with, prop_name};
 
 /// The cursor over one application: parsed files, finished components and the
@@ -34,11 +35,36 @@ pub struct ComponentSet {
   /// Per layout module, the slots its `slots/` directory declares, so a prop
   /// of that name is a region rather than a value.
   pub slots: Vec<(String, Vec<String>)>,
+  /// The source rewrites the bundle needs, one per component with a hoist.
+  pub rewrites: Vec<Rewrite>,
+  /// Per lowered module, whether it is pure: no state, no handler, no island,
+  /// no slot, nothing ambient, and every component it renders pure too. A
+  /// pure component inside a static subtree is rendered into the chunk.
+  pub pure: HashMap<String, bool>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new() }
+  }
+
+  /// Every file with a rewrite, with its rewritten source.
+  pub fn rewritten(&self) -> Vec<(String, String)> {
+    let mut files: Vec<&str> = Vec::new();
+    for rewrite in &self.rewrites {
+      if !files.contains(&rewrite.file.as_str()) {
+        files.push(&rewrite.file);
+      }
+    }
+    files
+      .into_iter()
+      .filter_map(|file| {
+        let parsed = self.parsed.get(file)?;
+        let source = parsed.cm.files().first().map(|f| f.src.to_string())?;
+        let rewrites: Vec<&Rewrite> = self.rewrites.iter().filter(|r| r.file == file).collect();
+        Some((file.to_owned(), hoist::apply(&source, &rewrites)))
+      })
+      .collect()
   }
 
   /// Lowers `module` (a `path#export` under the app) and everything it
@@ -89,22 +115,24 @@ impl ComponentSet {
 
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
-    let (component, refs) = loop {
-      let (result, unbound) = {
+    let module = format!("{file}#{export}");
+    let ((component, refs), hoisting) = loop {
+      let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
         let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
-        let module = format!("{file}#{export}");
+        lowerer.hoisting = Some(Candidates::default());
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new() };
         let result = cl.component(&function);
-        (result, cl.lowerer.unbound.take())
+        let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
+        (result, cl.lowerer.unbound.take(), hoisting)
       };
       match result {
-        Ok(done) => break done,
+        Ok(done) => break (done, hoisting),
         Err(residue) => {
           let Some(name) = unbound else { return Err(residue.into()) };
           if globals.iter().any(|(n, _)| *n == name) {
@@ -121,7 +149,17 @@ impl ComponentSet {
       self.lower(&module)?;
       modules.insert(format!("{file}#{name}"), module);
     }
-    Ok(Component { body: component.body, render: rewrite_modules(component.render, &modules) })
+    let mut component = Component { body: component.body, render: rewrite_modules(component.render, &modules), state: component.state, handlers: component.handlers };
+    if let Some((candidates, state, Some(hook))) = hoisting {
+      let kept = hoist::decide(&mut component, &state);
+      let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
+      let chunks = hoist::chunks(&mut component, &state, &self.pure);
+      self.pure.insert(module.clone(), pure);
+      if let Some(rewrite) = candidates.rewrite(&kept, &chunks, file, &module, hook) {
+        self.rewrites.push(rewrite);
+      }
+    }
+    Ok(component)
   }
 
   /// The module id a capitalised JSX tag names: a function in this file or a
@@ -197,7 +235,7 @@ impl ComponentSet {
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>) -> Tmpl {
   match tmpl {
     Tmpl::Component { module, props, children } => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
-    Tmpl::Island { module, props, children, when } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect(), when },
+    Tmpl::Island { module, props, children, when, mode } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect(), when, mode },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: children.into_iter().map(|c| rewrite_modules(c, modules)).collect() },
     Tmpl::Fragment(children) => Tmpl::Fragment(children.into_iter().map(|c| rewrite_modules(c, modules)).collect()),
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules))) },
@@ -238,7 +276,7 @@ fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) if export == "default" => {
         if let js::DefaultDecl::Fn(f) = &d.decl {
           let body = f.function.body.as_ref()?;
-          return Some(Found::Declared(patterns(&f.function), &body.stmts));
+          return Some(Found::Declared(patterns(&f.function), &body.stmts, body.span));
         }
       }
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => {
@@ -263,7 +301,7 @@ fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
 }
 
 enum Found<'a> {
-  Declared(Vec<js::Pat>, &'a [js::Stmt]),
+  Declared(Vec<js::Pat>, &'a [js::Stmt], Span),
   Arrow(&'a js::ArrowExpr),
 }
 
@@ -271,7 +309,7 @@ fn decl_function<'a>(decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
   match decl {
     js::Decl::Fn(f) if f.ident.sym.as_ref() == name => {
       let body = f.function.body.as_ref()?;
-      Some(Found::Declared(patterns(&f.function), &body.stmts))
+      Some(Found::Declared(patterns(&f.function), &body.stmts, body.span))
     }
     js::Decl::Var(var) => {
       let decl = var.decls.iter().find(|d| matches!(&d.name, js::Pat::Ident(id) if id.id.sym.as_ref() == name))?;
@@ -528,6 +566,19 @@ struct ComponentLowerer<'a, 'p> {
   slot_names: Vec<String>,
   /// Destructured props of a layout that name a slot: the local name and the slot.
   slot_props: Vec<(String, String)>,
+  /// Bindings the browser can change without a new payload: state, store
+  /// and ref hooks. A hoist reading one is not props only.
+  state: Vec<String>,
+  /// Where the rewrite binds the hoist reader in this component.
+  hook: Option<Hook>,
+  /// The `useState` and `useStore` bindings, in order: a server-mode island's state.
+  state_bindings: Vec<String>,
+  /// Each setter and the state it sets.
+  setters: Vec<(String, String)>,
+  /// Handler functions declared in the component, by name, for `onClick={add}`.
+  handler_fns: HashMap<String, (Vec<js::Pat>, FunctionBody<'p>)>,
+  /// The handlers lowered so far; an element's `$on:` marker holds an index into it.
+  lowered_handlers: Vec<Handler>,
 }
 
 impl ComponentLowerer<'_, '_> {
@@ -596,8 +647,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn component(&mut self, found: &Found<'p>) -> Lowered<(Component, Vec<(String, (usize, usize))>)> {
     let depth = self.lowerer.scope.len();
     let (params, body): (Vec<js::Pat>, FunctionBody<'p>) = match found {
-      Found::Declared(params, stmts) => (params.clone(), FunctionBody::Block(stmts)),
-      Found::Arrow(arrow) => (arrow.params.clone(), arrow_body(arrow)),
+      Found::Declared(params, stmts, block) => {
+        self.hook = Some(Hook::Block { after: self.lowerer.parsed.range(*block).start + 1 });
+        (params.clone(), FunctionBody::Block(stmts))
+      }
+      Found::Arrow(arrow) => {
+        self.hook = Some(match &*arrow.body {
+          js::ArrowFunctionBody::FunctionBody(b) => Hook::Block { after: self.lowerer.parsed.range(b.span).start + 1 },
+          js::ArrowFunctionBody::Expr(e) => Hook::Expression(self.lowerer.parsed.range(e.span())),
+        });
+        (arrow.params.clone(), arrow_body(arrow))
+      }
     };
     self.bind_props(&params)?;
     let mut lets = Vec::new();
@@ -612,7 +672,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               render = Some(self.child_expr(arg)?);
               break;
             }
-            js::Stmt::Decl(js::Decl::Fn(f)) => self.handlers.push(f.ident.sym.to_string()),
+            js::Stmt::Decl(js::Decl::Fn(f)) => {
+              self.handlers.push(f.ident.sym.to_string());
+              if let Some(body) = &f.function.body {
+                self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+              }
+            }
             js::Stmt::Expr(e) if hook_call(&e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
             js::Stmt::Decl(js::Decl::Var(var)) => {
               for decl in &var.decls {
@@ -628,7 +693,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    Ok((Component { body: lets, render }, std::mem::take(&mut self.refs)))
+    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers) }, std::mem::take(&mut self.refs)))
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
@@ -672,13 +737,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// `const x = e` as a `let`; `const [x, setX] = useState(e)` as `let x = e`
   /// with `setX` a handler; `const { a, b } = e` as one `let` plus field reads.
   /// A function value, `useCallback` included, is a handler.
-  fn let_stmt(&mut self, decl: &js::VarDeclarator) -> Lowered<Option<Stmt>> {
+  fn let_stmt(&mut self, decl: &'p js::VarDeclarator) -> Lowered<Option<Stmt>> {
     let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
         let expr = match hook_call(init) {
-          Some(("useCallback", _)) => {
+          Some(("useCallback", call)) => {
+            if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
+              self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+            }
             self.handlers.push(local);
             return Ok(None);
           }
@@ -696,6 +764,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               Some(a) => self.lowerer.expr(&a.expr)?,
               None => Expr::Lit(Lit::Null),
             };
+            self.state.push(local.clone());
             Expr::Object(vec![Entry::Field("current".to_owned(), current)])
           }
           Some(("useStore", _)) => {
@@ -704,6 +773,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Some(("useLocale", _)) => Expr::Locale,
           Some((hook, _)) if hook != "useState" => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
           _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
+            match init {
+              js::Expr::Arrow(arrow) => {
+                self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+              }
+              js::Expr::Fn(f) => {
+                if let Some(body) = &f.function.body {
+                  self.handler_fns.insert(local.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+                }
+              }
+              _ => {}
+            }
             self.handlers.push(local);
             return Ok(None);
           }
@@ -744,10 +824,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           _ => None,
         });
         let state = names.next().flatten();
-        if let Some(Some(setter)) = names.next() {
+        let setter = names.next().flatten();
+        let Some(name) = state else { return Ok(None) };
+        if let Some(setter) = setter {
+          self.setters.push((setter.clone(), name.clone()));
           self.handlers.push(setter);
         }
-        let Some(name) = state else { return Ok(None) };
+        self.state.push(name.clone());
+        self.state_bindings.push(name.clone());
         self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
         Ok(Some(Stmt::Let { name, expr }))
       }
@@ -781,10 +865,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       _ => None,
     });
     let held = names.next().flatten();
-    if let Some(Some(setter)) = names.next() {
+    let setter = names.next().flatten();
+    let Some(name) = held else { return Ok(None) };
+    if let Some(setter) = setter {
+      self.setters.push((setter.clone(), name.clone()));
       self.handlers.push(setter);
     }
-    let Some(name) = held else { return Ok(None) };
+    self.state.push(name.clone());
+    self.state_bindings.push(name.clone());
     self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
     Ok(Some(Stmt::Let { name, expr: Expr::Coalesce(Box::new(Expr::Store(key)), Box::new(initial)) }))
   }
@@ -797,7 +885,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     match expr {
       js::Expr::Paren(p) => self.child_expr(&p.expr),
-      js::Expr::JSXElement(el) => self.element(el),
+      js::Expr::JSXElement(el) => self.element(el, false),
       js::Expr::JSXFragment(frag) => Ok(Tmpl::Fragment(self.children(&frag.children)?)),
       js::Expr::Lit(js::Lit::Str(s)) => Ok(Tmpl::Text(s.value.to_atom_lossy().to_string())),
       js::Expr::Cond(c) if holds_jsx(&c.cons) || holds_jsx(&c.alt) => {
@@ -823,10 +911,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let js::Expr::Arrow(arrow) = &*call.args[0].expr else { unreachable!() };
         let depth = self.lowerer.scope.len();
         let params = bind_params(&mut self.lowerer, &arrow.params)?;
+        let range = self.lowerer.parsed.range(arrow.span);
+        if let Some(candidates) = &mut self.lowerer.hoisting {
+          candidates.open_loops.push(range);
+        }
         let body = match &*arrow.body {
           js::ArrowFunctionBody::Expr(e) => self.child_expr(e),
           js::ArrowFunctionBody::FunctionBody(b) => self.block_tree(&b.stmts),
         };
+        if let Some(candidates) = &mut self.lowerer.hoisting {
+          candidates.open_loops.pop();
+        }
         self.lowerer.scope.truncate(depth);
         Ok(Tmpl::For { over, params, body: Box::new(body?) })
       }
@@ -866,7 +961,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  fn element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+  /// `as_child` says the element sits directly among JSX children, where a
+  /// rewrite of it must be braced, rather than in an expression.
+  fn element(&mut self, el: &'p js::JSXElement, as_child: bool) -> Lowered<Tmpl> {
     let (name, member) = match &el.opening.name {
       js::JSXElementName::Ident(id) => (id.sym.to_string(), false),
       js::JSXElementName::JSXMemberExpr(m) => match &m.obj {
@@ -881,16 +978,36 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     let mut attrs = Vec::new();
     let mut select_value = None;
+    let mut bound = false;
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
         js::JSXAttrOrSpread::SpreadElement(spread) => {
+          bound = true;
           attrs.push(Entry::Spread(self.lowerer.expr(&spread.expr)?));
           continue;
         }
       };
       let raw = attr_name(&attr.name);
-      if raw == "key" || raw == "ref" || is_handler_name(&raw) {
+      if raw == "ref" {
+        bound = true;
+        continue;
+      }
+      if is_handler_name(&raw) {
+        bound = true;
+        let event = raw[2..].to_ascii_lowercase();
+        match self.handler_attr(attr) {
+          Ok(index) => attrs.push(Entry::Field(format!("{HANDLER_ATTR}{event}"), Expr::Lit(Lit::Int(index as i128)))),
+          Err(residue) => {
+            if !attrs.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
+              attrs.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{}:{}: {}", residue.line, residue.column, residue.message))));
+            }
+          }
+        }
+        continue;
+      }
+      if raw == "key" {
+        attrs.push(Entry::Field(KEY_ATTR.to_owned(), self.attr_value(attr)?));
         continue;
       }
       let value = self.attr_value(attr)?;
@@ -910,7 +1027,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let outer = if name == "select" { std::mem::replace(&mut self.select_value, select_value) } else { self.select_value.take() };
     let children = self.children(&el.children);
     self.select_value = outer;
-    Ok(Tmpl::Element { tag: name, attrs, children: children? })
+    let children = children?;
+    if bound {
+      attrs.push(Entry::Field(hoist::BOUND_ATTR.to_owned(), Expr::Lit(Lit::Bool(true))));
+    }
+    if let Some(candidates) = &mut self.lowerer.hoisting {
+      if !children.is_empty() && !el.opening.self_closing {
+        let range = self.lowerer.parsed.range(el.span);
+        let open = self.lowerer.parsed.range(el.opening.span);
+        attrs.push(candidates.chunk(range, open, as_child));
+      }
+    }
+    Ok(Tmpl::Element { tag: name, attrs, children })
   }
 
   /// True when `name` is imported from the client library's React adapter.
@@ -922,13 +1050,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// as an island with that timing.
   fn island_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     let mut when = None;
+    let mut mode = None;
     for attr in &el.opening.attrs {
       let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { return Err(self.lowerer.residue(el.span, "a spread on `<Island>`")) };
-      if attr_name(&attr.name) != "when" {
-        return Err(self.lowerer.residue(attr.span, "`<Island>` takes `when` and nothing else"));
+      match attr_name(&attr.name).as_str() {
+        "when" => {
+          let value = self.attr_value(attr)?;
+          when = Some(self.island_timing(value, attr.span)?);
+        }
+        "mode" => {
+          let value = self.attr_value(attr)?;
+          mode = self.island_mode(value, attr.span)?;
+        }
+        _ => return Err(self.lowerer.residue(attr.span, "`<Island>` takes `when` and `mode` and nothing else")),
       }
-      let value = self.attr_value(attr)?;
-      when = Some(self.island_timing(value, attr.span)?);
     }
     let mut elements = el.children.iter().filter(|c| match c {
       js::JSXElementChild::JSXText(text) => !jsx_text(&text.value.to_atom_lossy()).is_empty(),
@@ -937,13 +1072,164 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let (Some(js::JSXElementChild::JSXElement(child)), None) = (elements.next(), elements.next()) else {
       return Err(self.lowerer.residue(el.span, "`<Island>` wraps exactly one component"));
     };
-    let lowered = self.element(child)?;
-    self.island_of(lowered, when, child.span)
+    let lowered = self.element(child, false)?;
+    self.island_of(lowered, when, mode, child.span)
+  }
+
+  /// `"server"` for an island whose events round-trip to the server; `"browser"`, the default, is `None`.
+  fn island_mode(&self, value: Expr, span: Span) -> Lowered<Option<String>> {
+    match value {
+      Expr::Lit(Lit::Str(mode)) if mode == SERVER_MODE => Ok(Some(mode)),
+      Expr::Lit(Lit::Str(mode)) if mode == "browser" => Ok(None),
+      _ => Err(self.lowerer.residue(span, "an island's `mode` is \"browser\" or \"server\", written out")),
+    }
+  }
+
+  /// An `on*` attribute's handler as a lowered body, or why it is not one.
+  /// A handler is `const`s and calls to state setters, `e.preventDefault()`
+  /// aside; the body returns the state it set.
+  fn handler_attr(&mut self, attr: &'p js::JSXAttr) -> Lowered<usize> {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return Err(self.lowerer.residue(attr.span, "a handler that is not an expression")) };
+    let js::JSXExpr::Expr(e) = &c.expr else { return Err(self.lowerer.residue(attr.span, "an empty handler")) };
+    let body = self.handler_body(e)?;
+    self.lowered_handlers.push(Handler { event: attr_name(&attr.name)[2..].to_ascii_lowercase(), body });
+    Ok(self.lowered_handlers.len() - 1)
+  }
+
+  fn handler_body(&mut self, e: &'p js::Expr) -> Lowered<Vec<Stmt>> {
+    match e {
+      js::Expr::Paren(p) => self.handler_body(&p.expr),
+      js::Expr::Arrow(arrow) => {
+        let params = arrow.params.clone();
+        let body = arrow_body(arrow);
+        self.handler_fn(&params, body, arrow.span)
+      }
+      js::Expr::Ident(id) => {
+        let name = id.sym.to_string();
+        let Some((params, body)) = self.handler_fns.get(&name).cloned() else {
+          return Err(self.lowerer.residue(id.span, format!("`{name}` is not a handler this component declares")));
+        };
+        self.handler_fn(&params, body, id.span)
+      }
+      other => Err(self.lowerer.residue(other.span(), "a handler that is not an arrow or a name")),
+    }
+  }
+
+  fn handler_fn(&mut self, params: &[js::Pat], body: FunctionBody<'p>, span: Span) -> Lowered<Vec<Stmt>> {
+    let depth = self.lowerer.scope.len();
+    if let Some(first) = params.first() {
+      let js::Pat::Ident(id) = first else { return Err(self.lowerer.residue(first.span(), "a handler's event parameter must be a name")) };
+      self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var("$event".to_owned())));
+    }
+    let mut out = Vec::new();
+    let mut patch: Vec<Entry> = Vec::new();
+    let result = (|| {
+      match body {
+        FunctionBody::Expr(e) => self.handler_stmt(e, &mut out, &mut patch)?,
+        FunctionBody::Block(stmts) => {
+          for stmt in stmts {
+            match stmt {
+              js::Stmt::Expr(e) => self.handler_stmt(&e.expr, &mut out, &mut patch)?,
+              js::Stmt::Decl(js::Decl::Var(var)) => {
+                for decl in &var.decls {
+                  let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
+                  let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+                  let expr = self.lowerer.expr(init)?;
+                  let local = name.id.sym.to_string();
+                  self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
+                  out.push(Stmt::Let { name: local, expr });
+                }
+              }
+              js::Stmt::Return(r) if r.arg.is_none() => break,
+              other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s and calls to state setters")),
+            }
+          }
+        }
+      }
+      Ok(())
+    })();
+    self.lowerer.scope.truncate(depth);
+    result?;
+    if patch.is_empty() {
+      return Err(self.lowerer.residue(span, "a handler that sets no state"));
+    }
+    out.push(Stmt::Return(Expr::Object(patch)));
+    Ok(out)
+  }
+
+  /// `setX(expr)` or `setX((prev) => expr)` adds to the patch; `e.preventDefault()`
+  /// and `e.stopPropagation()` are the browser's; `void f()` or `f()` naming a
+  /// declared handler inlines it.
+  fn handler_stmt(&mut self, e: &'p js::Expr, out: &mut Vec<Stmt>, patch: &mut Vec<Entry>) -> Lowered<()> {
+    match e {
+      js::Expr::Paren(p) => self.handler_stmt(&p.expr, out, patch),
+      js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, out, patch),
+      js::Expr::Await(a) => self.handler_stmt(&a.arg, out, patch),
+      js::Expr::Call(call) => {
+        let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
+        match &**callee {
+          js::Expr::Ident(id) => {
+            let name = id.sym.to_string();
+            if let Some((_, state)) = self.setters.iter().find(|(s, _)| *s == name).cloned() {
+              let arg = call.args.first().ok_or_else(|| self.lowerer.residue(call.span, format!("`{name}` without a value")))?;
+              let value = match &*arg.expr {
+                js::Expr::Arrow(arrow) => {
+                  let depth = self.lowerer.scope.len();
+                  if let Some(js::Pat::Ident(prev)) = arrow.params.first() {
+                    self.lowerer.scope.push((prev.id.sym.to_string(), Expr::Var(state.clone())));
+                  }
+                  let value = match &*arrow.body {
+                    js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e),
+                    js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts),
+                  };
+                  self.lowerer.scope.truncate(depth);
+                  value?
+                }
+                other => self.lowerer.expr(other)?,
+              };
+              patch.retain(|entry| !matches!(entry, Entry::Field(n, _) if *n == state));
+              patch.push(Entry::Field(state, value));
+              return Ok(());
+            }
+            if let Some((params, body)) = self.handler_fns.get(&name).cloned() {
+              let inner = self.handler_fn(&params, body, call.span)?;
+              for stmt in inner {
+                match stmt {
+                  Stmt::Return(Expr::Object(entries)) => {
+                    for entry in entries {
+                      if let Entry::Field(n, _) = &entry {
+                        patch.retain(|held| !matches!(held, Entry::Field(m, _) if m == n));
+                      }
+                      patch.push(entry);
+                    }
+                  }
+                  other => out.push(other),
+                }
+              }
+              return Ok(());
+            }
+            Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter or a handler this component declares")))
+          }
+          js::Expr::Member(m) => {
+            let method = match &m.prop {
+              js::MemberProp::Ident(i) => i.sym.to_string(),
+              _ => String::new(),
+            };
+            if method == "preventDefault" || method == "stopPropagation" {
+              return Ok(());
+            }
+            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s and calls to state setters")))
+          }
+          other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
+        }
+      }
+      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s and calls to state setters")),
+    }
   }
 
   /// `const Lazy = island(Chart, { when: "visible" })` at module scope, when
   /// `name` is such a `Lazy`: the component and the timing.
-  fn island_alias(&mut self, name: &str) -> Lowered<Option<(String, Option<String>)>> {
+  fn island_alias(&mut self, name: &str) -> Lowered<Option<(String, Option<String>, Option<String>)>> {
     let Some(Global::Const(js::Expr::Call(call))) = find_value(self.lowerer.parsed, name) else { return Ok(None) };
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(callee) = &**callee else { return Ok(None) };
@@ -954,19 +1240,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       return Err(self.lowerer.residue(call.span, "`island(...)` takes a component name first"));
     };
     let mut when = None;
+    let mut mode = None;
     if let Some(options) = call.args.get(1) {
       let js::Expr::Object(obj) = &*options.expr else { return Err(self.lowerer.residue(options.span(), "`island(...)` options must be an object literal")) };
       for prop in &obj.props {
         let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(options.span(), "a spread in `island(...)` options")) };
-        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` only")) };
-        if prop_name(&kv.key).as_deref() != Some("when") {
-          return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` only"));
-        }
+        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` and `mode`")) };
         let value = self.lowerer.expr(&kv.value)?;
-        when = Some(self.island_timing(value, options.span())?);
+        match prop_name(&kv.key).as_deref() {
+          Some("when") => when = Some(self.island_timing(value, options.span())?),
+          Some("mode") => mode = self.island_mode(value, options.span())?,
+          _ => return Err(self.lowerer.residue(options.span(), "`island(...)` options are `when` and `mode`")),
+        }
       }
     }
-    Ok(Some((target.sym.to_string(), when)))
+    Ok(Some((target.sym.to_string(), when, mode)))
   }
 
   /// `<Slot name="modal" />` in a layout: the plan child of that name, in a
@@ -1035,9 +1323,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  fn island_of(&self, lowered: Tmpl, when: Option<String>, span: Span) -> Lowered<Tmpl> {
+  fn island_of(&self, lowered: Tmpl, when: Option<String>, mode: Option<String>, span: Span) -> Lowered<Tmpl> {
     match lowered {
-      Tmpl::Component { module, props, children } => Ok(Tmpl::Island { module, props, children, when }),
+      Tmpl::Component { module, props, children } => Ok(Tmpl::Island { module, props, children, when, mode }),
       _ => Err(self.lowerer.residue(span, "an island must be a component, not an element")),
     }
   }
@@ -1055,9 +1343,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if name == "Link" && self.is_client_react_import("Link") {
       return self.link_element(el);
     }
-    if let Some((target, when)) = self.island_alias(name)? {
+    if let Some((target, when, mode)) = self.island_alias(name)? {
       let lowered = self.component_ref(&target, el)?;
-      return self.island_of(lowered, when, el.span);
+      return self.island_of(lowered, when, mode, el.span);
     }
     let mut props = Vec::new();
     for attr in &el.opening.attrs {
@@ -1140,7 +1428,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           js::JSXExpr::JSXEmptyExpr(_) => {}
           js::JSXExpr::Expr(e) => out.push(self.child_expr(e)?),
         },
-        js::JSXElementChild::JSXElement(el) => out.push(self.element(el)?),
+        js::JSXElementChild::JSXElement(el) => out.push(self.element(el, true)?),
         js::JSXElementChild::JSXFragment(frag) => out.push(Tmpl::Fragment(self.children(&frag.children)?)),
         js::JSXElementChild::JSXSpreadChild(s) => return Err(self.lowerer.residue(s.span, "a spread child")),
       }
@@ -1309,6 +1597,269 @@ mod tests {
     Ok(set.components)
   }
 
+  /// The attributes the markup prints: without the build's `$` markers.
+  fn plain(attrs: &[Entry]) -> Vec<Entry> {
+    attrs.iter().filter(|e| !matches!(e, Entry::Field(n, _) if n.starts_with('$'))).cloned().collect()
+  }
+
+  fn hoist_ids(component: &Component) -> Vec<u32> {
+    let mut ids = Vec::new();
+    component.visit(&mut |e| {
+      if let Expr::Hoist { id, .. } = e {
+        ids.push(*id);
+      }
+    });
+    ids
+  }
+
+  fn chunk_ids(tmpl: &Tmpl, out: &mut Vec<(String, u32)>) {
+    match tmpl {
+      Tmpl::Element { tag, attrs, children } => {
+        if let Some(Entry::Field(_, Expr::Lit(Lit::Int(id)))) = attrs.iter().find(|e| matches!(e, Entry::Field(n, _) if n == hoist::CHUNK_ATTR)) {
+          out.push((tag.clone(), *id as u32));
+        }
+        children.iter().for_each(|c| chunk_ids(c, out));
+      }
+      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().for_each(|c| chunk_ids(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        chunk_ids(then, out);
+        if let Some(e) = r#else {
+          chunk_ids(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => chunk_ids(body, out),
+      Tmpl::Let { then, .. } => chunk_ids(then, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  fn set(files: &[(&str, &str)], module: &str) -> ComponentSet {
+    let mut set = ComponentSet::new(&app(files));
+    set.lower(module).unwrap();
+    set
+  }
+
+  #[test]
+  fn a_helper_call_on_props_is_hoisted_and_one_on_state_is_not() {
+    let files = [
+      (
+        "routes/cart/page.tsx",
+        r#"
+import { useState } from "react";
+import { useStore } from "@snapfire/fsr-client/react";
+import { money } from "@src/ui/money";
+export default function Cart({ lines, total }: { lines: { price: number }[]; total: number }) {
+  const [qty, setQty] = useState(1);
+  const [tip] = useStore("cart/tip", 0);
+  const grand = total + tip;
+  return (
+    <div>
+      <b>{money(total)}</b>
+      <i>{money(total * qty)}</i>
+      <u>{money(grand)}</u>
+      <ul>{lines.map((l) => <li key={l.price}>{money(l.price)}{money(l.price * qty)}</li>)}</ul>
+      <button onClick={() => setQty(qty + 1)}>{money(1)}</button>
+    </div>
+  );
+}
+"#,
+      ),
+      ("src/ui/money.ts", "export function money(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`;\n}\n"),
+    ];
+    let set = set(&files, "routes/cart/page.tsx#default");
+    let component = &set.components[0].1;
+    assert_eq!(hoist_ids(component), vec![0, 6, 10], "props only: money(total), money(l.price) and money(1); not qty, tip or grand: {component:?}");
+    let mut chunks = Vec::new();
+    chunk_ids(&component.render, &mut chunks);
+    assert_eq!(chunks, vec![("b".to_owned(), 1)], "the one static element that does work; the others read state, hold a handler or only literals: {component:?}");
+    assert_eq!(set.rewrites.len(), 1);
+    let rewrite = &set.rewrites[0];
+    assert_eq!(rewrite.module, "routes/cart/page.tsx#default");
+    assert_eq!(rewrite.sites.len(), 3);
+    assert_eq!(rewrite.chunks.len(), 1);
+    assert_eq!(rewrite.loops.len(), 1, "the one .map callback holding a survivor");
+    let (file, source) = set.rewritten().pop().unwrap();
+    assert_eq!(file, "routes/cart/page.tsx");
+    assert!(source.starts_with(hoist::IMPORT), "{source}");
+    assert!(source.contains("{ const __sfh = __sfUseHoisted(\"routes/cart/page.tsx#default\"); "), "{source}");
+    assert!(source.contains("__sfh.c(1, (__sfHtml) => <b dangerouslySetInnerHTML={__sfHtml} />, () => (<b>{__sfh.r(0, () => (money(total)))}</b>))"), "{source}");
+    assert!(source.contains("<i>{money(total * qty)}</i>"), "a state read stays a call: {source}");
+    assert!(source.contains("<ul>{lines.map(__sfh.l((l) => <li key={l.price}>{__sfh.r(6, () => (money(l.price)))}{money(l.price * qty)}</li>))}</ul>"), "{source}");
+    assert!(source.contains("{__sfh.r(10, () => (money(1)))}</button>"), "{source}");
+  }
+
+  #[test]
+  fn handlers_lower_to_state_patches_and_an_island_takes_a_mode() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { Island, island } from "@snapfire/fsr-client/react";
+import { Stepper } from "@src/Stepper";
+const Lazy = island(Stepper, { when: "idle", mode: "server" });
+export default function Page() {
+  return <main><Island mode="server"><Stepper start={1} /></Island><Lazy start={2} /><Island mode="browser"><Stepper start={3} /></Island></main>;
+}
+"#,
+      ),
+      (
+        "src/Stepper.tsx",
+        r#"
+import { useState } from "react";
+export function Stepper({ start, max = 9 }: { start: number; max?: number }) {
+  const [n, setN] = useState(start);
+  const [open, setOpen] = useState(false);
+  const room = max - n;
+  function reset() {
+    setN(start);
+    setOpen(false);
+  }
+  return (
+    <div key="stepper">
+      <button onClick={() => setN(n + 1)} disabled={room === 0}>+</button>
+      <button onClick={() => setN((prev) => prev - 1)}>-</button>
+      <input value={String(n)} onChange={(e) => { e.preventDefault(); const next = Number(e.target.value); setN(next); }} />
+      <button onClick={reset}>reset</button>
+      <button onClick={() => void reset()}>reset too</button>
+      <button onClick={() => alert(n)}>shout</button>
+      <label onClick={() => setOpen(!open)}>{open ? "open" : "closed"}</label>
+      <ul>{[1, 2].map((i) => <li key={i}>{i}</li>)}</ul>
+    </div>
+  );
+}
+"#,
+      ),
+    ];
+    let set = set(&files, "routes/index/page.tsx#default");
+    let page = &set.components.iter().find(|(m, _)| m == "routes/index/page.tsx#default").unwrap().1;
+    let Tmpl::Element { children, .. } = &page.render else { panic!() };
+    assert!(matches!(&children[0], Tmpl::Island { mode: Some(m), when: None, .. } if m == "server"), "{:?}", children[0]);
+    assert!(matches!(&children[1], Tmpl::Island { mode: Some(m), when: Some(w), .. } if m == "server" && w == "idle"), "{:?}", children[1]);
+    assert!(matches!(&children[2], Tmpl::Island { mode: None, .. }), "browser is the default and spells as none: {:?}", children[2]);
+
+    let stepper = &set.components.iter().find(|(m, _)| m == "src/Stepper.tsx#Stepper").unwrap().1;
+    assert_eq!(stepper.state, ["n", "open"]);
+    assert_eq!(stepper.handlers.len(), 6, "{:?}", stepper.handlers.iter().map(|h| &h.event).collect::<Vec<_>>());
+    let events: Vec<&str> = stepper.handlers.iter().map(|h| h.event.as_str()).collect();
+    assert_eq!(events, ["click", "click", "change", "click", "click", "click"]);
+    assert_eq!(stepper.handlers[0].body, vec![Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Arith(snapfire_fsr_ir::ArithOp::Add, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0)))))]))]);
+    assert_eq!(stepper.handlers[1].body, vec![Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Arith(snapfire_fsr_ir::ArithOp::Sub, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0)))))]))], "a functional update reads the state as prev");
+    assert_eq!(stepper.handlers[2].body, vec![Stmt::Let { name: "next".to_owned(), expr: Expr::Num(Box::new(Expr::var("$event").field("target").field("value"))) }, Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::var("next"))]))], "preventDefault is dropped, the event reads through $event");
+    let reset = vec![Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::var("$props").field("start")), Entry::Field("open".to_owned(), Expr::Lit(Lit::Bool(false)))]))];
+    assert_eq!(stepper.handlers[3].body, reset, "a named handler by name");
+    assert_eq!(stepper.handlers[4].body, reset, "a named handler called");
+    assert_eq!(stepper.handlers[5].body, vec![Stmt::Return(Expr::Object(vec![Entry::Field("open".to_owned(), Expr::Not(Box::new(Expr::var("open"))))]))]);
+
+    let Tmpl::Element { attrs, children, .. } = &stepper.render else { panic!() };
+    assert!(attrs.contains(&Entry::Field(KEY_ATTR.to_owned(), Expr::lit_str("stepper"))), "{attrs:?}");
+    let on = |i: usize| -> Vec<(String, Expr)> {
+      let Tmpl::Element { attrs, .. } = &children[i] else { panic!() };
+      attrs.iter().filter_map(|e| match e {
+        Entry::Field(n, v) if n.starts_with(HANDLER_ATTR) || n == UNLOWERED_ATTR => Some((n.clone(), v.clone())),
+        _ => None,
+      }).collect()
+    };
+    assert_eq!(on(0), vec![(format!("{HANDLER_ATTR}click"), Expr::Lit(Lit::Int(0)))]);
+    assert_eq!(on(2), vec![(format!("{HANDLER_ATTR}change"), Expr::Lit(Lit::Int(2)))]);
+    let shout = on(5);
+    assert_eq!(shout.len(), 1);
+    assert!(matches!(&shout[0], (n, Expr::Lit(Lit::Str(why))) if n == UNLOWERED_ATTR && why.contains("a call to `alert`")), "{shout:?}");
+  }
+
+  #[test]
+  fn a_static_subtree_is_a_chunk_and_a_handler_state_read_island_or_impure_component_breaks_it() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { useState } from "react";
+import { Island } from "@snapfire/fsr-client/react";
+import { Price } from "@src/Price";
+import { Counter } from "@src/Counter";
+import { Chart } from "@src/Chart";
+export default function Page({ items, note }: { items: { id: number; price: number }[]; note: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <main>
+      <h1>Catalog</h1>
+      <ul className="list">
+        {items.map((it) => (
+          <li key={it.id} title={String(it.id)}>
+            <Price cents={it.price} />
+          </li>
+        ))}
+      </ul>
+      <section>
+        <p>{note}</p>
+        <Counter start={1} />
+      </section>
+      <aside>
+        <p>{note}</p>
+        <Island when="visible"><Chart series={note} /></Island>
+      </aside>
+      <div>
+        <button onClick={() => setOpen(!open)}>{note}</button>
+      </div>
+      <footer>{open ? note : ""}</footer>
+    </main>
+  );
+}
+"#,
+      ),
+      ("src/Price.tsx", "export function Price({ cents }: { cents: number }) {\n  return <b>{(cents / 100).toFixed(2)}</b>;\n}\n"),
+      ("src/Counter.tsx", "import { useState } from \"react\";\nexport function Counter({ start }: { start: number }) {\n  const [n, setN] = useState(start);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
+      ("src/Chart.tsx", "export function Chart({ series }: { series: string }) {\n  return <svg><title>{series}</title></svg>;\n}\n"),
+    ];
+    let set = set(&files, "routes/index/page.tsx#default");
+    assert_eq!(set.pure.get("src/Price.tsx#Price"), Some(&true));
+    assert_eq!(set.pure.get("src/Counter.tsx#Counter"), Some(&false), "state and a handler");
+    assert_eq!(set.pure.get("routes/index/page.tsx#default"), Some(&false));
+    let page = &set.components.iter().find(|(m, _)| m == "routes/index/page.tsx#default").unwrap().1;
+    let mut chunks = Vec::new();
+    chunk_ids(&page.render, &mut chunks);
+    let tags: Vec<&str> = chunks.iter().map(|(t, _)| t.as_str()).collect();
+    assert_eq!(tags, ["ul", "p", "p"], "the list with its pure Price cards is one chunk; the paragraphs beside the impure Counter and the island are chunks of their own; the h1 is literal, the button is bound and the footer reads state: {chunks:?}");
+    let rewrite = set.rewrites.iter().find(|r| r.module == "routes/index/page.tsx#default").unwrap();
+    assert_eq!(rewrite.chunks.len(), 3);
+    assert!(rewrite.loops.is_empty(), "the loop sits inside the chunk, whose fallback renders it as written");
+    let (_, source) = set.rewritten().into_iter().find(|(f, _)| f == "routes/index/page.tsx").unwrap();
+    assert!(source.contains("{__sfh.c(2, (__sfHtml) => <ul className=\"list\" dangerouslySetInnerHTML={__sfHtml} />, () => (<ul className=\"list\">"), "{source}");
+    assert!(source.contains("      </ul>))}\n"), "a chunk among JSX children is braced: {source}");
+    assert!(source.contains("{__sfh.c(3, (__sfHtml) => <p dangerouslySetInnerHTML={__sfHtml} />, () => (<p>{note}</p>))}"), "{source}");
+    assert!(source.contains("<button onClick={() => setOpen(!open)}>{note}</button>"), "a bound element is untouched: {source}");
+    assert_eq!(source.matches("__sfh.c(").count(), 3, "{source}");
+  }
+
+  #[test]
+  fn hoists_stay_out_of_lambdas_nested_calls_and_client_components() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { money, wrap } from "@src/ui/money";
+export const Page = ({ items, n }: { items: number[]; n: number }) => (
+  <p title={items.map((i) => money(i)).join(", ")}>{wrap(money(n))}{items.length.toLocaleString()}</p>
+);
+"#,
+      ),
+      ("src/ui/money.ts", "export function money(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`;\n}\nexport function wrap(s: string): string {\n  return `[${s}]`;\n}\n"),
+    ];
+    let set = set(&files, "routes/index/page.tsx#Page");
+    let component = &set.components[0].1;
+    let mut hoisted = Vec::new();
+    component.visit(&mut |e| {
+      if let Expr::Hoist { id, .. } = e {
+        hoisted.push(*id);
+      }
+    });
+    assert_eq!(hoisted, vec![2, 3], "wrap(money(n)) as one hoist, toLocaleString as another; the lambda's money(i) is none: {component:?}");
+    let (_, source) = set.rewritten().pop().unwrap();
+    assert!(source.contains("=> { const __sfh = __sfUseHoisted(\"routes/index/page.tsx#Page\"); return (("), "an expression body becomes a block: {source}");
+    assert!(source.trim_end().ends_with(")); };"), "{source}");
+    assert!(source.contains("__sfh.c(4, (__sfHtml) => <p title={items.map((i) => money(i)).join(\", \")} dangerouslySetInnerHTML={__sfHtml} />, () => (<p title={items.map((i) => money(i)).join(\", \")}>"), "the whole paragraph is static, so it is a chunk whose hit keeps the attribute: {source}");
+    assert!(source.contains("{__sfh.r(2, () => (wrap(money(n))))}{__sfh.r(3, () => (items.length.toLocaleString()))}</p>))"), "{source}");
+  }
+
   #[test]
   fn jsx_lowers_to_elements_attributes_and_the_three_idioms() {
     let page = r#"
@@ -1345,7 +1896,8 @@ export default function Page({ items, q = "" }: Props) {
     let Tmpl::For { params, body, .. } = &ul[0] else { panic!("{:?}", ul[0]) };
     assert_eq!(params, &["it".to_owned()]);
     let Tmpl::Element { attrs, children, .. } = &**body else { panic!() };
-    assert!(attrs.is_empty(), "key and handlers are dropped: {attrs:?}");
+    assert!(plain(attrs).is_empty(), "key and handlers are dropped: {attrs:?}");
+    assert!(attrs.contains(&Entry::Field(hoist::BOUND_ATTR.to_owned(), Expr::Lit(Lit::Bool(true)))), "a handler leaves its mark: {attrs:?}");
     assert_eq!(children, &vec![Tmpl::Expr(Expr::var("it").field("name"))]);
   }
 
@@ -1385,9 +1937,10 @@ export default function Product({ product }: { product: { price: number; rating:
     assert!(matches!(&attrs[0], Entry::Field(name, Expr::Object(entries)) if name == "style" && entries.len() == 2));
     assert!(matches!(&children[0], Tmpl::Component { module, props, .. } if module == "src/ui/Stars.tsx#Stars" && props.len() == 1));
     let Tmpl::Element { children: span, .. } = &children[1] else { panic!() };
-    assert!(matches!(&span[0], Tmpl::Expr(Expr::Apply { f, args }) if matches!(**f, Expr::Lambda { .. }) && args.len() == 1), "{:?}", span[0]);
+    let Tmpl::Expr(Expr::Hoist { id: 0, expr }) = &span[0] else { panic!("{:?}", span[0]) };
+    assert!(matches!(&**expr, Expr::Apply { f, args } if matches!(**f, Expr::Lambda { .. }) && args.len() == 1), "{expr:?}");
     let Tmpl::Element { attrs, .. } = &children[3] else { panic!() };
-    assert_eq!(attrs.len(), 1, "onClick is dropped, disabled stays: {attrs:?}");
+    assert_eq!(plain(attrs).len(), 1, "onClick is dropped, disabled stays: {attrs:?}");
   }
 
   #[test]
@@ -1619,7 +2172,7 @@ export default function Order({ id }: { id: number }) {
       "a key() through an import and a literal both lower to the key"
     );
     let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
-    assert!(attrs.is_empty(), "the setter is a handler: {attrs:?}");
+    assert!(plain(attrs).is_empty(), "the setter is a handler: {attrs:?}");
   }
 
   #[test]
@@ -1642,7 +2195,7 @@ export default function Order({ id }: { id: number }) {
     let component = &lowered[0].1;
     assert_eq!(component.body, vec![Stmt::Let { name: "locale".to_owned(), expr: Expr::Locale }]);
     let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
-    assert_eq!(attrs, &[Entry::Field("lang".to_owned(), Expr::var("locale"))]);
+    assert_eq!(plain(attrs), [Entry::Field("lang".to_owned(), Expr::var("locale"))]);
   }
 
   #[test]

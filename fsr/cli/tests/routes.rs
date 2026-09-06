@@ -149,7 +149,8 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
     ("routes/index/actions.ts", "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Add } from \"../../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
     ("schemas/inputs.ts", "export interface Add {\n  n: number;\n}\n"),
     ("routes/api/ping/route.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function GET(ctx: Ctx) {\n  return { ok: true, locale: ctx.locale };\n}\n"),
-    ("src/Tips.tsx", "export function TipList() {\n  return <ul>tips</ul>;\n}\n"),
+    ("src/Tips.tsx", "import { money } from \"./money\";\nexport function TipList({ cents = 5 }: { cents?: number }) {\n  return <ul>{money(cents)}</ul>;\n}\n"),
+    ("src/money.ts", "export function money(cents: number): string {\n  return `$${cents}`;\n}\n"),
     ("clients/ledger.openapi.json", r##"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{"/list":{"get":{"operationId":"list","responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Invoice"}}}}}}}}},"components":{"schemas":{"Invoice":{"type":"object","required":["id"],"properties":{"id":{"type":"integer","format":"int64"}}}}}}"##),
   ]);
   let mut options = Options::default();
@@ -179,6 +180,9 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(declarations.contains("ledger") && !declarations.contains("billing:"), "the TypeScript surface keeps the unprefixed names: {declarations}");
   let fsr = file("generated/fsr.ts");
   assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
+  let overlay = file(".fsr-bundle/src/Tips.tsx");
+  assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.r(0, () => (money(cents)))"), "the reader keys under the prefixed module the host renders: {overlay}");
+  assert_eq!(built.report.hoisted, vec![("billing:routes/index/page.tsx#default".to_owned(), 0, 1), ("billing:src/Tips.tsx#TipList".to_owned(), 1, 1)], "the page's div around the pure TipList is a subtree of its own: {}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -269,4 +273,44 @@ fn two_rows_claiming_one_id_are_refused_by_name() {
     }
     other => panic!("{other}"),
   }
+}
+
+#[test]
+fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_impure_component_inside() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
+  let shouting = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => alert(n)}>{n}</button>;\n}\n"),
+  ]);
+  let err = match build(&shouting, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(err.contains("`src/Widget.tsx#Widget` cannot be an island in server mode") && err.contains("a handler did not lower") && err.contains("a call to `alert`"), "{err}");
+  std::fs::remove_dir_all(&shouting).unwrap();
+
+  let nested = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nimport { Inner } from \"./Inner\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(n + 1)}>{n}</button><Inner /></div>;\n}\n"),
+    ("src/Inner.tsx", "import { useState } from \"react\";\nexport function Inner() {\n  const [x, setX] = useState(0);\n  return <i onClick={() => setX(x + 1)}>{x}</i>;\n}\n"),
+  ]);
+  let err = match build(&nested, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(err.contains("`src/Inner.tsx#Inner` inside it has state or handlers of its own"), "{err}");
+  std::fs::remove_dir_all(&nested).unwrap();
+
+  let fine = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nimport { Inner } from \"./Inner\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(n + 1)}>{n}</button><Inner n={n} /></div>;\n}\n"),
+    ("src/Inner.tsx", "export function Inner({ n }: { n: number }) {\n  return <i>{n * 2}</i>;\n}\n"),
+  ]);
+  let built = build(&fine, &Options::default()).unwrap();
+  assert_eq!(built.report.islands, vec![("src/Widget.tsx#Widget".to_owned(), 1)], "{}", built.report);
+  assert!(built.report.to_string().contains("islands   src/Widget.tsx#Widget              server      1 handler"), "{}", built.report);
+  std::fs::remove_dir_all(&fine).unwrap();
 }

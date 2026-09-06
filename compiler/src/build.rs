@@ -36,6 +36,9 @@ pub struct Options {
   /// directory's own terms, which is what keeps a build usable at any mount point.
   pub public_path: Option<String>,
   pub import_map: Option<PathBuf>,
+  /// A directory whose files are read in place of the root's at the same relative path. The file
+  /// set is still the root's, so an overlay can only replace, never add.
+  pub overlay: Option<PathBuf>,
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
@@ -191,6 +194,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     }
   }
 
+  let overlay = opts.overlay.as_ref().map(|o| (selection.root_dir.clone(), opts.root.join(o)));
   let mut build = Build {
     out_dir,
     root_dir: selection.root_dir,
@@ -199,7 +203,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include_patterns: selection.include_patterns,
     map_options,
     declaration,
-    compiler: Compiler::new(targets, jsx, aliases),
+    compiler: Compiler::new(targets, jsx, aliases).with_overlay(overlay),
     claimed: HashMap::new(),
     externals: Vec::new(),
     graph: Graph::default(),
@@ -443,7 +447,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   };
 
   let (label, compiled) = match (job.emit, job.asset) {
-    (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source, compiler.aliases()).map(Output::text)),
+    (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source, compiler.aliases(), &compiler.read_source(&job.source)).map(Output::text)),
     (emit, Asset::Script { dialect, markup, .. }) => {
       let label = match dialect {
         Dialect::TypeScript => "TS",

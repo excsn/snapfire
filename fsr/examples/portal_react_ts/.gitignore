@@ -8,3 +8,4 @@ app/types/
 app/dist/
 # written by `fsr test`: compiled spec files and test-only vendor builds
 app/.fsr-test/
+app/.fsr-bundle/

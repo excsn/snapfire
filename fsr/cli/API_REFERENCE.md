@@ -108,13 +108,19 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### write
 
 * `pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError>`
-* Removes every `*.json` under `generated/contracts/`, then writes every entry of `built.files` under `app`, creating directories as needed. Returns the paths written.
+* Removes every `*.json` under `generated/contracts/` and the whole `.fsr-bundle/` directory, then writes every entry of `built.files` under `app`, creating directories as needed. Returns the paths written.
+
+### write_overlay
+
+* `pub fn write_overlay(app: &Path, built: &Built) -> Result<(), BuildError>`
+* Removes `.fsr-bundle/` and writes only the entries of `built.files` under it: the sources the build rewrote for the browser. `write` includes them; this is for a caller that compiles without writing the rest, which is what `fsr test` does.
+* `dev::BUNDLE_OVERLAY` is the directory's name, `.fsr-bundle`.
 
 ### emit
 
 * `pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError>`
 * `pub struct Emitted { pub built: Built, pub written: Vec<PathBuf> }`
-* `build`, then `write`, then `snapfirec` over `tsconfig.build.json` into `<app>/dist` with `options.public_path` and the layout's import map. The order is load-bearing: the bundle compiles the island registry the generation writes.
+* `build`, then `write`, then `snapfirec` over `tsconfig.build.json` into `<app>/dist` with `options.public_path`, the layout's import map and `--overlay .fsr-bundle` when the build wrote one, so a rewritten source is compiled in place of its original at the same path. The order is load-bearing: the bundle compiles the island registry the generation writes.
 * The whole artifact a host reads, and what a `build.rs` calls. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.
 * `Dev` naming the compiler when it cannot start, or its exit status when it fails.
 
@@ -122,7 +128,9 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * `shell: Option<(String, usize, usize, Vec<String>)>`: for a site built against a shell contract, its path, its store key and import counts and the site's import map entries that differ; `Display` prints a `shell` row and a second naming the differences.
 
-* `pub struct Report { pub routes: Vec<(String, String)>, pub layouts: Vec<(String, String)>, pub slots: Vec<(String, String)>, pub intercepts: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub handlers: Vec<(String, String)>, pub middleware: Option<String>, pub components: Vec<(String, String, String)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
+* `pub struct Report { pub routes: Vec<(String, String)>, pub layouts: Vec<(String, String)>, pub slots: Vec<(String, String)>, pub intercepts: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub handlers: Vec<(String, String)>, pub middleware: Option<String>, pub components: Vec<(String, String, String)>, pub hoisted: Vec<(String, usize)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
+* `hoisted` gives a lowered component's module, prefixed for a site, how many of its render-path calls and how many of its static subtrees the server computes for the browser; `Display` prints them as `hoisted` rows after the components, `4 values, 8 subtrees`.
+* `islands: Vec<(String, usize)>` names each component placed as an island in server mode, prefixed for a site, with how many handlers it answers; `Display` prints them as `islands` rows labelled `server`, before `hoisted`.
 * `routes` pairs a pattern with its directory relative to `app`; `layouts` pairs the pattern a layout wraps with its module; `slots` pairs a parallel slot's source id with its page module; `intercepts` pairs `<pattern> into <slot>` with the `page.<slot>.tsx` module; `sources` and `actions` pair an id with the module that lowered to it; `services` pairs a service with its document; `schemas` pairs a type with its file; `types` pairs a package with `types::status`'s row.
 * `Display` prints the six sections in that order, source and action rows labelled `lowered`, service rows `http` or `grpc` by their document's extension.
 
@@ -155,6 +163,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * Action id: `<source id>.<export>` for each export `lower_actions` returns.
 * Layout id: `layout` for `routes/layout.tsx`, `<segments joined with .>.layout` deeper, parameters marked the same way; it names the layout's loader as a source.
 * Two rows deriving one id stop the build with `ClaimedId`, naming the kind, the id and both files. Route, source, action, handler and props-type names are each checked. The marker keeps ids apart but `props_name` drops it, so `routes/a/x` beside `routes/a/[x]` builds two distinct ids and one type name, and is refused on that.
+* A component placed as an island in server mode stops the build with `ServerIsland { module, reason }` when one of its handlers did not lower, naming the placing module, the line and why, or when a component it renders has state or handlers of its own, naming it.
 * Handler id: `<route id>.<METHOD>` for each export of `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; the row also carries the method and the pattern. An `action<T>` export names `T` as its input, which must be a schema type or the build fails with `UnknownHandlerInput`.
 
 ### Modules
@@ -182,6 +191,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module, each with `mount` and `patch` from `Options::mounter_module`: the routes-level error module, the not-found module, each layout, then each page, its error and its loading module, then every component a lowered component places as an island, its loader picking the named export, each loading `../<path>.js` relative to `generated/`.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.
 * `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build`.
+* `.fsr-bundle/<path>` is the browser copy of every lowered component module with a hoist: the source with `hoist::apply` over it, which snapfirec reads through `--overlay` in place of the original. Not for the editor and not for `fsr test`'s Rust side; the plan carries the same decisions as `Expr::Hoist`.
 * `generated/fsr.ts` is what the generated `tsconfig.json` maps `@snapfire/fsr` to; it imports the base package as `@snapfire/fsr-authoring`, re-exports `fail` and `Services`, imports `Session`, declares `Routes` with one key per pattern whose value has a `string` field per parameter, `Ctx<P extends keyof Routes = keyof Routes>` with `params`, `query`, `session`, `identity`, `locale`, `services` and `now`, `ActionCtx<Input, P>` and an `action<Input, Out>` wrapper over `@snapfire/fsr`'s.
 
 ## 4. Inference

@@ -86,6 +86,7 @@ Then read `example/dist`, which is what a browser would be served.
 | `--declaration` | Emits a `.d.ts` beside each TypeScript output. | `declaration` |
 | `--public-path <PREFIX>` | URL prefix the output is served under, used for the preload manifest. | paths, not URLs |
 | `--import-map <PATH>` | Fails the build if an external is not resolved by this map. | off |
+| `--overlay <PATH>` | Reads a file from this directory in place of the root's at the same relative path. The file set stays the root's. | off |
 | `-w`, `--watch` | Rebuilds whenever a source changes. | `false` |
 
 ## Configuration
