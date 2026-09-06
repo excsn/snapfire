@@ -33,6 +33,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * [Watching for Changes](#watching-for-changes)
 * [Loading the Output in a Browser](#loading-the-output-in-a-browser)
 * [Wiring the Build into a SnapFire Site](#wiring-the-build-into-a-snapfire-site)
+* [Checking Types](#checking-types)
 * [Scope](#scope)
 * [Error Handling](#error-handling)
 
@@ -1225,13 +1226,34 @@ snapfirec --root ./assets --out-dir ../static --strip-log --strip-debug --minify
 cargo build --release
 ```
 
+## Checking Types
+
+`snapfirec` strips type annotations and never reads one for meaning. `--typecheck` runs a checker over the same `tsconfig.json` once the build has emitted, and a diagnostic fails the build:
+
+```bash
+snapfirec --root ./my-lib --typecheck
+# src/a.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.
+# Typecheck failed. See the diagnostics above.
+```
+
+The checker is a separate executable, `snapfiretc` from the `snapfire_typecheck` crate, so nothing about it is in this binary and whoever never passes the flag never installs it. It is found at `$SNAPFIRETC`, else beside `snapfirec`, else on `PATH`, and `--snapfiretc <path>` names it outright. Unlike the flag being absent, a missing checker with the flag given is an error.
+
+Which TypeScript it uses is pinned rather than found: `--tsc-version <version>` asks for one, which the checker takes from its cache, from a `tsc` on `PATH` reporting that version or from a verified download, and `--tsc <path>` hands it one whose `--version` must match.
+
+```bash
+snapfirec --root ./my-lib --typecheck --tsc-version 7.0.2
+snapfirec --root ./my-lib --typecheck --tsc /opt/typescript/lib/tsc --tsc-version 7.0.2
+```
+
+Under `--watch` the check runs once, with the first build, rather than per rebuild.
+
 ## Scope
 
 `snapfirec` compiles files. These jobs belong to something else, mostly on purpose:
 
 | Not this tool's job | Why and what covers it |
 | :--- | :--- |
-| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. `tsc --noEmit` does the checking, over the same `tsconfig.json` and therefore the same files. Declaration *emit* is here, since isolated declarations is per-file too; so is the graph check below, since resolving a specifier needs no types. Checking those types is not |
+| Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. A checker does the checking, over the same `tsconfig.json` and therefore the same files, in its own executable: [Checking Types](#checking-types). Declaration *emit* is here, since isolated declarations is per-file too; so is the graph check below, since resolving a specifier needs no types. Checking those types is not |
 | Bundling | Output is browser-native ES modules by design. An import map resolves the bare specifiers; the `Externals:` line names them |
 | Downlevelling | Every engine that can load an ES module is already ES2017 or later, so there is no lower target worth emitting for. `target` is checked for satisfiability and otherwise left to `tsc` |
 | `@import` inlining | Bundling again, for stylesheets. Each input `.css` stays a separate output the browser fetches |
@@ -1242,15 +1264,14 @@ Bundling is the one worth a second look, because the reason it is usually reache
 A production pipeline therefore has more than one step in it; each step is a tool that does one thing:
 
 ```bash
-tsc --noEmit                                              # types
-snapfirec --root ./assets --out-dir ../static \           # compile
-  --strip-log --strip-debug --minify --source-map
+snapfirec --root ./assets --out-dir ../static \           # compile, then check
+  --strip-log --strip-debug --minify --source-map --typecheck
 cargo build --release                                     # server
 ```
 
 Two consequences are worth stating outright rather than leaving to be discovered.
 
-Nothing stops you shipping code that does not type check, so the `tsc --noEmit` step is load-bearing rather than optional. It is only sound because the file selection matches: both tools read the same `include`, `exclude`, `files` and `rootDir`, so neither can be looking at a file the other ignores.
+Nothing stops you shipping code that does not type check, so `--typecheck`, or a checker run beside this one, is load-bearing rather than optional. It is only sound because the file selection matches: both tools read the same `include`, `exclude`, `files` and `rootDir`, so neither can be looking at a file the other ignores.
 
 And without bundling there is no tree shaking and no cross-module mangling, so `--minify=full` can only rename within a single file. That costs little for code you wrote and imported deliberately. It costs a great deal if you ever start pulling in large third-party packages, which is the point at which this set of trade-offs stops being the right one.
 

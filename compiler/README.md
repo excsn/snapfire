@@ -66,6 +66,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |
 | Catch a relative import that points at nothing | Nothing to pass; every build checks it |
 | Kill the module-discovery waterfall | `dist/.snapfire-build.json`, written every build |
+| Check the types it strips | `--typecheck`, which runs `snapfiretc` over the same tsconfig |
 | Rebuild as you edit | `--watch` |
 | Strip development logging | `--strip-log --strip-debug` |
 | Pick browser targets | `.browserslistrc` in the project root |
@@ -87,6 +88,10 @@ Then read `example/dist`, which is what a browser would be served.
 | `--public-path <PREFIX>` | URL prefix the output is served under, used for the preload manifest. | paths, not URLs |
 | `--import-map <PATH>` | Fails the build if an external is not resolved by this map. | off |
 | `--overlay <PATH>` | Reads a file from this directory in place of the root's at the same relative path. The file set stays the root's. | off |
+| `--typecheck` | Runs `snapfiretc` over the same tsconfig once the build has emitted; a diagnostic fails the build. | `false` |
+| `--tsc <PATH>` | A compiler for the typechecker to use as given; its version must be the requested one. | resolved |
+| `--tsc-version <VERSION>` | The TypeScript version to typecheck with. | the checker's default |
+| `--snapfiretc <PATH>` | The typechecker itself. | `$SNAPFIRETC`, beside this binary, then `PATH` |
 | `-w`, `--watch` | Rebuilds whenever a source changes. | `false` |
 
 ## Configuration

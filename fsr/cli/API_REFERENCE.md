@@ -27,7 +27,13 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [Plan shape](#plan-shape)
   * [Generated files](#generated-files)
 * [4. Inference](#4-inference)
-* [5. Vendoring and Declarations](#5-vendoring-and-declarations)
+* [5. Typechecking](#5-typechecking)
+  * [Typecheck](#typecheck)
+  * [Checked](#checked)
+  * [spawn, finish, run](#spawn-finish-run)
+  * [find_checker](#find_checker)
+  * [record](#record)
+* [6. Vendoring and Declarations](#6-vendoring-and-declarations)
   * [Layout](#layout)
   * [Spec](#spec)
   * [add](#add)
@@ -36,22 +42,23 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [Manifests](#manifests)
   * [Ts](#ts)
   * [Inferer](#inferer)
-* [6. Error Handling](#6-error-handling)
+* [7. Error Handling](#7-error-handling)
   * [BuildError](#builderror)
 
 ## 1. The Binary
 
 ### fsr build
 
-* `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>]`
+* `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.json`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
 * The bundle follows the generation because it compiles the island registry the generation writes. `--public-path` defaults to `/static/js/app`, or `<at>/static/js/app` for a site; `--snapfirec` defaults to `$SNAPFIREC`, else beside this binary, else `PATH`.
 * Exit 0 on success, 1 on any `BuildError`, 2 on a usage error.
+* The typecheck prints one `typecheck <row>` line, a `recorded` line when it wrote the version into the configuration and nothing at all when no checker is installed beyond a note on stderr.
 
 ### fsr check
 
-* `fsr check <app dir> [--shell <module id>] [--slot <name>]`
-* Runs the build and prints the report; writes nothing. Same exit codes.
+* `fsr check <app dir> [--shell <module id>] [--slot <name>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
+* Runs the build and prints the report; writes nothing, so the typecheck reads whichever `tsconfig.json` is on disk. Same exit codes, plus 1 when a diagnostic is an error.
 
 ### fsr serve
 
@@ -120,9 +127,10 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### emit
 
 * `pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError>`
-* `pub struct Emitted { pub built: Built, pub written: Vec<PathBuf> }`
+* `pub struct Emitted { pub built: Built, pub written: Vec<PathBuf>, pub checked: Option<typecheck::Checked> }`
 * `build`, then `write`, then `snapfirec` over `tsconfig.build.json` into `<app>/dist` with `options.public_path`, the layout's import map and `--overlay .fsr-bundle` when the build wrote one, so a rewritten source is compiled in place of its original at the same path. The order is load-bearing: the bundle compiles the island registry the generation writes.
 * The whole artifact a host reads, and what a `build.rs` calls. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.
+* The typecheck runs beside the bundle rather than after it, since neither reads the other's output, and `Emitted::checked` carries what it found. `BuildError::Typecheck` when a diagnostic is an error, carrying the row and every diagnostic.
 * `Dev` naming the compiler when it cannot start, or its exit status when it fails.
 
 ### Report
@@ -215,7 +223,37 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `Inferer::returns(&self, body: &Body) -> Ts`: the union of every `return`, `Null` when none.
 * `Inferer::expr(&self, expr: &Expr, env: &[(String, Ts)]) -> Ts`. Reads type by their root, a call by its method's return, a session key by the `Session` record, `map` by its lambda's body over the element, `filter` by its operand, `Object.entries` as `[string, V][]`, an object literal as a record intersected with its spreads, a coalesce against an empty object or array as its left side. Anything else is `Unknown`, which absorbs a union it joins.
 
-## 5. Vendoring and Declarations
+## 5. Typechecking
+
+`fsr` spawns `snapfiretc` and renders what it says; it links nothing of the checker. The surface of the checker itself is in [snapfire_typecheck](../../typecheck/API_REFERENCE.md).
+
+### Typecheck
+
+* `pub struct Typecheck { pub enabled: bool, pub checker: Option<PathBuf>, pub tsc: Option<PathBuf>, pub version: Option<String>, pub expect: Option<String>, pub record: Option<PathBuf> }`
+* `Typecheck::beside(app: &Path) -> Typecheck`: the `[typecheck]` section of the configuration beside `app`, and `record` set to its first `.toml` source. A project with no configuration is enabled, with the checker's default version and nothing to record into.
+* `Default` is disabled with everything absent, so a caller building one by hand opts in; `DevOptions::default` and `DevOptions::beside` both enable it.
+
+### Checked
+
+* `pub struct Checked { pub version: String, pub source: String, pub sha512: Option<String>, pub pinned: bool, pub diagnostics: Vec<Diagnostic>, pub recorded: Option<PathBuf> }`: the checker's JSON report, plus the file this run recorded the version in.
+* `pub struct Diagnostic { pub file: Option<String>, pub line: u32, pub column: u32, pub code: String, pub severity: String, pub message: String }`, with `is_error()` and a `Display` printing `file(line,column): severity code: message`.
+* `Checked::errors() -> usize` counts the diagnostics whose severity is `error`; `Checked::row() -> String` is the report row, `tsc 7.0.2 from cache, 1 error`.
+
+### spawn, finish, run
+
+* `pub fn spawn(app: &Path, options: &Typecheck) -> Result<Option<Child>, BuildError>`: starts the checker over `<app>/tsconfig.json` with `--format json`. `None` when typechecking is off, the tsconfig has not been written or no checker is installed, which are not failures.
+* `pub fn finish(child: Option<Child>, options: &Typecheck) -> Result<Option<Checked>, BuildError>`: waits, reads the report and records the version when `options.version` is `None` and `options.record` names a file. `BuildError::Typecheck` when the child printed nothing or something that is not a report.
+* `pub fn run(app: &Path, options: &Typecheck) -> Result<Option<Checked>, BuildError>`: both halves, for a caller with nothing to do meanwhile. `emit` and `fsr dev` use the halves instead, so the check and the bundle run at once.
+
+### find_checker
+
+* `pub fn find_checker(explicit: Option<&Path>) -> PathBuf`: `explicit`, else `$SNAPFIRETC`, else `snapfiretc` beside the running binary, else the bare name for `PATH`. `pub const CHECKER: &str = "snapfiretc"`.
+
+### record
+
+* `pub fn record(path: &Path, version: &str, sha512: Option<&str>) -> Result<bool, BuildError>`: writes `version` into the file's `[typecheck]` section, adding the section when it has none. `false` when the section already names a version, so a pin written by hand is never rewritten.
+
+## 6. Vendoring and Declarations
 
 ### Layout
 
@@ -261,7 +299,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `pub struct types::TypesManifest { pub packages: BTreeMap<String, TypedPackage> }`, `types::TypedPackage { pub version: String, pub from: String, pub entry: String, pub ambient: bool }`; read and written as `<types>/.fsr-types.json`.
 * Both: `read(app, &layout)`, `write(&self, app, &layout)`; a missing file reads as empty.
 
-## 6. Error Handling
+## 7. Error Handling
 
 ### BuildError
 
@@ -280,3 +318,4 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `Serve(String)`, the stock host refusing to build or the listener failing, from `fsr serve`.
 * `Dependency { package: String, wants: String }`, a vendored module importing a package outside its bundle.
 * `Xwpm(String)`, an `xwpm` command that could not start or failed.
+* `Typecheck(String)`, the checker that could not be read, or the diagnostics of a check that found an error, the row first.

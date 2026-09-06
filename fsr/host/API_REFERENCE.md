@@ -20,6 +20,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [LocalesSection](#localessection)
   * [AuthSection](#authsection)
   * [BearerKey](#bearerkey)
+  * [TypecheckSection](#typechecksection)
   * [parse_duration](#parse_duration)
 * [2. Building](#2-building)
   * [Host::from](#hostfrom)
@@ -64,10 +65,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub inferred: Vec<String> }`
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub inferred: Vec<String> }`
 * `Config::load(path) -> Result<Config, HostError>`: `locate`, then `load_located`.
 * `Config::load_located(located: Located) -> Result<Config, HostError>`: `NoConfig` when `sources` is empty; otherwise c5store over the sources in that order with default options, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `from_store`.
-* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales` and `auth`, requires `session`, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
+* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site` and `sites`, requires `session`, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
 * `Config::config_dir(&self) -> PathBuf`: the directory of the first file loaded, the project root when none; where `auth.users` resolves.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
@@ -125,6 +126,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 * `pub enum config::BearerKey { Toggle(bool), Named(String) }`, untagged: `true`, `false` or a string in the file.
 * `key(&self) -> Option<&str>`: `access_token` for `true`, the string for `Named`, `None` for `false`.
+
+### TypecheckSection
+
+* `pub struct config::TypecheckSection { pub version: Option<String>, pub sha512: Option<String>, pub tsc: Option<String>, pub enabled: Option<bool> }`, the `[typecheck]` section. The host reads none of it; `fsr` does, when it spawns `snapfiretc` over the application. `version` is the TypeScript a build checks with, the checker's own default when absent, and `fsr` writes the one it resolved here when the file names none; `sha512` is the integrity a fetch of a version the checker pins no hash for must match; `tsc` is a compiler to use as given; `enabled` is whether a build checks types at all, on when absent.
 
 ### SiteSection
 

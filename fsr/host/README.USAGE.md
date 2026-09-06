@@ -110,6 +110,10 @@ remember = true                   # write the cookie when a prefix chose the loc
 provider = "file"                 # the accounts in config/auth.toml; "service" asks a client; oidc is planned
 login = "/login"                  # the application's login page, the default
 
+[typecheck]                       # optional: read by fsr, not by the host
+version = "7.0.2"                 # the TypeScript a build checks with; fsr records the one it resolved
+enabled = true                    # the default; false builds without checking types
+
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
 bearer = true                     # send custody's access_token as a bearer; a string names another key

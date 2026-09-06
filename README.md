@@ -23,6 +23,10 @@ The other half of the project is `snapfirec`, a TypeScript and CSS compiler that
 
 **➡️ See the compiler directory: [`/compiler`](./compiler)**
 
+Types are the one thing it does not read: `snapfiretc` checks them, in its own executable, against a TypeScript it pins, verifies and caches rather than one it finds installed.
+
+**➡️ See the typechecker directory: [`/typecheck`](./typecheck)**
+
 ## Core Principles
 
 -   **High Developer Experience:** The primary goal is to make the development feedback loop as fast and seamless as possible.
