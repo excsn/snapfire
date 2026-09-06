@@ -1,0 +1,72 @@
+:root {
+  --paper: #0f1216;
+  --panel: #161b21;
+  --raised: #1c232b;
+  --rule: #262f39;
+  --ink: #e9eef4;
+  --dim: #8994a1;
+  --accent: #7cb8ff;
+  --mine: #3f8f68;
+  --ghost: #b98b4a;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+.app { max-width: 78rem; margin: 0 auto; padding: 0 1rem 3rem; }
+.app header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+.wordmark { color: var(--ink); text-decoration: none; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.95rem; }
+
+.name { display: flex; gap: 0.4rem; }
+input { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; color: var(--ink); padding: 0.4rem 0.6rem; font: inherit; }
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button { background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; color: var(--ink); padding: 0.4rem 0.8rem; font: inherit; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.composer button { background: var(--accent); border-color: var(--accent); color: #0f1216; font-weight: 600; }
+
+.panes { display: grid; grid-template-columns: minmax(15rem, 22rem) minmax(0, 1fr); gap: 1.25rem; margin-top: 1.25rem; align-items: start; }
+@media (max-width: 60rem) { .panes { grid-template-columns: 1fr; } }
+
+.wave-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.wave-card { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.75rem; padding: 0.7rem 0.85rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; color: inherit; }
+.wave-card:hover { border-color: var(--accent); }
+.wave-title { font-weight: 600; }
+.wave-when, .wave-blips { color: var(--dim); font-size: 0.82rem; font-variant-numeric: tabular-nums; text-align: right; }
+.wave-people { color: var(--dim); font-size: 0.85rem; }
+
+.empty { color: var(--dim); padding: 2rem 0; }
+.empty p { margin: 0 0 0.6rem; }
+.hint { max-width: 34rem; font-size: 0.92rem; }
+
+.wave-head { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.wave-head h1 { margin-right: auto; }
+.live { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--rule); border-radius: 999px; padding: 0.12rem 0.5rem; }
+.live.on { color: var(--mine); border-color: currentColor; }
+.wave-head h1 { margin: 0; font-size: 1.25rem; }
+.people { list-style: none; display: flex; margin: 0; padding: 0; gap: 0.35rem; }
+.person { padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--raised); border: 1px solid var(--rule); color: var(--dim); font-size: 0.78rem; }
+.person.on { color: var(--ink); border-color: var(--mine); }
+.person.on::before { content: ""; display: inline-block; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--mine); margin-right: 0.35rem; vertical-align: 0.05rem; }
+
+.blips { list-style: none; margin: 0 0 1rem; padding: 0; }
+.blips li { position: relative; }
+.blips li[style*="margin-left"]::before { content: ""; position: absolute; left: -0.75rem; top: 0; bottom: 0.5rem; width: 1px; background: var(--rule); }
+
+.blip { background: var(--panel); border: 1px solid var(--rule); border-left-width: 3px; border-radius: 8px; padding: 0.55rem 0.8rem; margin-bottom: 0.4rem; display: grid; grid-template-columns: auto auto 1fr; gap: 0 0.6rem; }
+.blip.mine { border-left-color: var(--mine); }
+.blip .who { font-weight: 600; color: var(--accent); font-size: 0.88rem; }
+.blip.mine .who { color: var(--mine); }
+.blip .at { color: var(--dim); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.blip .body { grid-column: 1 / -1; margin: 0.2rem 0 0; overflow-wrap: anywhere; }
+
+.blip.ghost { border-style: dashed; border-left-color: var(--ghost); background: transparent; }
+.blip.ghost .who { color: var(--ghost); }
+.blip.ghost .at { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.7rem; }
+.blip.ghost .body { color: var(--dim); min-height: 1.4rem; }
+
+.reply { background: none; border: 0; color: var(--dim); padding: 0 0 0.5rem; font-size: 0.82rem; }
+.reply:hover { color: var(--accent); }
+
+.composer { display: flex; gap: 0.5rem; margin: 0.25rem 0 1rem; }
+.composer input { flex: 1; }

@@ -21,6 +21,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Following the Server](#following-the-server)
+* [Sending as Fast as Someone Types](#sending-as-fast-as-someone-types)
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
 * [Sharing State Across Islands](#sharing-state-across-islands)
@@ -407,6 +408,21 @@ live(["prices"], { onTopic: (topic) => console.log(`${topic} moved`) });
 ```
 
 Nothing happens where `EventSource` is absent, so the same component renders on the server without a guard.
+
+## Sending as Fast as Someone Types
+
+`live` hears. `socket` speaks. It opens one WebSocket on a topic, writes what comes back into the store, and reconnects on its own.
+
+```ts
+import { socket } from "@snapfire/fsr-client";
+
+const wire = socket(`wave/${id}`, { onOpen: () => setConnected(true), onClose: () => setConnected(false) });
+wire.send("typing", { parent, body });
+```
+
+What the server makes of a sent row is its business: it answers with rows, they land in the store under their keys, and every island reading one of those keys re-renders. Nothing on this seam is durable, and a send while the connection is down is dropped rather than queued, because the next keystroke supersedes it anyway.
+
+One connection is enough for a page. Hold it in a module rather than in a component, hand each island a share and close it when the last one goes, which is what `wave_react_ts` does in `src/ui/wire.ts`.
 
 ## Calling an Action
 

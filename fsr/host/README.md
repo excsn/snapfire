@@ -14,6 +14,7 @@ snapfire_fsr_host = { path = "../host" }
 | Feature | Adds |
 | --- | --- |
 | `actix` | `snapfire_fsr_host::actix::{handle, serve}`, the shim from actix's request and response types to the host's |
+| `ws` | `/_sf/socket`, a WebSocket per topic: `HostBuilder::socket` answers what a page sends and the reply goes out as store rows. Adds `tokio-tungstenite` |
 | `tls` | `[server.tls]`: the hyper listener terminates TLS with rustls over ring, ALPN chooses the version, and the configured signal re-reads the certificate. Adds `rustls`, `rustls-pki-types` and `tokio-rustls` |
 
 No feature is needed for hyper or axum. The crate depends on `c5store` with `toml` for configuration, `snapfire_fsr` for the binding rule, `snapfire_fsr_service` for clients and contracts, `snapfire_fsr_session` for sessions, `http`, `http-body`, `tower`, `tower-http` with `fs` and hyper.
@@ -30,6 +31,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Serve with actix | the `actix` feature, `actix::serve` or `actix::handle` |
 | Serve TLS without a proxy | the `tls` feature, `[server.tls]`, and SIGHUP after a renewal |
 | Tell an open page that something changed | `Host::publish`, read by `/_sf/live` |
+| Take what a page sends, keystroke by keystroke | the `ws` feature, `HostBuilder::socket`, over `/_sf/socket` |
 | Answer one name in Rust | `HostBuilder::source_override`, `action_override`, `source`, `action` |
 | Add a route in Rust | `HostBuilder::route`, `route_override` |
 | Replace the document shell | `HostBuilder::shell` |

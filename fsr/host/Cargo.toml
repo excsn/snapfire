@@ -11,6 +11,7 @@ license = { workspace = true }
 default = []
 actix = ["dep:actix-web"]
 tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
+ws = ["dep:tokio-tungstenite"]
 
 [dependencies]
 parking_lot = "0.12"
@@ -45,6 +46,7 @@ actix-web = { version = "4", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"], optional = true }
 rustls-pki-types = { version = "1", optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"], optional = true }
+tokio-tungstenite = { version = "0.27", default-features = false, features = ["handshake"], optional = true }
 
 [dev-dependencies]
 axum = "0.8"

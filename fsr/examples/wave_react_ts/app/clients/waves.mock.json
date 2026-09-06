@@ -1,0 +1,17 @@
+{
+  "listWaves": [
+    { "id": "kickoff", "title": "Snapfire kickoff", "participants": ["alice", "bob"], "blips": 3, "last": "09:14" },
+    { "id": "board", "title": "Arrivals board review", "participants": ["alice"], "blips": 1, "last": "08:02" }
+  ],
+  "getWave": {
+    "id": "kickoff",
+    "title": "Snapfire kickoff",
+    "participants": ["alice", "bob"],
+    "blips": [
+      { "id": "1", "parent": "", "who": "alice", "body": "Starting a wave for the launch.", "at": "09:10", "depth": 0 },
+      { "id": "2", "parent": "1", "who": "bob", "body": "Good. I will take the runtime half.", "at": "09:12", "depth": 1 },
+      { "id": "3", "parent": "", "who": "alice", "body": "Anything else goes under its own blip.", "at": "09:14", "depth": 0 }
+    ]
+  },
+  "addBlip": { "id": "4", "parent": "", "who": "you", "body": "Added.", "at": "09:20", "depth": 0 }
+}

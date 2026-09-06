@@ -13,6 +13,9 @@ pub mod actix;
 #[cfg(feature = "tls")]
 pub mod tls;
 
+#[cfg(feature = "ws")]
+pub mod socket;
+
 use std::convert::Infallible;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -331,6 +334,13 @@ pub struct Host {
   /// Who may follow which topic. Absent, any topic may be followed by
   /// anyone, which is right for a board on a wall and wrong for a room.
   topic_rule: Option<TopicRule>,
+  /// Every open socket by topic, and what the application makes of what one
+  /// sends. Without a handler `/_sf/socket` is a 404, since a socket nobody
+  /// answers is a socket that does nothing.
+  #[cfg(feature = "ws")]
+  sockets: Arc<socket::Sockets>,
+  #[cfg(feature = "ws")]
+  socket_handler: Option<socket::SocketHandler>,
   reloader: Option<Reloader>,
   csrf_always: bool,
   report_listen: String,
@@ -492,6 +502,8 @@ pub struct HostBuilder {
   identity: Option<Arc<dyn IdentityProvider>>,
   reloader: Option<Reloader>,
   topic_rule: Option<TopicRule>,
+  #[cfg(feature = "ws")]
+  socket_handler: Option<socket::SocketHandler>,
   mounts: Vec<Mount>,
   /// Overrides `server.http2` for a host built in Rust.
   http2: Option<bool>,
@@ -570,6 +582,8 @@ impl Host {
       identity: None,
       reloader: None,
       topic_rule: None,
+      #[cfg(feature = "ws")]
+      socket_handler: None,
       mounts: Vec::new(),
       http2: None,
       pending: None,
@@ -1057,6 +1071,63 @@ impl Host {
     }
   }
 
+  /// Every open socket, by topic: what a backend pushes into a wave nobody
+  /// typed into, and what a presence count is read from.
+  #[cfg(feature = "ws")]
+  pub fn sockets(&self) -> Arc<socket::Sockets> {
+    self.sockets.clone()
+  }
+
+  /// `GET /_sf/socket?topic=x` upgraded: the topic rule decides whether this
+  /// visitor may open it at all, the handshake is answered inline and the
+  /// connection is served once hyper hands the upgraded stream over.
+  #[cfg(feature = "ws")]
+  fn upgrade(&self, mut req: Request<Bytes>, opened: &snapfire_fsr_session::Opened) -> Response<Body> {
+    let Some(handler) = self.socket_handler.clone() else {
+      return text_response(StatusCode::NOT_FOUND, "no socket handler is registered".to_owned());
+    };
+    let topic = req
+      .uri()
+      .query()
+      .and_then(|query| form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == "topic").map(|(_, value)| value.into_owned()))
+      .unwrap_or_default();
+    if topic.is_empty() {
+      return text_response(StatusCode::BAD_REQUEST, "no topic: /_sf/socket?topic=a".to_owned());
+    }
+    let identity = opened.cell.identity();
+    if let Some(rule) = &self.topic_rule {
+      if !rule(&topic, &opened.cell, identity.as_ref()) {
+        return text_response(StatusCode::FORBIDDEN, format!("not yours to open: {topic}"));
+      }
+    }
+    let key = req.headers().get("sec-websocket-key").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let (Some(key), Some(upgrading)) = (key, req.extensions_mut().remove::<hyper::upgrade::OnUpgrade>()) else {
+      return text_response(StatusCode::BAD_REQUEST, "not a websocket upgrade".to_owned());
+    };
+    let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
+
+    let who = socket::Who { topic, session: opened.cell.clone(), identity, connection: 0 };
+    let sockets = self.sockets.clone();
+    tokio::spawn(async move {
+      match upgrading.await {
+        Ok(upgraded) => {
+          let io = hyper_util::rt::TokioIo::new(upgraded);
+          let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(io, tokio_tungstenite::tungstenite::protocol::Role::Server, None).await;
+          socket::serve(stream, sockets, handler, who).await;
+        }
+        Err(e) => tracing::debug!(target: "fsr::host", error = %e, "upgrade failed"),
+      }
+    });
+
+    Response::builder()
+      .status(StatusCode::SWITCHING_PROTOCOLS)
+      .header(header::CONNECTION, "Upgrade")
+      .header(header::UPGRADE, "websocket")
+      .header("sec-websocket-accept", accept)
+      .body(Body::default())
+      .expect("a handshake response")
+  }
+
   /// Tells every `/_sf/live` stream watching `topic` that it changed. What a
   /// listener does with it is the client's: the stock one revalidates the
   /// route it is showing, so a loader runs again and the page follows.
@@ -1175,6 +1246,10 @@ impl Host {
     let accept_language = header("accept-language");
     let opened = self.sessions.open(cookie.as_deref()).await;
 
+    #[cfg(feature = "ws")]
+    if path == "/_sf/socket" && req.method() == Method::GET {
+      return self.upgrade(req, &opened);
+    }
     if path == "/_sf/live" && req.method() == Method::GET {
       let topics: Vec<String> = req
         .uri()
@@ -1595,12 +1670,17 @@ where
   });
   if http2 {
     hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-      .serve_connection(io, service)
+      .serve_connection_with_upgrades(io, service)
       .await
       .err()
       .map(|e| e.to_string())
   } else {
-    hyper::server::conn::http1::Builder::new().serve_connection(io, service).await.err().map(|e| e.to_string())
+    hyper::server::conn::http1::Builder::new()
+      .serve_connection(io, service)
+      .with_upgrades()
+      .await
+      .err()
+      .map(|e| e.to_string())
   }
 }
 
@@ -2009,6 +2089,20 @@ impl HostBuilder {
     self
   }
 
+  /// What the application makes of what a page sends over `/_sf/socket`:
+  /// called when a connection joins a topic, once per row it sends and when
+  /// it leaves, and whatever it answers goes out to that topic as store rows.
+  /// Without one the endpoint is a 404. `HostBuilder::topics` still decides
+  /// who may open the socket at all.
+  #[cfg(feature = "ws")]
+  pub fn socket<F>(mut self, handler: F) -> Self
+  where
+    F: Fn(&socket::Who, socket::On) -> socket::Reply + Send + Sync + 'static,
+  {
+    self.socket_handler = Some(Arc::new(handler));
+    self
+  }
+
   /// Negotiates HTTP/2 as well as HTTP/1.1 on a served connection, which
   /// `server.http2` also sets. The listener carries no TLS, so this is h2c.
   pub fn http2(mut self, on: bool) -> Self {
@@ -2183,6 +2277,8 @@ impl HostBuilder {
     let reloader = self.reloader.take();
     let store = self.store.take();
     let topic_rule = self.topic_rule.take();
+    #[cfg(feature = "ws")]
+    let socket_handler = self.socket_handler.take();
     let http2 = self.http2;
     let (tables, config) = self.assemble()?;
     let ttl = config.session_ttl()?;
@@ -2234,6 +2330,10 @@ impl HostBuilder {
       changed,
       topics: tokio::sync::broadcast::channel(64).0,
       topic_rule,
+      #[cfg(feature = "ws")]
+      sockets: Arc::new(socket::Sockets::new()),
+      #[cfg(feature = "ws")]
+      socket_handler,
       reloader,
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),

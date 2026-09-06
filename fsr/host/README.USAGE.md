@@ -13,6 +13,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving with hyper](#serving-with-hyper)
 * [Mounting in axum](#mounting-in-axum)
 * [Pushing to an Open Page](#pushing-to-an-open-page)
+* [Taking What a Page Sends](#taking-what-a-page-sends)
 * [Serving with actix](#serving-with-actix)
 * [Terminating TLS](#terminating-tls)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
@@ -276,6 +277,24 @@ builder.topics(|topic, session, identity| match topic.strip_prefix("room/") {
 It is asked once per topic as the stream opens, against the session the request's cookie names, and one refusal refuses the stream with 403 naming the topic rather than opening it half. Without a rule any topic may be followed by anyone. How a session comes to hold what the rule reads is the application's: `chat_react_ts` records the room in the session from the room's own loader, so opening a room is joining it.
 
 Publishing reaches the streams this process is holding. Behind several replicas each instance reaches its own, so a topic that must reach every reader needs a bus behind `publish`, which is not built.
+
+## Taking What a Page Sends
+
+`publish` is the server telling a page. The `ws` feature is the other direction: `GET /_sf/socket?topic=a` upgrades, the same topic rule decides who may open it, and `HostBuilder::socket` decides what anything sent over it means.
+
+```rust
+builder.socket(move |who, on| match on {
+  On::Joined | On::Left => Reply::everyone([field.here(&who.topic)]),
+  On::Said(row) if row.key == "typing" => Reply::others([field.draft(who, row)]),
+  On::Said(_) => Reply::default(),
+})
+```
+
+The handler is called once when a connection joins, once per row it sends and once when it leaves, and what it answers goes out to that topic as store rows: `everyone` includes the sender, `others` is what a typing indicator wants, and `Reply::default()` drops it, which is what an unrecognised key deserves. `who.connection` is unique per socket, so two windows of one session are two presences.
+
+A row is `{"key": ..., "value": ...}` going in and `{"rows": [...]}` coming back, and the browser half writes each row into the store, so an island reading that key follows without being told. `Host::sockets()` gives the registry: `on(topic)` counts what is open, and `push(topic, rows)` sends from outside any connection.
+
+Nothing durable belongs on this seam. A message worth keeping is an action, and the page learns about it through `publish` and a loader; the socket is for what is not worth keeping, which is why `wave_react_ts` uses both at once.
 
 ## Serving with actix
 

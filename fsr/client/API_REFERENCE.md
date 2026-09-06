@@ -48,6 +48,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [navigate](#navigate)
   * [refresh](#refresh)
   * [live](#live)
+  * [socket](#socket)
   * [applyHead](#applyhead)
 * [7. Actions](#7-actions)
   * [action](#action)
@@ -463,6 +464,16 @@ Falls back to `window.location.reload()` when there is no sidecar, when the resp
 Opens the host's event stream at `path`, `/_sf/live` by default, asking for `topics`, and returns the function that closes it. Every publish of a topic in the list calls `onTopic`, which defaults to `refresh()`, so the route's loaders run again and the page is patched in place without a navigation. The browser reconnects the stream on its own, so a restarted server resumes without a reload.
 
 Does nothing and returns a no-op where `EventSource` is absent, which is every server-side render, or when `topics` is empty. An island typically opens it in an effect and returns the closer, so leaving the page stops the stream.
+
+### socket
+
+* `socket(topic: string, options?: SocketOptions): Socket`
+* `SocketOptions`: `{ onRow?: (key: string, value: unknown) => void; onOpen?: () => void; onClose?: () => void; path?: string; backoffMs?: number }`
+* `Socket`: `{ send(key: string, value: unknown): void; open(): boolean; close(): void }`
+
+Opens a WebSocket on `topic` at `path`, `/_sf/socket` by default, and keeps it open: a drop calls `onClose` and is retried after `backoffMs`, doubling to a minute, and every connection calls `onOpen`. Rows the server sends are written into the store under their keys unless `onRow` says otherwise, so an island reading a key follows without being told.
+
+`send` is dropped rather than queued while the socket is down, which is right for what this seam carries: the state of a keystroke, superseded by the next one. Returns a socket whose methods do nothing where `WebSocket` is absent, which is every server-side render.
 
 ### applyHead
 

@@ -1,0 +1,91 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Waves", "version": "1.0.0" },
+  "paths": {
+    "/waves": {
+      "get": {
+        "operationId": "listWaves",
+        "responses": {
+          "200": {
+            "description": "the inbox",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Summary" } } } }
+          }
+        }
+      }
+    },
+    "/waves/{id}": {
+      "get": {
+        "operationId": "getWave",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "one wave and every blip in it",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Wave" } } }
+          }
+        }
+      }
+    },
+    "/waves/{id}/blips": {
+      "post": {
+        "operationId": "addBlip",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Written" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "the blip as it was kept",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Blip" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Summary": {
+        "type": "object",
+        "required": ["id", "title", "participants", "blips", "last"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "participants": { "type": "array", "items": { "type": "string" } },
+          "blips": { "type": "number", "format": "double" },
+          "last": { "type": "string" }
+        }
+      },
+      "Wave": {
+        "type": "object",
+        "required": ["id", "title", "participants", "blips"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "participants": { "type": "array", "items": { "type": "string" } },
+          "blips": { "type": "array", "items": { "$ref": "#/components/schemas/Blip" } }
+        }
+      },
+      "Blip": {
+        "type": "object",
+        "required": ["id", "parent", "who", "body", "at", "depth"],
+        "properties": {
+          "id": { "type": "string" },
+          "parent": { "type": "string" },
+          "who": { "type": "string" },
+          "body": { "type": "string" },
+          "at": { "type": "string" },
+          "depth": { "type": "number", "format": "double" }
+        }
+      },
+      "Written": {
+        "type": "object",
+        "required": ["who", "parent", "body"],
+        "properties": {
+          "who": { "type": "string" },
+          "parent": { "type": "string" },
+          "body": { "type": "string" }
+        }
+      }
+    }
+  }
+}

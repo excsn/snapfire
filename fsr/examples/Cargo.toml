@@ -9,6 +9,7 @@ members = [
   "ops_console_react_ts",
   "portal_react_ts",
   "shopping_react_ts",
+  "wave_react_ts",
 ]
 
 [workspace.package]

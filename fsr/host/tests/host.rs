@@ -1869,3 +1869,35 @@ async fn a_topic_rule_decides_who_may_follow_what() {
   let response = host.handle(Request::get("/_sf/live?topics=board,room/42").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::FORBIDDEN, "one refused topic refuses the stream rather than half of it");
 }
+
+#[cfg(feature = "ws")]
+#[tokio::test]
+async fn a_socket_is_refused_without_a_handler_a_topic_or_the_rule_s_blessing() {
+  use snapfire_fsr_host::socket::{On, Reply, Row};
+
+  let (host, _) = host();
+  let response = host.handle(Request::get("/_sf/socket?topic=wave/1").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "no handler, no socket");
+
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let host = Host::from(app_dir().join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .topics(|topic, _, _| topic == "wave/1")
+    .socket(|_, on| match on {
+      On::Said(row) => Reply::everyone([Row::new(format!("seen/{}", row.key), row.value)]),
+      _ => Reply::default(),
+    })
+    .build()
+    .unwrap();
+
+  let response = host.handle(Request::get("/_sf/socket").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST, "a socket is opened on one topic");
+
+  let response = host.handle(Request::get("/_sf/socket?topic=wave/2").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::FORBIDDEN, "the same rule guards the socket and the stream");
+
+  let response = host.handle(Request::get("/_sf/socket?topic=wave/1").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST, "an allowed topic still needs a handshake");
+  assert_eq!(host.sockets().on("wave/1"), 0, "nothing was opened");
+}
