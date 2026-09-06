@@ -1,7 +1,7 @@
-import type { IndexProps } from "@generated/client";
+import type { RootProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
 
-export default function IndexPage({ teams, visits }: IndexProps) {
+export default function IndexPage({ teams, visits }: RootProps) {
   return (
     <div className="page home">
       <h1>Teams</h1>

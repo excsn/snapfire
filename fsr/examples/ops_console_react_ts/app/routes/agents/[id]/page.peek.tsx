@@ -1,6 +1,6 @@
-import type { AgentsViewIdProps } from "@generated/client";
+import type { AgentsIdProps } from "@generated/client";
 
-export default function AgentPeek({ agent, jobs }: AgentsViewIdProps) {
+export default function AgentPeek({ agent, jobs }: AgentsIdProps) {
   return (
     <div className="peek">
       <h3>{agent.name}</h3>

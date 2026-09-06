@@ -1,7 +1,7 @@
-import type { IndexProps } from "@generated/client";
+import type { RootProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
 
-export default function InvoicesPage({ invoices }: IndexProps) {
+export default function InvoicesPage({ invoices }: RootProps) {
   return (
     <div className="page invoices">
       <h1>Invoices</h1>

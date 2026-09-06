@@ -15,6 +15,7 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [Scope](#scope)
   * [Service](#service)
   * [Contract](#contract)
+  * [Contract::namespaced](#contractnamespaced)
 * [2. The Registry](#2-the-registry)
   * [Services](#services)
   * [ServicesBuilder](#servicesbuilder)
