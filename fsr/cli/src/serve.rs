@@ -30,7 +30,11 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
   let host = Arc::new(host_for(app)?);
   print!("{}", host.report());
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
-  println!("fsr server on http://{listen}/");
+  let scheme = match host.report().tls.is_some() {
+    true => "https",
+    false => "http",
+  };
+  println!("fsr server on {scheme}://{listen}/");
   let root = project_root(app);
   let poll = Config::load(&root).ok().and_then(|config| snapfire_fsr_sites::poll_of(&config));
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(format!("runtime: {e}")))?;

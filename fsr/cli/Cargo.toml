@@ -11,6 +11,10 @@ license = { workspace = true }
 name = "fsr"
 path = "src/main.rs"
 
+[features]
+default = []
+tls = ["snapfire_fsr_host/tls"]
+
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 flate2 = "1.1.10"
@@ -23,6 +27,7 @@ serde_json = "1.0.151"
 snapfire_fsr_core = { path = "../core" }
 snapfire_fsr_engine = { path = "../engine" }
 snapfire_fsr_host = { path = "../host" }
+
 snapfire_fsr_sites = { path = "../sites" }
 snapfire_fsr_ir = { path = "../ir" }
 snapfire_fsr_lower = { path = "../lower" }

@@ -1660,3 +1660,151 @@ async fn a_route_reading_only_the_identity_prerenders_for_anonymous_visitors_and
   assert_eq!(response.headers().get("x-sf-prerendered").map(|v| v.to_str().unwrap()), Some("1"), "a route reading nothing serves its file to everyone");
   let _ = std::fs::remove_dir_all(&out);
 }
+
+/// The `tls` feature. Two throwaway chains under `tests/tls/` stand in for a
+/// deployment's certificate: `<pair>-cert.pem` is a leaf for `localhost` and
+/// the CA that signed it, `<pair>-ca.pem` is what a client trusts. `a` and `b`
+/// share nothing, so a handshake says which one the listener presented.
+#[cfg(feature = "tls")]
+mod tls {
+  use super::*;
+
+  fn fixture(name: &str) -> Vec<u8> {
+    std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/tls").join(name)).unwrap()
+  }
+
+  /// An app whose `[server.tls]` names a directory and takes the default
+  /// `cert.pem` and `key.pem` under it.
+  fn app_with_tls(pair: &str, reload: &str) -> PathBuf {
+    let dir = app_dir();
+    std::fs::create_dir_all(dir.join("certs")).unwrap();
+    put(&dir, pair);
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace(
+      "listen = \"127.0.0.1:0\"",
+      &format!("listen = \"127.0.0.1:0\"\nhttp2 = true\n\n[server.tls]\ndir = \"certs\"\nreload = \"{reload}\""),
+    );
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    dir
+  }
+
+  fn put(dir: &std::path::Path, pair: &str) {
+    std::fs::write(dir.join("certs/cert.pem"), fixture(&format!("{pair}-cert.pem"))).unwrap();
+    std::fs::write(dir.join("certs/key.pem"), fixture(&format!("{pair}-key.pem"))).unwrap();
+  }
+
+  fn served(dir: &std::path::Path) -> Arc<Host> {
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+    Arc::new(Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap())
+  }
+
+  /// Trusts one certificate and no other, so a swap the client did not expect
+  /// fails rather than passing quietly.
+  fn client(pair: &str) -> tokio_rustls::TlsConnector {
+    use rustls_pki_types::pem::PemObject;
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in rustls_pki_types::CertificateDer::pem_slice_iter(&fixture(&format!("{pair}-ca.pem"))) {
+      roots.add(cert.unwrap()).unwrap();
+    }
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut config = rustls::ClientConfig::builder_with_provider(provider)
+      .with_safe_default_protocol_versions()
+      .unwrap()
+      .with_root_certificates(roots)
+      .with_no_client_auth();
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    tokio_rustls::TlsConnector::from(Arc::new(config))
+  }
+
+  /// One request over TLS, answering with the protocol ALPN chose, the
+  /// certificate the listener presented and the body.
+  async fn get(
+    addr: std::net::SocketAddr,
+    pair: &str,
+    path: &str,
+  ) -> Result<(Vec<u8>, Vec<u8>, String), Box<dyn std::error::Error + Send + Sync>> {
+    let stream = tokio::net::TcpStream::connect(addr).await?;
+    let name = rustls_pki_types::ServerName::try_from("localhost")?;
+    let stream = client(pair).connect(name, stream).await?;
+    let (_, session) = stream.get_ref();
+    let alpn = session.alpn_protocol().unwrap_or_default().to_vec();
+    let presented = session.peer_certificates().and_then(|c| c.first()).map(|c| c.to_vec()).unwrap_or_default();
+
+    let io = hyper_util::rt::TokioIo::new(stream);
+    let (mut sender, conn) = hyper::client::conn::http2::handshake(hyper_util::rt::TokioExecutor::new(), io).await?;
+    tokio::spawn(conn);
+    let request = Request::get(path).header(header::HOST, "localhost").body(http_body_util::Empty::<Bytes>::new())?;
+    let body = sender.send_request(request).await?.into_body().collect().await?.to_bytes();
+    Ok((alpn, presented, String::from_utf8_lossy(&body).into_owned()))
+  }
+
+  async fn listening(host: Arc<Host>) -> std::net::SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(host.serve_listener(listener));
+    addr
+  }
+
+  #[tokio::test]
+  async fn the_listener_presents_the_configured_certificate_and_alpn_picks_http2() {
+    let dir = app_with_tls("a", "hup");
+    let host = served(&dir);
+    let report = host.report().to_string();
+    assert!(report.contains("certs/cert.pem with"), "{report}");
+    assert!(report.contains("re-read on SIGHUP"), "{report}");
+    assert!(report.contains("alpn [h2, http/1.1]"), "{report}");
+
+    let addr = listening(host).await;
+    let (alpn, presented, body) = get(addr, "a", "/hello/tls?from=alpn").await.unwrap();
+    assert_eq!(alpn, b"h2", "the handshake chose HTTP/2");
+    assert_eq!(presented, first_der("a"), "the certificate the configuration named");
+    assert!(body.contains("hi tls via alpn"), "{body}");
+  }
+
+  #[tokio::test]
+  async fn a_reload_swaps_the_certificate_and_a_bad_one_leaves_the_running_certificate() {
+    let dir = app_with_tls("a", "hup");
+    let host = served(&dir);
+    let addr = listening(host.clone()).await;
+    let (_, presented, _) = get(addr, "a", "/hello/tls?from=one").await.unwrap();
+    assert_eq!(presented, first_der("a"));
+
+    put(&dir, "b");
+    host.reload_tls().unwrap();
+    let (_, presented, body) = get(addr, "b", "/hello/tls?from=two").await.unwrap();
+    assert_eq!(presented, first_der("b"), "the next handshake presents what the files now hold");
+    assert!(body.contains("hi tls via two"), "{body}");
+    assert!(get(addr, "a", "/hello/tls?from=old").await.is_err(), "a client trusting only the old certificate is refused");
+
+    std::fs::write(dir.join("certs/cert.pem"), "not a certificate").unwrap();
+    let failed = host.reload_tls().unwrap_err().to_string();
+    assert!(failed.contains("cert.pem"), "the error names the file: {failed}");
+    let (_, presented, _) = get(addr, "b", "/hello/tls?from=three").await.unwrap();
+    assert_eq!(presented, first_der("b"), "a failed reload leaves the running certificate in place");
+  }
+
+  #[tokio::test]
+  async fn a_certificate_that_is_not_there_is_a_configuration_error() {
+    let dir = app_with_tls("a", "hup");
+    std::fs::remove_file(dir.join("certs/cert.pem")).unwrap();
+    let error = match Host::from(dir.join("app.toml")).unwrap().build() {
+      Ok(_) => panic!("the build should have refused it"),
+      Err(e) => e.to_string(),
+    };
+    assert!(error.contains("cert.pem"), "{error}");
+  }
+
+  #[tokio::test]
+  async fn the_reload_signal_is_checked() {
+    let dir = app_with_tls("a", "sigterm");
+    let error = match Host::from(dir.join("app.toml")).unwrap().build() {
+      Ok(_) => panic!("the build should have refused it"),
+      Err(e) => e.to_string(),
+    };
+    assert!(error.contains("hup, usr1, usr2 or none"), "{error}");
+  }
+
+  fn first_der(pair: &str) -> Vec<u8> {
+    use rustls_pki_types::pem::PemObject;
+    rustls_pki_types::CertificateDer::from_pem_slice(&fixture(&format!("{pair}-cert.pem"))).unwrap().to_vec()
+  }
+}

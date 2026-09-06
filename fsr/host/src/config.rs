@@ -135,15 +135,63 @@ pub struct ServerConfig {
   #[serde(default)]
   pub dev: Option<bool>,
   /// Whether `serve` negotiates HTTP/2 on the connection as well as HTTP/1.1.
-  /// The listener carries no TLS, so this is h2c: a client that opens with the
-  /// HTTP/2 preface is served, and a browser, which wants ALPN over TLS, is not.
+  /// Without `[server.tls]` this is h2c: a client that opens with the HTTP/2
+  /// preface is served, and a browser, which wants ALPN over TLS, is not.
   #[serde(default)]
   pub http2: bool,
+  /// `[server.tls]`: absent, the listener is plain TCP. Present, the host
+  /// needs the `tls` feature, which is off by default.
+  #[serde(default)]
+  pub tls: Option<TlsSection>,
+}
+
+/// `[server.tls]`: where the certificate and its key are read from, what the
+/// handshake offers and which signal re-reads them.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TlsSection {
+  /// The directory `cert` and `key` are read under; absent, they resolve
+  /// against the project root like every other configured path.
+  #[serde(default)]
+  pub dir: Option<String>,
+  /// The certificate chain in PEM, leaf first.
+  #[serde(default = "default_cert")]
+  pub cert: String,
+  /// The private key in PEM: PKCS#8, PKCS#1 or SEC1.
+  #[serde(default = "default_key")]
+  pub key: String,
+  /// What the handshake offers, in order of preference. Absent, `h2` and
+  /// `http/1.1` when `server.http2` is on and `http/1.1` alone when it is not.
+  #[serde(default)]
+  pub alpn: Option<Vec<String>>,
+  /// The signal that re-reads the files and swaps the certificate:
+  /// `hup`, `usr1`, `usr2` or `none`. Unix only; elsewhere a restart.
+  #[serde(default = "default_reload")]
+  pub reload: String,
+}
+
+impl TlsSection {
+  /// The certificate and key paths, resolved under `dir` when it is set and
+  /// against `root` otherwise. An absolute path is taken as written.
+  pub fn files(&self, root: &Path) -> (PathBuf, PathBuf) {
+    let under = |name: &str| -> PathBuf {
+      let path = Path::new(name);
+      if path.is_absolute() {
+        return path.to_path_buf();
+      }
+      match &self.dir {
+        Some(dir) if Path::new(dir).is_absolute() => Path::new(dir).join(path),
+        Some(dir) => root.join(dir).join(path),
+        None => root.join(path),
+      }
+    };
+    (under(&self.cert), under(&self.key))
+  }
 }
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), max_body: default_max_body(), prerender: None, dev: None, http2: false }
+    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), max_body: default_max_body(), prerender: None, dev: None, http2: false, tls: None }
   }
 }
 
@@ -370,6 +418,15 @@ fn default_plan() -> String {
 }
 fn default_contracts() -> String {
   "generated/contracts".to_owned()
+}
+fn default_cert() -> String {
+  "cert.pem".to_owned()
+}
+fn default_key() -> String {
+  "key.pem".to_owned()
+}
+fn default_reload() -> String {
+  "hup".to_owned()
 }
 fn default_max_body() -> usize {
   1 << 20

@@ -10,6 +10,9 @@ pub mod shell;
 #[cfg(feature = "actix")]
 pub mod actix;
 
+#[cfg(feature = "tls")]
+pub mod tls;
+
 use std::convert::Infallible;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -167,6 +170,8 @@ pub struct HostReport {
   pub app: Report,
   /// Whether a served connection negotiates HTTP/2 as well as HTTP/1.1.
   pub http2: bool,
+  /// What the listener presents, when `[server.tls]` is configured.
+  pub tls: Option<TlsReport>,
   /// Service, `http`, `grpc` or `mock`, base URL or responses file.
   pub services: Vec<(String, String, String)>,
   /// The client the sessions live behind, when the store is `service`.
@@ -199,6 +204,16 @@ pub struct HostReport {
   pub sites: Vec<SiteReport>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
+}
+
+/// The configured certificate, what the handshake offers and what re-reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsReport {
+  pub cert: PathBuf,
+  pub key: PathBuf,
+  pub alpn: Vec<String>,
+  /// The signal that re-reads the files; `None` for `none`.
+  pub reload: Option<String>,
 }
 
 /// One mounted site in the report.
@@ -260,7 +275,17 @@ impl std::fmt::Display for HostReport {
       writeln!(f, "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed", "dev")?;
     }
     if self.http2 {
-      writeln!(f, "{:<9} h2c beside http/1.1; a browser wants alpn over tls, which a proxy in front terminates", "http2")?;
+      match &self.tls {
+        Some(tls) => writeln!(f, "{:<9} beside http/1.1, chosen by alpn [{}]", "http2", tls.alpn.join(", "))?,
+        None => writeln!(f, "{:<9} h2c beside http/1.1; a browser wants alpn over tls, which a proxy in front terminates", "http2")?,
+      }
+    }
+    if let Some(tls) = &self.tls {
+      writeln!(f, "{:<9} {} with {}", "tls", tls.cert.display(), tls.key.display())?;
+      match &tls.reload {
+        Some(signal) => writeln!(f, "{:<9} re-read on SIG{}", "", signal.to_uppercase())?,
+        None => writeln!(f, "{:<9} re-read on nothing; a new certificate needs a restart", "")?,
+      }
     }
     if let Some((default, others)) = self.locales.split_first() {
       let rest = if others.is_empty() { String::new() } else { format!(", {}", others.join(", ")) };
@@ -308,6 +333,13 @@ pub struct Host {
   /// Whether `serve_listener` negotiates HTTP/2 as well as HTTP/1.1 on a
   /// connection, `server.http2`.
   http2: bool,
+  /// The certificate the listener presents, `[server.tls]`; absent, the
+  /// listener is plain TCP.
+  #[cfg(feature = "tls")]
+  tls: Option<Arc<tls::Tls>>,
+  /// The signal that re-reads it, `server.tls.reload`; `None` for `none`.
+  #[cfg(feature = "tls")]
+  tls_reload: Option<String>,
   /// The `[session]` settings the running `Sessions` were built from; a
   /// reload whose settings differ is refused, since the store outlives it.
   session_shape: String,
@@ -1371,8 +1403,7 @@ impl Host {
     }
   }
 
-  /// Serves on `listen` with hyper, HTTP/1. `Host::listen` is the configured
-  /// address.
+  /// Serves on `listen` with hyper. `Host::listen` is the configured address.
   pub async fn serve(self: Arc<Self>, listen: &str) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(listen).await?;
     self.serve_listener(listener).await
@@ -1380,38 +1411,72 @@ impl Host {
 
   /// Serves an already bound listener, which is how a test picks port zero.
   pub async fn serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()> {
+    #[cfg(all(unix, feature = "tls"))]
+    self.clone().watch_for_reload();
     loop {
       let (stream, _) = listener.accept().await?;
       let host = self.clone();
-      let http2 = self.http2;
-      tokio::spawn(async move {
-        let io = hyper_util::rt::TokioIo::new(stream);
-        let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
-          let host = host.clone();
-          async move {
-            let (parts, body) = req.into_parts();
-            let bytes = match http_body_util::Limited::new(body, host.max_body).collect().await {
-              Ok(collected) => collected.to_bytes(),
-              Err(e) if e.is::<http_body_util::LengthLimitError>() => return Ok::<_, Infallible>(host.too_large()),
-              Err(_) => Bytes::new(),
-            };
-            Ok::<_, Infallible>(host.handle(Request::from_parts(parts, bytes)).await)
-          }
-        });
-        let ended = if http2 {
-          hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-            .serve_connection(io, service)
-            .await
-            .err()
-            .map(|e| e.to_string())
-        } else {
-          hyper::server::conn::http1::Builder::new().serve_connection(io, service).await.err().map(|e| e.to_string())
-        };
-        if let Some(e) = ended {
-          tracing::debug!(target: "fsr::host", error = %e, "connection ended");
-        }
-      });
+      tokio::spawn(async move { host.serve_connection(stream).await });
     }
+  }
+
+  async fn serve_connection(self: Arc<Self>, stream: tokio::net::TcpStream) {
+    #[cfg(feature = "tls")]
+    if let Some(tls) = self.tls.clone() {
+      let stream = match tls.acceptor().accept(stream).await {
+        Ok(stream) => stream,
+        Err(e) => {
+          tracing::debug!(target: "fsr::host", error = %e, "handshake failed");
+          return;
+        }
+      };
+      if let Some(e) = serve_io(self, hyper_util::rt::TokioIo::new(stream)).await {
+        tracing::debug!(target: "fsr::host", error = %e, "connection ended");
+      }
+      return;
+    }
+    if let Some(e) = serve_io(self, hyper_util::rt::TokioIo::new(stream)).await {
+      tracing::debug!(target: "fsr::host", error = %e, "connection ended");
+    }
+  }
+
+  /// Re-reads the certificate and its key and swaps what the next handshake
+  /// presents; connections already up are untouched and a file that will not
+  /// read leaves the running certificate in place. Nothing without
+  /// `[server.tls]`. The configured signal calls this, and so may a caller.
+  #[cfg(feature = "tls")]
+  pub fn reload_tls(&self) -> Result<(), HostError> {
+    match &self.tls {
+      Some(tls) => tls.reload(),
+      None => Ok(()),
+    }
+  }
+
+  #[cfg(all(unix, feature = "tls"))]
+  fn watch_for_reload(self: Arc<Self>) {
+    use tokio::signal::unix::{signal, SignalKind};
+    let Some(name) = self.tls_reload.clone() else { return };
+    let kind = match name.as_str() {
+      "hup" => SignalKind::hangup(),
+      "usr1" => SignalKind::user_defined1(),
+      "usr2" => SignalKind::user_defined2(),
+      _ => return,
+    };
+    tokio::spawn(async move {
+      let mut stream = match signal(kind) {
+        Ok(stream) => stream,
+        Err(e) => {
+          tracing::warn!(target: "fsr::host", error = %e, "cannot listen for SIG{}", name.to_uppercase());
+          return;
+        }
+      };
+      while stream.recv().await.is_some() {
+        match self.reload_tls() {
+          Ok(()) => tracing::info!(target: "fsr::host", "certificate reloaded"),
+          Err(e) => tracing::warn!(target: "fsr::host", error = %e, "certificate not reloaded; the running one stands"),
+        }
+      }
+    });
   }
 
   pub fn listen(&self) -> &str {
@@ -1420,6 +1485,46 @@ impl Host {
 
   fn too_large(&self) -> Response<Body> {
     text_response(StatusCode::PAYLOAD_TOO_LARGE, format!("request body over {} bytes, the host's server.max_body", self.max_body))
+  }
+}
+
+/// What the handshake offers when `server.tls.alpn` says nothing: HTTP/2
+/// first when the host negotiates it, HTTP/1.1 alone when it does not.
+fn default_alpn(http2: bool) -> Vec<String> {
+  match http2 {
+    true => vec!["h2".to_owned(), "http/1.1".to_owned()],
+    false => vec!["http/1.1".to_owned()],
+  }
+}
+
+/// One connection, whatever it is carried over: the same edge, with HTTP/2
+/// negotiated beside HTTP/1.1 when `server.http2` is on. The error is the
+/// connection's, already formatted, or `None` when it closed cleanly.
+async fn serve_io<I>(host: Arc<Host>, io: I) -> Option<String>
+where
+  I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
+{
+  let http2 = host.http2;
+  let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
+    let host = host.clone();
+    async move {
+      let (parts, body) = req.into_parts();
+      let bytes = match http_body_util::Limited::new(body, host.max_body).collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(e) if e.is::<http_body_util::LengthLimitError>() => return Ok::<_, Infallible>(host.too_large()),
+        Err(_) => Bytes::new(),
+      };
+      Ok::<_, Infallible>(host.handle(Request::from_parts(parts, bytes)).await)
+    }
+  });
+  if http2 {
+    hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+      .serve_connection(io, service)
+      .await
+      .err()
+      .map(|e| e.to_string())
+  } else {
+    hyper::server::conn::http1::Builder::new().serve_connection(io, service).await.err().map(|e| e.to_string())
   }
 }
 
@@ -2009,6 +2114,31 @@ impl HostBuilder {
       SessionConfig { ttl, secure: config.session.secure, ..SessionConfig::default() },
     );
     let changed = config.dev().then(|| tokio::sync::broadcast::channel(16).0);
+    let http2 = http2.unwrap_or(config.server.http2);
+    #[cfg(not(feature = "tls"))]
+    if config.server.tls.is_some() {
+      return Err(HostError::Config(
+        config.root.clone(),
+        "[server.tls] needs the host's `tls` feature, which is off by default".to_owned(),
+      ));
+    }
+    #[cfg(feature = "tls")]
+    let (tls, tls_reload) = match &config.server.tls {
+      Some(section) => {
+        let reload = match section.reload.as_str() {
+          "none" => None,
+          name @ ("hup" | "usr1" | "usr2") => Some(name.to_owned()),
+          other => {
+            let why = format!("server.tls.reload `{other}` is not a signal; hup, usr1, usr2 or none");
+            return Err(HostError::Config(config.root.clone(), why));
+          }
+        };
+        let (cert, key) = section.files(&config.root);
+        let alpn = section.alpn.clone().unwrap_or_else(|| default_alpn(http2));
+        (Some(Arc::new(tls::Tls::load(cert, key, alpn)?)), reload)
+      }
+      None => (None, None),
+    };
     Ok(Host {
       live: parking_lot::RwLock::new(Arc::new(tables)),
       sessions,
@@ -2017,7 +2147,11 @@ impl HostBuilder {
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
       max_body: config.server.max_body,
-      http2: http2.unwrap_or(config.server.http2),
+      http2,
+      #[cfg(feature = "tls")]
+      tls,
+      #[cfg(feature = "tls")]
+      tls_reload,
       report_listen: config.server.listen,
     })
   }
@@ -2233,6 +2367,15 @@ impl HostBuilder {
     let report = HostReport {
       app: app.report.clone(),
       http2: self.http2.unwrap_or(config.server.http2),
+      tls: config.server.tls.as_ref().map(|section| {
+        let (cert, key) = section.files(&config.root);
+        TlsReport {
+          cert,
+          key,
+          alpn: section.alpn.clone().unwrap_or_else(|| default_alpn(self.http2.unwrap_or(config.server.http2))),
+          reload: (section.reload != "none").then(|| section.reload.clone()),
+        }
+      }),
       services: service_rows,
       session: (config.session.store == "service").then(|| config.session.client.clone().unwrap_or_default()),
       cached: app

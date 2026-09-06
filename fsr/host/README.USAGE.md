@@ -13,6 +13,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving with hyper](#serving-with-hyper)
 * [Mounting in axum](#mounting-in-axum)
 * [Serving with actix](#serving-with-actix)
+* [Terminating TLS](#terminating-tls)
 * [Adding a Route in Rust](#adding-a-route-in-rust)
 * [Adding a Handler in Rust](#adding-a-handler-in-rust)
 * [Posting a Form to an Action](#posting-a-form-to-an-action)
@@ -87,7 +88,14 @@ listen = "127.0.0.1:8080"
 prerender = "dist/prerender"      # optional: where rendered-once routes live
 dev = false                       # optional: live refresh; absent, on unless RELEASE_ENV is set to something else than development
 max_body = 1048576                # optional: bytes a request body may carry; a larger one is 413
-http2 = false                     # optional: negotiate h2c beside http/1.1; the listener has no TLS, so a browser needs a proxy in front
+http2 = false                     # optional: negotiate h2c beside http/1.1; without tls a browser needs a proxy in front
+
+[server.tls]                      # optional, and needs the host's `tls` feature; absent, the listener is plain TCP
+dir = "/etc/ssl/app"              # optional: cert and key are read under it
+cert = "cert.pem"                 # the chain, leaf first
+key = "key.pem"                   # PKCS#8, PKCS#1 or SEC1
+alpn = ["h2", "http/1.1"]         # optional: defaults to this when http2 is on, ["http/1.1"] when it is not
+reload = "hup"                    # optional: hup, usr1, usr2 or none
 
 [document]
 title = "Shopping"
@@ -207,6 +215,33 @@ use axum::Router;
 
 let app = Router::new().nest_service("/shop", host.service());
 ```
+
+## Terminating TLS
+
+Most deployments put a proxy in front and the host never sees a certificate. For the one that has no proxy, the `tls` feature makes the hyper listener terminate: build with it, name the files in `[server.tls]`, and ALPN chooses HTTP/2 or HTTP/1.1 for each connection.
+
+```toml
+[server]
+http2 = true
+
+[server.tls]
+dir = "/etc/ssl/app"
+cert = "fullchain.pem"
+key = "privkey.pem"
+reload = "hup"
+```
+
+`cert` and `key` default to `cert.pem` and `key.pem`, so a directory laid out that way needs only `dir`. Both are read under `dir` when it is set and against the project root when it is not, and an absolute path is taken as written. `alpn` defaults to `["h2", "http/1.1"]` when `server.http2` is on and `["http/1.1"]` when it is not.
+
+A renewal is a signal, not a restart. Whatever writes the files, certbot or anything else, runs `kill -HUP <pid>` afterwards:
+
+```sh
+certbot renew --deploy-hook 'kill -HUP $(cat /run/app.pid)'
+```
+
+The host re-reads both files and swaps what the next handshake presents. Connections already up keep the certificate they started on, and a file that will not read leaves the running certificate in place with the reason logged, so a bad renewal never takes the listener down. `reload = "usr1"`, `"usr2"` or `"none"` when SIGHUP is spoken for; `none` means a new certificate needs a restart, which is also the case on Windows, where there are no signals. `Host::reload_tls` is the same swap for a caller that has its own trigger.
+
+Without the `tls` feature a configured `[server.tls]` is a startup error rather than a plaintext listener. Certificates themselves stay outside: there is no ACME client here, and issuing and renewing are the deployment's, the way nginx has always had it.
 
 ## Serving with actix
 
