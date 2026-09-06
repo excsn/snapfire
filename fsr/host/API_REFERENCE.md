@@ -11,6 +11,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [Config](#config)
   * [AppSection](#appsection)
   * [ServerConfig](#serverconfig)
+  * [TlsSection](#tlssection)
   * [DocumentConfig](#documentconfig)
   * [SessionSection](#sessionsection)
   * [CacheSection](#cachesection)
@@ -95,6 +96,16 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `dev: Option<bool>`: whether the document carries the live-refresh script and the host answers `/__fsr/events` and `/__fsr/changed`; absent, it follows `RELEASE_ENV`.
 * `max_body: usize` (default 1048576): the most bytes a request body may carry. `serve` stops reading a larger body and answers 413 with a text naming the key; `handle` answers the same for a body handed to it whole, before a session is opened.
 * `http2: bool` (default false): whether a served connection negotiates HTTP/2 as well as HTTP/1.1. The listener carries no TLS and so no ALPN, which makes this h2c: a client opening with the HTTP/2 preface is served and a browser, which speaks HTTP/2 only over TLS, is not. `HostBuilder::http2` overrides it for a host built in Rust. Nothing else changes: the same `Host::handle` answers both versions.
+* `tls: Option<TlsSection>`, the `[server.tls]` table: absent, the listener is plain TCP. Present, the host must be built with the `tls` feature or `build` is a `HostError::Config` saying so, since a configured certificate must never be answered with plaintext.
+
+### TlsSection
+
+* `dir: Option<String>`: the directory `cert` and `key` are read under. Absent, each resolves against the project root; an absolute path is taken as written.
+* `cert` (default `cert.pem`): the certificate chain in PEM, leaf first.
+* `key` (default `key.pem`): the private key in PEM, PKCS#8, PKCS#1 or SEC1.
+* `alpn: Option<Vec<String>>`: what the handshake offers, in order. Absent, `["h2", "http/1.1"]` when `server.http2` is on and `["http/1.1"]` when it is not.
+* `reload` (default `hup`): the signal that re-reads both files and swaps the certificate for the handshakes that follow. `hup`, `usr1`, `usr2` or `none`; anything else is a `HostError::Config` naming the four. Unix only: elsewhere a new certificate needs a restart.
+* `files(&self, root: &Path) -> (PathBuf, PathBuf)`: the two paths as resolved.
 
 ### DocumentConfig
 
@@ -274,7 +285,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none).
 * `cache: Option<(u64, String)>`: the capacity and lifetime as written; `Display` prints one `cache` row when set.
 * `dev: bool`: `Display` prints one `dev` row naming the two paths when true.
-* `http2: bool`: `Display` prints one `http2` row when true, saying it is h2c and that a browser wants ALPN over TLS.
+* `http2: bool`: `Display` prints one `http2` row when true, naming the ALPN list under TLS and saying it is h2c without.
+* `tls: Option<TlsReport>`: `cert`, `key`, `alpn` and `reload`, the signal or `None`. `Display` prints the two files and what re-reads them.
 * `locales: Vec<String>`: the configured locales, the default first, empty without a `[locales]` section; `Display` prints one `locales` row, `en_US (default, unprefixed), fr_FR`, when set.
 * `auth: Option<(String, String)>`: the provider name (`file`, `service via <client>`, else `custom` for one the builder was handed) and the login page; `Display` prints one `auth` row naming both and the three routes, plus `bearer    none; no client carries a token` when `bearer` is empty.
 * `bearer: Vec<(String, String)>`: client and custody key for every client whose `bearer` names one; `Display` prints a `bearer` row per client.
@@ -308,7 +320,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### hyper
 
 * `Host::serve(self: Arc<Self>, listen: &str) -> std::io::Result<()>` binds and serves until the listener fails: HTTP/1.1, or HTTP/1.1 and h2c when `server.http2` is on.
-* `Host::serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()>`. Each connection is served by `hyper::server::conn::http1`, or by `hyper_util::server::conn::auto` when `http2` is on, which reads the connection preface and answers either version.
+* `Host::serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()>`. Each connection is served by `hyper::server::conn::http1`, or by `hyper_util::server::conn::auto` when `http2` is on, which reads the connection preface and answers either version. With `[server.tls]` the connection is a TLS one first, the version chosen by ALPN, and a handshake that fails is logged and dropped without touching the listener.
+* `Host::reload_tls(&self) -> Result<(), HostError>`, the `tls` feature: re-reads the certificate and its key and swaps what the next handshake presents. Connections already up keep the certificate they started on, and a file that will not read leaves the running one in place, so a failed reload never takes the listener down. `serve_listener` calls it on the configured signal; nothing happens without `[server.tls]`.
 
 ### actix
 
