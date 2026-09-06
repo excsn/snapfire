@@ -4,11 +4,12 @@ use std::process::ExitCode;
 use snapfire_fsr_cli::dev::DevOptions;
 use snapfire_fsr_cli::new::{NewOptions, SiteScaffold};
 use snapfire_fsr_cli::serve::ServeOptions;
+use snapfire_fsr_cli::bundle;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -124,6 +125,33 @@ fn main() -> ExitCode {
       }
       match serve::run(&app, options) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "bundle" => {
+      let mut out: Option<PathBuf> = None;
+      let mut rest = rest.iter();
+      while let Some(flag) = rest.next() {
+        match (flag.as_str(), rest.next()) {
+          ("--out", Some(value)) => out = Some(PathBuf::from(value)),
+          _ => return usage(),
+        }
+      }
+      let out = out.unwrap_or_else(|| snapfire_fsr_cli::serve::project_root(&app).join("dist"));
+      match snapfire_fsr_cli::bundle::run(&app, &out) {
+        Ok(bundled) => {
+          for (route, from) in &bundled.served {
+            println!("{:<24} {}", format!("{}/{}", bundle::SERVE, route.trim_start_matches('/')), from.display());
+          }
+          for path in &bundled.read {
+            println!("{:<24} read by the host, never served", path.strip_prefix(&bundled.out).unwrap_or(path).display());
+          }
+          println!("\nplace beside it: {}", bundled.beside.join(", "));
+          ExitCode::SUCCESS
+        }
         Err(e) => {
           eprintln!("{e}");
           ExitCode::from(1)

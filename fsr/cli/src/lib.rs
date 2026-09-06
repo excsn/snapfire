@@ -10,6 +10,7 @@ pub mod sites;
 pub mod spec;
 pub mod infer;
 pub mod test;
+pub mod bundle;
 pub mod typecheck;
 pub mod types;
 pub mod vendor;
@@ -74,6 +75,10 @@ pub enum BuildError {
   Xwpm(String),
   #[error("{0}")]
   Dev(String),
+  #[error("{0}")]
+  Types(String),
+  #[error("bundle: {0}")]
+  Bundle(String),
   #[error("typecheck: {0}")]
   Typecheck(String),
   #[error("{0}")]

@@ -43,6 +43,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [300. The build and the dev loop](300-the-build-and-the-dev-loop.md), `fsr build`, `fsr check`, `fsr dev`, `fsr serve` and why `generated/` is not committed. Everyone.
 - [301. Dependencies without npm](301-dependencies-without-npm.md), `fsr add`, `fsr types`, the import map and what xwpm changes. Everyone.
 - [302. Imports and aliases](302-imports-and-aliases.md), the five prefixes and where each of the three readers resolves them. Everyone.
+- [303. The deploy tree](303-the-deploy-tree.md), `fsr bundle`, why `serve/` is the only servable directory and how the routes a server answers stay the ones the host serves. Everyone.
 
 And one appendix:
 
@@ -54,7 +55,7 @@ And one appendix:
 
 **A backend developer who owns the services:** read 000, then 001 and 202. Your service's document is the whole of your integration; the rest of the guide is what happens on the other side of it.
 
-**A full-stack developer working in TypeScript:** read in order through the 100s, then 300, 301 and 302. Skip the 200s until you need to run something that is not the stock host.
+**A full-stack developer working in TypeScript:** read in order through the 100s, then 300, 301, 302 and 303. Skip the 200s until you need to run something that is not the stock host.
 
 **A Rust developer extending the platform:** read 000, 002 and 003 for the contract you are extending, then the 200s in order, then the parts bin.
 

@@ -214,15 +214,9 @@ fn unpack_declarations(bytes: &[u8], dir: &Path) -> Result<usize, BuildError> {
 pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let layout = Layout::of(app)?;
   let root = app.join(&layout.types);
-  if !root.is_dir() {
-    return Ok(Vec::new());
-  }
   let mut refreshed = Vec::new();
   for (package, files) in [("@snapfire/fsr-client", FSR_CLIENT), ("@snapfire/fsr-authoring", FSR_AUTHORING)] {
     let dir = root.join(package);
-    if !dir.is_dir() {
-      continue;
-    }
     let stale = files.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true));
     if stale {
       write_embedded(app, &layout, package, files)?;
@@ -396,15 +390,29 @@ pub fn present(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)
   Ok(out)
 }
 
+/// Every package the application needs declarations for: the fsr packages and
+/// whatever the import map names.
+fn wanted(app: &Path, layout: &Layout) -> Result<Vec<String>, BuildError> {
+  let mut packages: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
+  packages.extend(import_map_packages(app, layout)?);
+  packages.dedup();
+  Ok(packages)
+}
+
+/// The packages with no declarations under `types/`, which tsc reports as one
+/// unresolved module per import and then hundreds of untyped JSX elements.
+pub fn missing(app: &Path) -> Result<Vec<String>, BuildError> {
+  let layout = Layout::of(app)?;
+  let present = present(app, &layout)?;
+  Ok(wanted(app, &layout)?.into_iter().filter(|package| !present.iter().any(|(name, _)| name == package)).collect())
+}
+
 /// The `types` rows of the build report: one per import map package.
 pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
   let layout = Layout::of(app)?;
   let present = present(app, &layout)?;
   let mut rows = Vec::new();
-  let mut packages: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
-  packages.extend(import_map_packages(app, &layout)?);
-  packages.dedup();
-  for package in packages {
+  for package in wanted(app, &layout)? {
     let row = match present.iter().find(|(n, _)| *n == package) {
       Some((_, typed)) if typed.from.is_empty() => format!("{}/{package}", layout.types),
       Some((_, typed)) => format!("{}/{package}  {} {}", layout.types, typed.from, typed.version),

@@ -274,6 +274,10 @@ pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
   let project = Project::open(app, options)?;
   let built = build(&project.app, &project.options.build)?;
   let written = write(&project.app, &built)?;
+  let missing = crate::types::missing(&project.app)?;
+  if !missing.is_empty() {
+    return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`", missing.join(", "))));
+  }
   let checked = project.compile()?;
   if let Some(checked) = &checked {
     if checked.errors() > 0 {
