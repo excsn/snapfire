@@ -8,7 +8,10 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
+async-trait = "0.1"
 parking_lot = "0.12"
+plaza = "^0.7"
+serde = { version = "1", features = ["derive"] }
 snapfire_fsr_core = { path = "../../core" }
 snapfire_fsr_host = { path = "../../host", features = ["ws"] }
 snapfire_fsr_runtime = { path = "../../runtime" }
@@ -20,6 +23,7 @@ snapfire_fsr_cli = { path = "../../cli" }
 
 [dev-dependencies]
 bytes = "1"
+plaza = "^0.7"
 futures = "0.3"
 http = "1"
 http-body-util = "0.1"

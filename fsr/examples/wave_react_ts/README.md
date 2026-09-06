@@ -12,15 +12,34 @@ cargo run -p wave_react_ts
 
 Open `http://127.0.0.1:8140/` in two windows, name yourself in each, open the same wave in both and start typing in one.
 
+## One owner of the state
+
+Every wave's state lives in one [plaza](https://crates.io/crates/plaza) `StateController`: the transcript, who is on each wave and what each of them is part way through typing. The controller owns it and its rules are the only writer, running one input at a time on their own task, so nothing in this example holds a lock and there is never a question of which version is real.
+
+Everything that changes a wave is an operation: `Watch`, `Typing`, `Keep`. A view is built per recipient, which is why a reader is never shown a ghost of their own draft: `Views::create_snapshot` is called once for each window and takes the connection it is for.
+
+The transport is the socket the host already terminates. `src/wire.rs` implements plaza's `Session` over it: a connection is an agent, an incoming row is an operation, and the view the controller builds comes back as the two store rows the page already read. The browser never learns that a controller owns any of this.
+
+Reads and writes both go through the controller. `waves.getWave` is a closure plaza runs on the controller's task; `waves.addBlip` submits an operation and then queries, which returns only once that operation has been applied, because the controller does one thing at a time. The action then publishes the wave's topic and every open page revalidates.
+
 ## The two halves
 
 | What | Seam | Why |
 | --- | --- | --- |
-| A blip, kept for good | an action, then `Host::publish("wave/<id>")` and `live()` | it belongs in the transcript, so the loader is what answers for it |
-| Who is here | the socket, `On::Joined` and `On::Left` | it is true only while a connection is |
-| What someone is typing | the socket, one row per keystroke | it is superseded by the next keystroke and worth nothing after |
+| A blip, kept for good | a `Keep` operation, then `Host::publish("wave/<id>")` and `live()` | it belongs in the transcript, so the loader is what answers for it |
+| Who is here | a `Watch` operation and plaza's presence stream | it is true only while a connection is |
+| What someone is typing | a `Typing` operation, one per keystroke | it is superseded by the next keystroke and worth nothing after |
 
 The socket carries rows, `{"key": ..., "value": ...}` up and `{"rows": [...]}` down, and the browser writes each row into the store, so `Presence` and `Under` follow by reading a key. Neither ever fetches.
+
+| Piece | What it is |
+| --- | --- |
+| `src/field.rs` | the state, the operations, the rules and the view built per recipient |
+| `src/wire.rs` | plaza's `Session` over the host's socket |
+| `src/backend.rs` | the service the loaders and actions call, over the controller |
+| `routes/wave/[id]/page.tsx` | the transcript, rendered on the server |
+| `src/ui/Presence.tsx`, `src/ui/Under.tsx` | the two islands that read what the controller sends |
+| `src/ui/wire.ts` | the one connection the page holds |
 
 ## What is server-rendered and what is not
 
@@ -34,6 +53,8 @@ Three things are islands, because they cannot be rendered ahead of time: `Presen
 
 ## What it is worth reading for
 
+**The controller is the only writer.** There is no `Mutex` around wave state anywhere in this example, and no question of ordering: a keystroke, a kept blip and a departure are three operations applied one at a time, and a read taken after a write sees it because both are commands to the same task.
+
 **One connection per page, not per island.** `src/ui/wire.ts` holds the socket and the `live` stream in a module and hands out shares. Islands come and go as the transcript re-renders; the connection does not, and presence does not flicker.
 
 **A store key the build can read.** The rows are `wave/here` and `wave/drafts`, not `wave/<id>/here`. A `useStore` key built from a prop cannot be lowered, so the island falls to the browser and takes the page with it. The key names what the page is showing rather than which wave, since a document shows one.
@@ -44,7 +65,7 @@ Three things are islands, because they cannot be rendered ahead of time: `Presen
 
 ## Tests
 
-`cargo test -p wave_react_ts`: that a wave renders its blips in reading order with the depth of each, that keeping a blip nests it, names the wave as a topic and adds whoever wrote it, that neither the stream nor the socket is open to a session that has not opened the wave, that the field answers a join with who is here and forgets a leave, and that a draft reaches everyone but its author and goes when it empties or its author does.
+`cargo test -p wave_react_ts`: that watching a wave puts you on it and leaving takes you off, that a draft is built for everyone but its author and goes when it empties or its author does, that the rules refuse a wave that does not exist and drop a keystroke from a window watching nothing, that the service reads and writes through the controller with the read after the write seeing it and the topic going out, and that neither the stream nor the socket is open to a session that has not opened the wave.
 
 `fsr test app`: the depths, which parts are islands and the inbox beside the open wave.
 

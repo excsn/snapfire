@@ -503,6 +503,8 @@ pub struct HostBuilder {
   reloader: Option<Reloader>,
   topic_rule: Option<TopicRule>,
   #[cfg(feature = "ws")]
+  sockets: Option<Arc<socket::Sockets>>,
+  #[cfg(feature = "ws")]
   socket_handler: Option<socket::SocketHandler>,
   mounts: Vec<Mount>,
   /// Overrides `server.http2` for a host built in Rust.
@@ -582,6 +584,8 @@ impl Host {
       identity: None,
       reloader: None,
       topic_rule: None,
+      #[cfg(feature = "ws")]
+      sockets: None,
       #[cfg(feature = "ws")]
       socket_handler: None,
       mounts: Vec::new(),
@@ -2089,6 +2093,15 @@ impl HostBuilder {
     self
   }
 
+  /// The socket registry to use, for an application that must hold it before
+  /// the host exists: a transport of its own pushes into the same one the
+  /// host serves from. Without this the host makes its own.
+  #[cfg(feature = "ws")]
+  pub fn sockets(mut self, sockets: Arc<socket::Sockets>) -> Self {
+    self.sockets = Some(sockets);
+    self
+  }
+
   /// What the application makes of what a page sends over `/_sf/socket`:
   /// called when a connection joins a topic, once per row it sends and when
   /// it leaves, and whatever it answers goes out to that topic as store rows.
@@ -2279,6 +2292,8 @@ impl HostBuilder {
     let topic_rule = self.topic_rule.take();
     #[cfg(feature = "ws")]
     let socket_handler = self.socket_handler.take();
+    #[cfg(feature = "ws")]
+    let sockets = self.sockets.take().unwrap_or_else(|| Arc::new(socket::Sockets::new()));
     let http2 = self.http2;
     let (tables, config) = self.assemble()?;
     let ttl = config.session_ttl()?;
@@ -2331,7 +2346,7 @@ impl HostBuilder {
       topics: tokio::sync::broadcast::channel(64).0,
       topic_rule,
       #[cfg(feature = "ws")]
-      sockets: Arc::new(socket::Sockets::new()),
+      sockets,
       #[cfg(feature = "ws")]
       socket_handler,
       reloader,

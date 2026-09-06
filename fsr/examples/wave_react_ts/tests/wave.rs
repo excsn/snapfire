@@ -1,155 +1,161 @@
-//! Waves on both seams: the durable half through the loader and the action,
-//! and the ephemeral half through the field that answers the socket.
+//! Waves on one controller: the rules, the view each window is built, and the
+//! service the loaders and actions call.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use http::{Request, StatusCode};
-use http_body_util::BodyExt;
+use plaza::state_logic::LogicOutput;
+use plaza::{Agent, InProcessSession, LogicInput, SnapshotProvider, StateControllerBuilder, StateLogic};
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_host::socket::{On, Row, Who};
 use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
-use wave_react_ts::presence::Field;
+use snapfire_fsr_service::Transport;
+use wave_react_ts::backend;
+use wave_react_ts::field::{Conn, Field, Op, Rules, View, Views};
 
-fn waves() -> (Arc<Host>, Arc<wave_react_ts::backend::Waves>) {
-  let (transport, waves) = wave_react_ts::backend::waves();
-  let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
-  let host = Host::from_config(config)
-    .unwrap()
-    .services_over(transport)
-    .topics(|topic, session, _| match topic.strip_prefix("wave/") {
-      Some(wave) => matches!(session.get("waves"), Some(Value::Map(open)) if open.contains_key(wave)),
-      None => false,
-    })
-    .socket({
-      let field = Arc::new(Field::new());
-      move |who, on| field.on(who, on)
-    })
-    .build()
-    .unwrap();
-  (Arc::new(host), waves)
+fn rules() -> Rules {
+  Rules { clock: Box::new(|| "10:00".to_owned()) }
 }
 
-fn named(name: &str) -> SessionCell {
-  let session = SessionCell::default();
-  session.insert("name", Value::str(name));
-  session
+async fn apply(rules: &Rules, field: &mut Field, conn: Conn, ops: Vec<Op>) -> LogicOutput<Op, Conn> {
+  rules.process_input(field, LogicInput::AgentOps { source: Agent::Human(conn), ops }).await.unwrap()
 }
 
-fn who(name: &str, connection: u64) -> Who {
-  Who { topic: "wave/kickoff".to_owned(), session: named(name), identity: None, connection }
+fn watch(wave: &str, name: &str) -> Op {
+  Op::Watch { wave: wave.to_owned(), name: name.to_owned() }
 }
 
-fn map(pairs: &[(&str, &str)]) -> Value {
-  Value::Map(pairs.iter().map(|(key, value)| ((*key).to_owned(), Value::str(*value))).collect::<ValueMap>())
+fn typing(parent: &str, body: &str) -> Op {
+  Op::Typing { parent: parent.to_owned(), body: body.to_owned() }
 }
 
-fn names(row: &Row) -> Vec<String> {
-  match &row.value {
-    Value::Seq(items) => items
-      .iter()
-      .map(|item| match item {
-        Value::Str(name) => name.clone(),
-        Value::Map(draft) => match draft.get("who") {
-          Some(Value::Str(name)) => name.clone(),
-          _ => String::new(),
-        },
-        _ => String::new(),
-      })
-      .collect(),
-    _ => Vec::new(),
+async fn view(field: &Field, conn: Conn) -> View {
+  match Views.create_snapshot(field, Some(&Agent::Human(conn)), None).await.unwrap() {
+    Some(Op::View(view)) => *view,
+    other => panic!("no view for {conn}: {other:?}"),
   }
 }
 
 #[tokio::test]
-async fn a_wave_renders_its_blips_in_reading_order_with_the_depth_of_each() {
-  let (host, _) = waves();
-  let html = host.render_to_string("/wave/kickoff", RenderMode::Html, named("bob")).await.unwrap();
-  assert!(html.contains("<h1>Snapfire kickoff</h1>"), "{html}");
+async fn watching_a_wave_puts_you_on_it_and_leaving_takes_you_off() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
 
-  let first = html.split("class=\"who\">").nth(1).unwrap_or_default();
-  assert!(first.starts_with("alice"), "the first blip is the one nothing answers: {}", &first[..first.len().min(20)]);
-  assert!(html.contains("margin-left:1.5rem"), "a reply is indented one step: {html}");
-  assert!(html.contains("margin-left:3rem"), "and a reply to a reply two: {html}");
-  assert!(html.contains("class=\"blip mine\""), "bob's own blip is marked: {html}");
+  let out = apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  assert_eq!(out.snapshots.len(), 1, "everyone on the wave is sent a view");
+  assert_eq!(view(&field, 1).await.here, ["alice"], "the first arrival sees only herself");
+
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+  assert_eq!(view(&field, 1).await.here, ["alice", "bob"]);
+
+  apply(&rules, &mut field, 3, vec![watch("kickoff", "alice")]).await;
+  assert_eq!(view(&field, 1).await.here, ["alice", "bob"], "a second window of one person is one name");
+
+  rules.process_input(&mut field, LogicInput::AgentLeft { agent_id: 2 }).await.unwrap();
+  assert_eq!(view(&field, 1).await.here, ["alice"], "and a leave takes the name off");
 }
 
 #[tokio::test]
-async fn keeping_a_blip_nests_it_names_the_wave_and_adds_whoever_wrote_it() {
-  let (host, waves) = waves();
-  let mut changes = waves.changes();
-  let session = named("carol");
+async fn a_draft_is_built_for_everyone_but_its_author() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
 
-  let input = ValueMap::from_iter([
-    ("wave".to_owned(), Value::str("kickoff")),
+  apply(&rules, &mut field, 1, vec![typing("2", "half a th")]).await;
+  assert!(view(&field, 1).await.drafts.is_empty(), "a reader is never shown a ghost of their own");
+  let seen = view(&field, 2).await.drafts;
+  assert_eq!(seen.len(), 1, "and everyone else is: {seen:?}");
+  assert_eq!(seen[0].who, "alice");
+  assert_eq!(seen[0].parent, "2", "under the blip it answers");
+
+  apply(&rules, &mut field, 1, vec![typing("2", "")]).await;
+  assert!(view(&field, 2).await.drafts.is_empty(), "an empty draft is no draft");
+
+  apply(&rules, &mut field, 2, vec![typing("", "bob's turn")]).await;
+  rules.process_input(&mut field, LogicInput::AgentLeft { agent_id: 2 }).await.unwrap();
+  assert!(view(&field, 1).await.drafts.is_empty(), "leaving takes the draft with it");
+}
+
+#[tokio::test]
+async fn an_unknown_wave_is_refused_and_an_unwatched_keystroke_is_dropped() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  let refused = rules
+    .process_input(&mut field, LogicInput::AgentOps { source: Agent::Human(1), ops: vec![watch("nowhere", "alice")] })
+    .await;
+  assert!(refused.is_err(), "the rules refuse a wave that does not exist");
+
+  let out = apply(&rules, &mut field, 9, vec![typing("", "into the void")]).await;
+  assert!(out.snapshots.is_empty(), "a window watching nothing changes nothing");
+}
+
+#[tokio::test]
+async fn the_service_reads_and_writes_through_the_controller() {
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, mut kept) = backend::service(field);
+
+  let waves = call(&service, "listWaves", ValueMap::new()).await;
+  assert!(format!("{waves:?}").contains("Snapfire kickoff"), "{waves:?}");
+
+  let args = ValueMap::from_iter([
+    ("id".to_owned(), Value::str("kickoff")),
     ("parent".to_owned(), Value::str("2")),
+    ("who".to_owned(), Value::str("carol")),
     ("body".to_owned(), Value::str("carol, arriving late")),
   ]);
-  host.call_action("$root.blip", session.clone(), Value::Map(input)).await.unwrap();
-  assert_eq!(changes.try_recv().unwrap(), "wave/kickoff", "the wave's topic went out");
+  let blip = call(&service, "addBlip", args).await;
+  assert!(format!("{blip:?}").contains("10:00"), "the rules stamped it with their clock: {blip:?}");
+  assert_eq!(kept.try_recv().unwrap(), "wave/kickoff", "and the wave's topic went out for the pages to revalidate");
 
-  let html = host.render_to_string("/wave/kickoff", RenderMode::Html, session).await.unwrap();
-  assert!(html.contains("carol, arriving late"), "the blip is in the wave: {html}");
-  assert!(html.contains(">ca</li>") || html.contains("carol"), "carol is a participant now: {html}");
+  let wave = call(&service, "getWave", ValueMap::from_iter([("id".to_owned(), Value::str("kickoff"))])).await;
+  let shown = format!("{wave:?}");
+  assert!(shown.contains("carol, arriving late"), "the read after the write sees it: {shown}");
+  assert!(shown.contains("\"carol\""), "carol is a participant now: {shown}");
+}
 
-  let other = host.render_to_string("/wave/board", RenderMode::Html, named("carol")).await.unwrap();
-  assert!(!other.contains("carol, arriving late"), "and no other wave has it: {other}");
+async fn call(service: &Arc<dyn Transport>, method: &str, args: ValueMap) -> Value {
+  let call = snapfire_fsr_service::Call {
+    service: "waves".to_owned(),
+    method: method.to_owned(),
+    args,
+    identity: None,
+    metadata: ValueMap::new(),
+    credentials: Arc::new(snapfire_fsr_service::NoCredentials),
+  };
+  service.call(call).await.unwrap()
 }
 
 #[tokio::test]
 async fn a_wave_is_followed_only_by_a_session_that_opened_it() {
-  let (host, _) = waves();
+  let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, _kept) = backend::service(field);
+  let host = Host::from_config(config)
+    .unwrap()
+    .services_over(service)
+    .topics(|topic, session, _| match topic.strip_prefix("wave/") {
+      Some(wave) => matches!(session.get("waves"), Some(Value::Map(open)) if open.contains_key(wave)),
+      None => false,
+    })
+    .socket(|_, _| snapfire_fsr_host::socket::Reply::default())
+    .build()
+    .unwrap();
+
   for path in ["/_sf/live?topics=wave/kickoff", "/_sf/socket?topic=wave/kickoff"] {
     let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path} is refused before the wave is opened");
   }
 
-  let session = named("alice");
-  host.render_to_string("/wave/kickoff", RenderMode::Html, session.clone()).await.unwrap();
+  let session = SessionCell::default();
+  session.insert("name", Value::str("alice"));
+  let html = host.render_to_string("/wave/kickoff", RenderMode::Html, session.clone()).await.unwrap();
+  assert!(html.contains("margin-left:1.5rem"), "the transcript is rendered on the server, nested: {html}");
   match session.get("waves") {
     Some(Value::Map(waves)) => assert!(waves.contains_key("kickoff"), "the loader recorded the wave: {waves:?}"),
     other => panic!("the session holds no waves: {other:?}"),
   }
-}
-
-#[test]
-fn the_field_answers_a_join_with_who_is_here_and_a_leave_by_forgetting_them() {
-  let field = Field::new();
-
-  let reply = field.on(&who("alice", 1), On::Joined);
-  assert_eq!(names(&reply.everyone[0]), ["alice"], "the first arrival sees only herself");
-  assert_eq!(reply.everyone[0].key, "wave/here", "the key names what a page shows, not which wave, which is what lets the island lower");
-
-  let reply = field.on(&who("bob", 2), On::Joined);
-  assert_eq!(names(&reply.everyone[0]), ["alice", "bob"], "and everyone hears about the second");
-
-  let reply = field.on(&who("alice", 3), On::Joined);
-  assert_eq!(names(&reply.everyone[0]), ["alice", "bob"], "a second window of one person is one name");
-
-  let reply = field.on(&who("bob", 2), On::Left);
-  assert_eq!(names(&reply.everyone[0]), ["alice"], "and a leave takes the name off: {:?}", reply.everyone[0]);
-}
-
-#[test]
-fn a_draft_reaches_everyone_but_its_author_and_goes_when_it_empties() {
-  let field = Field::new();
-  field.on(&who("alice", 1), On::Joined);
-  field.on(&who("bob", 2), On::Joined);
-
-  let reply = field.on(&who("alice", 1), On::Said(Row::new("typing", map(&[("parent", "2"), ("body", "half a th")]))));
-  assert!(reply.everyone.is_empty() && reply.sender.is_empty(), "a draft is for the others, never an echo");
-  assert_eq!(reply.others[0].key, "wave/drafts");
-  assert_eq!(names(&reply.others[0]), ["alice"]);
-
-  let reply = field.on(&who("alice", 1), On::Said(Row::new("typing", map(&[("parent", "2"), ("body", "")]))));
-  assert!(names(&reply.others[0]).is_empty(), "an empty draft is no draft: {:?}", reply.others[0]);
-
-  field.on(&who("bob", 2), On::Said(Row::new("typing", map(&[("parent", ""), ("body", "bob's turn")]))));
-  let reply = field.on(&who("bob", 2), On::Left);
-  assert!(names(&reply.everyone[1]).is_empty(), "leaving takes the draft with it: {:?}", reply.everyone[1]);
-
-  let reply = field.on(&who("alice", 1), On::Said(Row::new("shout", Value::str("nope"))));
-  assert!(reply.others.is_empty() && reply.everyone.is_empty(), "a key the field does not know is dropped");
 }

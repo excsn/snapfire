@@ -143,6 +143,18 @@ impl Sockets {
     let rows: Vec<Row> = rows.into_iter().collect();
     self.send(topic, &rows, Reach::Everyone, u64::MAX);
   }
+
+  /// Sends rows to one connection, which is what an application building a
+  /// view per recipient needs: the same topic, a different answer each.
+  pub fn push_to(&self, topic: &str, connection: u64, rows: impl IntoIterator<Item = Row>) {
+    let rows: Vec<Row> = rows.into_iter().collect();
+    self.send(topic, &rows, Reach::Sender, connection);
+  }
+
+  /// The connections a topic holds, in the order they arrived.
+  pub fn connections(&self, topic: &str) -> Vec<u64> {
+    self.open.lock().get(topic).map(|peers| peers.iter().map(|(id, _)| *id).collect()).unwrap_or_default()
+  }
 }
 
 #[derive(Clone, Copy)]
