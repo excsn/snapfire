@@ -31,15 +31,15 @@ Nothing here is prerendered: the root layout reads the session for the header, s
 From a fresh checkout, the same four steps as the storefront, with this directory in the third and fourth:
 
 ```sh
-cargo build -p snapfire_compiler -p snapfire_fsr_cli
-cd fsr/client && ../../target/debug/snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
-cd ../examples/ops_console_react_ts && ../../../target/debug/fsr types app
-../../../target/debug/fsr dev app
+cargo install snapfire_compiler snapfire_fsr_cli
+cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
+cd ../examples/ops_console_react_ts && fsr types app
+fsr dev app
 ```
 
 Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091 and the identity service on 8092. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`, which the identity service reads and the host never opens: every sign-in is a call to `authenticate` and every session is a record the service holds, so the host keeps neither in memory.
 
-To run it with no backend at all, `APP_ENV=mock ../../../target/debug/fsr serve app` picks up `config/mock.toml`, which names the fleet client's transport as `mock`, and the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
+To run it with no backend at all, `APP_ENV=mock fsr serve app` picks up `config/mock.toml`, which names the fleet client's transport as `mock`, and the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
 
 ## Try it
 

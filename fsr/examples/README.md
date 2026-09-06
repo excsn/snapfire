@@ -17,17 +17,17 @@ Read them in this order. Each has a `README.md` saying what it shows and where.
 
 ## Running one
 
-Build the two tools once from the repository root, then the browser build of the client library, which git does not carry:
+Install the two tools once, then make the browser build of the client library, which git does not carry:
 
 ```sh
-cargo build -p snapfire_compiler -p snapfire_fsr_cli
-cd fsr/client && ../../target/debug/snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
+cargo install snapfire_compiler snapfire_fsr_cli
+cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
 After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. For the loop that rebuilds as files change, use `fsr dev` on the app directory instead:
 
 ```sh
-cd shopping_react_ts && ../../../target/debug/fsr dev app
+cd shopping_react_ts && fsr dev app
 ```
 
 `fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests.

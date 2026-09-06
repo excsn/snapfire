@@ -61,9 +61,10 @@ Chapter [000 of the guide](docs/guide/000-what-fsr-is-made-of.md) lays out the v
 ## Try it
 
 ```sh
+cargo install snapfire_compiler snapfire_fsr_cli
 cd examples/shopping_react_ts
 cargo build
-../../../target/debug/fsr dev app
+fsr dev app
 ```
 
 [examples/](examples/README.md) is the index: five applications in reading order, what each one shows, and the ports they take.

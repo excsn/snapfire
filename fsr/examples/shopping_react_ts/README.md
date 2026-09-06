@@ -9,19 +9,19 @@ A storefront built the way SnapFire FSR expects an application to be built: the 
 Four commands, from a fresh checkout. Only the last one is needed again afterwards.
 
 ```sh
-# 1. the two tools, from the repository root
-cargo build -p snapfire_compiler -p snapfire_fsr_cli
+# 1. the two tools
+cargo install snapfire_compiler snapfire_fsr_cli
 
 # 2. the browser build of the fsr client library
 cd fsr/client
-../../target/debug/snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
+snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 
 # 3. type declarations for the editor, into a gitignored types/
 cd ../examples/shopping_react_ts
-../../../target/debug/fsr types app
+fsr types app
 
 # 4. generate, bundle, build and run, then keep doing so as files change
-../../../target/debug/fsr dev app
+fsr dev app
 ```
 
 Then open <http://127.0.0.1:8080>. Boot prints the routes, the sources, the actions, the modules rendered on the server, the services and what the host inferred.
@@ -89,7 +89,7 @@ A step that fails leaves the running server up and waits for the next change. A 
 
 ```sh
 cargo test                       # the Rust suite
-../../../target/debug/fsr test app   # the body tests, page specs and client specs under app/, no Node
+fsr test app   # the body tests, page specs and client specs under app/, no Node
 ```
 
 Imports across folders use the aliases the build writes into `tsconfig.json`, `@src/ui/Header` or `@generated/client`, and snapfirec turns them into relative paths in the bundle. The body tests are `app/tests/cart/loader.test.ts` and `app/tests/cart/actions.test.ts`: each builds a context with `ctx({ session, services, input })`, mocking a service method as a plain function, runs the loader or action and asserts on what came back, on `c.session` and on `c.trace.calls`. They are TypeScript the build lowers and the host's interpreter replays, so the body under test runs where it runs in production. A mock that answers something the contract rejects fails with the method's name. The page specs, `tests/cart/page.spec.tsx`, `tests/index/page.spec.tsx`, `tests/product/page.spec.tsx` and `tests/ui/Header.spec.tsx`, render a page into a DOM inside the same `fsr test` run: QuickJS in process, linkedom for the document, React's development build so a hydration mismatch is reported in words. A page the build lowered is hydrated over the server's own markup; a click that calls an action runs the lowered action through the interpreter under the spec's `ctx`, with the mocked services behind the contract. `tests/product/loading.spec.tsx` hydrates the loading module the product route streams behind and `tests/order/page.spec.tsx` the order page a checkout lands on, after the toast has run its course. `tests/navigation.spec.tsx` loads the catalog through the stock host, built inside the runner over `config/app.toml` with the spec's mocks as its transport, clicks through to the cart and asserts the document survived while the page swapped. `tests/client/` holds the client library's own specs, values, payload, boot and actions, run here because this app vendors React and serves the library. The compiled specs and the test-only builds land in `app/.fsr-test/`, which is ignored.
