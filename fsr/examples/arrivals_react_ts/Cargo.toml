@@ -1,0 +1,24 @@
+[package]
+name = "arrivals_react_ts"
+version = "0.1.0"
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+serde_json = "1"
+snapfire_fsr_core = { path = "../../core" }
+snapfire_fsr_host = { path = "../../host" }
+snapfire_fsr_payload = { path = "../../payload" }
+snapfire_fsr_service = { path = "../../service" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[build-dependencies]
+snapfire_fsr_cli = { path = "../../cli" }
+
+[dev-dependencies]
+futures = "0.3"
+snapfire_fsr_runtime = { path = "../../runtime" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

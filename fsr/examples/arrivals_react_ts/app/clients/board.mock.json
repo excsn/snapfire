@@ -1,0 +1,54 @@
+{
+  "listArrivals": [
+    {
+      "flight": "BA 118",
+      "from": "New York JFK",
+      "due": "07:20",
+      "status": "landed",
+      "gate": "A12",
+      "code": "landed"
+    },
+    {
+      "flight": "LH 906",
+      "from": "Frankfurt",
+      "due": "07:45",
+      "status": "on time",
+      "gate": "B04",
+      "code": "on-time"
+    },
+    {
+      "flight": "AF 1680",
+      "from": "Paris CDG",
+      "due": "08:05",
+      "status": "delayed",
+      "gate": "B11",
+      "code": "delayed"
+    },
+    {
+      "flight": "KL 1007",
+      "from": "Amsterdam",
+      "due": "08:30",
+      "status": "on time",
+      "gate": "A03",
+      "code": "on-time"
+    }
+  ],
+  "getWeather": {
+    "field": "overcast",
+    "wind": "240\u00b0 at 12 kt",
+    "visibility": "8 km",
+    "celsius": 11
+  },
+  "listGateChanges": [
+    {
+      "flight": "AF 1680",
+      "was": "B11",
+      "now": "B14"
+    },
+    {
+      "flight": "KL 1007",
+      "was": "A03",
+      "now": "A07"
+    }
+  ]
+}
