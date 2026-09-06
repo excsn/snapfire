@@ -187,6 +187,10 @@ pub struct HostReport {
   pub auth: Option<(String, String)>,
   /// Client, custody key: which clients send a bearer token.
   pub bearer: Vec<(String, String)>,
+  /// The native pairs registered beside the standard library, by name.
+  pub extensions: Vec<String>,
+  /// Per locale with a catalog under `locales/`, how many keys its file holds.
+  pub catalogs: Vec<(String, usize)>,
   /// The application's own `[site]`: its name and prefix, when it is one.
   pub site: Option<(String, String)>,
   /// The sites mounted under this host: name, prefix, artifact, version and hash.
@@ -228,11 +232,12 @@ impl std::fmt::Display for HostReport {
       let label = if i == 0 { "static" } else { "" };
       writeln!(f, "{label:<9} {route:<22} {}", dir.display())?;
     }
-    for (i, pattern) in self.app.prerenderable.iter().enumerate() {
+    for (i, (pattern, anonymous)) in self.app.prerenderable.iter().map(|p| (p, false)).chain(self.app.prerenderable_anonymous.iter().map(|p| (p, true))).enumerate() {
       let label = if i == 0 { "prerender" } else { "" };
+      let who = if anonymous { " for anonymous visitors" } else { "" };
       match &self.prerender {
-        Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}", dir.display())?,
-        None => writeln!(f, "{label:<9} {pattern:<22} not configured")?,
+        Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}{who}", dir.display())?,
+        None => writeln!(f, "{label:<9} {pattern:<22} not configured{who}")?,
       }
     }
     if let Some((capacity, ttl)) = &self.cache {
@@ -265,6 +270,14 @@ impl std::fmt::Display for HostReport {
     for (i, (client, key)) in self.bearer.iter().enumerate() {
       let label = if i == 0 { "bearer" } else { "" };
       writeln!(f, "{label:<9} {client:<22} {key}")?;
+    }
+    for (i, name) in self.extensions.iter().enumerate() {
+      let label = if i == 0 { "natives" } else { "" };
+      writeln!(f, "{label:<9} {name:<22} rust")?;
+    }
+    if !self.catalogs.is_empty() {
+      let rows: Vec<String> = self.catalogs.iter().map(|(tag, n)| format!("{tag} {n} key{}", if *n == 1 { "" } else { "s" })).collect();
+      writeln!(f, "{:<9} {}", "catalogs", rows.join(", "))?;
     }
     for (i, source) in self.config.iter().enumerate() {
       let label = if i == 0 { "config" } else { "" };
@@ -306,6 +319,7 @@ struct Tables {
   statics: Vec<(String, ServeDir)>,
   prerendered: Option<PathBuf>,
   locales: Locales,
+  catalogs: Arc<snapfire_fsr_ir::Catalogs>,
   auth: Option<Mounted>,
   /// The mounted sites, longest prefix first.
   sites: Vec<SiteTables>,
@@ -380,11 +394,14 @@ struct Incoming {
   session: SessionCell,
   csrf: Option<String>,
   credentials: Arc<dyn Credentials>,
+  /// The locale whose catalog the navigator already holds, `x-sf-catalog`,
+  /// so a payload for that locale carries no `D` row.
+  held_catalog: Option<String>,
 }
 
 impl Incoming {
   fn anonymous(session: SessionCell) -> Self {
-    Self { session, csrf: None, credentials: Arc::new(NoCredentials) }
+    Self { session, csrf: None, credentials: Arc::new(NoCredentials), held_catalog: None }
   }
 }
 
@@ -499,6 +516,12 @@ impl Host {
   /// The locales the host serves and how it resolves a request's.
   pub fn locales(&self) -> Locales {
     self.tables().locales.clone()
+  }
+
+  /// The message catalogs loaded from `locales/`, when the application has any.
+  pub fn catalogs(&self) -> Option<Arc<snapfire_fsr_ir::Catalogs>> {
+    let catalogs = &self.tables().catalogs;
+    (!catalogs.is_empty()).then(|| catalogs.clone())
   }
 
   /// Rebuilds the tables through the builder's reloader and swaps them in;
@@ -653,7 +676,19 @@ impl Host {
         extra.push(snapfire_fsr_core::Node::raw(shell::site_head(&site.styles, site.entry.as_deref())));
       }
     }
-    if extra.is_empty() {
+    let catalog = t.catalogs.json(&visit.locale.tag);
+    let mut payload_catalog = None;
+    if let Some(json) = &catalog {
+      match mode {
+        RenderMode::Html => extra.push(snapfire_fsr_core::Node::raw(shell::catalog_script(&visit.locale.tag, json))),
+        RenderMode::Payload => {
+          if incoming.held_catalog.as_deref() != Some(visit.locale.tag.as_str()) {
+            payload_catalog = Some(json.to_string());
+          }
+        }
+      }
+    }
+    if extra.is_empty() && payload_catalog.is_none() {
       return self.render_plan_with(t, plan, params, query, mode, incoming, &visit.locale, &t.head).await;
     }
     let mut head = t.head.clone();
@@ -661,6 +696,7 @@ impl Host {
     parts.extend(extra);
     head.rest = snapfire_fsr_core::Node::Seq(parts);
     head.entry = site.and_then(|s| s.entry.clone());
+    head.catalog = payload_catalog;
     self.render_plan_with(t, plan, params, query, mode, incoming, &visit.locale, &head).await
   }
 
@@ -701,6 +737,15 @@ impl Host {
     self.tables().app.prerenderable.clone()
   }
 
+  /// The patterns one anonymous render serves for every anonymous request:
+  /// their only request reads are the identity, a page or layout's `identity`
+  /// prop or a call through a client whose `bearer` is set. `prerender`
+  /// writes them too; the file serves a visitor with no identity and a
+  /// signed-in one is rendered live.
+  pub fn prerenderable_anonymous(&self) -> Vec<String> {
+    self.tables().app.prerenderable_anonymous.clone()
+  }
+
   /// Drops every cached subtree of the plan node keyed `plan_key`, a module
   /// name for a lowered page or layout, and says how many went. Zero when
   /// nothing was cached under it or no cache is configured.
@@ -732,7 +777,7 @@ impl Host {
   pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
     let t = self.tables();
     let mut written = Vec::new();
-    for pattern in t.app.prerenderable.clone() {
+    for pattern in t.app.prerenderable.iter().chain(t.app.prerenderable_anonymous.iter()).cloned().collect::<Vec<_>>() {
       for tag in t.locales.supported.clone() {
         let locale = t.locales.locale(&tag);
         let root = if locale.is_default { out.to_path_buf() } else { out.join(&tag) };
@@ -759,11 +804,16 @@ impl Host {
     let t = self.tables();
     let path = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
     let visit = t.locales.resolve(path, None, None);
-    self.prerendered_in(&t, &visit.path, mode, &visit.locale)
+    self.prerendered_in(&t, &visit.path, mode, &visit.locale, true)
   }
 
-  fn prerendered_in(&self, t: &Tables, path: &str, mode: RenderMode, locale: &Locale) -> Option<String> {
+  /// `anonymous` says the request carries no identity; a route prerendered
+  /// for anonymous visitors only serves its file then.
+  fn prerendered_in(&self, t: &Tables, path: &str, mode: RenderMode, locale: &Locale, anonymous: bool) -> Option<String> {
     let dir = t.prerendered.as_ref()?;
+    if !anonymous && t.app.prerenderable_anonymous.iter().any(|pattern| pattern.trim_end_matches('/') == path.trim_end_matches('/')) {
+      return None;
+    }
     let root = if locale.is_default { dir.clone() } else { dir.join(&locale.tag) };
     let name = match mode {
       RenderMode::Html => "index.html",
@@ -878,9 +928,15 @@ impl Host {
   /// What a request at the edge carries: the session, its custody and, once
   /// the session is identified, a CSRF token. An anonymous request carries no
   /// token so its renders share the memo; the token joins the memo key.
+  fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>) -> Incoming {
+    let mut incoming = self.incoming(opened);
+    incoming.held_catalog = held_catalog;
+    incoming
+  }
+
   fn incoming(&self, opened: &Opened) -> Incoming {
     let csrf = (self.csrf_always || opened.cell.identity().is_some()).then(|| self.sessions.csrf_token(&opened.id));
-    Incoming { session: opened.cell.clone(), csrf, credentials: Arc::new(opened.tokens.clone()) }
+    Incoming { session: opened.cell.clone(), csrf, credentials: Arc::new(opened.tokens.clone()), held_catalog: None }
   }
 
   /// The whole edge for one request: static roots, the action route, then a
@@ -1128,10 +1184,11 @@ impl Host {
       RenderMode::Payload => (header("x-sf-from"), header("x-sf-into")),
       RenderMode::Html => (None, None),
     };
+    let held_catalog = header("x-sf-catalog");
     let intercepted = (from.is_some() || into.is_some()) && self.intercept_in(t, &path, from.as_deref().map(|f| f.split('?').next().unwrap_or(f)), into.as_deref()).is_some();
 
     if req.method() == Method::GET && !intercepted {
-      if let Some(text) = self.prerendered_in(t, &path, mode, &visit.locale) {
+      if let Some(text) = self.prerendered_in(t, &path, mode, &visit.locale, opened.cell.identity().is_none()) {
         let content_type = match mode {
           RenderMode::Html => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
@@ -1150,13 +1207,13 @@ impl Host {
     let (target_path, target_query) = target.split_once('?').unwrap_or((target.as_str(), ""));
     let target_visit = Resolution { locale: visit.locale.clone(), path: target_path.to_owned(), prefixed: visit.prefixed, set_cookie: None };
     let rendered = if intercepted {
-      self.render_navigation_in(t, &target_visit, target_query, from.as_deref(), into.as_deref(), self.incoming(opened)).await
+      self.render_navigation_in(t, &target_visit, target_query, from.as_deref(), into.as_deref(), self.incoming_holding(opened, held_catalog.clone())).await
     } else {
-      self.render_in(t, &target_visit, target_query, mode, self.incoming(opened)).await
+      self.render_in(t, &target_visit, target_query, mode, self.incoming_holding(opened, held_catalog.clone())).await
     };
     let rendered = match rendered {
       Ok(chunks) => Ok((StatusCode::OK, chunks)),
-      Err(HostError::NotFound(path)) => match self.render_not_found_in(t, &target_visit, target_query, mode, self.incoming(opened)).await {
+      Err(HostError::NotFound(path)) => match self.render_not_found_in(t, &target_visit, target_query, mode, self.incoming_holding(opened, held_catalog.clone())).await {
         Ok(Some(chunks)) => Ok((StatusCode::NOT_FOUND, chunks)),
         Ok(None) => return text_response(StatusCode::NOT_FOUND, format!("no route: {path}")),
         Err(e) => Err(e),
@@ -1687,6 +1744,18 @@ impl HostBuilder {
     self
   }
 
+  /// The Rust half of a native pair: `name` is `module.member`, the name its
+  /// `native(..)` declaration under `ext/` gives, and `reach` what that
+  /// declaration says. A plan calling a name nothing registers refuses to build.
+  pub fn extension<F>(mut self, name: impl Into<String>, reach: snapfire_fsr_ir::Reach, f: F) -> Self
+  where
+    F: Fn(&snapfire_fsr_ir::Ambient, &[Value]) -> Result<Value, snapfire_fsr_ir::Fail> + Send + Sync + 'static,
+  {
+    let name = name.into();
+    self.app_mut(move |app| app.extension(name, reach, f));
+    self
+  }
+
   /// The evaluator for the document module, replacing the stock shell.
   /// Where prerendered documents are read from, overriding `server.prerender`.
   pub fn prerendered(mut self, dir: impl Into<PathBuf>) -> Self {
@@ -2009,13 +2078,25 @@ impl HostBuilder {
       }
       _ => None,
     };
+    let locales = match &config.locales {
+      Some(section) => Locales::from_section(section).map_err(|e| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), e))?,
+      None => Locales::single(),
+    };
+    let catalogs = Arc::new(locale::load_catalogs(&config.app, &locales.default).map_err(|e| HostError::Config(config.root.clone(), e))?);
+    if !catalogs.is_empty() {
+      app = app.catalogs(catalogs.clone());
+    }
+    let catalog_rows = catalogs.rows();
+    app = app.bearer_services(bearer_rows.iter().map(|(client, _)| client.clone()));
+    let extension_rows: Vec<String> = app.extensions().names().into_iter().filter(|name| !snapfire_fsr_ir::STANDARD.iter().any(|(m, n, _)| format!("{m}.{n}") == *name)).collect();
     let app = app
       .services(services)
       .evaluator(move |m: &ModuleId| m.path == shell_path, shell)
       .build()?;
 
     let styles = config.document.styles.clone().unwrap_or_default();
-    let head = shell::head(&config.document.title, &styles, import_map.as_deref(), config.document.entry.as_deref());
+    let mut head = shell::head(&config.document.title, &styles, import_map.as_deref(), config.document.entry.as_deref());
+    head.head = config.document.head_meta()?.head;
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
 
@@ -2023,10 +2104,6 @@ impl HostBuilder {
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
 
     let prerendered = self.prerendered.take().or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
-    let locales = match &config.locales {
-      Some(section) => Locales::from_section(section).map_err(|e| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), e))?,
-      None => Locales::single(),
-    };
     let locale_rows = match &config.locales {
       Some(_) => {
         let mut rows = vec![locales.default.clone()];
@@ -2093,14 +2170,16 @@ impl HostBuilder {
       cache: cache_row,
       dev,
       locales: locale_rows,
+      catalogs: catalog_rows,
       auth: auth_row,
       bearer: bearer_rows,
+      extensions: extension_rows,
       site: config.site.as_ref().map(|s| (s.name.clone(), s.at.clone())),
       sites: site_reports,
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
-    Ok((Tables { app, head, dev_bundle, statics, prerendered, locales, auth, sites, report: Arc::new(report) }, config))
+    Ok((Tables { app, head, dev_bundle, statics, prerendered, locales, catalogs, auth, sites, report: Arc::new(report) }, config))
   }
 }
 

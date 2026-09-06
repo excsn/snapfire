@@ -1,0 +1,18 @@
+[server]
+listen = "127.0.0.1:3000"
+prerender = "dist/prerender"
+
+[document]
+title = "SnapFire FSR · Full-Stack Runtime Without Node.js"
+
+[session]
+key = "snapfire-site-secret-key-development"
+ttl = "24h"
+
+[cache]
+capacity = 5000
+ttl = "1h"
+
+[[static]]
+route = "/static/js/fsr"
+dir = "../../fsr/client/dist"

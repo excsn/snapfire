@@ -10,11 +10,22 @@ license = { workspace = true }
 [dependencies]
 snapfire_fsr_core = { path = "../core" }
 snapfire_fsr_runtime = { path = "../runtime" }
+fixed_decimal = { version = "0.7", features = ["ryu"] }
 futures-util = "0.3"
+getrandom = "0.3"
+icu_calendar = "2"
+icu_datetime = "2"
+icu_decimal = "2"
+icu_experimental = "0.6"
+icu_locale_core = "2"
+icu_plurals = "2"
 indexmap = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
 thiserror = "2"
+unicode-normalization = "0.1"
+uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
 parking_lot = "0.12"

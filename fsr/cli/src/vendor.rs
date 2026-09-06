@@ -224,16 +224,30 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
   let mut imports = map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default();
   let mut added = Vec::new();
 
+  // A package whose own root the import map answers, already or by the end of
+  // this call, is shared rather than copied into every bundle that imports it.
+  // A subpath alone does not share: `react-dom/client` without `react-dom` has
+  // no module to point an import at.
+  let mut shared: Vec<String> = manifest.packages.iter().filter(|(name, p)| p.entries.contains_key(*name)).map(|(name, _)| name.clone()).collect();
+  shared.extend(specs.iter().filter(|s| s.subpath.is_none()).map(|s| s.package.clone()));
+
   for spec in specs {
+    let mut external: Vec<&str> = externals.iter().map(String::as_str).collect();
+    for package in &shared {
+      let itself = package == &spec.package && spec.subpath.is_none();
+      if !itself && !external.contains(&package.as_str()) {
+        external.push(package);
+      }
+    }
     let mut url = format!("{ESM_HOST}/{}@{}", spec.package, spec.version);
     if let Some(sub) = &spec.subpath {
       url.push('/');
       url.push_str(sub);
     }
     url.push_str("?target=es2022&bundle");
-    if !externals.is_empty() {
+    if !external.is_empty() {
       url.push_str("&external=");
-      url.push_str(&externals.join(","));
+      url.push_str(&external.join(","));
     }
     let stub = get(&client, &url)?.ok_or_else(|| BuildError::Http(url.clone(), "HTTP 404: no such package or version".to_owned()))?;
     let stub = String::from_utf8_lossy(&stub).into_owned();

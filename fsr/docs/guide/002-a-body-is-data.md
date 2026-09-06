@@ -40,7 +40,7 @@ The language grows when an application shows a body that needs a construct and c
 Every name the application declares appears in the report with who answers it:
 
 ```
-sources   index                  lowered     routes/index/page.loader.ts
+sources   $root                  lowered     routes/page.loader.ts
           cart                   lowered     routes/cart/page.loader.ts
 actions   cart.addToCart         lowered     routes/cart/actions.ts
 ```

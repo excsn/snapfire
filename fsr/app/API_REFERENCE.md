@@ -23,7 +23,7 @@ The binding rule: a plan file plus Rust registrations become an `App`, or a refu
 
 Everything a request needs, plus what was bound to produce it.
 
-* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub middleware: Option<Arc<dyn ActionHandler>>, pub not_found: Option<PlanNode>, pub intercepts: Intercepts, pub prerenderable: Vec<String>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `intercepts` holds the plan file's intercept trees, one per `page.<slot>.tsx`, under the pattern of their route. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match. `middleware` runs before every request with `{ method, path }` as its input; what its value means is the host's reading, `snapfire_fsr_host::Preflight`. `prerenderable` lists the patterns with no parameter whose every source is lowered and reads nothing of the request, in route order.
+* `pub struct App { pub matcher: MatchitMatcher, pub resolver: TableResolver, pub handlers: Handlers, pub middleware: Option<Arc<dyn ActionHandler>>, pub not_found: Option<PlanNode>, pub intercepts: Intercepts, pub prerenderable: Vec<String>, pub prerenderable_anonymous: Vec<String>, pub runtime: Arc<Runtime>, pub services: Arc<Services>, pub actions: ActionRegistry, pub report: Report }`. `intercepts` holds the plan file's intercept trees, one per `page.<slot>.tsx`, under the pattern of their route. `not_found` is the tree a host renders, with status 404, for a path the matcher does not match. `middleware` runs before every request with `{ method, path }` as its input; what its value means is the host's reading, `snapfire_fsr_host::Preflight`. `prerenderable` lists the patterns with no parameter whose every source is lowered and reads nothing of the request, in route order. `prerenderable_anonymous` lists, in route order, the other patterns with no parameter whose every source is lowered and whose only request reads are `identity`, a page or layout's `identity` prop or a call through a service named with `bearer_services`, and none reads `csrf_token`: one anonymous render serves every anonymous request and a signed-in visitor is rendered live. A `meta` reading the identity classes the same way; one reading more keeps its route out of both.
 
 ### Intercepts
 
@@ -62,7 +62,9 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::evaluator<P>(self, predicate: P, evaluator: Arc<dyn Evaluator>) -> Self` where `P: Fn(&ModuleId) -> bool + Send + Sync + 'static`
 * `AppBuilder::services(self, services: Arc<Services>) -> Self`: default is an empty registry.
 * `AppBuilder::contract(self, contract: Contract) -> Self`: required when any lowered action names an input type.
+* `AppBuilder::bearer_services(self, services: impl IntoIterator<Item = String>) -> Self`: the services whose calls carry the session's token; a body calling one depends on the identity the way one reading `identity` does, for `prerenderable_anonymous`.
 * `AppBuilder::cache(self, cache: Arc<dyn NodeCache>) -> Self`
+* `AppBuilder::extension<F>(self, name, reach: Reach, f: F) -> Self` where `F: Fn(&Ambient, &[Value]) -> Result<Value, Fail> + Send + Sync + 'static`, the types from `snapfire_fsr_ir`: the Rust half of a native pair under `name`, `module.member`, the name its `native(..)` declaration under `ext/` gives, with the reach that declaration says. Replaces a standard member of the same name. `AppBuilder::extensions(&self) -> &Extensions` reads what is bound so far, the standard library included.
 * `AppBuilder::route(self, pattern, plan: impl IntoPlan) -> Self`
 * `AppBuilder::route_override(self, pattern, plan: impl IntoPlan) -> Self`
 * `AppBuilder::not_found(self, plan: impl IntoPlan) -> Self`: `Routes::not_found` on the builder's routes.
@@ -120,7 +122,7 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 
 `#[derive(Debug, Clone, Default, PartialEq, Eq)]`, `Display`.
 
-* `pub struct Report { pub routes: Vec<(String, Owner)>, pub sources: Vec<(String, Owner)>, pub actions: Vec<(String, Owner)>, pub handlers: Vec<(String, Owner)>, pub middleware: Option<Owner>, pub prerenderable: Vec<String>, pub components: Vec<(String, Owner)> }`
+* `pub struct Report { pub routes: Vec<(String, Owner)>, pub sources: Vec<(String, Owner)>, pub actions: Vec<(String, Owner)>, pub handlers: Vec<(String, Owner)>, pub middleware: Option<Owner>, pub prerenderable: Vec<String>, pub prerenderable_anonymous: Vec<String>, pub components: Vec<(String, Owner)> }`
 * `routes` and `handlers` sorted, the handler name being `METHOD pattern`; the rest in binding order. `Display` prints labelled columns, `routes`, `sources`, `actions`, `handlers`, `middleware` when there is one and `rendered`.
 
 ## 4. Error Handling
@@ -138,6 +140,7 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 * `UnboundAction { id }`: an action the plan declares and nothing answers.
 * `Module { module }`: not `path#export`.
 * `NoContract { id, input }`: a lowered action names an input type and no contract was passed.
+* `UnknownExtension { owner, name }`: a body or a component, `owner`, calls extension `name` and nothing registers it, neither the standard library nor an `extension` call. Checked before anything binds, so a missing Rust half is a build failure.
 * `UnknownInput { id, input }`: the contract does not define the type.
 * `HandlerClaimed(String)`: a handler lowered by the file and bound in Rust without an override; the string is `METHOD pattern`.
 * `HandlerOverridesNothing(String)`: a handler override the file has nothing for.

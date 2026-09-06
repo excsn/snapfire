@@ -125,6 +125,10 @@ pub trait Hooks {
   fn locale(&self, id: u32) -> Result<String, String>;
   fn calls(&self, id: u32) -> Result<String, String>;
   fn render(&self, module: &str, props: &str) -> Result<Option<String>, String>;
+  /// The Rust half of extension `name` over `args`, a JSON array, under
+  /// `locale`; the answer is JSON. What the page's `std` module asks when
+  /// the engine has no `Intl`.
+  fn ext(&self, name: &str, args: &str, locale: &str) -> Result<String, String>;
   /// `headers` are the request's, as the page gave them.
   fn fetch(&self, method: String, url: String, body: Option<String>, headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse>;
 }
@@ -205,6 +209,56 @@ fn throw(ctx: &Ctx<'_>, message: String) -> Error {
   Exception::throw_message(ctx, &message)
 }
 
+type NativeFn<'a> = dyn Fn(&str, &str) -> Result<String, String> + 'a;
+
+thread_local! {
+  /// The context of the engine this thread runs, for `native` outside a host function.
+  static NATIVE_CONTEXT: std::cell::RefCell<Option<Context>> = const { std::cell::RefCell::new(None) };
+  /// Inside a host function the context is already entered, so the function
+  /// installs a caller bound to its own `Ctx` for the duration of the call.
+  static NATIVE_SCOPE: std::cell::Cell<Option<*const NativeFn<'static>>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `run` with `native` answering `native()` on this thread, for code a
+/// host function calls while the context is entered.
+fn with_native_scope<R>(native: &NativeFn<'_>, run: impl FnOnce() -> R) -> R {
+  struct Reset(Option<*const NativeFn<'static>>);
+  impl Drop for Reset {
+    fn drop(&mut self) {
+      NATIVE_SCOPE.with(|slot| slot.set(self.0));
+    }
+  }
+  // SAFETY: only the lifetime is erased; the pointer is read back by
+  // `native` while `run` is on the stack below this frame and never after.
+  let erased: *const NativeFn<'static> = unsafe { std::mem::transmute::<*const NativeFn<'_>, *const NativeFn<'static>>(native as *const NativeFn<'_>) };
+  let previous = NATIVE_SCOPE.with(|slot| slot.replace(Some(erased)));
+  let _reset = Reset(previous);
+  run()
+}
+
+fn call_native(ctx: &Ctx<'_>, name: &str, args: &str) -> Result<String, String> {
+  let f: Function = ctx.globals().get("__sf_native").map_err(|e| js_error(ctx, e).to_string())?;
+  f.call::<_, String>((name, args)).map_err(|e| js_error(ctx, e).to_string())
+}
+
+/// The browser half of native pair `name`, which the page's `std` module
+/// registered when its declaration ran, applied to `args`, a JSON array;
+/// the answer is JSON. Callable from anywhere on the engine's thread, a
+/// hook's future and a hook's own body included, so the Rust half a test
+/// cannot run is answered by the JavaScript half instead. An error when no
+/// engine runs here or the page declared no such pair.
+pub fn native(name: &str, args: &str) -> Result<String, String> {
+  if let Some(scoped) = NATIVE_SCOPE.with(|slot| slot.get()) {
+    // SAFETY: the pointer was taken from a reference that outlives the
+    // `with_native_scope` call installing it, and the slot is reset when
+    // that call returns, on unwind included.
+    let scoped: &NativeFn<'_> = unsafe { &*scoped };
+    return scoped(name, args);
+  }
+  let context = NATIVE_CONTEXT.with(|slot| slot.borrow().clone()).ok_or_else(|| format!("{name}: no engine runs on this thread"))?;
+  context.with(|ctx| call_native(&ctx, name, args))
+}
+
 impl Engine {
   /// A context with the prelude, the DOM at `dom` (linkedom's worker bundle)
   /// and the hooks bound as globals.
@@ -212,6 +266,7 @@ impl Engine {
     let runtime = Runtime::new().map_err(|e| EngineError::Js(e.to_string()))?;
     runtime.set_loader(FileResolver { resolution, dom: dom.to_path_buf() }, FileLoader);
     let context = Context::full(&runtime).map_err(|e| EngineError::Js(e.to_string()))?;
+    NATIVE_CONTEXT.with(|slot| *slot.borrow_mut() = Some(context.clone()));
     let state = Rc::new(State::default());
     let tracker = state.clone();
     runtime.set_host_promise_rejection_tracker(Some(Box::new(move |ctx: Ctx<'_>, _promise: rquickjs::Value<'_>, reason: rquickjs::Value<'_>, handled: bool| {
@@ -260,7 +315,14 @@ impl Engine {
       let h = hooks.clone();
       globals.set("__sf_calls", Function::new(ctx.clone(), move |ctx: Ctx<'_>, id: u32| h.calls(id).map_err(|m| throw(&ctx, m)))?)?;
       let h = hooks.clone();
-      globals.set("__sf_render", Function::new(ctx.clone(), move |ctx: Ctx<'_>, module: String, props: String| h.render(&module, &props).map_err(|m| throw(&ctx, m)))?)?;
+      globals.set(
+        "__sf_render",
+        Function::new(ctx.clone(), move |ctx: Ctx<'_>, module: String, props: String| {
+          with_native_scope(&|name, args| call_native(&ctx, name, args), || h.render(&module, &props)).map_err(|m| throw(&ctx, m))
+        })?,
+      )?;
+      let h = hooks.clone();
+      globals.set("__sf_ext", Function::new(ctx.clone(), move |ctx: Ctx<'_>, name: String, args: String, locale: String| h.ext(&name, &args, &locale).map_err(|m| throw(&ctx, m)))?)?;
       ctx.eval::<(), _>(PRELUDE).catch(&ctx).map_err(|e| EngineError::Js(e.to_string()))?;
       Ok::<(), EngineError>(())
     })
@@ -445,6 +507,9 @@ mod tests {
     fn render(&self, _module: &str, _props: &str) -> Result<Option<String>, String> {
       Ok(None)
     }
+    fn ext(&self, name: &str, _: &str, _: &str) -> Result<String, String> {
+      Err(format!("no extension {name} here"))
+    }
     fn fetch(&self, method: String, url: String, body: Option<String>, _headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
       Box::pin(async move { FetchResponse { headers: Vec::new(), status: 200, body: format!("{{\"echo\":\"{method} {url} {}\"}}", body.unwrap_or_default().replace('"', "'")) } })
     }
@@ -517,5 +582,19 @@ mod tests {
     assert_eq!(run(e.run_test(0)).unwrap(), Ok(()));
     let failure = run(e.run_test(1)).unwrap().unwrap_err();
     assert!(failure.contains("boom"), "{failure}");
+  }
+
+  #[test]
+  fn a_native_pairs_browser_half_answers_from_rust_even_inside_a_host_function() {
+    let e = engine();
+    e.eval_string("globalThis.__sf_natives['fleet.queueLabel'] = (n) => n === 0 ? 'idle' : `${n} queued`; ''").unwrap();
+    assert_eq!(native("fleet.queueLabel", "[3]").unwrap(), "\"3 queued\"");
+    assert_eq!(native("fleet.queueLabel", "[0]").unwrap(), "\"idle\"");
+    assert!(native("fleet.other", "[]").unwrap_err().contains("no browser half"));
+    e.eval_string("globalThis.__sf_reenter = () => __sf_probe('fleet.queueLabel', '[7]'); ''").unwrap();
+    e.context.with(|ctx| {
+      ctx.globals().set("__sf_probe", Function::new(ctx.clone(), |ctx: Ctx<'_>, name: String, args: String| with_native_scope(&|n, a| call_native(&ctx, n, a), || native(&name, &args)).map_err(|m| throw(&ctx, m))).unwrap()).unwrap();
+    });
+    assert_eq!(e.eval_string("__sf_reenter()").unwrap(), "\"7 queued\"");
   }
 }

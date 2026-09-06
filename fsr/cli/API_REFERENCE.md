@@ -20,6 +20,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * [3. Discovery Rules](#3-discovery-rules)
   * [Clients](#clients)
   * [Schemas](#schemas)
+  * [Extensions](#extensions)
   * [Routes](#routes)
   * [Ids](#ids)
   * [Modules](#modules)
@@ -131,6 +132,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `pub struct Report { pub routes: Vec<(String, String)>, pub layouts: Vec<(String, String)>, pub slots: Vec<(String, String)>, pub intercepts: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub handlers: Vec<(String, String)>, pub middleware: Option<String>, pub components: Vec<(String, String, String)>, pub hoisted: Vec<(String, usize)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
 * `hoisted` gives a lowered component's module, prefixed for a site, how many of its render-path calls and how many of its static subtrees the server computes for the browser; `Display` prints them as `hoisted` rows after the components, `4 values, 8 subtrees`.
 * `islands: Vec<(String, usize)>` names each component placed as an island in server mode, prefixed for a site, with how many handlers it answers; `Display` prints them as `islands` rows labelled `server`, before `hoisted`.
+* `extensions: Vec<(String, String)>` pairs each export under `ext/`, `file#name`, with `lowered`, `native render` or `native body`; `browser: Vec<(String, String)>` pairs a lowered module, prefixed for a site, with `file:line:column` of each render-path call that stays in the browser after hoisting. `Display` prints `extensions` rows, then `browser` rows, before `hoisted`.
 * `routes` pairs a pattern with its directory relative to `app`; `layouts` pairs the pattern a layout wraps with its module; `slots` pairs a parallel slot's source id with its page module; `intercepts` pairs `<pattern> into <slot>` with the `page.<slot>.tsx` module; `sources` and `actions` pair an id with the module that lowered to it; `services` pairs a service with its document; `schemas` pairs a type with its file; `types` pairs a package with `types::status`'s row.
 * `Display` prints the six sections in that order, source and action rows labelled `lowered`, service rows `http` or `grpc` by their document's extension.
 
@@ -146,6 +148,12 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * Every `app/schemas/*.ts`, sorted by name, is read with `snapfire_fsr_lower::read_schema`. Each exported interface or string-literal union becomes a contract type; a name declared twice is `DuplicateType`.
 * The type named `Session` is imported into `generated/fsr.ts` from its file and types `ctx.session`; without one, `session` is `Record<string, unknown>`. An `export const defaults` in that file is read with `read_session_defaults` and folded into every lowered session read.
 * After both, `Contract::validate` runs; an unresolved reference is `BuildError::Contract`.
+
+### Extensions
+
+* Every `app/ext/*.ts`, sorted by name, is lowered with `ComponentSet::lower_extensions` before any route, so a native pair is declared before a body or a component calls it; each export is a `Report.extensions` row and one that does not lower fails the build with the lowerer's `Extension` error. `@ext/<name>` reaches the module from anywhere under the app; `ext/**/*` is in every generated tsconfig.
+* Loaders, metas, stores, actions, handlers and middleware are lowered through the same `ComponentSet`, so a body follows the imports it calls; a name the build cannot follow is the residue the lowerer gives, at the line.
+* A `body` extension on a component's render path fails the build with the lowerer's `Reach` error, never a `client` row.
 
 ### Routes
 
@@ -190,7 +198,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `generated/services.d.ts` is `snapfire_fsr_service::typescript::declarations` of it.
 * `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module, each with `mount` and `patch` from `Options::mounter_module`: the routes-level error module, the not-found module, each layout, then each page, its error and its loading module, then every component a lowered component places as an island, its loader picking the named export, each loading `../<path>.js` relative to `generated/`.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.
-* `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build`.
+* `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build`. Both include `ext/**/*` beside `src/**/*`.
 * `.fsr-bundle/<path>` is the browser copy of every lowered component module with a hoist: the source with `hoist::apply` over it, which snapfirec reads through `--overlay` in place of the original. Not for the editor and not for `fsr test`'s Rust side; the plan carries the same decisions as `Expr::Hoist`.
 * `generated/fsr.ts` is what the generated `tsconfig.json` maps `@snapfire/fsr` to; it imports the base package as `@snapfire/fsr-authoring`, re-exports `fail` and `Services`, imports `Session`, declares `Routes` with one key per pattern whose value has a `string` field per parameter, `Ctx<P extends keyof Routes = keyof Routes>` with `params`, `query`, `session`, `identity`, `locale`, `services` and `now`, `ActionCtx<Input, P>` and an `action<Input, Out>` wrapper over `@snapfire/fsr`'s.
 

@@ -53,6 +53,18 @@ impl Candidates {
     Entry::Field(CHUNK_ATTR.to_owned(), Expr::Lit(Lit::Int(id as i128)))
   }
 
+  /// The call ranges of the value candidates that stay in the browser: not
+  /// kept, and not inside a kept one, whose read covers them.
+  pub fn remaining(&self, kept: &[u32]) -> Vec<Range<usize>> {
+    let held: Vec<&Range<usize>> = self.sites.iter().filter(|(id, _, _)| kept.contains(id)).map(|(_, range, _)| range).collect();
+    self
+      .sites
+      .iter()
+      .filter(|(id, range, _)| !kept.contains(id) && !held.iter().any(|h| h.start <= range.start && range.end <= h.end))
+      .map(|(_, range, _)| range.clone())
+      .collect()
+  }
+
   /// The rewrite for the candidates in `values` and `chunks`, or `None` when none survived.
   pub fn rewrite(self, values: &[u32], chunks: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
     let mut sites = Vec::new();
@@ -220,7 +232,7 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
       }
     }),
     Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => strip(e, tainted, kept, in_lambda, in_hoist),
-    Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b) | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::Some(a, b) | Expr::Every(a, b) => {
+    Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b) | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b) | Expr::Some(a, b) | Expr::Every(a, b) => {
       strip(a, tainted, kept, in_lambda, in_hoist);
       strip(b, tainted, kept, in_lambda, in_hoist);
     }
@@ -230,7 +242,7 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
       strip(c, tainted, kept, in_lambda, in_hoist);
     }
     Expr::Template(parts) => parts.iter_mut().for_each(|e| strip(e, tainted, kept, in_lambda, in_hoist)),
-    Expr::Builtin { args, .. } => args.iter_mut().for_each(|e| strip(e, tainted, kept, in_lambda, in_hoist)),
+    Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter_mut().for_each(|e| strip(e, tainted, kept, in_lambda, in_hoist)),
     Expr::Apply { f, args } => {
       strip(f, tainted, kept, in_lambda, in_hoist);
       args.iter_mut().for_each(|e| strip(e, tainted, kept, in_lambda, in_hoist));

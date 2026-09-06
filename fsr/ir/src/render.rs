@@ -170,7 +170,7 @@ impl Interpreter {
   }
 
   fn env_for(&self, module: &str, props: &ValueMap) -> Env {
-    let mut env = Env::detached(self.clock(), vec![("$props".to_owned(), Value::Map(props.clone()))]);
+    let mut env = Env::detached(self, vec![("$props".to_owned(), Value::Map(props.clone()))]);
     if let Some(Value::Map(store)) = props.get("$store") {
       env.store = store.clone();
     }

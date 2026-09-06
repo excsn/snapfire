@@ -1,4 +1,5 @@
 import type { OrderIdProps } from "@generated/client";
+import { count } from "@ext/labels";
 import { Island } from "@snapfire/fsr-client/react";
 import { OrderHelp } from "@src/ui/OrderHelp";
 import { money } from "@src/ui/money";
@@ -12,7 +13,7 @@ export default function OrderPage({ order }: OrderIdProps) {
         <p className="empty-glyph">📦</p>
         <h1>Order #{String(order.id)} placed</h1>
         <p>
-          {items} item{items === 1 ? "" : "s"}, {money(order.total_cents)} charged. Thank you for shopping with us.
+          {count(items, "item")}, {money(order.total_cents)} charged. Thank you for shopping with us.
         </p>
         <ul className="order-lines">
           {order.lines.map((l) => (

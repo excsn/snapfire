@@ -71,11 +71,13 @@ function regionsOf(el: Element): Regions {
 export interface IslandProps {
   /** When the island hydrates: immediately, when scrolled into view or when the main thread is idle. Defaults to the registry's timing, else "load". */
   when?: MountTiming;
+  /** `server`: the island's events round-trip to the server, which re-renders it; no React root is mounted. */
+  mode?: "server";
   children?: ReactNode;
 }
 
 /** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here. */
-export function Island({ when }: IslandProps): ReactElement {
+export function Island({ when, mode }: IslandProps): ReactElement {
   const regions = useContext(RegionsContext);
   const [html] = useState(() => {
     if (!regions) return "";
@@ -84,13 +86,14 @@ export function Island({ when }: IslandProps): ReactElement {
   });
   const props: { [key: string]: unknown } = { "data-sf-island": "", dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true };
   if (when) props["data-sf-when"] = when;
+  if (mode) props["data-sf-mode"] = mode;
   return createElement("sf-s", props);
 }
 
-/** `component` as a component that places it as an island with `options.when` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
-export function island<P extends object>(component: ComponentType<P>, options: { when?: MountTiming } = {}): (props: P) => ReactElement {
+/** `component` as a component that places it as an island with `options.when` and `options.mode` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
+export function island<P extends object>(component: ComponentType<P>, options: { when?: MountTiming; mode?: "server" } = {}): (props: P) => ReactElement {
   return function IslandOf(props: P): ReactElement {
-    return createElement(Island, { when: options.when }, createElement(component as ComponentType<object>, props));
+    return createElement(Island, { when: options.when, mode: options.mode }, createElement(component as ComponentType<object>, props));
   };
 }
 

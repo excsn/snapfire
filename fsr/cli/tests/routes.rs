@@ -314,3 +314,36 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
   assert!(built.report.to_string().contains("islands   src/Widget.tsx#Widget              server      1 handler"), "{}", built.report);
   std::fs::remove_dir_all(&fine).unwrap();
 }
+
+#[test]
+fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlowerable_export_fails_the_build() {
+  let page = "import { intl } from \"@snapfire/fsr-client/std\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{intl.number(n * grams)}</p>;\n}\n";
+  let fine = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("routes/index/page.loader.ts", "import { weight } from \"@ext/fmt\";\nimport { time } from \"@snapfire/fsr-client/std\";\nexport async function load() {\n  return { grams: 1500, label: weight(1500), at: time.now() };\n}\n"),
+    ("ext/fmt.ts", "import { intl, native } from \"@snapfire/fsr-client/std\";\nexport function weight(grams: number): string {\n  return `${intl.number(grams / 1000)} kg`;\n}\nexport const pretty = native(\"fmt.pretty\", (n: number) => String(n));\nexport const stamp = native<() => string>(\"fmt.stamp\");\n"),
+  ]);
+  let built = build(&fine, &Options::default()).unwrap();
+  assert_eq!(
+    built.report.extensions,
+    vec![("ext/fmt.ts#weight".to_owned(), "lowered".to_owned()), ("ext/fmt.ts#pretty".to_owned(), "native render".to_owned()), ("ext/fmt.ts#stamp".to_owned(), "native body".to_owned())]
+  );
+  assert_eq!(built.report.browser, vec![("routes/index/page.tsx#default".to_owned(), "routes/index/page.tsx:6:64".to_owned())], "{}", built.report);
+  assert_eq!(built.report.hoisted, vec![("routes/index/page.tsx#default".to_owned(), 1, 0)], "{}", built.report);
+  let text = built.report.to_string();
+  assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.tsx#default      routes/index/page.tsx:6:64"), "{text}");
+  let plan = built.manifest.to_json();
+  assert!(plan.contains("\"ext\"") && plan.contains("\"intl\"") && plan.contains("\"time\""), "{plan}");
+  std::fs::remove_dir_all(&fine).unwrap();
+
+  let reach = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", "import { id } from \"@snapfire/fsr-client/std\";\nexport default function Page() {\n  return <p>{id.new()}</p>;\n}\n")]);
+  let err = fails(&reach).to_string();
+  assert!(err.contains("routes/index/page.tsx:3:14: `id.new` on a render path") && err.contains("runs on the server only"), "{err}");
+  std::fs::remove_dir_all(&reach).unwrap();
+
+  let unlowerable = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("ext/bad.ts", "export function stamp(): string {\n  return new Date().toISOString();\n}\n")]);
+  let err = fails(&unlowerable).to_string();
+  assert!(err.contains("ext/bad.ts:2:") && err.contains("must lower"), "{err}");
+  std::fs::remove_dir_all(&unlowerable).unwrap();
+}

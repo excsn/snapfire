@@ -54,10 +54,15 @@ pub enum Expr {
   Apply { f: Box<Expr>, args: Vec<Expr> },
   /// A fixed pure function; the list is `Builtin`.
   Builtin { name: Builtin, args: Vec<Expr> },
+  /// An extension call, `intl.number(n)`: a member of a module the
+  /// interpreter's registry holds, the standard library or a native pair the
+  /// host registered. The locale is ambient.
+  Ext { module: String, name: String, args: Vec<Expr> },
   Map(Box<Expr>, Box<Expr>),
   Filter(Box<Expr>, Box<Expr>),
   Reduce(Box<Expr>, Box<Expr>, Box<Expr>),
   Find(Box<Expr>, Box<Expr>),
+  FindIndex(Box<Expr>, Box<Expr>),
   Some(Box<Expr>, Box<Expr>),
   Every(Box<Expr>, Box<Expr>),
   Entries(Box<Expr>),
@@ -352,6 +357,10 @@ impl Expr {
     }
   }
 
+  pub fn ext(module: impl Into<String>, name: impl Into<String>, args: Vec<Expr>) -> Self {
+    Expr::Ext { module: module.into(), name: name.into(), args }
+  }
+
   pub fn lambda(params: &[&str], body: Expr) -> Self {
     Expr::Lambda { params: params.iter().map(|p| (*p).to_owned()).collect(), body: Box::new(body) }
   }
@@ -383,7 +392,7 @@ impl Expr {
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.free_vars(out),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
-      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
       | Expr::Some(a, b) | Expr::Every(a, b) => {
         a.free_vars(out);
         b.free_vars(out);
@@ -395,7 +404,7 @@ impl Expr {
       }
       Expr::Template(parts) => parts.iter().for_each(|p| p.free_vars(out)),
       Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
-      Expr::Builtin { args, .. } => args.iter().for_each(|e| e.free_vars(out)),
+      Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().for_each(|e| e.free_vars(out)),
       Expr::Apply { f, args } => {
         f.free_vars(out);
         args.iter().for_each(|e| e.free_vars(out));
@@ -429,7 +438,7 @@ impl Expr {
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.visit(f),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
-      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
       | Expr::Some(a, b) | Expr::Every(a, b) => {
         a.visit(f);
         b.visit(f);
@@ -440,7 +449,7 @@ impl Expr {
         c.visit(f);
       }
       Expr::Template(parts) => parts.iter().for_each(|e| e.visit(f)),
-      Expr::Builtin { args, .. } => args.iter().for_each(|e| e.visit(f)),
+      Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().for_each(|e| e.visit(f)),
       Expr::Apply { f: callee, args } => {
         callee.visit(f);
         args.iter().for_each(|e| e.visit(f));
@@ -467,11 +476,11 @@ impl Expr {
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.reads_request(),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
-      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
       | Expr::Some(a, b) | Expr::Every(a, b) => a.reads_request() || b.reads_request(),
       Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.reads_request() || b.reads_request() || c.reads_request(),
       Expr::Template(parts) => parts.iter().any(Expr::reads_request),
-      Expr::Builtin { args, .. } => args.iter().any(Expr::reads_request),
+      Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::reads_request),
       Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
       Expr::Lambda { body, .. } => body.reads_request(),
       Expr::Hoist { expr, .. } => expr.reads_request(),
@@ -489,11 +498,11 @@ impl Expr {
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.has_call(),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
-      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
       | Expr::Some(a, b) | Expr::Every(a, b) => a.has_call() || b.has_call(),
       Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.has_call() || b.has_call() || c.has_call(),
       Expr::Template(parts) => parts.iter().any(Expr::has_call),
-      Expr::Builtin { args, .. } => args.iter().any(Expr::has_call),
+      Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::has_call),
       Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),
       Expr::Lambda { body, .. } => body.has_call(),
       Expr::Hoist { expr, .. } => expr.has_call(),

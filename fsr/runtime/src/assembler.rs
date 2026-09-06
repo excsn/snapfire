@@ -187,6 +187,8 @@ pub struct Assembly {
   pub locale: crate::ctx::Locale,
   /// The head's `entry`: a module the browser loads for this response's islands.
   pub entry: Option<String>,
+  /// The head's `catalog`: the locale's message table as JSON.
+  pub catalog: Option<String>,
 }
 
 impl std::fmt::Debug for Assembly {
@@ -239,19 +241,21 @@ struct Session {
   next_slot: AtomicU32,
 }
 
-/// The innermost node of `plan` whose loaded data has metadata registered,
-/// deferred children excluded since their data is not in this wave.
-fn describing_node<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, is_root: bool) -> Option<&'p PlanNode> {
+/// Every node of `plan` whose loaded data has metadata registered, outermost
+/// first so an inner segment folds over an outer one; deferred children
+/// excluded since their data is not in this wave.
+fn describing_nodes<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, is_root: bool, out: &mut Vec<&'p PlanNode>) {
   if plan.deferred && !is_root {
-    return None;
+    return;
   }
-  for (_, child) in &plan.children {
-    if let Some(found) = describing_node(runtime, child, loaded, false) {
-      return Some(found);
+  if let Some(source) = &plan.data_source {
+    if runtime.metas.contains_key(&source.0) && loaded.data.contains_key(&plan.id.0) {
+      out.push(plan);
     }
   }
-  let source = plan.data_source.as_ref()?;
-  (runtime.metas.contains_key(&source.0) && loaded.data.contains_key(&plan.id.0)).then_some(plan)
+  for (_, child) in &plan.children {
+    describing_nodes(runtime, child, loaded, false, out);
+  }
 }
 
 /// Every node of `plan` whose loaded data seeds the store, outermost first,
@@ -449,19 +453,22 @@ impl Session {
     out
   }
 
-  /// The metadata of the innermost described segment of `plan`, or none. A
-  /// failing `describe` degrades to the defaults rather than the page.
+  /// Every described segment of `plan` folded outermost first, so a layout
+  /// states what the whole site says and a route overrides only what differs.
+  /// A failing `describe` degrades to the defaults rather than the page.
   async fn describe(&self, plan: &PlanNode, loaded: &Loaded) -> Meta {
-    let Some(node) = describing_node(&self.runtime, plan, loaded, true) else { return Meta::default() };
-    let source = node.data_source.as_ref().expect("a describing node has a source");
-    let describer = &self.runtime.metas[&source.0];
-    match describer.describe(&self.ctx, &loaded.data[&node.id.0]).await {
-      Ok(meta) => meta,
-      Err(e) => {
-        tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment metadata failed");
-        Meta::default()
+    let mut nodes = Vec::new();
+    describing_nodes(&self.runtime, plan, loaded, true, &mut nodes);
+    let mut meta = Meta::default();
+    for node in nodes {
+      let source = node.data_source.as_ref().expect("a describing node has a source");
+      let describer = &self.runtime.metas[&source.0];
+      match describer.describe(&self.ctx, &loaded.data[&node.id.0]).await {
+        Ok(described) => meta.merge(described),
+        Err(e) => tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment metadata failed"),
       }
     }
+    meta
   }
 
   fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, store: &Data) -> Option<String> {
@@ -712,6 +719,10 @@ pub async fn assemble(
     children,
     keep: SegmentInfo::keep_of(plan),
   };
-  let meta = Meta { title: meta.title.or_else(|| (!head.title.is_empty()).then(|| head.title.clone())), description: meta.description.or_else(|| head.description.clone()) };
-  Ok(Assembly { tree, pending, segments, meta, store, locale: ctx.locale.clone(), entry: head.entry.clone() })
+  let meta = Meta {
+    title: meta.title.or_else(|| (!head.title.is_empty()).then(|| head.title.clone())),
+    description: meta.description.or_else(|| head.description.clone()),
+    head: meta.head,
+  };
+  Ok(Assembly { tree, pending, segments, meta, store, locale: ctx.locale.clone(), entry: head.entry.clone(), catalog: head.catalog.clone() })
 }

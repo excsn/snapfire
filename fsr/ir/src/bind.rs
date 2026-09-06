@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
-use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, LoadError, Meta, Metadata, NodeChunks, RequestCtx, Seeds};
+use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, HeadEl, LoadError, Meta, Metadata, NodeChunks, RequestCtx, Seeds};
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
@@ -113,6 +113,11 @@ impl IrMeta {
   pub fn new(source_id: impl Into<String>, body: Body) -> Self {
     Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
   }
+
+  pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
+    self.interpreter = interpreter;
+    self
+  }
 }
 
 impl Metadata for IrMeta {
@@ -132,9 +137,55 @@ impl Metadata for IrMeta {
         None | Some(Value::Null) => Ok(None),
         Some(other) => Err(LoadError { source_id: id.clone(), message: format!("meta.{key} must be a string, got {}", kind_name(other)) }),
       };
-      Ok(Meta { title: text("title")?, description: text("description")? })
+      let head = match map.get("head") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Seq(items)) => items.iter().map(|item| head_element(&id, item)).collect::<Result<Vec<_>, _>>()?,
+        Some(other) => return Err(LoadError { source_id: id, message: format!("meta.head must be a list, got {}", kind_name(other)) }),
+      };
+      Ok(Meta { title: text("title")?, description: text("description")?, head })
     })
   }
+}
+
+/// One entry of `meta.head`: an object whose `tag` names the element, whose
+/// `children` is its text when it takes any, and whose every other key is an
+/// attribute. A key whose value is null is left out, the way an absent
+/// optional argument is.
+fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
+  let fail = |message: String| LoadError { source_id: source_id.to_owned(), message };
+  let Value::Map(fields) = item else {
+    return Err(fail(format!("a meta.head entry must be an object, got {}", kind_name(item))));
+  };
+  let Some(Value::Str(tag)) = fields.get("tag") else {
+    return Err(fail("a meta.head entry needs a `tag`".to_owned()));
+  };
+  if !tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') || tag.is_empty() {
+    return Err(fail(format!("`{tag}` is not an element name")));
+  }
+  let mut attrs = Vec::new();
+  let mut children = None;
+  for (key, value) in fields.iter() {
+    if key == "tag" {
+      continue;
+    }
+    let text = match value {
+      Value::Null => continue,
+      Value::Str(s) => s.clone(),
+      Value::F64(n) => n.to_string(),
+      Value::Int(n) => n.to_string(),
+      Value::Bool(b) => b.to_string(),
+      other => return Err(fail(format!("meta.head `{key}` must be a string, got {}", kind_name(other)))),
+    };
+    if key == "children" {
+      children = Some(text);
+      continue;
+    }
+    if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == ':') || key.is_empty() {
+      return Err(fail(format!("`{key}` is not an attribute name")));
+    }
+    attrs.push((key.clone(), text));
+  }
+  Ok(HeadEl { tag: tag.clone(), attrs, children })
 }
 
 /// A lowered `store` seeding the browser's store from its loader's data,
@@ -149,6 +200,11 @@ pub struct IrStore {
 impl IrStore {
   pub fn new(source_id: impl Into<String>, body: Body) -> Self {
     Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  }
+
+  pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
+    self.interpreter = interpreter;
+    self
   }
 }
 

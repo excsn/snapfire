@@ -31,6 +31,10 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
 * [Serving Locales](#serving-locales)
 * [Prerendering](#prerendering)
+* [Hoisting Render-Path Calls](#hoisting-render-path-calls)
+* [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
+* [Calling the Standard Library](#calling-the-standard-library)
+* [Writing an Extension](#writing-an-extension)
 * [Reading the Report](#reading-the-report)
 * [Reading the Plan File](#reading-the-plan-file)
 * [Naming the Shell](#naming-the-shell)
@@ -85,10 +89,10 @@ fsr build app
 ```
 
 ```
-routes    /                      routes/index
+routes    /                      routes
           /cart                  routes/cart
           /product/{id}          routes/product/[id]
-sources   index                  lowered     routes/index/page.loader.ts
+sources   $root                  lowered     routes/page.loader.ts
           cart                   lowered     routes/cart/page.loader.ts
           product                lowered     routes/product/[id]/page.loader.ts
 actions   cart.addToCart         lowered     routes/cart/actions.ts
@@ -108,7 +112,8 @@ wrote app/generated/fsr.ts
 A directory is a route when it holds `page.tsx`. Directories without one are only path segments.
 
 ```
-routes/index/page.tsx            /
+routes/page.tsx                  /                source id $root
+routes/index/page.tsx            /index
 routes/product/[id]/page.tsx     /product/{id}
 routes/docs/[...rest]/page.tsx   /docs/{*rest}
 routes/admin/users/page.tsx      /admin/users     source id admin.users
@@ -524,7 +529,7 @@ at = "/billing"
 shell = "../portal/app/generated/shell.json"
 ```
 
-Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as written, `services.ledger` keeps its name, `actions.invoice.pay` keeps its nesting. What changes is the plan file and the browser bundle, where a module is `billing:routes/index/page.tsx#default` and an action `billing:invoice.pay`, together with the paths, which are literal: a site's links are written with the prefix, `/billing/invoice/1`, and its middleware compares against it. A body test mocks `ledger`, not `billing:ledger`; the runner strips the prefix.
+Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as written, `services.ledger` keeps its name, `actions.invoice.pay` keeps its nesting. What changes is the plan file and the browser bundle, where a module is `billing:routes/page.tsx#default` and an action `billing:invoice.pay`, together with the paths, which are literal: a site's links are written with the prefix, `/billing/invoice/1`, and its middleware compares against it. A body test mocks `ledger`, not `billing:ledger`; the runner strips the prefix.
 
 `fsr dev` serves a site's bundle under `<at>/static/js/app`, so bundle a site by hand with that public path:
 
@@ -615,7 +620,7 @@ fsr prerender app
 fsr prerender app --out build/static
 ```
 
-A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `identity`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route, and so does a page or layout on it reading its `identity` or `csrf_token` prop.
+A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route, and so does a page or layout on it reading its `csrf_token` prop. Reading `identity`, in a loader or as a page's prop, or calling a client whose `bearer` is set, keeps the route qualified for anonymous visitors: the report says `for anonymous visitors`, the file serves everyone with no identity and a signed-in visitor is rendered live. An editor previewing unpublished content is that: signed in, with the loader's call carrying their token.
 
 ## Hoisting Render-Path Calls
 
@@ -663,9 +668,88 @@ islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 
 `fsr test` steps such an island through the same function the host uses, so a spec that loads the page and clicks sees the patched markup.
 
+## Calling the Standard Library
+
+`@snapfire/fsr-client/std` is one import that works in a component, a loader, an action, a handler and middleware, and answers the same on the server and in the browser under the document's locale:
+
+```tsx
+import { intl, text, time } from "@snapfire/fsr-client/std";
+
+export function Stars({ rating, reviews }: { rating: number; reviews: bigint | number }) {
+  return <span className="stars-reviews">({intl.number(Number(reviews))})</span>;
+}
+```
+
+```ts
+import { crypto, id, intl, time } from "@snapfire/fsr-client/std";
+
+export async function load({ params, services }: Ctx<"/order/{id}">) {
+  const order = await services.shopping.getOrder({ id: BigInt(params.id) });
+  return { order, placed: intl.date(order.placed_at, "long"), receipt: crypto.hash(`${order.id}:${order.total_cents}`), token: id.new(), at: time.now() };
+}
+```
+
+`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` may sit anywhere. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random` and `id.new` are the server's: a loader, an action, middleware or an event handler may call them, and a component's render path may not, which is a build error naming the line rather than a client row, since the browser would run that component too:
+
+```
+routes/page.tsx:3:14: `id.new` on a render path; it runs on the server only, and a component's render path runs in the browser too
+```
+
+`t(key, args?)` is the message under `key` for the document's locale, read from `locales/<tag>.toml` beside the app, with `{name}` placeholders filled from `args` and `key.one` or `key.other` chosen by `args.count`:
+
+```tsx
+import { t } from "@snapfire/fsr-client/std";
+
+export default function Help({ watching }: { watching: number }) {
+  return <h1 title={t("agents.watching", { count: watching })}>{t("help.title")}</h1>;
+}
+```
+
+The build lowers each call to the plan and Rust answers it from ICU4X, or from the catalog for `t`; the bundle's copy calls `Intl`, or reads the table the document carried. A call whose inputs are props only is hoisted like a helper call, so the browser reads the server's value and calls nothing.
+
+## Writing an Extension
+
+`ext/` beside `routes/` holds the application's own extensions, reached as `@ext/<name>` from anywhere under the app. A module there is written in the same subset as any helper, and every export must lower: a helper the server cannot run is not an extension, so a `new Date()` in one stops the build naming the line instead of dropping a page to the browser.
+
+```ts
+// ext/labels.ts
+import { intl } from "@snapfire/fsr-client/std";
+
+export function count(n: number, noun: string): string {
+  return `${intl.number(n)} ${noun}${intl.plural(n) === "one" ? "" : "s"}`;
+}
+```
+
+A native pair is a function with a Rust half. Its browser half is declared in an `ext/` module with `native`, and the host registers the Rust half under the same name:
+
+```ts
+// ext/fleet.ts
+import { native } from "@snapfire/fsr-client/std";
+
+export const queueLabel = native("fleet.queueLabel", (depth: number) => (depth === 0 ? "idle" : depth === 1 ? "1 queued" : `${depth} queued`));
+export const token = native<() => string>("fleet.token");
+```
+
+```rust
+let host = Host::from(env!("CARGO_MANIFEST_DIR"))?
+  .extension("fleet.queueLabel", Reach::Render, |_, args| Ok(Value::Str(queue_label(number(args)?))))
+  .extension("fleet.token", Reach::Body, |_, _| Ok(Value::Str(mint())))
+  .build()?;
+```
+
+With a function the pair is `render` and that function is what the browser runs; without one it is `body`, callable from a body or a handler and refused on a render path. The name must be a string literal. A plan that calls a name nothing registers refuses to build, so a missing half is found at boot. The report lists every export:
+
+```
+extensions ext/labels.ts#count      lowered
+          ext/fleet.ts#queueLabel  native render
+          ext/fleet.ts#token       native body
+```
+
+`fsr test` cannot run the application's Rust, so it answers a pair from its browser half, which the declaration registered; a `body` pair needs a stand-in a spec installs with the same call, `native("fleet.token", () => "t")`, before loading the page. A spec therefore never checks that the two halves agree; that is the Rust suite's test.
+
 ## Reading the Report
 
-Eight sections, each row naming what was found and where it came from. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
+Ten sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
 ## Reading the Plan File
 

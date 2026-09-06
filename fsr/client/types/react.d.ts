@@ -5,13 +5,16 @@ import { type StoreKey } from "./store.js";
 export interface IslandProps {
 	/** When the island hydrates: immediately, when scrolled into view or when the main thread is idle. Defaults to the registry's timing, else "load". */
 	when?: MountTiming;
+	/** `server`: the island's events round-trip to the server, which re-renders it; no React root is mounted. */
+	mode?: "server";
 	children?: ReactNode;
 }
 /** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here. */
-export declare function Island({ when }: IslandProps): ReactElement;
-/** `component` as a component that places it as an island with `options.when` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
+export declare function Island({ when, mode }: IslandProps): ReactElement;
+/** `component` as a component that places it as an island with `options.when` and `options.mode` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
 export declare function island<P extends object>(component: ComponentType<P>, options?: {
 	when?: MountTiming;
+	mode?: "server";
 }): (props: P) => ReactElement;
 export interface SlotProps {
 	/** The slot's name: a `slots/<name>` directory beside the layout, or the slot a `page.<name>.tsx` under it renders into. */

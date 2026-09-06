@@ -7,7 +7,9 @@ pub mod hoist;
 pub mod schema;
 pub mod testing;
 
+use component::FunctionBody;
 use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
+use snapfire_fsr_ir::{standard_reach, Reach};
 use swc_core::common::{sync::Lrc, FileName, SourceMap, Span, Spanned};
 use swc_core::ecma::ast as js;
 use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
@@ -30,6 +32,14 @@ pub enum LowerError {
   MissingExport { file: String, export: String },
   #[error(transparent)]
   Residue(#[from] Residue),
+  /// A `body` extension on a component's render path. Never a client
+  /// downgrade: the browser would run the component too.
+  #[error("{0}; it runs on the server only, and a component's render path runs in the browser too")]
+  Reach(Residue),
+  /// An export under `ext/` that does not lower, or a `native` declaration
+  /// the build cannot read.
+  #[error("{0}; every export under ext/ is an extension and must lower")]
+  Extension(Residue),
 }
 
 pub use schema::{read_schema, read_session_defaults, SchemaType};
@@ -37,11 +47,44 @@ pub use schema::{read_schema, read_session_defaults, SchemaType};
 /// The import aliases every fsr application has, each a prefix and the app
 /// directory it stands for. The build writes them into both tsconfigs, snapfirec
 /// rewrites them for the browser and the lowerers resolve them here.
-pub const ALIASES: &[(&str, &str)] = &[("@app/", ""), ("@routes/", "routes/"), ("@src/", "src/"), ("@schemas/", "schemas/"), ("@generated/", "generated/")];
+pub const ALIASES: &[(&str, &str)] = &[("@app/", ""), ("@routes/", "routes/"), ("@src/", "src/"), ("@schemas/", "schemas/"), ("@generated/", "generated/"), ("@ext/", "ext/")];
+
+/// The client library's standard library module, whose members lower to
+/// `Expr::Ext` and whose `native` declares an application's own pair.
+pub const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
+
+/// The directory under the app whose modules are extensions: every export
+/// lowers or the build fails, and a `native` declaration lives there.
+pub const EXT_DIR: &str = "ext";
+
+/// What a body lowerer resolves through the component set: module-level
+/// names it could not bind and the native pairs declared so far.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Resolved {
+  pub globals: Vec<(String, Expr)>,
+  pub natives: Vec<(String, Reach)>,
+}
+
+/// A body that did not lower, with the name the set may bind and retry.
+pub(crate) type Unresolved = (LowerError, Option<String>);
+
+/// The exact specifiers the build's tsconfig maps to a generated module, so
+/// the lowerer resolves `@snapfire/fsr` to the same file the editor does.
+pub const GENERATED: &[(&str, &str)] = &[("@snapfire/fsr/head", "generated/head")];
+
+/// The one module under `generated/` a body may call into. Everything else
+/// there is types, or the `action` and `fail` the lowerer answers by name
+/// rather than by reading; this file holds nothing but lowerable helpers.
+pub const HEAD_MODULE: &str = "generated/head.ts";
 
 /// A specifier as a path relative to the app: an alias expanded or a relative
 /// specifier joined to `from`'s directory. `None` for a bare specifier.
 pub fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
+  for (exact, path) in GENERATED {
+    if specifier == *exact {
+      return Some((*path).to_owned());
+    }
+  }
   for (alias, dir) in ALIASES {
     if let Some(rest) = specifier.strip_prefix(alias) {
       return Some(normalize_path(std::path::Path::new(&format!("{dir}{rest}"))));
@@ -102,19 +145,24 @@ pub fn lower_loader(file: &str, source: &str) -> Result<Body, LowerError> {
 
 pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError> {
   let parsed = parse(file, source)?;
+  lower_loader_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+}
+
+pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
+  let file = &parsed.file;
   let function = parsed
     .exports()
     .find_map(|(name, decl)| (name == "load").then_some(decl))
-    .ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() })?;
+    .ok_or_else(|| (LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None))?;
   let (first, body) = match function {
     Exported::Function(first, body) => (first, body),
-    Exported::Action { .. } => return Err(LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }),
-    Exported::Expr(_, e) => return Err(parsed.residue(e.span(), "`load` must be a function with a block body").into()),
-    Exported::Other(span) => return Err(parsed.residue(span, "`load` must be a function").into()),
+    Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None)),
+    Exported::Expr(_, e) => return Err((parsed.residue(e.span(), "`load` must be a function with a block body").into(), None)),
+    Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`load` must be a function").into(), None)),
   };
-  let mut lowerer = Lowerer::new(&parsed, defaults);
-  lowerer.bind_ctx(first)?;
-  Ok(lowerer.block(body)?)
+  let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+  let result = lowerer.bind_ctx(first).and_then(|()| lowerer.block(body));
+  result.map_err(|r| (r.into(), lowerer.unbound.take()))
 }
 
 /// Lowers the exported `meta` of a loader module when there is one: a
@@ -134,21 +182,19 @@ pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) ->
 /// An export whose input is the loader's data, bound as `data`.
 fn lower_of_data(file: &str, source: &str, defaults: &SessionDefaults, export: &str) -> Result<Option<Body>, LowerError> {
   let parsed = parse(file, source)?;
+  lower_of_data_in(&parsed, defaults, &Resolved::default(), export).map_err(|(e, _)| e)
+}
+
+pub(crate) fn lower_of_data_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved, export: &str) -> Result<Option<Body>, Unresolved> {
   let Some(exported) = parsed.exports().find_map(|(name, decl)| (name == export).then_some(decl)) else { return Ok(None) };
-  let mut lowerer = Lowerer::new(&parsed, defaults);
+  let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
   lowerer.meta = true;
-  let body = match exported {
-    Exported::Function(first, body) => {
-      lowerer.bind_ctx(first)?;
-      lowerer.block(body)?
-    }
-    Exported::Expr(first, expr) => {
-      lowerer.bind_ctx(first)?;
-      vec![Stmt::Return(lowerer.expr(expr)?)]
-    }
-    Exported::Action { .. } | Exported::Other(_) => return Err(parsed.residue(parsed.module.span, format!("`{export}` must be a function of `{{ data }}`")).into()),
+  let result = match exported {
+    Exported::Function(first, body) => lowerer.bind_ctx(first).and_then(|()| lowerer.block(body)),
+    Exported::Expr(first, expr) => lowerer.bind_ctx(first).and_then(|()| lowerer.expr(expr)).map(|e| vec![Stmt::Return(e)]),
+    Exported::Action { .. } | Exported::BadAction(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of `{{ data }}`")).into(), None)),
   };
-  Ok(Some(body))
+  result.map(Some).map_err(|r| (r.into(), lowerer.unbound.take()))
 }
 
 /// Lowers every `export const name = action(...)` of an actions module.
@@ -158,14 +204,20 @@ pub fn lower_actions(file: &str, source: &str) -> Result<Vec<LoweredAction>, Low
 
 pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredAction>, LowerError> {
   let parsed = parse(file, source)?;
+  lower_actions_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+}
+
+pub(crate) fn lower_actions_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Vec<LoweredAction>, Unresolved> {
   let mut out = Vec::new();
   for (name, exported) in parsed.exports() {
-    let Exported::Action { input, first, body } = exported else {
-      continue;
+    let (input, first, body) = match exported {
+      Exported::Action { input, first, body } => (input, first, body),
+      Exported::BadAction(span) => return Err((parsed.residue(span, format!("`{name}` is an `action(...)` of something other than a function")).into(), None)),
+      _ => continue,
     };
-    let mut lowerer = Lowerer::new(&parsed, defaults);
-    lowerer.bind_ctx(first)?;
-    out.push(LoweredAction { export: name.to_owned(), input, body: lowerer.block(body)? });
+    let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+    let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
+    out.push(LoweredAction { export: name.to_owned(), input, body });
   }
   Ok(out)
 }
@@ -180,20 +232,25 @@ pub fn lower_handlers(file: &str, source: &str) -> Result<Vec<LoweredHandler>, L
 
 pub fn lower_handlers_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredHandler>, LowerError> {
   let parsed = parse(file, source)?;
+  lower_handlers_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+}
+
+pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Vec<LoweredHandler>, Unresolved> {
   let mut out = Vec::new();
   for (name, exported) in parsed.exports() {
     if !HANDLER_METHODS.contains(&name) {
       continue;
     }
     let (input, first, body) = match exported {
-      Exported::Function(first, body) => (None, first, body),
+      Exported::Function(first, body) => (None, first, FunctionBody::Block(body)),
       Exported::Action { input, first, body } => (input, first, body),
-      Exported::Expr(_, e) => return Err(parsed.residue(e.span(), format!("`{name}` must be a function with a block body")).into()),
-      Exported::Other(span) => return Err(parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into()),
+      Exported::Expr(_, e) => return Err((parsed.residue(e.span(), format!("`{name}` must be a function with a block body")).into(), None)),
+      Exported::BadAction(span) => return Err((parsed.residue(span, format!("`{name}` is an `action(...)` of something other than a function")).into(), None)),
+      Exported::Other(span) => return Err((parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into(), None)),
     };
-    let mut lowerer = Lowerer::new(&parsed, defaults);
-    lowerer.bind_ctx(first)?;
-    out.push(LoweredHandler { method: name.to_owned(), input, body: lowerer.block(body)? });
+    let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+    let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
+    out.push(LoweredHandler { method: name.to_owned(), input, body });
   }
   Ok(out)
 }
@@ -208,33 +265,41 @@ pub fn lower_middleware(file: &str, source: &str) -> Result<Body, LowerError> {
 
 pub fn lower_middleware_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError> {
   let parsed = parse(file, source)?;
+  lower_middleware_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+}
+
+pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
+  let file = &parsed.file;
   let function = parsed
     .exports()
     .find_map(|(name, decl)| (name == "middleware").then_some(decl))
-    .ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() })?;
+    .ok_or_else(|| (LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }, None))?;
   let (first, body) = match function {
     Exported::Function(first, body) => (first, body),
-    Exported::Action { .. } => return Err(LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }),
-    Exported::Expr(_, e) => return Err(parsed.residue(e.span(), "`middleware` must be a function with a block body").into()),
-    Exported::Other(span) => return Err(parsed.residue(span, "`middleware` must be a function").into()),
+    Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }, None)),
+    Exported::Expr(_, e) => return Err((parsed.residue(e.span(), "`middleware` must be a function with a block body").into(), None)),
+    Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`middleware` must be a function").into(), None)),
   };
-  let mut lowerer = Lowerer::new(&parsed, defaults);
+  let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
   lowerer.middleware = true;
-  lowerer.bind_ctx(first)?;
-  Ok(lowerer.block(body)?)
+  let result = lowerer.bind_ctx(first).and_then(|()| lowerer.block(body));
+  result.map_err(|r| (r.into(), lowerer.unbound.take()))
 }
 
 pub(crate) struct Parsed {
-  file: String,
+  pub(crate) file: String,
   cm: Lrc<SourceMap>,
   pub(crate) module: js::Module,
 }
 
-enum Exported<'a> {
+pub(crate) enum Exported<'a> {
   Function(Option<&'a js::Pat>, &'a [js::Stmt]),
   /// An arrow whose body is one expression.
   Expr(Option<&'a js::Pat>, &'a js::Expr),
-  Action { input: Option<String>, first: Option<&'a js::Pat>, body: &'a [js::Stmt] },
+  /// `action(<function>)`, the function an arrow with either body or a function expression.
+  Action { input: Option<String>, first: Option<&'a js::Pat>, body: FunctionBody<'a> },
+  /// `action(<something that is not a function>)`, which no lowering accepts.
+  BadAction(Span),
   Other(Span),
 }
 
@@ -268,7 +333,14 @@ impl Parsed {
     Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into() }
   }
 
-  fn exports(&self) -> impl Iterator<Item = (&str, Exported<'_>)> {
+  /// The one-based line and column of a byte offset in the file's text.
+  pub(crate) fn position(&self, offset: usize) -> (usize, usize) {
+    let start = self.cm.files().first().map(|f| f.start_pos).unwrap_or_default();
+    let loc = self.cm.lookup_char_pos(start + swc_core::common::BytePos(offset as u32));
+    (loc.line, loc.col_display + 1)
+  }
+
+  pub(crate) fn exports(&self) -> impl Iterator<Item = (&str, Exported<'_>)> {
     self.module.body.iter().filter_map(|item| {
       let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else {
         return None;
@@ -302,19 +374,41 @@ fn classify(init: &js::Expr) -> Exported<'_> {
       if !is_action {
         return Exported::Other(call.span);
       }
-      let Some(last) = call.args.last() else { return Exported::Other(call.span) };
-      match &*last.expr {
-        js::Expr::Arrow(arrow) => match &*arrow.body {
-          js::ArrowFunctionBody::FunctionBody(b) => {
-            let input = call.type_args.as_ref().and_then(|t| t.params.first()).and_then(|t| type_ref_name(t)).or_else(|| arrow.params.first().and_then(action_ctx_input));
-            Exported::Action { input, first: arrow.params.first(), body: &b.stmts }
-          }
-          js::ArrowFunctionBody::Expr(_) => Exported::Other(arrow.span),
-        },
-        other => Exported::Other(other.span()),
+      match call.args.last().map(|a| &*a.expr) {
+        Some(js::Expr::Arrow(arrow)) => {
+          let first = arrow.params.first();
+          let body = match &*arrow.body {
+            js::ArrowFunctionBody::FunctionBody(b) => FunctionBody::Block(&b.stmts),
+            js::ArrowFunctionBody::Expr(e) => FunctionBody::Expr(e),
+          };
+          Exported::Action { input: action_input(call, first), first, body }
+        }
+        Some(js::Expr::Fn(f)) => {
+          let first = f.function.params.first().map(|p| &p.pat);
+          let body = f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[]);
+          Exported::Action { input: action_input(call, first), first, body: FunctionBody::Block(body) }
+        }
+        Some(other) => Exported::BadAction(other.span()),
+        None => Exported::BadAction(call.span),
       }
     }
     other => Exported::Other(other.span()),
+  }
+}
+
+/// The input type of an `action(...)`: the call's type argument, else what
+/// the function's first parameter names through `ActionCtx<T>`.
+fn action_input(call: &js::CallExpr, first: Option<&js::Pat>) -> Option<String> {
+  call.type_args.as_ref().and_then(|t| t.params.first()).and_then(|t| type_ref_name(t)).or_else(|| first.and_then(action_ctx_input))
+}
+
+/// Binds the context parameter and lowers a function body: a block as it
+/// stands, an expression as the value returned.
+fn lower_function(lowerer: &mut Lowerer<'_>, first: Option<&js::Pat>, body: FunctionBody<'_>) -> Lowered<Body> {
+  lowerer.bind_ctx(first)?;
+  match body {
+    FunctionBody::Block(stmts) => lowerer.block(stmts),
+    FunctionBody::Expr(expr) => lowerer.expr(expr).map(|e| vec![Stmt::Return(e)]),
   }
 }
 
@@ -373,13 +467,59 @@ pub(crate) struct Lowerer<'a> {
   /// Set by a component lowerer: every helper call and formatting builtin is
   /// wrapped as a hoist candidate and its source span kept for the rewrite.
   pub(crate) hoisting: Option<hoist::Candidates>,
+  /// The native pairs declared so far, `module.member` and reach.
+  pub(crate) natives: Vec<(String, Reach)>,
+  /// Lowering an event handler, which runs once wherever it runs, so a
+  /// `body` extension is allowed there.
+  pub(crate) in_handler: bool,
+  /// The last residue was a `body` extension on a render path, which the
+  /// set reports as `LowerError::Reach` rather than a client downgrade.
+  pub(crate) reach_violation: bool,
 }
 
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, hoisting: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, hoisting: None, natives: Vec::new(), in_handler: false, reach_violation: false }
+  }
+
+  pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
+    self.globals = resolved.globals.clone();
+    self.natives = resolved.natives.clone();
+    self
+  }
+
+  /// True while lowering a component's render path: the browser runs it too.
+  fn on_render_path(&self) -> bool {
+    self.hoisting.is_some() && !self.in_handler
+  }
+
+  /// Refuses a `body` extension on a render path.
+  fn check_reach(&mut self, span: Span, key: &str, reach: Reach) -> Lowered<()> {
+    if reach == Reach::Body && self.on_render_path() {
+      self.reach_violation = true;
+      return Err(self.residue(span, format!("`{key}` on a render path")));
+    }
+    Ok(())
+  }
+
+  /// The first `body` extension a lowered expression calls, by name.
+  fn body_extension_in(&self, expr: &Expr) -> Option<String> {
+    let mut found = None;
+    expr.visit(&mut |e| {
+      if found.is_some() {
+        return;
+      }
+      if let Expr::Ext { module, name, .. } = e {
+        let key = format!("{module}.{name}");
+        let reach = standard_reach(module, name).or_else(|| self.natives.iter().find(|(n, _)| *n == key).map(|(_, r)| *r));
+        if reach == Some(Reach::Body) {
+          found = Some(key);
+        }
+      }
+    });
+    found
   }
 
   /// `expr` as a hoist candidate when a component is being lowered, else itself.
@@ -903,14 +1043,45 @@ impl<'a> Lowerer<'a> {
       if !self.scope.iter().any(|(n, _)| n == name) && self.root_of(id).is_none() {
         if let Some((_, f)) = self.globals.iter().rev().find(|(n, _)| n == name) {
           let f = Box::new(f.clone());
+          if let Expr::Ext { module, name: member, args: declared } = &*f {
+            if declared.is_empty() {
+              let key = format!("{module}.{member}");
+              let reach = self.natives.iter().find(|(n, _)| *n == key).map(|(_, r)| *r).unwrap_or(Reach::Render);
+              self.check_reach(call.span, &key, reach)?;
+              let mut args = Vec::with_capacity(call.args.len());
+              for a in &call.args {
+                args.push(self.expr(&a.expr)?);
+              }
+              let expr = Expr::Ext { module: module.clone(), name: member.clone(), args };
+              return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
+            }
+          }
           if !matches!(*f, Expr::Lambda { .. }) {
             return Err(self.residue(id.span, format!("`{name}` is not a function")));
+          }
+          if self.on_render_path() {
+            if let Some(key) = self.body_extension_in(&f) {
+              self.reach_violation = true;
+              return Err(self.residue(call.span, format!("`{name}` calls `{key}` on a render path")));
+            }
           }
           let mut args = Vec::with_capacity(call.args.len());
           for a in &call.args {
             args.push(self.expr(&a.expr)?);
           }
           return Ok(self.candidate(call.span, Expr::Apply { f, args }));
+        }
+        if let Some((source, imported)) = crate::component::find_import(self.parsed, name) {
+          if source == STD_SPECIFIER {
+            if imported != "t" {
+              return Err(self.residue(id.span, format!("`{imported}` from the standard library is a module; call one of its members")));
+            }
+            let mut args = Vec::with_capacity(call.args.len());
+            for a in &call.args {
+              args.push(self.expr(&a.expr)?);
+            }
+            return Ok(self.candidate(call.span, Expr::Ext { module: "i18n".to_owned(), name: "t".to_owned(), args }));
+          }
         }
         let one = |this: &mut Self| -> Lowered<Box<Expr>> {
           let a = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
@@ -939,6 +1110,19 @@ impl<'a> Lowerer<'a> {
     if let js::Expr::Ident(obj) = &*member.obj {
       let global = obj.sym.as_ref();
       if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
+        if let Some((source, imported)) = crate::component::find_import(self.parsed, global) {
+          if source == STD_SPECIFIER {
+            let key = format!("{imported}.{method}");
+            let reach = standard_reach(&imported, &method).ok_or_else(|| self.residue(member.span, format!("`{key}` is not a member of the standard library")))?;
+            self.check_reach(call.span, &key, reach)?;
+            let mut args = Vec::with_capacity(call.args.len());
+            for a in &call.args {
+              args.push(self.expr(&a.expr)?);
+            }
+            let expr = Expr::Ext { module: imported, name: method, args };
+            return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
+          }
+        }
         match global {
           "Object" => {
             let a = call.args.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
@@ -1031,6 +1215,7 @@ impl<'a> Lowerer<'a> {
       "map" => Ok(Expr::Map(target, lambda(self, 0)?)),
       "filter" => Ok(Expr::Filter(target, lambda(self, 0)?)),
       "find" => Ok(Expr::Find(target, lambda(self, 0)?)),
+      "findIndex" => Ok(Expr::FindIndex(target, lambda(self, 0)?)),
       "some" => Ok(Expr::Some(target, lambda(self, 0)?)),
       "every" => Ok(Expr::Every(target, lambda(self, 0)?)),
       "reduce" => {

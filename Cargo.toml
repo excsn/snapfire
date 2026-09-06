@@ -23,6 +23,7 @@ members = [
 exclude = [
   # Their own workspace, so they build the way a consumer's crate would.
   "fsr/examples",
+  "www",
 ]
 
 [workspace.package]

@@ -20,6 +20,9 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Head](#head)
   * [decodeNode](#decodenode)
   * [parsePayload](#parsepayload)
+  * [Row](#row)
+  * [parseRow](#parserow)
+  * [linesOf](#linesof)
   * [Row Grammar](#row-grammar)
 * [4. Rendering](#4-rendering)
   * [nodeToHtml](#nodetohtml)
@@ -61,6 +64,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [currentLocale](#currentlocale)
   * [subscribeLocale](#subscribelocale)
   * [setLocale](#setlocale)
+  * [catalog, setCatalog and adoptCatalog](#catalog-setcatalog-and-adoptcatalog)
   * [adoptLocale](#adoptlocale)
 * [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
@@ -70,7 +74,16 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [useStore](#usestore)
   * [useLocale](#uselocale)
   * [Link](#link)
-* [11. Error Handling](#11-error-handling)
+* [11. The Standard Library](#11-the-standard-library)
+  * [localeTag](#localetag)
+  * [intl](#intl)
+  * [text](#text)
+  * [time](#time)
+  * [crypto](#crypto)
+  * [id](#id)
+  * [t](#t)
+  * [native](#native)
+* [12. Error Handling](#12-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
@@ -208,6 +221,7 @@ A parsed response.
 * `seeds: { [key: string]: SfValue }[]`, the `T` rows in arrival order, each already decoded.
 * `locale: string | null`, the `L` row, the locale the response was rendered in as the application spells it; `null` when the server sent none.
 * `entry: string | null`, the `E` row, a module to load before the response's islands can mount, a mounted site's entry; `null` when the document's own entry covers them.
+* `catalog: { [key: string]: string } | null`, the `D` row; `null` when the server sent none.
 * `resolutions: { slot: number; node: SfNode }[]`, the `S` rows in arrival order.
 
 ### Head
@@ -224,11 +238,29 @@ Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m,
 
 * `parsePayload(text: string): Payload`
 
-Reads a whole response body, one row per line, skipping empty lines. Throws when a line's tag is not `V`, `N`, `G`, `H`, `T`, `L`, `E` or `S`. Throws when no `N` row was present.
+Reads a whole response body, one row per line, skipping empty lines, through `parseRow`. Throws when no `N` row was present.
+
+### Row
+
+* `type Row = { tag: "V"; format: number; encoding: string } | { tag: "N"; tree: SfNode } | { tag: "G"; segments: Segment } | { tag: "H"; head: Head } | { tag: "T"; seed: { [key: string]: SfValue } } | { tag: "L"; locale: string } | { tag: "E"; entry: string } | { tag: "D"; catalog: { [key: string]: string } } | { tag: "S"; slot: number; node: SfNode }`
+
+One row of a payload, discriminated by its tag.
+
+### parseRow
+
+* `parseRow(line: string): Row`
+
+Reads one row: its tag, a space, then its body, decoded as the tag says. Throws when the tag is not `V`, `N`, `G`, `H`, `T`, `L`, `E`, `D` or `S`.
+
+### linesOf
+
+* `linesOf(res: Response): AsyncGenerator<string>`
+
+The rows of a response body as they arrive: the byte stream read through `res.body.getReader()`, decoded as UTF-8 and cut at newlines, empty lines skipped, an unterminated last line yielded when the stream ends. A response without a body stream yields the rows of `res.text()` at once, which is what the `fsr test` runner's `fetch` returns.
 
 ### Row Grammar
 
-Each row is a tag character, a space, then its body, terminated by a newline.
+Each row is a tag character, a space, then its body, terminated by a newline. The eager wave is `V`, `N`, then whichever of `H`, `T`, `L`, `E` and `D` the render produced, then `G`, which closes it; every row after `G` is a resolution or what one carried.
 
 | Row | Body | Meaning |
 | --- | --- | --- |
@@ -239,6 +271,7 @@ Each row is a tag character, a space, then its body, terminated by a newline.
 | `T` | an encoded value map | The store keys the route seeded |
 | `L` | a JSON string | The locale the response was rendered in |
 | `E` | a JSON string | A module to import before the response's islands can mount, a mounted site's entry |
+| `D` | a JSON object of strings | The locale's message catalog, dotted keys to messages, sent unless the request's `x-sf-catalog` named that locale |
 | `S` | slot id, a space, then a node row | One resolved slot |
 
 `S` rows arrive in completion order, not slot order; a resolution may introduce further slots that arrive later in the same stream.
@@ -388,7 +421,7 @@ A click is ignored when `defaultPrevented` is set, when `button` is not 0, when 
 
 * `prefetch(href: string, options?: NavigateOptions): Promise<void>`
 
-Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh payload for the origin, the options and `<pathname><search>` or a fetch for it is in flight, resolves at once; otherwise fetches the payload form with the headers the options call for and holds the text with the time it arrived. A non-ok response holds nothing.
+Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh feed for the origin, the options and `<pathname><search>`, still arriving or finished less than `cacheMs` ago, that feed is used; otherwise the payload form is fetched with the headers the options call for and held as a feed from its first row, its time being when the last row arrived. Resolves once the feed is whole. A non-ok response holds nothing.
 
 ### clearRouterCache
 
@@ -400,7 +433,7 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 * `navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>`
 
-Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its entry is younger than `cacheMs`, joins a fetch already in flight for it or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given and `x-sf-into` set to `into`. A fetched text is held. A non-ok response hands over to `window.location.assign(href)`. Otherwise the payload is parsed and applied, history is pushed when `push` is true (its default), the current path is moved to the target, then the window scrolls to the top unless the payload was an intercept, which opens in place.
+Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago, or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given and `x-sf-into` set to `into`. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default), the current path is moved to the target, then the window scrolls to the top unless the payload was an intercept, which opens in place; each `S` row after it fills its slot and rescans, each `H` row retitles and each `T` row seeds, and the promise resolves once the last row has been applied. A feed that ends before `G`, or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document, and the rows still arriving for this one stop applying.
 
 Applying walks the old and new segment spines together. The first key mismatch replaces that region from the new payload. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten. A child the old side had and the new side lacks is emptied, delimiters included, and its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
 
@@ -408,7 +441,7 @@ Applying walks the old and new segment spines together. The first key mismatch r
 
 * `refresh(): Promise<void>`
 
-Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was, and applies it as `navigate` does, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps.
+Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was, and applies it as `navigate` does, row by row as it streams, with one difference: a kept leaf region that is not an island is replaced anyway. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps.
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
 
@@ -530,6 +563,13 @@ The locale the document is in; an empty string before any document said.
 
 Calls `listener` whenever the locale changes. The returned function stops it.
 
+### catalog, setCatalog and adoptCatalog
+
+* `type Catalog = { readonly [key: string]: string }`: a locale's message table, dotted keys to messages, merged over the default locale's on the server.
+* `catalog(tag: string): Catalog | null`: the table held for `tag`, `null` when none arrived.
+* `setCatalog(tag: string, table: Catalog): void`: holds `table` for `tag`. A navigation applies a payload's `D` row this way and sends `x-sf-catalog: <tag>` for the locale it holds so the server omits the row.
+* `adoptCatalog(): void`: reads `<script type="application/json" data-sf-i18n="<tag>">` from the document, which `boot` does after `adoptLocale`; a script that does not parse is left out.
+
 ### setLocale
 
 * `setLocale(tag: string): void`
@@ -586,8 +626,8 @@ The element is wrapped in a regions provider: the root itself and every `sf-s[da
 
 ### Island
 
-* `function Island({ when, children }: IslandProps): ReactElement`
-* `interface IslandProps { when?: MountTiming; children?: ReactNode }`
+* `function Island({ when, mode, children }: IslandProps): ReactElement`
+* `interface IslandProps { when?: MountTiming; mode?: "server"; children?: ReactNode }`; `mode` rides as `data-sf-mode`, and `island(component, { when, mode })` takes the same.
 
 Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-when` when `when` is given, and its own props script; the child is never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the next region under the root already holds and `suppressHydrationWarning`, taken once per instance from the mounter's regions, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Mounted fresh with no server markup it renders an empty region.
 
@@ -633,7 +673,54 @@ Calls `render` on the root the mounter returned with `createElement(component, p
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 
-## 11. Error Handling
+## 11. The Standard Library
+
+`@snapfire/fsr-client/std`: the browser half of the standard library the server's interpreter carries under the same names. Every `render` member agrees with the server byte for byte under the same locale, which is `currentLocale()`; a member marked server only has no such promise and the build refuses it on a component's render path. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
+
+### localeTag
+
+* `localeTag(): string`: `currentLocale()` as BCP 47, `fr-FR` for `fr_FR`; `en` before any document says.
+
+### intl
+
+* `intl.number(n: number | bigint, options?: NumberOptions): string`; `interface NumberOptions { minimumFractionDigits?: number; maximumFractionDigits?: number }`. `Intl.NumberFormat(localeTag(), options)`.
+* `intl.currency(n: number | bigint, code: string): string`: `style: "currency"` with `currencyDisplay: "code"`, `USD 1,234.50`.
+* `intl.date(when: number | string, style?: DateStyle): string`; `type DateStyle = "short" | "medium" | "long" | "full"`, `medium` by default; `dateStyle` with `timeZone: "UTC"`. A string goes through `time.parse` and throws when it is not the ISO subset.
+* `intl.plural(n: number | bigint): string`: `Intl.PluralRules(localeTag()).select`.
+
+### text
+
+* `text.slug(s: string): string`: NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end.
+* `text.truncate(s: string, max: number, ellipsis?: string): string`: the first `max` code points and `ellipsis`, `…` by default, when `s` is longer.
+
+### time
+
+Instants are milliseconds since the epoch and every calendar field is UTC.
+
+* `time.format(when: number, pattern: string): string`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced, every other character kept.
+* `time.add(when: number, amount: number, unit: string): number` and `time.diff(later: number, earlier: number, unit: string): number` with `unit` one of `ms`, `s`, `m`, `h`, `d`; another unit throws.
+* `time.parse(s: string): number | null`: `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`; `null` for anything else.
+* `time.now(): number`: `Date.now()`. Server only on a render path.
+
+### crypto
+
+* `crypto.hash(s: string): string`: SHA-256 of the UTF-8 bytes as lowercase hex, computed synchronously.
+* `crypto.verify(s: string, hash: string): boolean`: constant time over the hash's length, case insensitive.
+* `crypto.random(bytes: number): string`: at most 1024 bytes from `getRandomValues`, as hex. Server only on a render path.
+
+### id
+
+* `id.new(): string`: `crypto.randomUUID()`. Server only on a render path, where the server's is a UUID version 7.
+
+### t
+
+* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`; with `args.count` a number or bigint, `key.<intl.plural(count)>` then `key.other` then `key`; `{name}` replaced by `String(args[name])` for a scalar argument and left as written otherwise; the key itself when the table lacks every form or no table is held. Lowered by the build to `i18n.t`, the server's, and hoisted when its inputs are props only.
+
+### native
+
+* `native<F extends (...args: never[]) => unknown>(name: string, f?: F): F`: declares the browser half of a native pair under `name`, `module.member`, whose Rust half the host registers under the same name. With `f`, the pair has `render` reach and `f` is returned and registered on `globalThis.__sf_natives` for the runner; without, it has `body` reach and the returned function throws `<name> runs on the server only`. `name` must be a string literal, since the build reads the declaration.
+
+## 12. Error Handling
 
 ### ActionFailure
 

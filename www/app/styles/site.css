@@ -1,0 +1,270 @@
+/* Layout & Docs */
+.docs-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.docs-sidebar {
+  position: sticky;
+  top: 72px;
+  background: var(--card-bg, #111418);
+  border: 1px solid var(--border, #22272e);
+  border-radius: 12px;
+  padding: 20px 16px;
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border, #22272e);
+}
+
+.sidebar-title {
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8b949e;
+}
+
+.sidebar-badge {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  background: #1f6feb22;
+  color: #58a6ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #c9d1d9;
+  text-decoration: none;
+}
+
+.nav-item:hover {
+  background: #161b22;
+  color: #fff;
+}
+
+.nav-item-active {
+  background: #1f6feb22;
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.nav-num {
+  font-family: var(--mono, monospace);
+  color: #8b949e;
+  font-size: 12px;
+}
+
+.chapter-header {
+  margin-bottom: 32px;
+}
+
+.chapter-meta {
+  font-size: 13px;
+  color: #8b949e;
+  font-family: var(--mono, monospace);
+}
+
+.chapter-title {
+  font-size: 32px;
+  margin: 8px 0 12px;
+}
+
+.chapter-summary {
+  font-size: 18px;
+  color: #8b949e;
+  line-height: 1.5;
+}
+
+.code-card {
+  margin: 24px 0;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0d1117;
+}
+
+.code-card-header {
+  padding: 6px 12px;
+  background: #161b22;
+  font-size: 12px;
+  font-family: var(--mono, monospace);
+  color: #8b949e;
+  border-bottom: 1px solid #30363d;
+}
+
+.code-card pre {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.chapter-pagination {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid #22272e;
+}
+
+.pagination-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.pagination-dir {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.pagination-title {
+  font-weight: 600;
+  color: #58a6ff;
+}
+
+/* Lowering Inspector */
+.inspector-card {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 24px;
+}
+
+.inspector-toolbar {
+  background: #161b22;
+  padding: 8px 12px;
+  border-bottom: 1px solid #30363d;
+}
+
+.sample-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #8b949e;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: #c9d1d9;
+}
+
+.tab.active {
+  background: #21262d;
+  color: #f0f6fc;
+  border-color: #30363d;
+}
+
+.tab-danger.active {
+  background: #f8514922;
+  color: #f85149;
+  border-color: #f85149;
+}
+
+.inspector-grid {
+  display: grid;
+  /* A grid item's min-width is auto, so a `pre` of long lines widens its own
+     track past its share; minmax(0, …) is what holds the two panes equal. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 320px;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pane:first-child {
+  border-right: 1px solid #30363d;
+}
+
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: #161b2288;
+  border-bottom: 1px solid #30363d;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.badge-lang {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  background: #21262d;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.badge-error {
+  background: #f8514933;
+  color: #f85149;
+}
+
+.code-editor {
+  margin: 0;
+  padding: 16px;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  color: #f0f6fc;
+  flex: 1;
+  overflow: auto;
+}
+
+.error-output code {
+  color: #f85149;
+}
+
+.inspector-footer {
+  padding: 12px 16px;
+  background: #161b22;
+  border-top: 1px solid #30363d;
+}
+
+.explanation {
+  margin: 0;
+  font-size: 13px;
+  color: #8b949e;
+}
+
+@media (max-width: 840px) {
+  .docs-layout,
+  .inspector-grid {
+    grid-template-columns: 1fr;
+  }
+  .docs-sidebar {
+    position: static;
+  }
+}

@@ -87,3 +87,10 @@ pub fn canonical(path: &str) -> String {
 fn escape(text: &str) -> String {
   text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
+
+/// The locale's message catalog, embedded for the client's `t`: a JSON
+/// script the boot adopts, `</` escaped so no message can close it.
+pub fn catalog_script(tag: &str, json: &str) -> String {
+  format!("<script type=\"application/json\" data-sf-i18n=\"{}\">{}</script>", escape(tag), json.replace("</", "<\\/"))
+}
+

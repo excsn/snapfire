@@ -10,8 +10,9 @@
       "@routes/*": ["./routes/*"],
       "@src/*": ["./src/*"],
       "@schemas/*": ["./schemas/*"],
-      "@generated/*": ["./generated/*"]
+      "@generated/*": ["./generated/*"],
+      "@ext/*": ["./ext/*"]
     }
   },
-  "include": ["src/**/*", "routes/**/*.tsx", "generated/islands.ts", "generated/client.ts"]
+  "include": ["src/**/*", "ext/**/*", "routes/**/*.tsx", "generated/islands.ts", "generated/client.ts"]
 }

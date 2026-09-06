@@ -21,7 +21,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 ## Core Concepts
 
 * **Loader module** exports `load`, an async function or arrow taking the context.
-* **Actions module** exports constants built with `action(body)` or `action<Input>(body)`, each taking the context.
+* **Actions module** exports constants built with `action(body)` or `action<Input>(body)`, each taking the context; the body is an arrow with a block or an expression body, or a function expression, and anything else is refused.
 * **Context** is the body's first parameter, either `ctx` or a destructuring of `params`, `query`, `session`, `services`, `identity`, `input` and `now`.
 * **Read** is a context field the IR knows: `params.x`, `query.x`, `session.x`, `identity.x`, `input`, `now`.
 * **Call** is `await services.<service>.<method>({ ...args })`, the only call shape besides builtins.
@@ -37,7 +37,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 ```rust
 use snapfire_fsr_lower::{lower_actions, lower_loader};
 
-let body = lower_loader("routes/index/page.loader.ts", r#"
+let body = lower_loader("routes/page.loader.ts", r#"
   export async function load({ params, services }) {
     return { products: await services.shopping.listProducts({ tag: params.tag }) };
   }

@@ -9,7 +9,10 @@ license = { workspace = true }
 
 [dependencies]
 snapfire_fsr = { path = "../../app" }
+snapfire_fsr_core = { path = "../../core" }
 snapfire_fsr_host = { path = "../../host", features = ["actix"] }
+snapfire_fsr_ir = { path = "../../ir" }
+snapfire_fsr_runtime = { path = "../../runtime" }
 actix-web = "4"
 fibre_logging = "0.5"
 futures-util = "0.3"
@@ -24,8 +27,6 @@ snapfire_fsr_cli = { path = "../../cli" }
 bytes = "1"
 http = "1"
 http-body-util = "0.1"
-snapfire_fsr_core = { path = "../../core" }
-snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_service = { path = "../../service" }
 snapfire_fsr_session = { path = "../../session" }
 futures = "0.3"

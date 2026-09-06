@@ -93,7 +93,7 @@ fn a_route_renders_its_page_on_the_server_with_no_javascript_engine() {
   let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
 
   assert!(html.starts_with("<!--sf-g:shell#document--><!doctype html>"), "{}", &html[..80]);
-  assert!(html.contains("data-sf-module=\"routes/index/page.tsx#default\""), "the component is named for the browser");
+  assert!(html.contains("data-sf-module=\"routes/page.tsx#default\""), "the component is named for the browser");
   assert!(html.contains("<h2 class=\"card-title\"><a href=\"/product/1\">Filament</a></h2>"), "the page's own markup is rendered from the lowered tree: {html}");
   assert!(html.contains("<span class=\"price\">$24.00</span>"), "a module helper ran in Rust: {html}");
   assert!(html.contains("<span class=\"stars-rating\">4.5</span>"), "a component the page imports rendered too");
@@ -196,9 +196,9 @@ fn a_pattern_claimed_twice_is_refused_unless_it_is_an_override() {
 #[test]
 fn the_plan_file_names_what_a_host_must_bind() {
   let manifest = snapfire_fsr_plan::Manifest::from_json(&shopping_react_ts::routes::plan()).unwrap();
-  assert_eq!(manifest.sources(), vec!["layout", "index", "layout.promo", "cart", "order.$id", "product.$id", "widths"], "the root layout's loader and its promo slot's are sources like any other");
+  assert_eq!(manifest.sources(), vec!["layout", "$root", "layout.promo", "cart", "order.$id", "product.$id", "widths"], "the root layout's loader and its promo slot's are sources like any other");
   assert_eq!(manifest.action_ids(), vec!["cart.addToCart", "cart.removeFromCart", "cart.checkout"], "actions are declared, so an unanswered one is a boot error");
-  assert!(manifest.modules().contains(&"routes/index/page.tsx#default".to_owned()));
+  assert!(manifest.modules().contains(&"routes/page.tsx#default".to_owned()));
   assert!(manifest.modules().contains(&"routes/error.tsx#default".to_owned()), "error modules count");
   assert!(manifest.modules().contains(&"routes/not-found.tsx#default".to_owned()), "the not-found tree counts");
 }
@@ -503,11 +503,11 @@ fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
   let first = render("/");
   assert_eq!(render("/"), first);
   assert_eq!(transport.calls().iter().filter(|(p, _, _)| p == "shopping.listProducts").count(), 4, "data resolves before render, so a hit still asks the service, for the page and for the promo slot");
-  assert_eq!(block_on(app.invalidate("routes/index/page.tsx#default")), 1, "two renders with one answer share an entry");
+  assert_eq!(block_on(app.invalidate("routes/page.tsx#default")), 1, "two renders with one answer share an entry");
   assert_eq!(block_on(app.invalidate("routes/slots/promo/page.tsx#default")), 1, "a parallel slot is an entry of its own");
   assert_eq!(block_on(app.invalidate("routes/layout.tsx#default")), 1, "the layout's subtree, page and slots included, is its own entry");
   assert_eq!(block_on(app.invalidate("shell#document")), 0, "the shell uses the head and is never written");
-  assert_eq!(block_on(app.invalidate("routes/index/page.tsx#default")), 0);
+  assert_eq!(block_on(app.invalidate("routes/page.tsx#default")), 0);
 
   render("/product/1");
   render("/product/2");
@@ -578,7 +578,7 @@ fn a_soft_navigation_from_a_page_under_the_layout_opens_the_product_in_its_modal
   assert!(sidecar.contains("\"n\":\"modal\""), "{sidecar}");
   assert!(payload.contains("routes/product/[id]/page.modal.tsx#default"), "{payload}");
   assert!(!payload.contains("routes/product/[id]/page.tsx#default"), "the page itself is not rendered: {payload}");
-  assert!(!payload.contains("routes/index/page.tsx#default") && !payload.contains("routes/slots/promo/page.tsx#default"), "nothing kept is rendered: {payload}");
+  assert!(!payload.contains("routes/page.tsx#default") && !payload.contains("routes/slots/promo/page.tsx#default"), "nothing kept is rendered: {payload}");
   assert!(payload.contains("H {\"title\":\"Filament · Shopping\""), "the variant's loader describes the document: {payload}");
 
   let full = block_on(host.render_navigation_to_string("/product/1", None, None, SessionCell::default())).unwrap();

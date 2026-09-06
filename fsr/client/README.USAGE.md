@@ -23,6 +23,8 @@ How to build the package, register and hydrate islands, keep up with a streamed 
   * [Skipping Revalidation](#skipping-revalidation)
 * [Sharing State Across Islands](#sharing-state-across-islands)
 * [Reading the Locale](#reading-the-locale)
+* [Formatting With the Standard Library](#formatting-with-the-standard-library)
+* [Declaring a Native Pair](#declaring-a-native-pair)
   * [Seeding the Store From a Loader](#seeding-the-store-from-a-loader)
   * [Reading a Key in a Component](#reading-a-key-in-a-component)
   * [Writing From Anywhere](#writing-from-anywhere)
@@ -361,6 +363,13 @@ await refresh();
 
 Both request the payload form of the URL by appending `__payload` to the query string, `navigate` through the router cache; both fall back to a full load when the response is not usable.
 
+Both apply the payload as it streams. The eager wave, every row up to the `G` sidecar, lands as one patch: the changed segments are swapped in, a deferred one showing the fallback its `loading.tsx` renders, history moves and the window scrolls. Each `S` row then fills its slot as it arrives, with the head and store rows that follow it. The promise resolves once the payload has been applied whole. A click on a route whose loader is slow therefore shows the fallback then the fill, the way a document load does, and a click that joins a hover's fetch still in flight streams from wherever it is. A later navigation stops the rows of an earlier one from applying.
+
+```ts
+const done = navigate("/servers/eu"); // the fallback is in the document once the sidecar arrives
+await done; // every slot filled
+```
+
 A navigation retitles the document: every `H` row of the applied payload goes through `applyHead`, which sets `document.title` and the description meta, so a streamed page that arrives after its slot retitles the document when its `S` row does. Call it yourself when you set the head from somewhere else:
 
 ```ts
@@ -545,6 +554,59 @@ const stop = subscribeLocale((tag) => document.title = `${document.title} (${tag
 console.log(currentLocale());
 ```
 
+## Formatting With the Standard Library
+
+`@snapfire/fsr-client/std` is the browser half of the standard library the server's interpreter carries: the same names, the same answers under the document's locale, which every member reads from `currentLocale()` so the value React hydrates against is the one Rust rendered.
+
+```tsx
+import { intl, text, time } from "@snapfire/fsr-client/std";
+
+export function Receipt({ cents, placed, title }: { cents: number; placed: string; title: string }) {
+  return (
+    <p id={text.slug(title)}>
+      {intl.currency(cents / 100, "USD")} on {intl.date(placed, "long")}, {intl.plural(3)} of {time.format(time.parse(placed) ?? 0, "YYYY-MM-DD")}
+    </p>
+  );
+}
+```
+
+`intl.number` takes `{ minimumFractionDigits, maximumFractionDigits }`; `intl.date` takes `short`, `medium`, `long` or `full` and formats in UTC; `intl.currency` spells the ISO code, `USD 1,234.50`, since the server has no symbol table. `time` holds instants as milliseconds since the epoch, `time.parse` reads one ISO 8601 subset and `time.now()` is `Date.now()`. `crypto.hash` is a synchronous SHA-256, `crypto.verify` compares against one and `crypto.random(n)` draws bytes as hex; `id.new()` is `crypto.randomUUID()`. Under `fsr test` the engine has no `Intl`, so `intl` asks the runner, which answers with the Rust half.
+
+`t(key, args?)` reads the message under `key` from the table the document embedded for its locale, `catalog(currentLocale())`, which the server built from `locales/<tag>.toml` merged over the default locale's; `args.count` picks `key.one` or `key.other` through `intl.plural` and `{name}` placeholders are filled from `args`. A navigation into another locale receives that locale's table in the payload, so `t` follows `currentLocale()` without a reload.
+
+```tsx
+import { t } from "@snapfire/fsr-client/std";
+
+export function Watching({ count }: { count: number }) {
+  return <span>{t("agents.watching", { count })}</span>;
+}
+```
+
+The build lowers every call to the plan, so the server computes the same member; `time.now`, `crypto.random` and `id.new` are refused on a component's render path and belong in a handler or a body.
+
+## Declaring a Native Pair
+
+`native` declares the browser half of a function whose Rust half the host registers under the same name, `module.member`; the declaration lives in an `ext/` module so the build reads it.
+
+```ts
+import { native } from "@snapfire/fsr-client/std";
+
+export const queueLabel = native("fleet.queueLabel", (depth: number): string => (depth === 0 ? "idle" : `${depth} queued`));
+export const token = native<() => string>("fleet.token");
+```
+
+With a function the pair has `render` reach and the function is what the browser runs; without one it has `body` reach and calling it in the browser throws, since only the server holds it. The name must be a string literal. Under `fsr test`, `native` also registers the function for the runner, which answers the server's calls to the pair with it; a `body` pair gets its stand-in the same way, from the spec:
+
+```ts
+import { native } from "@snapfire/fsr-client/std";
+import { load, test } from "@snapfire/fsr-client/testing";
+
+test("the agents page loads with a token", async () => {
+  native("fleet.token", () => "spec-token");
+  await load("/agents");
+});
+```
+
 ## Decoding Values From the Server
 
 Island props arrive decoded. Call `decodeValue` yourself only for JSON you fetched by hand:
@@ -623,7 +685,7 @@ JavaScript has one number type, so the mapping in this direction is not symmetri
 
 ## Reading a Payload Response by Hand
 
-`parsePayload` reads a complete response body: the `V` version row, the `N` tree row, an optional `G` segment row, `H` head rows and one `S` row per resolved slot:
+`parsePayload` reads a complete response body: the `V` version row, the `N` tree row, the `H`, `T`, `L`, `E` and `D` rows of the eager wave, the `G` segment row that closes it and one `S` row per resolved slot:
 
 ```ts
 import { parsePayload } from "@snapfire/fsr-client";
@@ -637,7 +699,19 @@ for (const { slot, node } of payload.resolutions) {
 }
 ```
 
-`decodeNode` reads one row on its own, which is what a reader consuming the stream incrementally needs:
+`linesOf` yields a response's rows as its body streams and `parseRow` reads one, which is how the navigator consumes a payload. The `G` row is the last of the eager wave, so a reader that acts on it has the whole tree and every fallback in hand:
+
+```ts
+import { linesOf, parseRow } from "@snapfire/fsr-client";
+
+for await (const line of linesOf(await fetch("/servers/eu?__payload"))) {
+  const row = parseRow(line);
+  if (row.tag === "G") console.log("eager wave complete, root segment", row.segments.k);
+  if (row.tag === "S") console.log("slot", row.slot, "resolved to", row.node.kind);
+}
+```
+
+`decodeNode` reads one node row on its own:
 
 ```ts
 import { decodeNode } from "@snapfire/fsr-client";

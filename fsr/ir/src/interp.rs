@@ -5,6 +5,8 @@ use futures_util::future::{join_all, BoxFuture};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, RequestCtx, SessionCell};
 
+use crate::catalog::Catalogs;
+use crate::ext::{Ambient, Extensions};
 use crate::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
 use crate::bind::kind_name;
 
@@ -48,33 +50,51 @@ impl Clock for SystemClock {
 #[derive(Clone)]
 pub struct Interpreter {
   clock: Arc<dyn Clock>,
+  extensions: Arc<Extensions>,
+  catalogs: Option<Arc<Catalogs>>,
 }
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock) }
+    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock }
+    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None }
   }
 
-  pub(crate) fn clock(&self) -> Arc<dyn Clock> {
-    self.clock.clone()
+  /// The message catalogs `i18n.t` reads; none by default, where every key answers as itself.
+  pub fn with_catalogs(mut self, catalogs: Option<Arc<Catalogs>>) -> Self {
+    self.catalogs = catalogs;
+    self
+  }
+
+  pub fn catalogs(&self) -> Option<&Arc<Catalogs>> {
+    self.catalogs.as_ref()
+  }
+
+  /// The same interpreter answering `extensions` in place of the standard library alone.
+  pub fn with_extensions(mut self, extensions: Arc<Extensions>) -> Self {
+    self.extensions = extensions;
+    self
+  }
+
+  pub fn extensions(&self) -> &Arc<Extensions> {
+    &self.extensions
   }
 
   /// Evaluates one expression over `scope` with no request: what a test's
   /// assertion or a rendered component reads.
   pub async fn evaluate(&self, expr: &Expr, scope: Vec<(String, Value)>) -> Result<Value, Fail> {
-    let mut env = Env::detached(self.clock.clone(), scope);
+    let mut env = Env::detached(self, scope);
     env.eval(expr).await
   }
 
   /// Applies a lambda to `args` with no request: what a mocked service method is.
   pub async fn apply(&self, lambda: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
-    let mut env = Env::detached(self.clock.clone(), Vec::new());
+    let mut env = Env::detached(self, Vec::new());
     env.apply(lambda, args).await
   }
 
@@ -101,6 +121,8 @@ impl Interpreter {
       written: Vec::new(),
       scope: Vec::new(),
       clock: self.clock.clone(),
+      extensions: self.extensions.clone(),
+      catalogs: self.catalogs.clone(),
     };
 
     for stmt in body {
@@ -151,6 +173,8 @@ pub(crate) struct Env {
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
   clock: Arc<dyn Clock>,
+  extensions: Arc<Extensions>,
+  catalogs: Option<Arc<Catalogs>>,
   /// Where a render records hoisted values; `None` in a body, which hoists nothing.
   pub(crate) hoists: Option<Hoists>,
   /// Values that stand in for a component's state `let`s, when an island in
@@ -212,7 +236,7 @@ impl Hoists {
 impl Env {
   /// An environment for a render: no request, no session, no input; only
   /// the scope a component's props make.
-  pub(crate) fn detached(clock: Arc<dyn Clock>, scope: Vec<(String, Value)>) -> Self {
+  pub(crate) fn detached(interpreter: &Interpreter, scope: Vec<(String, Value)>) -> Self {
     Self {
       ctx: RequestCtx::anonymous(Default::default()),
       input: Value::Null,
@@ -221,7 +245,9 @@ impl Env {
       written: Vec::new(),
       scope,
       store: ValueMap::new(),
-      clock,
+      clock: interpreter.clock.clone(),
+      extensions: interpreter.extensions.clone(),
+      catalogs: interpreter.catalogs.clone(),
       hoists: None,
       state: None,
       server_mode: false,
@@ -314,10 +340,16 @@ impl Env {
       scope: self.scope.clone(),
       store: self.store.clone(),
       clock: self.clock.clone(),
+      extensions: self.extensions.clone(),
+      catalogs: self.catalogs.clone(),
       hoists: None,
       state: None,
       server_mode: false,
     }
+  }
+
+  fn ambient(&self) -> Ambient {
+    Ambient { locale: self.ctx.locale.tag.clone(), now: self.clock.now(), catalogs: self.catalogs.clone() }
   }
 
   async fn stmt(&mut self, stmt: &Stmt) -> Result<Flow, Fail> {
@@ -509,6 +541,13 @@ impl Env {
         }
         builtin(*name, values)
       }
+      Expr::Ext { module, name, args } => {
+        let mut values = Vec::with_capacity(args.len());
+        for arg in args {
+          values.push(self.eval_sync(arg)?);
+        }
+        self.extensions.call(&format!("{module}.{name}"), &self.ambient(), &values)
+      }
       Expr::Map(over, f) => {
         let items = self.seq_sync(over, "map")?;
         let mut out = Vec::with_capacity(items.len());
@@ -543,6 +582,15 @@ impl Env {
           }
         }
         Ok(Value::Null)
+      }
+      Expr::FindIndex(over, f) => {
+        let items = self.seq_sync(over, "findIndex")?;
+        for (i, item) in items.into_iter().enumerate() {
+          if truthy(&self.apply_sync(f, vec![item, Value::F64(i as f64)])?) {
+            return Ok(Value::F64(i as f64));
+          }
+        }
+        Ok(Value::F64(-1.0))
       }
       Expr::Some(over, f) => {
         let items = self.seq_sync(over, "some")?;
@@ -773,6 +821,13 @@ impl Env {
           }
           builtin(*name, values)
         }
+        Expr::Ext { module, name, args } => {
+          let mut values = Vec::with_capacity(args.len());
+          for arg in args {
+            values.push(self.eval(arg).await?);
+          }
+          self.extensions.call(&format!("{module}.{name}"), &self.ambient(), &values)
+        }
         Expr::Map(over, f) => {
           let items = self.seq(over, "map").await?;
           let mut out = Vec::with_capacity(items.len());
@@ -807,6 +862,15 @@ impl Env {
             }
           }
           Ok(Value::Null)
+        }
+        Expr::FindIndex(over, f) => {
+          let items = self.seq(over, "findIndex").await?;
+          for (i, item) in items.into_iter().enumerate() {
+            if truthy(&self.apply(f, vec![item, Value::F64(i as f64)]).await?) {
+              return Ok(Value::F64(i as f64));
+            }
+          }
+          Ok(Value::F64(-1.0))
         }
         Expr::Some(over, f) => {
           let items = self.seq(over, "some").await?;

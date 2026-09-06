@@ -24,6 +24,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving a Site](#serving-a-site)
 * [Mounting Sites](#mounting-sites)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
+* [Registering a Native Pair](#registering-a-native-pair)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
@@ -307,6 +308,12 @@ for (pattern, file) in written {
 assert!(host.prerendered("/about", RenderMode::Html).is_some());
 ```
 
+A route whose only request reads are the identity, a loader reading `identity.subject`, a page reading its `identity` prop or a loader calling a client whose `bearer` is set, is prerendered too, for the anonymous public: the report lists it as `prerender  /posts  … for anonymous visitors`, the file serves a visitor with no identity and anyone signed in is rendered live, keyed apart in the memo by their subject. That is also how a CMS preview works: there is no draft flag and no secret, the editor signs in and the loader's call carries their token, so the CMS answers with what that editor may see while the public keeps the file.
+
+```rust
+assert_eq!(host.prerenderable_anonymous(), vec!["/posts".to_owned()]);
+```
+
 `fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
 
 ## Serving Locales
@@ -335,6 +342,24 @@ let value = host.call_action_in("cart.checkout", session, host.locales().locale(
 ```
 
 Without the section there is one locale, `en`, no source is consulted and nothing is a prefix.
+
+Messages live beside the app in `locales/<tag>.toml`, one file per locale as the application spells it, nested tables flattened to dotted keys:
+
+```toml
+# locales/fr_FR.toml
+[help]
+title = "Comment ça marche"
+
+[agents]
+watching.one = "{count} agent suivi"
+watching.other = "{count} agents suivis"
+```
+
+The host reads them at boot and on reload, holds each locale's table merged over the default's and hands them to `t` in every body and component; the document embeds the request locale's table for the browser's `t` and a payload carries it as a `D` row until the navigator says it holds it. The report says what was read:
+
+```
+catalogs  en_US 5 keys, fr_FR 5 keys
+```
 
 ## Signing In on the Host
 
@@ -440,6 +465,34 @@ host.invalidate_tags(["catalog"]);
 ```
 
 Without `[cache.data]` no method is cached whatever the contract says. `fsr test` renders with it off, since a spec's mocks are the calls it counts.
+
+## Registering a Native Pair
+
+A function the application declares under `ext/` with `native("module.member", f?)` has its Rust half on the builder, under the same name. The declaration's reach is the rule: `Render` when it gave a browser function, `Body` when it did not.
+
+```rust
+use snapfire_fsr_core::Value;
+use snapfire_fsr_host::Host;
+use snapfire_fsr_ir::{Ambient, Fail, Reach};
+
+fn queue_label(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let depth = snapfire_fsr_ir::ext::number("fleet.queueLabel", args, 0)?;
+  Ok(Value::Str(if depth == 0.0 { "idle".to_owned() } else { format!("{depth} queued") }))
+}
+
+let host = Host::from(env!("CARGO_MANIFEST_DIR"))?
+  .extension("fleet.queueLabel", Reach::Render, queue_label)
+  .extension("fleet.token", Reach::Body, |ambient, _| Ok(Value::Str(format!("t-{}", ambient.now))))
+  .build()?;
+```
+
+`Ambient` carries the request's locale in the application's spelling, `bcp47()` for ICU, and the clock. A plan that calls a name nothing registers refuses to build, `BindError::UnknownExtension`, naming the body or component that calls it, so a forgotten half is a boot failure. The report lists the pairs:
+
+```
+natives   fleet.queueLabel       rust
+```
+
+The same pair has to be registered wherever the host is built, a test's `Host::from_config(..)` included; the console example keeps one `ext::register(builder)` for that.
 
 ## Taking a Name Back
 

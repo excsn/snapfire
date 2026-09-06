@@ -24,6 +24,12 @@ A page calls helpers: `money(cents)`, `categoryLabel(key)`, `percentOff(price, l
 
 Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A namespace import works as a tag: `<Ui.Card>` reaches `Card` in the file `import * as Ui` names. A rest in a destructuring is the object without the named keys, so `{ className, ...rest }` spread onto an element or a component passes everything else through. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
 
+One bare specifier is not: `@snapfire/fsr-client/std`, the standard library. `intl.number(n)` groups a number for the document's locale, `intl.currency(n, "USD")`, `intl.date(when, "long")` and `intl.plural(n)` do what their names say, `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC and `crypto.hash` is SHA-256. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. The same import works in a loader, and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
+
+`t("help.title")` is the same idea for text: the message under that key in the locale's catalog, `locales/fr_FR.toml` beside the app, with `t("agents.watching", { count })` picking the plural form and filling `{count}`. The server reads the file, the browser reads the same table the document carried, so the console's help page is three `t` calls instead of two copies of the page.
+
+Three members are the server's alone: `time.now`, `crypto.random` and `id.new` cannot run twice and agree, so a component's render path may not call them and the build says so, naming the line. A loader, an action, middleware and an event handler may. `ext/` is where the application's own extensions live, reached as `@ext/labels`: every export there must lower, and a `native("fleet.queueLabel", f)` declaration there pairs a browser function with a Rust one the host registers under that name, which is how the console's agent rows print `3 queued` from Rust and from React alike.
+
 ## What the browser keeps
 
 Three things in a component are the browser's and the build drops them rather than refusing them:

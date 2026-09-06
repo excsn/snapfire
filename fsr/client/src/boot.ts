@@ -1,4 +1,4 @@
-import { adoptLocale } from "./locale.js";
+import { adoptCatalog, adoptLocale } from "./locale.js";
 import { isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt } from "./store.js";
 import { decodeValue, SfValue } from "./values.js";
@@ -167,6 +167,7 @@ export function boot(): void {
   const run = () => scan(document);
   adopt();
   adoptLocale();
+  adoptCatalog();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", run, { once: true });
   } else {
