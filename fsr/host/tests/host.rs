@@ -1808,3 +1808,36 @@ mod tls {
     rustls_pki_types::CertificateDer::from_pem_slice(&fixture(&format!("{pair}-cert.pem"))).unwrap().to_vec()
   }
 }
+
+#[tokio::test]
+async fn live_streams_the_topics_a_listener_asked_for_and_nothing_else() {
+  let (host, _) = host();
+  let response = host.handle(Request::get("/_sf/live?topics=board,weather").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "text/event-stream");
+  assert_eq!(response.headers().get(header::CACHE_CONTROL).unwrap(), "no-cache");
+
+  let mut body = response.into_body();
+  let opened = body.frame().await.unwrap().unwrap().into_data().unwrap();
+  assert_eq!(&opened[..], b": open\n\n", "a comment frame opens the stream before anything is published");
+
+  host.publish("gates");
+  host.publish("board");
+  let event = body.frame().await.unwrap().unwrap().into_data().unwrap();
+  assert_eq!(String::from_utf8_lossy(&event), "data: {\"topic\":\"board\"}\n\n", "the topic nobody asked for was skipped");
+
+  host.publish("weather");
+  let event = body.frame().await.unwrap().unwrap().into_data().unwrap();
+  assert_eq!(String::from_utf8_lossy(&event), "data: {\"topic\":\"weather\"}\n\n");
+}
+
+#[tokio::test]
+async fn live_needs_topics_and_publishing_to_nobody_costs_nothing() {
+  let (host, _) = host();
+  host.publish("board");
+
+  let response = host.handle(Request::get("/_sf/live").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert!(String::from_utf8_lossy(&body).contains("topics=a,b"), "the error says how to ask");
+}

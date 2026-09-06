@@ -325,6 +325,9 @@ pub struct Host {
   live: parking_lot::RwLock<Arc<Tables>>,
   sessions: Sessions,
   changed: Option<tokio::sync::broadcast::Sender<()>>,
+  /// Topics the application publishes, read by every open `/_sf/live`
+  /// stream. Always present: pushing is the application's, not the dev loop's.
+  topics: tokio::sync::broadcast::Sender<String>,
   reloader: Option<Reloader>,
   csrf_always: bool,
   report_listen: String,
@@ -1044,6 +1047,45 @@ impl Host {
     }
   }
 
+  /// Tells every `/_sf/live` stream watching `topic` that it changed. What a
+  /// listener does with it is the client's: the stock one revalidates the
+  /// route it is showing, so a loader runs again and the page follows.
+  /// Nothing is sent to a stream that did not ask for the topic, and a
+  /// publish with no listeners costs a send into an empty channel.
+  pub fn publish(&self, topic: impl Into<String>) {
+    let _ = self.topics.send(topic.into());
+  }
+
+  /// The stream behind `GET /_sf/live?topics=a,b`: one `data: {"topic":"a"}`
+  /// per publish of a topic in the list, until the client goes away. A
+  /// comment frame opens it so the browser sees the connection established
+  /// before anything is published.
+  fn live_events(&self, topics: Vec<String>) -> Response<Body> {
+    let rx = self.topics.subscribe();
+    let opened = futures_util::stream::once(async {
+      Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from_static(b": open\n\n")))
+    });
+    let events = futures_util::stream::unfold((rx, topics), |(mut rx, topics)| async move {
+      loop {
+        match rx.recv().await {
+          Ok(topic) if topics.iter().any(|t| *t == topic) => {
+            let json = serde_json::json!({ "topic": topic }).to_string();
+            let frame = Ok(http_body::Frame::data(Bytes::from(format!("data: {json}\n\n"))));
+            return Some((frame, (rx, topics)));
+          }
+          Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+          Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+        }
+      }
+    });
+    Response::builder()
+      .status(StatusCode::OK)
+      .header(header::CONTENT_TYPE, "text/event-stream")
+      .header(header::CACHE_CONTROL, "no-cache")
+      .body(StreamBody::new(opened.chain(events)).boxed_unsync())
+      .expect("an event stream")
+  }
+
   /// A server-sent event stream: one event on open and one per `changed`
   /// call, each `data: {"bundle":"<id>"}` with the bundle id of that moment,
   /// until the client goes away.
@@ -1079,6 +1121,23 @@ impl Host {
     if path == "/__fsr/sites" && req.method() == Method::GET {
       let sites: Vec<serde_json::Value> = t.report.sites.iter().map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash })).collect();
       return json_response(StatusCode::OK, &serde_json::json!({ "sites": sites }));
+    }
+    if path == "/_sf/live" && req.method() == Method::GET {
+      let topics: Vec<String> = req
+        .uri()
+        .query()
+        .map(|query| {
+          form_urlencoded::parse(query.as_bytes())
+            .filter(|(key, _)| key == "topics")
+            .flat_map(|(_, value)| value.split(',').map(|t| t.trim().to_owned()).collect::<Vec<_>>())
+            .filter(|t| !t.is_empty())
+            .collect()
+        })
+        .unwrap_or_default();
+      if topics.is_empty() {
+        return text_response(StatusCode::BAD_REQUEST, "no topics: /_sf/live?topics=a,b".to_owned());
+      }
+      return self.live_events(topics);
     }
     if self.changed.is_some() {
       if path == "/__fsr/events" && req.method() == Method::GET {
@@ -2143,6 +2202,7 @@ impl HostBuilder {
       live: parking_lot::RwLock::new(Arc::new(tables)),
       sessions,
       changed,
+      topics: tokio::sync::broadcast::channel(64).0,
       reloader,
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),

@@ -1,26 +1,14 @@
 {
   "openapi": "3.0.3",
-  "info": {
-    "title": "Board",
-    "version": "1.0.0"
-  },
+  "info": { "title": "Board", "version": "1.0.0" },
   "paths": {
-    "/arrivals": {
+    "/board": {
       "get": {
-        "operationId": "listArrivals",
+        "operationId": "getBoard",
         "responses": {
           "200": {
-            "description": "what is landing",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Arrival"
-                  }
-                }
-              }
-            }
+            "description": "the field's clock and what is on it",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Board" } } }
           }
         }
       }
@@ -31,13 +19,7 @@
         "responses": {
           "200": {
             "description": "the field, eventually",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Weather"
-                }
-              }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Weather" } } }
           }
         }
       }
@@ -48,16 +30,7 @@
         "responses": {
           "200": {
             "description": "gate changes, from the slowest system on the field",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/GateChange"
-                  }
-                }
-              }
-            }
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/GateChange" } } } }
           }
         }
       }
@@ -65,78 +38,46 @@
   },
   "components": {
     "schemas": {
-      "Arrival": {
+      "Board": {
         "type": "object",
-        "required": [
-          "flight",
-          "from",
-          "due",
-          "status",
-          "code",
-          "gate"
-        ],
+        "required": ["at", "arrivals", "departures"],
         "properties": {
-          "flight": {
-            "type": "string"
-          },
-          "from": {
-            "type": "string"
-          },
-          "due": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "gate": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          }
+          "at": { "type": "string" },
+          "arrivals": { "type": "array", "items": { "$ref": "#/components/schemas/Flight" } },
+          "departures": { "type": "array", "items": { "$ref": "#/components/schemas/Flight" } }
+        }
+      },
+      "Flight": {
+        "type": "object",
+        "required": ["flight", "city", "scheduled", "expected", "status", "code", "gate"],
+        "properties": {
+          "flight": { "type": "string" },
+          "city": { "type": "string" },
+          "scheduled": { "type": "string" },
+          "expected": { "type": "string" },
+          "status": { "type": "string" },
+          "code": { "type": "string" },
+          "gate": { "type": "string" }
         }
       },
       "Weather": {
         "type": "object",
-        "required": [
-          "field",
-          "wind",
-          "visibility",
-          "celsius"
-        ],
+        "required": ["field", "wind", "visibility", "celsius"],
         "properties": {
-          "field": {
-            "type": "string"
-          },
-          "wind": {
-            "type": "string"
-          },
-          "visibility": {
-            "type": "string"
-          },
-          "celsius": {
-            "type": "number",
-            "format": "double"
-          }
+          "field": { "type": "string" },
+          "wind": { "type": "string" },
+          "visibility": { "type": "string" },
+          "celsius": { "type": "number", "format": "double" }
         }
       },
       "GateChange": {
         "type": "object",
-        "required": [
-          "flight",
-          "was",
-          "now"
-        ],
+        "required": ["flight", "was", "now", "at"],
         "properties": {
-          "flight": {
-            "type": "string"
-          },
-          "was": {
-            "type": "string"
-          },
-          "now": {
-            "type": "string"
-          }
+          "flight": { "type": "string" },
+          "was": { "type": "string" },
+          "now": { "type": "string" },
+          "at": { "type": "string" }
         }
       }
     }

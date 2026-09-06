@@ -29,6 +29,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Mount inside an axum or tower stack | `Host::service`, a `tower::Service` |
 | Serve with actix | the `actix` feature, `actix::serve` or `actix::handle` |
 | Serve TLS without a proxy | the `tls` feature, `[server.tls]`, and SIGHUP after a renewal |
+| Tell an open page that something changed | `Host::publish`, read by `/_sf/live` |
 | Answer one name in Rust | `HostBuilder::source_override`, `action_override`, `source`, `action` |
 | Add a route in Rust | `HostBuilder::route`, `route_override` |
 | Replace the document shell | `HostBuilder::shell` |

@@ -1,54 +1,16 @@
 {
-  "listArrivals": [
-    {
-      "flight": "BA 118",
-      "from": "New York JFK",
-      "due": "07:20",
-      "status": "landed",
-      "gate": "A12",
-      "code": "landed"
-    },
-    {
-      "flight": "LH 906",
-      "from": "Frankfurt",
-      "due": "07:45",
-      "status": "on time",
-      "gate": "B04",
-      "code": "on-time"
-    },
-    {
-      "flight": "AF 1680",
-      "from": "Paris CDG",
-      "due": "08:05",
-      "status": "delayed",
-      "gate": "B11",
-      "code": "delayed"
-    },
-    {
-      "flight": "KL 1007",
-      "from": "Amsterdam",
-      "due": "08:30",
-      "status": "on time",
-      "gate": "A03",
-      "code": "on-time"
-    }
-  ],
-  "getWeather": {
-    "field": "overcast",
-    "wind": "240\u00b0 at 12 kt",
-    "visibility": "8 km",
-    "celsius": 11
+  "getBoard": {
+    "at": "07:30",
+    "arrivals": [
+      { "flight": "BA 118", "city": "New York JFK", "scheduled": "07:20", "expected": "07:20", "status": "landed", "code": "landed", "gate": "A12" },
+      { "flight": "LH 906", "city": "Frankfurt", "scheduled": "07:45", "expected": "07:45", "status": "on time", "code": "on-time", "gate": "B04" },
+      { "flight": "AF 1680", "city": "Paris CDG", "scheduled": "08:05", "expected": "08:40", "status": "delayed", "code": "delayed", "gate": "B14" }
+    ],
+    "departures": [
+      { "flight": "KL 1008", "city": "Amsterdam", "scheduled": "07:55", "expected": "07:55", "status": "boarding", "code": "boarding", "gate": "A07" },
+      { "flight": "IB 3241", "city": "Madrid", "scheduled": "08:25", "expected": "08:25", "status": "on time", "code": "on-time", "gate": "C02" }
+    ]
   },
-  "listGateChanges": [
-    {
-      "flight": "AF 1680",
-      "was": "B11",
-      "now": "B14"
-    },
-    {
-      "flight": "KL 1007",
-      "was": "A03",
-      "now": "A07"
-    }
-  ]
+  "getWeather": { "field": "overcast", "wind": "240° at 12 kt", "visibility": "8 km", "celsius": 11 },
+  "listGateChanges": [{ "flight": "AF 1680", "was": "B11", "now": "B14", "at": "07:12" }]
 }

@@ -9,6 +9,7 @@ export { decodeNode, linesOf, parsePayload, parseRow } from "./reader.js";
 export type { Head, Payload, Row, Segment, SfNode } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
 export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, localePath, navigate, prefetch, refresh } from "./navigator.js";
+export { live, type LiveOptions } from "./live.js";
 export type { NavigateOptions, NavigationOptions, PrefetchTiming } from "./navigator.js";
 export { boot, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";

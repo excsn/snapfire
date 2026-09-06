@@ -20,6 +20,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Enabling Navigation](#enabling-navigation)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
+* [Following the Server](#following-the-server)
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
 * [Sharing State Across Islands](#sharing-state-across-islands)
@@ -382,6 +383,30 @@ import { applyHead } from "@snapfire/fsr-client";
 
 applyHead({ title: "Cart · Shopping" });
 ```
+
+## Following the Server
+
+`refresh()` asks. `live()` waits to be told: it opens the host's event stream, and every publish of a topic it asked for revalidates the route, so the page follows the server without polling it.
+
+```tsx
+import { useEffect } from "react";
+import { live } from "@snapfire/fsr-client";
+
+export default function Live({ topic }: { topic: string }) {
+  useEffect(() => live([topic]), [topic]);
+  return <span className="live">live</span>;
+}
+```
+
+`live` returns the function that closes the stream, which is what an effect wants back. The server side is one call, `Host::publish("board")`, and the browser reconnects on its own if the connection drops.
+
+What arrives is the topic and nothing else: no data rides on the stream. The route's loaders answer that, the ordinary way, when `refresh()` runs. A page that wants to do something other than revalidate passes `onTopic`:
+
+```ts
+live(["prices"], { onTopic: (topic) => console.log(`${topic} moved`) });
+```
+
+Nothing happens where `EventSource` is absent, so the same component renders on the server without a guard.
 
 ## Calling an Action
 
