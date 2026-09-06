@@ -1,6 +1,7 @@
 import type { FsrDocsSlugProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
 import { Prose } from "@src/ui/Prose";
+import type { Block } from "@src/docs/guide";
 
 export default function DocsChapter({ chapter, prev, next, allChapters }: FsrDocsSlugProps) {
   return (
@@ -35,7 +36,9 @@ export default function DocsChapter({ chapter, prev, next, allChapters }: FsrDoc
           </h1>
         </header>
 
-        <Prose blocks={chapter.blocks} />
+        {/* The generated props are inferred from the loader's values, not from `Chapter`, so an
+            empty `items` widens to `unknown[]` and the nominal type is lost. */}
+        <Prose blocks={chapter.blocks as Block[]} />
 
         <nav className="chapter-pagination">
           {prev ? (

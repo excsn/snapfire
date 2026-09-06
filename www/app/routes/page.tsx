@@ -1,9 +1,9 @@
-import type { IndexProps } from "@generated/client";
+import type { RootProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
 import { CrateLinks } from "@src/ui/CrateLinks";
 import { COMPILER, FSR, REPO, SNAPFIRE } from "@src/links";
 
-export default function Home({ chapters }: IndexProps) {
+export default function Home({ chapters }: RootProps) {
   return (
     <div className="page home">
       <section className="hero">
