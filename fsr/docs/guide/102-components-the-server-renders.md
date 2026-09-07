@@ -38,9 +38,11 @@ Three things in a component are the browser's and the build drops them rather th
 - **Inner functions.** The `add` and `search` functions the handlers call, and a `const` holding an arrow. Dropped by name; a reference to one outside a handler is residue.
 - **Hooks.** `const [quantity, setQuantity] = useState(1)` reads as `const quantity = 1`, which is exactly what a first render sees in the browser too, and the setter is a handler. `useMemo(() => e)` reads as `e`, `useRef(x)` as `{ current: x }`, `useCallback` as a handler. `useEffect` and its layout and insertion variants are dropped whole, since the server never runs an effect and neither does React's own server renderer.
 
+Markup an application produced is ordinary too. `<div dangerouslySetInnerHTML={{ __html: body }} />` writes that string into the document as markup and renders no children, the same on the server as in React, so a page whose loader returns rendered markdown is readable before the bundle runs. Nothing escapes or sanitises it: whoever produced the string answers for it, which is the contract the spelling has always carried.
+
 Children and spreads are ordinary. A component that takes `children` places them with `{children}`, and the build renders what the caller wrote between the tags in the caller's scope, so a layout can wrap a page without the page knowing. `<Header {...header} />` spreads an object into props and `<h1 {...attrs}>` into attributes, later entries winning the way React merges them, and a spread's `className` and a literal `class` are one attribute.
 
-Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, `dangerouslySetInnerHTML`, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works, since it always could.
+Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works, since it always could.
 
 ## What the browser reads instead of computing
 

@@ -691,7 +691,7 @@ export default function Help() {
 }
 ```
 
-The shell writes `<html lang="fr-FR" data-sf-locale="fr_FR">`. Every segment key outside the default locale carries `@fr_FR`, so a switch swaps every segment. A body test names the locale with `ctx({ locale: "fr_FR" })`; a page spec loads a prefixed path, `load("/fr_FR/help")`. Without the section every request is `en`.
+The shell writes `<html lang="fr-FR" data-sf-locale="fr_FR">`. Every segment key outside the default locale carries `@fr_FR`, so a switch re-renders every segment and swaps the ones whose output moved. A body test names the locale with `ctx({ locale: "fr_FR" })`; a page spec loads a prefixed path, `load("/fr_FR/help")`. Without the section every request is `en`.
 
 ## Prerendering
 

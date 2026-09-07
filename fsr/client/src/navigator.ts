@@ -156,26 +156,34 @@ function patchProps(region: Region, node: SfNode): void {
   void patchIsland(island.el, node.props, regionSources(node, ids));
 }
 
-/** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied, and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
+/** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied, and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
 function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean): boolean {
   const swap = () => replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
+  const paired = moduleOf(oldSeg.k) === moduleOf(newSeg.k);
+  const same = paired && oldSeg.d !== undefined && oldSeg.d === newSeg.d;
+  let key = oldSeg.k;
   if (oldSeg.k !== newSeg.k) {
-    if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
     // A region that cannot be replaced is the root, whose delimiters are
     // children of the document. Same module means the same chrome, so the
     // change is below it: retag the delimiter and descend rather than
     // demanding a full load.
-    if (moduleOf(oldSeg.k) !== moduleOf(newSeg.k)) return false;
+    if (!same) {
+      if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
+      if (!paired) return false;
+    }
     const region = findRegion(oldSeg.k);
     if (!region) return false;
     region.start.data = `sf-g:${escapeKey(newSeg.k)}`;
+    key = newSeg.k;
   }
   const named = newSeg.c.every((c) => c.n !== undefined) && oldSeg.c.every((c) => c.n !== undefined);
   if (!named && oldSeg.c.length !== newSeg.c.length) return swap();
   if (newNode.kind === "client") {
-    const region = findRegion(oldSeg.k);
-    if (region) patchProps(region, newNode);
-  } else if (force && newSeg.c.length === 0) {
+    if (!same) {
+      const region = findRegion(key);
+      if (region) patchProps(region, newNode);
+    }
+  } else if (newSeg.c.length === 0 && (oldSeg.d !== undefined && newSeg.d !== undefined ? !same : force)) {
     return swap();
   }
   const keep = newSeg.keep ?? [];

@@ -54,6 +54,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Slot**: a hole a deferred segment fills later. It renders as `<div data-sf-slot="N">` holding a fallback until its content arrives.
 * **Segment**: a region of the page with a comparable key, delimited in the HTML by `<!--sf-g:key-->` and `<!--/sf-g-->` comments. Same key across two responses means the region survives navigation.
 * **Segment sidecar**: the `G` row or the `script[data-sf-segments]` tag in an HTML response, carrying the segment tree the navigator diffs against.
+* **Segment digest**: the fingerprint each segment carries of what it rendered, its child segments elided. It says whether that segment changed, where the key only says which segment it is.
 * **Payload response**: the line-oriented wire format, requested by adding `__payload` to a route's query string. One `V` row, one `N` row, an optional `G` row, an optional `H` row with the document's title and description and one `S` row per resolved slot, each with an `H` row of its own when the slot's segment described the document.
 * **Action**: a server function with a stable id. The client holds the id, never a URL shape.
 * **Revalidation**: re-fetching the current route after a mutation and replacing the top-level segment regions, so the layout's DOM and its island state survive.
@@ -317,7 +318,7 @@ import { enableNavigation } from "@snapfire/fsr-client";
 enableNavigation();
 ```
 
-It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments whose keys changed, so the layout's DOM, its scroll position and any island state above the changed region survive. A kept island whose props changed is re-rendered in place through its patcher rather than replaced. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
+It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments that rendered something different, so the layout's DOM, its scroll position and any island state above the changed region survive. Sameness is the digest each segment carries, not its key, which is what keeps a pane that ignores a query parameter when the URL's query moves under it. A kept island whose props changed is re-rendered in place through its patcher rather than replaced, and one whose digest held is left alone entirely. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
 ## Prefetching and the Router Cache
 
@@ -364,7 +365,7 @@ A third argument chooses how the target is asked for: `{ full: true }` is the do
 await navigate("/product/7", true, { full: true });
 ```
 
-`refresh` drops the router cache, re-fetches the current route and hands every kept island its new props in place, which is the revalidation an action performs for you: a layout's cart count follows the mutation and a page keeps what the user typed.
+`refresh` drops the router cache, re-fetches the current route and hands every kept island its new props in place, which is the revalidation an action performs for you: a layout's cart count follows the mutation and a page keeps what the user typed. The URL has not moved, so every key matches and the digests decide: a region whose output the mutation changed is replaced and every other region is untouched.
 
 ```ts
 await refresh();

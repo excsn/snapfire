@@ -350,6 +350,7 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
     Tmpl::Element { tag, attrs, children } => {
       let mut open = format!("<{tag}");
       let mut bound = Vec::new();
+      let mut raw: Option<String> = None;
       for (name, value) in entries(env, attrs, true)? {
         if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
           if env.server_mode {
@@ -361,6 +362,13 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
           if env.server_mode {
             attribute("data-sf-key", &value, &mut open)?;
           }
+          continue;
+        }
+        if name == RAW_ATTR {
+          raw = Some(match value {
+            Value::Null => String::new(),
+            value => stringify(&value)?,
+          });
           continue;
         }
         if skipped_attr(&name) {
@@ -381,8 +389,13 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       match chunk_id(attrs) {
         Some(id) => {
           let mut inner = Out::default();
-          for child in children {
-            render(env, child, library, slots, &mut inner)?;
+          match &raw {
+            Some(html) => inner.markup(html),
+            None => {
+              for child in children {
+                render(env, child, library, slots, &mut inner)?;
+              }
+            }
           }
           if let Some(hoists) = &mut env.hoists {
             hoists.record(id, &Value::Str(inner.html.clone()));
@@ -390,11 +403,14 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
           out.islands.extend(inner.islands);
           out.markup(&inner.html);
         }
-        None => {
-          for child in children {
-            render(env, child, library, slots, out)?;
+        None => match &raw {
+          Some(html) => out.markup(html),
+          None => {
+            for child in children {
+              render(env, child, library, slots, out)?;
+            }
           }
-        }
+        },
       }
       out.markup(&format!("</{tag}>"));
     }
@@ -526,13 +542,18 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
   Ok(out)
 }
 
-/// Attribute keys the browser owns or that name no attribute: handlers, `key`, `ref`, `children` and `dangerouslySetInnerHTML`.
+/// Attribute keys the browser owns or that name no attribute: handlers, `key`, `ref`, `children` and a spread's `dangerouslySetInnerHTML`.
 fn skipped_attr(name: &str) -> bool {
   name == "key" || name == "ref" || name == "children" || name == "dangerouslySetInnerHTML" || name.starts_with('$') || (name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase())
 }
 
 /// The attribute marking an element whose inner markup is recorded as a hoisted chunk, and its id.
 pub const CHUNK_ATTR: &str = "$chunk";
+
+/// An element's `dangerouslySetInnerHTML`, holding the `__html` expression.
+/// Its string is written to the document as it stands, so whoever produced it
+/// answers for it; the element's children never render.
+pub const RAW_ATTR: &str = "$html";
 
 /// The prefix of an attribute binding a handler to its element: `$on:click`
 /// holding the handler's index. Printed as `data-sf-on="click:0"` in server
@@ -734,6 +755,26 @@ mod tests {
     };
     let html = Interpreter::default().render(&component, &ValueMap::new(), &Components::new()).unwrap().html;
     assert_eq!(html, "<path marker-end=\"url(#a)\" stroke-width=\"2\" viewBox=\"0 0 8 8\"></path>");
+  }
+
+  #[test]
+  fn markup_an_application_produced_reaches_the_document_unescaped() {
+    let raw = |html: Expr, children: Vec<Tmpl>| Component {
+      body: Vec::new(),
+      render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("md")), Entry::Field(RAW_ATTR.to_owned(), html)], children },
+      state: Vec::new(),
+      handlers: Vec::new(),
+    };
+    let render = |component: &Component, props: &ValueMap| Interpreter::default().render(component, props, &Components::new()).unwrap().html;
+
+    let component = raw(p("body"), Vec::new());
+    let html = render(&component, &props(&[("body", Value::Str("<p>a <b>markdown</b> blip</p>".to_owned()))]));
+    assert_eq!(html, "<div class=\"md\"><p>a <b>markdown</b> blip</p></div>", "the string is written as markup, not as text");
+
+    assert_eq!(render(&component, &props(&[("body", Value::Null)])), "<div class=\"md\"></div>", "React renders nothing for a missing __html");
+
+    let with_children = raw(Expr::lit_str("<i>from the loader</i>"), vec![Tmpl::Text("never rendered".to_owned())]);
+    assert_eq!(render(&with_children, &ValueMap::new()), "<div class=\"md\"><i>from the loader</i></div>", "the markup replaces the children the way React refuses to have both");
   }
 
   #[test]

@@ -460,7 +460,7 @@ impl Session {
       key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
-          Ok((node, pending, _segments, meta, store)) => Resolved {
+          Ok((node, pending, _segments, meta, store, _digest)) => Resolved {
             slot,
             key: resolved_key,
             node,
@@ -484,13 +484,13 @@ impl Session {
   async fn resolve_subtree(
     self: &Arc<Self>,
     plan: &PlanNode,
-  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Data), AssembleError> {
+  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Data, u64), AssembleError> {
     let loaded = self.load_eager(plan).await?;
     let meta = self.describe(plan, &loaded).await;
     let store = self.seed(plan, &loaded).await;
     let mut pending = Vec::new();
-    let (node, children, _used_head) = self.build(plan, &loaded, &mut pending, &meta, &store).await?;
-    Ok((node, pending, children, meta, store))
+    let (node, children, _used_head, digest) = self.build(plan, &loaded, &mut pending, &meta, &store).await?;
+    Ok((node, pending, children, meta, store, digest))
   }
 
   /// The store keys every seeding segment of `plan` settled on, an inner
@@ -627,6 +627,7 @@ impl Session {
             out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
             segments.push(SegmentInfo {
               key,
+              digest: 0,
               name: slot.0,
               path: Vec::new(),
               slot: Some(slot_id.0),
@@ -641,10 +642,11 @@ impl Session {
               false,
             ))
           } else {
-            let (child_node, grandchildren, child_used_head) =
+            let (child_node, grandchildren, child_used_head, digest) =
               self.build(child, loaded, out_pending, meta, store).await?;
             segments.push(SegmentInfo {
               key,
+              digest,
               name: slot.0,
               path: path.clone(),
               slot: None,
@@ -705,10 +707,12 @@ impl Session {
     out_pending: &'a mut Vec<PendingResolution>,
     meta: &'a Meta,
     store: &'a Data,
-  ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool), AssembleError>> {
+  ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool, u64), AssembleError>> {
     Box::pin(async move {
       if let Some(failure) = loaded.failed.get(&node.id.0) {
-        return Ok((self.error_segment(node, failure).await?, Vec::new(), false));
+        let node = self.error_segment(node, failure).await?;
+        let digest = node.fingerprint();
+        return Ok((node, Vec::new(), false, digest));
       }
       let data = &loaded.data;
       let cache_key = match self.runtime.head_users.lock().contains(&node.id.0) {
@@ -718,7 +722,7 @@ impl Session {
       if let Some(key) = &cache_key {
         if let Some(entry) = self.runtime.cache.get(key).await {
           tracing::debug!(target: "fsr::cache", key = %key, "hit");
-          return Ok((entry.node, entry.segments, false));
+          return Ok((entry.node, entry.segments, false, entry.digest));
         }
         tracing::debug!(target: "fsr::cache", key = %key, "miss");
       }
@@ -748,9 +752,15 @@ impl Session {
       let mut parts = Vec::with_capacity(chunks.len());
       let mut segments: Vec<(usize, SegmentInfo)> = Vec::new();
       let mut used_head = false;
+      let mut own = xxhash_rust::xxh3::Xxh3::new();
       for chunk in chunks {
+        own.update(&[match &chunk {
+          Chunk::Node(_) => 0,
+          Chunk::Slot(_) => 1,
+        }]);
         match chunk {
           Chunk::Node(n) if has_slot(&n) => {
+            n.write_canonical(&mut own);
             let idx = parts.len();
             let mut inner: Vec<SegmentInfo> = Vec::new();
             let (filled, child_used_head) = self
@@ -762,12 +772,18 @@ impl Session {
               segments.push((idx, info));
             }
           }
-          Chunk::Node(n) => parts.push(n),
+          Chunk::Node(n) => {
+            n.write_canonical(&mut own);
+            parts.push(n);
+          }
           Chunk::Slot(slot) if slot.0 == "head" => {
             used_head = true;
-            parts.push(self.head.node(meta));
+            let head = self.head.node(meta);
+            head.write_canonical(&mut own);
+            parts.push(head);
           }
           Chunk::Slot(slot) => {
+            own.update(slot.0.as_bytes());
             let Some(child) = self.child_for(node, &slot)? else {
               continue;
             };
@@ -785,6 +801,7 @@ impl Session {
                 usize::MAX,
                 SegmentInfo {
                   key,
+                  digest: 0,
                   name: slot.0,
                   path: Vec::new(),
                   slot: Some(slot_id.0),
@@ -793,7 +810,7 @@ impl Session {
                 },
               ));
             } else {
-              let (child_node, grandchildren, child_used_head) =
+              let (child_node, grandchildren, child_used_head, child_digest) =
                 self.build(child, loaded, out_pending, meta, store).await?;
               used_head |= child_used_head;
               let idx = parts.len();
@@ -802,6 +819,7 @@ impl Session {
                 idx,
                 SegmentInfo {
                   key,
+                  digest: child_digest,
                   name: slot.0,
                   path: Vec::new(),
                   slot: None,
@@ -828,6 +846,7 @@ impl Session {
           info
         })
         .collect();
+      let digest = own.digest();
       if used_head {
         self.runtime.head_users.lock().insert(node.id.0);
       }
@@ -841,12 +860,13 @@ impl Session {
               CacheEntry {
                 node: out.clone(),
                 segments: segments.clone(),
+                digest,
               },
             )
             .await;
         }
       }
-      Ok((out, segments, used_head))
+      Ok((out, segments, used_head, digest))
     })
   }
 }
@@ -867,9 +887,10 @@ pub async fn assemble(
     head: head.clone(),
     next_slot: AtomicU32::new(1),
   });
-  let (tree, pending, children, meta, store) = session.resolve_subtree(plan).await?;
+  let (tree, pending, children, meta, store, digest) = session.resolve_subtree(plan).await?;
   let segments = SegmentInfo {
     key: session.segment_key(plan),
+    digest,
     name: String::new(),
     path: Vec::new(),
     slot: None,

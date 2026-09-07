@@ -252,3 +252,86 @@ fn a_node_with_children_learns_which_slots_the_plan_fills_or_keeps() {
     props
   );
 }
+
+/// A layout with one pane that reads the query and one that never does, which
+/// is the shape GAPS 9.56 was found on.
+struct Panes;
+
+impl Evaluator for Panes {
+  fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks {
+    let view = match props.get("view") {
+      Some(Value::Str(v)) => v.clone(),
+      _ => String::new(),
+    };
+    Box::pin(stream::iter(match module.path.as_str() {
+      "rail.tsx" => vec![Ok(Chunk::Node(Node::text(format!("rail:{view}"))))],
+      "contacts.tsx" => vec![Ok(Chunk::Node(Node::text("contacts")))],
+      _ => vec![
+        Ok(Chunk::Node(Node::raw("<main>"))),
+        Ok(Chunk::Slot(SlotName("rail".into()))),
+        Ok(Chunk::Slot(SlotName("contacts".into()))),
+        Ok(Chunk::Node(Node::raw("</main>"))),
+      ],
+    }))
+  }
+}
+
+#[test]
+fn a_segment_digest_says_what_came_out_the_same_when_the_key_did_not() {
+  let render = |view: &str| {
+    let mut sources = DataSources::new();
+    let held = view.to_owned();
+    sources.insert_fn("view", move |_p| {
+      let held = held.clone();
+      async move {
+        let mut data = ValueMap::new();
+        data.insert("view".to_owned(), Value::str(held));
+        Ok(data)
+      }
+    });
+    let mut evaluators = Evaluators::new();
+    evaluators.register(|m: &ModuleId| m.path.ends_with(".tsx"), Arc::new(Panes));
+    let runtime = Runtime::new(sources, evaluators);
+
+    let mut rail = leaf(1, "rail.tsx");
+    rail.data_source = Some(DataSourceId("view".into()));
+    let mut plan = PlanNode::new(NodeId(0), ModuleId::new("wave.tsx", "default"));
+    plan.children = vec![
+      (SlotName("rail".into()), rail),
+      (SlotName("contacts".into()), leaf(2, "contacts.tsx")),
+    ];
+
+    let mut ctx = RequestCtx::anonymous(Params::new());
+    ctx.query.insert("view".to_owned(), view.to_owned());
+    let assembly = block_on(assemble(&runtime, &plan, &ctx, &Node::raw(""))).unwrap();
+    snapfire_fsr_runtime::segments_to_json(&assembly.segments)
+  };
+
+  let inbox = render("inbox");
+  let mine = render("mine");
+
+  let pane = |side: &serde_json::Value, name: &str| {
+    let found = side["c"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|c| c["n"] == name)
+      .unwrap_or_else(|| panic!("no {name} pane in {side}"));
+    (found["k"].as_str().unwrap().to_owned(), found["d"].as_str().unwrap().to_owned())
+  };
+
+  let (inbox_rail, inbox_rail_d) = pane(&inbox, "rail");
+  let (mine_rail, mine_rail_d) = pane(&mine, "rail");
+  assert_ne!(inbox_rail, mine_rail, "the whole query is in every key, so every key moved");
+  assert_ne!(inbox_rail_d, mine_rail_d, "the rail reads the view, so it rendered something else");
+
+  let (inbox_contacts, inbox_contacts_d) = pane(&inbox, "contacts");
+  let (mine_contacts, mine_contacts_d) = pane(&mine, "contacts");
+  assert_ne!(inbox_contacts, mine_contacts, "its key moved with the query all the same");
+  assert_eq!(inbox_contacts_d, mine_contacts_d, "and its digest did not, because it renders the same either way");
+
+  assert_eq!(
+    inbox["d"], mine["d"],
+    "the layout's own output holds no pane, so a pane changing leaves it alone"
+  );
+}

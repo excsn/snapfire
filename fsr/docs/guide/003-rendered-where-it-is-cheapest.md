@@ -36,7 +36,7 @@ The document is the shell: the head with its stylesheets and import map, then ea
 
 The key is what pairs a placement with the markup the server rendered for it. Without one the pairing is document order, which holds until the same component is placed more than once: an island inside a `.map` or behind a condition would take whichever region came next, so reordering a list would hand each island the state of its neighbour. The build numbers island placements apart from the hoisted values, so placing a component never renumbers the other.
 
-Navigation between routes fetches the same tree in its wire form rather than as HTML. Each segment of the page carries a key; the client walks the old and new trees together, replacing only the region whose key changed, so a layout's DOM and its island state survive a click. An action that succeeds re-fetches the current route by default, which is how the storefront's header badge follows the cart without anyone wiring it.
+Navigation between routes fetches the same tree in its wire form rather than as HTML. Each segment of the page carries a key naming which segment it is and a digest of what it rendered; the client walks the old and new trees together, keeping every region whose digest held and replacing the rest, so a layout's DOM and its island state survive a click, and so does a pane the click did not actually change. An action that succeeds re-fetches the current route by default, which is how the storefront's header badge follows the cart without anyone wiring it.
 
 ## What the browser does not compute twice
 

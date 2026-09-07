@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use snapfire_fsr_ir::ast::{Builtin, Component, Consts, Entry, Expr, Handler, Lit, Stmt, Tmpl};
-use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, SERVER_MODE, UNLOWERED_ATTR};
+use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
@@ -1284,7 +1284,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       let value = self.attr_value(attr)?;
       match raw.as_str() {
-        "dangerouslySetInnerHTML" => return Err(self.lowerer.residue(attr.span, "`dangerouslySetInnerHTML`")),
+        "dangerouslySetInnerHTML" => attrs.push(Entry::Field(RAW_ATTR.to_owned(), inner_html(value))),
         "style" => attrs.push(Entry::Field("style".to_owned(), self.style(attr)?)),
         "value" | "defaultValue" if name == "select" => select_value = Some(value),
         "value" if name == "option" => {
@@ -1715,6 +1715,19 @@ fn is_handler_name(name: &str) -> bool {
   name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase()
 }
 
+/// The markup a `dangerouslySetInnerHTML` value carries, taken from the object
+/// when it is written inline and read as a field otherwise.
+fn inner_html(value: Expr) -> Expr {
+  if let Expr::Object(entries) = &value {
+    if let [Entry::Field(name, html)] = entries.as_slice() {
+      if name == "__html" {
+        return html.clone();
+      }
+    }
+  }
+  Expr::Field(Box::new(value), "__html".to_owned())
+}
+
 fn css_name(key: &str) -> String {
   let mut out = String::with_capacity(key.len() + 4);
   for c in key.chars() {
@@ -1904,6 +1917,41 @@ mod tests {
     let mut set = ComponentSet::new(&app(files));
     set.lower(module).unwrap();
     set
+  }
+
+  #[test]
+  fn dangerously_set_inner_html_lowers_to_the_markup_it_names() {
+    let files = [(
+      "routes/index/page.tsx",
+      r#"
+export default function Page({ blip, note }: { blip: { body: string }; note: { __html: string } }) {
+  return <article><div className="body" dangerouslySetInnerHTML={{ __html: blip.body }} /><aside dangerouslySetInnerHTML={note} /></article>;
+}
+"#,
+    )];
+    let set = set(&files, "routes/index/page.tsx#default");
+    let component = &set.components[0].1;
+    let Tmpl::Element { children, .. } = &component.render else { panic!("{:?}", component.render) };
+    let Tmpl::Element { tag, attrs, children: inner } = &children[0] else { panic!("{:?}", children[0]) };
+    assert_eq!(tag, "div");
+    assert!(inner.is_empty(), "{inner:?}");
+    assert_eq!(attrs[1], Entry::Field(RAW_ATTR.to_owned(), Expr::var("$props").field("blip").field("body")), "the object is written inline, so the IR holds what it named: {attrs:?}");
+    let Tmpl::Element { attrs, .. } = &children[1] else { panic!("{:?}", children[1]) };
+    assert_eq!(attrs[0], Entry::Field(RAW_ATTR.to_owned(), Expr::var("$props").field("note").field("__html")), "an object passed whole is read for its field: {attrs:?}");
+    assert!(!format!("{component:?}").contains(UNLOWERED_ATTR), "the component lowers rather than falling to the browser: {component:?}");
+
+    let map = |pairs: &[(&str, &str)]| {
+      let mut out = snapfire_fsr_core::ValueMap::new();
+      for (k, v) in pairs {
+        out.insert((*k).to_owned(), snapfire_fsr_core::Value::str(*v));
+      }
+      out
+    };
+    let mut props = snapfire_fsr_core::ValueMap::new();
+    props.insert("blip".to_owned(), snapfire_fsr_core::Value::Map(map(&[("body", "<p>a <b>markdown</b> blip</p>")])));
+    props.insert("note".to_owned(), snapfire_fsr_core::Value::Map(map(&[("__html", "<i>&amp; a note</i>")])));
+    let html = snapfire_fsr_ir::Interpreter::default().render(component, &props, &snapfire_fsr_ir::render::Components::new()).unwrap().html;
+    assert_eq!(html, "<article><div class=\"body\"><p>a <b>markdown</b> blip</p></div><aside><i>&amp; a note</i></aside></article>", "the markdown a loader produced reaches the document as markup");
   }
 
   #[test]

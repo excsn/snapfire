@@ -304,6 +304,7 @@ fn a_tuned_shard_count_changes_nothing_a_caller_can_observe() {
   let entry = CacheEntry {
     node: Node::raw("<p>one</p>"),
     segments: Vec::new(),
+    digest: 0,
   };
   let tuned = FibreCache::bounded_sharded(64, Duration::from_secs(60), 4);
   let custom = FibreCache::new(
@@ -356,6 +357,7 @@ fn invalidation_says_how_many_entries_went() {
   let entry = CacheEntry {
     node: Node::raw("<p>one</p>"),
     segments: Vec::new(),
+    digest: 0,
   };
   let memory = MemoryCache::new();
   let fibre = FibreCache::bounded(64, Duration::from_secs(60));

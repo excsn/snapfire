@@ -15,6 +15,9 @@ use crate::segments::SegmentInfo;
 pub struct CacheEntry {
   pub node: Node,
   pub segments: Vec<SegmentInfo>,
+  /// The fingerprint of what the memoized subtree rendered, kept so a hit
+  /// carries the same digest a miss would have produced.
+  pub digest: u64,
 }
 
 /// Memoizes evaluated subtrees. Keys are composed by the assembler from the
@@ -214,6 +217,7 @@ mod tests {
     CacheEntry {
       node: Node::raw("x"),
       segments: Vec::new(),
+      digest: 0,
     }
   }
 

@@ -64,7 +64,7 @@ The rail, the contacts, the inbox and the open wave are four segments of one rou
 
 A rail link is this page under another view, `${path}?view=active`, which is what `ctx.path` is for: a layout and a parallel segment match no parameters of their own, so without it neither the rail could build that link nor the inbox mark the wave that is open. The views themselves are filters the controller applies, `inbox`, `active` for whoever has a connection on a wave and `mine` for the waves this reader has written in, so a view is a query rather than a route.
 
-What this does not do yet is change one pane on its own. A navigation keeps a segment when its key matches, and only an island takes new content in place, so a click on the rail replaces all four panes, the two that never read `view` included. The layout around them is an island and survives.
+A click on the rail changes one pane at a time. Every segment carries a digest of what it rendered, so a navigation that only moves `?view=` replaces the rail and the wave list, which read the view, and keeps the contacts pane, the transcript and the composer with whatever is half typed in it. The layout around them is an island and survives too. What this does not do yet is keep a draft inside a pane that genuinely changed, since replacing a region tears down the islands in it.
 
 ## Naming yourself is what unlocks writing
 

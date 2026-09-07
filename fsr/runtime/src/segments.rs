@@ -36,6 +36,11 @@ impl SegmentKeyer for DefaultKeyer {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SegmentInfo {
   pub key: String,
+  /// The canonical fingerprint of what this segment rendered, its child
+  /// segments elided, so the browser can tell a segment that came out the same
+  /// from one that only kept its key. Zero when there is nothing to compare: a
+  /// deferred segment, which arrives as its own fill.
+  pub digest: u64,
   /// The slot this segment fills in its parent; empty at the root.
   pub name: String,
   pub path: Vec<u32>,

@@ -32,6 +32,9 @@ pub fn meta_to_json(meta: &Meta) -> Json {
 pub fn segments_to_json(info: &SegmentInfo) -> Json {
   let mut obj = serde_json::Map::new();
   obj.insert("k".to_owned(), json!(info.key));
+  if info.digest != 0 {
+    obj.insert("d".to_owned(), json!(format!("{:016x}", info.digest)));
+  }
   if !info.name.is_empty() {
     obj.insert("n".to_owned(), json!(info.name));
   }

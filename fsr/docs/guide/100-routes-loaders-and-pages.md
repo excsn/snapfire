@@ -154,7 +154,7 @@ The storefront's middleware sends the old `/basket` to `/cart`, serves `/shop` a
 
 ## Navigation keeps what did not change
 
-Links are ordinary anchors. With navigation enabled, a same-origin click fetches the destination's payload rather than a new document. Every region of a page carries a segment key, the module plus the parameters and query that produced it; the client walks the old and new payloads together, replacing only the region whose key differs. A region that did not change keeps its DOM and its island state. The shell survives every click, since its module and inputs never change; a page's own region is replaced when its module or its inputs do, which is what a click from the catalog into a product asks for.
+Links are ordinary anchors. With navigation enabled, a same-origin click fetches the destination's payload rather than a new document. Every region of a page carries a segment key, the module plus the parameters and query that produced it, and a digest of what it rendered; the client walks the old and new payloads together, keeping every region whose digest held and replacing the rest. A region that did not change keeps its DOM and its island state, whatever its key became, which is what lets a four-pane page change one pane on a click. The shell survives every click, since its module and inputs never change; a page's own region is replaced when its module or its inputs do, which is what a click from the catalog into a product asks for.
 
 The key includes the query string, which is why `/` and `/?q=filament` are different segments: a search that changed the results must replace the grid; a key that ignored the query would patch nothing.
 

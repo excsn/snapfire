@@ -39,7 +39,8 @@ How to wire a request through the runtime: matching a path, resolving a plan, lo
 * **Assembly**: what `assemble` returns, being the payload tree, the still-unresolved deferrals and the segment sidecar.
 * **Pending**: the hole the assembler leaves for a deferred child, carrying the slot id and the rendered fallback. Evaluators never produce one.
 * **Segment**: a region of the page with its own identity, cacheability and error boundary, one per plan node reached through a slot.
-* **Segment key**: the comparable identity of a segment across two responses, produced by a `SegmentKeyer`. Same key means the DOM and island state survive a navigation.
+* **Segment key**: the comparable identity of a segment across two responses, produced by a `SegmentKeyer`. It says which old segment a new one is.
+* **Segment digest**: the fingerprint of what a segment rendered, its child segments elided. It says whether that segment changed, so a browser keeps a region whose digest held even when its key moved.
 * **Composed cache key**: the string the assembler builds from the plan's `cache_key`, the matched params, the identity subject and the subtree's data fingerprint.
 * **Request context** (`RequestCtx`): everything a loader or action may know about the request: route params, the decoded query string, the session, the CSRF token and a service handle, nothing else.
 * **Identity**: a subject string plus claims, resolved by the session layer before anything loads. Application code never sees a token.
@@ -495,7 +496,7 @@ The first item is the eager wave in one string:
 * `H {"title":..,"description":..}`, when the document has either, only the fields it has.
 * `G <segment json>`, the segment sidecar, last: a navigator applies the tree, fallbacks in place, the moment it reads this row.
 
-Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order, each followed by an `H` row when the resolved segment described the document. The sidecar encoding is compact: `k` is the segment key and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
+Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order, each followed by an `H` row when the resolved segment described the document. The sidecar encoding is compact: `k` is the segment key, `d` is the segment's digest as 16 hex digits and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
 
 ```rust
 use snapfire_fsr_runtime::segments_to_json;
@@ -586,7 +587,7 @@ impl NodeCache for MyCache {
 }
 ```
 
-A `CacheEntry` is the evaluated `Node` plus its `Vec<SegmentInfo>` sidecar. Storing only the node would lose navigation identity on a hit, so both go in together.
+A `CacheEntry` is the evaluated `Node` plus its `Vec<SegmentInfo>` sidecar and the subtree's own digest. Storing only the node would lose navigation identity on a hit, so all three go in together.
 
 ## Keying Segments for Navigation
 
@@ -619,6 +620,8 @@ let runtime = Runtime::builder().keyer(Arc::new(SectionKeyer)).build();
 ```
 
 The sidecar mirrors the tree. `path` locates a segment's subtree relative to its parent segment's node, where `[]` is the whole node and `[i]` is child `i` of a `Seq`. A deferred segment carries `slot: Some(id)` and no path, because its region in the DOM is the `data-sf-slot` element instead.
+
+A narrower keyer is an optimisation rather than a requirement, because `digest` beside the key already says what changed. Every segment carries the fingerprint of its own output with its child segments elided, so a browser keeps the DOM of a segment that rendered the same however coarse its key is, and a parent is left alone when only a child moved.
 
 ## Carrying Request State
 

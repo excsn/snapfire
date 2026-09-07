@@ -51,6 +51,7 @@ The crate has no cargo features. Everything below is always compiled.
 | Get a bounded, expiring subtree cache | `FibreCache::bounded` |
 | Drop everything one plan key produced | `NodeCache::invalidate` |
 | Keep DOM and island state across a navigation | `SegmentKeyer`, `DefaultKeyer`, `SegmentInfo` |
+| Tell a segment that changed from one that only changed key | `SegmentInfo::digest` |
 | Carry params, session and CSRF into a loader | `RequestCtx` |
 | Read who the request is | `Identity`, `SessionCell::identity` |
 | Call the service layer from a loader or action | `ServiceHandle::call` |

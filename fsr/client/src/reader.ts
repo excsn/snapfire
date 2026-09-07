@@ -15,6 +15,8 @@ export type SfNode =
 
 export interface Segment {
   k: string;
+  /** The fingerprint of what the segment rendered, its child segments elided. Two payloads agreeing on it agree on the DOM, whatever the key says. Absent for a deferred segment, which arrives as its own fill. */
+  d?: string;
   /** The slot this segment fills in its parent; absent at the root. */
   n?: string;
   p?: number[];

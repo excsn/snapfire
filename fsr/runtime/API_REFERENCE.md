@@ -322,6 +322,7 @@ Module plus every matched param and every query pair. Unit struct. `snapfire_fsr
 The sidecar emitted beside the payload tree. `Debug + Clone + PartialEq`.
 
 * `pub key: String`
+* `pub digest: u64`: the canonical fingerprint of what the segment rendered, its own child segments elided. Two responses agreeing on it rendered the same DOM for that segment, whatever their keys say, which is what lets a browser keep a region a key change would otherwise replace. Zero for a deferred segment, which arrives as its own fill.
 * `pub path: Vec<u32>`: the subtree's position relative to the parent segment's node. `[]` is the whole node, `[i]` is child `i` of a `Seq`.
 * `pub slot: Option<u32>`: set for a deferred segment, which is slot-addressed and carries no path.
 * `pub children: Vec<SegmentInfo>`
@@ -334,6 +335,7 @@ What a hit restores. `Debug + Clone + PartialEq`.
 
 * `pub node: Node`
 * `pub segments: Vec<SegmentInfo>`: the subtree's child segments, so navigation identity survives caching.
+* `pub digest: u64`: the subtree's own fingerprint, so a hit carries the digest a miss would have produced.
 
 ### `NodeCache`
 
