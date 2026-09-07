@@ -265,3 +265,35 @@ fn a_typedef_is_data_the_build_can_read_back() {
   assert_eq!(fields[0], Field::new("id", Type::U64));
   assert_eq!(back.method("users", "get").unwrap().returns, Type::named("User"));
 }
+
+/// DEFECTS 3.1 and 3.2: a route template naming an argument the call does not
+/// carry, and metadata that is not a string, are refused rather than skipped.
+#[test]
+fn a_route_argument_and_metadata_that_cannot_be_sent_are_refused() {
+  use futures::executor::block_on;
+  use snapfire_fsr_service::{Call, HttpTransport, NoCredentials, Route, Transport};
+  use std::sync::Arc;
+
+  let transport =
+    HttpTransport::new("http://127.0.0.1:1").route("fleet.getServer", Route::get("/servers/{id}"));
+  let call = |args: ValueMap, metadata: ValueMap| Call {
+    service: "fleet".to_owned(),
+    method: "getServer".to_owned(),
+    args,
+    identity: None,
+    metadata,
+    credentials: Arc::new(NoCredentials),
+  };
+
+  let mut args = ValueMap::new();
+  args.insert("other".to_owned(), Value::str("x"));
+  let error = block_on(transport.call(call(args, ValueMap::new()))).expect_err("the id is not there");
+  assert!(error.message.contains("does not carry"), "{}", error.message);
+
+  let mut args = ValueMap::new();
+  args.insert("id".to_owned(), Value::str("7"));
+  let mut metadata = ValueMap::new();
+  metadata.insert("x-count".to_owned(), Value::Int(3));
+  let error = block_on(transport.call(call(args, metadata))).expect_err("a header is a string");
+  assert!(error.message.contains("not a string"), "{}", error.message);
+}

@@ -21,7 +21,6 @@ pub struct Services {
   data_cache: Option<DataCache>,
 }
 
-#[derive(Default)]
 pub struct ServicesBuilder {
   contract: Contract,
   interceptors: Vec<Arc<dyn Interceptor>>,
@@ -31,9 +30,22 @@ pub struct ServicesBuilder {
   data_capacity: Option<u64>,
 }
 
+impl Default for ServicesBuilder {
+  fn default() -> Self {
+    Self {
+      contract: Contract::default(),
+      interceptors: Vec::new(),
+      transports: IndexMap::new(),
+      default_transport: None,
+      check_responses: true,
+      data_capacity: None,
+    }
+  }
+}
+
 impl Services {
   pub fn builder() -> ServicesBuilder {
-    ServicesBuilder { check_responses: true, ..Default::default() }
+    ServicesBuilder::default()
   }
 
   pub fn contract(&self) -> &Contract {

@@ -32,8 +32,10 @@ impl Route {
   }
 
   /// `{name}` segments take the argument of that name, which is then not sent
-  /// in the body.
-  fn render(&self, args: &ValueMap) -> (String, Vec<String>) {
+  /// in the body. An argument the call does not carry is refused: substituting
+  /// nothing would send a request with an empty path segment and leave the
+  /// argument in the body, which no server can answer as the caller meant.
+  fn render(&self, args: &ValueMap) -> Result<(String, Vec<String>), String> {
     let mut path = String::new();
     let mut consumed = Vec::new();
     let mut rest = self.path.as_str();
@@ -41,14 +43,15 @@ impl Route {
       let Some(close) = rest[open..].find('}') else { break };
       let name = &rest[open + 1..open + close];
       path.push_str(&rest[..open]);
-      if let Some(value) = args.get(name) {
-        path.push_str(&scalar_to_path(value));
-        consumed.push(name.to_owned());
-      }
+      let Some(value) = args.get(name) else {
+        return Err(format!("the route `{}` names `{name}`, which the call does not carry", self.path));
+      };
+      path.push_str(&scalar_to_path(value));
+      consumed.push(name.to_owned());
       rest = &rest[open + close + 1..];
     }
     path.push_str(rest);
-    (path, consumed)
+    Ok((path, consumed))
   }
 }
 
@@ -104,33 +107,38 @@ impl HttpTransport {
     self
   }
 
-  fn plan(&self, call: &Call) -> (String, String, ValueMap) {
+  fn plan(&self, call: &Call) -> Result<(String, String, ValueMap), String> {
     let key = format!("{}.{}", call.service, call.method);
     let mut args = call.args.clone();
     match self.routes.get(&key) {
       Some(route) => {
-        let (path, consumed) = route.render(&args);
+        let (path, consumed) = route.render(&args)?;
         for name in consumed {
           args.shift_remove(&name);
         }
-        (route.method.clone(), format!("{}{}", self.base, path), args)
+        Ok((route.method.clone(), format!("{}{}", self.base, path), args))
       }
-      None => (
+      None => Ok((
         "POST".to_owned(),
         format!("{}/{}/{}", self.base, call.service, call.method),
         args,
-      ),
+      )),
     }
   }
 }
 
 impl Transport for HttpTransport {
   fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
-    let (method, url, body) = self.plan(&call);
+    let planned = self.plan(&call);
     let service = call.service.clone();
     let name = call.method.clone();
     let fail = move |kind: FailureKind, message: String| {
       ServiceError::new(kind, service.clone(), name.clone(), message)
+    };
+
+    let (method, url, body) = match planned {
+      Ok(planned) => planned,
+      Err(why) => return Box::pin(async move { Err(fail(FailureKind::Invalid, why)) }),
     };
 
     let Ok(verb) = reqwest::Method::from_bytes(method.as_bytes()) else {
@@ -138,9 +146,11 @@ impl Transport for HttpTransport {
     };
     let mut request = self.client.request(verb.clone(), &url);
     for (key, value) in &call.metadata {
-      if let Value::Str(value) = value {
-        request = request.header(key.as_str(), value.as_str());
-      }
+      let Value::Str(value) = value else {
+        let why = format!("metadata `{key}` is not a string, so it cannot be a header");
+        return Box::pin(async move { Err(fail(FailureKind::Internal, why)) });
+      };
+      request = request.header(key.as_str(), value.as_str());
     }
     if verb != reqwest::Method::GET && verb != reqwest::Method::DELETE {
       request = request.json(&value_to_json(&Value::Map(body)));
