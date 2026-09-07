@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_engine"
-version.workspace = true
+version = "0.5.0"
 description = "QuickJS in process for fsr test: a DOM, React and an application's pages, with actions answered by the interpreter."
 keywords = ["snapfire", "fsr", "quickjs", "testing", "dom"]
 categories = ["web-programming", "development-tools::testing"]

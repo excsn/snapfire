@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_auth"
-version.workspace = true
+version = "0.5.0"
 description = "Auth for SnapFire FSR: the IdentityProvider seam, flow state and the dev provider."
 keywords = ["snapfire", "fsr", "authentication", "identity", "oidc"]
 categories = ["web-programming", "authentication"]
