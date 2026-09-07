@@ -66,7 +66,23 @@ Where the bytes come from is a seam, not a fixed answer: a directory of archives
 
 Then the row moves. The shell rereads the table on `SIGHUP` and on the poll, rebuilds its tables whole and swaps them; a request in flight finishes on the old ones. A pinned hash refuses bytes the table did not mean. `GET /__fsr/sites` lists every mounted site with its version and hash, so a monitor compares the fleet against the table and resends a signal when an instance lags.
 
-`SIGHUP` reloads everything, the shell's own configuration and plan included, which is the wrong operation for a site deploy: one team's signal would ship whatever state the shell's files are in. A sites-only reload reads the artifacts again and rebuilds against the shell as the process booted it, its configuration, plan and contracts held rather than reread, so a half-written shell plan on disk cannot reach the tables. A shell change is a restart, which is the cost of the guarantee. For an operator who cannot signal a process at all, `POST /__fsr/sites/reload` does the same and answers with the mounted rows, or a `409` and the reason when the candidate is refused, which is what a signal cannot tell you. It exists only when the host carries the feature and the application installed a sites mounter, and it is not guarded: keeping `/__fsr/` off the public internet is the deployment's job.
+`SIGHUP` reloads everything, the shell's own configuration and plan included, which is the wrong operation for a site deploy: one team's signal would ship whatever state the shell's files are in. A sites-only reload reads the artifacts again and rebuilds against the shell as the process booted it, its configuration, plan and contracts held rather than reread, so a half-written shell plan on disk cannot reach the tables. A shell change is a restart, which is the cost of the guarantee. For an operator who cannot signal a process at all, `POST /__fsr/sites/reload` does the same and answers with the mounted rows, or a `409` and the reason when the candidate is refused, which is what a signal cannot tell you. It exists only when the host carries the feature and the application installed a sites mounter.
+
+## Keep the administrative routes off the internet
+
+`/__fsr/` is the host's administrative surface and the framework does not guard it. `GET /__fsr/sites` reports every mounted site with its version and hash, and the reload route changes what the process serves. Neither authenticates, so restricting them is the deployment's job at whatever sits in front of the host, and a host published straight to the internet with no proxy exposes both. Deny the prefix and allow it only from the network the operators are on; 404 is the better answer than 403, since it does not confirm the surface is there.
+
+```nginx
+location ^~ /__fsr/ {
+  allow 10.0.0.0/8;
+  deny all;
+  proxy_pass http://127.0.0.1:8080;
+}
+```
+
+`^~` matters in nginx: a plain `location /__fsr/` loses to any regex location and has to win against the catch-all that proxies everything else. Apache wants a `<LocationMatch "^/__fsr/">` with `Require ip`, placed before the `ProxyPass` for `/` since the first match wins. Caddy wants a `handle` on `path /__fsr/*` that responds 404 to anything outside the range. HAProxy wants `acl fsr_path path_beg /__fsr/` with an `http-request deny deny_status 404`. Envoy wants the prefix on its own route with a `direct_response`, or an RBAC filter with a `url_path` permission. Traefik wants an `ipAllowList` middleware on a ``PathPrefix(`/__fsr/`)`` router declared before the catch-all. Kubernetes ingress-nginx takes the nginx block through a `server-snippet` annotation, or a separate ingress for the prefix with `whitelist-source-range`.
+
+Two things a proxy rule does not cover. A host bound to `0.0.0.0` is reachable around the proxy, so bind it to loopback or to the interface the proxy is on. And a sidecar or another pod on the same network is not the public internet but is not an operator either, which is what the allow list is for rather than the deny.
 
 ## The lab
 
