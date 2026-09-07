@@ -2164,10 +2164,19 @@ impl Host {
   }
 
   async fn set_cookie(&self, opened: &Opened, response: &mut Response<Body>) {
-    let set_cookie = if self.csrf_always {
+    let written = if self.csrf_always {
       self.sessions.establish(opened).await
     } else {
       self.sessions.persist(opened).await
+    };
+    let set_cookie = match written {
+      Ok(set_cookie) => set_cookie,
+      Err(error) => {
+        // The response still goes out: the reader is served, and the cookie
+        // is withheld rather than naming a session the store does not hold.
+        tracing::error!(target: "fsr::session", error = %error, "the session was not saved");
+        return;
+      }
     };
     if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
@@ -2231,7 +2240,16 @@ impl Host {
           ));
         }
         mounted.auth.logout(opened);
-        let expire = self.sessions.destroy(opened).await;
+        let expire = match self.sessions.destroy(opened).await {
+          Ok(expire) => expire,
+          Err(error) => {
+            tracing::error!(target: "fsr::session", error = %error, "the session was not destroyed");
+            return Some(text_response(
+              StatusCode::INTERNAL_SERVER_ERROR,
+              "signing out failed".to_owned(),
+            ));
+          }
+        };
         let mut response = see_other("/");
         if let Ok(value) = HeaderValue::from_str(&expire) {
           response.headers_mut().append(header::SET_COOKIE, value);

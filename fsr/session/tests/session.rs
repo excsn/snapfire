@@ -40,7 +40,7 @@ fn a_session_survives_the_cookie_round_trip() {
   let first = block_on(layer.open(None));
   assert!(first.fresh);
   first.cell.insert("visits", Value::int(1i64));
-  let cookie = block_on(layer.persist(&first)).expect("fresh dirty session sets a cookie");
+  let cookie = block_on(layer.persist(&first)).unwrap().expect("fresh dirty session sets a cookie");
   assert!(cookie.starts_with("sf_session="));
   assert!(cookie.contains("HttpOnly"));
 
@@ -55,7 +55,7 @@ fn a_session_survives_the_cookie_round_trip() {
 fn a_clean_fresh_session_sets_no_cookie() {
   let layer = sessions();
   let opened = block_on(layer.open(None));
-  assert_eq!(block_on(layer.persist(&opened)), None, "crawlers never mint sessions");
+  assert_eq!(block_on(layer.persist(&opened)).unwrap(), None, "crawlers never mint sessions");
 }
 
 #[test]
@@ -64,13 +64,13 @@ fn identity_persists_and_destroy_forgets() {
 
   let opened = block_on(layer.open(None));
   opened.cell.set_identity(Some(Identity { subject: "norm".into(), claims: Default::default() }));
-  let cookie = block_on(layer.persist(&opened)).unwrap();
+  let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
   let header = cookie.split(';').next().unwrap().to_owned();
 
   let back = block_on(layer.open(Some(&header)));
   assert_eq!(back.cell.identity().unwrap().subject, "norm");
 
-  let gone = block_on(layer.destroy(&back));
+  let gone = block_on(layer.destroy(&back)).unwrap();
   assert!(gone.contains("Max-Age=0"), "logout expires the cookie");
   let after = block_on(layer.open(Some(&header)));
   assert!(after.cell.identity().is_none(), "the record is gone even if the cookie replays");
@@ -94,7 +94,7 @@ fn tokens_round_trip_but_never_reach_the_cell() {
 
   let opened = block_on(layer.open(None));
   opened.tokens.set("access_token", Value::Str("secret-abc".into()));
-  let cookie = block_on(layer.persist(&opened)).expect("a token-only write persists and sets the cookie");
+  let cookie = block_on(layer.persist(&opened)).unwrap().expect("a token-only write persists and sets the cookie");
 
   let header = cookie.split(';').next().unwrap().to_owned();
   let back = block_on(layer.open(Some(&header)));
@@ -115,11 +115,11 @@ fn destroy_forgets_tokens() {
   let layer = sessions();
   let opened = block_on(layer.open(None));
   opened.tokens.set("refresh_token", Value::Str("secret-r".into()));
-  let cookie = block_on(layer.persist(&opened)).unwrap();
+  let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
   let header = cookie.split(';').next().unwrap().to_owned();
 
   let back = block_on(layer.open(Some(&header)));
-  block_on(layer.destroy(&back));
+  block_on(layer.destroy(&back)).unwrap();
   let after = block_on(layer.open(Some(&header)));
   assert_eq!(after.tokens.get("refresh_token"), None, "the record and its tokens are gone");
 }
@@ -139,7 +139,7 @@ fn a_store_can_be_tuned_or_supplied_whole() {
     let layer = Sessions::new(Arc::new(store), KEY, SessionConfig::default());
     let opened = block_on(layer.open(None));
     opened.cell.insert("visits", Value::int(1i64));
-    let cookie = block_on(layer.persist(&opened)).unwrap();
+    let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
 
     let header = cookie.split(';').next().unwrap().to_owned();
     let back = block_on(layer.open(Some(&header)));
@@ -156,4 +156,55 @@ fn capacity_is_accounted_across_shards_not_divided_by_them() {
   }
   let resident = ids.iter().filter(|id| block_on(store.load(id)).is_some()).count();
   assert_eq!(resident, 64, "a small store under the default shard count keeps everything");
+}
+
+/// DEFECTS 2.1: `CookieCodec` is a seam only if the layer will take one.
+#[test]
+fn a_codec_of_the_caller_s_own_carries_the_session() {
+  struct Plain;
+  impl snapfire_fsr_session::CookieCodec for Plain {
+    fn encode(&self, id: &snapfire_fsr_session::SessionId) -> String {
+      format!("plain:{}", id.0)
+    }
+    fn decode(&self, value: &str) -> Option<snapfire_fsr_session::SessionId> {
+      value.strip_prefix("plain:").map(|id| snapfire_fsr_session::SessionId(id.to_owned()))
+    }
+  }
+
+  let store = Arc::new(MemorySessionStore::new(16, Duration::from_secs(60)));
+  let layer = Sessions::with_codec(store, b"key", Arc::new(Plain), SessionConfig::default());
+  let opened = block_on(layer.open(None));
+  opened.cell.insert("who", Value::str("alice"));
+  let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+  assert!(cookie.contains("=plain:"), "the caller's codec wrote the cookie: {cookie}");
+
+  let header = cookie.split(';').next().unwrap().to_owned();
+  let back = block_on(layer.open(Some(&header)));
+  assert!(!back.fresh, "and read it back");
+  assert_eq!(back.cell.get("who"), Some(Value::str("alice")));
+}
+
+/// DEFECTS 3.7: the cookie header is RFC 6265, not a prefix match.
+#[test]
+fn a_cookie_is_read_by_name_unquoted_and_decoded() {
+  let layer = sessions();
+  let opened = block_on(layer.open(None));
+  opened.cell.insert("who", Value::str("alice"));
+  let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+  let value = cookie.split(';').next().unwrap().split_once('=').unwrap().1.to_owned();
+
+  for header in [
+    format!("sf_session={value}"),
+    format!("other=1; sf_session={value}; last=2"),
+    format!("sf_session=\"{value}\""),
+    format!("sf_session_old=junk; sf_session={value}"),
+    format!("sf_session={}", value.replace('.', "%2E")),
+  ] {
+    let back = block_on(layer.open(Some(&header)));
+    assert!(!back.fresh, "the session was not read from `{header}`");
+    assert_eq!(back.cell.get("who"), Some(Value::str("alice")));
+  }
+
+  let wrong = block_on(layer.open(Some(&format!("sf_session_old={value}"))));
+  assert!(wrong.fresh, "a longer name must not answer for this one");
 }

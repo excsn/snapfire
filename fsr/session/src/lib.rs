@@ -5,7 +5,7 @@ mod tokens;
 
 pub use codec::{CookieCodec, HmacCodec};
 pub use sessions::{Opened, SessionConfig, Sessions};
-pub use store::{MemorySessionStore, SessionRecord, SessionStore};
+pub use store::{MemorySessionStore, SessionRecord, SessionStore, StoreError};
 pub use tokens::TokenCell;
 
 use std::fmt;

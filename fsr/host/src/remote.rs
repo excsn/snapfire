@@ -13,7 +13,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
 use snapfire_fsr_runtime::{FailureKind, Identity, ServiceError};
 use snapfire_fsr_service::Services;
-use snapfire_fsr_session::{SessionId, SessionRecord, SessionStore};
+use snapfire_fsr_session::{SessionId, SessionRecord, SessionStore, StoreError};
 
 pub struct ServiceSessionStore {
   services: Arc<Services>,
@@ -114,24 +114,23 @@ impl SessionStore for ServiceSessionStore {
     })
   }
 
-  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, ()> {
+  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>> {
     let mut args = id_args(id);
     args.insert("record".to_owned(), Value::Str(encode_record(&record)));
     let call = self.call("putSession", args);
     Box::pin(async move {
-      if let Err(error) = call.await {
-        log::warn!("session store: putSession failed: {error}");
-      }
+      call.await.map(|_| ()).map_err(|error| StoreError::new(format!("putSession: {error}")))
     })
   }
 
-  fn delete(&self, id: &SessionId) -> BoxFuture<'_, ()> {
+  /// Deleting a record that is not there is what the caller asked for.
+  fn delete(&self, id: &SessionId) -> BoxFuture<'_, Result<(), StoreError>> {
     let call = self.call("deleteSession", id_args(id));
     Box::pin(async move {
-      if let Err(error) = call.await {
-        if error.kind != FailureKind::NotFound {
-          log::warn!("session store: deleteSession failed: {error}");
-        }
+      match call.await {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind == FailureKind::NotFound => Ok(()),
+        Err(error) => Err(StoreError::new(format!("deleteSession: {error}"))),
       }
     })
   }

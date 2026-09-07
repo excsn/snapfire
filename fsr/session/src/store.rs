@@ -13,10 +13,30 @@ pub struct SessionRecord {
   pub tokens: ValueMap,
 }
 
+/// Why a store could not write. A read has no error: a record that cannot be
+/// fetched is indistinguishable from one that was never there, and both mean
+/// the request carries on anonymous.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreError(pub String);
+
+impl StoreError {
+  pub fn new(message: impl Into<String>) -> Self {
+    Self(message.into())
+  }
+}
+
+impl std::fmt::Display for StoreError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.0)
+  }
+}
+
+impl std::error::Error for StoreError {}
+
 pub trait SessionStore: Send + Sync {
   fn load(&self, id: &SessionId) -> BoxFuture<'_, Option<SessionRecord>>;
-  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, ()>;
-  fn delete(&self, id: &SessionId) -> BoxFuture<'_, ()>;
+  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>>;
+  fn delete(&self, id: &SessionId) -> BoxFuture<'_, Result<(), StoreError>>;
 }
 
 pub struct MemorySessionStore {
@@ -61,13 +81,13 @@ impl SessionStore for MemorySessionStore {
     Box::pin(ready(record))
   }
 
-  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, ()> {
+  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>> {
     self.cache.insert(id.0.clone(), record, 1);
-    Box::pin(ready(()))
+    Box::pin(ready(Ok(())))
   }
 
-  fn delete(&self, id: &SessionId) -> BoxFuture<'_, ()> {
+  fn delete(&self, id: &SessionId) -> BoxFuture<'_, Result<(), StoreError>> {
     self.cache.invalidate(&id.0);
-    Box::pin(ready(()))
+    Box::pin(ready(Ok(())))
   }
 }
