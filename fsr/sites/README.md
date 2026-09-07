@@ -10,7 +10,7 @@ Where a mounted site's artifact comes from. The stock host knows how to mount a 
 
 ```toml
 [dependencies]
-snapfire_fsr_sites = { path = "../sites" }
+snapfire_fsr_sites = "0.5"
 ```
 
 ## What to reach for
@@ -21,7 +21,3 @@ snapfire_fsr_sites = { path = "../sites" }
 | See where each row of the table resolves and what it hashes to | `resolve` |
 | Hash an artifact the way the table pins it | `hash_dir` |
 | Reread the table on `SIGHUP` or a poll and reload the host when it moved | `watch`, `poll_of` |
-
-## Status
-
- `fsr serve` and `portal_react_ts` use it; the host it mounts into is `snapfire_fsr_host`. A site across a transport, a site in its own process the shell reaches by address, is not built.

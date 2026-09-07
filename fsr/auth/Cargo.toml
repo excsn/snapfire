@@ -2,10 +2,15 @@
 name = "snapfire_fsr_auth"
 version.workspace = true
 description = "Auth for SnapFire FSR: the IdentityProvider seam, flow state and the dev provider."
+keywords = ["snapfire", "fsr", "authentication", "identity", "oidc"]
+categories = ["web-programming", "authentication"]
+exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

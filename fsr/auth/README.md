@@ -10,13 +10,13 @@ Auth for SnapFire FSR: the front door of the session layer, covering how an anon
 
 ```toml
 [dependencies]
-snapfire_fsr_auth = { path = "../auth" }
-snapfire_fsr_core = { path = "../core" }
-snapfire_fsr_runtime = { path = "../runtime" }
-snapfire_fsr_session = { path = "../session" }
+snapfire_fsr_auth = "0.5"
+snapfire_fsr_core = "0.5"
+snapfire_fsr_runtime = "0.5"
+snapfire_fsr_session = "0.5"
 ```
 
-`snapfire_fsr_session` is not optional: `Auth` takes an `Opened` session on every call. No cargo features are defined; everything the crate exports is always compiled.
+`snapfire_fsr_session` is not optional: `Auth` takes an `Opened` session on every call.
 
 ## What to reach for
 
@@ -30,7 +30,3 @@ snapfire_fsr_session = { path = "../session" }
 | Give the browser a redirect plus state that must survive the round trip | `Begin` |
 | Hand back an identity plus the tokens the backend tier will need | `AuthOutcome` |
 | Turn a failed flow into an HTTP response | `AuthError::http_status` |
-
-## Status
-
-No compatibility is promised across versions; the API moves with the rest of FSR. `DevProvider` is the only provider that ships, so an application that needs a real identity source writes its own `IdentityProvider`. The stock host, `snapfire_fsr_host`, serves the flow endpoints over it from an `[auth]` section, with `DevProvider::from_toml` as the `file` provider; the `advanced_tera_app` example under `fsr/examples/` runs on that host with its own login route and logout form. It carries 5 integration tests in `tests/auth.rs`.

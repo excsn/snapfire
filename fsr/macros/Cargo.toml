@@ -3,8 +3,12 @@ name = "snapfire_fsr_macros"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 description = "Derives for SnapFire FSR: the native module attribute."
+keywords = ["snapfire", "fsr", "macro", "derive", "typescript"]
+categories = ["web-programming", "development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

@@ -22,22 +22,22 @@ const ALWAYS: &[&str] = &["@snapfire/fsr-authoring", "@snapfire/fsr-client"];
 /// The declarations the fsr packages carry, written by `fsr types` without a
 /// registry since the binary is the same version as the runtime they describe.
 const FSR_CLIENT: &[(&str, &str)] = &[
-  ("index.d.ts", include_str!("../../client/types/index.d.ts")),
-  ("actions.d.ts", include_str!("../../client/types/actions.d.ts")),
-  ("boot.d.ts", include_str!("../../client/types/boot.d.ts")),
-  ("locale.d.ts", include_str!("../../client/types/locale.d.ts")),
-  ("live.d.ts", include_str!("../../client/types/live.d.ts")),
-  ("socket.d.ts", include_str!("../../client/types/socket.d.ts")),
-  ("navigator.d.ts", include_str!("../../client/types/navigator.d.ts")),
-  ("react.d.ts", include_str!("../../client/types/react.d.ts")),
-  ("reader.d.ts", include_str!("../../client/types/reader.d.ts")),
-  ("render.d.ts", include_str!("../../client/types/render.d.ts")),
-  ("std.d.ts", include_str!("../../client/types/std.d.ts")),
-  ("store.d.ts", include_str!("../../client/types/store.d.ts")),
-  ("testing.d.ts", include_str!("../../client/types/testing.d.ts")),
-  ("values.d.ts", include_str!("../../client/types/values.d.ts")),
+  ("index.d.ts", include_str!("../embedded/client/index.d.ts")),
+  ("actions.d.ts", include_str!("../embedded/client/actions.d.ts")),
+  ("boot.d.ts", include_str!("../embedded/client/boot.d.ts")),
+  ("locale.d.ts", include_str!("../embedded/client/locale.d.ts")),
+  ("live.d.ts", include_str!("../embedded/client/live.d.ts")),
+  ("socket.d.ts", include_str!("../embedded/client/socket.d.ts")),
+  ("navigator.d.ts", include_str!("../embedded/client/navigator.d.ts")),
+  ("react.d.ts", include_str!("../embedded/client/react.d.ts")),
+  ("reader.d.ts", include_str!("../embedded/client/reader.d.ts")),
+  ("render.d.ts", include_str!("../embedded/client/render.d.ts")),
+  ("std.d.ts", include_str!("../embedded/client/std.d.ts")),
+  ("store.d.ts", include_str!("../embedded/client/store.d.ts")),
+  ("testing.d.ts", include_str!("../embedded/client/testing.d.ts")),
+  ("values.d.ts", include_str!("../embedded/client/values.d.ts")),
 ];
-const FSR_AUTHORING: &[(&str, &str)] = &[("index.d.ts", include_str!("../../authoring/index.d.ts"))];
+const FSR_AUTHORING: &[(&str, &str)] = &[("index.d.ts", include_str!("../embedded/authoring/index.d.ts"))];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TypedPackage {

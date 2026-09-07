@@ -2,10 +2,15 @@
 name = "snapfire_fsr"
 version.workspace = true
 description = "The SnapFire FSR application host: binds a plan file to the implementations that answer it."
+keywords = ["snapfire", "fsr", "fullstack", "routing", "ssr"]
+categories = ["web-programming::http-server"]
+exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

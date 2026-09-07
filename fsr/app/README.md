@@ -10,10 +10,10 @@ The binding rule of SnapFire FSR. A plan file names routes, data sources, action
 
 ```toml
 [dependencies]
-snapfire_fsr = { path = "../app" }
+snapfire_fsr = "0.5"
 ```
 
-No features. The crate depends on `snapfire_fsr_plan` to read the file, `snapfire_fsr_ir` to bind lowered rows, `snapfire_fsr_runtime` for the blocks it assembles and `snapfire_fsr_service` for the contract an action's input is checked against.
+It depends on `snapfire_fsr_plan` to read the file, `snapfire_fsr_ir` to bind lowered rows, `snapfire_fsr_runtime` for the blocks it assembles and `snapfire_fsr_service` for the contract an action's input is checked against.
 
 ## What to reach for
 
@@ -32,7 +32,3 @@ No features. The crate depends on `snapfire_fsr_plan` to read the file, `snapfir
 | Reach the services | `AppBuilder::services` |
 | Cache evaluated subtrees | `AppBuilder::cache` |
 | See who answers what | `App::report`, `Report`, `Owner` |
-
-## Status
-
- `snapfire_fsr_host` builds every stock host through it and `shopping_react_ts` runs on that, with one route added in Rust beside the plan file's three. The crate's 14 tests cover an unanswered source, an override that names nothing, the report, a route claimed twice, a replaced route, a pattern the matcher refuses, routes with no plan file, a bad manifest, the plan builder's numbering, a module the builder cannot parse, a hand-built node, a lowered row binding itself, Rust taking a lowered name back only as an override and an action override that names nothing.

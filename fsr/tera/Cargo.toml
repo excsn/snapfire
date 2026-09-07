@@ -2,10 +2,15 @@
 name = "snapfire_fsr_tera"
 version.workspace = true
 description = "Tera evaluator for SnapFire FSR: string rendering with marker-and-split islands and slots."
+keywords = ["snapfire", "fsr", "tera", "template", "ssr"]
+categories = ["web-programming", "template-engine"]
+exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

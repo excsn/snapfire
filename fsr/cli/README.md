@@ -12,7 +12,7 @@
 cargo install --path fsr/cli
 ```
 
-The crate has no Cargo features. It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
+It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
 
 ## What to reach for
 
@@ -34,7 +34,3 @@ The crate has no Cargo features. It depends on `snapfire_fsr_lower` for the reco
 | Build one team's application as a site another mounts under a path | a `[site]` section beside the app; `fsr serve` on the shell mounts its `[sites]` table |
 | Run the build from Rust | `build` and `write` |
 | Read what was discovered, imported and lowered | `Report` |
-
-## Status
-
- `shopping_react_ts` is built with it: its four loaders and three actions are TypeScript under `app/routes/`, typed by `generated/fsr.ts`. React, its JSX runtime, `react-dom/client` and sweetalert2 are vendored by `fsr add`; `@types/react`, `@types/react-dom`, their dependencies and sweetalert2's own declarations are fetched by `fsr types`. `tsc --strict` passes over the whole app against the generated `tsconfig.json`, with no `package.json` and no `node_modules`. Only `app/vendor/` is checked in; `app/plan.json`, `app/generated/`, the tsconfigs, `app/types/` and `app/dist/` are ignored; the crate's `build.rs` calls `emit` so `cargo build` produces a servable artifact with no step before or after it. The xwpm path is detection and delegation only; no example runs it. Per-route `loading.tsx` and `error.tsx` and a top-level `not-found.tsx` are read into the plan and the storefront's product route streams behind its `loading.tsx`; `layout.tsx` wraps the pages beneath it with `layout.loader.ts` as its loader, hydrated as an island the navigator keeps across a click; the storefront's header lives in one. A `slots/<name>/` beside a layout is a parallel segment the layout places, and a `page.<slot>.tsx` beside a page is the rendering a soft navigation opens in that slot; the storefront's promo strip and quick-look modal are those. A `route.ts` exporting `GET`, `POST`, `PUT`, `PATCH` or `DELETE` is a handler the host answers with JSON before any page is matched; the storefront's `/api/cart` is one. A `middleware.ts` at the top of the app runs before every request and continues, redirects, rewrites, responds or adds headers; the storefront's redirects `/basket` to `/cart`. `fsr prerender` renders the routes that read nothing of the request into files the host serves. `fsr serve` runs the stock host over an app whose configuration is beside it, and `fsr dev` falls back to it when no Cargo project wraps the app. `fsr test` runs the body tests and the page specs, building that host over the spec's mocks so a spec can load a route and click through it. Residue stops a build with the diagnostic, since no engine exists to run it.

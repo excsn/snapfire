@@ -10,15 +10,11 @@ The Tera evaluator for SnapFire FSR. It implements `snapfire_fsr_runtime::Evalua
 
 ```toml
 [dependencies]
-snapfire_fsr_tera = { path = "../tera" }
-snapfire_fsr_runtime = { path = "../runtime" }
-snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_tera = "0.5"
+snapfire_fsr_runtime = "0.5"
+snapfire_fsr_core = "0.5"
 tera = { version = "2", features = ["fast"] }
 ```
-
-| Feature | Effect |
-| --- | --- |
-| (none) | The crate declares no Cargo features. |
 
 A `Tera` instance is built by the application and handed over, so an application's own filters, functions and tests stay available inside every template this evaluator renders.
 
@@ -33,7 +29,3 @@ A `Tera` instance is built by the application and handed over, so an application
 | Leave a hole for a plan child's subtree | `slot(name="...")` in the template |
 | Place the document head the assembler computed | `head()` in the template |
 | Detect a marker token in a rendered string | `MARKER` |
-
-## Status
-
-no stability guarantee on any name here. `tests/tera.rs` covers the seam: chunk order, the three functions, props in both directions, and every way the split can refuse. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, whose 21 integration tests cover rendering, streaming, actions, sessions, auth and services through these templates.

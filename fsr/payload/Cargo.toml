@@ -2,10 +2,15 @@
 name = "snapfire_fsr_payload"
 version.workspace = true
 description = "Payload encodings for SnapFire FSR: the JSON pair and the HTML serializer."
+keywords = ["snapfire", "fsr", "serialization", "streaming", "wire"]
+categories = ["web-programming", "encoding"]
+exclude = ["tests", "benches"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

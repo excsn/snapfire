@@ -10,10 +10,10 @@ The lowered form of a loader or action body for SnapFire FSR plus the interprete
 
 ```toml
 [dependencies]
-snapfire_fsr_ir = { path = "../ir" }
+snapfire_fsr_ir = "0.5"
 ```
 
-The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `RequestCtx`, `ServiceHandle`, `SessionCell`, `FailureKind` and the `DataSource` and `ActionHandler` traits; it brings in `serde` and `serde_json` for the JSON form and `futures-util` for the parallel issue of independent calls.
+It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `RequestCtx`, `ServiceHandle`, `SessionCell`, `FailureKind` and the `DataSource` and `ActionHandler` traits; it brings in `serde` and `serde_json` for the JSON form and `futures-util` for the parallel issue of independent calls.
 
 ## What to reach for
 
@@ -29,7 +29,3 @@ The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value
 | See which session keys a body wrote | `Outcome::written` |
 | Map a failed body onto a status | `Fail::kind`, a `FailureKind` |
 | Find what a body reads or whether it calls | `Expr::free_vars`, `Expr::has_call` |
-
-## Status
-
-No stability guarantee on any signature here. The five bodies of the `shopping_react_ts` example, three loaders and two actions, are hand-written as IR in `tests/shopping.rs` and produce the values their Rust originals do; the same file covers JSON round trips, the session draft, guard ordering, parallel and dependent calls, `identity` and `now` reads and the two runtime adapters. `snapfire_fsr_lower` produces this form from TypeScript and `snapfire_fsr_cli` writes it into the plan file. `render.rs` prints a lowered component the way React's server renderer would, byte for byte and synchronously, which its tests pin against React's spellings.

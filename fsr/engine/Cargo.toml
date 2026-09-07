@@ -2,10 +2,14 @@
 name = "snapfire_fsr_engine"
 version.workspace = true
 description = "QuickJS in process for fsr test: a DOM, React and an application's pages, with actions answered by the interpreter."
+keywords = ["snapfire", "fsr", "quickjs", "testing", "dom"]
+categories = ["web-programming", "development-tools::testing"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

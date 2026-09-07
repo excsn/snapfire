@@ -2,10 +2,15 @@
 name = "snapfire_fsr_runtime"
 version.workspace = true
 description = "Request blocks for SnapFire FSR: matching, resolution, data sources, evaluation and assembly."
+keywords = ["snapfire", "fsr", "ssr", "streaming", "cache"]
+categories = ["web-programming::http-server"]
+exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

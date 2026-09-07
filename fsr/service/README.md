@@ -12,7 +12,7 @@ The contract is a neutral data artifact speaking the FSR value model. Neither Ru
 
 ```toml
 [dependencies]
-snapfire_fsr_service = { path = "../service" }
+snapfire_fsr_service = "0.5"
 ```
 
 One cargo feature, `grpc`, adds `import_proto` and `GrpcTransport` with protox, prost-reflect and tonic behind them; everything else is always compiled. The crate depends on `snapfire_fsr_core` for the value model, `snapfire_fsr_payload` for the JSON pair, `snapfire_fsr_runtime` for the `ServiceHandle` seam it fills and `snapfire_fsr_session` for `TokenCell`.
@@ -39,7 +39,3 @@ One cargo feature, `grpc`, adds `import_proto` and `GrpcTransport` with protox, 
 | Run the whole application with no backend | `MockTransport` |
 | Hold a token application code cannot read | `Credentials`, `TokenCell` |
 | Print the contract as server-side TypeScript declarations | `typescript::declarations` |
-
-## Status
-
-with no stability guarantee on any name here. The layer is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which declares a `fleet` contract, serves it from a `LocalTransport` and calls it from both a loader and an action. `shopping_react_ts` imports an OpenAPI document and a `.proto` and reaches an HTTP service and a gRPC service through the same registry. The crate carries 29 integration tests, 3 of them over the proto importer and the message conversions behind `grpc`, plus: 10 over the contract and its checking; 11 over the registry with its interceptor chain, its local transport and its mock transport; 5 driving `HttpTransport` against a real socket.

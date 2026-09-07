@@ -10,10 +10,10 @@ The session layer for SnapFire FSR: it opens a request's session from the `Cooki
 
 ```toml
 [dependencies]
-snapfire_fsr_session = { path = "../session" }
+snapfire_fsr_session = "0.5"
 ```
 
-The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `SessionCell` and `Identity`; it brings in `fibre_cache` for the in-process store, `hmac` and `sha2` for cookie signing, `rand` for id generation and `parking_lot` for the token cell's lock.
+It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `SessionCell` and `Identity`; it brings in `fibre_cache` for the in-process store, `hmac` and `sha2` for cookie signing, `rand` for id generation and `parking_lot` for the token cell's lock.
 
 ## What to reach for
 
@@ -32,7 +32,3 @@ The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value
 | Keep sessions in Redis, Postgres or anything else | implement `SessionStore` |
 | Sign and verify the cookie value | `HmacCodec` or your own `CookieCodec` |
 | Name the thing the cookie carries | `SessionId` |
-
-## Status
-
-No stability guarantee on any signature here. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which wires it into an actix-web adapter alongside `snapfire_fsr_auth` and `snapfire_fsr_service`. The crate carries nine integration tests in `tests/session.rs` covering the cookie round trip, tamper rejection, the clean-fresh-session case, identity persistence, destroy, CSRF binding, token custody and store tuning.

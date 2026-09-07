@@ -66,7 +66,3 @@ Serve the resulting `dist/` under the same prefix passed to `--public-path`, the
 | Parse a whole payload response yourself | `parsePayload` |
 | Parse a single node row | `decodeNode` |
 | Turn a decoded node back into HTML | `nodeToHtml`, `renderSegment` |
-
-## Status
-
- It has no package manifest: consumers point an import map at the built `dist/`, which is how the examples under `fsr/examples/` serve it. `types/` holds the declarations snapfirec emits for `dist/`, checked in so `fsr types` can embed them and write them into an application's `types/@snapfire/fsr-client/` without a registry; copy `dist/*.d.ts` over it after a change to `src/`. Its own specs live under that example, `app/tests/client/`, run by `fsr test` beside the page specs, since that app vendors React and serves this package: the value round trips, the payload reader and renderer, the island scan and an action failure. The example's Rust tests pin the HTML markers, the wire rows, the segment sidecar and the action responses this code reads, and its navigation spec drives `enableNavigation` end to end. No API or wire compatibility guarantee is offered yet; the format number the reader reports is `FORMAT_VERSION` 1 from `snapfire_fsr_payload`.

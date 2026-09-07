@@ -2,10 +2,15 @@
 name = "snapfire_fsr_core"
 version.workspace = true
 description = "Vocabulary types for SnapFire FSR: the payload tree, the render plan and the value model."
+keywords = ["snapfire", "fsr", "payload", "render", "value"]
+categories = ["web-programming", "data-structures"]
+exclude = ["tests", "benches"]
 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]

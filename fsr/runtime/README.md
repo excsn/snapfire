@@ -23,11 +23,9 @@ Data resolves before rendering starts and deferral is declared in the plan rathe
 
 ```toml
 [dependencies]
-snapfire_fsr_runtime = { path = "../runtime" }
-snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_runtime = "0.5"
+snapfire_fsr_core = "0.5"
 ```
-
-The crate has no cargo features. Everything below is always compiled.
 
 | Dependency it pulls in | Why |
 | :--- | :--- |
@@ -61,7 +59,3 @@ The crate has no cargo features. Everything below is always compiled.
 | Say what kind of failure it was | `FailureKind`, `FailureKind::http_status` |
 | Stream the first HTML response | `html_stream`, `FILL_SCRIPT` |
 | Stream a client navigation payload | `wire_stream`, `segments_to_json` |
-
-## Status
-
-The public surface is not stable. It carries 20 integration tests across `tests/assembler.rs`, `tests/cache.rs`, `tests/failure.rs` and `tests/streaming.rs`. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which serves matched routes, a cached page, a deferred chart and a service-backed action off this crate.

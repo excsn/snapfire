@@ -10,10 +10,10 @@ The recogniser for SnapFire FSR. It reads a TypeScript loader or actions module 
 
 ```toml
 [dependencies]
-snapfire_fsr_lower = { path = "../lower" }
+snapfire_fsr_lower = "0.5"
 ```
 
-The crate has no Cargo features. It depends on `snapfire_fsr_ir` for the tree it produces, on `snapfire_fsr_service` for the contract types a schema becomes and on `swc_core` with `common`, `ecma_ast` and `ecma_parser` for parsing.
+It depends on `snapfire_fsr_ir` for the tree it produces, on `snapfire_fsr_service` for the contract types a schema becomes and on `swc_core` with `common`, `ecma_ast` and `ecma_parser` for parsing.
 
 ## What to reach for
 
@@ -27,7 +27,3 @@ The crate has no Cargo features. It depends on `snapfire_fsr_ir` for the tree it
 | Lower with defaults folded into session reads | `lower_loader_with`, `lower_actions_with` |
 | Tell residue from a parse error or a missing export | `LowerError` |
 | Print where a body stopped being IR | `Residue` and its `Display` |
-
-## Status
-
-No stability guarantee on any signature here. The five bodies of the `shopping_react_ts` example lower to exactly the IR the interpreter's own tests hand-write, which `tests/shopping.rs` asserts, alongside residue cases for an unfollowable import, `try`, a lambda with statements and a write outside the session. The `fsr` binary in `snapfire_fsr_cli` is the only caller.

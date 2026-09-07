@@ -10,10 +10,10 @@ The encoding layer of SnapFire FSR. It turns the `Value` and `Node` vocabulary o
 
 ```toml
 [dependencies]
-snapfire_fsr_payload = { path = "../payload" }
+snapfire_fsr_payload = "0.5"
 ```
 
-The crate declares no Cargo features. `serde_json` is pulled in with `preserve_order`, so the key order of a `ValueMap` survives encoding. `base64` carries the standard alphabet used for bytes and typed arrays.
+`serde_json` is pulled in with `preserve_order`, so the key order of a `ValueMap` survives encoding. `base64` carries the standard alphabet used for bytes and typed arrays.
 
 ## What to reach for
 
@@ -28,7 +28,3 @@ The crate declares no Cargo features. `serde_json` is pulled in with `preserve_o
 | Write a complete non-streamed page in the wire format | `serialize_page` |
 | State which wire format a reader is being handed | `FORMAT_VERSION` |
 | Say why a decode failed | `DecodeError` |
-
-## Status
-
-`snapfire_fsr_runtime` builds both the streamed HTML response and the streamed wire response on top of it, which is how the `advanced_tera_app` example under `fsr/examples/` exercises it end to end. The crate carries 16 integration tests: 7 golden tests pinning the exact HTML and wire bytes plus 9 round trip tests over the value model. A `criterion` bench under `benches/encode.rs` covers value encoding, wire pages and HTML pages. No stability guarantee is offered on the encodings yet, but `FORMAT_VERSION` names the one currently emitted.

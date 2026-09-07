@@ -10,7 +10,7 @@ The stock host for SnapFire FSR. It reads `config/` through c5store, so files la
 
 ```toml
 [dependencies]
-snapfire_fsr_host = { path = "../host" }
+snapfire_fsr_host = "0.5"
 ```
 
 | Feature | Adds |
@@ -46,7 +46,3 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | See what was bound and served | `Host::report` |
 
 | Serve a team's application under a path of yours, from its build output, one session and one navigation across both | `HostBuilder::mount` and `Mount`, or `snapfire_fsr_sites` over a `[sites]` table |
-
-## Status
-
- `shopping_react_ts` runs on it through the actix shim, one binary serving the shopping backend and the host. Its 17 storefront tests build the host over a mock transport. The crate's own tests cover the shell and head, params and query reaching a lowered loader, the edge with static files, actions, cookies and both render modes, hyper over a bound listener, the tower service directly, axum nesting under a prefix and the configuration's refusals. Configuration is c5store over a fixed ladder: `config/app.toml`, then the `RELEASE_ENV`, `APP_ENV` and `APP_REGION` overlays, then the environment; the tests cover the ladder's order, an extra file, an environment override and inference of the bundle's route, the entry, the import map, `vendor/`, `styles/` and each client's document. Only the in-memory session store is wired; `session.store` names anything else and the host refuses to start.

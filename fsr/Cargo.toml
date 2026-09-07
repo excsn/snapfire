@@ -28,6 +28,8 @@ version = "0.5.0"
 edition = "2024"
 license = "MPL-2.0"
 authors = ["Norm O <normo.pub@gmail.com>"]
+homepage = "https://github.com/excsn/snapfire"
+repository = "https://github.com/excsn/snapfire"
 
 # Every crate here is published together at one version, so a release moves
 # this block and the `version` above, and nothing else.

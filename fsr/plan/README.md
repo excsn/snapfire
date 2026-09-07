@@ -10,10 +10,10 @@ The plan file for SnapFire FSR: `generated/plan.json`, the artifact `fsr build` 
 
 ```toml
 [dependencies]
-snapfire_fsr_plan = { path = "../plan" }
+snapfire_fsr_plan = "0.5"
 ```
 
-No features. The crate depends on `snapfire_fsr_core` for the vocabulary types, `snapfire_fsr_ir` for the lowered bodies and `serde_json` with `preserve_order`, so a file reads back in the order it was written.
+It depends on `snapfire_fsr_core` for the vocabulary types, `snapfire_fsr_ir` for the lowered bodies and `serde_json` with `preserve_order`, so a file reads back in the order it was written.
 
 ## What to reach for
 
@@ -28,7 +28,3 @@ No features. The crate depends on `snapfire_fsr_core` for the vocabulary types, 
 | Pick out the rows that carry a body | `Manifest::lowered_sources`, `Manifest::lowered_actions` |
 | Say who answers a row | `RowOwner`, `SourceEntry::lowered`, `SourceEntry::rust`, `ActionEntry::lowered`, `ActionEntry::rust` |
 | Name the type an action's input is checked against | `ActionEntry::with_input` |
-
-## Status
-
- Format 2 is current and a format 1 file, with bare action ids and no `sources` table, still reads. `fsr build` writes the file and `snapfire_fsr` reads it through `App::from_manifest`; `shopping_react_ts` is built and served that way. The crate's 12 tests cover the round trip, absent fields staying absent, the source and module lists, the version check, the module id and duplicate refusals, a hand-written file, a format 1 file and lowered rows with and without a body.

@@ -12,10 +12,8 @@ The value model is sovereign: it decides what can exist; encodings are ranked pr
 
 ```toml
 [dependencies]
-snapfire_fsr_core = { path = "../core" }
+snapfire_fsr_core = "0.5"
 ```
-
-The crate has no Cargo features. It compiles with two dependencies and no optional surface.
 
 | Dependency | Why |
 | :--- | :--- |
@@ -42,7 +40,3 @@ The crate has no Cargo features. It compiles with two dependencies and no option
 | Name the loader a segment waits on | `PlanNode::data_source` |
 | Get a stable content hash for a cache key | `Fingerprint::fingerprint` |
 | Decide whether two values mean the same thing | Compare fingerprints, not `PartialEq` |
-
-## Status
-
-The API is not stable and carries no compatibility guarantee. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/` and carries 19 tests of its own: `tests/vocabulary.rs` pins the fingerprint's canonical rules and `ModuleId` parsing, `tests/walk_fixtures.rs` pins the two hand-walked pages as literal `Node` and `PlanNode` values. `benches/fingerprint.rs` measures hashing a page tree and a nested map under criterion.
