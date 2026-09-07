@@ -9,8 +9,10 @@ export interface IslandProps {
 	mode?: "server";
 	children?: ReactNode;
 }
-/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here. */
-export declare function Island({ when, mode }: IslandProps): ReactElement;
+/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
+*
+* The region is claimed once, by the key the build splices in, and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it, or renders its child inline when no payload describes one. */
+export declare function Island({ when, mode, children }: IslandProps): ReactElement;
 /** `component` as a component that places it as an island with `options.when` and `options.mode` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
 export declare function island<P extends object>(component: ComponentType<P>, options?: {
 	when?: MountTiming;
@@ -57,6 +59,8 @@ export interface HoistReader {
 	c(id: number, hit: (html: {
 		__html: string;
 	}) => ReactElement, miss: () => ReactElement): ReactElement;
+	/** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists, and marked `i`. */
+	k(id: number): string;
 }
 /** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops, the callers' loops first. */
 export declare function useHoisted(module: string): HoistReader;

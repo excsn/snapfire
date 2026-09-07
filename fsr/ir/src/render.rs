@@ -83,11 +83,19 @@ pub struct RenderedIsland {
   /// The values the component's state `let`s took, for a server-mode island
   /// to carry to the browser as `$s`.
   pub state: ValueMap,
+  /// The region this placement owns, keyed as `Hoists::key` keys a hoist: the
+  /// enclosing component's module, the placement's id and the loop path. The
+  /// browser derives the same string, which is how a re-render pairs an
+  /// island with the payload that describes it.
+  pub key: String,
   pub body: Rendered,
 }
 
 /// The props key a server-mode island's initial state rides under.
 pub const STATE_PROP: &str = "$s";
+
+/// The props key an island's region key rides under.
+pub const KEY_PROP: &str = "$k";
 
 impl RenderedIsland {
   /// The props the browser mounts the island with: its own plus `$h` when
@@ -99,6 +107,9 @@ impl RenderedIsland {
     }
     if self.mode.as_deref() == Some(SERVER_MODE) {
       props.insert(STATE_PROP.to_owned(), Value::Map(self.state.clone()));
+    }
+    if !self.key.is_empty() {
+      props.insert(KEY_PROP.to_owned(), Value::Str(self.key.clone()));
     }
     props
   }
@@ -422,7 +433,7 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       render(env, then, library, slots, out)?;
       env.scope.truncate(depth);
     }
-    Tmpl::Component { module, props, children } => {
+    Tmpl::Component { module, props, children, .. } => {
       let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
       let mut map = ValueMap::new();
       for (name, value) in entries(env, props, false)? {
@@ -439,8 +450,9 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       env.scope.truncate(depth);
       result?;
     }
-    Tmpl::Island { module, props, children, when, mode } => {
+    Tmpl::Island { module, props, children, when, mode, id } => {
       let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+      let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
       let mut map = ValueMap::new();
       for (name, value) in entries(env, props, false)? {
         if name != "children" {
@@ -461,7 +473,7 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       env.scope.truncate(depth);
       result?;
       let index = out.islands.len();
-      out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
+      out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
       out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     }
     Tmpl::Slot(name) => {
@@ -691,7 +703,7 @@ mod tests {
     );
     let page = Component {
       body: Vec::new(),
-      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new() }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new()
+      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0 }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new()
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
     let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap().html;
@@ -708,7 +720,7 @@ mod tests {
         render: Tmpl::Element {
           tag: "main".to_owned(),
           attrs: vec![Entry::Field("class".to_owned(), p("className"))],
-          children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] }],
+          children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())], id: 0 }],
         }, state: Vec::new(), handlers: Vec::new()
       }),
     );
@@ -726,6 +738,7 @@ mod tests {
           params: vec!["it".to_owned()],
           body: Box::new(Tmpl::Element { tag: "p".to_owned(), attrs: vec![Entry::Spread(Expr::var("it").field("attrs")), Entry::Field("class".to_owned(), Expr::lit_str("item"))], children: vec![Tmpl::Expr(Expr::var("it").field("name")), Tmpl::Text(" for ".to_owned()), Tmpl::Expr(p("title"))] }),
         }],
+        id: 0,
       }, state: Vec::new(), handlers: Vec::new()
     };
     let mut attrs = ValueMap::new();
@@ -763,7 +776,7 @@ mod tests {
       body: vec![Stmt::Let { name: "n".to_owned(), expr: read }],
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(Expr::var("n")),
-        Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new() },
+        Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), id: 0 },
       ]), state: Vec::new(), handlers: Vec::new()
     };
     let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
@@ -862,7 +875,7 @@ mod hoist_tests {
       "src/ui/Price.tsx#Price".to_owned(),
       Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), handlers: Vec::new() }),
     );
-    let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new() };
+    let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new(), id: 0 };
     let page = Component {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
@@ -921,7 +934,7 @@ mod hoist_tests {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(1.0))))),
-        Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None },
+        Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9 },
       ]), state: Vec::new(), handlers: Vec::new()
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::new(), &library).unwrap();
@@ -959,7 +972,7 @@ mod server_tests {
   fn handler_markers_and_keys_print_only_in_server_mode() {
     let mut library = Components::new();
     library.insert("src/ui/Help.tsx#Help".to_owned(), Arc::new(help()));
-    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned) }, state: Vec::new(), handlers: Vec::new() };
+    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9 }, state: Vec::new(), handlers: Vec::new() };
     let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::new(), &library).unwrap();
     assert_eq!(browser.islands[0].body.html, "<section>order 7<button>Show</button></section>");
     assert!(browser.islands[0].mode.is_none() && !browser.islands[0].mount_props().contains_key(STATE_PROP));
@@ -969,7 +982,7 @@ mod server_tests {
     let props = server.islands[0].mount_props();
     assert_eq!(props.get(STATE_PROP), Some(&Value::Map(ValueMap::from_iter([("open".to_owned(), Value::Bool(false))]))), "{props:?}");
     let nodes = crate::bind::rendered_nodes(&server);
-    assert_eq!(nodes[0], snapfire_fsr_core::Node::raw("<sf-s data-sf-island data-sf-mode=\"server\">"));
+    assert_eq!(nodes[0], snapfire_fsr_core::Node::raw("<sf-s data-sf-island data-sf-region=\"page|i9\" data-sf-mode=\"server\">"));
   }
 
   #[test]
@@ -1000,6 +1013,37 @@ mod island_tests {
   use snapfire_fsr_core::Node;
 
   #[test]
+  fn a_placement_in_a_loop_keys_its_region_under_its_iteration() {
+    let mut library = Components::new();
+    library.insert(
+      "src/ui/Body.tsx#Body".to_owned(),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), handlers: Vec::new() }),
+    );
+    let page = Component {
+      body: Vec::new(),
+      render: Tmpl::For {
+        over: Expr::var("$props").field("blips"),
+        params: vec!["blip".to_owned()],
+        body: Box::new(Tmpl::Island { module: "src/ui/Body.tsx#Body".to_owned(), props: vec![Entry::Field("text".to_owned(), Expr::var("blip"))], children: Vec::new(), when: None, mode: None, id: 1 }),
+      },
+      state: Vec::new(),
+      handlers: Vec::new(),
+    };
+    let mut props = ValueMap::new();
+    props.insert("blips".to_owned(), Value::Seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &props, &library).unwrap();
+    let keys: Vec<&str> = rendered.islands.iter().map(|i| i.key.as_str()).collect();
+    assert_eq!(keys, ["routes/w/page.tsx#default|i1@0", "routes/w/page.tsx#default|i1@1", "routes/w/page.tsx#default|i1@2"], "one placement in a loop is one region per iteration");
+    assert_eq!(rendered.islands[1].mount_props().get(KEY_PROP), Some(&Value::str("routes/w/page.tsx#default|i1@1")), "the key rides in the props the browser mounts with");
+    let nodes = rendered_nodes(&rendered);
+    let marked: Vec<&str> = nodes.iter().filter_map(|n| match n {
+      Node::Raw(html) if html.0.starts_with("<sf-s data-sf-island") => Some(html.0.as_str()),
+      _ => None,
+    }).collect();
+    assert_eq!(marked, ["<sf-s data-sf-island data-sf-region=\"routes/w/page.tsx#default|i1@0\">", "<sf-s data-sf-island data-sf-region=\"routes/w/page.tsx#default|i1@1\">", "<sf-s data-sf-island data-sf-region=\"routes/w/page.tsx#default|i1@2\">"]);
+  }
+
+  #[test]
   fn an_island_renders_apart_and_binds_as_a_nested_client_node_in_a_region() {
     let mut library = Components::new();
     library.insert(
@@ -1013,7 +1057,7 @@ mod island_tests {
         attrs: Vec::new(),
         children: vec![
           Tmpl::Text("before".to_owned()),
-          Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None },
+          Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 9 },
           Tmpl::Text("after".to_owned()),
         ],
       }, state: Vec::new(), handlers: Vec::new()
@@ -1029,7 +1073,7 @@ mod island_tests {
     let nodes = rendered_nodes(&rendered);
     assert_eq!(nodes.len(), 5, "{nodes:?}");
     assert_eq!(nodes[0], Node::raw("<main>before"));
-    assert_eq!(nodes[1], Node::raw("<sf-s data-sf-island data-sf-when=\"visible\">"));
+    assert_eq!(nodes[1], Node::raw("<sf-s data-sf-island data-sf-region=\"|i9\" data-sf-when=\"visible\">"));
     let Node::Client { module, props: island_props, ssr: Some(body), .. } = &nodes[2] else { panic!("{:?}", nodes[2]) };
     assert_eq!(module.to_string(), "src/ui/Help.tsx#Help");
     assert_eq!(island_props.get("id"), Some(&Value::int(7i64)));

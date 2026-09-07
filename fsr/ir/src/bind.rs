@@ -14,7 +14,9 @@ use crate::render::{Components, Rendered, HOISTED_PROP, ISLAND_MARK, SLOT_MARK};
 /// `<sf-s data-sf-island>` wrapper the outer root adopts and never
 /// reconciles, holding a nested client node whose body is the island's own
 /// markup, islands inside it included. `when` rides on the wrapper as
-/// `data-sf-when`, which the boot runtime reads over the registry's timing.
+/// `data-sf-when`, which the boot runtime reads over the registry's timing,
+/// and the region key as `data-sf-region`, which is how hydration pairs each
+/// region with the `Island` that claims it.
 pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
   let mut out = Vec::new();
   let mut rest = rendered.html.as_str();
@@ -34,6 +36,9 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     let island = &rendered.islands[index];
     let module: ModuleId = island.module.parse().unwrap_or_else(|_| ModuleId::new(island.module.clone(), "default"));
     let mut open = String::from("<sf-s data-sf-island");
+    if !island.key.is_empty() {
+      open.push_str(&format!(" data-sf-region=\"{}\"", island.key));
+    }
     if let Some(when) = &island.when {
       open.push_str(&format!(" data-sf-when=\"{when}\""));
     }

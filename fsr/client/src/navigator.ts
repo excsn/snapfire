@@ -1,7 +1,7 @@
-import { loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
-import { escapeKey, nodeToHtml, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
+import { escapeKey, nodeToHtml, regionSources, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
 import { seed, transaction } from "./store.js";
 import { SfValue } from "./values.js";
 
@@ -145,7 +145,7 @@ function islandOf(region: Region): { el: Element; script: Element | null } | nul
   return null;
 }
 
-/** Hands a kept island the props the new payload carries, so it re-renders in place with its DOM and its state. Its props script is rewritten for the next mount. */
+/** Hands a kept island the props the new payload carries, so it re-renders in place with its DOM and its state, and the regions the payload describes inside it, so the islands nested under it follow. Its props script is rewritten for the next mount. */
 function patchProps(region: Region, node: SfNode): void {
   if (node.kind !== "client") return;
   const island = islandOf(region);
@@ -153,7 +153,7 @@ function patchProps(region: Region, node: SfNode): void {
   const json = scriptSafeJson(node.props);
   if (island.script?.textContent === json) return;
   if (island.script) island.script.textContent = json;
-  void patchIsland(island.el, node.props);
+  void patchIsland(island.el, node.props, regionSources(node, ids));
 }
 
 /** Walks old and new segment spines together; the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied, and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
@@ -263,12 +263,13 @@ interface Eager {
   locale: string | null;
   catalog: { [key: string]: string } | null;
   entry: string | null;
+  styles: string[];
 }
 
 /** Reads rows up to and including the sidecar, stepping the generator by hand so it stays open for the rows after. Null when the rows end first, or when a resolution arrives before it. */
 async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
   let tree: SfNode | null = null;
-  const eager: Omit<Eager, "tree" | "segments"> = { heads: [], seeds: [], locale: null, catalog: null, entry: null };
+  const eager: Omit<Eager, "tree" | "segments"> = { heads: [], seeds: [], locale: null, catalog: null, entry: null, styles: [] };
   for (;;) {
     const { done, value: line } = await rows.next();
     if (done) return null;
@@ -290,6 +291,9 @@ async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
         break;
       case "E":
         eager.entry = row.entry;
+        break;
+      case "C":
+        eager.styles = row.styles;
         break;
       case "D":
         eager.catalog = row.catalog;
@@ -555,6 +559,10 @@ export async function refresh(): Promise<void> {
   const rows = feed.read();
   const eager = await eagerOf(rows).catch(() => null);
   if (gen !== generation) return;
+  // Before the swap, so the response's own stylesheets are in the document by
+  // the time its markup is, and the browser never paints it unstyled.
+  if (eager) await applyStyles(eager.styles);
+  if (gen !== generation) return;
   if (!eager || !patch(eager, true)) return bail();
   await drain(rows, eager.segments, gen);
 }
@@ -579,6 +587,8 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   }
   const rows = feed.read();
   const eager = await eagerOf(rows).catch(() => null);
+  if (gen !== generation) return;
+  if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager || !patch(eager, false)) {
     window.location.assign(href);

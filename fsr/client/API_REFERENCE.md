@@ -27,6 +27,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 * [4. Rendering](#4-rendering)
   * [nodeToHtml](#nodetohtml)
   * [renderSegment](#rendersegment)
+  * [regionSources](#regionsources)
 * [5. Islands](#5-islands)
   * [Props](#props)
   * [Mounter](#mounter)
@@ -37,6 +38,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [loadEntry](#loadentry)
   * [boot](#boot)
   * [patchIsland](#patchisland)
+  * [islandState](#islandstate)
   * [DOM Contract](#dom-contract)
   * [isServerIsland](#isserverisland)
   * [morph](#morph)
@@ -305,6 +307,15 @@ The allocator is mutated in place, one increment per island. Ids are `sf-c0`, `s
 
 Serialises a segment's subtree wrapped in `<!--sf-g:key-->` and `<!--/sf-g-->`, recursing into child segments at their sidecar positions and calling `nodeToHtml` for everything else. Slot-addressed children are skipped, since their DOM region is the `data-sf-slot` element. `%` becomes `%25` and `-` becomes `%2D` in the key, so a key can never contain `--` and close the comment. Throws when a segment path walks through a node that is not a `seq`.
 
+### regionSources
+
+* `regionSources(node: SfNode, ids: { next: number }): Map<string, RegionSource>`
+* `interface RegionSource { props: { [key: string]: SfValue }; html: string; nested: Map<string, RegionSource> }`
+
+What a payload says about the island regions inside `node`, keyed by the `$k` each client node carries, which is the string the server wrote as `data-sf-region`. A client node is descended into rather than collected, since an island's regions live in its own body, and each entry carries the regions inside itself under `nested`. `html` is that island's own markup from `nodeToHtml`, for a region that does not exist in the DOM yet.
+
+The navigator builds this from the segment's node and hands it to `patchIsland`, which is how the islands nested under a patched one are reached.
+
 ## 5. Islands
 
 Registration, timing and the scan that mounts markers.
@@ -365,9 +376,17 @@ Scans the whole document, immediately when the DOM is past `loading` and on `DOM
 
 ### patchIsland
 
-* `patchIsland(el: Element, props: Props): Promise<boolean>`
+* `patchIsland(el: Element, props: Props, regions?: unknown): Promise<boolean>`
 
 Re-renders the island mounted at `el` with `props`, in place, through the entry's `patch`; the DOM and the island's state survive. Resolves false when nothing is mounted there, the mount failed or the entry has no patcher.
+
+`regions` is what the payload behind this patch says about the islands inside this one, opaque here and read back by the adapter through `islandState`. Without it the islands nested under a patched one keep the props their own props scripts carried.
+
+### islandState
+
+* `function islandState(el: Element): { props: Props; regions: unknown } | null`
+
+The props the island at `el` last mounted or patched with, and the regions the last patch carried. Null when nothing is mounted there.
 
 * `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
 
@@ -386,7 +405,7 @@ What the server writes and this package reads.
 | `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment`, the fill of a streamed segment | `navigate`, `refresh` |
 | `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
 | `<sf-s data-sf-name="…">` | a layout's markup, around a named slot: a parallel segment or the region an intercept opens in, empty when nothing fills it | `Slot` and `reactMounter`, which adopt it; `navigate`, which fills and empties it |
-| `<sf-s data-sf-island data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which adopts it; `scan`, which reads the timing |
+| `<sf-s data-sf-island data-sf-region="…" data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which claims it by its region key and adopts it; `scan`, which reads the timing |
 | `<sf-s data-sf-island data-sf-mode="server">` | the same region for an island in server mode | `scan`, which mounts the `sf-i` inside through `mountServer` and never through the registry |
 | `data-sf-on="click:0 change:1"` | the renderer, on an element of a server-mode island that binds handlers | `mountServer`, which delegates those event types on the island |
 | `data-sf-key` | the renderer, from an element's `key`, in server mode only | `morph`, which moves a keyed element rather than recreating it |
@@ -446,7 +465,7 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago, or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given and `x-sf-into` set to `into`. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default), the current path is moved to the target, then the window scrolls to the top unless the payload was an intercept, which opens in place; each `S` row after it fills its slot and rescans, each `H` row retitles and each `T` row seeds, and the promise resolves once the last row has been applied. A feed that ends before `G`, or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document, and the rows still arriving for this one stop applying.
 
-Applying walks the old and new segment spines together. The first key mismatch replaces that region from the new payload. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten. A child the old side had and the new side lacks is emptied, delimiters included, and its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
+Applying walks the old and new segment spines together. The first key mismatch replaces that region from the new payload. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included, and its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
 
 ### refresh
 
@@ -652,14 +671,18 @@ The reader the build binds at the top of every component it rewrote, keyed under
 
 `element` under `table`, the way the mounter places an island under the table its props carried. `null` makes every read compute. The testing module's `render` uses it with the table the server render produced.
 
-The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, in document order, which each `Island` rendered under this root takes in turn. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
+The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, by the `data-sf-region` key each carries, which is how an `Island` rendered under this root finds its own. The provider is built once per root and kept, and it carries what the payload behind the current patch says about those regions, taken from `islandState`. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
 
 ### Island
 
 * `function Island({ when, mode, children }: IslandProps): ReactElement`
 * `interface IslandProps { when?: MountTiming; mode?: "server"; children?: ReactNode }`; `mode` rides as `data-sf-mode`, and `island(component, { when, mode })` takes the same.
 
-Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-when` when `when` is given, and its own props script; the child is never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the next region under the root already holds and `suppressHydrationWarning`, taken once per instance from the mounter's regions, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Mounted fresh with no server markup it renders an empty region.
+Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-region` naming the placement, `data-sf-when` when `when` is given, and its own props script; the child is never rendered by this element.
+
+In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` and `suppressHydrationWarning`, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Which region it renders is settled once, on the placement's first render, and the claim is consuming: a region belongs to the placement that took it for as long as that placement lives, so a placement the parent added later can never take one another is already showing. The build splices the region key onto the placement as `__sfKey`, which this element lifts off the child before the child sees its props.
+
+After every render it reconciles what it owns. A mounted root takes the props the parent just computed, plus the `$h` the last payload gave it. A placement with no region takes its markup from the payload behind the current patch, which `scan` then mounts. A placement with neither renders its child inline, in the parent's own root, which is what a placement created by browser state alone gets.
 
 ### island(component, options)
 

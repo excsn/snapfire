@@ -22,6 +22,10 @@ interface Mounted {
   entry: IslandEntry;
   moduleId: string;
   handle: Promise<unknown>;
+  /** The props the island last mounted or patched with. */
+  props: Props;
+  /** What the payload behind the last patch said about the regions inside this island, for the adapter to hand its nested islands. */
+  regions: unknown;
 }
 
 const mounted = new WeakMap<Element, Mounted>();
@@ -52,17 +56,25 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
       console.warn(`sf: mounting ${moduleId} failed`, err);
       return undefined;
     });
-  mounted.set(el, { entry, moduleId, handle });
+  mounted.set(el, { entry, moduleId, handle, props, regions: null });
 }
 
-/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. False when nothing is mounted there or the island's entry has no patcher. */
-export async function patchIsland(el: Element, props: Props): Promise<boolean> {
+/** The props an island last took and the regions the last payload described inside it, for an adapter placing its nested islands. Null when nothing is mounted at `el`. */
+export function islandState(el: Element): { props: Props; regions: unknown } | null {
+  const island = mounted.get(el);
+  return island ? { props: island.props, regions: island.regions } : null;
+}
+
+/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it, which the adapter reads back through `islandState`. False when nothing is mounted there or the island's entry has no patcher. */
+export async function patchIsland(el: Element, props: Props, regions: unknown = null): Promise<boolean> {
   if (isServerIsland(el)) return patchServer(el, props);
   const island = mounted.get(el);
   if (!island?.entry.patch) return false;
   const handle = await island.handle;
   if (handle === undefined) return false;
   const mod = await island.entry.loader();
+  island.props = props;
+  island.regions = regions;
   island.entry.patch(handle, mod, props, el);
   return true;
 }
@@ -177,4 +189,38 @@ export function boot(): void {
     filling.add(document);
     document.addEventListener("sf:fill", run);
   }
+}
+
+/** The mark a stylesheet the client owns carries, written by the server on a document and by `applyStyles` on a navigation. A link without it belongs to the document and is never taken away. */
+const CSS_MARK = "data-sf-css";
+
+/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go, and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded, or after `timeout` so a href that never answers cannot hold a navigation open. */
+export function applyStyles(hrefs: string[], timeout = 2000): Promise<void> {
+  const head = document.head;
+  const wanted = new Set(hrefs.map((href) => new URL(href, location.href).href));
+  const held = new Map<string, HTMLLinkElement>();
+  for (const link of Array.from(head.querySelectorAll<HTMLLinkElement>(`link[${CSS_MARK}]`))) {
+    held.set(link.href, link);
+  }
+  for (const [href, link] of held) {
+    if (!wanted.has(href)) link.remove();
+  }
+  const pending: Promise<void>[] = [];
+  for (const href of hrefs) {
+    if (held.has(new URL(href, location.href).href)) continue;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.setAttribute(CSS_MARK, "");
+    link.href = href;
+    pending.push(
+      new Promise<void>((done) => {
+        const settle = () => done();
+        link.addEventListener("load", settle, { once: true });
+        link.addEventListener("error", settle, { once: true });
+        setTimeout(settle, timeout);
+      }),
+    );
+    head.appendChild(link);
+  }
+  return pending.length === 0 ? Promise.resolve() : Promise.all(pending).then(() => undefined);
 }

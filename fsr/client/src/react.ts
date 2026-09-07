@@ -1,7 +1,8 @@
-import { createContext, createElement, useCallback, useContext, useMemo, useState, useSyncExternalStore, type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { MountTiming, Mounter, Patcher } from "./boot.js";
+import { islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props } from "./boot.js";
+import type { RegionSource } from "./render.js";
 import type { PrefetchTiming } from "./navigator.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
@@ -54,18 +55,61 @@ function slotPropsFor(el: Element): { [name: string]: ReactElement } {
   return props;
 }
 
-/** The island regions a root's markup holds, in document order, which is the order the root's `Island` elements render in; each takes the next. */
+/** The island regions of one mounted root: the ones the server rendered, by the key it wrote on each, and what the last payload said about them. Created once per root, so a re-render never reclaims a region another placement already owns. */
 interface Regions {
   root: Element;
+  byKey: Map<string, Element>;
+  /** The regions in document order, for a placement the build gave no key. */
   slots: Element[];
   next: number;
+  /** What the payload behind the current patch describes, by region key. */
+  sources: Map<string, RegionSource> | null;
+  /** Bumped by each patch, so a placement consumes one payload once. */
+  gen: number;
 }
 
 const RegionsContext = createContext<Regions | null>(null);
 
+/** The per-root region state, built the first time the root renders and kept for its life. */
+const regions = new WeakMap<Element, Regions>();
+
 function regionsOf(el: Element): Regions {
+  const held = regions.get(el);
+  if (held) return held;
   const slots = Array.from(el.querySelectorAll("sf-s[data-sf-island]")).filter((slot) => slot.parentElement?.closest("sf-i") === el);
-  return { root: el, slots, next: 0 };
+  const byKey = new Map<string, Element>();
+  for (const slot of slots) {
+    const key = slot.getAttribute("data-sf-region");
+    if (key) byKey.set(key, slot);
+  }
+  const built: Regions = { root: el, byKey, slots, next: 0, sources: null, gen: 0 };
+  regions.set(el, built);
+  return built;
+}
+
+/** The prop the build splices onto an island placement, carrying the region key the server wrote. */
+const KEY_PROP = "__sfKey";
+
+/** The props key an island's hoisted values arrive under, and the region key's own; neither reaches the component. */
+const REGION_KEY = "$k";
+
+function keyOf(children: ReactNode): string | null {
+  if (!isValidElement(children)) return null;
+  const key = (children.props as { [KEY_PROP]?: unknown })[KEY_PROP];
+  return typeof key === "string" ? key : null;
+}
+
+/** The child's props as the island takes them: what the parent just computed, without the key the build spliced in. */
+function propsOf(children: ReactNode): Props {
+  if (!isValidElement(children)) return {};
+  const { [KEY_PROP]: _key, ...rest } = children.props as { [key: string]: unknown };
+  return rest as Props;
+}
+
+/** The `sf-i` a region holds, when one is mounted there. */
+function rootIn(region: Element): Element | null {
+  const first = region.firstElementChild;
+  return first?.tagName === "SF-I" && first.hasAttribute("data-sf-mounted") ? first : null;
 }
 
 export interface IslandProps {
@@ -76,15 +120,54 @@ export interface IslandProps {
   children?: ReactNode;
 }
 
-/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here. */
-export function Island({ when, mode }: IslandProps): ReactElement {
+/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
+ *
+ * The region is claimed once, by the key the build splices in, and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it, or renders its child inline when no payload describes one. */
+export function Island({ when, mode, children }: IslandProps): ReactElement {
   const regions = useContext(RegionsContext);
-  const [html] = useState(() => {
-    if (!regions) return "";
-    const slot = regions.slots[regions.next++];
-    return slot?.innerHTML ?? "";
+  const key = keyOf(children);
+  const node = useRef<Element | null>(null);
+  const consumed = useRef(-1);
+  const hoisted = useRef<unknown>(undefined);
+  const [claimed] = useState<{ html: string; inline: boolean }>(() => {
+    if (!regions) return { html: "", inline: false };
+    // A region belongs to the placement that first took it, for as long as
+    // that placement lives. A placement added later takes its markup from the
+    // payload that added it, never a region another one is already showing.
+    const held = key === null ? regions.slots[regions.next++] : regions.byKey.get(key);
+    if (held) {
+      if (key !== null) regions.byKey.delete(key);
+      return { html: held.innerHTML, inline: false };
+    }
+    return { html: "", inline: key === null || !regions.sources?.has(key) };
   });
-  const props: { [key: string]: unknown } = { "data-sf-island": "", dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true };
+
+  useEffect(() => {
+    const region = node.current;
+    if (!region || !regions || claimed.inline) return;
+    const fresh = regions.gen !== consumed.current;
+    consumed.current = regions.gen;
+    const source = fresh && key !== null ? (regions.sources?.get(key) ?? null) : null;
+    const mounted = rootIn(region);
+    if (!mounted) {
+      if (source) region.innerHTML = source.html;
+      if (region.firstElementChild) scan(region);
+      return;
+    }
+    if (source) {
+      hoisted.current = source.props[HOISTED_PROP];
+      void patchIsland(mounted, source.props as Props, source.nested);
+      return;
+    }
+    if (hoisted.current === undefined) hoisted.current = islandState(mounted)?.props[HOISTED_PROP];
+    const next = propsOf(children);
+    if (hoisted.current !== undefined) next[HOISTED_PROP] = hoisted.current as never;
+    void patchIsland(mounted, next, null);
+  });
+
+  if (claimed.inline) return createElement(Fragment, null, isValidElement(children) ? cloneElement(children, { [KEY_PROP]: undefined } as never) : children);
+  const props: { [key: string]: unknown } = { ref: node, "data-sf-island": "", dangerouslySetInnerHTML: { __html: claimed.html }, suppressHydrationWarning: true };
+  if (key !== null) props["data-sf-region"] = key;
   if (when) props["data-sf-when"] = when;
   if (mode) props["data-sf-mode"] = mode;
   return createElement("sf-s", props);
@@ -168,6 +251,8 @@ export interface HoistReader {
   l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R;
   /** The element for a static subtree: `hit` with the server's inner markup for chunk `id` when the table holds it, else `miss`, the original JSX. */
   c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement;
+  /** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists, and marked `i`. */
+  k(id: number): string;
 }
 
 /** The loop indices a component was rendered under by its callers, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
@@ -179,7 +264,7 @@ export function useHoisted(module: string): HoistReader {
   const base = useContext(PathContext);
   return useMemo(() => {
     const path: number[] = [...base];
-    const key = (id: number): string => (path.length === 0 ? `${module}|${id}` : `${module}|${id}@${path.join(".")}`);
+    const key = (id: number | string): string => (path.length === 0 ? `${module}|${id}` : `${module}|${id}@${path.join(".")}`);
     return {
       r<T>(id: number, compute: () => T): T {
         if (table === null) return compute();
@@ -191,6 +276,9 @@ export function useHoisted(module: string): HoistReader {
         const k = key(id);
         const html = table[k];
         return typeof html === "string" ? hit({ __html: html }) : miss();
+      },
+      k(id: number): string {
+        return key(`i${id}`);
       },
       l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R {
         return (...args: A): R => {
@@ -219,24 +307,30 @@ export function withHoisted(table: Hoisted | null, element: ReactElement): React
   return createElement(HoistContext.Provider, { value: table }, element);
 }
 
-/** `props` without the hoisted table, and the table itself. */
+/** `props` without the hoisted table or the region key, and the table itself. */
 function splitHoisted(props: object): [object, Hoisted | null] {
-  const { [HOISTED_PROP]: hoisted, ...rest } = props as { [HOISTED_PROP]?: Hoisted };
+  const { [HOISTED_PROP]: hoisted, [REGION_KEY]: _key, ...rest } = props as { [HOISTED_PROP]?: Hoisted; [REGION_KEY]?: unknown };
   return [rest, hoisted ?? null];
 }
 
-function withRegions(el: Element, element: ReactElement): ReactElement {
-  return createElement(RegionsContext.Provider, { value: regionsOf(el) }, element);
+/** `element` under this root's region state, with the regions the payload behind a patch describes taken as the current generation. */
+function withRegions(el: Element, element: ReactElement, patched: boolean): ReactElement {
+  const state = regionsOf(el);
+  if (patched) {
+    state.sources = (islandState(el)?.regions as Map<string, RegionSource> | null) ?? null;
+    state.gen += 1;
+  }
+  return createElement(RegionsContext.Provider, { value: state }, element);
 }
 
-function islandElement(component: unknown, props: object, el: Element): ReactElement {
+function islandElement(component: unknown, props: object, el: Element, patched: boolean): ReactElement {
   const [own, hoisted] = splitHoisted(props);
   const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, childrenFor(el));
-  return withRegions(el, withHoisted(hoisted, element));
+  return withRegions(el, withHoisted(hoisted, element), patched);
 }
 
 export const reactMounter: Mounter = (component, props, el, hydrate) => {
-  const element = islandElement(component, props, el);
+  const element = islandElement(component, props, el, false);
   if (hydrate) {
     return hydrateRoot(el, element);
   }
@@ -246,5 +340,5 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
 };
 
 export const reactPatcher: Patcher = (handle, component, props, el) => {
-  (handle as Root).render(islandElement(component, props, el));
+  (handle as Root).render(islandElement(component, props, el, true));
 };

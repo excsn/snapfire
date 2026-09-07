@@ -9,6 +9,11 @@
 //! their inner markup and the browser hands it to React as the element's
 //! inner HTML. Both are keyed by the module, the id and the enclosing loop
 //! indices, and both fall back to the original code on a miss.
+//!
+//! Islands are keyed the same way and never decided away: each placement
+//! takes an id, and the rewrite gives `<Island>` the key the server wrote on
+//! the region, so a re-render pairs a placement with its region rather than
+//! with whatever sits at its position.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -26,12 +31,19 @@ pub const CHUNK_ATTR: &str = "$chunk";
 #[derive(Debug, Default)]
 pub struct Candidates {
   next: u32,
+  /// Island placements are numbered apart from the hoist candidates, so
+  /// placing a component never renumbers a hoist key.
+  next_island: u32,
   /// Each value candidate's id, the byte range of its call in the source and
   /// the arrow ranges of the JSX `.map` callbacks it sits in, outermost first.
   pub sites: Vec<(u32, Range<usize>, Vec<Range<usize>>)>,
   /// Each subtree candidate's id, the element's byte range, its opening tag's
   /// byte range, whether it sits among JSX children and the callbacks it sits in.
   pub chunk_sites: Vec<(u32, Range<usize>, Range<usize>, bool, Vec<Range<usize>>)>,
+  /// Each component placement's id, the offset just after its opening tag's
+  /// name and the callbacks it sits in; the placements that became islands
+  /// are the ones `rewrite` keeps.
+  pub island_sites: Vec<(u32, usize, Vec<Range<usize>>)>,
   /// The `.map` callbacks being lowered, outermost first.
   pub open_loops: Vec<Range<usize>>,
 }
@@ -53,6 +65,16 @@ impl Candidates {
     Entry::Field(CHUNK_ATTR.to_owned(), Expr::Lit(Lit::Int(id as i128)))
   }
 
+  /// The id of a component placement, which is its region key's id when the
+  /// placement turns out to be an island. `at` is the end of the opening
+  /// tag's name, where the key prop is spliced in.
+  pub(crate) fn island(&mut self, at: usize) -> u32 {
+    let id = self.next_island;
+    self.next_island += 1;
+    self.island_sites.push((id, at, self.open_loops.clone()));
+    id
+  }
+
   /// The call ranges of the value candidates that stay in the browser: not
   /// kept, and not inside a kept one, whose read covers them.
   pub fn remaining(&self, kept: &[u32]) -> Vec<Range<usize>> {
@@ -66,7 +88,7 @@ impl Candidates {
   }
 
   /// The rewrite for the candidates in `values` and `chunks`, or `None` when none survived.
-  pub fn rewrite(self, values: &[u32], chunks: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
+  pub fn rewrite(self, values: &[u32], chunks: &[u32], islands: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
     let mut sites = Vec::new();
     let mut chunk_sites = Vec::new();
     let mut loops: Vec<Range<usize>> = Vec::new();
@@ -89,10 +111,17 @@ impl Candidates {
         remember(enclosing);
       }
     }
-    if sites.is_empty() && chunk_sites.is_empty() {
+    let mut island_sites = Vec::new();
+    for (id, at, enclosing) in self.island_sites {
+      if islands.contains(&id) {
+        island_sites.push((id, at));
+        remember(enclosing);
+      }
+    }
+    if sites.is_empty() && chunk_sites.is_empty() && island_sites.is_empty() {
       return None;
     }
-    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, loops })
+    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, loops })
   }
 }
 
@@ -115,6 +144,8 @@ pub struct Rewrite {
   /// The surviving subtree candidates: id, element range, opening tag range
   /// and whether the element sits among JSX children.
   pub chunks: Vec<(u32, Range<usize>, Range<usize>, bool)>,
+  /// The island placements: id and the offset the reader call is spliced at.
+  pub islands: Vec<(u32, usize)>,
   /// The `.map` callbacks whose bodies the survivors sit in, as arrow ranges.
   pub loops: Vec<Range<usize>>,
 }
@@ -222,7 +253,7 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
   }
   match expr {
     Expr::Hoist { .. } => unreachable!("handled above"),
-    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
+    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
     Expr::Call { args, .. } => args.iter_mut().for_each(|(_, e)| strip(e, tainted, kept, in_lambda, in_hoist)),
     Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| match entry {
       Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => strip(e, tainted, kept, in_lambda, in_hoist),
@@ -280,7 +311,7 @@ fn is_static(t: &Tmpl, tainted: &[String], pure: &HashMap<String, bool>) -> bool
     Tmpl::If { cond, then, r#else } => !reads_tainted(cond, tainted) && is_static(then, tainted, pure) && r#else.as_ref().is_none_or(|e| is_static(e, tainted, pure)),
     Tmpl::For { over, body, .. } => !reads_tainted(over, tainted) && is_static(body, tainted, pure),
     Tmpl::Let { expr, then, .. } => !reads_tainted(expr, tainted) && is_static(then, tainted, pure),
-    Tmpl::Component { module, props, children } => {
+    Tmpl::Component { module, props, children, .. } => {
       pure.get(module).copied().unwrap_or(false) && entry_exprs(props).all(|e| !reads_tainted(e, tainted)) && children.iter().all(|c| is_static(c, tainted, pure))
     }
     Tmpl::Island { .. } | Tmpl::Slot(_) => false,
@@ -392,6 +423,9 @@ fn clear_chunks(t: &mut Tmpl) {
 
 /// The name the rewrite binds the reader to inside a component.
 const READER: &str = "__sfh";
+
+/// The prop an island placement carries its region key on, read by `Island`.
+const KEY_PROP: &str = "__sfKey";
 /// The import the rewrite adds at the top of a file.
 pub const IMPORT: &str = "import { useHoisted as __sfUseHoisted } from \"@snapfire/fsr-client/react\";\n";
 
@@ -433,6 +467,9 @@ pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
     }
     for (id, range) in &rewrite.sites {
       edits.push(Edit { start: range.start, end: range.end, rank: 0, text: format!("{READER}.r({id}, () => ({}))", &source[range.clone()]) });
+    }
+    for (id, at) in &rewrite.islands {
+      insert(&mut edits, *at, 0, format!(" {KEY_PROP}={{{READER}.k({id})}}"));
     }
   }
   edits.sort_by(|a, b| b.start.cmp(&a.start).then(b.end.cmp(&a.end)).then(a.rank.cmp(&b.rank)));

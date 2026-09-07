@@ -279,7 +279,9 @@ impl ComponentSet {
         let (line, column) = parsed.position(range.start);
         self.remaining.push((module.clone(), format!("{file}:{line}:{column}")));
       }
-      if let Some(rewrite) = candidates.rewrite(&kept, &chunks, file, &module, hook) {
+      let mut islands = Vec::new();
+      island_ids(&component.render, &mut islands);
+      if let Some(rewrite) = candidates.rewrite(&kept, &chunks, &islands, file, &module, hook) {
         self.rewrites.push(rewrite);
       }
     }
@@ -405,14 +407,34 @@ type IslandTiming = (Option<String>, Option<String>);
 /// Replaces each placed `file#Name` with the module it resolved to; a
 /// placement whose name is an island alias becomes the island the alias
 /// declared.
+/// The ids of the placements that became islands, whose sites the rewrite keeps.
+fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
+  match tmpl {
+    Tmpl::Island { id, children, .. } => {
+      out.push(*id);
+      children.iter().for_each(|c| island_ids(c, out));
+    }
+    Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| island_ids(c, out)),
+    Tmpl::If { then, r#else, .. } => {
+      island_ids(then, out);
+      if let Some(other) = r#else {
+        island_ids(other, out);
+      }
+    }
+    Tmpl::For { body, .. } => island_ids(body, out),
+    Tmpl::Let { then, .. } => island_ids(then, out),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+  }
+}
+
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
   let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_modules(c, modules, islands)).collect();
   match tmpl {
-    Tmpl::Component { module, props, children } => match islands.get(&module) {
-      Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone() },
-      None => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children) },
+    Tmpl::Component { module, props, children, id } => match islands.get(&module) {
+      Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone(), id },
+      None => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), id },
     },
-    Tmpl::Island { module, props, children, when, mode } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode },
+    Tmpl::Island { module, props, children, when, mode, id } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode, id },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
     Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules, islands))) },
@@ -1561,9 +1583,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// `lowered` as an island placement, keeping the id its placement took, so
+  /// the bundle's copy of this component carries the same region key.
   fn island_of(&self, lowered: Tmpl, when: Option<String>, mode: Option<String>, span: Span) -> Lowered<Tmpl> {
     match lowered {
-      Tmpl::Component { module, props, children } => Ok(Tmpl::Island { module, props, children, when, mode }),
+      Tmpl::Component { module, props, children, id } => Ok(Tmpl::Island { module, props, children, when, mode, id }),
       _ => Err(self.lowerer.residue(span, "an island must be a component, not an element")),
     }
   }
@@ -1607,7 +1631,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let children = self.children(&el.children)?;
     let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
     self.refs.push((name.to_owned(), (loc.line, loc.col_display + 1)));
-    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children })
+    let at = self.lowerer.parsed.range(el.opening.name.span()).end;
+    let id = match &mut self.lowerer.hoisting {
+      Some(candidates) => candidates.island(at),
+      None => 0,
+    };
+    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children, id })
   }
 
   fn attr_value(&mut self, attr: &'p js::JSXAttr) -> Lowered<Expr> {
@@ -2235,7 +2264,7 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     assert_eq!(names, ["open", "header", "count", "box"], "useCallback and the arrow are handlers, useEffect is dropped");
     assert_eq!(page.body[2], Stmt::Let { name: "count".to_owned(), expr: Expr::Length(Box::new(Expr::var("$props").field("products"))) });
     assert_eq!(page.body[3], Stmt::Let { name: "box".to_owned(), expr: Expr::Object(vec![Entry::Field("current".to_owned(), Expr::Lit(Lit::Null))]) });
-    let Tmpl::Component { module, props, children } = &page.render else { panic!("{:?}", page.render) };
+    let Tmpl::Component { module, props, children, .. } = &page.render else { panic!("{:?}", page.render) };
     assert_eq!(module, "src/ui/Page.tsx#Page");
     assert!(matches!(&props[0], Entry::Spread(Expr::Var(v)) if v == "header"));
     assert_eq!(props[1], Entry::Field("className".to_owned(), Expr::lit_str("catalog")));

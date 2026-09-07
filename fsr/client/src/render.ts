@@ -81,6 +81,45 @@ function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segme
   return nodeToHtml(node, ids);
 }
 
+/** The props key an island's region key rides under, written by the renderer. */
+export const REGION_KEY = "$k";
+
+/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet, and the regions inside it. */
+export interface RegionSource {
+  props: { [key: string]: SfValue };
+  html: string;
+  nested: Map<string, RegionSource>;
+}
+
+/** The island regions `node` describes, by region key: the islands directly inside it, each carrying the ones inside itself. An island's own body is where its nested regions live, so a client node is descended into rather than collected at the top. */
+export function regionSources(node: SfNode, ids: IdAlloc): Map<string, RegionSource> {
+  const out = new Map<string, RegionSource>();
+  const walk = (n: SfNode): void => {
+    switch (n.kind) {
+      case "seq":
+        n.children.forEach(walk);
+        return;
+      case "client": {
+        const key = n.props[REGION_KEY];
+        if (typeof key === "string") out.set(key, { props: n.props, html: nodeToHtml(n, ids), nested: regionSources(n, ids) });
+        return;
+      }
+      case "pending":
+        walk(n.fallback);
+        return;
+      default:
+        return;
+    }
+  };
+  if (node.kind === "client") {
+    if (node.ssr) walk(node.ssr);
+    else node.children.forEach(walk);
+    return out;
+  }
+  walk(node);
+  return out;
+}
+
 export { scriptSafeJson };
 
 export { subtreeAt };
