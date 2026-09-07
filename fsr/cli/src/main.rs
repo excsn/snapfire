@@ -142,7 +142,7 @@ fn main() -> ExitCode {
             println!("{:<24} {}", format!("{}/{}", bundle::SERVE, route.trim_start_matches('/')), from.display());
           }
           for path in &bundled.read {
-            println!("{:<24} read by the host, never served", path.strip_prefix(&bundled.out).unwrap_or(path).display());
+            println!("{:<24} read by the host", path.strip_prefix(&bundled.out).unwrap_or(path).display());
           }
           println!("\nplace beside it: {}", bundled.beside.join(", "));
           ExitCode::SUCCESS

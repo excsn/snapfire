@@ -17,15 +17,17 @@ pub struct Bundled {
   pub out: PathBuf,
   /// Route and the directory it came from, for every static root.
   pub served: Vec<(String, PathBuf)>,
-  /// The plan and contract files under `app/`.
+  /// Everything under the tree the host reads: its configuration, the plan,
+  /// the contracts, every static root and the import map.
   pub read: Vec<PathBuf>,
   /// What the bundle does not hold and a deployment still places beside it.
   pub beside: Vec<&'static str>,
 }
 
 /// Writes the deploy tree for `app` under `out`: every static root under
-/// `serve/<route>/`, and the plan and contracts under `app/` where the host's
-/// own configuration already looks for them.
+/// `serve/<route>/` for a web server to point at, and the site's own parts at
+/// the paths they hold in the project, where the host's configuration and its
+/// inference both already look for them.
 pub fn run(app: &Path, out: &Path) -> Result<Bundled, BuildError> {
   let root = project_root(app);
   let config = Config::load(&root).map_err(|e| BuildError::Bundle(e.to_string()))?;
@@ -45,30 +47,21 @@ pub fn run(app: &Path, out: &Path) -> Result<Bundled, BuildError> {
     served.push((root.route.clone(), from));
   }
 
-  let app_out = out.join(config.app.file_name().unwrap_or("app".as_ref()));
   let mut read = Vec::new();
-  let plan = config.resolve(&config.server.plan);
-  if plan.is_file() {
-    let to = app_out.join(&config.server.plan);
-    copy_file(&plan, &to)?;
-    read.push(to);
-  }
-  let contracts = config.resolve(&config.server.contracts);
-  if contracts.is_dir() {
-    let to = app_out.join(&config.server.contracts);
-    copy_dir(&contracts, &to)?;
-    read.push(to);
-  }
-  if let Some(prerender) = &config.server.prerender {
-    let from = config.resolve(prerender);
+  for part in snapfire_fsr_sites::parts(&root, &config) {
+    let from = root.join(&part);
+    let to = out.join(&part);
     if from.is_dir() {
-      let to = app_out.join(prerender);
       copy_dir(&from, &to)?;
-      read.push(to);
+    } else if from.is_file() {
+      copy_file(&from, &to)?;
+    } else {
+      continue;
     }
+    read.push(to);
   }
 
-  Ok(Bundled { out: out.to_path_buf(), served, read, beside: vec!["the binary", "config/", "the logging configuration"] })
+  Ok(Bundled { out: out.to_path_buf(), served, read, beside: vec!["the binary", "the logging configuration"] })
 }
 
 fn copy_file(from: &Path, to: &Path) -> Result<(), BuildError> {

@@ -110,9 +110,10 @@ impl Listing {
 }
 
 /// The parts of a site's project directory that ship, relative to its root:
-/// its configuration, whatever holds the plan and the contracts, every static
-/// root it serves and its import map. A part that another part contains is
-/// dropped, so `app/generated/contracts` beside `app/generated` is one entry.
+/// its configuration, whatever holds the plan, the contracts and the prerender
+/// cache, every static root it serves and its import map. A part that another
+/// part contains is dropped, so `app/generated/contracts` beside
+/// `app/generated` is one entry.
 pub fn parts(root: &Path, config: &Config) -> Vec<String> {
   let app = relative(root, &config.app);
   let under = |path: &str| {
@@ -137,6 +138,9 @@ pub fn parts(root: &Path, config: &Config) -> Vec<String> {
     _ => under(&config.server.plan),
   });
   parts.push(under(&config.server.contracts));
+  if let Some(prerender) = &config.server.prerender {
+    parts.push(under(prerender));
+  }
   for served in &config.statics {
     parts.push(under(&served.dir));
   }
