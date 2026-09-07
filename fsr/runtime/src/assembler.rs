@@ -74,6 +74,11 @@ pub struct Runtime {
   pub evaluators: Evaluators,
   pub keyer: Arc<dyn SegmentKeyer>,
   pub cache: Arc<dyn NodeCache>,
+  /// Plan nodes whose markup was seen to place the head slot. Such a subtree
+  /// is never written to the cache, and whether it places the head is a
+  /// property of its module rather than of the request, so once one build has
+  /// seen it the lookup is known to be dead and is skipped.
+  head_users: parking_lot::Mutex<std::collections::HashSet<u32>>,
   /// By data source id: how a segment describes the document from its data.
   pub metas: HashMap<String, Arc<dyn Metadata>>,
   /// By data source id: what a segment seeds the store with from its data.
@@ -128,6 +133,7 @@ impl RuntimeBuilder {
       cache: self.cache,
       metas: self.metas,
       stores: self.stores,
+      head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
     })
   }
 }
@@ -335,9 +341,15 @@ fn subtree_shape(node: &PlanNode, h: &mut xxhash_rust::xxh3::Xxh3) {
 
 fn subtree_data_fingerprint(node: &PlanNode, data: &HashMap<u32, Data>) -> u64 {
   fn walk(node: &PlanNode, data: &HashMap<u32, Data>, h: &mut xxhash_rust::xxh3::Xxh3) {
-    h.update(&node.id.0.to_le_bytes());
-    if let Some(d) = data.get(&node.id.0) {
-      h.update(&d.fingerprint().to_le_bytes());
+    // A presence marker rather than the node id: the walk is already in plan
+    // order, so the shape is carried without depending on how the nodes are
+    // numbered.
+    match data.get(&node.id.0) {
+      None => h.update(&[0]),
+      Some(d) => {
+        h.update(&[1]);
+        h.update(&d.fingerprint().to_le_bytes());
+      }
     }
     for (_, child) in &node.children {
       walk(child, data, h);
@@ -699,7 +711,10 @@ impl Session {
         return Ok((self.error_segment(node, failure).await?, Vec::new(), false));
       }
       let data = &loaded.data;
-      let cache_key = self.cache_key_for(node, loaded, store);
+      let cache_key = match self.runtime.head_users.lock().contains(&node.id.0) {
+        true => None,
+        false => self.cache_key_for(node, loaded, store),
+      };
       if let Some(key) = &cache_key {
         if let Some(entry) = self.runtime.cache.get(key).await {
           tracing::debug!(target: "fsr::cache", key = %key, "hit");
@@ -813,6 +828,9 @@ impl Session {
           info
         })
         .collect();
+      if used_head {
+        self.runtime.head_users.lock().insert(node.id.0);
+      }
       if let Some(key) = cache_key {
         if !used_head {
           self
