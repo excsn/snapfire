@@ -370,10 +370,14 @@ impl Session {
       let source = self.runtime.sources.get(source_id);
       let source_name = source_id.0.clone();
       let ctx = &self.ctx;
-      async move {
+      let span = tracing::info_span!(target: "fsr::trace", "source", id = %source_id.0, node = node_id, fibre.outcome = tracing::field::Empty);
+      let loading = async move {
         let source = source.ok_or(AssembleError::MissingDataSource(source_name))?;
-        Ok::<_, AssembleError>((node_id, source.load(ctx).await))
-      }
+        let loaded = source.load(ctx).await;
+        tracing::Span::current().record("fibre.outcome", if loaded.is_ok() { "ok" } else { "failed" });
+        Ok::<_, AssembleError>((node_id, loaded))
+      };
+      tracing::Instrument::instrument(loading, span)
     });
 
     let mut loaded = Loaded {
@@ -719,11 +723,15 @@ impl Session {
         true => None,
         false => self.cache_key_for(node, loaded, store),
       };
+      let render = tracing::info_span!(target: "fsr::trace", "render", module = %node.module, cache = tracing::field::Empty);
+      let _rendering = render.enter();
       if let Some(key) = &cache_key {
         if let Some(entry) = self.runtime.cache.get(key).await {
+          render.record("cache", "hit");
           tracing::debug!(target: "fsr::cache", key = %key, "hit");
           return Ok((entry.node, entry.segments, false, entry.digest));
         }
+        render.record("cache", "miss");
         tracing::debug!(target: "fsr::cache", key = %key, "miss");
       }
 

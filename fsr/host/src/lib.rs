@@ -6,6 +6,7 @@ pub mod config;
 pub mod locale;
 mod remote;
 pub mod shell;
+pub mod trace;
 
 #[cfg(feature = "actix")]
 pub mod actix;
@@ -442,6 +443,9 @@ pub struct Host {
   /// cannot keep up loses a signal rather than the whole stream, which is
   /// what an idempotent "something changed" wants.
   changed: Option<Reload>,
+  /// The request traces, when a collector was installed. Read by
+  /// `/__fsr/traces` under development and by nothing else.
+  traces: Option<trace::Traces>,
   /// Topics the application publishes, read by every open `/_sf/live`
   /// stream. Always present: pushing is the application's, not the dev loop's.
   /// A stream subscribes its own receiver to the topics it asked for, so the
@@ -656,6 +660,8 @@ impl Incoming {
 }
 
 pub struct HostBuilder {
+  /// The trace collector, when one was installed. Served under development.
+  traces: Option<trace::Traces>,
   config: Config,
   plan: String,
   contract: Option<Contract>,
@@ -755,6 +761,7 @@ impl Host {
       config,
       plan,
       contract,
+      traces: None,
       app: Some(app),
       services: None,
       transport_override: None,
@@ -1719,6 +1726,24 @@ impl Host {
   }
 
   pub async fn handle(&self, req: Request<Bytes>) -> Response<Body> {
+    // The root of this request's trace. Everything a collector keeps for the
+    // request hangs off it; with nothing listening it is an atomic load.
+    let root = tracing::info_span!(
+      target: "fsr::trace",
+      "request",
+      fibre.root = true,
+      method = %req.method(),
+      path = %req.uri().path(),
+      status = tracing::field::Empty,
+      fibre.outcome = tracing::field::Empty,
+    );
+    let answered = tracing::Instrument::instrument(self.handle_in(req), root.clone()).await;
+    root.record("status", answered.status().as_u16());
+    root.record("fibre.outcome", if answered.status().is_success() { "ok" } else { "error" });
+    answered
+  }
+
+  async fn handle_in(&self, req: Request<Bytes>) -> Response<Body> {
     if req.body().len() > self.max_body {
       return self.too_large();
     }
@@ -1741,6 +1766,12 @@ impl Host {
       return self.sites_reload_response();
     }
     if self.changed.is_some() {
+      // The traces the collector kept, newest last. Development only: what a
+      // source cost is nothing a production client should read.
+      if path == "/__fsr/traces" && req.method() == Method::GET {
+        let held = self.traces.as_ref().map(|t| t.recent(50)).unwrap_or_default();
+        return json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&trace::to_value(&held)));
+      }
       if path == "/__fsr/events" && req.method() == Method::GET {
         return self.events(&t);
       }
@@ -3091,6 +3122,13 @@ impl HostBuilder {
     self
   }
 
+  /// The trace collector this host serves `/__fsr/traces` from under
+  /// development. `trace::install` returns what goes here.
+  pub fn traces(mut self, traces: Option<trace::Traces>) -> Self {
+    self.traces = traces;
+    self
+  }
+
   /// Registers the application's own Rust under the name a body reaches it
   /// with, `ctx.native.<name>.<method>()`.
   pub fn native(mut self, name: impl Into<String>, module: Arc<dyn snapfire_fsr_runtime::Native>) -> Self {
@@ -3174,6 +3212,7 @@ impl HostBuilder {
   }
 
   pub fn build(mut self) -> Result<Host, HostError> {
+    let traces = self.traces.take();
     let reloader = self.reloader.take();
     let sites_mounter = self.sites_mounter.take();
     // A sites reload rebuilds the shell from these three alone, so a builder
@@ -3252,6 +3291,7 @@ impl HostBuilder {
       None => (None, None),
     };
     Ok(Host {
+      traces,
       live: parking_lot::RwLock::new(Arc::new(tables)),
       sessions,
       changed,

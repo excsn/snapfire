@@ -9,10 +9,12 @@ use snapfire_fsr_host::Host;
 /// one route added here in Rust is the graduation path, not the norm.
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+  // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
   let logging = Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
-  let _logging = fibre_logging::init::init_from_file(&logging)
-    .map_err(|e| eprintln!("logging disabled: {e}"))
-    .ok();
+  let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+  if let Some(why) = why {
+    eprintln!("logging disabled: {why}");
+  }
 
   let backend_addr = ("127.0.0.1", 8081);
   let inventory_addr: std::net::SocketAddr = "127.0.0.1:8082".parse().unwrap();
@@ -20,7 +22,7 @@ async fn main() -> std::io::Result<()> {
 
   let catalog = backend::Catalog::seed();
   let host = Host::from(env!("CARGO_MANIFEST_DIR"))
-    .and_then(|builder| builder.route("/about", routes::about_plan()).build())
+    .and_then(|builder| builder.traces(traces).route("/about", routes::about_plan()).build())
     .map_err(std::io::Error::other)?;
   let host = Arc::new(host);
 

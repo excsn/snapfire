@@ -12,11 +12,17 @@ use snapfire_fsr_host::Host;
 /// it and the client revalidates the route in place.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+  // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
+  let logging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+  if let Some(why) = why {
+    eprintln!("logging disabled: {why}");
+  }
   let pause = env_ms("ARRIVALS_PAUSE_MS", 900);
   let tick = env_ms("ARRIVALS_TICK_MS", 3000);
   let speed: f64 = std::env::var("ARRIVALS_SPEED").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0);
 
-  let host = Host::from(env!("CARGO_MANIFEST_DIR"))
+  let host = Host::from(env!("CARGO_MANIFEST_DIR")).map(|b| b.traces(traces))
     .map(|builder| builder.services_over(backend::running(pause, speed)))
     .and_then(|builder| builder.build())
     .map_err(std::io::Error::other)?;

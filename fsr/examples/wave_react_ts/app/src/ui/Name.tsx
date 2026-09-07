@@ -15,7 +15,7 @@ export default function Name({ name }: { name: string }) {
     setSaved(next);
     named(next);
     // A revalidation patches the page and not the islands under it, so `me`
-    // would stay empty in every composer: _private_docs DEFECTS 1.2.
+    // would stay empty in every composer.
     window.location.reload();
   }
   return (

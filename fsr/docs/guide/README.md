@@ -37,6 +37,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [203. Sessions and identity](203-sessions-and-identity.md), the signed cookie, the store, who the request is and where a login goes. Platform developers.
 - [204. Reloading in place](204-reloading-in-place.md), the tables a request reads, what a reload swaps and what it refuses, and why `fsr dev` no longer restarts. Platform developers.
 - [205. Sites: one product, many teams](205-sites.md), a team's application built as a site, the shell that mounts it under a path, what crosses the seam and how a deploy is a pointer moved. Everyone.
+- [206. What a request did](206-what-a-request-did.md), the trace behind a slow or wrong page: the four spans the framework opens, reading them with no collector wired, what they cost when nobody is watching and how to get them out. Everyone.
 
 **Tooling**, or the commands:
 

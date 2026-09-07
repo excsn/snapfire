@@ -8,7 +8,13 @@ use snapfire_fsr_host::Host;
 /// portal's header.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-  let host = Host::from(env!("CARGO_MANIFEST_DIR")).and_then(|builder| builder.build()).map_err(std::io::Error::other)?;
+  // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
+  let logging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+  if let Some(why) = why {
+    eprintln!("logging disabled: {why}");
+  }
+  let host = Host::from(env!("CARGO_MANIFEST_DIR")).map(|b| b.traces(traces)).and_then(|builder| builder.build()).map_err(std::io::Error::other)?;
   let host = Arc::new(host);
   print!("{}", host.report());
   let listen = host.listen().to_owned();

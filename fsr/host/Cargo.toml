@@ -17,6 +17,9 @@ sites_reload = []
 
 [dependencies]
 fibre = "0.6"
+fibre_logging = "0.5.7"
+fibre_tracing = "0.5"
+tracing-subscriber = { version = "0.3", features = ["registry", "std"] }
 parking_lot = "0.12"
 snapfire_fsr.workspace = true
 snapfire_fsr_ir.workspace = true

@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
+use tracing::Instrument;
 use snapfire_fsr_core::Value;
 use snapfire_fsr_runtime::ServiceError;
 
@@ -164,6 +165,29 @@ impl Interceptor for TraceInterceptor {
       request_id = call.metadata_str(&self.key).unwrap_or_default(),
       "call"
     );
-    next.run(call)
+    // The call span. A collector reads the status kind rather than a raw
+    // status, since the failure vocabulary is what a caller acts on.
+    let span = tracing::info_span!(
+      target: "fsr::trace",
+      "call",
+      service = call.service.as_str(),
+      method = call.method.as_str(),
+      fibre.outcome = tracing::field::Empty,
+    );
+    let answered = next.run(call);
+    Box::pin(
+      async move {
+        let answered = answered.await;
+        tracing::Span::current().record(
+          "fibre.outcome",
+          match &answered {
+            Ok(_) => "ok",
+            Err(e) => e.kind.as_str(),
+          },
+        );
+        answered
+      }
+      .instrument(span),
+    )
   }
 }

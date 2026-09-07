@@ -23,7 +23,13 @@ use wave_react_ts::wire::Wire;
 /// not worth keeping.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-  let host = Host::from(env!("CARGO_MANIFEST_DIR")).map_err(std::io::Error::other)?;
+  // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
+  let logging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+  if let Some(why) = why {
+    eprintln!("logging disabled: {why}");
+  }
+  let host = Host::from(env!("CARGO_MANIFEST_DIR")).map(|b| b.traces(traces)).map_err(std::io::Error::other)?;
   let sockets = Arc::new(snapfire_fsr_host::socket::Sockets::new());
   let wire = Wire::new(sockets.clone());
 

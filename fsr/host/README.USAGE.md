@@ -35,6 +35,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Replacing the Shell](#replacing-the-shell)
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
 * [Running Without a Backend](#running-without-a-backend)
+* [Watching What a Request Did](#watching-what-a-request-did)
 * [Reading the Report](#reading-the-report)
 * [Error Handling](#error-handling)
 
@@ -722,6 +723,54 @@ host.changed();
 Every event names the bundle the server sees now, a hash over the modules `dist/.snapfire-build.json` lists. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them.
 
 `dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment, and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
+
+## Watching What a Request Did
+
+Install the collector before the host is built and hand it over. One call composes `fibre_logging`, which takes the events out to its appenders, with the span collector, which keeps them:
+
+```rust
+let logging = Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+if let Some(why) = why {
+  eprintln!("logging disabled: {why}");
+}
+
+let host = Host::from(env!("CARGO_MANIFEST_DIR"))
+  .and_then(|builder| builder.traces(traces).build())?;
+```
+
+The `_logging` guard has to stay in scope: dropping it flushes the appenders. Without a log config, `trace::install()` installs the collector alone.
+
+Under `dev` the host then answers `GET /__fsr/traces` with the last fifty, newest last:
+
+```
+request 19.92ms ok GET /agents
+  source layout 16.25ms ok
+  source agents.layout 16.60ms ok
+    call fleet.listAlerts 15.99ms ok
+    call fleet.listAgents 15.54ms ok
+  render shell#document 1.37ms
+    render routes/layout.tsx#default 1.16ms
+      render routes/agents/layout.tsx#default 0.82ms miss
+        render routes/agents/page.tsx#default 0.10ms miss
+```
+
+Four spans come from the framework: `request` at the root, `source` per plan node as the loaders run in parallel, `call` per service method whatever its transport, and `render` nested the way the plan nests, saying whether the memo hit. Add your own with `tracing` and they join the trace they are inside.
+
+To read a trace from your own code, hold the handle:
+
+```rust
+traces.current();     // inside a request: what it has done so far
+traces.recent(50);    // the last finished ones
+```
+
+Nothing leaves the process. To export, hand the trace to a collector as it finishes, which is also where you decide to keep only the slow or failed ones:
+
+```rust
+traces.on_finish(|trace| if trace.duration > Duration::from_millis(500) { export(trace) });
+```
+
+With no collector installed the spans cost a relaxed atomic load and a branch, so leaving them in production costs nothing.
 
 ## Reading the Report
 

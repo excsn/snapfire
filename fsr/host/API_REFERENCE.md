@@ -48,11 +48,15 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [HostService](#hostservice)
   * [hyper](#hyper)
   * [actix](#actix)
-* [5. The Shell](#5-the-shell)
+* [5. Observing a Request](#5-observing-a-request)
+  * [Installing](#installing)
+  * [Reading](#reading)
+  * [The Spans](#the-spans)
+* [6. The Shell](#6-the-shell)
   * [DocumentShell](#documentshell)
   * [head](#head)
   * [canonical](#canonical)
-* [6. Error Handling](#6-error-handling)
+* [7. Error Handling](#7-error-handling)
   * [HostError](#hosterror)
 
 ## 1. Configuration
@@ -207,6 +211,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `meta(self, name: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`: describes the segment whose data source is `name` once its data has loaded, the `AppBuilder` method of the same name.
 * `identity(self, provider: Arc<dyn IdentityProvider>) -> Self`: the provider behind the `/auth/` routes, in place of the one `[auth]` names; the login page is `auth.login` when the section is written, `/login` otherwise.
 * `extension<F>(self, name: impl Into<String>, reach: snapfire_fsr_ir::Reach, f: F) -> Self`: the Rust half of a native pair, forwarded to `AppBuilder::extension`; `name` is `module.member` as the `native(..)` declaration under `ext/` spells it. A plan calling a name nothing registers fails `build` with `BindError::UnknownExtension`.
+* `pub fn traces(self, traces: Option<trace::Traces>) -> Self`: the collector this host serves `/__fsr/traces` from under development. What [`trace::install`](#installing) and its siblings return goes here.
 * `route`, `route_override`, `not_found`, `handler`, `handler_override`, `middleware`, `middleware_override`, `source`, `source_override`, `source_impl`, `action`, `action_override`, `evaluator`, `native`: the `snapfire_fsr::AppBuilder` methods with the same signatures. `native(name, Arc<dyn Native>)` registers the application's own Rust under the name a body reaches it with, `ctx.native.<name>.<method>()`.
 * `mount(self, mount: Mount) -> Self`: mounts a site, see `Mount`. `config(&self) -> &Config`: the configuration the builder was made from.
 * `reloader<F>(self, f: F) -> Self where F: Fn() -> Result<HostBuilder, HostError> + Send + Sync + 'static`: how `Host::reload` rebuilds the tables, a builder for the application as it now stands on disk with whatever this builder was given added again.
@@ -249,6 +254,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `GET /_sf/live?topics=a,b` answers with a `text/event-stream`, whatever `dev` says, after `HostBuilder::topics` has allowed every topic asked for: a `: open` comment frame at once, then one `data: {"topic":"a"}` per `publish` of a topic in the list, until the client goes away. No topics is 400. The path is framework-owned and never locale-prefixed.
 * `GET /__fsr/sites` answers, whatever `dev` says, with `{"sites": [{"name", "at", "version", "hash"}, ..]}` for every mounted site, before statics, middleware and sessions.
 * On a mounted site's routes the head gains the site's stylesheets and `<script type="module">` for its entry, and the payload an `E` row naming the entry, so the navigator loads the site's islands on first arrival.
+* With `dev` on, `handle` also answers `GET /__fsr/traces` with the last 50 traces as [`trace::to_value`](#reading) writes them, newest last, or `[]` when no collector was given to `traces`. Development only: what a source cost is nothing a production client should read.
 * With `dev` on, `handle` answers `GET /__fsr/events` with a `text/event-stream` body, one `data: {"bundle":"<id>"}` event on open and one per `changed`, `POST /__fsr/changed` with 204 after calling `changed` and `POST /__fsr/reload` with 200 and the new report as text after `reload`, or 500 with the error, all before statics, middleware and sessions; static files gain `Cache-Control: no-cache`. The bundle id is a hash over every output `dist/.snapfire-build.json` lists, source maps aside, `-` without a bundle; a served document's head carries `dev_script` with the id of that moment and `prerender` writes the plain head.
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
@@ -350,7 +356,37 @@ Behind the `actix` feature.
 * `actix::handle(req: HttpRequest, host: Data<Arc<Host>>, body: Bytes) -> HttpResponse`: maps the request onto `http::Request<Bytes>`, the response's status, headers and body stream back.
 * `actix::serve(host: Arc<Host>, addr: (&str, u16)) -> std::io::Result<()>`.
 
-## 5. The Shell
+## 5. Observing a Request
+
+`snapfire_fsr_host::trace`. Collection is `fibre_tracing`; this module installs it, hands the host the handle and turns a trace into what a route or a header carries. Re-exports `Trace`, `Span` and `Traces`.
+
+### Installing
+
+Each returns `None` when a global subscriber is already set, which is not an error: something else owns the dispatcher and nothing is collected.
+
+* `pub fn install() -> Option<Traces>`: the collector alone, set as the global subscriber.
+* `pub fn install_with<L>(other: L) -> Option<Traces>` where `L: Layer<Registry> + Send + Sync + 'static`: the collector composed beside a layer already handling the events. Sets the subscriber only, never the `log` bridge.
+* `pub fn observe(config: &Path) -> (Option<Traces>, Option<fibre_logging::InitResult>, Option<String>)`: `fibre_logging` from `config` and the collector, on one registry. The `InitResult` must be held, since its `Drop` flushes the appenders. A configuration that cannot be read is not fatal: the collector is installed alone and the third field says why.
+
+### Reading
+
+* `pub fn to_value(traces: &[Trace]) -> Value`: one entry per trace with `id`, `ms` and `spans`; each span carries `name`, `depth`, `at`, `ms`, its `fields` and `outcome` when it has one. Durations are milliseconds to three decimal places. Fields beginning `fibre.` are left out, since they are the collector's own.
+* `pub fn server_timing(trace: &Trace) -> String`: a `Server-Timing` value, one entry per span below the root, described by the span's `id`, `module` or `method` when it has one.
+
+### The Spans
+
+Opened by the framework, all on target `fsr::trace`.
+
+| Span | Where | Fields |
+| --- | --- | --- |
+| `request` | `Host::handle`, the root of every trace | `method`, `path`, `status`, `fibre.outcome` of `ok` or `error` |
+| `source` | per plan node, in the assembler's parallel load | `id`, `node`, `fibre.outcome` of `ok` or `failed` |
+| `render` | per plan node, nested as the plan nests | `module`, `cache` of `hit` or `miss` when the node is memoized |
+| `call` | `TraceInterceptor`, so every transport | `service`, `method`, `fibre.outcome` being the failure kind or `ok` |
+
+With no collector installed each is a relaxed atomic load and a branch.
+
+## 6. The Shell
 
 ### DocumentShell
 
@@ -365,7 +401,7 @@ Behind the `actix` feature.
 
 * `pub fn shell::canonical(path: &str) -> String`: `<link rel="canonical" href="<path>">`, which a prefixed request for the default locale carries in its head.
 
-## 6. Error Handling
+## 7. Error Handling
 
 ### HostError
 

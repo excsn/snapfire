@@ -6,8 +6,14 @@ use snapfire_fsr_host::Host;
 /// served by one host. Everything under `app/` is TypeScript the build lowers.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+  // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
+  let logging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+  if let Some(why) = why {
+    eprintln!("logging disabled: {why}");
+  }
   let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-  let builder = Host::from(&root).map_err(std::io::Error::other)?;
+  let builder = Host::from(&root).map_err(std::io::Error::other)?.traces(traces);
   let builder = snapfire_fsr_sites::mount_all(builder).map_err(std::io::Error::other)?;
   let reload_root = root.clone();
   let host = builder

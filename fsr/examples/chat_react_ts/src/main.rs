@@ -13,8 +13,14 @@ use snapfire_fsr_host::Host;
 /// opened that room, which the room's loader records. Anything else is 403.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+  // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
+  let logging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+  if let Some(why) = why {
+    eprintln!("logging disabled: {why}");
+  }
   let (transport, rooms) = backend::rooms();
-  let host = Host::from(env!("CARGO_MANIFEST_DIR"))
+  let host = Host::from(env!("CARGO_MANIFEST_DIR")).map(|b| b.traces(traces))
     .map(|builder| {
       builder.services_over(transport).native("digest", Arc::new(chat_react_ts::native::Digest)).topics(|topic, session, _| match topic.strip_prefix("room/") {
         Some(room) => matches!(session.get("rooms"), Some(Value::Map(open)) if open.contains_key(room)),
