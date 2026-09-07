@@ -66,6 +66,7 @@ fn ctx(mock: Arc<Mock>, params: &[(&str, &str)], session: ValueMap) -> RequestCt
   RequestCtx {
     params: p,
     query: Params::new(),
+    path: String::new(),
     session: SessionCell::new(session, None),
     locale: Default::default(),
     csrf: None,
@@ -357,6 +358,7 @@ fn identity_and_now_are_reads() {
   let c = RequestCtx {
     params: Params::new(),
     query: Params::new(),
+    path: String::new(),
     session: SessionCell::new(ValueMap::new(), Some(Identity { subject: "u1".into(), claims })),
     locale: Default::default(),
     csrf: None,

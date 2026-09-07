@@ -215,7 +215,17 @@ impl Hoists {
     Self { module: module.into(), path: Vec::new(), table: ValueMap::new(), dead: Vec::new() }
   }
 
+  /// The region key of an island placement, numbered apart from the hoist
+  /// candidates and marked `i` so the two namespaces cannot be read as one.
+  pub fn island_key(&self, id: u32) -> String {
+    self.keyed(&format!("i{id}"))
+  }
+
   pub fn key(&self, id: u32) -> String {
+    self.keyed(&id.to_string())
+  }
+
+  fn keyed(&self, id: &str) -> String {
     let mut key = format!("{}|{id}", self.module);
     if !self.path.is_empty() {
       key.push('@');
@@ -441,6 +451,7 @@ impl Env {
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Locale => Ok(self.locale()),
+      Expr::Path => Ok(Value::Str(self.ctx.path.clone())),
       Expr::Identity(path) => {
         let mut current = self.identity.clone().unwrap_or(Value::Null);
         for step in path {
@@ -723,6 +734,7 @@ impl Env {
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Locale => Ok(self.locale()),
+        Expr::Path => Ok(Value::Str(self.ctx.path.clone())),
         Expr::Identity(path) => {
           let mut current = self.identity.clone().unwrap_or(Value::Null);
           for step in path {

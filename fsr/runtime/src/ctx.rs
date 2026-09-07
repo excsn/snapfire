@@ -27,7 +27,11 @@ pub struct SessionCell(Arc<Mutex<SessionState>>);
 
 impl SessionCell {
   pub fn new(data: ValueMap, identity: Option<Identity>) -> Self {
-    Self(Arc::new(Mutex::new(SessionState { data, identity, dirty: false })))
+    Self(Arc::new(Mutex::new(SessionState {
+      data,
+      identity,
+      dirty: false,
+    })))
   }
 
   pub fn get(&self, key: &str) -> Option<Value> {
@@ -88,7 +92,10 @@ pub struct Locale {
 
 impl Locale {
   pub fn new(tag: impl Into<String>, is_default: bool) -> Self {
-    Self { tag: tag.into(), is_default }
+    Self {
+      tag: tag.into(),
+      is_default,
+    }
   }
 
   /// The BCP 47 spelling, `fr-FR` for `fr_FR`: what `<html lang>` carries.
@@ -108,13 +115,16 @@ impl Locale {
 
 impl Default for Locale {
   fn default() -> Self {
-    Self { tag: String::new(), is_default: true }
+    Self {
+      tag: String::new(),
+      is_default: true,
+    }
   }
 }
 
 /// Everything a loader or action may know about the request: matched params,
-/// the session, the locale, the CSRF token the page should embed and the
-/// bound service handle. Serializable values only, per the boundary rules, plus the handle,
+/// the query, the path, the session, the locale, the CSRF token the page
+/// should embed and the bound service handle. Serializable values only, per the boundary rules, plus the handle,
 /// which is callable but carries nothing readable.
 #[derive(Clone, Default)]
 pub struct RequestCtx {
@@ -122,6 +132,10 @@ pub struct RequestCtx {
   /// The query string, decoded, one value per key with the last repeat
   /// winning. Keys starting with `__` are the runtime's own and are dropped.
   pub query: Params,
+  /// The path the request matched, locale prefix included and query excluded.
+  /// Every source on a plan reads the same one, which is what lets a layout
+  /// or a parallel segment build a link that keeps the page open beside it.
+  pub path: String,
   pub session: SessionCell,
   pub locale: Locale,
   pub csrf: Option<String>,
@@ -130,7 +144,15 @@ pub struct RequestCtx {
 
 impl RequestCtx {
   pub fn anonymous(params: Params) -> Self {
-    Self { params, query: Params::new(), session: SessionCell::default(), locale: Locale::default(), csrf: None, services: ServiceHandle::default() }
+    Self {
+      params,
+      query: Params::new(),
+      path: String::new(),
+      session: SessionCell::default(),
+      locale: Locale::default(),
+      csrf: None,
+      services: ServiceHandle::default(),
+    }
   }
 
   pub fn identity_value(&self) -> Option<Value> {
@@ -170,7 +192,10 @@ fn percent_decode(raw: &str) -> String {
       b'+' => out.push(b' '),
       b'%' => {
         let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
-        match (bytes.get(i + 1).copied().and_then(hex), bytes.get(i + 2).copied().and_then(hex)) {
+        match (
+          bytes.get(i + 1).copied().and_then(hex),
+          bytes.get(i + 2).copied().and_then(hex),
+        ) {
           (Some(hi), Some(lo)) => {
             out.push(hi * 16 + lo);
             i += 2;

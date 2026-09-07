@@ -189,6 +189,16 @@ export async function load({ session }: Ctx) {
 
 Layouts nest: `routes/account/layout.tsx` sits inside `routes/layout.tsx` for every page under `account/`. A layout's loader takes the plain `Ctx`, since it serves many patterns. The page inside a layout cannot read the layout's data and the layout cannot read the page's; they share the session, the actions and the store the layout's `store` export seeds.
 
+A layout serving many patterns has no parameters of its own, so what it knows about where the reader is, is `ctx.path`: the path the request matched, the query left off and the locale prefix left on. It is what a navigation pane builds its links from, since `${path}?view=active` is this page under another view, and what a list marks its current row with:
+
+```ts
+export async function load({ query, path }: Ctx) {
+  return { view: query.view ?? "inbox", path };
+}
+```
+
+Reading it leaves a route prerenderable, the way reading the locale does, since a prerendered route has one path. An action reads the empty string: an action's own path is the endpoint it was posted to, not the document that called it, so a body that needs the document's path takes it as input.
+
 ## Filling a Layout's Slots
 
 A layout places named regions beside its page. `slots/<name>/` beside the `layout.tsx` is a parallel segment with the ordinary route files, `page.tsx`, `page.loader.ts`, `loading.tsx` and `error.tsx`, that the layout receives as a prop of that name:
@@ -406,7 +416,7 @@ export interface Services {
 
 // generated/fsr.ts
 export interface Routes { "/": {}; "/cart": {}; "/product/{id}": { id: string }; }
-export interface Ctx<P extends keyof Routes = keyof Routes> { params: Routes[P]; query: Record<string, string>; session: Session; identity: Identity | null; services: Services; now: bigint }
+export interface Ctx<P extends keyof Routes = keyof Routes> { params: Routes[P]; query: Record<string, string>; path: string; session: Session; identity: Identity | null; services: Services; now: bigint }
 export function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): ...
 ```
 

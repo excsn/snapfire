@@ -41,6 +41,8 @@ export interface Mock<Input = unknown> {
   identity?: { subject: string; claims?: Record<string, unknown> };
   /** The request's locale, as the configuration spells it; the host's default when absent. */
   locale?: string;
+  /** The path the request matched, which a layout or a slot reads to build a link that keeps the page beside it. */
+  path?: string;
 }
 
 export interface ServiceCall {
@@ -71,6 +73,7 @@ export function ctx(mock: Mock = {}): TestCtx {
     input: mock.input === undefined ? null : encodeValue(mock.input as SfValue),
     identity: mock.identity ?? null,
     locale: mock.locale ?? null,
+    path: mock.path ?? null,
     methods,
   };
   const id = sf().ctx(JSON.stringify(spec));

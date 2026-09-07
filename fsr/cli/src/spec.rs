@@ -499,6 +499,8 @@ struct CtxSpec {
   identity: Option<IdentitySpec>,
   #[serde(default)]
   locale: Option<String>,
+  #[serde(default)]
+  path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -540,7 +542,7 @@ impl SpecHooks {
     self.ctxs.borrow_mut().clear();
     self.records.lock().clear();
     self.current.store(0, Ordering::Relaxed);
-    let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None, locale: None }).expect("the empty ctx builds");
+    let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None, locale: None, path: None }).expect("the empty ctx builds");
     self.ctxs.borrow_mut().push(Rc::new(empty));
   }
 
@@ -576,7 +578,7 @@ impl SpecHooks {
     let params: Params = spec.params.into_iter().collect();
     let query: Params = spec.query.into_iter().collect();
     let locale = self.locale_of(spec.locale.as_deref());
-    let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
+    let ctx = RequestCtx { params, query, path: spec.path.unwrap_or_default(), session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
     Ok(MockCtx { ctx, input, flow: snapfire_fsr_host::AuthFlow::new() })
   }
 

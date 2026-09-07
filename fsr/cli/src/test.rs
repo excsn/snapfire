@@ -265,7 +265,14 @@ impl Run<'_> {
       },
       None => snapfire_fsr_runtime::Locale::new("en", true),
     };
-    let ctx = RequestCtx { params, query, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
+    let path = match &mock.path {
+      Some(expr) => match self.eval(expr).await.map_err(|f| format!("path: {}", f.message))? {
+        Value::Str(path) => path,
+        other => return Err(format!("path must be a string, got {}", show(&other))),
+      },
+      None => String::new(),
+    };
+    let ctx = RequestCtx { params, query, path, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
     let mock = MockCtx { ctx, input, transport, written: Vec::new() };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);

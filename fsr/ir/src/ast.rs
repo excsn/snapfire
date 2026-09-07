@@ -35,6 +35,9 @@ pub enum Expr {
   /// The request's locale as the application spells it. Ambient in a render,
   /// the way a store key is.
   Locale,
+  /// The path the request matched, without its query. A route that is
+  /// prerendered has one, so this is fixed rather than dynamic.
+  Path,
   Input,
   Now,
   Var(String),
@@ -128,15 +131,23 @@ pub enum Tmpl {
   For { over: Expr, params: Vec<String>, body: Box<Tmpl> },
   Let { name: String, expr: Expr, then: Box<Tmpl> },
   /// Props are `Entry::Field` or `Entry::Spread`; `children` render in the caller's scope wherever the callee places its `Slot`.
-  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  /// `id` is the placement's index among the enclosing component's hoist
+  /// candidates, kept so a placement that turns out to be an island carries it.
+  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "is_zero")] id: u32 },
   /// A component placed as its own island: rendered like `Component`, then
   /// wrapped as a nested client node the browser mounts in its own root,
-  /// `when` its hydration timing.
-  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] mode: Option<String> },
+  /// `when` its hydration timing. `id` is the placement's index among the
+  /// enclosing component's hoist candidates, which with the module and the
+  /// loop path names the region the browser mounts it in.
+  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] mode: Option<String>, #[serde(default, skip_serializing_if = "is_zero")] id: u32 },
   /// The caller's children where the callee places `{children}`, named
   /// `content`; at a layout's root, the plan child of that name, so a
   /// `<Slot name="modal" />` names a second segment beside the page.
   Slot(String),
+}
+
+fn is_zero(n: &u32) -> bool {
+  *n == 0
 }
 
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
@@ -385,7 +396,7 @@ impl Expr {
           out.push(name.clone());
         }
       }
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Input | Expr::Now | Expr::Lit(_) => {}
       Expr::Object(entries) | Expr::Array(entries) => {
         for entry in entries {
           match entry {
@@ -434,7 +445,7 @@ impl Expr {
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     f(self);
     match self {
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
       Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -470,11 +481,12 @@ impl Expr {
   /// True when the expression reads anything that differs between requests:
   /// a parameter, the query, the session, the identity, the input or the clock.
   /// The locale is not counted: a route reading only it renders once per
-  /// configured locale, which is what prerendering does with it.
+  /// configured locale, which is what prerendering does with it. Neither is
+  /// the path, which a prerendered route has one of.
   pub fn reads_request(&self) -> bool {
     match self {
       Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
-      Expr::Locale => false,
+      Expr::Locale | Expr::Path => false,
       Expr::Call { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
@@ -498,7 +510,7 @@ impl Expr {
   pub fn has_call(&self) -> bool {
     match self {
       Expr::Call { .. } => true,
-      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) => false,
+      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Computed(k, v) => k.has_call() || v.has_call(),

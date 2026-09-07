@@ -15,6 +15,8 @@ export interface Mock<Input = unknown> {
 	};
 	/** The request's locale, as the configuration spells it; the host's default when absent. */
 	locale?: string;
+	/** The path the request matched, which a layout or a slot reads to build a link that keeps the page beside it. */
+	path?: string;
 }
 export interface ServiceCall {
 	service: string;
