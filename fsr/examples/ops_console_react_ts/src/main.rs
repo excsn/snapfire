@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use ops_console_react_ts::backend;
 use snapfire_fsr_host::Host;
-use tracing_subscriber::layer::SubscriberExt;
 
 /// One application, three servers: the fleet and identity services the
 /// browser never talks to and the FSR host it does. Everything under `app/` is TypeScript the build

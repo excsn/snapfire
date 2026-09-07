@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use http::{Request, StatusCode};
-use http_body_util::BodyExt;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;

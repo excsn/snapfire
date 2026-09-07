@@ -2,7 +2,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use advanced_tera_app::build;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

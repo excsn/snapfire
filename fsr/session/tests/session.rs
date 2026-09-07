@@ -152,7 +152,7 @@ fn capacity_is_accounted_across_shards_not_divided_by_them() {
   let store = MemorySessionStore::new(64, Duration::from_secs(60));
   let ids: Vec<SessionId> = (0..64).map(|_| SessionId::generate()).collect();
   for id in &ids {
-    block_on(store.save(id, Default::default()));
+    block_on(store.save(id, Default::default())).expect("the memory store saves");
   }
   let resident = ids.iter().filter(|id| block_on(store.load(id)).is_some()).count();
   assert_eq!(resident, 64, "a small store under the default shard count keeps everything");

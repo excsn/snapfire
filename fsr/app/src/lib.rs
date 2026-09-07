@@ -13,7 +13,7 @@ use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
 use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrSource, IrStore, Reach};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Resolver, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Runtime, TableResolver,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -1000,7 +1000,7 @@ fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, 
 fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(String, Component)]) -> Static {
   let module = plan.module.to_string();
   let mut class = Static::Fixed;
-  for (name, component) in components.iter().filter(|(name, _)| *name == module) {
+  for (_, component) in components.iter().filter(|(name, _)| *name == module) {
     if component.reads_prop("csrf_token") {
       class = Static::Dynamic;
     } else if component.reads_prop("identity") {
