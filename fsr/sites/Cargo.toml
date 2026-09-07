@@ -4,10 +4,23 @@ version.workspace = true
 edition = "2021"
 description = "Where a mounted site's artifact comes from: the [sites] table resolved, hashed and mounted on the stock host, reread on a signal or a poll"
 
+[features]
+default = []
+# `POST /__fsr/sites/reload` on the stock host, off unless the application asks.
+reload_route = ["snapfire_fsr_host/sites_reload"]
+
 [dependencies]
 snapfire_fsr_core.workspace = true
 snapfire_fsr_host.workspace = true
+flate2 = "1.1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4.46"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "time", "signal", "macros"] }
 tracing = "0.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[dev-dependencies]
+snapfire_fsr_plan.workspace = true

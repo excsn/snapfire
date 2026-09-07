@@ -12,8 +12,11 @@ default = []
 actix = ["dep:actix-web"]
 tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
 ws = ["dep:tokio-tungstenite"]
+# `POST /__fsr/sites/reload`, an administrative route the host does not guard.
+sites_reload = []
 
 [dependencies]
+fibre = "0.6"
 parking_lot = "0.12"
 snapfire_fsr.workspace = true
 snapfire_fsr_ir.workspace = true

@@ -25,7 +25,12 @@ impl Tls {
   pub fn load(cert: PathBuf, key: PathBuf, alpn: Vec<String>) -> Result<Tls, HostError> {
     let alpn: Vec<Vec<u8>> = alpn.into_iter().map(String::into_bytes).collect();
     let config = read(&cert, &key, &alpn)?;
-    Ok(Tls { cert, key, alpn, current: parking_lot::RwLock::new(Arc::new(config)) })
+    Ok(Tls {
+      cert,
+      key,
+      alpn,
+      current: parking_lot::RwLock::new(Arc::new(config)),
+    })
   }
 
   pub fn acceptor(&self) -> tokio_rustls::TlsAcceptor {
@@ -51,7 +56,11 @@ impl Tls {
 
   /// What the handshake offers, for the report.
   pub fn alpn(&self) -> Vec<String> {
-    self.alpn.iter().map(|p| String::from_utf8_lossy(p).into_owned()).collect()
+    self
+      .alpn
+      .iter()
+      .map(|p| String::from_utf8_lossy(p).into_owned())
+      .collect()
   }
 }
 

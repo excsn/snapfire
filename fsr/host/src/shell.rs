@@ -14,7 +14,11 @@ impl Evaluator for DocumentShell {
       Some(Value::Str(tag)) => tag.clone(),
       _ => "en".to_owned(),
     };
-    let open = format!("<!doctype html><html lang=\"{}\" data-sf-locale=\"{}\"><head>", escape(&tag.replace('_', "-")), escape(&tag));
+    let open = format!(
+      "<!doctype html><html lang=\"{}\" data-sf-locale=\"{}\"><head>",
+      escape(&tag.replace('_', "-")),
+      escape(&tag)
+    );
     Box::pin(stream::iter([
       Ok(Chunk::Node(Node::raw(open))),
       Ok(Chunk::Slot(SlotName("head".into()))),
@@ -49,21 +53,11 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Opt
   Head::new(title, Node::raw(head))
 }
 
-/// The stylesheet links and the entry script a mounted site adds to the
-/// document's head on its own routes, the same markup `head` writes.
-pub fn site_head(styles: &[String], entry: Option<&str>) -> String {
-  let mut head = String::new();
-  for href in styles {
-    head.push_str("<link rel=\"stylesheet\" href=\"");
-    head.push_str(&escape(href));
-    head.push_str("\">");
-  }
-  if let Some(entry) = entry {
-    head.push_str("<script type=\"module\" src=\"");
-    head.push_str(&escape(entry));
-    head.push_str("\"></script>");
-  }
-  head
+/// The entry script a mounted site adds to a document on its own routes. Its
+/// stylesheets are `Head::styles` instead, since a payload navigation has to
+/// add and remove them and cannot do that to raw markup.
+pub fn site_entry(entry: &str) -> String {
+  format!("<script type=\"module\" src=\"{}\"></script>", escape(entry))
 }
 
 /// The live-refresh script a development document carries, with the bundle
@@ -75,7 +69,10 @@ pub fn site_head(styles: &[String], entry: Option<&str>) -> String {
 /// nothing on its own, so a reconnect after a restart refreshes and a fresh
 /// load does not.
 pub fn dev_script(bundle: &str) -> String {
-  format!("<script>(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first=true,s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}})()</script>", escape(bundle))
+  format!(
+    "<script>(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first=true,s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}})()</script>",
+    escape(bundle)
+  )
 }
 
 /// The canonical link a prefixed request for the default locale carries, so
@@ -85,12 +82,19 @@ pub fn canonical(path: &str) -> String {
 }
 
 fn escape(text: &str) -> String {
-  text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+  text
+    .replace('&', "&amp;")
+    .replace('<', "&lt;")
+    .replace('>', "&gt;")
+    .replace('"', "&quot;")
 }
 
 /// The locale's message catalog, embedded for the client's `t`: a JSON
 /// script the boot adopts, `</` escaped so no message can close it.
 pub fn catalog_script(tag: &str, json: &str) -> String {
-  format!("<script type=\"application/json\" data-sf-i18n=\"{}\">{}</script>", escape(tag), json.replace("</", "<\\/"))
+  format!(
+    "<script type=\"application/json\" data-sf-i18n=\"{}\">{}</script>",
+    escape(tag),
+    json.replace("</", "<\\/")
+  )
 }
-

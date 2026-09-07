@@ -3,8 +3,8 @@
 //! it, actix reaches it through the `actix` feature's shim.
 
 pub mod config;
-mod remote;
 pub mod locale;
+mod remote;
 pub mod shell;
 
 #[cfg(feature = "actix")]
@@ -24,29 +24,32 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
-use http::{header, HeaderValue, Method, Request, Response, StatusCode};
+use futures_util::stream::BoxStream;
+use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, StreamBody};
 use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
-use snapfire_fsr_plan::{renumber, Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner};
-use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap};
+use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner, renumber};
+use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
-  assemble, html_stream, parse_query, wire_stream, ActionError, AssembleError, DataSource, Evaluator, FailureKind,
-  FibreCache, Head, Identity, LoadError, Locale, Matcher, Metadata, RequestCtx, Resolver, SessionCell,
+  ActionError, AssembleError, DataSource, Evaluator, FailureKind, FibreCache, Head, Identity, LoadError, Locale,
+  Matcher, Metadata, RequestCtx, Resolver, SessionCell, assemble, html_stream, parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
-  Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials, Services, TraceInterceptor, Transport,
+  Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials,
+  Services, TraceInterceptor, Transport,
 };
 use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
-pub use config::{AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, MountConfig, SiteSection, SitesSection};
-pub use remote::{ServiceProvider, ServiceSessionStore};
+pub use config::{
+  AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, MountConfig, SiteSection, SitesSection,
+};
 pub use locale::{Locales, LocalesSection, Resolution};
+pub use remote::{ServiceProvider, ServiceSessionStore};
 
 /// The encodings a payload request may name in `enc`; the wire's `V` row
 /// names the one it got.
@@ -68,7 +71,10 @@ pub enum HostError {
   #[error(transparent)]
   Bind(#[from] BindError),
   #[error("{document}: {error}")]
-  Import { document: String, error: snapfire_fsr_service::ImportError },
+  Import {
+    document: String,
+    error: snapfire_fsr_service::ImportError,
+  },
   #[error("clients.{0}: {1}")]
   Transport(String, String),
   #[error("{0}: {1}")]
@@ -96,14 +102,23 @@ pub enum PreflightAction {
   Continue,
   /// Serve `path` in place of the one asked for; the location is unchanged.
   Rewrite(String),
-  Redirect { to: String, status: u16 },
+  Redirect {
+    to: String,
+    status: u16,
+  },
   /// Answer with `status` and `body`: text when a string, JSON otherwise, empty when null.
-  Respond { status: u16, body: Value },
+  Respond {
+    status: u16,
+    body: Value,
+  },
 }
 
 impl Preflight {
   pub fn pass() -> Self {
-    Self { action: PreflightAction::Continue, headers: Vec::new() }
+    Self {
+      action: PreflightAction::Continue,
+      headers: Vec::new(),
+    }
   }
 
   /// Reads the value a middleware returned. Null or an empty map continues;
@@ -113,20 +128,36 @@ impl Preflight {
     let map = match value {
       Value::Null => return Ok(Self::pass()),
       Value::Map(map) => map,
-      other => return Err(format!("middleware returned {}; expected nothing or an object", kind_of(other))),
+      other => {
+        return Err(format!(
+          "middleware returned {}; expected nothing or an object",
+          kind_of(other)
+        ));
+      }
     };
     let mut headers = Vec::new();
     if let Some(given) = map.get("headers") {
-      let Value::Map(given) = given else { return Err("middleware `headers` must be an object of strings".to_owned()) };
+      let Value::Map(given) = given else {
+        return Err("middleware `headers` must be an object of strings".to_owned());
+      };
       for (name, value) in given {
-        let Value::Str(value) = value else { return Err(format!("middleware header `{name}` must be a string")) };
+        let Value::Str(value) = value else {
+          return Err(format!("middleware header `{name}` must be a string"));
+        };
         headers.push((name.clone(), value.clone()));
       }
     }
     let status = match map.get("status") {
       None | Some(Value::Null) => None,
-      Some(Value::Int(n)) => Some(u16::try_from(*n).map_err(|_| format!("middleware `status` {n} is not an HTTP status"))?),
-      Some(other) => return Err(format!("middleware `status` must be a number, found {}", kind_of(other))),
+      Some(Value::Int(n)) => {
+        Some(u16::try_from(*n).map_err(|_| format!("middleware `status` {n} is not an HTTP status"))?)
+      }
+      Some(other) => {
+        return Err(format!(
+          "middleware `status` must be a number, found {}",
+          kind_of(other)
+        ));
+      }
     };
     let text = |key: &str| -> Result<Option<String>, String> {
       match map.get(key) {
@@ -136,9 +167,15 @@ impl Preflight {
       }
     };
     let action = if let Some(to) = text("redirect")? {
-      PreflightAction::Redirect { to, status: status.unwrap_or(307) }
+      PreflightAction::Redirect {
+        to,
+        status: status.unwrap_or(307),
+      }
     } else if let Some(status) = status {
-      PreflightAction::Respond { status, body: map.get("body").cloned().unwrap_or(Value::Null) }
+      PreflightAction::Respond {
+        status,
+        body: map.get("body").cloned().unwrap_or(Value::Null),
+      }
     } else if let Some(path) = text("rewrite")? {
       PreflightAction::Rewrite(path)
     } else {
@@ -239,9 +276,23 @@ impl std::fmt::Display for HostReport {
     }
     for (i, site) in self.sites.iter().enumerate() {
       let label = if i == 0 { "sites" } else { "" };
-      writeln!(f, "{label:<9} {:<22} at {} from {} {} {}", site.name, site.at, site.artifact.display(), site.version, site.hash)?;
+      writeln!(
+        f,
+        "{label:<9} {:<22} at {} from {} {} {}",
+        site.name,
+        site.at,
+        site.artifact.display(),
+        site.version,
+        site.hash
+      )?;
       if !site.ignored.is_empty() {
-        writeln!(f, "{:<9} {:<22} ignored [{}], the shell's", "", site.name, site.ignored.join(", "))?;
+        writeln!(
+          f,
+          "{:<9} {:<22} ignored [{}], the shell's",
+          "",
+          site.name,
+          site.ignored.join(", ")
+        )?;
       }
     }
     for (i, (service, kind, url)) in self.services.iter().enumerate() {
@@ -252,7 +303,14 @@ impl std::fmt::Display for HostReport {
       let label = if i == 0 { "static" } else { "" };
       writeln!(f, "{label:<9} {route:<22} {}", dir.display())?;
     }
-    for (i, (pattern, anonymous)) in self.app.prerenderable.iter().map(|p| (p, false)).chain(self.app.prerenderable_anonymous.iter().map(|p| (p, true))).enumerate() {
+    for (i, (pattern, anonymous)) in self
+      .app
+      .prerenderable
+      .iter()
+      .map(|p| (p, false))
+      .chain(self.app.prerenderable_anonymous.iter().map(|p| (p, true)))
+      .enumerate()
+    {
       let label = if i == 0 { "prerender" } else { "" };
       let who = if anonymous { " for anonymous visitors" } else { "" };
       match &self.prerender {
@@ -275,12 +333,25 @@ impl std::fmt::Display for HostReport {
       writeln!(f, "{:<9} service via {client}", "session")?;
     }
     if self.dev {
-      writeln!(f, "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed", "dev")?;
+      writeln!(
+        f,
+        "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed",
+        "dev"
+      )?;
     }
     if self.http2 {
       match &self.tls {
-        Some(tls) => writeln!(f, "{:<9} beside http/1.1, chosen by alpn [{}]", "http2", tls.alpn.join(", "))?,
-        None => writeln!(f, "{:<9} h2c beside http/1.1; a browser wants alpn over tls, which a proxy in front terminates", "http2")?,
+        Some(tls) => writeln!(
+          f,
+          "{:<9} beside http/1.1, chosen by alpn [{}]",
+          "http2",
+          tls.alpn.join(", ")
+        )?,
+        None => writeln!(
+          f,
+          "{:<9} h2c beside http/1.1; a browser wants alpn over tls, which a proxy in front terminates",
+          "http2"
+        )?,
       }
     }
     if let Some(tls) = &self.tls {
@@ -291,11 +362,19 @@ impl std::fmt::Display for HostReport {
       }
     }
     if let Some((default, others)) = self.locales.split_first() {
-      let rest = if others.is_empty() { String::new() } else { format!(", {}", others.join(", ")) };
+      let rest = if others.is_empty() {
+        String::new()
+      } else {
+        format!(", {}", others.join(", "))
+      };
       writeln!(f, "{:<9} {default} (default, unprefixed){rest}", "locales")?;
     }
     if let Some((provider, login)) = &self.auth {
-      writeln!(f, "{:<9} {provider}, login page {login}, routes /auth/login, /auth/callback and /auth/logout", "auth")?;
+      writeln!(
+        f,
+        "{:<9} {provider}, login page {login}, routes /auth/login, /auth/callback and /auth/logout",
+        "auth"
+      )?;
       if self.bearer.is_empty() {
         writeln!(f, "{:<9} none; no client carries a token", "bearer")?;
       }
@@ -309,7 +388,11 @@ impl std::fmt::Display for HostReport {
       writeln!(f, "{label:<9} {name:<22} rust")?;
     }
     if !self.catalogs.is_empty() {
-      let rows: Vec<String> = self.catalogs.iter().map(|(tag, n)| format!("{tag} {n} key{}", if *n == 1 { "" } else { "s" })).collect();
+      let rows: Vec<String> = self
+        .catalogs
+        .iter()
+        .map(|(tag, n)| format!("{tag} {n} key{}", if *n == 1 { "" } else { "s" }))
+        .collect();
       writeln!(f, "{:<9} {}", "catalogs", rows.join(", "))?;
     }
     for (i, source) in self.config.iter().enumerate() {
@@ -324,13 +407,47 @@ impl std::fmt::Display for HostReport {
   }
 }
 
+/// The publish half and the receiver every `/_sf/live` stream clones. A
+/// cloned receiver has a mailbox of its own and starts empty, so a stream
+/// opened now never sees what was published before it.
+struct Topics {
+  tx: fibre::spmc::topic::AsyncTopicSender<String, ()>,
+  rx: fibre::spmc::topic::AsyncTopicReceiver<String, ()>,
+}
+
+impl Topics {
+  fn new(mailbox: usize) -> Self {
+    let (tx, rx) = fibre::spmc::topic::channel_async(mailbox);
+    Self { tx, rx }
+  }
+}
+
+/// The same shape for the one signal the dev loop sends.
+struct Reload {
+  tx: fibre::spmc::topic::AsyncTopicSender<(), ()>,
+  rx: fibre::spmc::topic::AsyncTopicReceiver<(), ()>,
+}
+
+impl Reload {
+  fn new(mailbox: usize) -> Self {
+    let (tx, rx) = fibre::spmc::topic::channel_async(mailbox);
+    Self { tx, rx }
+  }
+}
+
 pub struct Host {
   live: parking_lot::RwLock<Arc<Tables>>,
   sessions: Sessions,
-  changed: Option<tokio::sync::broadcast::Sender<()>>,
+  /// The development reload signal, one topic with one key. A reader that
+  /// cannot keep up loses a signal rather than the whole stream, which is
+  /// what an idempotent "something changed" wants.
+  changed: Option<Reload>,
   /// Topics the application publishes, read by every open `/_sf/live`
   /// stream. Always present: pushing is the application's, not the dev loop's.
-  topics: tokio::sync::broadcast::Sender<String>,
+  /// A stream subscribes its own receiver to the topics it asked for, so the
+  /// channel does the filtering and a stream is never woken for a topic it
+  /// did not ask about.
+  topics: Topics,
   /// Who may follow which topic. Absent, any topic may be followed by
   /// anyone, which is right for a board on a wall and wrong for a room.
   topic_rule: Option<TopicRule>,
@@ -342,6 +459,18 @@ pub struct Host {
   #[cfg(feature = "ws")]
   socket_handler: Option<socket::SocketHandler>,
   reloader: Option<Reloader>,
+  /// What `reload_sites` rebuilds from: the shell's own inputs as they were
+  /// when the process booted, never reread. Absent when the builder carried
+  /// something a rebuild from these three cannot reproduce.
+  shell_inputs: Option<Arc<ShellInputs>>,
+  /// How the mounted sites are read again, given a builder the host made from
+  /// `shell_inputs`. The step takes a builder rather than making one, so
+  /// nothing it does can reach the shell's files.
+  sites_mounter: Option<SitesMounter>,
+  /// Held across a `/__fsr/sites/reload`, so repeating the request waits on the
+  /// reload in flight rather than reading every artifact a second time.
+  #[cfg(feature = "sites_reload")]
+  sites_reload: parking_lot::Mutex<()>,
   csrf_always: bool,
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
@@ -364,6 +493,20 @@ pub struct Host {
 /// How a host rebuilds its tables on `Host::reload`: the builder for the
 /// application as it now stands on disk.
 pub type Reloader = Box<dyn Fn() -> Result<HostBuilder, HostError> + Send + Sync>;
+
+/// How a host mounts its sites again on `Host::reload_sites`. It is handed a
+/// builder the host already made from the shell's frozen inputs and returns it
+/// with the sites of the moment mounted, so a sites reload cannot reread the
+/// shell however the step is written.
+pub type SitesMounter = Box<dyn Fn(HostBuilder) -> Result<HostBuilder, HostError> + Send + Sync>;
+
+/// The shell's own inputs, held from the boot that built the host so a sites
+/// reload rebuilds against them rather than against the disk.
+struct ShellInputs {
+  config: Config,
+  plan: String,
+  contract: Option<Contract>,
+}
 
 /// Whether this visitor may follow this topic, asked once per topic when a
 /// stream opens. The session is the one the request's cookie names and the
@@ -431,13 +574,28 @@ pub struct Mount {
 impl Mount {
   /// Reads the artifact at `artifact`, a project directory with its `config/`
   /// beside its app, the way `Host::from` reads one.
-  pub fn load(name: impl Into<String>, artifact: impl Into<PathBuf>, version: impl Into<String>, hash: impl Into<String>, allow_engine: bool) -> Result<Self, HostError> {
+  pub fn load(
+    name: impl Into<String>,
+    artifact: impl Into<PathBuf>,
+    version: impl Into<String>,
+    hash: impl Into<String>,
+    allow_engine: bool,
+  ) -> Result<Self, HostError> {
     let artifact = artifact.into();
     let config = Config::load(&artifact)?;
     let plan_path = config.resolve(&config.server.plan);
     let plan = std::fs::read_to_string(&plan_path).map_err(|e| HostError::Io(plan_path, e))?;
     let contract = read_contracts(&config.resolve(&config.server.contracts))?;
-    Ok(Self { name: name.into(), artifact, version: version.into(), hash: hash.into(), allow_engine, config, plan, contract })
+    Ok(Self {
+      name: name.into(),
+      artifact,
+      version: version.into(),
+      hash: hash.into(),
+      allow_engine,
+      config,
+      plan,
+      contract,
+    })
   }
 }
 
@@ -460,7 +618,10 @@ pub struct AuthFlow {
 
 impl AuthFlow {
   pub fn new() -> Self {
-    Self { id: SessionId::generate(), tokens: TokenCell::new(ValueMap::new()) }
+    Self {
+      id: SessionId::generate(),
+      tokens: TokenCell::new(ValueMap::new()),
+    }
   }
 }
 
@@ -485,7 +646,12 @@ struct Incoming {
 
 impl Incoming {
   fn anonymous(session: SessionCell) -> Self {
-    Self { session, csrf: None, credentials: Arc::new(NoCredentials), held_catalog: None }
+    Self {
+      session,
+      csrf: None,
+      credentials: Arc::new(NoCredentials),
+      held_catalog: None,
+    }
   }
 }
 
@@ -501,6 +667,7 @@ pub struct HostBuilder {
   prerendered: Option<PathBuf>,
   identity: Option<Arc<dyn IdentityProvider>>,
   reloader: Option<Reloader>,
+  sites_mounter: Option<SitesMounter>,
   topic_rule: Option<TopicRule>,
   #[cfg(feature = "ws")]
   sockets: Option<Arc<socket::Sockets>>,
@@ -514,7 +681,9 @@ pub struct HostBuilder {
 
 impl std::fmt::Debug for HostBuilder {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("HostBuilder").field("root", &self.config.root).finish_non_exhaustive()
+    f.debug_struct("HostBuilder")
+      .field("root", &self.config.root)
+      .finish_non_exhaustive()
   }
 }
 
@@ -536,7 +705,9 @@ fn read_contracts(dir: &std::path::Path) -> Result<Option<Contract>, HostError> 
   for path in files {
     let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
     let part = Contract::from_json(&text).map_err(|e| HostError::Contract(path.clone(), e.to_string()))?;
-    contract.merge(part, &path.file_name().unwrap_or_default().to_string_lossy()).map_err(|e| HostError::Contract(path.clone(), e.to_string()))?;
+    contract
+      .merge(part, &path.file_name().unwrap_or_default().to_string_lossy())
+      .map_err(|e| HostError::Contract(path.clone(), e.to_string()))?;
   }
   Ok(Some(contract))
 }
@@ -583,6 +754,7 @@ impl Host {
       prerendered: None,
       identity: None,
       reloader: None,
+      sites_mounter: None,
       topic_rule: None,
       #[cfg(feature = "ws")]
       sockets: None,
@@ -625,8 +797,70 @@ impl Host {
   /// a request in flight finishes on the tables it started with. The
   /// sessions stay: a reload that changes `[session]` is refused.
   pub fn reload(&self) -> Result<Arc<HostReport>, HostError> {
-    let reloader = self.reloader.as_ref().ok_or_else(|| HostError::Value("reload".to_owned(), "no reloader; `HostBuilder::reloader` names how to rebuild".to_owned()))?;
+    let reloader = self.reloader.as_ref().ok_or_else(|| {
+      HostError::Value(
+        "reload".to_owned(),
+        "no reloader; `HostBuilder::reloader` names how to rebuild".to_owned(),
+      )
+    })?;
     self.reload_with(reloader()?)
+  }
+
+  /// Rebuilds the tables with the sites read again and the shell left exactly
+  /// as this process booted it, then swaps them in.
+  ///
+  /// The shell's configuration, plan and contracts are the values held since
+  /// boot, so a half-written `plan.json` or an edited configuration on disk
+  /// cannot reach the tables through this call: only the artifacts the
+  /// `[sites]` table names are read. Everything else is [`Host::reload`]'s: the
+  /// tables are rebuilt whole and checked the way a boot checks them, a refused
+  /// rebuild leaves the running tables serving and the swap is atomic.
+  ///
+  /// Needs [`HostBuilder::sites_mounter`]. A host whose builder installed
+  /// services, a session store, an evaluator, an identity provider or a
+  /// prerendered directory has none, since those cannot be rebuilt from the
+  /// shell's three inputs; such a host reloads through `reload` instead.
+  pub fn reload_sites(&self) -> Result<Arc<HostReport>, HostError> {
+    let refuse = |why: &str| HostError::Value("sites.reload".to_owned(), why.to_owned());
+    let mounter = self
+      .sites_mounter
+      .as_ref()
+      .ok_or_else(|| refuse("no sites_mounter; `HostBuilder::sites_mounter` names how to mount them"))?;
+    let inputs = self.shell_inputs.as_ref().ok_or_else(|| {
+      refuse(
+        "the host was built with more than a configuration, so its shell cannot be rebuilt from memory; use reload",
+      )
+    })?;
+    let builder = Host::from_config_with(inputs.config.clone(), inputs.plan.clone(), inputs.contract.clone())?;
+    self.reload_with(mounter(builder)?)
+  }
+
+  /// `POST /__fsr/sites/reload`: [`Host::reload_sites`] as an answer. One
+  /// reload runs at a time, so a caller that repeats the request waits for the
+  /// one in flight rather than starting a second read of every artifact.
+  ///
+  /// The route is an administrative one and the host does not guard it. Keeping
+  /// `/__fsr/` off the public internet is the deployment's job, at whatever
+  /// sits in front of the host.
+  #[cfg(feature = "sites_reload")]
+  fn sites_reload_response(&self) -> Response<Body> {
+    let _turn = self.sites_reload.lock();
+    match self.reload_sites() {
+      Ok(report) => {
+        let sites: Vec<serde_json::Value> = report
+          .sites
+          .iter()
+          .map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash }))
+          .collect();
+        json_response(StatusCode::OK, &serde_json::json!({ "reloaded": true, "sites": sites }))
+      }
+      // The candidate was refused and the running tables still serve it, so the
+      // fault is in what the caller published rather than in the host.
+      Err(e) => json_response(
+        StatusCode::CONFLICT,
+        &serde_json::json!({ "reloaded": false, "error": e.to_string() }),
+      ),
+    }
   }
 
   /// `reload` over a builder the caller made.
@@ -634,7 +868,10 @@ impl Host {
     let (tables, config) = builder.assemble()?;
     let shape = session_shape(&config);
     if shape != self.session_shape {
-      return Err(HostError::Value("session".to_owned(), "changed since the host was built; restart to apply it".to_owned()));
+      return Err(HostError::Value(
+        "session".to_owned(),
+        "changed since the host was built; restart to apply it".to_owned(),
+      ));
     }
     let report = tables.report.clone();
     *self.live.write() = Arc::new(tables);
@@ -653,12 +890,25 @@ impl Host {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
     let visit = t.locales.resolve(bare, None, None);
-    self.render_in(&t, &visit, raw_query, mode, Incoming::anonymous(session)).await
+    self
+      .render_in(&t, &visit, raw_query, mode, Incoming::anonymous(session))
+      .await
   }
 
-  async fn render_in(&self, t: &Tables, visit: &Resolution, raw_query: &str, mode: RenderMode, incoming: Incoming) -> Result<BoxStream<'static, String>, HostError> {
-    let (plan, params) = self.plan_for(t, &visit.path).ok_or_else(|| HostError::NotFound(visit.path.clone()))?;
-    self.render_plan(t, &plan, params, parse_query(raw_query), mode, incoming, visit).await
+  async fn render_in(
+    &self,
+    t: &Tables,
+    visit: &Resolution,
+    raw_query: &str,
+    mode: RenderMode,
+    incoming: Incoming,
+  ) -> Result<BoxStream<'static, String>, HostError> {
+    let (plan, params) = self
+      .plan_for(t, &visit.path)
+      .ok_or_else(|| HostError::NotFound(visit.path.clone()))?;
+    self
+      .render_plan(t, &plan, params, parse_query(raw_query), mode, incoming, visit)
+      .await
   }
 
   /// The plan a route resolves `path` to, with its params.
@@ -706,7 +956,9 @@ impl Host {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
     let visit = t.locales.resolve(bare, None, None);
-    self.render_navigation_in(&t, &visit, raw_query, from, into, Incoming::anonymous(session)).await
+    self
+      .render_navigation_in(&t, &visit, raw_query, from, into, Incoming::anonymous(session))
+      .await
   }
 
   async fn render_navigation_in(
@@ -718,9 +970,23 @@ impl Host {
     into: Option<&str>,
     incoming: Incoming,
   ) -> Result<BoxStream<'static, String>, HostError> {
-    let from_bare = from.map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f)).map(|f| t.locales.resolve(f, None, None).path);
+    let from_bare = from
+      .map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f))
+      .map(|f| t.locales.resolve(f, None, None).path);
     match self.intercept_in(t, &visit.path, from_bare.as_deref(), into) {
-      Some((plan, params)) => self.render_plan(t, &plan, params, parse_query(raw_query), RenderMode::Payload, incoming, visit).await,
+      Some((plan, params)) => {
+        self
+          .render_plan(
+            t,
+            &plan,
+            params,
+            parse_query(raw_query),
+            RenderMode::Payload,
+            incoming,
+            visit,
+          )
+          .await
+      }
       None => self.render_in(t, visit, raw_query, RenderMode::Payload, incoming).await,
     }
   }
@@ -737,14 +1003,27 @@ impl Host {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
     let visit = t.locales.resolve(bare, None, None);
-    self.render_not_found_in(&t, &visit, raw_query, mode, Incoming::anonymous(session)).await
+    self
+      .render_not_found_in(&t, &visit, raw_query, mode, Incoming::anonymous(session))
+      .await
   }
 
-  async fn render_not_found_in(&self, t: &Tables, visit: &Resolution, raw_query: &str, mode: RenderMode, incoming: Incoming) -> Result<Option<BoxStream<'static, String>>, HostError> {
+  async fn render_not_found_in(
+    &self,
+    t: &Tables,
+    visit: &Resolution,
+    raw_query: &str,
+    mode: RenderMode,
+    incoming: Incoming,
+  ) -> Result<Option<BoxStream<'static, String>>, HostError> {
     let Some(plan) = &t.app.not_found else { return Ok(None) };
     let mut params = Params::new();
     params.insert("path".to_owned(), visit.path.clone());
-    Ok(Some(self.render_plan(t, plan, params, parse_query(raw_query), mode, incoming, visit).await?))
+    Ok(Some(
+      self
+        .render_plan(t, plan, params, parse_query(raw_query), mode, incoming, visit)
+        .await?,
+    ))
   }
 
   /// The head a request renders under: the boot head, plus the live-refresh
@@ -768,16 +1047,18 @@ impl Host {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(&visit.path)));
     }
     let site = t.site_for(&visit.path);
-    if let Some(site) = site {
-      if !site.styles.is_empty() || site.entry.is_some() {
-        extra.push(snapfire_fsr_core::Node::raw(shell::site_head(&site.styles, site.entry.as_deref())));
-      }
+    if let Some(entry) = site.and_then(|s| s.entry.as_deref()) {
+      extra.push(snapfire_fsr_core::Node::raw(shell::site_entry(entry)));
     }
+    let styles: Vec<String> = site.map(|s| s.styles.clone()).unwrap_or_default();
     let catalog = t.catalogs.json(&visit.locale.tag);
     let mut payload_catalog = None;
     if let Some(json) = &catalog {
       match mode {
-        RenderMode::Html => extra.push(snapfire_fsr_core::Node::raw(shell::catalog_script(&visit.locale.tag, json))),
+        RenderMode::Html => extra.push(snapfire_fsr_core::Node::raw(shell::catalog_script(
+          &visit.locale.tag,
+          json,
+        ))),
         RenderMode::Payload => {
           if incoming.held_catalog.as_deref() != Some(visit.locale.tag.as_str()) {
             payload_catalog = Some(json.to_string());
@@ -785,16 +1066,41 @@ impl Host {
         }
       }
     }
-    if extra.is_empty() && payload_catalog.is_none() {
-      return self.render_plan_with(t, plan, params, query, mode, incoming, &visit.locale, &t.head).await;
+    if extra.is_empty() && styles.is_empty() && payload_catalog.is_none() {
+      return self
+        .render_plan_with(
+          t,
+          plan,
+          params,
+          query,
+          mode,
+          incoming,
+          &visit.requested(),
+          &visit.locale,
+          &t.head,
+        )
+        .await;
     }
     let mut head = t.head.clone();
     let mut parts = vec![t.head.rest.clone()];
     parts.extend(extra);
     head.rest = snapfire_fsr_core::Node::Seq(parts);
     head.entry = site.and_then(|s| s.entry.clone());
+    head.styles = styles;
     head.catalog = payload_catalog;
-    self.render_plan_with(t, plan, params, query, mode, incoming, &visit.locale, &head).await
+    self
+      .render_plan_with(
+        t,
+        plan,
+        params,
+        query,
+        mode,
+        incoming,
+        &visit.requested(),
+        &visit.locale,
+        &head,
+      )
+      .await
   }
 
   async fn render_plan_with(
@@ -805,10 +1111,11 @@ impl Host {
     query: Params,
     mode: RenderMode,
     incoming: Incoming,
+    path: &str,
     locale: &Locale,
     head: &Head,
   ) -> Result<BoxStream<'static, String>, HostError> {
-    let ctx = self.ctx(t, incoming, params, query, locale.clone());
+    let ctx = self.ctx(t, incoming, params, query, path, locale.clone());
     let assembly = assemble(&t.app.runtime, plan, &ctx, head).await?;
     Ok(match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
@@ -817,12 +1124,23 @@ impl Host {
   }
 
   /// Renders to one string, for tests.
-  pub async fn render_navigation_to_string(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell) -> Result<String, HostError> {
+  pub async fn render_navigation_to_string(
+    &self,
+    path: &str,
+    from: Option<&str>,
+    into: Option<&str>,
+    session: SessionCell,
+  ) -> Result<String, HostError> {
     let chunks: Vec<String> = self.render_navigation(path, from, into, session).await?.collect().await;
     Ok(chunks.concat())
   }
 
-  pub async fn render_to_string(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<String, HostError> {
+  pub async fn render_to_string(
+    &self,
+    path: &str,
+    mode: RenderMode,
+    session: SessionCell,
+  ) -> Result<String, HostError> {
     let chunks: Vec<String> = self.render(path, mode, session).await?.collect().await;
     Ok(chunks.concat())
   }
@@ -874,16 +1192,45 @@ impl Host {
   pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
     let t = self.tables();
     let mut written = Vec::new();
-    for pattern in t.app.prerenderable.iter().chain(t.app.prerenderable_anonymous.iter()).cloned().collect::<Vec<_>>() {
+    for pattern in t
+      .app
+      .prerenderable
+      .iter()
+      .chain(t.app.prerenderable_anonymous.iter())
+      .cloned()
+      .collect::<Vec<_>>()
+    {
       for tag in t.locales.supported.clone() {
         let locale = t.locales.locale(&tag);
-        let root = if locale.is_default { out.to_path_buf() } else { out.join(&tag) };
+        let root = if locale.is_default {
+          out.to_path_buf()
+        } else {
+          out.join(&tag)
+        };
         let dir = root.join(pattern.trim_matches('/'));
         std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
-        let served = if locale.is_default { pattern.clone() } else { format!("/{tag}{}", pattern.trim_end_matches('/')) };
+        let served = if locale.is_default {
+          pattern.clone()
+        } else {
+          format!("/{tag}{}", pattern.trim_end_matches('/'))
+        };
         for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
-          let (plan, params) = self.plan_for(&t, &pattern).ok_or_else(|| HostError::NotFound(pattern.clone()))?;
-          let chunks = self.render_plan_with(&t, &plan, params, Params::new(), mode, Incoming::anonymous(SessionCell::default()), &locale, &t.head).await?;
+          let (plan, params) = self
+            .plan_for(&t, &pattern)
+            .ok_or_else(|| HostError::NotFound(pattern.clone()))?;
+          let chunks = self
+            .render_plan_with(
+              &t,
+              &plan,
+              params,
+              Params::new(),
+              mode,
+              Incoming::anonymous(SessionCell::default()),
+              &served,
+              &locale,
+              &t.head,
+            )
+            .await?;
           let text: String = chunks.collect::<Vec<_>>().await.concat();
           let file = dir.join(name);
           std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
@@ -906,12 +1253,29 @@ impl Host {
 
   /// `anonymous` says the request carries no identity; a route prerendered
   /// for anonymous visitors only serves its file then.
-  fn prerendered_in(&self, t: &Tables, path: &str, mode: RenderMode, locale: &Locale, anonymous: bool) -> Option<String> {
+  fn prerendered_in(
+    &self,
+    t: &Tables,
+    path: &str,
+    mode: RenderMode,
+    locale: &Locale,
+    anonymous: bool,
+  ) -> Option<String> {
     let dir = t.prerendered.as_ref()?;
-    if !anonymous && t.app.prerenderable_anonymous.iter().any(|pattern| pattern.trim_end_matches('/') == path.trim_end_matches('/')) {
+    if !anonymous
+      && t
+        .app
+        .prerenderable_anonymous
+        .iter()
+        .any(|pattern| pattern.trim_end_matches('/') == path.trim_end_matches('/'))
+    {
       return None;
     }
-    let root = if locale.is_default { dir.clone() } else { dir.join(&locale.tag) };
+    let root = if locale.is_default {
+      dir.clone()
+    } else {
+      dir.join(&locale.tag)
+    };
     let name = match mode {
       RenderMode::Html => "index.html",
       RenderMode::Payload => "index.payload",
@@ -927,24 +1291,54 @@ impl Host {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
     let visit = t.locales.resolve(bare, None, None);
-    self.preflight_in(&t, method, &visit.path, raw_query, Incoming::anonymous(session), &visit.locale).await
+    self
+      .preflight_in(
+        &t,
+        method,
+        &visit.path,
+        raw_query,
+        Incoming::anonymous(session),
+        &visit.locale,
+      )
+      .await
   }
 
-  async fn preflight_in(&self, t: &Tables, method: &str, path: &str, raw_query: &str, incoming: Incoming, locale: &Locale) -> Result<Preflight, ActionError> {
+  async fn preflight_in(
+    &self,
+    t: &Tables,
+    method: &str,
+    path: &str,
+    raw_query: &str,
+    incoming: Incoming,
+    locale: &Locale,
+  ) -> Result<Preflight, ActionError> {
     let internal = |message: String| ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message);
     let request = |path: &str, site: Option<&SiteTables>| {
       let mut request = ValueMap::new();
       request.insert("method".to_owned(), Value::Str(method.to_ascii_uppercase()));
       request.insert("path".to_owned(), Value::Str(path.to_owned()));
-      request.insert("payload".to_owned(), Value::Bool(raw_query.split('&').any(|p| p == "__payload")));
-      request.insert("site".to_owned(), site.map(|s| Value::Str(s.name.clone())).unwrap_or(Value::Null));
+      request.insert(
+        "payload".to_owned(),
+        Value::Bool(raw_query.split('&').any(|p| p == "__payload")),
+      );
+      request.insert(
+        "site".to_owned(),
+        site.map(|s| Value::Str(s.name.clone())).unwrap_or(Value::Null),
+      );
       Value::Map(request)
     };
     let mut headers = Vec::new();
     let mut current = path.to_owned();
     let mut action = PreflightAction::Continue;
     if let Some(middleware) = &t.app.middleware {
-      let ctx = self.ctx(t, incoming.clone(), Params::new(), parse_query(raw_query), locale.clone());
+      let ctx = self.ctx(
+        t,
+        incoming.clone(),
+        Params::new(),
+        parse_query(raw_query),
+        &current,
+        locale.clone(),
+      );
       let value = middleware.call(ctx, request(&current, t.site_for(&current))).await?;
       let preflight = Preflight::from_value(&value).map_err(internal)?;
       headers.extend(preflight.headers);
@@ -959,7 +1353,14 @@ impl Host {
     }
     if let Some(site) = t.site_for(&current) {
       if let Some(middleware) = &site.middleware {
-        let ctx = self.ctx(t, incoming, Params::new(), parse_query(raw_query), locale.clone());
+        let ctx = self.ctx(
+          t,
+          incoming,
+          Params::new(),
+          parse_query(raw_query),
+          &current,
+          locale.clone(),
+        );
         let value = middleware.call(ctx, request(&current, Some(site))).await?;
         let preflight = Preflight::from_value(&value).map_err(internal)?;
         headers.extend(preflight.headers);
@@ -968,7 +1369,10 @@ impl Host {
           PreflightAction::Rewrite(to) => {
             let to_path = to.split('?').next().unwrap_or(&to);
             if !site.covers(to_path) {
-              return Err(internal(format!("site `{}` rewrote to `{to}`, outside {}", site.name, site.at)));
+              return Err(internal(format!(
+                "site `{}` rewrote to `{to}`, outside {}",
+                site.name, site.at
+              )));
             }
             action = PreflightAction::Rewrite(to);
           }
@@ -982,18 +1386,46 @@ impl Host {
   /// The handler matching `method` and `path`, run with `input` as the
   /// request body. `path` may carry a locale prefix and a query string.
   /// `NotFound` when no handler matches.
-  pub async fn call_handler(&self, method: &str, path: &str, session: SessionCell, input: Value) -> Result<Value, ActionError> {
+  pub async fn call_handler(
+    &self,
+    method: &str,
+    path: &str,
+    session: SessionCell,
+    input: Value,
+  ) -> Result<Value, ActionError> {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
     let visit = t.locales.resolve(bare, None, None);
-    self.call_handler_in(&t, method, &visit.path, raw_query, Incoming::anonymous(session), &visit.locale, input).await
+    self
+      .call_handler_in(
+        &t,
+        method,
+        &visit.path,
+        raw_query,
+        Incoming::anonymous(session),
+        &visit.locale,
+        input,
+      )
+      .await
   }
 
-  async fn call_handler_in(&self, t: &Tables, method: &str, path: &str, raw_query: &str, incoming: Incoming, locale: &Locale, input: Value) -> Result<Value, ActionError> {
+  async fn call_handler_in(
+    &self,
+    t: &Tables,
+    method: &str,
+    path: &str,
+    raw_query: &str,
+    incoming: Incoming,
+    locale: &Locale,
+    input: Value,
+  ) -> Result<Value, ActionError> {
     let Some(found) = t.app.handlers.match_request(method, path) else {
-      return Err(ActionError::new(snapfire_fsr_runtime::FailureKind::NotFound, format!("no handler for {} {path}", method.to_ascii_uppercase())));
+      return Err(ActionError::new(
+        snapfire_fsr_runtime::FailureKind::NotFound,
+        format!("no handler for {} {path}", method.to_ascii_uppercase()),
+      ));
     };
-    let ctx = self.ctx(t, incoming, found.params, parse_query(raw_query), locale.clone());
+    let ctx = self.ctx(t, incoming, found.params, parse_query(raw_query), path, locale.clone());
     t.app.handlers.dispatch(&found.id, ctx, input).await
   }
 
@@ -1004,25 +1436,51 @@ impl Host {
   /// renders pages with; the cookie the routes would set is returned as a
   /// header and is the caller's to ignore. `flow` carries what a cookie
   /// carries between the calls of one journey, so it is one per session.
-  pub async fn auth_call(&self, flow: &AuthFlow, method: &str, path: &str, query: &str, body: &[u8], headers: &[(String, String)], session: SessionCell) -> Option<(u16, Vec<(String, String)>, String)> {
+  pub async fn auth_call(
+    &self,
+    flow: &AuthFlow,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &[u8],
+    headers: &[(String, String)],
+    session: SessionCell,
+  ) -> Option<(u16, Vec<(String, String)>, String)> {
     let tables = self.tables();
     let mounted = tables.auth.as_ref()?;
     if !path.starts_with("/auth/") {
       return None;
     }
     let method = Method::from_bytes(method.as_bytes()).ok()?;
-    let uri = if query.is_empty() { path.to_owned() } else { format!("{path}?{query}") };
+    let uri = if query.is_empty() {
+      path.to_owned()
+    } else {
+      format!("{path}?{query}")
+    };
     let mut builder = Request::builder().method(method).uri(uri);
     for (name, value) in headers {
       builder = builder.header(name, value);
     }
     let request = builder.body(Bytes::copy_from_slice(body)).ok()?;
-    let opened = Opened { id: flow.id.clone(), cell: session, tokens: flow.tokens.clone(), fresh: true };
+    let opened = Opened {
+      id: flow.id.clone(),
+      cell: session,
+      tokens: flow.tokens.clone(),
+      fresh: true,
+    };
     let response = self.auth_route(mounted, &request, &opened, path, query).await?;
     let (parts, body) = response.into_parts();
-    let headers = parts.headers.iter().filter_map(|(name, value)| value.to_str().ok().map(|v| (name.as_str().to_owned(), v.to_owned()))).collect();
+    let headers = parts
+      .headers
+      .iter()
+      .filter_map(|(name, value)| value.to_str().ok().map(|v| (name.as_str().to_owned(), v.to_owned())))
+      .collect();
     let bytes = http_body_util::BodyExt::collect(body).await.ok()?.to_bytes();
-    Some((parts.status.as_u16(), headers, String::from_utf8_lossy(&bytes).into_owned()))
+    Some((
+      parts.status.as_u16(),
+      headers,
+      String::from_utf8_lossy(&bytes).into_owned(),
+    ))
   }
 
   /// `call_action_in` under the default locale.
@@ -1033,21 +1491,53 @@ impl Host {
 
   /// Runs an action with `locale` as its `ctx.locale`, which at the edge is
   /// the locale of the document that called it.
-  pub async fn call_action_in(&self, id: &str, session: SessionCell, locale: Locale, input: Value) -> Result<Value, ActionError> {
+  pub async fn call_action_in(
+    &self,
+    id: &str,
+    session: SessionCell,
+    locale: Locale,
+    input: Value,
+  ) -> Result<Value, ActionError> {
     let t = self.tables();
-    self.dispatch_action(&t, id, Incoming::anonymous(session), locale, input).await
+    self
+      .dispatch_action(&t, id, Incoming::anonymous(session), "", locale, input)
+      .await
   }
 
-  async fn dispatch_action(&self, t: &Tables, id: &str, incoming: Incoming, locale: Locale, input: Value) -> Result<Value, ActionError> {
-    let ctx = self.ctx(t, incoming, Params::new(), Params::new(), locale);
+  async fn dispatch_action(
+    &self,
+    t: &Tables,
+    id: &str,
+    incoming: Incoming,
+    path: &str,
+    locale: Locale,
+    input: Value,
+  ) -> Result<Value, ActionError> {
+    let ctx = self.ctx(t, incoming, Params::new(), Params::new(), path, locale);
     t.app.actions.dispatch(id, ctx, input).await
   }
 
   /// The context a body runs in: the services bound to the session's identity
   /// and the request's custody, the token as `csrf`.
-  fn ctx(&self, t: &Tables, incoming: Incoming, params: Params, query: Params, locale: Locale) -> RequestCtx {
+  fn ctx(
+    &self,
+    t: &Tables,
+    incoming: Incoming,
+    params: Params,
+    query: Params,
+    path: &str,
+    locale: Locale,
+  ) -> RequestCtx {
     let services = t.app.services.bind(incoming.session.identity(), incoming.credentials);
-    RequestCtx { params, query, session: incoming.session, locale, csrf: incoming.csrf, services }
+    RequestCtx {
+      params,
+      query,
+      path: path.to_owned(),
+      session: incoming.session,
+      locale,
+      csrf: incoming.csrf,
+      services,
+    }
   }
 
   /// What a request at the edge carries: the session, its custody and, once
@@ -1061,7 +1551,12 @@ impl Host {
 
   fn incoming(&self, opened: &Opened) -> Incoming {
     let csrf = (self.csrf_always || opened.cell.identity().is_some()).then(|| self.sessions.csrf_token(&opened.id));
-    Incoming { session: opened.cell.clone(), csrf, credentials: Arc::new(opened.tokens.clone()), held_catalog: None }
+    Incoming {
+      session: opened.cell.clone(),
+      csrf,
+      credentials: Arc::new(opened.tokens.clone()),
+      held_catalog: None,
+    }
   }
 
   /// The whole edge for one request: static roots, the action route, then a
@@ -1070,8 +1565,8 @@ impl Host {
   /// Tells every open development document that something changed, so each
   /// refreshes its route in place. Nothing happens when `dev` is off.
   pub fn changed(&self) {
-    if let Some(tx) = &self.changed {
-      let _ = tx.send(());
+    if let Some(reload) = &self.changed {
+      let _ = reload.tx.send((), ());
     }
   }
 
@@ -1093,7 +1588,11 @@ impl Host {
     let topic = req
       .uri()
       .query()
-      .and_then(|query| form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == "topic").map(|(_, value)| value.into_owned()))
+      .and_then(|query| {
+        form_urlencoded::parse(query.as_bytes())
+          .find(|(key, _)| key == "topic")
+          .map(|(_, value)| value.into_owned())
+      })
       .unwrap_or_default();
     if topic.is_empty() {
       return text_response(StatusCode::BAD_REQUEST, "no topic: /_sf/socket?topic=a".to_owned());
@@ -1104,19 +1603,33 @@ impl Host {
         return text_response(StatusCode::FORBIDDEN, format!("not yours to open: {topic}"));
       }
     }
-    let key = req.headers().get("sec-websocket-key").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let key = req
+      .headers()
+      .get("sec-websocket-key")
+      .and_then(|v| v.to_str().ok())
+      .map(str::to_owned);
     let (Some(key), Some(upgrading)) = (key, req.extensions_mut().remove::<hyper::upgrade::OnUpgrade>()) else {
       return text_response(StatusCode::BAD_REQUEST, "not a websocket upgrade".to_owned());
     };
     let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
 
-    let who = socket::Who { topic, session: opened.cell.clone(), identity, connection: 0 };
+    let who = socket::Who {
+      topic,
+      session: opened.cell.clone(),
+      identity,
+      connection: 0,
+    };
     let sockets = self.sockets.clone();
     tokio::spawn(async move {
       match upgrading.await {
         Ok(upgraded) => {
           let io = hyper_util::rt::TokioIo::new(upgraded);
-          let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(io, tokio_tungstenite::tungstenite::protocol::Role::Server, None).await;
+          let stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            io,
+            tokio_tungstenite::tungstenite::protocol::Role::Server,
+            None,
+          )
+          .await;
           socket::serve(stream, sockets, handler, who).await;
         }
         Err(e) => tracing::debug!(target: "fsr::host", error = %e, "upgrade failed"),
@@ -1138,7 +1651,7 @@ impl Host {
   /// Nothing is sent to a stream that did not ask for the topic, and a
   /// publish with no listeners costs a send into an empty channel.
   pub fn publish(&self, topic: impl Into<String>) {
-    let _ = self.topics.send(topic.into());
+    let _ = self.topics.tx.send(topic.into(), ());
   }
 
   /// The stream behind `GET /_sf/live?topics=a,b`: one `data: {"topic":"a"}`
@@ -1146,22 +1659,17 @@ impl Host {
   /// comment frame opens it so the browser sees the connection established
   /// before anything is published.
   fn live_events(&self, topics: Vec<String>) -> Response<Body> {
-    let rx = self.topics.subscribe();
+    let rx = self.topics.rx.clone();
+    for topic in &topics {
+      rx.subscribe(topic.clone());
+    }
     let opened = futures_util::stream::once(async {
       Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from_static(b": open\n\n")))
     });
-    let events = futures_util::stream::unfold((rx, topics), |(mut rx, topics)| async move {
-      loop {
-        match rx.recv().await {
-          Ok(topic) if topics.iter().any(|t| *t == topic) => {
-            let json = serde_json::json!({ "topic": topic }).to_string();
-            let frame = Ok(http_body::Frame::data(Bytes::from(format!("data: {json}\n\n"))));
-            return Some((frame, (rx, topics)));
-          }
-          Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-          Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
-        }
-      }
+    let events = futures_util::stream::unfold(rx, |rx| async move {
+      let (topic, ()) = rx.recv().await.ok()?;
+      let json = serde_json::json!({ "topic": topic }).to_string();
+      Some((Ok(http_body::Frame::data(Bytes::from(format!("data: {json}\n\n")))), rx))
     });
     Response::builder()
       .status(StatusCode::OK)
@@ -1175,18 +1683,22 @@ impl Host {
   /// call, each `data: {"bundle":"<id>"}` with the bundle id of that moment,
   /// until the client goes away.
   fn events(&self, t: &Tables) -> Response<Body> {
-    let (Some(tx), Some(facts)) = (&self.changed, t.dev_bundle.clone()) else { return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned()) };
-    let rx = tx.subscribe();
-    let event = move || Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(format!("data: {{\"bundle\":\"{}\"}}\n\n", bundle_id(&facts)))));
+    let (Some(reload), Some(facts)) = (&self.changed, t.dev_bundle.clone()) else {
+      return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned());
+    };
+    let rx = reload.rx.clone();
+    rx.subscribe(());
+    let event = move || {
+      Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(format!(
+        "data: {{\"bundle\":\"{}\"}}\n\n",
+        bundle_id(&facts)
+      ))))
+    };
     let greeting = event();
     let opened = futures_util::stream::once(async move { greeting });
-    let changes = futures_util::stream::unfold((rx, event), |(mut rx, event)| async move {
-      loop {
-        match rx.recv().await {
-          Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return Some((event(), (rx, event))),
-          Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
-        }
-      }
+    let changes = futures_util::stream::unfold((rx, event), |(rx, event)| async move {
+      rx.recv().await.ok()?;
+      Some((event(), (rx, event)))
     });
     Response::builder()
       .status(StatusCode::OK)
@@ -1204,8 +1716,19 @@ impl Host {
     let path = req.uri().path().to_owned();
 
     if path == "/__fsr/sites" && req.method() == Method::GET {
-      let sites: Vec<serde_json::Value> = t.report.sites.iter().map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash })).collect();
+      let sites: Vec<serde_json::Value> = t
+        .report
+        .sites
+        .iter()
+        .map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash }))
+        .collect();
       return json_response(StatusCode::OK, &serde_json::json!({ "sites": sites }));
+    }
+    // The route exists only for an application that installed a sites mounter;
+    // for any other host it is not a route at all.
+    #[cfg(feature = "sites_reload")]
+    if path == "/__fsr/sites/reload" && req.method() == Method::POST && self.sites_mounter.is_some() {
+      return self.sites_reload_response();
     }
     if self.changed.is_some() {
       if path == "/__fsr/events" && req.method() == Method::GET {
@@ -1213,7 +1736,10 @@ impl Host {
       }
       if path == "/__fsr/changed" && req.method() == Method::POST {
         self.changed();
-        return Response::builder().status(StatusCode::NO_CONTENT).body(Body::default()).expect("an empty response");
+        return Response::builder()
+          .status(StatusCode::NO_CONTENT)
+          .body(Body::default())
+          .expect("an empty response");
       }
       if path == "/__fsr/reload" && req.method() == Method::POST {
         return match self.reload() {
@@ -1226,7 +1752,9 @@ impl Host {
     for (route, dir) in &t.statics {
       if let Some(rest) = path.strip_prefix(route.as_str()) {
         if rest.is_empty() || rest.starts_with('/') {
-          let mut inner = Request::builder().method(req.method().clone()).uri(if rest.is_empty() { "/" } else { rest });
+          let mut inner = Request::builder()
+            .method(req.method().clone())
+            .uri(if rest.is_empty() { "/" } else { rest });
           for (name, value) in req.headers() {
             inner = inner.header(name, value);
           }
@@ -1235,7 +1763,9 @@ impl Host {
             Ok(response) => {
               let mut response = response.map(|b| b.map_err(std::io::Error::other).boxed_unsync());
               if self.changed.is_some() {
-                response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+                response
+                  .headers_mut()
+                  .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
               }
               response
             }
@@ -1271,7 +1801,10 @@ impl Host {
       }
       if let Some(rule) = &self.topic_rule {
         let identity = opened.cell.identity();
-        if let Some(refused) = topics.iter().find(|topic| !rule(topic, &opened.cell, identity.as_ref())) {
+        if let Some(refused) = topics
+          .iter()
+          .find(|topic| !rule(topic, &opened.cell, identity.as_ref()))
+        {
           return text_response(StatusCode::FORBIDDEN, format!("not yours to follow: {refused}"));
         }
       }
@@ -1280,13 +1813,22 @@ impl Host {
 
     let is_action = req.method() == Method::POST && path.starts_with("/_sf/action/");
     let visit = if is_action {
-      let from = header("x-sf-from").map(|f| f.split('?').next().unwrap_or(&f).to_owned()).unwrap_or_else(|| "/".to_owned());
+      let from = header("x-sf-from")
+        .map(|f| f.split('?').next().unwrap_or(&f).to_owned())
+        .unwrap_or_else(|| "/".to_owned());
       let resolved = t.locales.resolve(&from, cookie.as_deref(), accept_language.as_deref());
-      Resolution { locale: resolved.locale, path: path.clone(), prefixed: false, set_cookie: None }
+      Resolution {
+        locale: resolved.locale,
+        path: path.clone(),
+        prefixed: false,
+        set_cookie: None,
+      }
     } else {
       t.locales.resolve(&path, cookie.as_deref(), accept_language.as_deref())
     };
-    let framework_owned = visit.path.starts_with("/_sf/") || visit.path.starts_with("/__fsr/") || (t.auth.is_some() && visit.path.starts_with("/auth/"));
+    let framework_owned = visit.path.starts_with("/_sf/")
+      || visit.path.starts_with("/__fsr/")
+      || (t.auth.is_some() && visit.path.starts_with("/auth/"));
     if visit.prefixed && framework_owned {
       return text_response(StatusCode::NOT_FOUND, format!("no route: {path}"));
     }
@@ -1302,29 +1844,58 @@ impl Host {
 
   /// The request past the statics and the locale: the middleware, then the
   /// action route, a handler or a page.
-  async fn handle_resolved(&self, t: &Tables, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, visit: Resolution, raw_query: String) -> Response<Body> {
+  async fn handle_resolved(
+    &self,
+    t: &Tables,
+    req: Request<Bytes>,
+    opened: &snapfire_fsr_session::Opened,
+    visit: Resolution,
+    raw_query: String,
+  ) -> Response<Body> {
     let path = visit.path.clone();
     if let Some(mounted) = &t.auth {
       if let Some(response) = self.auth_route(mounted, &req, opened, &path, &raw_query).await {
         return response;
       }
     }
-    let asked = if raw_query.is_empty() { path.clone() } else { format!("{path}?{raw_query}") };
-    let preflight = match self.preflight_in(t, req.method().as_str(), &path, &raw_query, self.incoming(opened), &visit.locale).await {
+    let asked = if raw_query.is_empty() {
+      path.clone()
+    } else {
+      format!("{path}?{raw_query}")
+    };
+    let preflight = match self
+      .preflight_in(
+        t,
+        req.method().as_str(),
+        &path,
+        &raw_query,
+        self.incoming(opened),
+        &visit.locale,
+      )
+      .await
+    {
       Ok(preflight) => preflight,
       Err(e) => {
         return json_response(
           StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
           &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
-        )
+        );
       }
     };
     let (path, target) = match &preflight.action {
       PreflightAction::Continue => (path, asked),
       PreflightAction::Rewrite(to) => {
         let (to_path, to_query) = to.split_once('?').unwrap_or((to.as_str(), ""));
-        let query = if to_query.is_empty() { raw_query.clone() } else { to_query.to_owned() };
-        let target = if query.is_empty() { to_path.to_owned() } else { format!("{to_path}?{query}") };
+        let query = if to_query.is_empty() {
+          raw_query.clone()
+        } else {
+          to_query.to_owned()
+        };
+        let target = if query.is_empty() {
+          to_path.to_owned()
+        } else {
+          format!("{to_path}?{query}")
+        };
         (to_path.to_owned(), target)
       }
       PreflightAction::Redirect { to, status } => {
@@ -1340,7 +1911,10 @@ impl Host {
       PreflightAction::Respond { status, body } => {
         let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let mut response = match body {
-          Value::Null => Response::builder().status(status).body(Body::default()).expect("an empty response"),
+          Value::Null => Response::builder()
+            .status(status)
+            .body(Body::default())
+            .expect("an empty response"),
           Value::Str(text) => text_response(status, text.clone()),
           other => json_response(status, &snapfire_fsr_payload::value_to_json(other)),
         };
@@ -1354,7 +1928,16 @@ impl Host {
     response
   }
 
-  async fn respond(&self, t: &Tables, req: Request<Bytes>, opened: &snapfire_fsr_session::Opened, path: String, target: String, raw_query: &str, visit: &Resolution) -> Response<Body> {
+  async fn respond(
+    &self,
+    t: &Tables,
+    req: Request<Bytes>,
+    opened: &snapfire_fsr_session::Opened,
+    path: String,
+    target: String,
+    raw_query: &str,
+    visit: &Resolution,
+  ) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(module) = path.strip_prefix("/_sf/island/").map(percent_decoded) {
         let (status, json) = island_step(t.app.lowered.as_deref(), &module, req.body(), &visit.locale.tag);
@@ -1364,7 +1947,11 @@ impl Host {
       }
       if let Some(id) = path.strip_prefix("/_sf/action/").map(percent_decoded) {
         let id = id.as_str();
-        let is_form = req.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
+        let is_form = req
+          .headers()
+          .get(header::CONTENT_TYPE)
+          .and_then(|v| v.to_str().ok())
+          .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
         let input = if is_form {
           let mut fields = form_params(req.body());
           let token = match fields.shift_remove("_csrf") {
@@ -1381,12 +1968,25 @@ impl Host {
             .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
           {
             Ok(value) => value,
-            Err(e) => return json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+            Err(e) => {
+              return json_response(
+                StatusCode::BAD_REQUEST,
+                &serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") }),
+              );
+            }
           }
         };
-        let mut response = match self.dispatch_action(t, id, self.incoming(opened), visit.locale.clone(), input).await {
+        let mut response = match self
+          .dispatch_action(t, id, self.incoming(opened), &visit.path, visit.locale.clone(), input)
+          .await
+        {
           Ok(_) if is_form => {
-            let back = req.headers().get(header::REFERER).and_then(|v| v.to_str().ok()).and_then(referer_path).unwrap_or_else(|| "/".to_owned());
+            let back = req
+              .headers()
+              .get(header::REFERER)
+              .and_then(|v| v.to_str().ok())
+              .and_then(referer_path)
+              .unwrap_or_else(|| "/".to_owned());
             see_other(&back)
           }
           Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
@@ -1409,11 +2009,27 @@ impl Host {
           .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
         {
           Ok(value) => value,
-          Err(e) => return json_response(StatusCode::BAD_REQUEST, &serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
+          Err(e) => {
+            return json_response(
+              StatusCode::BAD_REQUEST,
+              &serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") }),
+            );
+          }
         }
       };
       let (target_path, target_query) = target.split_once('?').unwrap_or((target.as_str(), ""));
-      let mut response = match self.call_handler_in(t, req.method().as_str(), target_path, target_query, self.incoming(opened), &visit.locale, input).await {
+      let mut response = match self
+        .call_handler_in(
+          t,
+          req.method().as_str(),
+          target_path,
+          target_query,
+          self.incoming(opened),
+          &visit.locale,
+          input,
+        )
+        .await
+      {
         Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
         Err(e) => json_response(
           StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -1424,10 +2040,23 @@ impl Host {
       return response;
     }
 
-    let mode = if raw_query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
+    let mode = if raw_query.split('&').any(|p| p == "__payload") {
+      RenderMode::Payload
+    } else {
+      RenderMode::Html
+    };
     if mode == RenderMode::Payload {
-      if let Some(asked) = parse_query(raw_query).get("enc").filter(|enc| !PAYLOAD_ENCODINGS.contains(&enc.as_str())) {
-        return text_response(StatusCode::NOT_ACCEPTABLE, format!("unsupported payload encoding `{asked}`; the encodings are {}", PAYLOAD_ENCODINGS.join(", ")));
+      if let Some(asked) = parse_query(raw_query)
+        .get("enc")
+        .filter(|enc| !PAYLOAD_ENCODINGS.contains(&enc.as_str()))
+      {
+        return text_response(
+          StatusCode::NOT_ACCEPTABLE,
+          format!(
+            "unsupported payload encoding `{asked}`; the encodings are {}",
+            PAYLOAD_ENCODINGS.join(", ")
+          ),
+        );
       }
     }
     tracing::info!(target: "fsr::host", path = %path, payload = (mode == RenderMode::Payload), "request");
@@ -1437,7 +2066,15 @@ impl Host {
       RenderMode::Html => (None, None),
     };
     let held_catalog = header("x-sf-catalog");
-    let intercepted = (from.is_some() || into.is_some()) && self.intercept_in(t, &path, from.as_deref().map(|f| f.split('?').next().unwrap_or(f)), into.as_deref()).is_some();
+    let intercepted = (from.is_some() || into.is_some())
+      && self
+        .intercept_in(
+          t,
+          &path,
+          from.as_deref().map(|f| f.split('?').next().unwrap_or(f)),
+          into.as_deref(),
+        )
+        .is_some();
 
     if req.method() == Method::GET && !intercepted {
       if let Some(text) = self.prerendered_in(t, &path, mode, &visit.locale, opened.cell.identity().is_none()) {
@@ -1449,7 +2086,11 @@ impl Host {
           .status(StatusCode::OK)
           .header(header::CONTENT_TYPE, content_type)
           .header("x-sf-prerendered", "1")
-          .body(http_body_util::Full::new(Bytes::from(text)).map_err(|never: std::convert::Infallible| match never {}).boxed_unsync())
+          .body(
+            http_body_util::Full::new(Bytes::from(text))
+              .map_err(|never: std::convert::Infallible| match never {})
+              .boxed_unsync(),
+          )
           .expect("a response with a valid header");
         self.set_cookie(opened, &mut response).await;
         return response;
@@ -1457,15 +2098,46 @@ impl Host {
     }
 
     let (target_path, target_query) = target.split_once('?').unwrap_or((target.as_str(), ""));
-    let target_visit = Resolution { locale: visit.locale.clone(), path: target_path.to_owned(), prefixed: visit.prefixed, set_cookie: None };
+    let target_visit = Resolution {
+      locale: visit.locale.clone(),
+      path: target_path.to_owned(),
+      prefixed: visit.prefixed,
+      set_cookie: None,
+    };
     let rendered = if intercepted {
-      self.render_navigation_in(t, &target_visit, target_query, from.as_deref(), into.as_deref(), self.incoming_holding(opened, held_catalog.clone())).await
+      self
+        .render_navigation_in(
+          t,
+          &target_visit,
+          target_query,
+          from.as_deref(),
+          into.as_deref(),
+          self.incoming_holding(opened, held_catalog.clone()),
+        )
+        .await
     } else {
-      self.render_in(t, &target_visit, target_query, mode, self.incoming_holding(opened, held_catalog.clone())).await
+      self
+        .render_in(
+          t,
+          &target_visit,
+          target_query,
+          mode,
+          self.incoming_holding(opened, held_catalog.clone()),
+        )
+        .await
     };
     let rendered = match rendered {
       Ok(chunks) => Ok((StatusCode::OK, chunks)),
-      Err(HostError::NotFound(path)) => match self.render_not_found_in(t, &target_visit, target_query, mode, self.incoming_holding(opened, held_catalog.clone())).await {
+      Err(HostError::NotFound(path)) => match self
+        .render_not_found_in(
+          t,
+          &target_visit,
+          target_query,
+          mode,
+          self.incoming_holding(opened, held_catalog.clone()),
+        )
+        .await
+      {
         Ok(Some(chunks)) => Ok((StatusCode::NOT_FOUND, chunks)),
         Ok(None) => return text_response(StatusCode::NOT_FOUND, format!("no route: {path}")),
         Err(e) => Err(e),
@@ -1492,7 +2164,11 @@ impl Host {
   }
 
   async fn set_cookie(&self, opened: &Opened, response: &mut Response<Body>) {
-    let set_cookie = if self.csrf_always { self.sessions.establish(opened).await } else { self.sessions.persist(opened).await };
+    let set_cookie = if self.csrf_always {
+      self.sessions.establish(opened).await
+    } else {
+      self.sessions.persist(opened).await
+    };
     if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
@@ -1505,7 +2181,14 @@ impl Host {
   /// when `path` is none of them and the request goes on to the middleware.
   /// Logout answers without persisting: the record is gone and the cookie
   /// expires in the same response.
-  async fn auth_route(&self, mounted: &Mounted, req: &Request<Bytes>, opened: &Opened, path: &str, raw_query: &str) -> Option<Response<Body>> {
+  async fn auth_route(
+    &self,
+    mounted: &Mounted,
+    req: &Request<Bytes>,
+    opened: &Opened,
+    path: &str,
+    raw_query: &str,
+  ) -> Option<Response<Body>> {
     let query = parse_query(raw_query);
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let referer = header("referer").as_deref().and_then(referer_path);
@@ -1527,7 +2210,9 @@ impl Host {
         let mut response = match mounted.auth.callback(opened, params).await {
           Ok(destination) => see_other(&destination),
           Err(AuthError::Denied(_)) => {
-            let back: String = pending.map(|p| form_urlencoded::byte_serialize(p.as_bytes()).collect()).unwrap_or_default();
+            let back: String = pending
+              .map(|p| form_urlencoded::byte_serialize(p.as_bytes()).collect())
+              .unwrap_or_default();
             see_other(&format!("{}?error=denied&return_to={back}", mounted.login_path))
           }
           Err(e @ AuthError::Invalid(_)) => text_response(StatusCode::BAD_REQUEST, e.to_string()),
@@ -1536,9 +2221,14 @@ impl Host {
         Some(response)
       }
       (&Method::POST, "/auth/logout") => {
-        let token = form_field(req.body(), "_csrf").or_else(|| header("x-sf-csrf")).unwrap_or_default();
+        let token = form_field(req.body(), "_csrf")
+          .or_else(|| header("x-sf-csrf"))
+          .unwrap_or_default();
         if !self.sessions.verify_csrf(&opened.id, &token) {
-          return Some(text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned()));
+          return Some(text_response(
+            StatusCode::FORBIDDEN,
+            "csrf verification failed".to_owned(),
+          ));
         }
         mounted.auth.logout(opened);
         let expire = self.sessions.destroy(opened).await;
@@ -1609,7 +2299,7 @@ impl Host {
 
   #[cfg(all(unix, feature = "tls"))]
   fn watch_for_reload(self: Arc<Self>) {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     let Some(name) = self.tls_reload.clone() else { return };
     let kind = match name.as_str() {
       "hup" => SignalKind::hangup(),
@@ -1639,7 +2329,10 @@ impl Host {
   }
 
   fn too_large(&self) -> Response<Body> {
-    text_response(StatusCode::PAYLOAD_TOO_LARGE, format!("request body over {} bytes, the host's server.max_body", self.max_body))
+    text_response(
+      StatusCode::PAYLOAD_TOO_LARGE,
+      format!("request body over {} bytes, the host's server.max_body", self.max_body),
+    )
   }
 }
 
@@ -1694,11 +2387,20 @@ where
 /// there is no bundle.
 fn bundle_id(facts: &Path) -> String {
   use std::hash::{Hash, Hasher};
-  let Ok(text) = std::fs::read_to_string(facts) else { return "-".to_owned() };
-  let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return "-".to_owned() };
+  let Ok(text) = std::fs::read_to_string(facts) else {
+    return "-".to_owned();
+  };
+  let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+    return "-".to_owned();
+  };
   let dir = facts.parent().unwrap_or(Path::new("."));
   let mut hasher = std::collections::hash_map::DefaultHasher::new();
-  for output in json["outputs"].as_array().into_iter().flatten().filter_map(|o| o.as_str()) {
+  for output in json["outputs"]
+    .as_array()
+    .into_iter()
+    .flatten()
+    .filter_map(|o| o.as_str())
+  {
     if output.ends_with(".map") || output.ends_with(".snapfire-build.json") {
       continue;
     }
@@ -1710,7 +2412,10 @@ fn bundle_id(facts: &Path) -> String {
 
 fn with_headers(response: &mut Response<Body>, headers: &[(String, String)]) {
   for (name, value) in headers {
-    if let (Ok(name), Ok(value)) = (header::HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(value)) {
+    if let (Ok(name), Ok(value)) = (
+      header::HeaderName::from_bytes(name.as_bytes()),
+      HeaderValue::from_str(value),
+    ) {
       response.headers_mut().append(name, value);
     }
   }
@@ -1719,16 +2424,25 @@ fn with_headers(response: &mut Response<Body>, headers: &[(String, String)]) {
 /// A `mock` client's transport from its responses file: an object of method
 /// name to the response in the payload's JSON encoding, or to
 /// `{"$fail": {"kind": "<failure kind>", "message": "..."}}` for a failure.
-fn mock_transport(config: &Config, name: &str, client: &ClientConfig, prefix: &str) -> Result<Option<(Arc<dyn Transport>, String)>, HostError> {
+fn mock_transport(
+  config: &Config,
+  name: &str,
+  client: &ClientConfig,
+  prefix: &str,
+) -> Result<Option<(Arc<dyn Transport>, String)>, HostError> {
   if !client.is_mock() {
     return Ok(None);
   }
   let file = client.responses_file(name);
   let path = config.resolve(&file);
   let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
-  let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| HostError::Config(path.clone(), e.to_string()))?;
+  let json: serde_json::Value =
+    serde_json::from_str(&text).map_err(|e| HostError::Config(path.clone(), e.to_string()))?;
   let Some(entries) = json.as_object() else {
-    return Err(HostError::Config(path, "expected an object of method name to response".to_owned()));
+    return Err(HostError::Config(
+      path,
+      "expected an object of method name to response".to_owned(),
+    ));
   };
   let mut mock = MockTransport::new();
   for (method, response) in entries {
@@ -1743,13 +2457,23 @@ fn mock_transport(config: &Config, name: &str, client: &ClientConfig, prefix: &s
           "timeout" => FailureKind::Timeout,
           "unavailable" => FailureKind::Unavailable,
           "internal" => FailureKind::Internal,
-          other => return Err(HostError::Config(path, format!("{method}: unknown failure kind `{other}`"))),
+          other => {
+            return Err(HostError::Config(
+              path,
+              format!("{method}: unknown failure kind `{other}`"),
+            ));
+          }
         };
-        let message = fail.get("message").and_then(|m| m.as_str()).unwrap_or("mocked failure").to_owned();
+        let message = fail
+          .get("message")
+          .and_then(|m| m.as_str())
+          .unwrap_or("mocked failure")
+          .to_owned();
         mock = mock.fails(key, kind, message);
       }
       None => {
-        let value = snapfire_fsr_payload::json_to_value(response).map_err(|e| HostError::Config(path.clone(), format!("{method}: {e}")))?;
+        let value = snapfire_fsr_payload::json_to_value(response)
+          .map_err(|e| HostError::Config(path.clone(), format!("{method}: {e}")))?;
         mock = mock.returns(key, value);
       }
     }
@@ -1788,10 +2512,14 @@ fn clients_of(
     if let Some(key) = client.bearer.as_ref().and_then(BearerKey::key) {
       bearer_rows.push((named.clone(), key.to_owned()));
     }
-    let document = client.document.clone().unwrap_or_else(|| format!("clients/{name}.openapi.json"));
+    let document = client
+      .document
+      .clone()
+      .unwrap_or_else(|| format!("clients/{name}.openapi.json"));
     let path = config.resolve(&document);
     if document.ends_with(".proto") {
-      let imported = snapfire_fsr_service::import_proto(&path, name).map_err(|error| HostError::Import { document, error })?;
+      let imported =
+        snapfire_fsr_service::import_proto(&path, name).map_err(|error| HostError::Import { document, error })?;
       let site_contract = site_contract(&imported.contract, config);
       contract.types.extend(site_contract.types.clone());
       contract.services.extend(site_contract.services.clone());
@@ -1802,7 +2530,8 @@ fn clients_of(
       }
       let base_url = client.base_url.clone().unwrap_or_default();
       if build_transports {
-        let transport = snapfire_fsr_service::GrpcTransport::new(&base_url, &imported).map_err(|e| HostError::Transport(name.clone(), e))?;
+        let transport = snapfire_fsr_service::GrpcTransport::new(&base_url, &imported)
+          .map_err(|e| HostError::Transport(name.clone(), e))?;
         transports.push((named.clone(), Arc::new(transport)));
       }
       service_rows.push((named.clone(), "grpc".to_owned(), base_url));
@@ -1832,9 +2561,14 @@ fn clients_of(
 /// The shell's import map with a site's entries added where the shell has
 /// none: the shell pins the runtime, a site brings only what it adds.
 fn merge_import_maps(shell: Option<&str>, site: &str) -> String {
-  let mut merged: serde_json::Value = shell.and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| serde_json::json!({ "imports": {} }));
+  let mut merged: serde_json::Value = shell
+    .and_then(|s| serde_json::from_str(s).ok())
+    .unwrap_or_else(|| serde_json::json!({ "imports": {} }));
   let theirs: serde_json::Value = serde_json::from_str(site).unwrap_or_else(|_| serde_json::json!({ "imports": {} }));
-  if let (Some(ours), Some(theirs)) = (merged.get_mut("imports").and_then(|i| i.as_object_mut()), theirs.get("imports").and_then(|i| i.as_object())) {
+  if let (Some(ours), Some(theirs)) = (
+    merged.get_mut("imports").and_then(|i| i.as_object_mut()),
+    theirs.get("imports").and_then(|i| i.as_object()),
+  ) {
     for (key, value) in theirs {
       ours.entry(key.clone()).or_insert_with(|| value.clone());
     }
@@ -1860,7 +2594,15 @@ fn shell_root_layout(shell: &Manifest, shell_module: &str) -> Option<PlanFileNod
 fn graft(shell: &Manifest, site: &mut Manifest, shell_module: &str) {
   let layout = shell_root_layout(shell, shell_module);
   let regraft = |entry: &mut RouteEntry, keep_rest: bool| {
-    let Some(content) = entry.plan.children.iter().find(|c| c.slot == "content").map(|c| c.node.clone()) else { return };
+    let Some(content) = entry
+      .plan
+      .children
+      .iter()
+      .find(|c| c.slot == "content")
+      .map(|c| c.node.clone())
+    else {
+      return;
+    };
     let inner = match &layout {
       Some(layout) => {
         let mut grafted = layout.clone();
@@ -1870,13 +2612,31 @@ fn graft(shell: &Manifest, site: &mut Manifest, shell_module: &str) {
           }
         }
         if keep_rest {
-          grafted.keep = grafted.children.iter().filter(|c| c.slot != "content").map(|c| c.slot.clone()).collect();
+          grafted.keep = grafted
+            .children
+            .iter()
+            .filter(|c| c.slot != "content")
+            .map(|c| c.slot.clone())
+            .collect();
         }
         grafted
       }
       None => content,
     };
-    let mut plan = PlanFileNode { id: 0, module: shell_module.to_owned(), source: None, deferred: false, fallback: None, error: None, cache_key: None, children: vec![PlanChild { slot: "content".to_owned(), node: inner }], keep: Vec::new() };
+    let mut plan = PlanFileNode {
+      id: 0,
+      module: shell_module.to_owned(),
+      source: None,
+      deferred: false,
+      fallback: None,
+      error: None,
+      cache_key: None,
+      children: vec![PlanChild {
+        slot: "content".to_owned(),
+        node: inner,
+      }],
+      keep: Vec::new(),
+    };
     renumber(&mut plan, &mut 0);
     entry.plan = plan;
   };
@@ -1892,7 +2652,11 @@ fn json_response(status: StatusCode, json: &serde_json::Value) -> Response<Body>
   Response::builder()
     .status(status)
     .header(header::CONTENT_TYPE, "application/json")
-    .body(http_body_util::Full::new(Bytes::from(json.to_string())).map_err(|never| match never {}).boxed_unsync())
+    .body(
+      http_body_util::Full::new(Bytes::from(json.to_string()))
+        .map_err(|never| match never {})
+        .boxed_unsync(),
+    )
     .expect("a json response")
 }
 
@@ -1902,7 +2666,11 @@ fn json_response(status: StatusCode, json: &serde_json::Value) -> Response<Body>
 /// the slot, so the walk continues through it.
 fn intercept_slot(plan: &PlanNode) -> Option<String> {
   if plan.keep.iter().any(|name| name.0 == "content") {
-    return plan.children.iter().find(|(name, _)| !plan.keep.contains(name)).map(|(name, _)| name.0.clone());
+    return plan
+      .children
+      .iter()
+      .find(|(name, _)| !plan.keep.contains(name))
+      .map(|(name, _)| name.0.clone());
   }
   plan.children.iter().find_map(|(_, child)| intercept_slot(child))
 }
@@ -1928,51 +2696,107 @@ fn shares_layouts(intercept: &PlanNode, from: &PlanNode) -> bool {
 /// handler, event }`; `handler` is the index of the handler that fired or
 /// null to render as is. Answers `{ state, html }`: the state after the
 /// handler and the island's markup rendered from it, with handler markers.
-pub fn island_step(lowered: Option<&snapfire_fsr_ir::IrEvaluator>, module: &str, body: &[u8], locale: &str) -> (StatusCode, serde_json::Value) {
+pub fn island_step(
+  lowered: Option<&snapfire_fsr_ir::IrEvaluator>,
+  module: &str,
+  body: &[u8],
+  locale: &str,
+) -> (StatusCode, serde_json::Value) {
   let Some(evaluator) = lowered else {
-    return (StatusCode::NOT_FOUND, serde_json::json!({ "kind": "not_found", "message": "no lowered component" }));
+    return (
+      StatusCode::NOT_FOUND,
+      serde_json::json!({ "kind": "not_found", "message": "no lowered component" }),
+    );
   };
   let components = evaluator.components();
   let Some(component) = components.get(module).cloned() else {
-    return (StatusCode::NOT_FOUND, serde_json::json!({ "kind": "not_found", "message": format!("`{module}` is not a lowered component") }));
+    return (
+      StatusCode::NOT_FOUND,
+      serde_json::json!({ "kind": "not_found", "message": format!("`{module}` is not a lowered component") }),
+    );
   };
-  let input = match serde_json::from_slice::<serde_json::Value>(body).map_err(|e| e.to_string()).and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string())) {
+  let input = match serde_json::from_slice::<serde_json::Value>(body)
+    .map_err(|e| e.to_string())
+    .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
+  {
     Ok(Value::Map(map)) => map,
-    Ok(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "an island step is an object" })),
-    Err(e) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": format!("invalid island step: {e}") })),
+    Ok(_) => {
+      return (
+        StatusCode::BAD_REQUEST,
+        serde_json::json!({ "kind": "invalid", "message": "an island step is an object" }),
+      );
+    }
+    Err(e) => {
+      return (
+        StatusCode::BAD_REQUEST,
+        serde_json::json!({ "kind": "invalid", "message": format!("invalid island step: {e}") }),
+      );
+    }
   };
   let mut props = match input.get("props") {
     Some(Value::Map(map)) => map.clone(),
     None | Some(Value::Null) => ValueMap::new(),
-    Some(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "props must be an object" })),
+    Some(_) => {
+      return (
+        StatusCode::BAD_REQUEST,
+        serde_json::json!({ "kind": "invalid", "message": "props must be an object" }),
+      );
+    }
   };
   let state = match input.get("state") {
     Some(Value::Map(map)) => map.clone(),
     None | Some(Value::Null) => ValueMap::new(),
-    Some(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "state must be an object" })),
+    Some(_) => {
+      return (
+        StatusCode::BAD_REQUEST,
+        serde_json::json!({ "kind": "invalid", "message": "state must be an object" }),
+      );
+    }
   };
   if let Some(unknown) = state.keys().find(|k| !component.state.contains(k)) {
-    return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }));
+    return (
+      StatusCode::BAD_REQUEST,
+      serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }),
+    );
   }
   let handler = match input.get("handler") {
     None | Some(Value::Null) => None,
     Some(Value::Int(i)) if *i >= 0 => Some(*i as usize),
     Some(Value::F64(f)) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
-    Some(_) => return (StatusCode::BAD_REQUEST, serde_json::json!({ "kind": "invalid", "message": "handler must be an index" })),
+    Some(_) => {
+      return (
+        StatusCode::BAD_REQUEST,
+        serde_json::json!({ "kind": "invalid", "message": "handler must be an index" }),
+      );
+    }
   };
   if handler.is_some_and(|h| h >= component.handlers.len()) {
-    return (StatusCode::NOT_FOUND, serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", handler.unwrap_or(0)) }));
+    return (
+      StatusCode::NOT_FOUND,
+      serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", handler.unwrap_or(0)) }),
+    );
   }
   let event = input.get("event").cloned().unwrap_or(Value::Null);
   if !locale.is_empty() {
-    props.entry("locale".to_owned()).or_insert_with(|| Value::Str(locale.to_owned()));
+    props
+      .entry("locale".to_owned())
+      .or_insert_with(|| Value::Str(locale.to_owned()));
   }
-  match evaluator.interpreter().island_step(module, &component, &props, &state, handler, &event, &components) {
+  match evaluator
+    .interpreter()
+    .island_step(module, &component, &props, &state, handler, &event, &components)
+  {
     Ok(stepped) => {
       let html = snapfire_fsr_payload::html_serialize(&Node::Seq(snapfire_fsr_ir::rendered_nodes(&stepped.rendered)));
-      (StatusCode::OK, serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(stepped.state)), "html": html }))
+      (
+        StatusCode::OK,
+        serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(stepped.state)), "html": html }),
+      )
     }
-    Err(fail) => (StatusCode::from_u16(fail.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+    Err(fail) => (
+      StatusCode::from_u16(fail.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+      serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message }),
+    ),
   }
 }
 
@@ -1980,12 +2804,20 @@ fn text_response(status: StatusCode, text: String) -> Response<Body> {
   Response::builder()
     .status(status)
     .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-    .body(http_body_util::Full::new(Bytes::from(text)).map_err(|never| match never {}).boxed_unsync())
+    .body(
+      http_body_util::Full::new(Bytes::from(text))
+        .map_err(|never| match never {})
+        .boxed_unsync(),
+    )
     .expect("a text response")
 }
 
 fn see_other(location: &str) -> Response<Body> {
-  match Response::builder().status(StatusCode::SEE_OTHER).header(header::LOCATION, location).body(Body::default()) {
+  match Response::builder()
+    .status(StatusCode::SEE_OTHER)
+    .header(header::LOCATION, location)
+    .body(Body::default())
+  {
     Ok(response) => response,
     Err(_) => text_response(StatusCode::BAD_REQUEST, format!("`{location}` is not a location")),
   }
@@ -2027,7 +2859,9 @@ fn percent_decoded(segment: &str) -> String {
 }
 
 fn form_params(body: &[u8]) -> ValueMap {
-  form_urlencoded::parse(body).map(|(k, v)| (k.into_owned(), Value::Str(v.into_owned()))).collect()
+  form_urlencoded::parse(body)
+    .map(|(k, v)| (k.into_owned(), Value::Str(v.into_owned())))
+    .collect()
 }
 
 fn form_field(body: &[u8], name: &str) -> Option<String> {
@@ -2043,9 +2877,14 @@ fn callback_params(req: &Request<Bytes>, query: &Params) -> Result<ValueMap, Str
   if req.method() == Method::GET {
     return Ok(query.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect());
   }
-  let content_type = req.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("");
+  let content_type = req
+    .headers()
+    .get(header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("");
   if content_type.starts_with("application/json") {
-    let json: serde_json::Value = serde_json::from_slice(req.body()).map_err(|e| format!("invalid callback body: {e}"))?;
+    let json: serde_json::Value =
+      serde_json::from_slice(req.body()).map_err(|e| format!("invalid callback body: {e}"))?;
     return match snapfire_fsr_payload::json_to_value(&json) {
       Ok(Value::Map(map)) => Ok(map),
       Ok(_) => Err("the callback body must be an object".to_owned()),
@@ -2278,6 +3117,18 @@ impl HostBuilder {
 
   /// How `Host::reload` rebuilds the tables: a builder for the application as
   /// it stands on disk, with whatever this builder was given added again.
+  /// How the sites are mounted again on [`Host::reload_sites`]. The step is
+  /// handed a builder the host made from the shell's boot inputs and returns it
+  /// with the sites of the moment mounted; it never makes a builder of its own,
+  /// so it cannot reread the shell's configuration or plan.
+  pub fn sites_mounter<F>(mut self, f: F) -> Self
+  where
+    F: Fn(HostBuilder) -> Result<HostBuilder, HostError> + Send + Sync + 'static,
+  {
+    self.sites_mounter = Some(Box::new(f));
+    self
+  }
+
   pub fn reloader<F>(mut self, f: F) -> Self
   where
     F: Fn() -> Result<HostBuilder, HostError> + Send + Sync + 'static,
@@ -2288,6 +3139,23 @@ impl HostBuilder {
 
   pub fn build(mut self) -> Result<Host, HostError> {
     let reloader = self.reloader.take();
+    let sites_mounter = self.sites_mounter.take();
+    // A sites reload rebuilds the shell from these three alone, so a builder
+    // carrying anything else they cannot reproduce keeps none of them and the
+    // call is refused by name rather than quietly dropping what it held.
+    let rebuildable = self.services.is_none()
+      && self.transport_override.is_none()
+      && self.store.is_none()
+      && self.shell.is_none()
+      && self.prerendered.is_none()
+      && self.identity.is_none();
+    let shell_inputs = (sites_mounter.is_some() && rebuildable).then(|| {
+      Arc::new(ShellInputs {
+        config: self.config.clone(),
+        plan: self.plan.clone(),
+        contract: self.contract.clone(),
+      })
+    });
     let store = self.store.take();
     let topic_rule = self.topic_rule.take();
     #[cfg(feature = "ws")]
@@ -2302,7 +3170,11 @@ impl HostBuilder {
       None => match config.session.store.as_str() {
         "memory" => Arc::new(MemorySessionStore::new(config.session.capacity, ttl)),
         "service" => {
-          let client = format!("{}{}", config.site.as_ref().map(SiteSection::prefix).unwrap_or_default(), config.session.client.clone().unwrap_or_default());
+          let client = format!(
+            "{}{}",
+            config.site.as_ref().map(SiteSection::prefix).unwrap_or_default(),
+            config.session.client.clone().unwrap_or_default()
+          );
           Arc::new(ServiceSessionStore::new(tables.app.services.clone(), client))
         }
         other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
@@ -2311,9 +3183,13 @@ impl HostBuilder {
     let sessions = Sessions::new(
       store,
       config.session.key.as_bytes(),
-      SessionConfig { ttl, secure: config.session.secure, ..SessionConfig::default() },
+      SessionConfig {
+        ttl,
+        secure: config.session.secure,
+        ..SessionConfig::default()
+      },
     );
-    let changed = config.dev().then(|| tokio::sync::broadcast::channel(16).0);
+    let changed = config.dev().then(|| Reload::new(16));
     let http2 = http2.unwrap_or(config.server.http2);
     #[cfg(not(feature = "tls"))]
     if config.server.tls.is_some() {
@@ -2343,13 +3219,17 @@ impl HostBuilder {
       live: parking_lot::RwLock::new(Arc::new(tables)),
       sessions,
       changed,
-      topics: tokio::sync::broadcast::channel(64).0,
+      topics: Topics::new(64),
       topic_rule,
       #[cfg(feature = "ws")]
       sockets,
       #[cfg(feature = "ws")]
       socket_handler,
       reloader,
+      shell_inputs,
+      sites_mounter,
+      #[cfg(feature = "sites_reload")]
+      sites_reload: parking_lot::Mutex::new(()),
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
       max_body: config.server.max_body,
@@ -2373,7 +3253,10 @@ impl HostBuilder {
 
     config.session_ttl()?;
     if !matches!(config.session.store.as_str(), "memory" | "service") {
-      return Err(HostError::Value("session.store".to_owned(), config.session.store.clone()));
+      return Err(HostError::Value(
+        "session.store".to_owned(),
+        config.session.store.clone(),
+      ));
     }
     leaks(&config, &plan)?;
 
@@ -2383,16 +3266,31 @@ impl HostBuilder {
     let mut transports: Vec<(String, Arc<dyn Transport>)> = Vec::new();
     let build_clients = self.services.is_none();
     if build_clients {
-      clients_of(&config, self.transport_override.is_none(), &mut contract, &mut transports, &mut service_rows, &mut bearer_rows)?;
+      clients_of(
+        &config,
+        self.transport_override.is_none(),
+        &mut contract,
+        &mut transports,
+        &mut service_rows,
+        &mut bearer_rows,
+      )?;
     }
 
-    let manifest = Manifest::from_json(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+    let manifest =
+      Manifest::from_json(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
     let shell_module = config.document.shell.clone();
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();
     let mut sites = Vec::new();
     let mut site_reports = Vec::new();
-    let mut statics: Vec<StaticRootResolved> = config.statics.iter().map(|root| StaticRootResolved { route: root.route.trim_end_matches('/').to_owned(), dir: config.resolve(&root.dir) }).collect();
+    let mut statics: Vec<StaticRootResolved> = config
+      .statics
+      .iter()
+      .map(|root| StaticRootResolved {
+        route: root.route.trim_end_matches('/').to_owned(),
+        dir: config.resolve(&root.dir),
+      })
+      .collect();
     let mut import_map = match &config.document.import_map {
       Some(rel) => {
         let path = config.resolve(rel);
@@ -2401,38 +3299,91 @@ impl HostBuilder {
       None => None,
     };
     for mount in std::mem::take(&mut self.mounts) {
-      let site = mount.config.site.clone().ok_or_else(|| HostError::Mount(mount.name.clone(), "the artifact's configuration has no [site] section".to_owned()))?;
+      let site = mount.config.site.clone().ok_or_else(|| {
+        HostError::Mount(
+          mount.name.clone(),
+          "the artifact's configuration has no [site] section".to_owned(),
+        )
+      })?;
       if site.name != mount.name {
-        return Err(HostError::Mount(mount.name.clone(), format!("the artifact is the site `{}`", site.name)));
+        return Err(HostError::Mount(
+          mount.name.clone(),
+          format!("the artifact is the site `{}`", site.name),
+        ));
       }
-      if sites.iter().any(|s: &SiteTables| s.at == site.at) || taken.iter().any(|r| *r == site.at || r.starts_with(&format!("{}/", site.at))) {
-        return Err(HostError::Mount(mount.name.clone(), format!("`{}` is already served", site.at)));
+      if sites.iter().any(|s: &SiteTables| s.at == site.at)
+        || taken
+          .iter()
+          .any(|r| *r == site.at || r.starts_with(&format!("{}/", site.at)))
+      {
+        return Err(HostError::Mount(
+          mount.name.clone(),
+          format!("`{}` is already served", site.at),
+        ));
       }
-      let mut site_manifest = Manifest::from_json(&mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
-      let engine_rows: Vec<String> = site_manifest.sources.iter().filter(|r| r.owner == RowOwner::Engine).map(|r| r.id.clone())
-        .chain(site_manifest.actions.iter().filter(|r| r.owner == RowOwner::Engine).map(|r| r.id.clone()))
-        .chain(site_manifest.handlers.iter().filter(|r| r.owner == RowOwner::Engine).map(|r| r.id.clone()))
+      let mut site_manifest =
+        Manifest::from_json(&mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+      let engine_rows: Vec<String> = site_manifest
+        .sources
+        .iter()
+        .filter(|r| r.owner == RowOwner::Engine)
+        .map(|r| r.id.clone())
+        .chain(
+          site_manifest
+            .actions
+            .iter()
+            .filter(|r| r.owner == RowOwner::Engine)
+            .map(|r| r.id.clone()),
+        )
+        .chain(
+          site_manifest
+            .handlers
+            .iter()
+            .filter(|r| r.owner == RowOwner::Engine)
+            .map(|r| r.id.clone()),
+        )
         .collect();
       if !engine_rows.is_empty() && !mount.allow_engine {
-        return Err(HostError::Mount(mount.name.clone(), format!("engine-owned rows {}; set allow_engine = true to mount them", engine_rows.join(", "))));
+        return Err(HostError::Mount(
+          mount.name.clone(),
+          format!(
+            "engine-owned rows {}; set allow_engine = true to mount them",
+            engine_rows.join(", ")
+          ),
+        ));
       }
       leaks(&mount.config, &mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       let middleware = site_manifest.middleware.take().map(snapfire_fsr::middleware_from);
       graft(&manifest, &mut site_manifest, &shell_module);
       site_manifest.not_found = None;
       taken.extend(site_manifest.routes.iter().map(|r| r.pattern.clone()));
-      app.mount_manifest(&site_manifest.to_json()).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+      app
+        .mount_manifest(&site_manifest.to_json())
+        .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       if let Some(site_contract) = &mount.contract {
-        contract.merge(site_contract.clone(), &format!("site {}", mount.name)).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+        contract
+          .merge(site_contract.clone(), &format!("site {}", mount.name))
+          .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       }
       if build_clients {
-        clients_of(&mount.config, self.transport_override.is_none(), &mut contract, &mut transports, &mut service_rows, &mut bearer_rows).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+        clients_of(
+          &mount.config,
+          self.transport_override.is_none(),
+          &mut contract,
+          &mut transports,
+          &mut service_rows,
+          &mut bearer_rows,
+        )
+        .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       }
       let mut ignored = Vec::new();
       for root in &mount.config.statics {
         let route = root.route.trim_end_matches('/').to_owned();
         if route.starts_with(&site.at) && !statics.iter().any(|s| s.route == route) {
-          statics.push(StaticRootResolved { route, dir: mount.config.resolve(&root.dir) });
+          statics.push(StaticRootResolved {
+            route,
+            dir: mount.config.resolve(&root.dir),
+          });
         } else {
           ignored.push(format!("static {route}"));
         }
@@ -2453,7 +3404,14 @@ impl HostBuilder {
         let theirs = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
         import_map = Some(merge_import_maps(import_map.as_deref(), &theirs));
       }
-      site_reports.push(SiteReport { name: mount.name.clone(), at: site.at.clone(), artifact: mount.artifact.clone(), version: mount.version.clone(), hash: mount.hash.clone(), ignored });
+      site_reports.push(SiteReport {
+        name: mount.name.clone(),
+        at: site.at.clone(),
+        artifact: mount.artifact.clone(),
+        version: mount.version.clone(),
+        hash: mount.hash.clone(),
+        ignored,
+      });
       sites.push(SiteTables {
         name: mount.name.clone(),
         at: site.at.clone(),
@@ -2463,7 +3421,11 @@ impl HostBuilder {
       });
     }
     sites.sort_by(|a, b| b.at.len().cmp(&a.at.len()).then(a.at.cmp(&b.at)));
-    let app_contract = if site_reports.is_empty() { self.contract.take() } else { Some(contract.clone()) };
+    let app_contract = if site_reports.is_empty() {
+      self.contract.take()
+    } else {
+      Some(contract.clone())
+    };
 
     let services = match self.services {
       Some(services) => services,
@@ -2492,7 +3454,9 @@ impl HostBuilder {
             }
           }
         }
-        builder.try_build().map_err(|e| HostError::Value("cache.data".to_owned(), e.to_string()))?
+        builder
+          .try_build()
+          .map_err(|e| HostError::Value("cache.data".to_owned(), e.to_string()))?
       }
     };
 
@@ -2509,23 +3473,44 @@ impl HostBuilder {
       _ => None,
     };
     let locales = match &config.locales {
-      Some(section) => Locales::from_section(section).map_err(|e| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), e))?,
+      Some(section) => Locales::from_section(section).map_err(|e| {
+        HostError::Config(
+          config.sources.first().cloned().unwrap_or_else(|| config.root.clone()),
+          e,
+        )
+      })?,
       None => Locales::single(),
     };
-    let catalogs = Arc::new(locale::load_catalogs(&config.app, &locales.default).map_err(|e| HostError::Config(config.root.clone(), e))?);
+    let catalogs = Arc::new(
+      locale::load_catalogs(&config.app, &locales.default).map_err(|e| HostError::Config(config.root.clone(), e))?,
+    );
     if !catalogs.is_empty() {
       app = app.catalogs(catalogs.clone());
     }
     let catalog_rows = catalogs.rows();
     app = app.bearer_services(bearer_rows.iter().map(|(client, _)| client.clone()));
-    let extension_rows: Vec<String> = app.extensions().names().into_iter().filter(|name| !snapfire_fsr_ir::STANDARD.iter().any(|(m, n, _)| format!("{m}.{n}") == *name)).collect();
+    let extension_rows: Vec<String> = app
+      .extensions()
+      .names()
+      .into_iter()
+      .filter(|name| {
+        !snapfire_fsr_ir::STANDARD
+          .iter()
+          .any(|(m, n, _)| format!("{m}.{n}") == *name)
+      })
+      .collect();
     let app = app
       .services(services)
       .evaluator(move |m: &ModuleId| m.path == shell_path, shell)
       .build()?;
 
     let styles = config.document.styles.clone().unwrap_or_default();
-    let mut head = shell::head(&config.document.title, &styles, import_map.as_deref(), config.document.entry.as_deref());
+    let mut head = shell::head(
+      &config.document.title,
+      &styles,
+      import_map.as_deref(),
+      config.document.entry.as_deref(),
+    );
     head.head = config.document.head_meta()?.head;
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
@@ -2533,7 +3518,10 @@ impl HostBuilder {
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
 
-    let prerendered = self.prerendered.take().or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
+    let prerendered = self
+      .prerendered
+      .take()
+      .or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
     let locale_rows = match &config.locales {
       Some(_) => {
         let mut rows = vec![locales.default.clone()];
@@ -2545,18 +3533,33 @@ impl HostBuilder {
     let prefix = config.site.as_ref().map(SiteSection::prefix).unwrap_or_default();
     let auth = match (self.identity.take(), &config.auth) {
       (Some(provider), section) => {
-        let login_path = section.as_ref().map(|s| s.login.clone()).unwrap_or_else(|| "/login".to_owned());
-        Some((Mounted { auth: Auth::new(provider), login_path }, "custom".to_owned()))
+        let login_path = section
+          .as_ref()
+          .map(|s| s.login.clone())
+          .unwrap_or_else(|| "/login".to_owned());
+        Some((
+          Mounted {
+            auth: Auth::new(provider),
+            login_path,
+          },
+          "custom".to_owned(),
+        ))
       }
       (None, Some(section)) => {
         let provider: Arc<dyn IdentityProvider> = match section.provider.as_str() {
           "file" => {
-            let users = config.config_dir().join(section.users.as_deref().unwrap_or("auth.toml"));
+            let users = config
+              .config_dir()
+              .join(section.users.as_deref().unwrap_or("auth.toml"));
             Arc::new(DevProvider::from_toml(&section.login, &users).map_err(|e| HostError::Config(users.clone(), e))?)
           }
           "service" => {
             let client = format!("{prefix}{}", section.client.clone().unwrap_or_default());
-            Arc::new(ServiceProvider::new(app.services.clone(), client, section.login.clone()))
+            Arc::new(ServiceProvider::new(
+              app.services.clone(),
+              client,
+              section.login.clone(),
+            ))
           }
           other => return Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
         };
@@ -2564,11 +3567,19 @@ impl HostBuilder {
           Some(client) if section.provider == "service" => format!("service via {client}"),
           _ => section.provider.clone(),
         };
-        Some((Mounted { auth: Auth::new(provider), login_path: section.login.clone() }, name))
+        Some((
+          Mounted {
+            auth: Auth::new(provider),
+            login_path: section.login.clone(),
+          },
+          name,
+        ))
       }
       (None, None) => None,
     };
-    let auth_row = auth.as_ref().map(|(mounted, name)| (name.clone(), mounted.login_path.clone()));
+    let auth_row = auth
+      .as_ref()
+      .map(|(mounted, name)| (name.clone(), mounted.login_path.clone()));
     let auth = auth.map(|(mounted, _)| mounted);
     let report = HostReport {
       app: app.report.clone(),
@@ -2578,7 +3589,10 @@ impl HostBuilder {
         TlsReport {
           cert,
           key,
-          alpn: section.alpn.clone().unwrap_or_else(|| default_alpn(self.http2.unwrap_or(config.server.http2))),
+          alpn: section
+            .alpn
+            .clone()
+            .unwrap_or_else(|| default_alpn(self.http2.unwrap_or(config.server.http2))),
           reload: (section.reload != "none").then(|| section.reload.clone()),
         }
       }),
@@ -2604,7 +3618,17 @@ impl HostBuilder {
             .collect()
         })
         .unwrap_or_default(),
-      writers: app.services.data_cache().map(|cache| cache.writers().into_iter().map(|(method, tags)| (method, format!("[{}]", tags.join(", ")))).collect()).unwrap_or_default(),
+      writers: app
+        .services
+        .data_cache()
+        .map(|cache| {
+          cache
+            .writers()
+            .into_iter()
+            .map(|(method, tags)| (method, format!("[{}]", tags.join(", "))))
+            .collect()
+        })
+        .unwrap_or_default(),
       statics: static_rows,
       prerender: prerendered.clone(),
       cache: cache_row,
@@ -2619,14 +3643,31 @@ impl HostBuilder {
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
     };
-    Ok((Tables { app, head, dev_bundle, statics, prerendered, locales, catalogs, auth, sites, report: Arc::new(report) }, config))
+    Ok((
+      Tables {
+        app,
+        head,
+        dev_bundle,
+        statics,
+        prerendered,
+        locales,
+        catalogs,
+        auth,
+        sites,
+        report: Arc::new(report),
+      },
+      config,
+    ))
   }
 }
 
 /// The `[session]` settings as one string, compared across a reload.
 fn session_shape(config: &Config) -> String {
   let s = &config.session;
-  format!("{} {:?} {} {} {} {} {:?}", s.store, s.client, s.key, s.ttl, s.secure, s.csrf, s.capacity)
+  format!(
+    "{} {:?} {} {} {} {} {:?}",
+    s.store, s.client, s.key, s.ttl, s.secure, s.csrf, s.capacity
+  )
 }
 
 /// Refuses a bundle that carries a server module. The plan's sources,
@@ -2636,9 +3677,13 @@ fn session_shape(config: &Config) -> String {
 /// no bundle to check.
 fn leaks(config: &Config, plan: &str) -> Result<(), HostError> {
   let facts = config.app.join("dist/.snapfire-build.json");
-  let Ok(text) = std::fs::read_to_string(&facts) else { return Ok(()) };
-  let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| HostError::Config(facts.clone(), e.to_string()))?;
-  let plan: serde_json::Value = serde_json::from_str(plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+  let Ok(text) = std::fs::read_to_string(&facts) else {
+    return Ok(());
+  };
+  let json: serde_json::Value =
+    serde_json::from_str(&text).map_err(|e| HostError::Config(facts.clone(), e.to_string()))?;
+  let plan: serde_json::Value =
+    serde_json::from_str(plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
   let found = leaked_outputs(&plan, &json);
   if found.is_empty() {
     Ok(())
@@ -2648,7 +3693,10 @@ fn leaks(config: &Config, plan: &str) -> Result<(), HostError> {
 }
 
 fn server_output(module: &str) -> String {
-  let stem = module.strip_suffix(".tsx").or_else(|| module.strip_suffix(".ts")).unwrap_or(module);
+  let stem = module
+    .strip_suffix(".tsx")
+    .or_else(|| module.strip_suffix(".ts"))
+    .unwrap_or(module);
   format!("{stem}.js")
 }
 
@@ -2656,7 +3704,11 @@ fn server_output(module: &str) -> String {
 /// the reason.
 fn leaked_outputs(plan: &serde_json::Value, facts: &serde_json::Value) -> Vec<String> {
   let mut server: std::collections::BTreeMap<String, String> = Default::default();
-  for (table, what) in [("sources", "a loader"), ("actions", "an actions module"), ("handlers", "a route handler")] {
+  for (table, what) in [
+    ("sources", "a loader"),
+    ("actions", "an actions module"),
+    ("handlers", "a route handler"),
+  ] {
     for row in plan[table].as_array().into_iter().flatten() {
       if let Some(module) = row["module"].as_str() {
         server.insert(server_output(module), format!("{what}, {module}"));
@@ -2667,7 +3719,12 @@ fn leaked_outputs(plan: &serde_json::Value, facts: &serde_json::Value) -> Vec<St
     server.insert("middleware.js".to_owned(), "the middleware, middleware.ts".to_owned());
   }
   let mut found = Vec::new();
-  for output in facts["outputs"].as_array().into_iter().flatten().filter_map(|o| o.as_str()) {
+  for output in facts["outputs"]
+    .as_array()
+    .into_iter()
+    .flatten()
+    .filter_map(|o| o.as_str())
+  {
     if let Some(reason) = server.get(output) {
       found.push(format!("{output} is {reason}"));
     }
@@ -2721,7 +3778,12 @@ impl Host {
   }
 
   pub fn owner_of_source(&self, name: &str) -> Option<Owner> {
-    self.report().app.sources.iter().find(|(n, _)| n == name).map(|(_, o)| *o)
+    self
+      .report()
+      .app
+      .sources
+      .iter()
+      .find(|(n, _)| n == name)
+      .map(|(_, o)| *o)
   }
 }
-

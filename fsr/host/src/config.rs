@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use c5store::error::ConfigError;
-use c5store::{create_c5store, C5Store, C5StoreOptions};
+use c5store::{C5Store, C5StoreOptions, create_c5store};
 use serde::Deserialize;
 
 use snapfire_fsr_runtime::{HeadEl, Meta};
 
-use crate::locale::LocalesSection;
 use crate::HostError;
+use crate::locale::LocalesSection;
 
 /// The host's configuration after loading and inference. `root` is the
 /// project directory, `app` the application directory under it.
@@ -191,7 +191,16 @@ impl TlsSection {
 
 impl Default for ServerConfig {
   fn default() -> Self {
-    Self { listen: default_listen(), plan: default_plan(), contracts: default_contracts(), max_body: default_max_body(), prerender: None, dev: None, http2: false, tls: None }
+    Self {
+      listen: default_listen(),
+      plan: default_plan(),
+      contracts: default_contracts(),
+      max_body: default_max_body(),
+      prerender: None,
+      dev: None,
+      http2: false,
+      tls: None,
+    }
   }
 }
 
@@ -224,7 +233,10 @@ impl DocumentConfig {
     let mut head = Vec::new();
     for table in &self.head {
       let Some(tag) = table.get("tag") else {
-        return Err(HostError::Value("document.head".to_owned(), "each entry needs a `tag`".to_owned()));
+        return Err(HostError::Value(
+          "document.head".to_owned(),
+          "each entry needs a `tag`".to_owned(),
+        ));
       };
       let mut attrs = Vec::new();
       let mut children = None;
@@ -235,9 +247,17 @@ impl DocumentConfig {
           _ => attrs.push((key.clone(), value.clone())),
         }
       }
-      head.push(HeadEl { tag: tag.clone(), attrs, children });
+      head.push(HeadEl {
+        tag: tag.clone(),
+        attrs,
+        children,
+      });
     }
-    Ok(Meta { title: None, description: None, head })
+    Ok(Meta {
+      title: None,
+      description: None,
+      head,
+    })
   }
 }
 
@@ -336,7 +356,10 @@ impl ClientConfig {
 
   /// Where the mock's responses are read from, relative to the app directory.
   pub fn responses_file(&self, name: &str) -> String {
-    self.responses.clone().unwrap_or_else(|| format!("clients/{name}.mock.json"))
+    self
+      .responses
+      .clone()
+      .unwrap_or_else(|| format!("clients/{name}.mock.json"))
   }
 }
 
@@ -405,7 +428,20 @@ pub struct StaticRoot {
   pub dir: String,
 }
 
-const SECTIONS: &[&str] = &["app", "server", "document", "session", "cache", "clients", "static", "locales", "auth", "typecheck", "site", "sites"];
+const SECTIONS: &[&str] = &[
+  "app",
+  "server",
+  "document",
+  "session",
+  "cache",
+  "clients",
+  "static",
+  "locales",
+  "auth",
+  "typecheck",
+  "site",
+  "sites",
+];
 
 fn default_app_dir() -> String {
   "app".to_owned()
@@ -465,13 +501,21 @@ impl Deployment {
 
 impl Default for Deployment {
   fn default() -> Self {
-    Self { release_env: "development".to_owned(), app_env: "local".to_owned(), region: None }
+    Self {
+      release_env: "development".to_owned(),
+      app_env: "local".to_owned(),
+      region: None,
+    }
   }
 }
 
 /// The files a configuration directory contributes, in loading order: `app`, `<release_env>`, `<app_env>`, `<region>` and `<app_env>-<region>`, each as `.toml` then `.yaml`, keeping only those that exist. Any other file in the directory is ignored.
 pub fn config_paths(dir: &Path, deployment: &Deployment) -> Vec<PathBuf> {
-  let mut stems = vec!["app".to_owned(), deployment.release_env.clone(), deployment.app_env.clone()];
+  let mut stems = vec![
+    "app".to_owned(),
+    deployment.release_env.clone(),
+    deployment.app_env.clone(),
+  ];
   if let Some(region) = &deployment.region {
     stems.push(region.clone());
     stems.push(format!("{}-{}", deployment.app_env, region));
@@ -505,7 +549,11 @@ impl Located {
   /// One more file, loaded after everything found so far. A relative path resolves against the configuration directory.
   pub fn extra(mut self, path: impl AsRef<Path>) -> Self {
     let path = path.as_ref();
-    self.sources.push(if path.is_absolute() { path.to_path_buf() } else { self.dir.join(path) });
+    self.sources.push(if path.is_absolute() {
+      path.to_path_buf()
+    } else {
+      self.dir.join(path)
+    });
     self
   }
 }
@@ -519,21 +567,41 @@ pub fn locate(path: &Path) -> Result<Located, HostError> {
 pub fn locate_with(path: &Path, deployment: &Deployment) -> Result<Located, HostError> {
   if path.is_file() {
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let root = if dir.file_name().is_some_and(|n| n == "config") { dir.parent().map(Path::to_path_buf).unwrap_or(dir.clone()) } else { dir.clone() };
-    return Ok(Located { sources: vec![path.to_path_buf()], dir, root });
+    let root = if dir.file_name().is_some_and(|n| n == "config") {
+      dir.parent().map(Path::to_path_buf).unwrap_or(dir.clone())
+    } else {
+      dir.clone()
+    };
+    return Ok(Located {
+      sources: vec![path.to_path_buf()],
+      dir,
+      root,
+    });
   }
   if !path.is_dir() {
     return Err(HostError::NoConfig(path.to_path_buf()));
   }
   let config_dir = path.join("config");
   if config_dir.is_dir() {
-    return Ok(Located { sources: config_paths(&config_dir, deployment), dir: config_dir, root: path.to_path_buf() });
+    return Ok(Located {
+      sources: config_paths(&config_dir, deployment),
+      dir: config_dir,
+      root: path.to_path_buf(),
+    });
   }
   if path.file_name().is_some_and(|n| n == "config") {
-    return Ok(Located { sources: config_paths(path, deployment), dir: path.to_path_buf(), root: path.parent().map(Path::to_path_buf).unwrap_or_default() });
+    return Ok(Located {
+      sources: config_paths(path, deployment),
+      dir: path.to_path_buf(),
+      root: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+    });
   }
   if ["app.toml", "app.yaml"].iter().any(|name| path.join(name).is_file()) {
-    return Ok(Located { sources: config_paths(path, deployment), dir: path.to_path_buf(), root: path.to_path_buf() });
+    return Ok(Located {
+      sources: config_paths(path, deployment),
+      dir: path.to_path_buf(),
+      root: path.to_path_buf(),
+    });
   }
   Err(HostError::NoConfig(path.to_path_buf()))
 }
@@ -578,34 +646,55 @@ impl Config {
     for key in store.key_paths_with_prefix(None) {
       let head = key.split('.').next().unwrap_or(&key);
       if !SECTIONS.contains(&head) {
-        return Err(HostError::Config(at.clone(), format!("unknown key `{key}`; sections are {}", SECTIONS.join(", "))));
+        return Err(HostError::Config(
+          at.clone(),
+          format!("unknown key `{key}`; sections are {}", SECTIONS.join(", ")),
+        ));
       }
     }
 
-    fn section<S: C5Store, T: for<'de> Deserialize<'de> + Default>(store: &S, key: &str) -> Result<T, ConfigError> {
+    /// A section, absent or not. An absent one is deserialized as an empty
+    /// table rather than taken from `Default`, so every `serde(default)` the
+    /// section declares applies: a derived `Default` ignores serde attributes,
+    /// which silently drops the defaults that name a function.
+    fn section<S: C5Store, T: for<'de> Deserialize<'de>>(store: &S, key: &str, at: &Path) -> Result<T, HostError> {
+      let fail = |e: String| HostError::Config(at.to_path_buf(), format!("{key}: {e}"));
       if !store.path_exists(key) {
-        return Ok(T::default());
+        return serde_json::from_str::<T>("{}").map_err(|e| fail(e.to_string()));
       }
-      store.get_into_struct::<T>(key)
+      store.get_into_struct::<T>(key).map_err(|e| fail(e.to_string()))
     }
 
-    let app_section: AppSection = section(store, "app").map_err(fail)?;
-    let server: ServerConfig = section(store, "server").map_err(fail)?;
-    let document: DocumentConfig = section(store, "document").map_err(fail)?;
+    let app_section: AppSection = section(store, "app", &at)?;
+    let server: ServerConfig = section(store, "server", &at)?;
+    let document: DocumentConfig = section(store, "document", &at)?;
     if !store.path_exists("session") {
-      return Err(HostError::Config(at.clone(), "missing section `session`; `session.key` is required".to_owned()));
+      return Err(HostError::Config(
+        at.clone(),
+        "missing section `session`; `session.key` is required".to_owned(),
+      ));
     }
     let session: SessionSection = store.get_into_struct("session").map_err(fail)?;
     if !matches!(session.csrf.as_str(), "identified" | "always") {
-      return Err(HostError::Config(at.clone(), format!("session.csrf `{}` is not a choice; identified or always", session.csrf)));
+      return Err(HostError::Config(
+        at.clone(),
+        format!("session.csrf `{}` is not a choice; identified or always", session.csrf),
+      ));
     }
-    let cache: Option<CacheSection> = if store.path_exists("cache") { Some(store.get_into_struct("cache").map_err(fail)?) } else { None };
+    let cache: Option<CacheSection> = if store.path_exists("cache") {
+      Some(store.get_into_struct("cache").map_err(fail)?)
+    } else {
+      None
+    };
 
     let mut clients = BTreeMap::new();
     let mut names: Vec<String> = store
       .key_paths_with_prefix(Some("clients"))
       .into_iter()
-      .filter_map(|k| k.strip_prefix("clients.").map(|rest| rest.split('.').next().unwrap_or(rest).to_owned()))
+      .filter_map(|k| {
+        k.strip_prefix("clients.")
+          .map(|rest| rest.split('.').next().unwrap_or(rest).to_owned())
+      })
       .collect();
     if let Some(c5store::value::C5DataValue::Map(map)) = store.get("clients") {
       names.extend(map.keys().cloned());
@@ -619,7 +708,10 @@ impl Config {
         Some(other) => return Err(HostError::Value(format!("clients.{name}.transport"), other.to_owned())),
       }
       if client.base_url.is_none() && !client.is_mock() {
-        return Err(HostError::Config(at.clone(), format!("clients.{name}.base_url is required unless transport = \"mock\"")));
+        return Err(HostError::Config(
+          at.clone(),
+          format!("clients.{name}.base_url is required unless transport = \"mock\""),
+        ));
       }
       clients.insert(name, client);
     }
@@ -632,124 +724,203 @@ impl Config {
       None => Vec::new(),
     };
 
-    let locales: Option<LocalesSection> = if store.path_exists("locales") || !store.key_paths_with_prefix(Some("locales")).is_empty() {
-      let mut json = serde_json::Map::new();
-      for key in ["supported", "default", "order", "remember", "cookie"] {
-        if let Some(value) = store.get(&format!("locales.{key}")) {
-          json.insert(key.to_owned(), to_json(&value));
+    let locales: Option<LocalesSection> =
+      if store.path_exists("locales") || !store.key_paths_with_prefix(Some("locales")).is_empty() {
+        let mut json = serde_json::Map::new();
+        for key in ["supported", "default", "order", "remember", "cookie"] {
+          if let Some(value) = store.get(&format!("locales.{key}")) {
+            json.insert(key.to_owned(), to_json(&value));
+          }
         }
-      }
-      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("locales: {e}")))?)
-    } else {
-      None
-    };
+        Some(
+          serde_json::from_value(serde_json::Value::Object(json))
+            .map_err(|e| HostError::Config(at.clone(), format!("locales: {e}")))?,
+        )
+      } else {
+        None
+      };
 
-    let auth: Option<AuthSection> = if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
-      let mut json = serde_json::Map::new();
-      for key in ["provider", "login", "users", "client"] {
-        if let Some(value) = store.get(&format!("auth.{key}")) {
-          json.insert(key.to_owned(), to_json(&value));
+    let auth: Option<AuthSection> =
+      if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
+        let mut json = serde_json::Map::new();
+        for key in ["provider", "login", "users", "client"] {
+          if let Some(value) = store.get(&format!("auth.{key}")) {
+            json.insert(key.to_owned(), to_json(&value));
+          }
         }
-      }
-      let section: AuthSection = serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("auth: {e}")))?;
-      if !PROVIDERS.contains(&section.provider.as_str()) {
-        return Err(HostError::Config(at.clone(), format!("auth.provider `{}` is not a provider; the providers are {}", section.provider, PROVIDERS.join(", "))));
-      }
-      if section.provider == "service" {
-        match &section.client {
-          Some(client) if clients.contains_key(client) => {}
-          Some(client) => return Err(HostError::Config(at.clone(), format!("auth.client names `{client}`, which is not a [clients] entry"))),
-          None => return Err(HostError::Config(at.clone(), "auth.provider = \"service\" needs auth.client".to_owned())),
+        let section: AuthSection = serde_json::from_value(serde_json::Value::Object(json))
+          .map_err(|e| HostError::Config(at.clone(), format!("auth: {e}")))?;
+        if !PROVIDERS.contains(&section.provider.as_str()) {
+          return Err(HostError::Config(
+            at.clone(),
+            format!(
+              "auth.provider `{}` is not a provider; the providers are {}",
+              section.provider,
+              PROVIDERS.join(", ")
+            ),
+          ));
         }
-      }
-      if !section.login.starts_with('/') {
-        return Err(HostError::Config(at.clone(), format!("auth.login `{}` must be a path", section.login)));
-      }
-      Some(section)
-    } else {
-      None
-    };
-    let typecheck: Option<TypecheckSection> = if store.path_exists("typecheck") || !store.key_paths_with_prefix(Some("typecheck")).is_empty() {
-      let mut json = serde_json::Map::new();
-      for key in ["version", "sha512", "tsc", "enabled"] {
-        if let Some(value) = store.get(&format!("typecheck.{key}")) {
-          json.insert(key.to_owned(), to_json(&value));
+        if section.provider == "service" {
+          match &section.client {
+            Some(client) if clients.contains_key(client) => {}
+            Some(client) => {
+              return Err(HostError::Config(
+                at.clone(),
+                format!("auth.client names `{client}`, which is not a [clients] entry"),
+              ));
+            }
+            None => {
+              return Err(HostError::Config(
+                at.clone(),
+                "auth.provider = \"service\" needs auth.client".to_owned(),
+              ));
+            }
+          }
         }
-      }
-      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("typecheck: {e}")))?)
-    } else {
-      None
-    };
+        if !section.login.starts_with('/') {
+          return Err(HostError::Config(
+            at.clone(),
+            format!("auth.login `{}` must be a path", section.login),
+          ));
+        }
+        Some(section)
+      } else {
+        None
+      };
+    let typecheck: Option<TypecheckSection> =
+      if store.path_exists("typecheck") || !store.key_paths_with_prefix(Some("typecheck")).is_empty() {
+        let mut json = serde_json::Map::new();
+        for key in ["version", "sha512", "tsc", "enabled"] {
+          if let Some(value) = store.get(&format!("typecheck.{key}")) {
+            json.insert(key.to_owned(), to_json(&value));
+          }
+        }
+        Some(
+          serde_json::from_value(serde_json::Value::Object(json))
+            .map_err(|e| HostError::Config(at.clone(), format!("typecheck: {e}")))?,
+        )
+      } else {
+        None
+      };
 
     if session.store == "service" {
       match &session.client {
         Some(client) if clients.contains_key(client) => {}
-        Some(client) => return Err(HostError::Config(at.clone(), format!("session.client names `{client}`, which is not a [clients] entry"))),
-        None => return Err(HostError::Config(at.clone(), "session.store = \"service\" needs session.client".to_owned())),
+        Some(client) => {
+          return Err(HostError::Config(
+            at.clone(),
+            format!("session.client names `{client}`, which is not a [clients] entry"),
+          ));
+        }
+        None => {
+          return Err(HostError::Config(
+            at.clone(),
+            "session.store = \"service\" needs session.client".to_owned(),
+          ));
+        }
       }
     }
 
-    let site: Option<SiteSection> = if store.path_exists("site") || !store.key_paths_with_prefix(Some("site")).is_empty() {
+    let site: Option<SiteSection> = if store.path_exists("site")
+      || !store.key_paths_with_prefix(Some("site")).is_empty()
+    {
       let mut json = serde_json::Map::new();
       for key in ["name", "at", "shell"] {
         if let Some(value) = store.get(&format!("site.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }
       }
-      let section: SiteSection = serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("site: {e}")))?;
-      if section.name.is_empty() || !section.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
-        return Err(HostError::Config(at.clone(), format!("site.name `{}` must be lowercase letters, digits, `_` or `-`", section.name)));
+      let section: SiteSection = serde_json::from_value(serde_json::Value::Object(json))
+        .map_err(|e| HostError::Config(at.clone(), format!("site: {e}")))?;
+      if section.name.is_empty()
+        || !section
+          .name
+          .chars()
+          .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+      {
+        return Err(HostError::Config(
+          at.clone(),
+          format!(
+            "site.name `{}` must be lowercase letters, digits, `_` or `-`",
+            section.name
+          ),
+        ));
       }
       if !section.at.starts_with('/') || section.at.len() < 2 || section.at.ends_with('/') || section.at.contains('{') {
-        return Err(HostError::Config(at.clone(), format!("site.at `{}` must be a path such as `/billing`, with no trailing slash", section.at)));
+        return Err(HostError::Config(
+          at.clone(),
+          format!(
+            "site.at `{}` must be a path such as `/billing`, with no trailing slash",
+            section.at
+          ),
+        ));
       }
       Some(section)
     } else {
       None
     };
 
-    let sites: Option<SitesSection> = if store.path_exists("sites") || !store.key_paths_with_prefix(Some("sites")).is_empty() {
-      let scalar = |key: &str| -> Result<Option<String>, HostError> {
-        match store.get(&format!("sites.{key}")) {
-          Some(value) => match to_json(&value) {
-            serde_json::Value::String(s) => Ok(Some(s)),
-            other => Err(HostError::Config(at.clone(), format!("sites.{key} must be a string, found {other}"))),
-          },
-          None => Ok(None),
+    let sites: Option<SitesSection> =
+      if store.path_exists("sites") || !store.key_paths_with_prefix(Some("sites")).is_empty() {
+        let scalar = |key: &str| -> Result<Option<String>, HostError> {
+          match store.get(&format!("sites.{key}")) {
+            Some(value) => match to_json(&value) {
+              serde_json::Value::String(s) => Ok(Some(s)),
+              other => Err(HostError::Config(
+                at.clone(),
+                format!("sites.{key} must be a string, found {other}"),
+              )),
+            },
+            None => Ok(None),
+          }
+        };
+        let root = scalar("root")?;
+        let poll = scalar("poll")?;
+        if let Some(poll) = &poll {
+          if parse_duration(poll).is_none() {
+            return Err(HostError::Config(
+              at.clone(),
+              format!("sites.poll `{poll}` is not a duration"),
+            ));
+          }
         }
+        let mut names: Vec<String> = store
+          .key_paths_with_prefix(Some("sites"))
+          .into_iter()
+          .filter_map(|k| {
+            k.strip_prefix("sites.")
+              .map(|rest| rest.split('.').next().unwrap_or(rest).to_owned())
+          })
+          .filter(|name| name != "root" && name != "poll")
+          .collect();
+        if let Some(c5store::value::C5DataValue::Map(map)) = store.get("sites") {
+          names.extend(map.keys().filter(|k| *k != "root" && *k != "poll").cloned());
+        }
+        names.sort();
+        names.dedup();
+        let mut mounts = BTreeMap::new();
+        for name in names {
+          let mount: MountConfig = store.get_into_struct(&format!("sites.{name}")).map_err(fail)?;
+          if mount.artifact.contains('@') && !mount.artifact.contains('/') && root.is_none() {
+            return Err(HostError::Config(
+              at.clone(),
+              format!(
+                "sites.{name}.artifact `{}` names a version, which needs sites.root",
+                mount.artifact
+              ),
+            ));
+          }
+          mounts.insert(name, mount);
+        }
+        Some(SitesSection { root, poll, mounts })
+      } else {
+        None
       };
-      let root = scalar("root")?;
-      let poll = scalar("poll")?;
-      if let Some(poll) = &poll {
-        if parse_duration(poll).is_none() {
-          return Err(HostError::Config(at.clone(), format!("sites.poll `{poll}` is not a duration")));
-        }
-      }
-      let mut names: Vec<String> = store
-        .key_paths_with_prefix(Some("sites"))
-        .into_iter()
-        .filter_map(|k| k.strip_prefix("sites.").map(|rest| rest.split('.').next().unwrap_or(rest).to_owned()))
-        .filter(|name| name != "root" && name != "poll")
-        .collect();
-      if let Some(c5store::value::C5DataValue::Map(map)) = store.get("sites") {
-        names.extend(map.keys().filter(|k| *k != "root" && *k != "poll").cloned());
-      }
-      names.sort();
-      names.dedup();
-      let mut mounts = BTreeMap::new();
-      for name in names {
-        let mount: MountConfig = store.get_into_struct(&format!("sites.{name}")).map_err(fail)?;
-        if mount.artifact.contains('@') && !mount.artifact.contains('/') && root.is_none() {
-          return Err(HostError::Config(at.clone(), format!("sites.{name}.artifact `{}` names a version, which needs sites.root", mount.artifact)));
-        }
-        mounts.insert(name, mount);
-      }
-      Some(SitesSection { root, poll, mounts })
-    } else {
-      None
-    };
     if site.is_some() && sites.is_some() {
-      return Err(HostError::Config(at.clone(), "a site cannot mount sites; drop [sites] or [site]".to_owned()));
+      return Err(HostError::Config(
+        at.clone(),
+        "a site cannot mount sites; drop [sites] or [site]".to_owned(),
+      ));
     }
 
     let root = root.to_path_buf();
@@ -765,7 +936,10 @@ impl Config {
       if let Some(public_path) = facts.public_path {
         let route = public_path.trim_end_matches('/').to_owned();
         if !statics.iter().any(|s| s.route == route) {
-          statics.push(StaticRoot { route: route.clone(), dir: "dist".to_owned() });
+          statics.push(StaticRoot {
+            route: route.clone(),
+            dir: "dist".to_owned(),
+          });
           inferred.push(format!("static {route} from dist/.snapfire-build.json"));
         }
         if document.entry.is_none() && facts.entries.iter().any(|e| e == "src/main.js") {
@@ -779,7 +953,10 @@ impl Config {
       inferred.push("document.import_map from importmap.json".to_owned());
     }
     if app.join("vendor").is_dir() && !statics.iter().any(|s| s.route == "/static/js/vendor") {
-      statics.push(StaticRoot { route: "/static/js/vendor".to_owned(), dir: "vendor".to_owned() });
+      statics.push(StaticRoot {
+        route: "/static/js/vendor".to_owned(),
+        dir: "vendor".to_owned(),
+      });
       inferred.push("static /static/js/vendor from vendor/".to_owned());
     }
     let icons_route = match &site {
@@ -788,28 +965,48 @@ impl Config {
     };
     if app.join("icons").is_dir() {
       if !statics.iter().any(|s| s.route == icons_route) {
-        statics.push(StaticRoot { route: icons_route.clone(), dir: "icons".to_owned() });
+        statics.push(StaticRoot {
+          route: icons_route.clone(),
+          dir: "icons".to_owned(),
+        });
         inferred.push(format!("static {icons_route} from icons/"));
       }
       let held = |name: &str| app.join("icons").join(name).is_file();
       // Only what the file did not already state: an entry the application
       // wrote for the same rel and size wins over what the directory implies.
-      let written: Vec<(Option<String>, Option<String>)> =
-        document.head.iter().map(|t| (t.get("rel").cloned(), t.get("sizes").cloned())).collect();
+      let written: Vec<(Option<String>, Option<String>)> = document
+        .head
+        .iter()
+        .map(|t| (t.get("rel").cloned(), t.get("sizes").cloned()))
+        .collect();
       let mut linked = Vec::new();
       for (file, mut attrs) in [
         ("favicon.svg", vec![("rel", "icon"), ("type", "image/svg+xml")]),
-        ("favicon-32x32.png", vec![("rel", "icon"), ("type", "image/png"), ("sizes", "32x32")]),
-        ("favicon-16x16.png", vec![("rel", "icon"), ("type", "image/png"), ("sizes", "16x16")]),
-        ("apple-touch-icon.png", vec![("rel", "apple-touch-icon"), ("sizes", "180x180")]),
+        (
+          "favicon-32x32.png",
+          vec![("rel", "icon"), ("type", "image/png"), ("sizes", "32x32")],
+        ),
+        (
+          "favicon-16x16.png",
+          vec![("rel", "icon"), ("type", "image/png"), ("sizes", "16x16")],
+        ),
+        (
+          "apple-touch-icon.png",
+          vec![("rel", "apple-touch-icon"), ("sizes", "180x180")],
+        ),
         ("site.webmanifest", vec![("rel", "manifest")]),
       ] {
         let sizes = attrs.iter().find(|(k, _)| *k == "sizes").map(|(_, v)| (*v).to_owned());
-        if !held(file) || written.iter().any(|(rel, held_sizes)| rel.as_deref() == Some(attrs[0].1) && *held_sizes == sizes) {
+        if !held(file)
+          || written
+            .iter()
+            .any(|(rel, held_sizes)| rel.as_deref() == Some(attrs[0].1) && *held_sizes == sizes)
+        {
           continue;
         }
         attrs.push(("href", ""));
-        let mut table: BTreeMap<String, String> = attrs.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+        let mut table: BTreeMap<String, String> =
+          attrs.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
         table.insert("tag".to_owned(), "link".to_owned());
         table.insert("href".to_owned(), format!("{icons_route}/{file}"));
         document.head.push(table);
@@ -821,7 +1018,10 @@ impl Config {
     }
     if app.join("styles").is_dir() {
       if !statics.iter().any(|s| s.route == css_route) {
-        statics.push(StaticRoot { route: css_route.clone(), dir: "styles".to_owned() });
+        statics.push(StaticRoot {
+          route: css_route.clone(),
+          dir: "styles".to_owned(),
+        });
         inferred.push(format!("static {css_route} from styles/"));
       }
       if document.styles.is_none() {
@@ -846,12 +1046,32 @@ impl Config {
       if client.document.is_none() {
         let openapi = format!("clients/{name}.openapi.json");
         let proto = format!("clients/{name}.proto");
-        client.document = Some(if !app.join(&openapi).is_file() && app.join(&proto).is_file() { proto } else { openapi });
+        client.document = Some(if !app.join(&openapi).is_file() && app.join(&proto).is_file() {
+          proto
+        } else {
+          openapi
+        });
         inferred.push(format!("clients.{name}.document from clients/"));
       }
     }
 
-    Ok(Self { root, app, sources: Vec::new(), server, document, session, cache, clients, statics, locales, auth, typecheck, site, sites, inferred })
+    Ok(Self {
+      root,
+      app,
+      sources: Vec::new(),
+      server,
+      document,
+      session,
+      cache,
+      clients,
+      statics,
+      locales,
+      auth,
+      typecheck,
+      site,
+      sites,
+      inferred,
+    })
   }
 
   /// A path from the file, against the app directory.
@@ -862,23 +1082,34 @@ impl Config {
   /// The directory the first configuration file came from, which is where
   /// `auth.users` resolves; the project root when nothing was loaded.
   pub fn config_dir(&self) -> PathBuf {
-    self.sources.first().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_else(|| self.root.clone())
+    self
+      .sources
+      .first()
+      .and_then(|p| p.parent())
+      .map(Path::to_path_buf)
+      .unwrap_or_else(|| self.root.clone())
   }
 
   pub fn session_ttl(&self) -> Result<Duration, HostError> {
-    parse_duration(&self.session.ttl).ok_or_else(|| HostError::Value("session.ttl".to_owned(), self.session.ttl.clone()))
+    parse_duration(&self.session.ttl)
+      .ok_or_else(|| HostError::Value("session.ttl".to_owned(), self.session.ttl.clone()))
   }
 
   /// Whether development conveniences are on: `server.dev` when written,
   /// else whether `RELEASE_ENV` is `development`, which it is when unset.
   pub fn dev(&self) -> bool {
-    self.server.dev.unwrap_or_else(|| Deployment::from_env().release_env == "development")
+    self
+      .server
+      .dev
+      .unwrap_or_else(|| Deployment::from_env().release_env == "development")
   }
 
   /// The cache lifetime, `None` when no `[cache]` section is written.
   pub fn cache_ttl(&self) -> Result<Option<Duration>, HostError> {
     let Some(cache) = &self.cache else { return Ok(None) };
-    parse_duration(&cache.ttl).map(Some).ok_or_else(|| HostError::Value("cache.ttl".to_owned(), cache.ttl.clone()))
+    parse_duration(&cache.ttl)
+      .map(Some)
+      .ok_or_else(|| HostError::Value("cache.ttl".to_owned(), cache.ttl.clone()))
   }
 }
 

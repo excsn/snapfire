@@ -22,7 +22,10 @@ pub struct ServiceSessionStore {
 
 impl ServiceSessionStore {
   pub fn new(services: Arc<Services>, client: impl Into<String>) -> Self {
-    Self { services, client: client.into() }
+    Self {
+      services,
+      client: client.into(),
+    }
   }
 
   fn call(&self, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>> {
@@ -40,17 +43,22 @@ fn id_args(id: &SessionId) -> ValueMap {
 pub fn encode_record(record: &SessionRecord) -> String {
   let mut map = ValueMap::new();
   map.insert("data".to_owned(), Value::Map(record.data.clone()));
-  map.insert("identity".to_owned(), match &record.identity {
-    Some(identity) => Value::Map(identity_map(identity)),
-    None => Value::Null,
-  });
+  map.insert(
+    "identity".to_owned(),
+    match &record.identity {
+      Some(identity) => Value::Map(identity_map(identity)),
+      None => Value::Null,
+    },
+  );
   map.insert("tokens".to_owned(), Value::Map(record.tokens.clone()));
   value_to_json(&Value::Map(map)).to_string()
 }
 
 pub fn decode_record(text: &str) -> Option<SessionRecord> {
   let json: serde_json::Value = serde_json::from_str(text).ok()?;
-  let Value::Map(mut map) = json_to_value(&json).ok()? else { return None };
+  let Value::Map(mut map) = json_to_value(&json).ok()? else {
+    return None;
+  };
   let data = match map.shift_remove("data") {
     Some(Value::Map(data)) => data,
     _ => ValueMap::new(),
@@ -139,7 +147,11 @@ pub struct ServiceProvider {
 
 impl ServiceProvider {
   pub fn new(services: Arc<Services>, client: impl Into<String>, login_path: impl Into<String>) -> Self {
-    Self { services, client: client.into(), login_path: login_path.into() }
+    Self {
+      services,
+      client: client.into(),
+      login_path: login_path.into(),
+    }
   }
 }
 
@@ -154,7 +166,10 @@ impl IdentityProvider for ServiceProvider {
   fn begin(&self, return_to: &str) -> BoxFuture<'_, Begin> {
     let encoded: String = form_urlencoded::byte_serialize(return_to.as_bytes()).collect();
     let redirect = format!("{}?return_to={}", self.login_path, encoded);
-    Box::pin(ready(Begin { redirect, state: ValueMap::new() }))
+    Box::pin(ready(Begin {
+      redirect,
+      state: ValueMap::new(),
+    }))
   }
 
   fn callback(&self, params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<AuthOutcome, AuthError>> {
@@ -169,18 +184,23 @@ impl IdentityProvider for ServiceProvider {
       _ => None,
     };
     Box::pin(async move {
-      let Some(call) = call else { return Err(AuthError::Invalid("missing user or password".to_owned())) };
+      let Some(call) = call else {
+        return Err(AuthError::Invalid("missing user or password".to_owned()));
+      };
       let answer = match call.await {
         Ok(Value::Map(answer)) => answer,
         Ok(other) => return Err(AuthError::Invalid(format!("authenticate answered {other:?}"))),
         Err(error) => {
           return Err(match error.kind {
-            FailureKind::Unauthorized | FailureKind::NotFound | FailureKind::Invalid => AuthError::Denied(error.message.clone()),
+            FailureKind::Unauthorized | FailureKind::NotFound | FailureKind::Invalid => {
+              AuthError::Denied(error.message.clone())
+            }
             _ => AuthError::Invalid(error.to_string()),
-          })
+          });
         }
       };
-      let identity = identity_of(&answer).ok_or_else(|| AuthError::Invalid("authenticate answered without a subject".to_owned()))?;
+      let identity =
+        identity_of(&answer).ok_or_else(|| AuthError::Invalid("authenticate answered without a subject".to_owned()))?;
       let mut tokens = ValueMap::new();
       if let Some(Value::Str(token)) = answer.get("access_token") {
         tokens.insert("access_token".to_owned(), Value::Str(token.clone()));

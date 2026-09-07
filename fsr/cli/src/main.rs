@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use snapfire_fsr_cli::dev::DevOptions;
@@ -9,7 +9,7 @@ use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -365,6 +365,106 @@ fn sites_command(args: &[String]) -> ExitCode {
               println!("          {note}");
             }
           }
+          match sites::cached(&PathBuf::from(shell)) {
+            Ok(cached) => {
+              for (name, versions) in &cached {
+                println!("cached    {:<20} {}", name, versions.join(" "));
+              }
+            }
+            Err(e) => eprintln!("{e}"),
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "hash" => {
+      let Some(site) = args.get(1) else { return usage() };
+      let mut files = false;
+      for flag in &args[2..] {
+        match flag.as_str() {
+          "--files" => files = true,
+          _ => return usage(),
+        }
+      }
+      match sites::hash(&PathBuf::from(site)) {
+        Ok(hashed) => {
+          println!("site      {} at {}", hashed.name, hashed.at);
+          println!("hash      {}", hashed.hash);
+          println!("ships     {} files, {}", hashed.files.len(), bytes(hashed.bytes));
+          for part in &hashed.parts {
+            println!("          {part}");
+          }
+          if files {
+            for file in &hashed.files {
+              println!("file      {:<12} {:<64} {}", file.size, file.sha256, file.path);
+            }
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "pack" => {
+      let Some(site) = args.get(1) else { return usage() };
+      let mut version = None;
+      let mut out = None;
+      let mut rest = args[2..].iter();
+      while let Some(flag) = rest.next() {
+        match flag.as_str() {
+          "--version" => version = rest.next().cloned(),
+          "-o" | "--out" => out = rest.next().cloned(),
+          _ => return usage(),
+        }
+      }
+      let Some(version) = version else {
+        eprintln!("fsr sites pack needs --version <version>, the release this artifact is");
+        return ExitCode::from(2);
+      };
+      match sites::pack(&PathBuf::from(site), &version, out.as_deref().map(Path::new)) {
+        Ok(packed) => {
+          println!("packed    {} {}", packed.manifest.name, packed.manifest.version);
+          println!("hash      {}", packed.manifest.hash);
+          println!("wrote     {} ({} of {} in {} files)", packed.out.display(), bytes(packed.bytes), bytes(packed.unpacked), packed.manifest.files.len());
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "install" => {
+      let (Some(shell), Some(archive)) = (args.get(1), args.get(2)) else { return usage() };
+      let mut name = None;
+      let mut keep = None;
+      let mut rest = args[3..].iter();
+      while let Some(flag) = rest.next() {
+        match flag.as_str() {
+          "--as" => name = rest.next().cloned(),
+          "--keep" => keep = rest.next().and_then(|n| n.parse::<usize>().ok()),
+          _ => return usage(),
+        }
+      }
+      match sites::install(&PathBuf::from(shell), Path::new(archive), name.as_deref(), keep) {
+        Ok(installed) => {
+          if installed.held {
+            println!("held      {} {} already at {}", installed.name, installed.version, installed.path.display());
+          } else {
+            println!("installed {} {}", installed.name, installed.version);
+            println!("hash      {}", installed.hash);
+            println!("at        {}", installed.path.display());
+          }
+          for version in &installed.swept {
+            println!("removed   {} {version}", installed.name);
+          }
+          println!("next      artifact = \"{}@{}\" in [sites.{}]", installed.name, installed.version, installed.name);
           ExitCode::SUCCESS
         }
         Err(e) => {
@@ -435,5 +535,21 @@ fn sites_command(args: &[String]) -> ExitCode {
       }
     }
     _ => usage(),
+  }
+}
+
+/// A byte count for a report line, three significant figures and a unit.
+fn bytes(count: u64) -> String {
+  const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];
+  let mut size = count as f64;
+  let mut unit = 0;
+  while size >= 1024.0 && unit + 1 < UNITS.len() {
+    size /= 1024.0;
+    unit += 1;
+  }
+  if unit == 0 {
+    format!("{count} B")
+  } else {
+    format!("{size:.1} {}", UNITS[unit])
   }
 }

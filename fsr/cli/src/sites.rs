@@ -324,3 +324,93 @@ fn confirm(root: &Path, name: &str) -> Result<(), BuildError> {
     _ => Err(refuse(format!("{}: `{name}` did not take", root.display()))),
   }
 }
+
+/// What `hash` reports: the artifact hash and the files it covers.
+#[derive(Debug)]
+pub struct Hashed {
+  pub name: String,
+  pub at: String,
+  pub hash: String,
+  /// The directories and files that ship, relative to the site's root.
+  pub parts: Vec<String>,
+  pub files: Vec<snapfire_fsr_sites::Entry>,
+  pub bytes: u64,
+}
+
+/// The artifact hash of the site at `site`, with the parts and files it covers
+/// so a build can see what it is about to ship.
+pub fn hash(site: &Path) -> Result<Hashed, BuildError> {
+  let config = Config::load(site).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let Some(section) = &config.site else {
+    return Err(BuildError::Sites(format!("{} has no [site], so it is not a site", site.display())));
+  };
+  let listing = snapfire_fsr_sites::Listing::of_config(site, &config).map_err(|e| BuildError::Sites(e.to_string()))?;
+  Ok(Hashed {
+    name: section.name.clone(),
+    at: section.at.clone(),
+    hash: listing.hash(),
+    parts: snapfire_fsr_sites::parts(site, &config),
+    bytes: listing.bytes(),
+    files: listing.entries,
+  })
+}
+
+/// What `pack` wrote.
+#[derive(Debug)]
+pub struct Packed {
+  pub manifest: snapfire_fsr_sites::Manifest,
+  pub out: PathBuf,
+  /// The size of the archive, against the size of what it holds.
+  pub bytes: u64,
+  pub unpacked: u64,
+}
+
+/// Packs the site at `site` as `version` into `out`, defaulting to
+/// `<name>-<version>.tar.gz` beside the site.
+pub fn pack(site: &Path, version: &str, out: Option<&Path>) -> Result<Packed, BuildError> {
+  let hashed = hash(site)?;
+  let out = match out {
+    Some(path) => path.to_path_buf(),
+    None => site.join(format!("{}-{version}.tar.gz", hashed.name)),
+  };
+  let manifest = snapfire_fsr_sites::pack(site, version, &out).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let bytes = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+  Ok(Packed { manifest, out, bytes, unpacked: hashed.bytes })
+}
+
+/// Installs the packed artifact at `archive` into the shell's cache, which is
+/// `[sites] root`, under `name` when given and the artifact's own name
+/// otherwise. Verifies before anything is renamed into place, so a shell
+/// running the previous version keeps running it when the archive is wrong.
+pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<usize>) -> Result<snapfire_fsr_sites::Installed, BuildError> {
+  let config = Config::load(shell).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let root = config
+    .sites
+    .as_ref()
+    .and_then(|s| s.root.as_deref())
+    .ok_or_else(|| BuildError::Sites(format!("{} has no [sites] root, so it has no cache to install into", shell.display())))?;
+  let manifest = snapfire_fsr_sites::Manifest::read_archive(archive).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let name = name.unwrap_or(&manifest.name).to_owned();
+  let store = snapfire_fsr_sites::ArchiveStore { archive: archive.to_path_buf() };
+  let cache = snapfire_fsr_sites::Cache::new(config.root.join(root));
+  cache
+    .install(&store, &name, &manifest.name, &manifest.version, keep)
+    .map_err(|e| BuildError::Sites(e.to_string()))
+}
+
+/// Every version of every site the shell's cache holds, against what its table
+/// mounts.
+pub fn cached(shell: &Path) -> Result<Vec<(String, Vec<String>)>, BuildError> {
+  let config = Config::load(shell).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let Some(root) = config.sites.as_ref().and_then(|s| s.root.as_deref()) else { return Ok(Vec::new()) };
+  let cache = snapfire_fsr_sites::Cache::new(config.root.join(root));
+  let Ok(read) = std::fs::read_dir(&cache.root) else { return Ok(Vec::new()) };
+  let mut names: Vec<String> = read
+    .flatten()
+    .filter(|e| e.path().is_dir())
+    .map(|e| e.file_name().to_string_lossy().into_owned())
+    .filter(|name| !name.starts_with('.'))
+    .collect();
+  names.sort();
+  Ok(names.into_iter().map(|name| { let versions = cache.versions(&name); (name, versions) }).collect())
+}
