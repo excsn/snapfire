@@ -553,6 +553,24 @@ impl Env {
         Ok(Value::Str(out))
       }
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
+      Expr::NativeCall { module, method, args, sync } => {
+        if !sync {
+          return Err(Fail::internal("an async native call in an expression that cannot suspend"));
+        }
+        let mut map = ValueMap::new();
+        for (name, e) in args {
+          match self.eval_sync(e)? {
+            Value::Null => {}
+            v => {
+              map.insert(name.clone(), v);
+            }
+          }
+        }
+        match self.ctx.natives.call_sync(module, method, map) {
+          Some(answer) => answer.map_err(|e| Fail::new(e.kind, e.message)),
+          None => Err(Fail::internal(format!("`{module}.{method}` is not a synchronous native"))),
+        }
+      }
       Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
       Expr::Hoist { id, expr } => {
         let value = self.eval_sync(expr)?;
@@ -846,6 +864,25 @@ impl Env {
             }
           }
           self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
+        }
+        Expr::NativeCall { module, method, args, sync } => {
+          let mut map = ValueMap::new();
+          for (name, e) in args {
+            match self.eval(e).await? {
+              Value::Null => {}
+              v => {
+                map.insert(name.clone(), v);
+              }
+            }
+          }
+          let _ = sync;
+          // A method the build read as `fn` answers here without a future;
+          // `sync` on the call site is what the render path will read, since
+          // that is the one place a suspension is impossible.
+          if let Some(answer) = self.ctx.natives.call_sync(module, method, map.clone()) {
+            return answer.map_err(|e| Fail::new(e.kind, e.message));
+          }
+          self.ctx.natives.call(module, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
         Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
         Expr::Hoist { expr, .. } => self.eval(expr).await,

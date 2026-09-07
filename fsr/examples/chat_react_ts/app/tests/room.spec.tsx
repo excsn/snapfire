@@ -12,6 +12,12 @@ const room = (name: string) =>
   ctx({
     session: { name, rooms: {} },
     services: { rooms: { getRoom: () => transcript, listRooms: () => [transcript.room] } },
+    native: {
+      digest: {
+        words: ({ bodies }: { bodies: string[] }) => bodies.reduce((n, b) => n + b.split(/\s+/).filter(Boolean).length, 0),
+        longest: ({ bodies }: { bodies: string[] }) => bodies.reduce((held, b) => (b.length > held.length ? b : held), ""),
+      },
+    },
   });
 
 test("a room renders its transcript and marks what this reader said", async () => {

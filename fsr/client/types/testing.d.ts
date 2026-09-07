@@ -6,6 +6,8 @@ type Method = (args: never) => unknown;
 export interface Mock<Input = unknown> {
 	session?: Record<string, unknown>;
 	services?: Record<string, Record<string, Method>>;
+	/** The application's own Rust as `ctx.native` sees it. A spec cannot link the crate, so each module is answered by a function here. */
+	native?: Record<string, Record<string, Method>>;
 	input?: Input;
 	params?: Record<string, string>;
 	query?: Record<string, string>;

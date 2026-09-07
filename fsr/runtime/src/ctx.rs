@@ -140,6 +140,9 @@ pub struct RequestCtx {
   pub locale: Locale,
   pub csrf: Option<String>,
   pub services: ServiceHandle,
+  /// The application's own Rust, `ctx.native`. No wire, so no contract and no
+  /// interceptors; the build read its shape off the Rust signature.
+  pub natives: crate::natives::NativeHandle,
 }
 
 impl RequestCtx {
@@ -152,6 +155,7 @@ impl RequestCtx {
       locale: Locale::default(),
       csrf: None,
       services: ServiceHandle::default(),
+      natives: crate::natives::NativeHandle::default(),
     }
   }
 

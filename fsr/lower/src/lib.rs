@@ -453,11 +453,13 @@ fn action_ctx_input(param: &js::Pat) -> Option<String> {
 }
 
 #[derive(Clone)]
+#[derive(PartialEq, Eq, Copy)]
 enum Root {
   Params,
   Query,
   Session,
   Services,
+  Native,
   Identity,
   Locale,
   Path,
@@ -944,6 +946,7 @@ impl<'a> Lowerer<'a> {
       Some(Root::Path) => Ok(Expr::Path),
       Some(Root::Params | Root::Query | Root::Session | Root::Identity) => Err(self.residue(id.span, format!("`{name}` as a whole; read one of its fields"))),
       Some(Root::Services) => Err(self.residue(id.span, "`services` as a value; call a method on it")),
+      Some(Root::Native) => Err(self.residue(id.span, "`native` as a value; call a method on it")),
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
       None => match name {
         "undefined" => Ok(Expr::Lit(Lit::Null)),
@@ -1020,10 +1023,12 @@ impl<'a> Lowerer<'a> {
               "path" => Ok(Expr::Path),
               "params" | "query" | "session" | "identity" => Err(self.residue(member.span, format!("`ctx.{name}` as a whole; read one of its fields"))),
               "services" => Err(self.residue(member.span, "`ctx.services` as a value; call a method on it")),
+              "native" => Err(self.residue(member.span, "`ctx.native` as a value; call a method on it")),
               _ => Err(self.residue(member.span, format!("`{name}` is not a field of the context"))),
             };
           }
           Some(Root::Services) => return Err(self.residue(member.span, "a service as a value; call a method on it")),
+          Some(Root::Native) => return Err(self.residue(member.span, "a native module as a value; call a method on it")),
           _ => {}
         }
       }
@@ -1212,31 +1217,17 @@ impl<'a> Lowerer<'a> {
       }
     }
 
-    if let Some((service, via_ctx)) = self.service_of(&member.obj) {
-      let _ = via_ctx;
-      let mut args = Vec::new();
-      if let Some(a) = call.args.first() {
-        let js::Expr::Object(obj) = &*a.expr else {
-          return Err(self.residue(a.expr.span(), "service arguments must be an object literal"));
-        };
-        for prop in &obj.props {
-          match prop {
-            js::PropOrSpread::Prop(p) => match &**p {
-              js::Prop::Shorthand(id) => args.push((id.sym.to_string(), self.ident(id)?)),
-              js::Prop::KeyValue(kv) => {
-                let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed argument name"))?;
-                args.push((key, self.expr(&kv.value)?));
-              }
-              other => return Err(self.residue(other.span(), "a method in the arguments")),
-            },
-            js::PropOrSpread::Spread(s) => return Err(self.residue(s.expr.span(), "a spread into service arguments")),
-          }
-        }
-      }
-      if call.args.len() > 1 {
-        return Err(self.residue(call.span, "a service method takes one object"));
-      }
+    if let Some((service, _via_ctx)) = self.service_of(&member.obj) {
+      let args = self.object_args(call, "service")?;
       return Ok(Expr::Call { service, method, args });
+    }
+
+    if let Some((module, _via_ctx)) = self.native_of(&member.obj) {
+      let args = self.object_args(call, "native")?;
+      // `sync` is set by the build from the Rust signature, which this reader
+      // cannot see; the interpreter answers a sync method without a future
+      // either way.
+      return Ok(Expr::NativeCall { module, method, args, sync: false });
     }
 
     let target = Box::new(self.expr(&member.obj)?);
@@ -1293,13 +1284,51 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// The one object literal a service or native method takes, as named
+  /// arguments. `kind` names the caller in a diagnostic.
+  fn object_args(&mut self, call: &js::CallExpr, kind: &str) -> Lowered<Vec<(String, Expr)>> {
+    let mut args = Vec::new();
+    if let Some(a) = call.args.first() {
+      let js::Expr::Object(obj) = &*a.expr else {
+        return Err(self.residue(a.expr.span(), format!("{kind} arguments must be an object literal")));
+      };
+      for prop in &obj.props {
+        match prop {
+          js::PropOrSpread::Prop(p) => match &**p {
+            js::Prop::Shorthand(id) => args.push((id.sym.to_string(), self.ident(id)?)),
+            js::Prop::KeyValue(kv) => {
+              let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed argument name"))?;
+              args.push((key, self.expr(&kv.value)?));
+            }
+            other => return Err(self.residue(other.span(), "a method in the arguments")),
+          },
+          js::PropOrSpread::Spread(s) => return Err(self.residue(s.expr.span(), format!("a spread into {kind} arguments"))),
+        }
+      }
+    }
+    if call.args.len() > 1 {
+      return Err(self.residue(call.span, format!("a {kind} method takes one object")));
+    }
+    Ok(args)
+  }
+
+  /// `native.<name>` or `ctx.native.<name>`.
+  fn native_of(&self, obj: &js::Expr) -> Option<(String, bool)> {
+    self.rooted_at(obj, Root::Native, "native")
+  }
+
   /// `services.<name>` or `ctx.services.<name>`.
   fn service_of(&self, obj: &js::Expr) -> Option<(String, bool)> {
+    self.rooted_at(obj, Root::Services, "services")
+  }
+
+  /// `<root>.<name>` bare, or `ctx.<field>.<name>`; the bool says which.
+  fn rooted_at(&self, obj: &js::Expr, root: Root, field: &str) -> Option<(String, bool)> {
     let js::Expr::Member(m) = obj else { return None };
     let name = self.member_name(m)?;
     match &*m.obj {
       js::Expr::Ident(id) if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) => match self.root_of(id) {
-        Some(Root::Services) => Some((name, false)),
+        Some(held) if held == root => Some((name, false)),
         _ => None,
       },
       js::Expr::Member(inner) => {
@@ -1308,7 +1337,7 @@ impl<'a> Lowerer<'a> {
           return None;
         }
         match (self.root_of(id), self.member_name(inner).as_deref()) {
-          (Some(Root::Ctx), Some("services")) => Some((name, true)),
+          (Some(Root::Ctx), Some(via)) if via == field => Some((name, true)),
           _ => None,
         }
       }
@@ -1376,6 +1405,7 @@ fn root_named(name: &str) -> Option<Root> {
     "query" => Root::Query,
     "session" => Root::Session,
     "services" => Root::Services,
+    "native" => Root::Native,
     "identity" => Root::Identity,
     "locale" => Root::Locale,
     "path" => Root::Path,

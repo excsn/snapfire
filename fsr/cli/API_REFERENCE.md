@@ -54,7 +54,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### fsr build
 
 * `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
-* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.json`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
+* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.json`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
 * The bundle follows the generation because it compiles the island registry the generation writes. `--public-path` defaults to `/static/js/app`, or `<at>/static/js/app` for a site; `--snapfirec` defaults to `$SNAPFIREC`, else beside this binary, else `PATH`.
 * Exit 0 on success, 1 on any `BuildError`, 2 on a usage error.
 * The typecheck prints one `typecheck <row>` line, a `recorded` line when it wrote the version into the configuration and nothing at all when no checker is installed beyond a note on stderr.
@@ -115,7 +115,8 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ### Built
 
 * `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)> }`
-* `files` pairs a path relative to the app directory with its content: `generated/plan.json`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order.
+* `files` pairs a path relative to the app directory with its content: `generated/plan.json`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order.
+* `generated/native.d.ts` is read off the Rust rather than the contract: `native::read` walks the crate's `src/`, the sibling of the app directory, with `syn` and takes every `#[native]` `impl` block's `pub` methods plus the structs they name. It reads rather than expands, so `build.rs` can run it before the crate compiles. A method the reader saw as `fn` is typed as its value and an `async fn` as a promise; a Rust type outside the value model reads as `unknown`.
 
 ### write
 

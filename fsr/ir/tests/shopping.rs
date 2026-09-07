@@ -70,7 +70,7 @@ fn ctx(mock: Arc<Mock>, params: &[(&str, &str)], session: ValueMap) -> RequestCt
     session: SessionCell::new(session, None),
     locale: Default::default(),
     csrf: None,
-    services: ServiceHandle::new(mock),
+    services: ServiceHandle::new(mock), natives: Default::default() 
   }
 }
 
@@ -362,7 +362,7 @@ fn identity_and_now_are_reads() {
     session: SessionCell::new(ValueMap::new(), Some(Identity { subject: "u1".into(), claims })),
     locale: Default::default(),
     csrf: None,
-    services: ServiceHandle::default(),
+    services: ServiceHandle::default(), natives: Default::default() 
   };
   let body = vec![Stmt::Return(Expr::object(vec![
     ("who", Expr::Identity(vec!["subject".into()])),

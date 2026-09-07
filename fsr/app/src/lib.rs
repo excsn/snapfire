@@ -154,6 +154,9 @@ pub struct App {
   pub prerenderable_anonymous: Vec<String>,
   pub runtime: Arc<Runtime>,
   pub services: Arc<Services>,
+  /// The application's own Rust, by the name a body reaches it under as
+  /// `ctx.native.<name>`.
+  pub natives: Arc<snapfire_fsr_runtime::Natives>,
   pub actions: ActionRegistry,
   pub report: Report,
 }
@@ -233,6 +236,8 @@ pub struct AppBuilder {
   /// falls to `NullEvaluator` and the browser owns the whole render. Loaders,
   /// actions, metadata and the store still run in Rust.
   islands_only: bool,
+  /// The application's own Rust, registered by name.
+  natives: snapfire_fsr_runtime::Natives,
   routes: Routes,
   lowered_middleware: Option<snapfire_fsr_ir::Body>,
   rust_middleware: Option<(Arc<dyn ActionHandler>, Owner)>,
@@ -274,6 +279,7 @@ impl App {
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
       islands_only: false,
+      natives: snapfire_fsr_runtime::Natives::new(),
       routes,
       lowered_middleware: None,
       rust_middleware: None,
@@ -408,6 +414,14 @@ impl AppBuilder {
   /// since they never went through an evaluator.
   pub fn islands_only(mut self, only: bool) -> Self {
     self.islands_only = only;
+    self
+  }
+
+  /// Registers a module of the application's own Rust under the name a body
+  /// reaches it with, `ctx.native.<name>.<method>()`. Nothing crosses a wire,
+  /// so it takes no contract and passes through no interceptor.
+  pub fn native(mut self, name: impl Into<String>, module: Arc<dyn snapfire_fsr_runtime::Native>) -> Self {
+    self.natives.register(name, module);
     self
   }
 
@@ -859,6 +873,7 @@ impl AppBuilder {
       prerenderable_anonymous,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
+      natives: Arc::new(self.natives),
       actions: self.actions,
       report,
     })

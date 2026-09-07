@@ -35,6 +35,8 @@ type Method = (args: never) => unknown;
 export interface Mock<Input = unknown> {
   session?: Record<string, unknown>;
   services?: Record<string, Record<string, Method>>;
+  /** The application's own Rust as `ctx.native` sees it. A spec cannot link the crate, so each module is answered by a function here. */
+  native?: Record<string, Record<string, Method>>;
   input?: Input;
   params?: Record<string, string>;
   query?: Record<string, string>;
@@ -66,6 +68,10 @@ export function ctx(mock: Mock = {}): TestCtx {
   for (const [service, table] of Object.entries(mock.services ?? {})) {
     for (const method of Object.keys(table)) methods.push(`${service}.${method}`);
   }
+  const natives: string[] = [];
+  for (const [module, table] of Object.entries(mock.native ?? {})) {
+    for (const method of Object.keys(table)) natives.push(`${module}.${method}`);
+  }
   const spec = {
     session: encodeValue((mock.session ?? {}) as SfValue),
     params: mock.params ?? {},
@@ -75,10 +81,14 @@ export function ctx(mock: Mock = {}): TestCtx {
     locale: mock.locale ?? null,
     path: mock.path ?? null,
     methods,
+    natives,
   };
   const id = sf().ctx(JSON.stringify(spec));
   for (const [service, table] of Object.entries(mock.services ?? {})) {
     for (const [method, fn] of Object.entries(table)) mocks.set(`${id}:${service}.${method}`, fn);
+  }
+  for (const [module, table] of Object.entries(mock.native ?? {})) {
+    for (const [method, fn] of Object.entries(table)) mocks.set(`${id}:native:${module}.${method}`, fn);
   }
   return {
     id,

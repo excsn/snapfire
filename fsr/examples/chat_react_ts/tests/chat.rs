@@ -17,6 +17,7 @@ fn chat() -> (Arc<Host>, Arc<chat_react_ts::backend::Rooms>) {
   let host = Host::from_config(config)
     .unwrap()
     .services_over(transport)
+    .native("digest", Arc::new(chat_react_ts::native::Digest))
     .topics(|topic, session, _| match topic.strip_prefix("room/") {
       Some(room) => matches!(session.get("rooms"), Some(Value::Map(open)) if open.contains_key(room)),
       None => false,

@@ -272,6 +272,10 @@ impl<'a> Inferer<'a> {
         .method(service, method)
         .map(|m| Ts::from_contract(&m.returns))
         .unwrap_or(Ts::Unknown),
+      // A native module's shape is read off the Rust rather than the contract,
+      // so the generated declaration types the call site and inference here
+      // has nothing better to say.
+      Expr::NativeCall { .. } => Ts::Unknown,
       Expr::Lambda { .. } => Ts::Unknown,
       Expr::Hoist { expr, .. } => self.expr(expr, env),
       Expr::Map(over, f) => {

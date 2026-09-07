@@ -272,7 +272,7 @@ impl Run<'_> {
       },
       None => String::new(),
     };
-    let ctx = RequestCtx { params, query, path, session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
+    let ctx = RequestCtx { params, query, path, session: SessionCell::new(session, identity), locale, csrf: None, services: handle, natives: Default::default() };
     let mock = MockCtx { ctx, input, transport, written: Vec::new() };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);

@@ -1546,6 +1546,7 @@ impl Host {
       locale,
       csrf: incoming.csrf,
       services,
+      natives: snapfire_fsr_runtime::NativeHandle::new(t.app.natives.clone()),
     }
   }
 
@@ -3087,6 +3088,14 @@ impl HostBuilder {
     Fut: Future<Output = Result<Data, LoadError>> + Send + 'static,
   {
     self.app_mut(|app| app.source_override(name, f));
+    self
+  }
+
+  /// Registers the application's own Rust under the name a body reaches it
+  /// with, `ctx.native.<name>.<method>()`.
+  pub fn native(mut self, name: impl Into<String>, module: Arc<dyn snapfire_fsr_runtime::Native>) -> Self {
+    let name = name.into();
+    self.app_mut(move |app| app.native(name, module));
     self
   }
 

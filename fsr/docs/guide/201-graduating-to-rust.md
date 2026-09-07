@@ -48,6 +48,37 @@ A rendered module graduates when a Rust evaluator renders it better than the low
 
 What never graduates is the contract. Rust code calls services through the same registry, checked against the same document, because the boundary is the artifact and not the language on either side of it.
 
+## Rust a body calls, without graduating anything
+
+The rungs above take a whole name back. When what you want is smaller, a computation that belongs in Rust with the loader staying where it is, mark an `impl` block and call it:
+
+```rust
+#[native]
+impl Digest {
+  pub fn words(&self, bodies: Vec<String>) -> i64 {
+    bodies.iter().map(|b| b.split_whitespace().count() as i64).sum()
+  }
+}
+```
+
+```rust
+Host::from(...).native("digest", Arc::new(Digest))
+```
+
+```ts
+export async function load({ params, services, native }: Ctx<"/room/{id}">) {
+  const transcript = await services.rooms.getRoom({ id: params.id });
+  const bodies = transcript.messages.map((m) => m.body);
+  return { ...transcript, words: native.digest.words({ bodies }) };
+}
+```
+
+Rust is synchronous, and so is this. The build reads `fn` against `async fn` and types the call accordingly, so `words` returns a number rather than a promise and nothing is awaited that never suspends.
+
+Three things follow from it being your Rust rather than a service. Only what the block declares `pub` crosses, so a module holding another calls it as an ordinary method and that one never appears in TypeScript. There is no contract, no transport and no interceptor chain, because there is nothing to cross. And the declaration comes from the signature: `fsr` reads the Rust with `syn` the way it reads your TypeScript with swc, before anything compiles, so the two cannot drift.
+
+Reach for a service instead when the thing genuinely is one, something over a wire that a document already describes, or when you want the cache and the interceptors that come with a call crossing a boundary.
+
 ## The lab
 
 In the storefront's `main.rs`, add `.source("cart", |_ctx| async { Ok(Data::new()) })` before `.build()` and run it. Boot refuses: `cart` is claimed by the plan file and by Rust. Change it to `.source_override` and boot again: the report's `cart` row now reads `rust override`; the cart page renders an empty cart whatever the session holds, since your function answers the name. Then rename it to `.source_override("carts", ...)`: refused again, since the plan file lowers no such source. Remove the line.

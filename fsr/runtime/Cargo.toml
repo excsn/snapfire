@@ -22,3 +22,4 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
 futures = "0.3"
+snapfire_fsr_macros.workspace = true

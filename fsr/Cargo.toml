@@ -9,6 +9,7 @@ members = [
   "host",
   "ir",
   "lower",
+  "macros",
   "payload",
   "plan",
   "sites",
@@ -39,6 +40,7 @@ snapfire_fsr_engine = { path = "engine", version = "0.5.0" }
 snapfire_fsr_host = { path = "host", version = "0.5.0" }
 snapfire_fsr_ir = { path = "ir", version = "0.5.0" }
 snapfire_fsr_lower = { path = "lower", version = "0.5.0" }
+snapfire_fsr_macros = { path = "macros", version = "0.5.0" }
 snapfire_fsr_payload = { path = "payload", version = "0.5.0" }
 snapfire_fsr_plan = { path = "plan", version = "0.5.0" }
 snapfire_fsr_runtime = { path = "runtime", version = "0.5.0" }

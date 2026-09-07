@@ -140,7 +140,8 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   let current = Arc::new(AtomicU32::new(0));
   let records = Records::default();
   let transport = Arc::new(JsTransport { ctx: None, current: current.clone(), calls: calls.clone(), records: records.clone() });
-  let host = page_host(&app, built, contract, transport, &natives)?;
+  let native_modules = native_modules(&built.manifest);
+  let host = page_host(&app, built, contract, transport, &natives, &native_modules, calls.clone(), current.clone())?;
 
   for path in files {
     let rel = path.strip_prefix(&app).unwrap_or(&path).to_string_lossy().replace('\\', "/");
@@ -197,7 +198,16 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
 }
 
 /// The stock host over the app, for the routes a spec loads, when the configuration the host reads is beside the app; the services are the spec's mocks.
-fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc<JsTransport>, natives: &[String]) -> Result<Option<Arc<Host>>, BuildError> {
+fn page_host(
+  app: &Path,
+  built: &Built,
+  contract: &Arc<Contract>,
+  transport: Arc<JsTransport>,
+  natives: &[String],
+  native_modules: &[String],
+  calls: JsCalls,
+  current: Arc<AtomicU32>,
+) -> Result<Option<Arc<Host>>, BuildError> {
   let root = serve::project_root(app);
   let config = match Config::load(&root) {
     Ok(config) => config,
@@ -218,6 +228,14 @@ fn page_host(app: &Path, built: &Built, contract: &Arc<Contract>, transport: Arc
       let mut builder = builder.services_over(transport);
       for name in natives {
         builder = builder.extension(name.clone(), snapfire_fsr_ir::Reach::Render, browser_half(name.clone()));
+      }
+      // A `ctx.native` module is Rust this runner cannot link, so the spec's
+      // own function answers it, under whichever context is current.
+      for module in native_modules {
+        builder = builder.native(
+          module.clone(),
+          Arc::new(JsNative { ctx: None, current: current.clone(), module: module.clone(), calls: calls.clone() }),
+        );
       }
       builder.build()
     })
@@ -255,6 +273,31 @@ fn native_names(manifest: &Manifest) -> Vec<String> {
     for handler in &component.body.handlers {
       snapfire_fsr_ir::body_visit(&handler.body, &mut note);
     }
+  }
+  names
+}
+
+/// Every `ctx.native` module the plan calls, so the runner can answer each
+/// with the spec's own function.
+fn native_modules(manifest: &Manifest) -> Vec<String> {
+  let mut names: Vec<String> = Vec::new();
+  let mut note = |e: &snapfire_fsr_ir::Expr| {
+    if let snapfire_fsr_ir::Expr::NativeCall { module, .. } = e {
+      if !names.contains(module) {
+        names.push(module.clone());
+      }
+    }
+  };
+  let bodies = manifest
+    .sources
+    .iter()
+    .flat_map(|s| [s.body.as_ref(), s.meta.as_ref(), s.store.as_ref()])
+    .chain(manifest.actions.iter().map(|a| a.body.as_ref()))
+    .chain(manifest.handlers.iter().map(|h| h.body.as_ref()))
+    .chain([manifest.middleware.as_ref()])
+    .flatten();
+  for body in bodies {
+    snapfire_fsr_ir::body_visit(body, &mut note);
   }
   names
 }
@@ -456,6 +499,34 @@ struct JsTransport {
   records: Records,
 }
 
+/// A native module the spec answers, reached through the engine the same way
+/// a mocked service method is. The key is marked `native:` so a module and a
+/// service of the same name never collide.
+struct JsNative {
+  /// The ctx whose mocks answer, or the current one when the host holds this
+  /// rather than a single spec context.
+  ctx: Option<u32>,
+  current: Arc<AtomicU32>,
+  module: String,
+  calls: JsCalls,
+}
+
+impl snapfire_fsr_runtime::Native for JsNative {
+  fn call(&self, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>> {
+    let id = self.ctx.unwrap_or_else(|| self.current.load(Ordering::Relaxed));
+    let key = format!("{id}:native:{}.{}", self.module, method);
+    let args = value_to_json(&Value::Map(args)).to_string();
+    let calls = self.calls.clone();
+    let (module, method) = (self.module.clone(), method.to_owned());
+    Box::pin(async move {
+      let answer = calls.call(key, args).await.map_err(|m| ServiceError::new(snapfire_fsr_runtime::FailureKind::Unavailable, &module, &method, m))?;
+      let json: serde_json::Value = serde_json::from_str(&answer)
+        .map_err(|e| ServiceError::new(snapfire_fsr_runtime::FailureKind::Internal, &module, &method, format!("the mock's answer is not JSON: {e}")))?;
+      json_to_value(&json).map_err(|e| ServiceError::new(snapfire_fsr_runtime::FailureKind::Internal, &module, &method, format!("the mock's answer does not decode: {e}")))
+    })
+  }
+}
+
 impl Transport for JsTransport {
   fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
     let id = self.ctx.unwrap_or_else(|| self.current.load(Ordering::Relaxed));
@@ -501,6 +572,10 @@ struct CtxSpec {
   locale: Option<String>,
   #[serde(default)]
   path: Option<String>,
+  /// `<module>.<method>` for every native the spec answers, since a spec
+  /// cannot link the crate the real ones live in.
+  #[serde(default)]
+  natives: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -542,7 +617,7 @@ impl SpecHooks {
     self.ctxs.borrow_mut().clear();
     self.records.lock().clear();
     self.current.store(0, Ordering::Relaxed);
-    let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None, locale: None, path: None }).expect("the empty ctx builds");
+    let empty = self.build(CtxSpec { session: serde_json::Value::Null, params: BTreeMap::new(), query: BTreeMap::new(), input: serde_json::Value::Null, identity: None, locale: None, path: None, natives: Vec::new() }).expect("the empty ctx builds");
     self.ctxs.borrow_mut().push(Rc::new(empty));
   }
 
@@ -578,7 +653,15 @@ impl SpecHooks {
     let params: Params = spec.params.into_iter().collect();
     let query: Params = spec.query.into_iter().collect();
     let locale = self.locale_of(spec.locale.as_deref());
-    let ctx = RequestCtx { params, query, path: spec.path.unwrap_or_default(), session: SessionCell::new(session, identity), locale, csrf: None, services: handle };
+    let mut natives = snapfire_fsr_runtime::Natives::new();
+    for named in &spec.natives {
+      let module = named.split('.').next().unwrap_or_default().to_owned();
+      if !module.is_empty() {
+        natives.register(module.clone(), Arc::new(JsNative { ctx: Some(id), current: self.current.clone(), module, calls: self.calls.clone() }));
+      }
+    }
+    let natives = snapfire_fsr_runtime::NativeHandle::new(Arc::new(natives));
+    let ctx = RequestCtx { params, query, path: spec.path.unwrap_or_default(), session: SessionCell::new(session, identity), locale, csrf: None, services: handle, natives };
     Ok(MockCtx { ctx, input, flow: snapfire_fsr_host::AuthFlow::new() })
   }
 

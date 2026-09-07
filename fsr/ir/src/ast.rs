@@ -59,6 +59,11 @@ pub enum Expr {
   /// `await services.<service>.<method>(args)`. An argument whose value is
   /// `null` is omitted, the way an absent optional argument is in TypeScript.
   Call { service: String, method: String, #[serde(default)] args: Vec<(String, Expr)> },
+  /// `await native.<module>.<method>(args)`: the application's own Rust,
+  /// in this process. Shaped like `Call` and resolved through a different
+  /// handle, since nothing crosses a wire and there is no contract to check
+  /// it against.
+  NativeCall { module: String, method: String, #[serde(default)] args: Vec<(String, Expr)>, #[serde(default, skip_serializing_if = "std::ops::Not::not")] sync: bool },
   Lambda { params: Vec<String>, body: Box<Expr> },
   /// A lambda applied to arguments: a module-level helper a component calls.
   Apply { f: Box<Expr>, args: Vec<Expr> },
@@ -375,6 +380,15 @@ impl Expr {
     }
   }
 
+  pub fn native_call(module: impl Into<String>, method: impl Into<String>, args: Vec<(&str, Expr)>, sync: bool) -> Self {
+    Expr::NativeCall {
+      module: module.into(),
+      method: method.into(),
+      args: args.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
+      sync,
+    }
+  }
+
   pub fn ext(module: impl Into<String>, name: impl Into<String>, args: Vec<Expr>) -> Self {
     Expr::Ext { module: module.into(), name: name.into(), args }
   }
@@ -422,7 +436,7 @@ impl Expr {
         c.free_vars(out);
       }
       Expr::Template(parts) => parts.iter().for_each(|p| p.free_vars(out)),
-      Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
+      Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().for_each(|e| e.free_vars(out)),
       Expr::Apply { f, args } => {
         f.free_vars(out);
@@ -446,7 +460,7 @@ impl Expr {
     f(self);
     match self {
       Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
-      Expr::Call { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
+      Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
         Entry::Computed(k, v) => {
@@ -487,7 +501,7 @@ impl Expr {
     match self {
       Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now => true,
       Expr::Locale | Expr::Path => false,
-      Expr::Call { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
+      Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
@@ -509,7 +523,7 @@ impl Expr {
 
   pub fn has_call(&self) -> bool {
     match self {
-      Expr::Call { .. } => true,
+      Expr::Call { .. } | Expr::NativeCall { .. } => true,
       Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),

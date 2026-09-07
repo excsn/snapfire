@@ -51,6 +51,9 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
 * [10. Services](#10-services)
   * [`ServiceCaller`](#servicecaller)
   * [`ServiceHandle`](#servicehandle)
+  * [`Native`](#native)
+  * [`Natives`](#natives)
+  * [`NativeHandle`](#nativehandle)
 * [11. Actions](#11-actions)
   * [`ActionHandler`](#actionhandler)
   * [`ActionRegistry`](#actionregistry)
@@ -406,6 +409,7 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub locale: Locale`: the request's locale as the host resolved it; the default `Locale` under a context nothing resolved.
 * `pub csrf: Option<String>`
 * `pub services: ServiceHandle`
+* `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
 * `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's, and under a context nothing resolved.
 * `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` and `path` are empty.
@@ -443,6 +447,36 @@ The assembler appends `key_suffix` to every segment key the keyer produces, inje
 * `pub fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`: an unbound handle fails the call rather than pretending, with `FailureKind::Unavailable` and the message `no service layer is bound to this request`.
 
 The handle is bound to the request before application code reaches it, so identity and credentials are attached to a call without being readable from the context. It exposes no accessor for the caller it holds.
+
+### `Native`
+
+`pub trait Native: Send + Sync`. One module of the application's own Rust, reached from a body as `ctx.native.<name>.<method>()`. Nothing crosses a wire, so there is no contract to check the call against, no transport and no interceptor chain.
+
+* `fn call(&self, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
+* `fn call_sync(&self, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>>`: a method the build read as `fn` rather than `async fn`, answered without a future. `None` means the name is async or unknown. Defaults to `None`.
+
+`#[native]` from `snapfire_fsr_macros` writes both from the `impl` block, so a method stays ordinary Rust and only what the block declares `pub` crosses.
+
+`native_arg`, `FromNativeValue` and `IntoNativeValue` are what the generated dispatcher decodes arguments and encodes answers with. `FromNativeValue` covers `Value`, `ValueMap`, `String`, `bool`, every integer width, `f64`, `Option<T>` and `Vec<T>`; `IntoNativeValue` covers the same plus `Result<T, ServiceError>`.
+
+### `Natives`
+
+The registered modules, by the name a body calls them under. `Default`.
+
+* `pub fn register(&mut self, name: impl Into<String>, module: Arc<dyn Native>)`: a name registered twice keeps the last.
+* `pub fn get(&self, name: &str) -> Option<&Arc<dyn Native>>`
+* `pub fn is_empty(&self) -> bool` and `pub fn names(&self) -> Vec<&str>`, in registration order.
+
+### `NativeHandle`
+
+`ctx.native`. `Clone + Default`; the default is unbound.
+
+* `pub fn new(natives: Arc<Natives>) -> Self`
+* `pub fn is_bound(&self) -> bool`
+* `pub fn call(&self, module: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
+* `pub fn call_sync(&self, module: &str, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>>`
+
+An unbound handle and an unregistered name both fail with `FailureKind::Unavailable` and a message saying which.
 
 ## 11. Actions
 

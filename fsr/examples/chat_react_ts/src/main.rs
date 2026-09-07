@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
   let (transport, rooms) = backend::rooms();
   let host = Host::from(env!("CARGO_MANIFEST_DIR"))
     .map(|builder| {
-      builder.services_over(transport).topics(|topic, session, _| match topic.strip_prefix("room/") {
+      builder.services_over(transport).native("digest", Arc::new(chat_react_ts::native::Digest)).topics(|topic, session, _| match topic.strip_prefix("room/") {
         Some(room) => matches!(session.get("rooms"), Some(Value::Map(open)) if open.contains_key(room)),
         None => false,
       })
