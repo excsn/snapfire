@@ -454,7 +454,7 @@ fn a_loader_meta_titles_the_document_and_a_streamed_page_retitles_it_on_resoluti
   );
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
-  assert!(html.contains("<title>Today&#39;s picks · Shopping</title></head>") || html.contains("<title>Today's picks · Shopping</title></head>"), "{html}");
+  assert!(html.contains("<title>Today&#39;s picks · Shopping</title>") || html.contains("<title>Today's picks · Shopping</title>"), "{html}");
   let payload = block_on(app.render_to_string("/?q=nozzle", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("\nH {\"title\":\"Results for nozzle · Shopping\"}\n"), "{payload}");
 

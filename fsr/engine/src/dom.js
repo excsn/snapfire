@@ -40,6 +40,68 @@ if (typeof globalThis.KeyboardEvent !== "function") {
 }
 if (typeof globalThis.FocusEvent !== "function") globalThis.FocusEvent = class FocusEvent extends globalThis.UIEvent {};
 if (typeof globalThis.InputEvent !== "function") globalThis.InputEvent = class InputEvent extends globalThis.UIEvent {};
+if (typeof globalThis.FormData !== "function") {
+  // linkedom has no FormData, and a form handler reading its own submission is
+  // ordinary. Named controls only, which is what a submission carries: a
+  // checkbox or radio contributes when checked, a disabled control never does,
+  // and a multiple select contributes every selected option.
+  globalThis.FormData = class FormData {
+    constructor(form) {
+      this._entries = [];
+      if (!form) return;
+      for (const el of form.querySelectorAll("input, textarea, select")) {
+        const name = el.getAttribute("name");
+        if (!name || el.disabled) continue;
+        const type = (el.getAttribute("type") || "").toLowerCase();
+        if ((type === "checkbox" || type === "radio") && !el.checked) continue;
+        if (el.tagName === "SELECT" && el.multiple) {
+          for (const option of el.querySelectorAll("option")) {
+            if (option.selected) this._entries.push([name, String(option.value)]);
+          }
+          continue;
+        }
+        this._entries.push([name, String(el.value ?? "")]);
+      }
+    }
+    get(name) {
+      const found = this._entries.find(([key]) => key === name);
+      return found ? found[1] : null;
+    }
+    getAll(name) {
+      return this._entries.filter(([key]) => key === name).map(([, value]) => value);
+    }
+    has(name) {
+      return this._entries.some(([key]) => key === name);
+    }
+    append(name, value) {
+      this._entries.push([String(name), String(value)]);
+    }
+    set(name, value) {
+      const at = this._entries.findIndex(([key]) => key === name);
+      const entry = [String(name), String(value)];
+      if (at === -1) this._entries.push(entry);
+      else this._entries[at] = entry;
+    }
+    delete(name) {
+      this._entries = this._entries.filter(([key]) => key !== name);
+    }
+    keys() {
+      return this._entries.map(([key]) => key)[Symbol.iterator]();
+    }
+    values() {
+      return this._entries.map(([, value]) => value)[Symbol.iterator]();
+    }
+    entries() {
+      return this._entries.map((pair) => pair.slice())[Symbol.iterator]();
+    }
+    forEach(f, thisArg) {
+      for (const [key, value] of this._entries) f.call(thisArg, value, key, this);
+    }
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+  };
+}
 globalThis.addEventListener = (...a) => globalThis.document.addEventListener(...a);
 globalThis.removeEventListener = (...a) => globalThis.document.removeEventListener(...a);
 if (new globalThis.MouseEvent("click").button !== 0) {
@@ -100,6 +162,27 @@ for (const name of ["focus", "blur", "click"]) {
   if (typeof globalThis.HTMLElement.prototype[name] !== "function") {
     globalThis.HTMLElement.prototype[name] = name === "click" ? function () { this.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); } : function () {};
   }
+}
+// A form handler that clears its own fields after keeping them is ordinary,
+// and linkedom has no `reset`. Each control goes back to the default the
+// markup gave it, which is what a browser does.
+if (typeof globalThis.HTMLElement.prototype.reset !== "function") {
+  globalThis.HTMLElement.prototype.reset = function () {
+    if (this.tagName !== "FORM") return;
+    for (const el of this.querySelectorAll("input, textarea, select")) {
+      const type = (el.getAttribute("type") || "").toLowerCase();
+      if (type === "checkbox" || type === "radio") {
+        el.checked = el.hasAttribute("checked");
+        continue;
+      }
+      if (el.tagName === "SELECT") {
+        for (const option of el.querySelectorAll("option")) option.selected = option.hasAttribute("selected");
+        continue;
+      }
+      el.value = el.getAttribute(el.tagName === "TEXTAREA" ? "value" : "value") ?? el.textContent ?? "";
+    }
+    this.dispatchEvent(new Event("reset", { bubbles: true, cancelable: true }));
+  };
 }
 if (typeof globalThis.DOMParser === "function") {
   const parse = globalThis.DOMParser.prototype.parseFromString;

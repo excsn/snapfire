@@ -1,4 +1,4 @@
-import { assert, ctx, load, test } from "@snapfire/fsr-client/testing";
+import { assert, ctx, fireEvent, load, test } from "@snapfire/fsr-client/testing";
 
 const wave = {
   id: "kickoff",
@@ -95,4 +95,35 @@ test("the contacts pane shows presence across every wave", async () => {
   await load("/wave/kickoff", { ctx: open("alice") });
   const names = Array.from(document.querySelectorAll(".contact")).map((li) => li.className);
   assert.equal(names, ["contact on", "contact"], "alice is here and bob is not");
+});
+
+/// DEFECTS 5.3: the client action path, and the revalidation it triggers.
+test("keeping a blip calls the action and the transcript follows without a reload", async () => {
+  const blips = [{ id: "1", parent: "", who: "alice", body: "Starting a wave.", at: "09:10", edited: "", editors: [], depth: 0 }];
+  const live = ctx({
+    session: { name: "dora", waves: {} },
+    services: {
+      waves: {
+        getWave: () => ({ id: "kickoff", title: "Snapfire kickoff", participants: ["alice"], blips }),
+        addBlip: (input: { body: string }) => {
+          const kept = { id: String(blips.length + 1), parent: "", who: "dora", body: input.body, at: "09:30", edited: "", editors: [], depth: 0 };
+          blips.push(kept);
+          return kept;
+        },
+        listWaves: () => [{ id: "kickoff", title: "Snapfire kickoff", participants: ["alice"], blips: blips.length, last: "09:30" }],
+        listPeople: () => [{ name: "alice", here: true, waves: 1 }],
+      },
+    },
+  });
+
+  await load("/wave/kickoff", { ctx: live });
+  assert.equal(document.querySelectorAll(".blips > li").length, 1, "one blip to begin with");
+
+  const composer = document.querySelector(".composer input") as HTMLInputElement;
+  await fireEvent.change(composer, "written through the action client");
+  await fireEvent.submit(composer);
+
+  const bodies = Array.from(document.querySelectorAll(".blips .body")).map((b) => b.textContent);
+  assert.equal(bodies, ["Starting a wave.", "written through the action client"], `the action ran and the page revalidated in place, got ${bodies.join(" | ")}`);
+  assert.equal(document.querySelectorAll(".blips > li").length, 2, "and the new blip is one item, in its own region");
 });
