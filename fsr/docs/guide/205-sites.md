@@ -33,6 +33,8 @@ artifact = "billing@1.4.2"
 hash = "3a098783bbb3ebc5"
 ```
 
+That row and the site's own `[site]` block are two halves of one link, so `fsr` writes both rather than leaving two files to keep in step. `fsr sites link <shell> <site> --at /billing` writes them, refusing a shell that is itself a site, a site that mounts sites, a name the table already holds and a site whose `[site]` names somewhere else; `fsr sites unlink <shell> billing` takes them back out, or leaves the site's own block with `--keep-site`. `fsr sites list <shell>` reports the table resolved, each row with the prefix its artifact claims, its version, its hash and a note when it does not hold, then every version the cache holds.
+
 At boot the host reads each artifact, the directory a site's build leaves behind, checks that it is the site it claims to be, refuses one carrying engine-owned rows or a leaked server module, nests its routes under the shell's root layout and adds its rows to the shell's tables. One document, one session, one navigation: a click from the portal's directory into `/billing` is a payload navigation that keeps the header's island and imports the site's islands on the way, from an `E` row the payload carries.
 
 The shell's middleware runs first on every path, with `request.site` naming the site a path belongs to. The site's runs second on the same path and may only narrow what the shell allowed. The shell's sign-in reaches the site's loaders and middleware as `identity`, so a site guards a route without ever seeing a password.
@@ -50,9 +52,21 @@ export const who = key<ShellStore["portal/who"]>("portal/who");
 
 The other direction is the site's own contract: its clients, its cache tags, its types, all prefixed, merged into the shell's registry without a collision.
 
+## What a version is
+
+An artifact is the files the host reads and nothing more: the configuration, the plan, the contracts, every static root and the import map. Routes, sources, types and a site's own markdown are build inputs and stay out. The set is derived from the site's configuration rather than written down twice, so a hash taken in a working tree is the hash of what a release copied out of it, and a pin made in development still holds against the deployed directory.
+
+`fsr sites hash <site>` prints that hash with the parts it covers, and every file and digest under `--files`. `fsr sites pack <site> --version 1.4.2` writes the artifact as a gzipped tar carrying a manifest of every file with its size and sha256. Packing the same tree twice writes the same bytes, so two builders can be compared. The hash is over that listing rather than over the bytes, so a manifest alone yields it and a pin is checked before anything is downloaded.
+
 ## A deploy is a pointer moved
 
-A team deploys by laying a new version under the root and moving the row in the table. The shell rereads the table on `SIGHUP` and on the poll, rebuilds its tables whole and swaps them; a request in flight finishes on the old ones. A pinned hash refuses bytes the table did not mean. `GET /__fsr/sites` lists every mounted site with its version and hash, so a monitor compares the fleet against the table and resends a signal when an instance lags.
+`[sites] root` is a cache: `<root>/<name>/<version>`, which is where `artifact = "billing@1.4.2"` already resolves. `fsr sites install <shell> billing-1.4.2.tar.gz --keep 3` unpacks into a dot-prefixed staging directory beside the destination, verifies every file against the manifest and the listing against the hash, and only then renames it into place. A fetch that dies leaves nothing a mount can see; one that arrives wrong leaves the running version serving and names the file that disagreed. `--keep` sweeps older versions and never the one in use, so a rollback is offline.
+
+Where the bytes come from is a seam, not a fixed answer: a directory of archives and a single archive ship, and an object store, a registry or a company artifact service is one method, `fetch(package, version, into)`, with the install path around it unchanged.
+
+Then the row moves. The shell rereads the table on `SIGHUP` and on the poll, rebuilds its tables whole and swaps them; a request in flight finishes on the old ones. A pinned hash refuses bytes the table did not mean. `GET /__fsr/sites` lists every mounted site with its version and hash, so a monitor compares the fleet against the table and resends a signal when an instance lags.
+
+`SIGHUP` reloads everything, the shell's own configuration and plan included, which is the wrong operation for a site deploy: one team's signal would ship whatever state the shell's files are in. A sites-only reload reads the artifacts again and rebuilds against the shell as the process booted it, its configuration, plan and contracts held rather than reread, so a half-written shell plan on disk cannot reach the tables. A shell change is a restart, which is the cost of the guarantee. For an operator who cannot signal a process at all, `POST /__fsr/sites/reload` does the same and answers with the mounted rows, or a `409` and the reason when the candidate is refused, which is what a signal cannot tell you. It exists only when the host carries the feature and the application installed a sites mounter, and it is not guarded: keeping `/__fsr/` off the public internet is the deployment's job.
 
 ## The lab
 
