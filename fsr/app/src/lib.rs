@@ -229,6 +229,10 @@ fn handler_key(method: &str, pattern: &str) -> String {
 }
 
 pub struct AppBuilder {
+  /// Registers no evaluator for the lowered components, so every one of them
+  /// falls to `NullEvaluator` and the browser owns the whole render. Loaders,
+  /// actions, metadata and the store still run in Rust.
+  islands_only: bool,
   routes: Routes,
   lowered_middleware: Option<snapfire_fsr_ir::Body>,
   rust_middleware: Option<(Arc<dyn ActionHandler>, Owner)>,
@@ -269,6 +273,7 @@ impl App {
 
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
+      islands_only: false,
       routes,
       lowered_middleware: None,
       rust_middleware: None,
@@ -394,6 +399,15 @@ impl AppBuilder {
     let name = name.into();
     self.claimed.push((name.clone(), Owner::Rust));
     self.sources.insert(name, source);
+    self
+  }
+
+  /// Hands every lowered component to the browser instead of rendering it in
+  /// Rust: no IR evaluator is registered, so each one falls to
+  /// `NullEvaluator`. Loaders, actions, metadata and the store are unaffected,
+  /// since they never went through an evaluator.
+  pub fn islands_only(mut self, only: bool) -> Self {
+    self.islands_only = only;
     self
   }
 
@@ -784,7 +798,7 @@ impl AppBuilder {
       .collect();
     let mut components = Vec::new();
     let mut lowered = None;
-    if !self.lowered_components.is_empty() {
+    if !self.lowered_components.is_empty() && !self.islands_only {
       let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components)).with_interpreter(interpreter.clone());
       components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
       let evaluator = Arc::new(evaluator);

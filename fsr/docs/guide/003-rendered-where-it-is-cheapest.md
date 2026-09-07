@@ -8,7 +8,7 @@ The question this chapter answers: how does a React page arrive as HTML from a s
 
 Client-side rendering ships a blank document and a script; the browser builds the page. Server-side rendering runs the components on the server and ships HTML, then the browser downloads the same components and runs them again over the existing DOM to attach handlers, which is hydration. Islands narrow that: only the interactive components ship JavaScript, everything around them is inert HTML. Server components go further, running some components only on the server and sending the browser a tree rather than HTML.
 
-Every one of those is a shape of one thing: a tree the server produces, with some nodes that are finished markup and some that name a module the browser must mount, carrying the props to mount it with. fsr owns that tree. A page is not "SSR" or "islands" by configuration; it is whatever mix of nodes the plan and the evaluators produce; the browser's client reads any mix the same way.
+Every one of those is a shape of one thing: a tree the server produces, with some nodes that are finished markup and some that name a module the browser must mount, carrying the props to mount it with. fsr owns that tree. A page is not "SSR" or "islands" per route; it is whatever mix of nodes the plan and the evaluators produce, and the browser's client reads any mix the same way. One setting moves the whole application to one end of that range, which is the last section of this chapter; everything between the ends is decided per component by what the build could lower.
 
 ## Where the markup comes from
 
@@ -53,6 +53,23 @@ None of this is written by the author or switched on. It is what the build does 
 
 An island can go one step further and have no browser half at all: placed in server mode, its events are sent to the server, Rust runs the handler and renders the island again, and the browser patches the markup it gets back into place. [Chapter 102](102-components-the-server-renders.md) shows both.
 
+## Handing the whole render back to the browser
+
+Everything above describes the default, where the build lowered a component and Rust renders it. The opposite end is a setting:
+
+```toml
+[server]
+render = "islands"
+```
+
+With it, no evaluator is registered for the lowered components, so every one of them falls to the null evaluator and becomes a node naming a module with its props. Nothing about the build changes: components still lower, and the report still says so. What changes is that nothing asks the interpreter to render one.
+
+The server still does most of its work. Loaders and actions run in Rust, because they never went through an evaluator. So does metadata, so does the store seed, so does the session, and so does routing. What the document carries is the shell, the head, the store seed, the loader data as each island's props, and one region per plan child: a bare `<sf-s>` for the page under a layout, a named one for each parallel segment. The browser mounts each module rather than hydrating it, since there is no server markup to hydrate against, and a region's markup is copied into the tree the mounted component renders, so a layout that never ran on the server still receives its page.
+
+What you gain is that no component has to render twice and agree. Residue stops mattering, because everything is residue: a component may reach for anything, and there is no Rust rendering of it to disagree with. What you lose is the first paint. The document has no page content until the bundle has loaded and run, which is what every client-rendered application costs, and prerendering a route means prerendering a document with no page in it.
+
+That is why it is not the default rather than why it is wrong. It is the right setting for an application behind a login where nothing is indexed and the first paint is a spinner either way, and it is the honest way to run one component library that will never lower. For everything else the default gives you the markup on the wire and the browser reads what the server already computed.
+
 ## Where this leaves an engine
 
 Components that read state the server cannot see, that suspend, that reach into libraries the build cannot follow, are residue. Today they render in the browser only. An engine that runs residue components on the server is the remaining piece and it is a deliberate open question, because the cost of an engine is paid per component per request and most of a storefront never needs it: the eight modules in the example lower after one helper was rewritten to avoid `new URLSearchParams`. When one arrives, a residue component will render on the server through it and the report will say so.
@@ -64,5 +81,7 @@ The invariant this design keeps, whatever the engine decision, is that data reso
 Load the catalog and view the source. The product cards are there in the HTML, inside an element that names `routes/page.tsx#default` and is followed by the props as JSON. Open the console: no errors; clicking "Add to cart" moves the badge, so React attached its handlers over the Rust output.
 
 Look at the props script that follows the catalog's island. Beside the products it carries `"$h"`, a table whose keys name `ProductCard` and `Stars` with an id and a loop index, and whose values are the prices and the star strings the cards show, plus the inner markup of each card. That is what React read at hydration instead of calling `money` and `Math.round` for every card.
+
+Now put `render = "islands"` under `[server]` in `config/app.toml` and restart. View the source: the shell, the head, the store seed and three elements naming `routes/layout.tsx#default`, `routes/cart/page.tsx#default` and the promo slot, each followed by its props, and not one product card. The page still works, and the console is still clean: click a card, the modal opens over the catalog; add to cart, the badge moves. Everything you can see the browser drew, and everything it drew from the server sent it the data for. Take the line back out.
 
 Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. Every page that imports `Stars` is now marked `client`, each with the same line in `Stars.tsx` that decided it. The pages still load and still work; view the source again and the cards are gone from the HTML, present only as props. Put `Math.round` back.

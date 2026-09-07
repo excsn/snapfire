@@ -16,6 +16,8 @@ export interface IslandEntry {
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
 /** Every island registered so far, by module id. */
 export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
+/** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
+export declare function serverRendered(el: Element): boolean;
 /** The props an island last took and the regions the last payload described inside it, for an adapter placing its nested islands. Null when nothing is mounted at `el`. */
 export declare function islandState(el: Element): {
 	props: Props;

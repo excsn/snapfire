@@ -171,7 +171,7 @@ An error module additionally receives `error`, a `Value::Str` holding the `LoadE
 
 Declines to evaluate. Unit struct.
 
-* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: emits one chunk, `Node::Client { module, props, children: Vec::new(), ssr: None }`, so the browser mounts the module with the same props a server evaluator would have received.
+* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: emits one chunk, a `Node::Client` carrying the module and the same props a server evaluator would have received, so the browser mounts it. Its `children` are the regions the plan children still need: one per name in the injected `$slots`, a `Node::Slot` wrapped in a bare `<sf-s>` for `content` and in one carrying `data-sf-name` otherwise, which is the spelling a lowered layout's own markup uses. Without them a plan child under a module nobody evaluated would have no stitch point and would be dropped. Where the marker belongs inside the component is unknown here and does not matter: the mounter copies a region's markup out rather than moving the element.
 
 ### `Evaluators`
 

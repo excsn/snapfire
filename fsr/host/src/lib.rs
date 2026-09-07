@@ -741,7 +741,16 @@ impl Host {
   /// `from_config` over a plan file and a contract already in memory, for a
   /// tool that built them and never wrote them.
   pub fn from_config_with(config: Config, plan: String, contract: Option<Contract>) -> Result<HostBuilder, HostError> {
-    let app = App::from_manifest(&plan)?;
+    let app = match config.server.render.as_str() {
+      "rust" => App::from_manifest(&plan)?,
+      "islands" => App::from_manifest(&plan)?.islands_only(true),
+      other => {
+        return Err(HostError::Config(
+          config.resolve(&config.server.plan),
+          format!("`server.render` is `rust` or `islands`, not `{other}`"),
+        ));
+      }
+    };
     Ok(HostBuilder {
       config,
       plan,

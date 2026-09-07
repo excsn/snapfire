@@ -326,7 +326,15 @@ function withRegions(el: Element, element: ReactElement, patched: boolean): Reac
 function islandElement(component: unknown, props: object, el: Element, patched: boolean): ReactElement {
   const [own, hoisted] = splitHoisted(props);
   const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, childrenFor(el));
-  return withRegions(el, withHoisted(hoisted, element), patched);
+  return createElement(Mounting, { el }, withRegions(el, withHoisted(hoisted, element), patched));
+}
+
+/** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached, and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */
+function Mounting({ el, children }: { el: Element; children: ReactNode }): ReactElement {
+  useEffect(() => {
+    scan(el);
+  });
+  return createElement(Fragment, null, children);
 }
 
 export const reactMounter: Mounter = (component, props, el, hydrate) => {

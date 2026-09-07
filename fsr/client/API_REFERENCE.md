@@ -329,7 +329,7 @@ Registration, timing and the scan that mounts markers.
 
 * `type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean) => unknown`
 
-`module` is whatever the island's `loader` resolved to. `hydrate` is true when the marker element already has child nodes, which is the case for any island the server rendered. The return value is ignored by the caller, so it is free for the framework's handle.
+`module` is whatever the island's `loader` resolved to. `hydrate` is true when the marker element already holds markup the server rendered. Slot regions do not count towards that: a module the server never evaluated still carries one `<sf-s>` per plan child it must offer, so an element holding nothing else was rendered by nobody and is mounted rather than hydrated. For the same reason a scan skips an island whose nearest island above it was not server-rendered, since mounting that one rebuilds its regions from markup it copies out; the parent's own mount scans them instead. The return value is ignored by the caller, so it is free for the framework's handle.
 
 ### MountTiming
 
@@ -656,7 +656,7 @@ Its own entry point, so the core package never imports React.
 
 * `const reactMounter: Mounter`
 
-Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. Returns the hydration root or the root. A `$h` entry in `props` is the island's hoisted table: it is lifted out before the component sees its props and provided through `withHoisted`.
+Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. The element is wrapped in a component whose effect scans `el` for islands inside the regions the render built, which is how a nested island reaches its own root when the parent was mounted rather than hydrated. Mounting, hydrating and patching all wrap it the same way, because a root whose child element changes type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. Returns the hydration root or the root. A `$h` entry in `props` is the island's hoisted table: it is lifted out before the component sees its props and provided through `withHoisted`.
 
 ### useHoisted
 

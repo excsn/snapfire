@@ -335,3 +335,53 @@ fn a_segment_digest_says_what_came_out_the_same_when_the_key_did_not() {
     "the layout's own output holds no pane, so a pane changing leaves it alone"
   );
 }
+
+/// The engineless configuration: no evaluator renders anything, so every node
+/// is the browser's. A layout is then a `Client` node whose page must still
+/// reach the document.
+#[test]
+fn a_module_the_browser_owns_still_offers_its_plan_children_a_region() {
+  let mut layout = PlanNode::new(NodeId(0), ModuleId::new("routes/layout.tsx", "default"));
+  layout.children = vec![
+    (SlotName("content".into()), leaf(1, "routes/page.tsx")),
+    (SlotName("modal".into()), leaf(2, "routes/slots/modal/page.tsx")),
+  ];
+  let runtime = Runtime::new(DataSources::new(), Evaluators::new());
+  let assembly = block_on(assemble(
+    &runtime,
+    &layout,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+
+  let Node::Client { module, children, .. } = &assembly.tree else {
+    panic!("the null evaluator hands the module to the browser: {:?}", assembly.tree)
+  };
+  assert_eq!(module.path, "routes/layout.tsx");
+  assert_eq!(children.len(), 2, "one region per slot the plan fills: {children:?}");
+
+  let region = |i: usize| {
+    let Node::Seq(parts) = &children[i] else { panic!("{:?}", children[i]) };
+    let (Node::Raw(open), Node::Raw(close)) = (&parts[0], &parts[2]) else { panic!("{parts:?}") };
+    (open.0.clone(), parts[1].clone(), close.0.clone())
+  };
+  let (open, page, close) = region(0);
+  assert_eq!(open, "<sf-s>", "the page's region is bare, which is what the mounter reads as children");
+  assert_eq!(close, "</sf-s>");
+  assert!(
+    matches!(&page, Node::Client { module, .. } if module.path == "routes/page.tsx"),
+    "the page is inside the region rather than dropped: {page:?}"
+  );
+  let (open, modal, _) = region(1);
+  assert_eq!(open, "<sf-s data-sf-name=\"modal\">", "a parallel segment's region is named, which the mounter reads as a prop");
+  assert!(matches!(&modal, Node::Client { module, .. } if module.path == "routes/slots/modal/page.tsx"), "{modal:?}");
+
+  let sidecar = snapfire_fsr_runtime::segments_to_json(&assembly.segments);
+  let children = sidecar["c"].as_array().unwrap();
+  assert_eq!(children.len(), 2, "each one is a segment a navigation can diff: {sidecar}");
+  assert_eq!(children[0]["n"], "content");
+  assert_eq!(children[0]["p"], serde_json::json!([0, 1]), "its path walks the island's children and then the region's parts");
+  assert_eq!(children[1]["n"], "modal");
+  assert_eq!(children[1]["p"], serde_json::json!([1, 1]));
+}

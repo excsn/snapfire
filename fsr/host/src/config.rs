@@ -134,6 +134,13 @@ pub struct ServerConfig {
   /// `RELEASE_ENV`: on when that is `development`, its default.
   #[serde(default)]
   pub dev: Option<bool>,
+  /// Who renders a lowered component. `rust`, the default, evaluates it
+  /// through the IR; `islands` registers no evaluator for it, so the browser
+  /// owns every component and the server sends loader data, metadata, the
+  /// store seed and the shell alone. Loaders and actions still run in Rust
+  /// either way.
+  #[serde(default = "default_render")]
+  pub render: String,
   /// Whether `serve` negotiates HTTP/2 on the connection as well as HTTP/1.1.
   /// Without `[server.tls]` this is h2c: a client that opens with the HTTP/2
   /// preface is served, and a browser, which wants ALPN over TLS, is not.
@@ -198,6 +205,7 @@ impl Default for ServerConfig {
       max_body: default_max_body(),
       prerender: None,
       dev: None,
+      render: default_render(),
       http2: false,
       tls: None,
     }
@@ -451,6 +459,9 @@ fn default_listen() -> String {
 }
 fn default_plan() -> String {
   "generated/plan.json".to_owned()
+}
+fn default_render() -> String {
+  "rust".to_owned()
 }
 fn default_contracts() -> String {
   "generated/contracts".to_owned()

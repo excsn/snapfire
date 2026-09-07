@@ -90,6 +90,7 @@ listen = "127.0.0.1:8080"
 prerender = "dist/prerender"      # optional: where rendered-once routes live
 dev = false                       # optional: live refresh; absent, on unless RELEASE_ENV is set to something else than development
 max_body = 1048576                # optional: bytes a request body may carry; a larger one is 413
+render = "rust"                   # optional: `rust` evaluates a lowered component; `islands` hands every one to the browser
 http2 = false                     # optional: negotiate h2c beside http/1.1; without tls a browser needs a proxy in front
 
 [server.tls]                      # optional, and needs the host's `tls` feature; absent, the listener is plain TCP
