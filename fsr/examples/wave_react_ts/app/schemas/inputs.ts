@@ -7,3 +7,9 @@ export interface BlipInput {
   parent: string;
   body: string;
 }
+
+export interface AmendInput {
+  wave: string;
+  blip: string;
+  body: string;
+}

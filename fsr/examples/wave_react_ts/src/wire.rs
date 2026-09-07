@@ -39,8 +39,8 @@ impl Wire {
         let _ = self.presence.try_send(PresenceEvent::Joined { agent: plaza::Agent::Human(who.connection), conn_id: who.connection });
         if let Some(wave) = who.topic.strip_prefix("wave/") {
           let name = match who.session.get("name") {
-            Some(Value::Str(name)) if !name.is_empty() => name,
-            _ => "someone".to_owned(),
+            Some(Value::Str(name)) => name,
+            _ => String::new(),
           };
           self.submit(who.connection, Op::Watch { wave: wave.to_owned(), name });
         }
@@ -52,6 +52,24 @@ impl Wire {
         };
         self.submit(who.connection, Op::Typing { parent, body });
       }
+      On::Said(row) if row.key == "named" => {
+        let name = match &row.value {
+          Value::Map(map) => text(map, "name"),
+          _ => String::new(),
+        };
+        if let Some(wave) = who.topic.strip_prefix("wave/") {
+          self.submit(who.connection, Op::Watch { wave: wave.to_owned(), name });
+        }
+      }
+      On::Said(row) if row.key == "open" => self.submit(who.connection, Op::Open { blip: blip_of(&row) }),
+      On::Said(row) if row.key == "rewriting" => {
+        let body = match &row.value {
+          Value::Map(map) => text(map, "body"),
+          _ => String::new(),
+        };
+        self.submit(who.connection, Op::Rewriting { blip: blip_of(&row), body });
+      }
+      On::Said(row) if row.key == "close" => self.submit(who.connection, Op::Close { blip: blip_of(&row) }),
       On::Said(_) => {}
       On::Left => {
         self.topics.lock().remove(&who.connection);
@@ -102,7 +120,7 @@ impl Session<Op, Conn> for Wire {
   }
 }
 
-/// A view becomes the two rows the page reads; nothing else goes out. The
+/// A view becomes the three rows the page reads; nothing else goes out. The
 /// keys are the ones the islands already read, so the browser never learns
 /// that a controller now owns what it is being told.
 fn rows_of(op: &Op) -> Vec<Row> {
@@ -122,9 +140,30 @@ fn rows_of(op: &Op) -> Vec<Row> {
           })
           .collect(),
       );
-      vec![Row::new("wave/here", here), Row::new("wave/drafts", drafts)]
+      let edits = Value::Seq(
+        view
+          .edits
+          .iter()
+          .map(|edit| {
+            let mut map = ValueMap::new();
+            map.insert("blip".to_owned(), Value::Str(edit.blip.clone()));
+            map.insert("who".to_owned(), Value::Str(edit.who.clone()));
+            map.insert("body".to_owned(), Value::Str(edit.body.clone()));
+            Value::Map(map)
+          })
+          .collect(),
+      );
+      vec![Row::new("wave/here", here), Row::new("wave/drafts", drafts), Row::new("wave/edits", edits)]
     }
     _ => Vec::new(),
+  }
+}
+
+/// The blip a row names, which every rewriting row carries.
+fn blip_of(row: &Row) -> String {
+  match &row.value {
+    Value::Map(map) => text(map, "blip"),
+    _ => String::new(),
   }
 }
 

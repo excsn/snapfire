@@ -78,6 +78,74 @@ async fn a_draft_is_built_for_everyone_but_its_author() {
 }
 
 #[tokio::test]
+async fn a_blip_is_held_by_one_window_and_the_others_watch_it_change() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+
+  apply(&rules, &mut field, 1, vec![Op::Open { blip: "2".to_owned() }]).await;
+  let held = view(&field, 2).await.edits;
+  assert_eq!(held.len(), 1, "bob is shown the blip alice took");
+  assert_eq!(held[0].who, "alice");
+  assert_eq!(held[0].body, "Good. I will take the runtime half.", "and it starts from what the blip says");
+  assert!(view(&field, 1).await.edits.is_empty(), "alice is never shown her own rewrite, the way she is never shown her own draft");
+
+  apply(&rules, &mut field, 2, vec![Op::Open { blip: "2".to_owned() }]).await;
+  apply(&rules, &mut field, 2, vec![Op::Rewriting { blip: "2".to_owned(), body: "bob got in".to_owned() }]).await;
+  assert_eq!(view(&field, 2).await.edits[0].who, "alice", "the second window to reach for it changes nothing");
+
+  apply(&rules, &mut field, 1, vec![Op::Rewriting { blip: "2".to_owned(), body: "I will take the runtime half, and the host.".to_owned() }]).await;
+  assert_eq!(view(&field, 2).await.edits[0].body, "I will take the runtime half, and the host.", "bob watches the words as they land");
+
+  apply(&rules, &mut field, 1, vec![Op::Close { blip: "2".to_owned() }]).await;
+  assert!(view(&field, 2).await.edits.is_empty(), "letting it go frees it");
+  assert_eq!(field.waves["kickoff"].blips[1].body, "Good. I will take the runtime half.", "and keeps nothing");
+}
+
+#[tokio::test]
+async fn an_amend_keeps_the_rewrite_and_a_departure_lets_the_blip_go() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+
+  apply(&rules, &mut field, 1, vec![Op::Open { blip: "2".to_owned() }]).await;
+  apply(&rules, &mut field, 1, vec![Op::Amend { wave: "kickoff".to_owned(), blip: "2".to_owned(), who: "alice".to_owned(), body: "the runtime and the host".to_owned() }])
+    .await;
+  assert_eq!(field.waves["kickoff"].blips[1].body, "the runtime and the host");
+  assert_eq!(field.waves["kickoff"].blips[1].edited, "10:00", "an amended blip says when it was amended");
+  assert_eq!(field.waves["kickoff"].blips[1].editors, ["alice"], "and who amended it, though bob wrote it");
+
+  apply(&rules, &mut field, 1, vec![Op::Amend { wave: "kickoff".to_owned(), blip: "2".to_owned(), who: "alice".to_owned(), body: "the runtime, the host".to_owned() }])
+    .await;
+  apply(&rules, &mut field, 2, vec![Op::Amend { wave: "kickoff".to_owned(), blip: "2".to_owned(), who: "bob".to_owned(), body: "the runtime, the host, the lot".to_owned() }])
+    .await;
+  assert_eq!(field.waves["kickoff"].blips[1].editors, ["alice", "bob"], "each of them once, in the order they first came to it");
+  assert!(view(&field, 2).await.edits.is_empty(), "keeping it releases the hold");
+
+  apply(&rules, &mut field, 2, vec![Op::Open { blip: "1".to_owned() }]).await;
+  assert_eq!(view(&field, 1).await.edits.len(), 1);
+  rules.process_input(&mut field, LogicInput::AgentLeft { agent_id: 2 }).await.unwrap();
+  assert!(view(&field, 1).await.edits.is_empty(), "a window that goes away holds nothing");
+}
+
+#[tokio::test]
+async fn a_window_with_no_name_reads_and_writes_nothing() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "alice")]).await;
+
+  assert_eq!(view(&field, 2).await.here, ["alice"], "a nameless window is on the wave and not among the people on it");
+
+  apply(&rules, &mut field, 1, vec![typing("", "anonymous")]).await;
+  assert!(view(&field, 2).await.drafts.is_empty(), "and nobody sees it typing");
+
+  apply(&rules, &mut field, 1, vec![Op::Open { blip: "2".to_owned() }]).await;
+  assert!(view(&field, 2).await.edits.is_empty(), "nor holding a blip");
+  apply(&rules, &mut field, 2, vec![Op::Open { blip: "2".to_owned() }]).await;
+  assert_eq!(view(&field, 1).await.edits.len(), 1, "which leaves the blip free for someone who has named themselves");
+}
+
+#[tokio::test]
 async fn an_unknown_wave_is_refused_and_an_unwatched_keystroke_is_dropped() {
   let (rules, mut field) = (rules(), Field::new(backend::seed()));
   let refused = rules
@@ -113,6 +181,65 @@ async fn the_service_reads_and_writes_through_the_controller() {
   let shown = format!("{wave:?}");
   assert!(shown.contains("carol, arriving late"), "the read after the write sees it: {shown}");
   assert!(shown.contains("\"carol\""), "carol is a participant now: {shown}");
+
+  let args = ValueMap::from_iter([
+    ("id".to_owned(), Value::str("kickoff")),
+    ("blip".to_owned(), Value::str("1")),
+    ("who".to_owned(), Value::str("carol")),
+    ("body".to_owned(), Value::str("Starting a wave. Anyone may rewrite this.")),
+  ]);
+  let amended = call(&service, "editBlip", args).await;
+  let shown = format!("{amended:?}");
+  assert!(shown.contains("Anyone may rewrite this"), "the amend went through the controller: {shown}");
+  assert!(shown.contains("10:00"), "and it is stamped: {shown}");
+  assert!(shown.contains("\"carol\""), "with whoever rewrote it: {shown}");
+  assert_eq!(kept.try_recv().unwrap(), "wave/kickoff", "the topic goes out again so every page revalidates");
+}
+
+#[tokio::test]
+async fn a_view_names_which_waves_the_inbox_lists() {
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, _kept) = backend::service(field.clone());
+  let listed = |view: &str, who: &str| {
+    let args = ValueMap::from_iter([("view".to_owned(), Value::str(view)), ("who".to_owned(), Value::str(who))]);
+    let service = service.clone();
+    async move { titles(&call(&service, "listWaves", args).await) }
+  };
+
+  assert_eq!(listed("inbox", "alice").await.len(), 2, "the inbox is every wave");
+  assert!(listed("active", "alice").await.is_empty(), "nobody is connected yet");
+  assert_eq!(listed("mine", "bob").await, ["Snapfire kickoff"], "bob has written in one of them");
+  assert!(listed("mine", "").await.is_empty(), "and a reader with no name has written in none");
+
+  field
+    .send(plaza::ControllerCommand::SubmitAgentOps { agent: Agent::Human(1), ops: vec![watch("board", "alice")] })
+    .await
+    .unwrap();
+  assert_eq!(listed("active", "alice").await, ["Arrivals board review"], "a watched wave is the active one");
+
+  let people = call(&service, "listPeople", ValueMap::new()).await;
+  let shown = format!("{people:?}");
+  assert!(shown.contains("\"alice\""), "everyone on any wave is a contact: {shown}");
+  assert!(shown.contains("Bool(true)"), "and alice is here, on the wave she is watching: {shown}");
+}
+
+/// The titles a listing answered with, in order.
+fn titles(listed: &Value) -> Vec<String> {
+  match listed {
+    Value::Seq(waves) => waves
+      .iter()
+      .filter_map(|wave| match wave {
+        Value::Map(map) => match map.get("title") {
+          Some(Value::Str(title)) => Some(title.clone()),
+          _ => None,
+        },
+        _ => None,
+      })
+      .collect(),
+    other => panic!("a listing is a sequence: {other:?}"),
+  }
 }
 
 async fn call(service: &Arc<dyn Transport>, method: &str, args: ValueMap) -> Value {

@@ -45,3 +45,23 @@ export function join(topic: string, onOpen: (open: boolean) => void): () => void
 export function typing(parent: string, body: string): void {
   held?.socket.send("typing", { parent, body });
 }
+
+/** Says the reader has named themselves, so presence stops calling them nobody. The socket joined before the name existed, so the name travels as a row rather than in the handshake. */
+export function named(name: string): void {
+  held?.socket.send("named", { name });
+}
+
+/** Reaches for a blip to rewrite it. The field decides: whoever gets there first holds it, and the other window learns so by being sent the holder's text. */
+export function hold(blip: string): void {
+  held?.socket.send("open", { blip });
+}
+
+/** The rewrite as it stands, one row per keystroke, kept by nobody until the action runs. */
+export function rewriting(blip: string, body: string): void {
+  held?.socket.send("rewriting", { blip, body });
+}
+
+/** Lets a blip go without keeping the rewrite. */
+export function release(blip: string): void {
+  held?.socket.send("close", { blip });
+}

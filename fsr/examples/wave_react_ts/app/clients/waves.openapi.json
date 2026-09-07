@@ -5,10 +5,25 @@
     "/waves": {
       "get": {
         "operationId": "listWaves",
+        "parameters": [
+          { "name": "view", "in": "query", "schema": { "type": "string" } },
+          { "name": "who", "in": "query", "schema": { "type": "string" } }
+        ],
         "responses": {
           "200": {
-            "description": "the inbox",
+            "description": "the inbox, under one view",
             "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Summary" } } } }
+          }
+        }
+      }
+    },
+    "/people": {
+      "get": {
+        "operationId": "listPeople",
+        "responses": {
+          "200": {
+            "description": "everyone on any wave, and whether they are here now",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Person" } } } }
           }
         }
       }
@@ -21,6 +36,25 @@
           "200": {
             "description": "one wave and every blip in it",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Wave" } } }
+          }
+        }
+      }
+    },
+    "/waves/{id}/blips/{blip}": {
+      "patch": {
+        "operationId": "editBlip",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "blip", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Rewritten" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "the blip as it now stands",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Blip" } } }
           }
         }
       }
@@ -55,6 +89,15 @@
           "last": { "type": "string" }
         }
       },
+      "Person": {
+        "type": "object",
+        "required": ["name", "here", "waves"],
+        "properties": {
+          "name": { "type": "string" },
+          "here": { "type": "boolean" },
+          "waves": { "type": "number", "format": "double" }
+        }
+      },
       "Wave": {
         "type": "object",
         "required": ["id", "title", "participants", "blips"],
@@ -67,14 +110,24 @@
       },
       "Blip": {
         "type": "object",
-        "required": ["id", "parent", "who", "body", "at", "depth"],
+        "required": ["id", "parent", "who", "body", "at", "edited", "editors", "depth"],
         "properties": {
           "id": { "type": "string" },
           "parent": { "type": "string" },
           "who": { "type": "string" },
           "body": { "type": "string" },
           "at": { "type": "string" },
+          "edited": { "type": "string" },
+          "editors": { "type": "array", "items": { "type": "string" } },
           "depth": { "type": "number", "format": "double" }
+        }
+      },
+      "Rewritten": {
+        "type": "object",
+        "required": ["who", "body"],
+        "properties": {
+          "who": { "type": "string" },
+          "body": { "type": "string" }
         }
       },
       "Written": {

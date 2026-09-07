@@ -25,12 +25,27 @@ button { background: var(--raised); border: 1px solid var(--rule); border-radius
 button:hover { border-color: var(--accent); }
 .composer button { background: var(--accent); border-color: var(--accent); color: #0f1216; font-weight: 600; }
 
-.panes { display: grid; grid-template-columns: minmax(15rem, 22rem) minmax(0, 1fr); gap: 1.25rem; margin-top: 1.25rem; align-items: start; }
-@media (max-width: 60rem) { .panes { grid-template-columns: 1fr; } }
+.panes { display: grid; grid-template-columns: 11rem minmax(14rem, 20rem) minmax(0, 1fr); gap: 1.25rem; margin-top: 1.25rem; align-items: start; }
+@media (max-width: 72rem) { .panes { grid-template-columns: 11rem minmax(0, 1fr); } .open { grid-column: 1 / -1; } }
+@media (max-width: 46rem) { .panes { grid-template-columns: 1fr; } }
+.side { display: grid; gap: 1rem; }
+
+.rail ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.view { display: block; padding: 0.35rem 0.6rem; border-radius: 6px; color: var(--dim); text-decoration: none; font-size: 0.9rem; }
+.view:hover { color: var(--ink); background: var(--panel); }
+.view.on { color: var(--ink); background: var(--raised); font-weight: 600; }
+
+.contacts { list-style: none; margin: 0; padding: 0.75rem 0 0; border-top: 1px solid var(--rule); display: grid; gap: 0.2rem; }
+.contact { display: grid; grid-template-columns: 0.5rem 1fr auto; align-items: center; gap: 0.5rem; padding: 0.2rem 0.6rem; color: var(--dim); font-size: 0.9rem; }
+.contact .dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--rule); }
+.contact.on { color: var(--ink); }
+.contact.on .dot { background: var(--mine); }
+.contact-waves { font-size: 0.78rem; font-variant-numeric: tabular-nums; }
 
 .wave-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
 .wave-card { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.75rem; padding: 0.7rem 0.85rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; color: inherit; }
 .wave-card:hover { border-color: var(--accent); }
+.wave-card.open { border-color: var(--accent); background: var(--raised); }
 .wave-title { font-weight: 600; }
 .wave-when, .wave-blips { color: var(--dim); font-size: 0.82rem; font-variant-numeric: tabular-nums; text-align: right; }
 .wave-people { color: var(--dim); font-size: 0.85rem; }
@@ -53,12 +68,31 @@ button:hover { border-color: var(--accent); }
 .blips li { position: relative; }
 .blips li[style*="margin-left"]::before { content: ""; position: absolute; left: -0.75rem; top: 0; bottom: 0.5rem; width: 1px; background: var(--rule); }
 
-.blip { background: var(--panel); border: 1px solid var(--rule); border-left-width: 3px; border-radius: 8px; padding: 0.55rem 0.8rem; margin-bottom: 0.4rem; display: grid; grid-template-columns: auto auto 1fr; gap: 0 0.6rem; }
+.blip { background: var(--panel); border: 1px solid var(--rule); border-left-width: 3px; border-radius: 8px; padding: 0.55rem 0.8rem; margin-bottom: 0.4rem; }
 .blip.mine { border-left-color: var(--mine); }
-.blip .who { font-weight: 600; color: var(--accent); font-size: 0.88rem; }
+.blip .who { font-weight: 600; color: var(--accent); font-size: 0.88rem; margin-right: 0.6rem; }
 .blip.mine .who { color: var(--mine); }
 .blip .at { color: var(--dim); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.blip .body { grid-column: 1 / -1; margin: 0.2rem 0 0; overflow-wrap: anywhere; }
+.blip .body { margin: 0.2rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+.body-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.25rem; min-height: 1.2rem; }
+.edited { color: var(--dim); font-size: 0.74rem; letter-spacing: 0.04em; }
+.editors { list-style: none; display: flex; margin: 0; padding: 0; gap: 0.25rem; }
+.editor { background: var(--raised); border: 1px solid var(--rule); border-radius: 999px; padding: 0.05rem 0.45rem; color: var(--dim); font-size: 0.7rem; }
+.editor::before { content: "✎"; margin-right: 0.25rem; opacity: 0.7; }
+.take { background: none; border: 0; color: var(--dim); padding: 0; font-size: 0.78rem; margin-left: auto; opacity: 0; }
+.blip:hover .take, .take:focus { opacity: 1; }
+.take:hover { color: var(--accent); }
+
+.body-held .body { border-left: 2px solid var(--ghost); padding-left: 0.6rem; color: var(--ink); }
+.holder { display: inline-block; margin-top: 0.3rem; color: var(--ghost); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }
+
+.rewrite { display: grid; gap: 0.4rem; margin-top: 0.3rem; }
+.rewrite textarea { background: var(--paper); border: 1px solid var(--accent); border-radius: 6px; color: var(--ink); padding: 0.5rem 0.6rem; font: inherit; resize: vertical; }
+.rewrite textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.rewrite-buttons { display: flex; gap: 0.5rem; }
+.rewrite-buttons button[type="submit"] { background: var(--accent); border-color: var(--accent); color: #0f1216; font-weight: 600; }
+.cancel { color: var(--dim); }
 
 .blip.ghost { border-style: dashed; border-left-color: var(--ghost); background: transparent; }
 .blip.ghost .who { color: var(--ghost); }
@@ -68,5 +102,6 @@ button:hover { border-color: var(--accent); }
 .reply { background: none; border: 0; color: var(--dim); padding: 0 0 0.5rem; font-size: 0.82rem; }
 .reply:hover { color: var(--accent); }
 
+.nameless { color: var(--dim); font-size: 0.88rem; margin: 0.3rem 0 1rem; }
 .composer { display: flex; gap: 0.5rem; margin: 0.25rem 0 1rem; }
 .composer input { flex: 1; }
