@@ -287,11 +287,13 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
-  let region = html.find("<sf-s data-sf-island data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">").expect(&html);
+  let region = html
+    .find("<sf-s data-sf-island data-sf-region=\"routes/order/[id]/page.tsx#default|i0\" data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">")
+    .expect(&html);
   let page = html.find("data-sf-module=\"routes/order/[id]/page.tsx#default\"").unwrap();
   assert!(page < region, "the island sits inside the page's markup");
   assert!(html[region..].contains("<p>Quote order #<!-- -->5001<!-- --> when you write to us.</p>"), "rendered in Rust with the page's data: {html}");
-  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i3\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false}}</script></sf-s>"), "its own props script with the state a server island starts from, inside the region: {html}");
+  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i3\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false},\"$k\":\"routes/order/[id]/page.tsx#default|i0\"}</script></sf-s>"), "its own props script with the state a server island starts from and the region it names, inside the region: {html}");
   let payload = block_on(app.render_to_string("/order/5001", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("[\"c\",{\"m\":\"src/ui/OrderHelp.tsx#OrderHelp\""), "a nested client node on the wire: {payload}");
 }
