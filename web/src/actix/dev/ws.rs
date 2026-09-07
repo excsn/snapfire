@@ -3,7 +3,7 @@ use actix_web::{HttpRequest, HttpResponse};
 use actix_ws::{AggregatedMessage, MessageStream, Session};
 use futures_util::StreamExt;
 use std::time::{Duration, Instant};
-use tokio::sync::broadcast;
+use fibre::spmc::topic::AsyncTopicReceiver;
 use tokio::time::interval;
 
 /// How often heartbeat pings are sent to the client.
@@ -16,13 +16,15 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) async fn websocket_handler(
   req: HttpRequest,
   body: actix_web::web::Payload,
-  broadcaster: broadcast::Sender<ReloadMessage>,
+  listener: AsyncTopicReceiver<(), ReloadMessage>,
 ) -> Result<HttpResponse, actix_web::Error> {
   log::info!("New WebSocket connection request");
 
   let (response, session, msg_stream) = actix_ws::handle(&req, body)?;
 
-  actix_web::rt::spawn(handle_connection(session, msg_stream, broadcaster.subscribe()));
+  let reloader_rx = listener.clone();
+  reloader_rx.subscribe(());
+  actix_web::rt::spawn(handle_connection(session, msg_stream, reloader_rx));
 
   Ok(response)
 }
@@ -31,7 +33,7 @@ pub(crate) async fn websocket_handler(
 async fn handle_connection(
   mut session: Session,
   msg_stream: MessageStream,
-  mut reloader_rx: broadcast::Receiver<ReloadMessage>,
+  reloader_rx: AsyncTopicReceiver<(), ReloadMessage>,
 ) {
   let mut last_heartbeat = Instant::now();
   let mut interval = interval(HEARTBEAT_INTERVAL);
@@ -69,7 +71,7 @@ async fn handle_connection(
         }
       }
 
-      Ok(reload_msg) = reloader_rx.recv() => {
+      Ok((_, reload_msg)) = reloader_rx.recv() => {
         let message_text = match reload_msg {
           ReloadMessage::Reload => "reload",
           ReloadMessage::ReloadCss => "reload-css",

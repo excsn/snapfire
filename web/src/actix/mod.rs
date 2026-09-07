@@ -45,11 +45,11 @@ impl TeraWeb {
       self.reloader.ws_path
     );
 
-    let broadcaster = self.get_reloader_broadcaster();
+    let listener = self.get_reloader_listener();
 
     cfg.route(
       &self.reloader.ws_path,
-      web::get().to(move |req, stream| dev::ws::websocket_handler(req, stream, broadcaster.clone())),
+      web::get().to(move |req, stream| dev::ws::websocket_handler(req, stream, listener.clone())),
     );
   }
 }

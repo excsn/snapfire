@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures_channel::oneshot;
+use fibre::oneshot;
 use futures_util::future::LocalBoxFuture;
 use rquickjs::loader::{Loader, Resolver};
 use rquickjs::{CatchResultExt, CaughtError, Context, Ctx, Error, Exception, Function, Module, Persistent, Promise, Runtime};
@@ -136,7 +136,7 @@ pub trait Hooks {
 struct PendingCall {
   key: String,
   args: String,
-  reply: oneshot::Sender<Result<String, String>>,
+  reply: oneshot::ExclusiveSender<Result<String, String>>,
 }
 
 /// A handle a hook's future uses to call back into the page, for a mocked
@@ -151,9 +151,9 @@ impl JsCalls {
   }
 
   pub async fn call(&self, key: String, args: String) -> Result<String, String> {
-    let (reply, wait) = oneshot::channel();
+    let (reply, mut wait) = oneshot::exclusive();
     self.0.lock().push_back(PendingCall { key, args, reply });
-    wait.await.unwrap_or_else(|_| Err("the engine dropped the call".to_owned()))
+    wait.recv().await.unwrap_or_else(|_| Err("the engine dropped the call".to_owned()))
   }
 }
 

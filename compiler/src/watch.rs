@@ -1,18 +1,27 @@
 use crate::build::{self, Build, Options};
-use anyhow::{Context, Result};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::Duration;
+
+use anyhow::{Context, Result};
+use fibre::RecvErrorTimeout;
+use fibre::mpsc::{UnboundedSyncReceiver, unbounded};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 /// Editors save in bursts: a write, a rename and a chmod can all land within a few milliseconds.
 /// Batching until this much quiet has passed turns one save into one rebuild.
 const SETTLE: Duration = Duration::from_millis(120);
 
 pub fn run(opts: &Options, mut build: Build) -> Result<()> {
-  let (tx, rx) = channel();
-  let mut watcher = RecommendedWatcher::new(tx, notify::Config::default()).context("Failed to start the watcher")?;
+  let (mut tx, rx) = unbounded();
+  let mut watcher = RecommendedWatcher::new(
+    move |event| {
+      let _ = tx.send(event);
+    },
+    notify::Config::default(),
+  )
+  .context("Failed to start the watcher")?;
 
   for base in &build.search_bases {
     watcher
@@ -64,7 +73,7 @@ pub fn run(opts: &Options, mut build: Build) -> Result<()> {
 
 /// Blocks for the first event, then keeps draining until the filesystem has been quiet for
 /// [`SETTLE`]. Returns `None` once the watcher has hung up.
-fn collect(rx: &Receiver<notify::Result<notify::Event>>) -> Option<Vec<PathBuf>> {
+fn collect(rx: &UnboundedSyncReceiver<notify::Result<notify::Event>>) -> Option<Vec<PathBuf>> {
   let mut paths: HashSet<PathBuf> = HashSet::new();
 
   let first = rx.recv().ok()?;
@@ -73,8 +82,8 @@ fn collect(rx: &Receiver<notify::Result<notify::Event>>) -> Option<Vec<PathBuf>>
   loop {
     match rx.recv_timeout(SETTLE) {
       Ok(event) => absorb(event, &mut paths),
-      Err(RecvTimeoutError::Timeout) => break,
-      Err(RecvTimeoutError::Disconnected) => return None,
+      Err(RecvErrorTimeout::Timeout) => break,
+      Err(RecvErrorTimeout::Disconnected) => return None,
     }
   }
 

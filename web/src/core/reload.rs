@@ -3,7 +3,7 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tera::Tera;
-use tokio::sync::broadcast;
+use fibre::spmc::topic::{AsyncTopicReceiver, channel_async};
 
 const CLIENT_SCRIPT: &str = include_str!("../../resources/injected.js");
 const WS_PATH_PLACEHOLDER: &str = "__SNAPFIRE_WS_PATH__";
@@ -23,13 +23,25 @@ pub(crate) enum ReloadMessage {
   ReloadCss,
 }
 
+/// How many messages a connection may fall behind before it loses one. A full
+/// mailbox already holds a reload, so the one that is dropped would have asked
+/// for what is already pending.
+const MAILBOX: usize = 16;
+
+/// The one key every reload rides on. The channel is a topic channel for its
+/// fan-out, not because there is more than one thing to say.
+type Key = ();
+
 /// The core, framework-agnostic live-reload controller.
 ///
 /// It spawns a background task to watch for file changes and holds a
 /// broadcast channel to send messages to connected clients.
 #[derive(Debug)]
 pub(crate) struct DevReloader {
-  pub(crate) broadcaster: broadcast::Sender<ReloadMessage>,
+  /// Cloned once per connection: a clone takes a mailbox of its own and
+  /// starts empty, so a client that connects now is not told about a reload
+  /// that happened before it arrived.
+  pub(crate) listener: AsyncTopicReceiver<Key, ReloadMessage>,
   // Held only to keep the watcher alive: dropping it stops the background task.
   _watcher: RecommendedWatcher,
   pub(crate) ws_path: String,
@@ -43,11 +55,11 @@ impl DevReloader {
     static_paths: Vec<String>,
     ws_path: String,
   ) -> Result<Self> {
-    let (tx, _rx) = broadcast::channel(16);
-    let broadcaster = tx.clone();
+    // The sending half is not `Clone` and nothing outside the watcher sends,
+    // so it moves into the closure and lives as long as the watcher does.
+    let (broadcaster, listener) = channel_async(MAILBOX);
 
     let tera_clone = tera.clone();
-    let broadcaster_clone = broadcaster.clone();
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
       let event = match res {
@@ -69,12 +81,12 @@ impl DevReloader {
             if let Err(e) = tera_clone.write().full_reload() {
               log::error!("Failed to reload templates: {}", e);
             }
-            let _ = broadcaster_clone.send(ReloadMessage::Reload);
+            let _ = broadcaster.send((), ReloadMessage::Reload);
             return;
           }
           Some("css") => {
             log::info!("🎨 CSS change detected: {:?}", path);
-            let _ = broadcaster_clone.send(ReloadMessage::ReloadCss);
+            let _ = broadcaster.send((), ReloadMessage::ReloadCss);
             return;
           }
           _ => (),
@@ -99,7 +111,7 @@ impl DevReloader {
     }
 
     Ok(Self {
-      broadcaster,
+      listener,
       _watcher: watcher,
       ws_path,
     })

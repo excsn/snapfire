@@ -16,6 +16,7 @@ default = []
 tls = ["snapfire_fsr_host/tls"]
 
 [dependencies]
+fibre = "0.6"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 flate2 = "1.1.10"
 ctrlc = { version = "3", features = ["termination"] }

@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use snapfire_fsr_service::{LocalTransport, Transport};
-use tokio::sync::broadcast;
+use fibre::mpsc;
 
 struct Room {
   id: &'static str,
@@ -32,11 +32,14 @@ struct Said {
 pub struct Rooms {
   said: Mutex<Vec<(String, Said)>>,
   next: Mutex<u64>,
-  topics: broadcast::Sender<String>,
+  topics: Mutex<mpsc::UnboundedSyncSender<String>>,
+  /// Taken once, by the task that forwards to the host's `publish`.
+  feed: Mutex<Option<mpsc::UnboundedAsyncReceiver<String>>>,
 }
 
 impl Rooms {
   fn new() -> Self {
+    let (told, hear) = mpsc::unbounded();
     let seed = |id: &str, who: &str, body: &str, at: &str, n: u64| (id.to_owned(), Said { id: n, who: who.to_owned(), body: body.to_owned(), at: at.to_owned() });
     Self {
       said: Mutex::new(vec![
@@ -45,13 +48,14 @@ impl Rooms {
         seed("deploys", "alice", "3.4.1 is out, nothing on fire.", "08:40", 3),
       ]),
       next: Mutex::new(4),
-      topics: broadcast::channel(64).0,
+      topics: Mutex::new(told),
+      feed: Mutex::new(Some(hear.to_async())),
     }
   }
 
   /// What the host forwards to `publish`: one topic per room that changed.
-  pub fn changes(&self) -> broadcast::Receiver<String> {
-    self.topics.subscribe()
+  pub fn changes(&self) -> mpsc::UnboundedAsyncReceiver<String> {
+    self.feed.lock().take().expect("the change feed is taken once, by the forwarder")
   }
 
   fn count(&self, room: &str) -> i64 {
@@ -95,7 +99,7 @@ impl Rooms {
       said
     };
     self.said.lock().push((room.to_owned(), said.clone()));
-    let _ = self.topics.send(format!("room/{room}"));
+    let _ = self.topics.lock().send(format!("room/{room}"));
     Self::message(&said)
   }
 }

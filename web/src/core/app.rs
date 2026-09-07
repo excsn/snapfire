@@ -136,8 +136,12 @@ impl TeraWeb {
   }
 
   #[cfg(feature = "devel")]
-  pub(crate) fn get_reloader_broadcaster(&self) -> tokio::sync::broadcast::Sender<crate::core::reload::ReloadMessage> {
-    self.reloader.broadcaster.clone()
+  /// The receiver a connection clones and subscribes, which is what a
+  /// websocket handler needs; the sending half never leaves the reloader.
+  pub(crate) fn get_reloader_listener(
+    &self,
+  ) -> fibre::spmc::topic::AsyncTopicReceiver<(), crate::core::reload::ReloadMessage> {
+    self.reloader.listener.clone()
   }
 }
 

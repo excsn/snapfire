@@ -9,7 +9,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use fibre::RecvErrorTimeout;
+use fibre::mpsc::{UnboundedSyncReceiver, UnboundedSyncSender, unbounded};
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -291,13 +292,13 @@ pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
 
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   let project = Project::open(app, options)?;
-  let (tx, rx) = channel::<Msg>();
-  let stop: Sender<Msg> = tx.clone();
+  let (tx, rx) = unbounded::<Msg>();
+  let mut stop: UnboundedSyncSender<Msg> = tx.clone();
   ctrlc::set_handler(move || {
     let _ = stop.send(Msg::Stop);
   })
   .map_err(|e| BuildError::Dev(format!("signal handler: {e}")))?;
-  let fs = tx;
+  let mut fs = tx;
   let mut watcher = RecommendedWatcher::new(move |event| {
     let _ = fs.send(Msg::Fs(event));
   }, notify::Config::default())
@@ -394,7 +395,7 @@ fn report_types(checked: Option<&Checked>) {
 /// Blocks for the first event, polling the server meanwhile, then keeps
 /// draining until the filesystem has been quiet for `SETTLE`. `None` on a
 /// stop signal or once the watcher has hung up.
-fn collect(rx: &Receiver<Msg>, server: &mut Server) -> Option<Vec<PathBuf>> {
+fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server) -> Option<Vec<PathBuf>> {
   let mut paths: HashSet<PathBuf> = HashSet::new();
   loop {
     match rx.recv_timeout(POLL) {
@@ -402,15 +403,15 @@ fn collect(rx: &Receiver<Msg>, server: &mut Server) -> Option<Vec<PathBuf>> {
         absorb(event, &mut paths);
         break;
       }
-      Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return None,
-      Err(RecvTimeoutError::Timeout) => server.poll(),
+      Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return None,
+      Err(RecvErrorTimeout::Timeout) => server.poll(),
     }
   }
   loop {
     match rx.recv_timeout(SETTLE) {
       Ok(Msg::Fs(event)) => absorb(event, &mut paths),
-      Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return None,
-      Err(RecvTimeoutError::Timeout) => break,
+      Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return None,
+      Err(RecvErrorTimeout::Timeout) => break,
     }
   }
   Some(paths.into_iter().collect())

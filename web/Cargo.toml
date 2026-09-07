@@ -29,6 +29,7 @@ tokio = { version = "1", features = ["macros", "sync", "rt", "rt-multi-thread"] 
 
 # Dev-reload specific dependencies (optional)
 async-stream = { version = "0.3", optional = true }
+fibre = { version = "0.6", optional = true }
 bytes = { version = "1", optional = true }
 notify = { version = "6.0", optional = true }
 actix-ws = { version = "0.3", optional = true }
@@ -50,4 +51,4 @@ required-features = ["devel"]
 
 [features]
 default = []
-devel = ["dep:notify", "dep:actix-ws", "dep:async-stream", "dep:bytes"]
+devel = ["dep:fibre", "dep:notify", "dep:actix-ws", "dep:async-stream", "dep:bytes"]

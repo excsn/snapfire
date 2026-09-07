@@ -6,13 +6,13 @@
 #![cfg(feature = "ws")]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::{SinkExt, StreamExt};
 use snapfire_fsr_core::Value;
 use snapfire_fsr_runtime::{Identity, SessionCell};
-use tokio::sync::mpsc;
+use fibre::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 /// One store row on the wire: the key an island reads and the value it takes.
@@ -60,15 +60,24 @@ pub struct Reply {
 
 impl Reply {
   pub fn everyone(rows: impl IntoIterator<Item = Row>) -> Self {
-    Self { everyone: rows.into_iter().collect(), ..Self::default() }
+    Self {
+      everyone: rows.into_iter().collect(),
+      ..Self::default()
+    }
   }
 
   pub fn others(rows: impl IntoIterator<Item = Row>) -> Self {
-    Self { others: rows.into_iter().collect(), ..Self::default() }
+    Self {
+      others: rows.into_iter().collect(),
+      ..Self::default()
+    }
   }
 
   pub fn sender(rows: impl IntoIterator<Item = Row>) -> Self {
-    Self { sender: rows.into_iter().collect(), ..Self::default() }
+    Self {
+      sender: rows.into_iter().collect(),
+      ..Self::default()
+    }
   }
 }
 
@@ -81,7 +90,7 @@ pub type SocketHandler = Arc<dyn Fn(&Who, On) -> Reply + Send + Sync>;
 /// the connection breaks.
 #[derive(Default)]
 pub struct Sockets {
-  open: parking_lot::Mutex<HashMap<String, Vec<(u64, mpsc::UnboundedSender<Vec<Row>>)>>>,
+  open: parking_lot::Mutex<HashMap<String, Vec<(u64, mpsc::UnboundedSyncSender<Vec<Row>>)>>>,
   next: AtomicU64,
 }
 
@@ -90,11 +99,14 @@ impl Sockets {
     Self::default()
   }
 
-  fn join(&self, topic: &str) -> (u64, mpsc::UnboundedReceiver<Vec<Row>>) {
+  /// The rows go out from `send`, which is synchronous, and are read by
+  /// `serve`, which is not, so the sync half is kept and the receiver is
+  /// converted.
+  fn join(&self, topic: &str) -> (u64, mpsc::UnboundedAsyncReceiver<Vec<Row>>) {
     let id = self.next.fetch_add(1, Ordering::Relaxed);
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::unbounded();
     self.open.lock().entry(topic.to_owned()).or_default().push((id, tx));
-    (id, rx)
+    (id, rx.to_async())
   }
 
   fn leave(&self, topic: &str, id: u64) {
@@ -117,9 +129,9 @@ impl Sockets {
     if rows.is_empty() {
       return;
     }
-    let open = self.open.lock();
-    let Some(peers) = open.get(topic) else { return };
-    for (id, tx) in peers {
+    let mut open = self.open.lock();
+    let Some(peers) = open.get_mut(topic) else { return };
+    for (id, tx) in peers.iter_mut() {
       let wanted = match to {
         Reach::Everyone => true,
         Reach::Others => *id != from,
@@ -153,7 +165,12 @@ impl Sockets {
 
   /// The connections a topic holds, in the order they arrived.
   pub fn connections(&self, topic: &str) -> Vec<u64> {
-    self.open.lock().get(topic).map(|peers| peers.iter().map(|(id, _)| *id).collect()).unwrap_or_default()
+    self
+      .open
+      .lock()
+      .get(topic)
+      .map(|peers| peers.iter().map(|(id, _)| *id).collect())
+      .unwrap_or_default()
   }
 }
 
@@ -196,12 +213,12 @@ where
   loop {
     tokio::select! {
       rows = inbox.recv() => match rows {
-        Some(rows) => {
+        Ok(rows) => {
           if writer.send(Message::Text(encode(&rows).into())).await.is_err() {
             break;
           }
         }
-        None => break,
+        Err(_) => break,
       },
       frame = reader.next() => match frame {
         Some(Ok(Message::Text(text))) => {

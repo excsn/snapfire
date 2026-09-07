@@ -9,6 +9,7 @@ license = { workspace = true }
 
 [dependencies]
 async-trait = "0.1"
+fibre = "0.6"
 parking_lot = "0.12"
 plaza = "^0.7"
 serde = { version = "1", features = ["derive"] }
