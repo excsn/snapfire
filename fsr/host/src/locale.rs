@@ -63,6 +63,19 @@ pub struct Resolution {
   pub set_cookie: Option<String>,
 }
 
+impl Resolution {
+  /// The path as the browser holds it: the prefix back on when the request
+  /// carried one, spelled the way `locales.supported` spells it. What a link
+  /// built inside a page has to be relative to, since a link is literal and
+  /// dropping the prefix would move the reader to another locale.
+  pub fn requested(&self) -> String {
+    match self.prefixed {
+      true => format!("/{}{}", self.locale.tag, self.path.trim_end_matches('/')),
+      false => self.path.clone(),
+    }
+  }
+}
+
 fn normalise(tag: &str) -> String {
   tag.trim().to_ascii_lowercase().replace('-', "_")
 }
@@ -77,7 +90,13 @@ fn valid_tag(tag: &str) -> bool {
 
 impl Locales {
   pub fn single() -> Self {
-    Self { supported: vec!["en".to_owned()], default: "en".to_owned(), order: Vec::new(), remember: false, cookie: default_cookie() }
+    Self {
+      supported: vec!["en".to_owned()],
+      default: "en".to_owned(),
+      order: Vec::new(),
+      remember: false,
+      cookie: default_cookie(),
+    }
   }
 
   pub fn from_section(section: &LocalesSection) -> Result<Self, String> {
@@ -86,7 +105,9 @@ impl Locales {
     }
     for tag in &section.supported {
       if !valid_tag(tag) {
-        return Err(format!("locales.supported: `{tag}` is not a locale tag; letters, digits, `_` and `-` only"));
+        return Err(format!(
+          "locales.supported: `{tag}` is not a locale tag; letters, digits, `_` and `-` only"
+        ));
       }
     }
     let default = section.default.clone().unwrap_or_else(|| section.supported[0].clone());
@@ -99,7 +120,11 @@ impl Locales {
         "prefix" => Source::Prefix,
         "cookie" => Source::Cookie,
         "header" => Source::Header,
-        other => return Err(format!("locales.order: `{other}` is not a source; the sources are prefix, cookie and header")),
+        other => {
+          return Err(format!(
+            "locales.order: `{other}` is not a source; the sources are prefix, cookie and header"
+          ));
+        }
       };
       if !order.contains(&source) {
         order.push(source);
@@ -108,7 +133,13 @@ impl Locales {
     if section.cookie.is_empty() {
       return Err("locales.cookie must not be empty".to_owned());
     }
-    Ok(Self { supported: section.supported.clone(), default, order, remember: section.remember, cookie: section.cookie.clone() })
+    Ok(Self {
+      supported: section.supported.clone(),
+      default,
+      order,
+      remember: section.remember,
+      cookie: section.cookie.clone(),
+    })
   }
 
   pub fn is_default(&self, tag: &str) -> bool {
@@ -126,7 +157,11 @@ impl Locales {
   /// The supported locale `tag` spells, whatever its case or separator.
   pub fn find(&self, tag: &str) -> Option<&str> {
     let wanted = normalise(tag);
-    self.supported.iter().find(|t| normalise(t) == wanted).map(String::as_str)
+    self
+      .supported
+      .iter()
+      .find(|t| normalise(t) == wanted)
+      .map(String::as_str)
   }
 
   /// The supported locale nearest to `tag`: the same spelling, else the
@@ -139,7 +174,11 @@ impl Locales {
     if language.is_empty() {
       return None;
     }
-    self.supported.iter().find(|t| language_of(t) == language).map(String::as_str)
+    self
+      .supported
+      .iter()
+      .find(|t| language_of(t) == language)
+      .map(String::as_str)
   }
 
   /// The locale prefix on `path` and the rest of the path, `/` at least.
@@ -208,12 +247,18 @@ impl Locales {
     }
     let tag = chosen.unwrap_or(self.default.as_str());
     let set_cookie = match prefix {
-      Some((chosen_by_prefix, _)) if self.remember && chosen_by_prefix == tag && held != Some(tag) => {
-        Some(format!("{}={}; Path=/; Max-Age=31536000; SameSite=Lax", self.cookie, tag))
-      }
+      Some((chosen_by_prefix, _)) if self.remember && chosen_by_prefix == tag && held != Some(tag) => Some(format!(
+        "{}={}; Path=/; Max-Age=31536000; SameSite=Lax",
+        self.cookie, tag
+      )),
       _ => None,
     };
-    Resolution { locale: self.locale(tag), path: stripped, prefixed: prefix.is_some(), set_cookie }
+    Resolution {
+      locale: self.locale(tag),
+      path: stripped,
+      prefixed: prefix.is_some(),
+      set_cookie,
+    }
   }
 }
 
@@ -260,7 +305,10 @@ mod tests {
     assert_eq!(r.locale, Locale::new("fr_FR", false));
     assert_eq!(r.path, "/x");
     assert!(r.prefixed);
-    assert_eq!(r.set_cookie.as_deref(), Some("sf_locale=fr_FR; Path=/; Max-Age=31536000; SameSite=Lax"));
+    assert_eq!(
+      r.set_cookie.as_deref(),
+      Some("sf_locale=fr_FR; Path=/; Max-Age=31536000; SameSite=Lax")
+    );
 
     let r = l.resolve("/fr_FR/x", Some("sf_locale=fr_FR"), None);
     assert_eq!(r.set_cookie, None, "the cookie already holds it");
@@ -291,12 +339,46 @@ mod tests {
   #[test]
   fn the_section_is_checked() {
     let bad = |section: LocalesSection| Locales::from_section(&section).unwrap_err();
-    let base = LocalesSection { supported: vec!["en".to_owned()], default: None, order: default_order(), remember: false, cookie: default_cookie() };
-    assert!(bad(LocalesSection { supported: vec![], ..base.clone() }).contains("at least one"));
-    assert!(bad(LocalesSection { default: Some("fr".to_owned()), ..base.clone() }).contains("not among"));
-    assert!(bad(LocalesSection { order: vec!["path".to_owned()], ..base.clone() }).contains("not a source"));
-    assert!(bad(LocalesSection { supported: vec!["fr FR".to_owned()], ..base.clone() }).contains("not a locale tag"));
-    let ok = Locales::from_section(&LocalesSection { order: vec!["header".to_owned(), "header".to_owned()], ..base }).unwrap();
+    let base = LocalesSection {
+      supported: vec!["en".to_owned()],
+      default: None,
+      order: default_order(),
+      remember: false,
+      cookie: default_cookie(),
+    };
+    assert!(
+      bad(LocalesSection {
+        supported: vec![],
+        ..base.clone()
+      })
+      .contains("at least one")
+    );
+    assert!(
+      bad(LocalesSection {
+        default: Some("fr".to_owned()),
+        ..base.clone()
+      })
+      .contains("not among")
+    );
+    assert!(
+      bad(LocalesSection {
+        order: vec!["path".to_owned()],
+        ..base.clone()
+      })
+      .contains("not a source")
+    );
+    assert!(
+      bad(LocalesSection {
+        supported: vec!["fr FR".to_owned()],
+        ..base.clone()
+      })
+      .contains("not a locale tag")
+    );
+    let ok = Locales::from_section(&LocalesSection {
+      order: vec!["header".to_owned(), "header".to_owned()],
+      ..base
+    })
+    .unwrap();
     assert_eq!(ok.order, vec![Source::Header]);
     assert_eq!(ok.default, "en");
   }
@@ -310,8 +392,13 @@ mod tests {
 pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fsr_ir::Catalogs, String> {
   let dir = app.join("locales");
   let mut tables = std::collections::BTreeMap::new();
-  let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables)) };
-  let mut files: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "toml")).collect();
+  let Ok(entries) = std::fs::read_dir(&dir) else {
+    return Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables));
+  };
+  let mut files: Vec<std::path::PathBuf> = entries
+    .filter_map(|e| e.ok().map(|e| e.path()))
+    .filter(|p| p.extension().is_some_and(|e| e == "toml"))
+    .collect();
   files.sort();
   for file in files {
     let tag = file.file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -324,11 +411,20 @@ pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fs
   Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables))
 }
 
-fn flatten(file: &std::path::Path, prefix: &str, value: &toml::Value, out: &mut std::collections::BTreeMap<String, String>) -> Result<(), String> {
+fn flatten(
+  file: &std::path::Path,
+  prefix: &str,
+  value: &toml::Value,
+  out: &mut std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
   match value {
     toml::Value::Table(table) => {
       for (key, inner) in table {
-        let full = if prefix.is_empty() { key.clone() } else { format!("{prefix}.{key}") };
+        let full = if prefix.is_empty() {
+          key.clone()
+        } else {
+          format!("{prefix}.{key}")
+        };
         flatten(file, &full, inner, out)?;
       }
       Ok(())
@@ -349,7 +445,10 @@ fn flatten(file: &std::path::Path, prefix: &str, value: &toml::Value, out: &mut 
       out.insert(prefix.to_owned(), b.to_string());
       Ok(())
     }
-    other => Err(format!("{}: `{prefix}` is {}; a message is a string", file.display(), other.type_str())),
+    other => Err(format!(
+      "{}: `{prefix}` is {}; a message is a string",
+      file.display(),
+      other.type_str()
+    )),
   }
 }
-
