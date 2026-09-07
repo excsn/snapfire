@@ -94,10 +94,7 @@ impl Fingerprint for Value {
           item.write_canonical(h);
         }
       }
-      Value::Map(v) => {
-        h.update(&[10]);
-        write_map(h, v);
-      }
+      Value::Map(v) => v.write_canonical(h),
       Value::Variant { tag, payload } => {
         h.update(&[11]);
         write_str(h, tag);
@@ -121,8 +118,11 @@ impl Fingerprint for Value {
   }
 }
 
+/// The same bytes `Value::Map` writes, which delegates here, so hashing a
+/// loader's result and hashing it wrapped in a `Value` cannot disagree.
 impl Fingerprint for crate::value::ValueMap {
   fn write_canonical(&self, h: &mut Xxh3) {
+    h.update(&[10]);
     write_map(h, self);
   }
 }
@@ -213,9 +213,11 @@ impl Fingerprint for Node {
   }
 }
 
+/// A plan's shape and what it names, not how its nodes happen to be
+/// numbered: renumbering a structurally identical plan must not change its
+/// digest, or a rebuild that shifts one id invalidates every entry below it.
 impl Fingerprint for PlanNode {
   fn write_canonical(&self, h: &mut Xxh3) {
-    h.update(&self.id.0.to_le_bytes());
     write_str(h, &self.module.path);
     write_str(h, &self.module.export);
     match &self.data_source {

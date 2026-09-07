@@ -112,3 +112,43 @@ fn pending_carries_its_fallback_inline() {
   assert_eq!(*slot, SlotId(1));
   assert!(matches!(**fallback, Node::Raw(_)));
 }
+
+#[test]
+fn a_plan_fingerprint_does_not_depend_on_node_numbering() {
+  let renumbered = |mut node: PlanNode, base: u32| {
+    fn walk(node: &mut PlanNode, next: &mut u32) {
+      node.id = NodeId(*next);
+      *next += 1;
+      for (_, child) in node.children.iter_mut() {
+        walk(child, next);
+      }
+    }
+    let mut next = base;
+    walk(&mut node, &mut next);
+    node
+  };
+  let one = renumbered(streaming_plan(), 0);
+  let other = renumbered(streaming_plan(), 900);
+  assert_ne!(one.id, other.id, "the fixture really was renumbered");
+  assert_eq!(
+    one.fingerprint(),
+    other.fingerprint(),
+    "a structurally identical plan keeps its digest, so a rebuild that shifts an id keeps its cache entries"
+  );
+
+  let mut different = streaming_plan();
+  different.module = ModuleId::new("routes/other/layout.tera", "default");
+  assert_ne!(one.fingerprint(), different.fingerprint(), "what the plan names still counts");
+}
+
+#[test]
+fn a_map_fingerprints_the_same_bare_as_it_does_wrapped() {
+  let mut map = indexmap::IndexMap::new();
+  map.insert("who".to_owned(), Value::str("alice"));
+  map.insert("count".to_owned(), Value::Int(3));
+  assert_eq!(
+    map.fingerprint(),
+    Value::Map(map.clone()).fingerprint(),
+    "hashing a loader's result and hashing it wrapped in a Value must agree"
+  );
+}
