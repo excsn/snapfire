@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use futures_util::future::{try_join_all, BoxFuture};
 use futures_util::TryStreamExt;
+use futures_util::future::{BoxFuture, try_join_all};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, SlotId, SlotName, Value, ValueMap};
 
 use snapfire_fsr_core::Fingerprint;
@@ -13,8 +13,8 @@ use crate::ctx::RequestCtx;
 use crate::data::{DataSources, LoadError};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
-use crate::store::Seeds;
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
+use crate::store::Seeds;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AssembleError {
@@ -39,7 +39,10 @@ pub struct Evaluators {
 
 impl Default for Evaluators {
   fn default() -> Self {
-    Self { rules: Vec::new(), null: NullEvaluator }
+    Self {
+      rules: Vec::new(),
+      null: NullEvaluator,
+    }
   }
 }
 
@@ -145,12 +148,12 @@ impl Runtime {
     Self::builder().sources(sources).evaluators(evaluators).build()
   }
 
-  pub fn with_keyer(
-    sources: DataSources,
-    evaluators: Evaluators,
-    keyer: Arc<dyn SegmentKeyer>,
-  ) -> Arc<Self> {
-    Self::builder().sources(sources).evaluators(evaluators).keyer(keyer).build()
+  pub fn with_keyer(sources: DataSources, evaluators: Evaluators, keyer: Arc<dyn SegmentKeyer>) -> Arc<Self> {
+    Self::builder()
+      .sources(sources)
+      .evaluators(evaluators)
+      .keyer(keyer)
+      .build()
   }
 }
 
@@ -187,6 +190,8 @@ pub struct Assembly {
   pub locale: crate::ctx::Locale,
   /// The head's `entry`: a module the browser loads for this response's islands.
   pub entry: Option<String>,
+  /// The head's `styles`: stylesheets this response needs beyond the document's.
+  pub styles: Vec<String>,
   /// The head's `catalog`: the locale's message table as JSON.
   pub catalog: Option<String>,
 }
@@ -244,7 +249,13 @@ struct Session {
 /// Every node of `plan` whose loaded data has metadata registered, outermost
 /// first so an inner segment folds over an outer one; deferred children
 /// excluded since their data is not in this wave.
-fn describing_nodes<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, is_root: bool, out: &mut Vec<&'p PlanNode>) {
+fn describing_nodes<'p>(
+  runtime: &Runtime,
+  plan: &'p PlanNode,
+  loaded: &Loaded,
+  is_root: bool,
+  out: &mut Vec<&'p PlanNode>,
+) {
   if plan.deferred && !is_root {
     return;
   }
@@ -260,7 +271,13 @@ fn describing_nodes<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, 
 
 /// Every node of `plan` whose loaded data seeds the store, outermost first,
 /// deferred children excluded since their data is not in this wave.
-fn seeding_nodes<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, is_root: bool, out: &mut Vec<&'p PlanNode>) {
+fn seeding_nodes<'p>(
+  runtime: &Runtime,
+  plan: &'p PlanNode,
+  loaded: &Loaded,
+  is_root: bool,
+  out: &mut Vec<&'p PlanNode>,
+) {
   if plan.deferred && !is_root {
     return;
   }
@@ -274,11 +291,7 @@ fn seeding_nodes<'p>(runtime: &Runtime, plan: &'p PlanNode, loaded: &Loaded, is_
   }
 }
 
-fn collect_loads<'p>(
-  node: &'p PlanNode,
-  is_root: bool,
-  out: &mut Vec<(u32, &'p snapfire_fsr_core::DataSourceId)>,
-) {
+fn collect_loads<'p>(node: &'p PlanNode, is_root: bool, out: &mut Vec<(u32, &'p snapfire_fsr_core::DataSourceId)>) {
   if node.deferred && !is_root {
     return;
   }
@@ -300,7 +313,10 @@ fn has_slot(node: &Node) -> bool {
 }
 
 fn has_deferred_descendant(node: &PlanNode) -> bool {
-  node.children.iter().any(|(_, c)| c.deferred || has_deferred_descendant(c))
+  node
+    .children
+    .iter()
+    .any(|(_, c)| c.deferred || has_deferred_descendant(c))
 }
 
 fn subtree_has_failure(node: &PlanNode, failed: &HashMap<u32, LoadError>) -> bool {
@@ -348,7 +364,10 @@ impl Session {
       }
     });
 
-    let mut loaded = Loaded { data: HashMap::new(), failed: HashMap::new() };
+    let mut loaded = Loaded {
+      data: HashMap::new(),
+      failed: HashMap::new(),
+    };
     for (node_id, result) in try_join_all(loads).await? {
       match result {
         Ok(data) => {
@@ -366,7 +385,9 @@ impl Session {
   /// The degraded rendering of a segment whose loader failed: the plan's error
   /// module with params plus the message, or the built-in error node.
   async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
-    let Some(module) = &node.error else { return Ok(error_node(&failure.to_string())) };
+    let Some(module) = &node.error else {
+      return Ok(error_node(&failure.to_string()));
+    };
     let mut props = ValueMap::new();
     self.inject_ctx_props(&mut props);
     props.insert("error".to_owned(), Value::Str(failure.to_string()));
@@ -384,11 +405,17 @@ impl Session {
         Chunk::Slot(_) => return Err(AssembleError::SlotInFallback(module.to_string())),
       }
     }
-    Ok(if parts.len() == 1 { parts.pop().unwrap() } else { Node::Seq(parts) })
+    Ok(if parts.len() == 1 {
+      parts.pop().unwrap()
+    } else {
+      Node::Seq(parts)
+    })
   }
 
   async fn fallback_node(&self, child: &PlanNode, store: &Data) -> Result<Node, AssembleError> {
-    let Some(module) = &child.fallback else { return Ok(Node::raw("")) };
+    let Some(module) = &child.fallback else {
+      return Ok(Node::raw(""));
+    };
     let mut props = ValueMap::new();
     self.inject_ctx_props(&mut props);
     inject_store(&mut props, store);
@@ -406,7 +433,11 @@ impl Session {
         Chunk::Slot(_) => return Err(AssembleError::SlotInFallback(module.to_string())),
       }
     }
-    Ok(if parts.len() == 1 { parts.pop().unwrap() } else { Node::Seq(parts) })
+    Ok(if parts.len() == 1 {
+      parts.pop().unwrap()
+    } else {
+      Node::Seq(parts)
+    })
   }
 
   fn defer(self: &Arc<Self>, child: PlanNode, slot: SlotId, key: String) -> PendingResolution {
@@ -417,8 +448,22 @@ impl Session {
       key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
-          Ok((node, pending, _segments, meta, store)) => Resolved { slot, key: resolved_key, node, pending, meta, store },
-          Err(e) => Resolved { slot, key: resolved_key, node: error_node(&e.to_string()), pending: Vec::new(), meta: Meta::default(), store: Data::new() },
+          Ok((node, pending, _segments, meta, store)) => Resolved {
+            slot,
+            key: resolved_key,
+            node,
+            pending,
+            meta,
+            store,
+          },
+          Err(e) => Resolved {
+            slot,
+            key: resolved_key,
+            node: error_node(&e.to_string()),
+            pending: Vec::new(),
+            meta: Meta::default(),
+            store: Data::new(),
+          },
         }
       }),
     }
@@ -445,7 +490,10 @@ impl Session {
     let mut out = Data::new();
     for node in nodes {
       let source = node.data_source.as_ref().expect("a seeding node has a source");
-      match self.runtime.stores[&source.0].seed(&self.ctx, &loaded.data[&node.id.0]).await {
+      match self.runtime.stores[&source.0]
+        .seed(&self.ctx, &loaded.data[&node.id.0])
+        .await
+      {
         Ok(seeded) => out.extend(seeded),
         Err(e) => tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment store failed"),
       }
@@ -479,7 +527,12 @@ impl Session {
     let data = &loaded.data;
     let mut pairs: Vec<String> = self.ctx.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
-    let subject = self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned());
+    let subject = self
+      .ctx
+      .session
+      .identity()
+      .map(|i| i.subject)
+      .unwrap_or_else(|| "-".to_owned());
     let csrf = self.ctx.csrf.as_deref().unwrap_or("-");
     let mut shape = xxhash_rust::xxh3::Xxh3::new();
     subtree_shape(node, &mut shape);
@@ -504,7 +557,10 @@ impl Session {
       return Ok(Some(child));
     }
     if slot.0 == "content" && !plan.keep.contains(slot) {
-      return Err(AssembleError::MissingSlot { node: plan.id.0, slot: slot.0.clone() });
+      return Err(AssembleError::MissingSlot {
+        node: plan.id.0,
+        slot: slot.0.clone(),
+      });
     }
     Ok(None)
   }
@@ -548,18 +604,41 @@ impl Session {
       let mut used_head = false;
       match node {
         Node::Slot(slot) => {
-          let Some(child) = self.child_for(plan, &slot)? else { return Ok((Node::raw(""), false)) };
+          let Some(child) = self.child_for(plan, &slot)? else {
+            return Ok((Node::raw(""), false));
+          };
           let key = self.segment_key(child);
           let keep = SegmentInfo::keep_of(child);
           if child.deferred {
             let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
             let fallback = self.fallback_node(child, store).await?;
             out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
-            segments.push(SegmentInfo { key, name: slot.0, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new(), keep });
-            Ok((Node::Pending { slot: slot_id, fallback: Box::new(fallback) }, false))
+            segments.push(SegmentInfo {
+              key,
+              name: slot.0,
+              path: Vec::new(),
+              slot: Some(slot_id.0),
+              children: Vec::new(),
+              keep,
+            });
+            Ok((
+              Node::Pending {
+                slot: slot_id,
+                fallback: Box::new(fallback),
+              },
+              false,
+            ))
           } else {
-            let (child_node, grandchildren, child_used_head) = self.build(child, loaded, out_pending, meta, store).await?;
-            segments.push(SegmentInfo { key, name: slot.0, path: path.clone(), slot: None, children: grandchildren, keep });
+            let (child_node, grandchildren, child_used_head) =
+              self.build(child, loaded, out_pending, meta, store).await?;
+            segments.push(SegmentInfo {
+              key,
+              name: slot.0,
+              path: path.clone(),
+              slot: None,
+              children: grandchildren,
+              keep,
+            });
             Ok((child_node, child_used_head))
           }
         }
@@ -567,23 +646,40 @@ impl Session {
           let mut out = Vec::with_capacity(items.len());
           for (i, item) in items.into_iter().enumerate() {
             path.push(i as u32);
-            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path, meta, store).await?;
+            let (filled, head) = self
+              .fill_slots(item, plan, loaded, out_pending, segments, path, meta, store)
+              .await?;
             path.pop();
             used_head |= head;
             out.push(filled);
           }
           Ok((Node::Seq(out), used_head))
         }
-        Node::Client { module, props, children, ssr } => {
+        Node::Client {
+          module,
+          props,
+          children,
+          ssr,
+        } => {
           let mut out = Vec::with_capacity(children.len());
           for (i, item) in children.into_iter().enumerate() {
             path.push(i as u32);
-            let (filled, head) = self.fill_slots(item, plan, loaded, out_pending, segments, path, meta, store).await?;
+            let (filled, head) = self
+              .fill_slots(item, plan, loaded, out_pending, segments, path, meta, store)
+              .await?;
             path.pop();
             used_head |= head;
             out.push(filled);
           }
-          Ok((Node::Client { module, props, children: out, ssr }, used_head))
+          Ok((
+            Node::Client {
+              module,
+              props,
+              children: out,
+              ssr,
+            },
+            used_head,
+          ))
         }
         other => Ok((other, false)),
       }
@@ -616,7 +712,13 @@ impl Session {
       self.inject_ctx_props(&mut props);
       inject_store(&mut props, store);
       if !node.children.is_empty() || !node.keep.is_empty() {
-        let slots = node.children.iter().map(|(name, _)| name).chain(&node.keep).map(|name| Value::Str(name.0.clone())).collect();
+        let slots = node
+          .children
+          .iter()
+          .map(|(name, _)| name)
+          .chain(&node.keep)
+          .map(|name| Value::Str(name.0.clone()))
+          .collect();
         props.insert("$slots".to_owned(), Value::Seq(slots));
       }
 
@@ -636,7 +738,9 @@ impl Session {
           Chunk::Node(n) if has_slot(&n) => {
             let idx = parts.len();
             let mut inner: Vec<SegmentInfo> = Vec::new();
-            let (filled, child_used_head) = self.fill_slots(n, node, loaded, out_pending, &mut inner, &mut Vec::new(), meta, store).await?;
+            let (filled, child_used_head) = self
+              .fill_slots(n, node, loaded, out_pending, &mut inner, &mut Vec::new(), meta, store)
+              .await?;
             used_head |= child_used_head;
             parts.push(filled);
             for info in inner {
@@ -649,28 +753,57 @@ impl Session {
             parts.push(self.head.node(meta));
           }
           Chunk::Slot(slot) => {
-            let Some(child) = self.child_for(node, &slot)? else { continue };
+            let Some(child) = self.child_for(node, &slot)? else {
+              continue;
+            };
             let key = self.segment_key(child);
             let keep = SegmentInfo::keep_of(child);
             if child.deferred {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
               let fallback = self.fallback_node(child, store).await?;
-              parts.push(Node::Pending { slot: slot_id, fallback: Box::new(fallback) });
+              parts.push(Node::Pending {
+                slot: slot_id,
+                fallback: Box::new(fallback),
+              });
               out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
-              segments.push((usize::MAX, SegmentInfo { key, name: slot.0, path: Vec::new(), slot: Some(slot_id.0), children: Vec::new(), keep }));
+              segments.push((
+                usize::MAX,
+                SegmentInfo {
+                  key,
+                  name: slot.0,
+                  path: Vec::new(),
+                  slot: Some(slot_id.0),
+                  children: Vec::new(),
+                  keep,
+                },
+              ));
             } else {
               let (child_node, grandchildren, child_used_head) =
                 self.build(child, loaded, out_pending, meta, store).await?;
               used_head |= child_used_head;
               let idx = parts.len();
               parts.push(child_node);
-              segments.push((idx, SegmentInfo { key, name: slot.0, path: Vec::new(), slot: None, children: grandchildren, keep }));
+              segments.push((
+                idx,
+                SegmentInfo {
+                  key,
+                  name: slot.0,
+                  path: Vec::new(),
+                  slot: None,
+                  children: grandchildren,
+                  keep,
+                },
+              ));
             }
           }
         }
       }
       let collapsed = parts.len() == 1;
-      let out = if collapsed { parts.pop().unwrap() } else { Node::Seq(parts) };
+      let out = if collapsed {
+        parts.pop().unwrap()
+      } else {
+        Node::Seq(parts)
+      };
       let segments: Vec<SegmentInfo> = segments
         .into_iter()
         .map(|(idx, mut info)| {
@@ -685,7 +818,13 @@ impl Session {
           self
             .runtime
             .cache
-            .put(key, CacheEntry { node: out.clone(), segments: segments.clone() })
+            .put(
+              key,
+              CacheEntry {
+                node: out.clone(),
+                segments: segments.clone(),
+              },
+            )
             .await;
         }
       }
@@ -720,9 +859,21 @@ pub async fn assemble(
     keep: SegmentInfo::keep_of(plan),
   };
   let meta = Meta {
-    title: meta.title.or_else(|| (!head.title.is_empty()).then(|| head.title.clone())),
+    title: meta
+      .title
+      .or_else(|| (!head.title.is_empty()).then(|| head.title.clone())),
     description: meta.description.or_else(|| head.description.clone()),
     head: meta.head,
   };
-  Ok(Assembly { tree, pending, segments, meta, store, locale: ctx.locale.clone(), entry: head.entry.clone(), catalog: head.catalog.clone() })
+  Ok(Assembly {
+    tree,
+    pending,
+    segments,
+    meta,
+    store,
+    locale: ctx.locale.clone(),
+    entry: head.entry.clone(),
+    styles: head.styles.clone(),
+    catalog: head.catalog.clone(),
+  })
 }

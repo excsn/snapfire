@@ -21,7 +21,12 @@ impl ServiceError {
     method: impl Into<String>,
     message: impl Into<String>,
   ) -> Self {
-    Self { kind, service: service.into(), method: method.into(), message: message.into() }
+    Self {
+      kind,
+      service: service.into(),
+      method: method.into(),
+      message: message.into(),
+    }
   }
 }
 
@@ -29,12 +34,7 @@ impl ServiceError {
 /// arguments. The caller is bound to the request before it reaches application
 /// code, so identity and credentials are attached without being reachable.
 pub trait ServiceCaller: Send + Sync {
-  fn call(
-    &self,
-    service: &str,
-    method: &str,
-    args: ValueMap,
-  ) -> BoxFuture<'static, Result<Value, ServiceError>>;
+  fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>;
 }
 
 /// `ctx.services`. Empty unless the edge bound a service layer, and an unbound
@@ -51,12 +51,7 @@ impl ServiceHandle {
     self.0.is_some()
   }
 
-  pub fn call(
-    &self,
-    service: &str,
-    method: &str,
-    args: ValueMap,
-  ) -> BoxFuture<'static, Result<Value, ServiceError>> {
+  pub fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>> {
     match &self.0 {
       Some(caller) => caller.call(service, method, args),
       None => {

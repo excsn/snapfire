@@ -12,6 +12,6 @@ export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, loc
 export { live, type LiveOptions } from "./live.js";
 export { socket, type Socket, type SocketOptions } from "./socket.js";
 export type { NavigateOptions, NavigationOptions, PrefetchTiming } from "./navigator.js";
-export { boot, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
+export { applyStyles, boot, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
 export type { IslandEntry, Mounter, MountTiming, Patcher, Props } from "./boot.js";

@@ -55,7 +55,10 @@ pub struct ActionError {
 
 impl ActionError {
   pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
-    Self { kind, message: message.into() }
+    Self {
+      kind,
+      message: message.into(),
+    }
   }
 }
 

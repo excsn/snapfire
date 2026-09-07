@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use futures_util::future::BoxFuture;
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use snapfire_fsr_core::{Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap};
 use snapfire_fsr_runtime::{
-  assemble, html_stream, wire_stream, Chunk, DataSources, Evaluator, Evaluators, Head, LoadError, NodeChunks, RequestCtx, Runtime, Seeds,
+  Chunk, DataSources, Evaluator, Evaluators, Head, LoadError, NodeChunks, RequestCtx, Runtime, Seeds, assemble,
+  html_stream, wire_stream,
 };
 
 struct Shell;
@@ -26,7 +27,10 @@ struct Page;
 impl Evaluator for Page {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
     let seen = match props.get("$store") {
-      Some(Value::Map(store)) => format!("{:?}", store.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>()),
+      Some(Value::Map(store)) => format!(
+        "{:?}",
+        store.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>()
+      ),
       _ => "none".to_owned(),
     };
     Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("<p>{seen}</p>"))))]))
@@ -52,7 +56,12 @@ struct Failing;
 
 impl Seeds for Failing {
   fn seed(&self, _ctx: &RequestCtx, _data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
-    Box::pin(async move { Err(LoadError { source_id: "page".to_owned(), message: "no".to_owned() }) })
+    Box::pin(async move {
+      Err(LoadError {
+        source_id: "page".to_owned(),
+        message: "no".to_owned(),
+      })
+    })
   }
 }
 
@@ -72,7 +81,10 @@ fn runtime(page_seeds: Option<Arc<dyn Seeds>>) -> Arc<Runtime> {
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
   evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));
-  let mut runtime = Runtime::builder().sources(sources).evaluators(evaluators).store("layout", Arc::new(LayoutSeed));
+  let mut runtime = Runtime::builder()
+    .sources(sources)
+    .evaluators(evaluators)
+    .store("layout", Arc::new(LayoutSeed));
   if let Some(seeds) = page_seeds {
     runtime = runtime.store("page", seeds);
   }
@@ -110,7 +122,13 @@ fn head() -> Head {
 }
 
 fn assembled(page_seeds: Option<Arc<dyn Seeds>>, deferred: bool) -> snapfire_fsr_runtime::Assembly {
-  block_on(assemble(&runtime(page_seeds), &plan(deferred), &RequestCtx::anonymous(Params::new()), head())).unwrap()
+  block_on(assemble(
+    &runtime(page_seeds),
+    &plan(deferred),
+    &RequestCtx::anonymous(Params::new()),
+    head(),
+  ))
+  .unwrap()
 }
 
 #[test]
@@ -121,14 +139,21 @@ fn a_seeding_segment_reaches_the_wire_and_the_document() {
   assert!(wire.contains("\nT {\"cart/count\":2,\"owner\":\"layout\"}\n"), "{wire}");
 
   let html: String = block_on(html_stream(assembled(None, false)).collect::<Vec<_>>()).concat();
-  assert!(html.contains("<script type=\"application/json\" data-sf-store>{\"cart/count\":2,\"owner\":\"layout\"}</script>"), "{html}");
+  assert!(
+    html.contains("<script type=\"application/json\" data-sf-store>{\"cart/count\":2,\"owner\":\"layout\"}</script>"),
+    "{html}"
+  );
 }
 
 #[test]
 fn an_inner_segment_wins_the_key_it_shares_with_an_outer_one() {
   let assembly = assembled(Some(Arc::new(FieldSeed("owner", "where"))), false);
   assert_eq!(assembly.store.get("owner"), Some(&Value::str("page")));
-  assert_eq!(assembly.store.get("cart/count"), Some(&Value::Int(2)), "the key only the layout sets survives");
+  assert_eq!(
+    assembly.store.get("cart/count"),
+    Some(&Value::Int(2)),
+    "the key only the layout sets survives"
+  );
 }
 
 #[test]
@@ -149,10 +174,18 @@ fn a_failing_seed_costs_its_keys_and_not_the_page() {
 #[test]
 fn a_deferred_segment_seeds_when_it_resolves() {
   let wire: Vec<String> = block_on(wire_stream(assembled(Some(Arc::new(FieldSeed("owner", "where"))), true)).collect());
-  assert!(wire[0].contains("\nT {\"cart/count\":2,\"owner\":\"layout\"}\n"), "{}", wire[0]);
+  assert!(
+    wire[0].contains("\nT {\"cart/count\":2,\"owner\":\"layout\"}\n"),
+    "{}",
+    wire[0]
+  );
   assert!(wire[1].starts_with("S 1 "), "{}", wire[1]);
   assert!(wire[1].ends_with("\nT {\"owner\":\"page\"}\n"), "{}", wire[1]);
 
   let html: Vec<String> = block_on(html_stream(assembled(Some(Arc::new(FieldSeed("owner", "where"))), true)).collect());
-  assert!(html[1].ends_with("<script>__sfFill(1);__sfStore({\"owner\":\"page\"})</script>"), "{}", html[1]);
+  assert!(
+    html[1].ends_with("<script>__sfFill(1);__sfStore({\"owner\":\"page\"})</script>"),
+    "{}",
+    html[1]
+  );
 }

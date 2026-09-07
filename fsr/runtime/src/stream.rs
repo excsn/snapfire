@@ -1,7 +1,7 @@
 use futures_util::stream::{self, FuturesUnordered, Stream, StreamExt};
-use serde_json::{json, Value as Json};
+use serde_json::{Value as Json, json};
 use snapfire_fsr_core::Node;
-use snapfire_fsr_payload::{node_to_row_json, HtmlSession, FORMAT_VERSION};
+use snapfire_fsr_payload::{FORMAT_VERSION, HtmlSession, node_to_row_json};
 
 use crate::assembler::{Assembly, PendingResolution};
 use crate::meta::Meta;
@@ -40,7 +40,10 @@ pub fn segments_to_json(info: &SegmentInfo) -> Json {
   } else {
     obj.insert("p".to_owned(), json!(info.path));
   }
-  obj.insert("c".to_owned(), Json::Array(info.children.iter().map(segments_to_json).collect()));
+  obj.insert(
+    "c".to_owned(),
+    Json::Array(info.children.iter().map(segments_to_json).collect()),
+  );
   if !info.keep.is_empty() {
     obj.insert("keep".to_owned(), json!(info.keep));
   }
@@ -72,14 +75,19 @@ impl PendingSet {
 /// route seeds the store, an `L` row naming the locale when the request has
 /// one, an `E` row naming a module the browser must load for the response's
 /// islands when the head names one, a `D` row carrying the locale's message
-/// catalog as a JSON object when the head holds one, then the `G` segment
+/// catalog as a JSON object when the head holds one, a `C` row naming the
+/// stylesheets this response needs beyond the document's own, then the `G` segment
 /// sidecar row, which closes the eager wave: a navigator applies the tree the
 /// moment it reads `G`. Then one `S` row per resolution in completion order,
 /// each followed by an `H` row when the resolved segment described the
 /// document and a `T` row when it seeded the store. A resolution may
 /// introduce new slots, which join the set.
 pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
-  let mut header = format!("V {}\nN {}\n", json!({ "fmt": FORMAT_VERSION, "enc": "json" }), node_to_row_json(&assembly.tree));
+  let mut header = format!(
+    "V {}\nN {}\n",
+    json!({ "fmt": FORMAT_VERSION, "enc": "json" }),
+    node_to_row_json(&assembly.tree)
+  );
   if !assembly.meta.is_empty() {
     header.push_str(&format!("H {}\n", meta_to_json(&assembly.meta)));
   }
@@ -91,6 +99,9 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   }
   if let Some(entry) = &assembly.entry {
     header.push_str(&format!("E {}\n", json!(entry)));
+  }
+  if !assembly.styles.is_empty() {
+    header.push_str(&format!("C {}\n", json!(assembly.styles)));
   }
   if let Some(catalog) = &assembly.catalog {
     header.push_str(&format!("D {catalog}\n"));
@@ -145,7 +156,11 @@ fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32
   }
   let write_items = |session: &mut HtmlSession, items: &[Node], out: &mut String| {
     for (idx, item) in items.iter().enumerate() {
-      let here: Vec<(&[u32], &SegmentInfo)> = positioned.iter().filter(|(p, _)| p[0] == idx as u32).map(|(p, c)| (&p[1..], *c)).collect();
+      let here: Vec<(&[u32], &SegmentInfo)> = positioned
+        .iter()
+        .filter(|(p, _)| p[0] == idx as u32)
+        .map(|(p, c)| (&p[1..], *c))
+        .collect();
       match here.iter().find(|(p, _)| p.is_empty()) {
         Some((_, child)) => write_segment(session, item, child, out),
         None => write_positioned(session, item, &here, out),
@@ -154,7 +169,12 @@ fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32
   };
   match node {
     Node::Seq(items) => write_items(session, items, out),
-    Node::Client { module, props, children, ssr: None } => {
+    Node::Client {
+      module,
+      props,
+      children,
+      ssr: None,
+    } => {
       let (open, close) = session.client_wrapper(module, props);
       out.push_str(&open);
       write_items(session, children, out);
@@ -186,7 +206,10 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   if !assembly.pending.is_empty() {
     first.push_str(FILL_SCRIPT);
   }
-  let state = HtmlState { pending: PendingSet::new(assembly.pending), session };
+  let state = HtmlState {
+    pending: PendingSet::new(assembly.pending),
+    session,
+  };
 
   stream::once(async move { first }).chain(stream::unfold(state, |mut state| async move {
     let resolved = state.pending.set.next().await?;
@@ -195,12 +218,21 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     }
     let slot = resolved.slot.0;
     let body = state.session.serialize(&resolved.node);
-    let mut chunk = format!("<template data-sf-fill=\"{slot}\"><!--sf-g:{}-->{body}<!--/sf-g--></template><script>__sfFill({slot})", escape_key(&resolved.key));
+    let mut chunk = format!(
+      "<template data-sf-fill=\"{slot}\"><!--sf-g:{}-->{body}<!--/sf-g--></template><script>__sfFill({slot})",
+      escape_key(&resolved.key)
+    );
     if !resolved.meta.is_empty() {
-      chunk.push_str(&format!(";__sfHead({})", meta_to_json(&resolved.meta).to_string().replace('<', "\\u003c")));
+      chunk.push_str(&format!(
+        ";__sfHead({})",
+        meta_to_json(&resolved.meta).to_string().replace('<', "\\u003c")
+      ));
     }
     if !resolved.store.is_empty() {
-      chunk.push_str(&format!(";__sfStore({})", seed_to_json(&resolved.store).to_string().replace('<', "\\u003c")));
+      chunk.push_str(&format!(
+        ";__sfStore({})",
+        seed_to_json(&resolved.store).to_string().replace('<', "\\u003c")
+      ));
     }
     chunk.push_str("</script>");
     Some((chunk, state))

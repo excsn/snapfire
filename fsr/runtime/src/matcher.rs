@@ -46,7 +46,11 @@ impl HandlerMatcher {
   }
 
   pub fn insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), matchit::InsertError> {
-    self.routers.entry(method.to_ascii_uppercase()).or_default().insert(pattern, id.into())
+    self
+      .routers
+      .entry(method.to_ascii_uppercase())
+      .or_default()
+      .insert(pattern, id.into())
   }
 
   pub fn match_request(&self, method: &str, path: &str) -> Option<HandlerMatch> {
@@ -55,7 +59,10 @@ impl HandlerMatcher {
     for (key, value) in found.params.iter() {
       params.insert(key.to_owned(), value.to_owned());
     }
-    Some(HandlerMatch { id: found.value.clone(), params })
+    Some(HandlerMatch {
+      id: found.value.clone(),
+      params,
+    })
   }
 
   pub fn is_empty(&self) -> bool {
@@ -70,6 +77,9 @@ impl Matcher for MatchitMatcher {
     for (key, value) in found.params.iter() {
       params.insert(key.to_owned(), value.to_owned());
     }
-    Some(RouteMatch { entry: *found.value, params })
+    Some(RouteMatch {
+      entry: *found.value,
+      params,
+    })
   }
 }

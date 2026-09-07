@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use futures::executor::block_on;
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use snapfire_fsr_core::{Data, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value};
-use snapfire_fsr_runtime::{assemble, html_stream, wire_stream, Chunk, DataSources, Evaluator, Evaluators, Head, Locale, NodeChunks, RequestCtx, Runtime};
+use snapfire_fsr_runtime::{
+  Chunk, DataSources, Evaluator, Evaluators, Head, Locale, NodeChunks, RequestCtx, Runtime, assemble, html_stream,
+  wire_stream,
+};
 
 /// Renders the `locale` prop the assembler injects.
 struct Page;
@@ -22,7 +25,11 @@ struct Shell;
 
 impl Evaluator for Shell {
   fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
-    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw("<body>"))), Ok(Chunk::Slot(SlotName("content".into()))), Ok(Chunk::Node(Node::raw("</body>")))]))
+    Box::pin(stream::iter([
+      Ok(Chunk::Node(Node::raw("<body>"))),
+      Ok(Chunk::Slot(SlotName("content".into()))),
+      Ok(Chunk::Node(Node::raw("</body>"))),
+    ]))
   }
 }
 
@@ -30,22 +37,55 @@ fn runtime() -> Arc<Runtime> {
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
   evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));
-  Runtime::builder().sources(DataSources::new()).evaluators(evaluators).build()
+  Runtime::builder()
+    .sources(DataSources::new())
+    .evaluators(evaluators)
+    .build()
 }
 
 fn plan() -> PlanNode {
   let mut shell = PlanNode::new(NodeId(0), ModuleId::new("shell", "document"));
-  shell.children.push((SlotName("content".into()), PlanNode::new(NodeId(1), ModuleId::new("page", "default"))));
+  shell.children.push((
+    SlotName("content".into()),
+    PlanNode::new(NodeId(1), ModuleId::new("page", "default")),
+  ));
   shell
 }
 
 fn ctx(locale: Locale) -> RequestCtx {
-  RequestCtx { locale, ..RequestCtx::anonymous(Params::new()) }
+  RequestCtx {
+    locale,
+    ..RequestCtx::anonymous(Params::new())
+  }
 }
 
 fn render(locale: Locale) -> (String, String) {
-  let wire: String = block_on(wire_stream(block_on(assemble(&runtime(), &plan(), &ctx(locale.clone()), Head::new("t", Node::raw("")))).unwrap()).collect::<Vec<_>>()).concat();
-  let html: String = block_on(html_stream(block_on(assemble(&runtime(), &plan(), &ctx(locale), Head::new("t", Node::raw("")))).unwrap()).collect::<Vec<_>>()).concat();
+  let wire: String = block_on(
+    wire_stream(
+      block_on(assemble(
+        &runtime(),
+        &plan(),
+        &ctx(locale.clone()),
+        Head::new("t", Node::raw("")),
+      ))
+      .unwrap(),
+    )
+    .collect::<Vec<_>>(),
+  )
+  .concat();
+  let html: String = block_on(
+    html_stream(
+      block_on(assemble(
+        &runtime(),
+        &plan(),
+        &ctx(locale),
+        Head::new("t", Node::raw("")),
+      ))
+      .unwrap(),
+    )
+    .collect::<Vec<_>>(),
+  )
+  .concat();
   (wire, html)
 }
 
@@ -55,7 +95,10 @@ fn a_locale_other_than_the_default_marks_every_segment_key_and_the_wire_names_it
   assert!(wire.contains("\nL \"fr_FR\"\n"), "{wire}");
   assert!(wire.contains("\"k\":\"shell#document@fr_FR\""), "{wire}");
   assert!(wire.contains("\"k\":\"page#default@fr_FR\""), "{wire}");
-  assert!(html.contains("<!--sf-g:page#default@fr_FR--><p>fr_FR</p>"), "the page rendered with the locale as a prop: {html}");
+  assert!(
+    html.contains("<!--sf-g:page#default@fr_FR--><p>fr_FR</p>"),
+    "the page rendered with the locale as a prop: {html}"
+  );
 }
 
 #[test]

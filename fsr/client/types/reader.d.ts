@@ -55,6 +55,8 @@ export interface Payload {
 	} | null;
 	/** A module to load before this response's islands can mount, a mounted site's entry; null when the document's own entry covers them. */
 	entry: string | null;
+	/** Stylesheets this response needs beyond the document's own, a mounted site's; empty when it needs none, which is also what says to drop the ones a previous response added. */
+	styles: string[];
 	resolutions: {
 		slot: number;
 		node: SfNode;
@@ -85,6 +87,9 @@ export type Row = {
 } | {
 	tag: "E";
 	entry: string;
+} | {
+	tag: "C";
+	styles: string[];
 } | {
 	tag: "D";
 	catalog: {

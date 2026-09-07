@@ -23,7 +23,10 @@ impl HeadEl {
     let of = |name: &str| self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
     for name in ["rel", "name", "property", "http-equiv", "itemprop", "id"] {
       if let Some(value) = of(name) {
-        let qualifier: String = ["sizes", "media"].iter().filter_map(|q| of(q).map(|v| format!(" {q}={v}"))).collect();
+        let qualifier: String = ["sizes", "media"]
+          .iter()
+          .filter_map(|q| of(q).map(|v| format!(" {q}={v}")))
+          .collect();
         return (format!("{}[{name}]", self.tag), format!("{value}{qualifier}"));
       }
     }
@@ -106,6 +109,12 @@ pub struct Head {
   /// A module the browser must load for this response's islands beyond the
   /// document's own entry, a mounted site's; the payload carries it as an `E` row.
   pub entry: Option<String>,
+  /// Stylesheets this response's routes need beyond the document's own, a
+  /// mounted site's; the payload carries them as a `C` row and a document
+  /// renders them after everything else, so a site's rules win over the
+  /// shell's. A navigation into a site adds them and one out takes them away,
+  /// which is why they are a field rather than markup inside `rest`.
+  pub styles: Vec<String>,
   /// The message catalog for this response's locale as JSON, when the
   /// browser needs it; the payload carries it as a `D` row.
   pub catalog: Option<String>,
@@ -114,13 +123,27 @@ pub struct Head {
   pub head: Vec<HeadEl>,
 }
 
+/// How a response's own stylesheets are written into a document, and the mark
+/// the browser reconciles them by: a link the client did not put there is one
+/// it must not take away on a navigation.
+pub const STYLE_OPEN: &str = "<link rel=\"stylesheet\" data-sf-css=\"\" href=\"";
+
 impl Head {
   pub fn new(title: impl Into<String>, rest: Node) -> Self {
-    Self { title: title.into(), description: None, rest, entry: None, catalog: None, head: Vec::new() }
+    Self {
+      title: title.into(),
+      description: None,
+      rest,
+      entry: None,
+      styles: Vec::new(),
+      catalog: None,
+      head: Vec::new(),
+    }
   }
 
   /// The head node for a document: `rest`, then the title and description
-  /// with `meta` overriding the defaults.
+  /// with `meta` overriding the defaults, then the response's own stylesheets
+  /// last so they override what the document already links.
   pub fn node(&self, meta: &Meta) -> Node {
     let title = meta.title.as_deref().unwrap_or(&self.title);
     let description = meta.description.as_deref().or(self.description.as_deref());
@@ -135,10 +158,19 @@ impl Head {
       tail.push_str(&escape(description));
       tail.push_str("\">");
     }
-    let mut merged = Meta { title: None, description: None, head: self.head.clone() };
+    let mut merged = Meta {
+      title: None,
+      description: None,
+      head: self.head.clone(),
+    };
     merged.merge(meta.clone());
     for element in &merged.head {
       element.render(&mut tail);
+    }
+    for href in &self.styles {
+      tail.push_str(STYLE_OPEN);
+      tail.push_str(&escape(href));
+      tail.push_str("\">");
     }
     if tail.is_empty() {
       return self.rest.clone();
@@ -149,7 +181,15 @@ impl Head {
 
 impl From<Node> for Head {
   fn from(rest: Node) -> Self {
-    Self { title: String::new(), description: None, rest, entry: None, catalog: None, head: Vec::new() }
+    Self {
+      title: String::new(),
+      description: None,
+      rest,
+      entry: None,
+      styles: Vec::new(),
+      catalog: None,
+      head: Vec::new(),
+    }
   }
 }
 
@@ -166,5 +206,9 @@ impl From<&Head> for Head {
 }
 
 fn escape(text: &str) -> String {
-  text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+  text
+    .replace('&', "&amp;")
+    .replace('<', "&lt;")
+    .replace('>', "&gt;")
+    .replace('"', "&quot;")
 }

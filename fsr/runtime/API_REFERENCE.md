@@ -405,11 +405,12 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub csrf: Option<String>`
 * `pub services: ServiceHandle`
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
-* `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` is empty.
+* `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's, and under a context nothing resolved.
+* `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` and `path` are empty.
 * `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.
 
-Cloning a context shares the session cell and the service handle; only `params`, `locale` and `csrf` are copied.
+Cloning a context shares the session cell and the service handle; only `params`, `query`, `path`, `locale` and `csrf` are copied.
 
 ### `Locale`
 

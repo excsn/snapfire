@@ -17,5 +17,5 @@ export interface Socket {
 	open(): boolean;
 	close(): void;
 }
-/** Opens a socket on `topic` and keeps it open, reconnecting with a widening delay when it drops. Rows the server sends are written into the store by default. Sends made while the socket is down are dropped rather than queued. Returns a no-op socket where `WebSocket` is absent. */
+/** Opens a socket on `topic` and keeps it open, reconnecting with a widening delay when it drops. Rows the server sends are written into the store by default. Sends made while the socket is down are dropped rather than queued, since what a wave sends is the state of a keystroke and the next one supersedes it. Returns a no-op socket where `WebSocket` is absent, which is every server-side render. */
 export declare function socket(topic: string, options?: SocketOptions): Socket;

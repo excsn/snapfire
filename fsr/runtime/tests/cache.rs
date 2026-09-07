@@ -1,16 +1,15 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
-use std::sync::Arc;
 
 use futures::executor::block_on;
 use futures_util::stream;
 use snapfire_fsr_core::{
-  CacheKey, Data, DataSourceId, Fingerprint, ModuleId, Node, NodeId, Params, PlanNode, SlotName,
-  Value, ValueMap,
+  CacheKey, Data, DataSourceId, Fingerprint, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap,
 };
 use snapfire_fsr_runtime::{
-  assemble, CacheEntry, Chunk, DataSources, Evaluator, Evaluators, FibreCache, Identity,
-  MemoryCache, NodeCache, NodeChunks, RequestCtx, Runtime, SessionCell,
+  CacheEntry, Chunk, DataSources, Evaluator, Evaluators, FibreCache, Identity, MemoryCache, NodeCache, NodeChunks,
+  RequestCtx, Runtime, SessionCell, assemble,
 };
 
 struct CountingEval(Arc<AtomicU32>);
@@ -75,8 +74,20 @@ fn a_hit_skips_evaluation_and_preserves_output() {
   let rt = runtime(Arc::clone(&evals), versioned_sources(version));
   let plan = cached_leaf(Some("ver"));
 
-  let first = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
-  let second = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let first = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  let second = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
 
   assert_eq!(evals.load(Ordering::Relaxed), 1, "second render is a cache hit");
   assert_eq!(first.tree.fingerprint(), second.tree.fingerprint());
@@ -89,9 +100,21 @@ fn changed_data_is_a_miss_never_a_stale_hit() {
   let rt = runtime(Arc::clone(&evals), versioned_sources(Arc::clone(&version)));
   let plan = cached_leaf(Some("ver"));
 
-  let first = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let first = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   version.store(2, Ordering::Relaxed);
-  let second = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let second = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
 
   assert_eq!(evals.load(Ordering::Relaxed), 2);
   assert_ne!(first.tree.fingerprint(), second.tree.fingerprint());
@@ -113,7 +136,11 @@ fn params_are_part_of_the_key() {
   block_on(assemble(&rt, &plan, &RequestCtx::anonymous(b.clone()), &Node::raw(""))).unwrap();
   block_on(assemble(&rt, &plan, &RequestCtx::anonymous(a.clone()), &Node::raw(""))).unwrap();
 
-  assert_eq!(evals.load(Ordering::Relaxed), 2, "distinct params evaluate, repeats hit");
+  assert_eq!(
+    evals.load(Ordering::Relaxed),
+    2,
+    "distinct params evaluate, repeats hit"
+  );
 }
 
 #[test]
@@ -122,9 +149,21 @@ fn invalidation_by_plan_cache_key() {
   let rt = runtime(Arc::clone(&evals), DataSources::new());
   let plan = cached_leaf(None);
 
-  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   block_on(rt.cache.invalidate("page"));
-  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
 
   assert_eq!(evals.load(Ordering::Relaxed), 2);
 }
@@ -145,10 +184,26 @@ fn a_subtree_that_used_the_head_slot_is_never_cached() {
   let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
   plan.cache_key = Some(CacheKey("shell".into()));
 
-  let a = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw("<title>a</title>"))).unwrap();
-  let b = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw("<title>b</title>"))).unwrap();
+  let a = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw("<title>a</title>"),
+  ))
+  .unwrap();
+  let b = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw("<title>b</title>"),
+  ))
+  .unwrap();
 
-  assert_eq!(evals.load(Ordering::Relaxed), 2, "head content must never bake into a cache entry");
+  assert_eq!(
+    evals.load(Ordering::Relaxed),
+    2,
+    "head content must never bake into a cache entry"
+  );
   assert_ne!(a.tree.fingerprint(), b.tree.fingerprint());
 }
 
@@ -186,9 +241,25 @@ fn a_deferred_descendant_bypasses_the_cache() {
   plan.cache_key = Some(CacheKey("shell".into()));
   plan.children.push((SlotName("late".into()), late));
 
-  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
-  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
-  assert_eq!(evals.load(Ordering::Relaxed), 2, "slot ids are per response, so no caching around Pending");
+  block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  assert_eq!(
+    evals.load(Ordering::Relaxed),
+    2,
+    "slot ids are per response, so no caching around Pending"
+  );
 }
 
 #[test]
@@ -199,21 +270,41 @@ fn identity_is_part_of_the_key() {
 
   let user = |subject: &str| {
     let cell = SessionCell::default();
-    cell.set_identity(Some(Identity { subject: subject.to_owned(), claims: ValueMap::new() }));
-    RequestCtx { params: Params::new(), session: cell, ..Default::default() }
+    cell.set_identity(Some(Identity {
+      subject: subject.to_owned(),
+      claims: ValueMap::new(),
+    }));
+    RequestCtx {
+      params: Params::new(),
+      session: cell,
+      ..Default::default()
+    }
   };
 
-  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   block_on(assemble(&rt, &plan, &user("alice"), &Node::raw(""))).unwrap();
   block_on(assemble(&rt, &plan, &user("bob"), &Node::raw(""))).unwrap();
   block_on(assemble(&rt, &plan, &user("alice"), &Node::raw(""))).unwrap();
 
-  assert_eq!(evals.load(Ordering::Relaxed), 3, "anon, alice and bob each evaluate once; alice repeats hit");
+  assert_eq!(
+    evals.load(Ordering::Relaxed),
+    3,
+    "anon, alice and bob each evaluate once; alice repeats hit"
+  );
 }
 
 #[test]
 fn a_tuned_shard_count_changes_nothing_a_caller_can_observe() {
-  let entry = CacheEntry { node: Node::raw("<p>one</p>"), segments: Vec::new() };
+  let entry = CacheEntry {
+    node: Node::raw("<p>one</p>"),
+    segments: Vec::new(),
+  };
   let tuned = FibreCache::bounded_sharded(64, Duration::from_secs(60), 4);
   let custom = FibreCache::new(
     fibre_cache::CacheBuilder::default()
@@ -237,19 +328,35 @@ fn the_csrf_token_is_part_of_the_key() {
   let evals = Arc::new(AtomicU32::new(0));
   let rt = runtime(Arc::clone(&evals), DataSources::new());
   let plan = cached_leaf(None);
-  let with = |token: &str| RequestCtx { csrf: Some(token.to_owned()), ..Default::default() };
+  let with = |token: &str| RequestCtx {
+    csrf: Some(token.to_owned()),
+    ..Default::default()
+  };
 
-  block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   block_on(assemble(&rt, &plan, &with("t1"), &Node::raw(""))).unwrap();
   block_on(assemble(&rt, &plan, &with("t2"), &Node::raw(""))).unwrap();
   block_on(assemble(&rt, &plan, &with("t1"), &Node::raw(""))).unwrap();
 
-  assert_eq!(evals.load(Ordering::Relaxed), 3, "a token is injected into props, so an entry never serves another session's");
+  assert_eq!(
+    evals.load(Ordering::Relaxed),
+    3,
+    "a token is injected into props, so an entry never serves another session's"
+  );
 }
 
 #[test]
 fn invalidation_says_how_many_entries_went() {
-  let entry = CacheEntry { node: Node::raw("<p>one</p>"), segments: Vec::new() };
+  let entry = CacheEntry {
+    node: Node::raw("<p>one</p>"),
+    segments: Vec::new(),
+  };
   let memory = MemoryCache::new();
   let fibre = FibreCache::bounded(64, Duration::from_secs(60));
   let caches: [&dyn NodeCache; 2] = [&memory, &fibre];

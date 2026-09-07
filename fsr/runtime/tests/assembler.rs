@@ -2,12 +2,9 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use futures_util::stream;
-use snapfire_fsr_core::{
-  Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap,
-};
+use snapfire_fsr_core::{Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap};
 use snapfire_fsr_runtime::{
-  RequestCtx,
-  assemble, AssembleError, Chunk, DataSources, Evaluator, Evaluators, NodeChunks, Runtime,
+  AssembleError, Chunk, DataSources, Evaluator, Evaluators, NodeChunks, RequestCtx, Runtime, assemble,
 };
 
 struct SlotShell;
@@ -48,7 +45,9 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
   let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &head)).unwrap();
   assert!(assembly.pending.is_empty());
 
-  let Node::Seq(parts) = assembly.tree else { panic!("shell output is a Seq") };
+  let Node::Seq(parts) = assembly.tree else {
+    panic!("shell output is a Seq")
+  };
   assert_eq!(parts[0], Node::raw("<before>"));
   assert_eq!(parts[1], Node::raw("<title>t</title>"));
   let Node::Client { module, props, ssr, .. } = &parts[2] else {
@@ -56,7 +55,10 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
   };
   assert_eq!(module.path, "components/App.tsx");
   assert!(ssr.is_none());
-  assert!(matches!(props["params"], Value::Map(_)), "null evaluator receives the merged props");
+  assert!(
+    matches!(props["params"], Value::Map(_)),
+    "null evaluator receives the merged props"
+  );
   assert_eq!(parts[3], Node::raw("<after>"));
 }
 
@@ -64,7 +66,13 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
 fn a_slot_with_no_child_is_an_error() {
   let plan = shell_plan(Vec::new());
   let runtime = shell_runtime(DataSources::new());
-  let err = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap_err();
+  let err = block_on(assemble(
+    &runtime,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap_err();
   assert!(matches!(err, AssembleError::MissingSlot { slot, .. } if slot == "content"));
 }
 
@@ -73,7 +81,13 @@ fn a_missing_data_source_is_an_error() {
   let mut plan = shell_plan(Vec::new());
   plan.data_source = Some(DataSourceId("nowhere".into()));
   let runtime = shell_runtime(DataSources::new());
-  let err = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap_err();
+  let err = block_on(assemble(
+    &runtime,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap_err();
   assert!(matches!(err, AssembleError::MissingDataSource(id) if id == "nowhere"));
 }
 
@@ -110,7 +124,13 @@ fn loader_data_reaches_props_and_params_ride_along() {
   let mut params = Params::new();
   params.insert("section".to_owned(), "servers".to_owned());
 
-  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(params), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(
+    &runtime,
+    &plan,
+    &RequestCtx::anonymous(params),
+    &Node::raw(""),
+  ))
+  .unwrap();
   assert_eq!(assembly.tree, Node::text("hello servers"));
 }
 
@@ -144,8 +164,16 @@ fn layout_plan(children: Vec<(SlotName, PlanNode)>, keep: Vec<&str>) -> PlanNode
 #[test]
 fn a_named_slot_the_plan_leaves_unfilled_renders_nothing_and_names_the_segments_it_fills() {
   let plan = layout_plan(vec![(SlotName("content".into()), leaf(1, "page.tsx"))], Vec::new());
-  let assembly = block_on(assemble(&named_runtime(), &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
-  let Node::Seq(parts) = &assembly.tree else { panic!("{:?}", assembly.tree) };
+  let assembly = block_on(assemble(
+    &named_runtime(),
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  let Node::Seq(parts) = &assembly.tree else {
+    panic!("{:?}", assembly.tree)
+  };
   assert_eq!(parts.len(), 4, "the empty modal slot contributes nothing: {parts:?}");
   assert_eq!(parts[2], Node::raw("<b>"));
   assert_eq!(parts[3], Node::raw("<c>"));
@@ -157,11 +185,26 @@ fn a_named_slot_the_plan_leaves_unfilled_renders_nothing_and_names_the_segments_
 
 #[test]
 fn a_kept_slot_renders_nothing_and_the_sidecar_says_which() {
-  let plan = layout_plan(vec![(SlotName("modal".into()), leaf(1, "page.modal.tsx"))], vec!["content"]);
-  let assembly = block_on(assemble(&named_runtime(), &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
-  let Node::Seq(parts) = &assembly.tree else { panic!("{:?}", assembly.tree) };
+  let plan = layout_plan(
+    vec![(SlotName("modal".into()), leaf(1, "page.modal.tsx"))],
+    vec!["content"],
+  );
+  let assembly = block_on(assemble(
+    &named_runtime(),
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  let Node::Seq(parts) = &assembly.tree else {
+    panic!("{:?}", assembly.tree)
+  };
   assert_eq!(parts.len(), 4);
-  assert!(matches!(&parts[2], Node::Client { module, .. } if module.path == "page.modal.tsx"), "{:?}", parts[2]);
+  assert!(
+    matches!(&parts[2], Node::Client { module, .. } if module.path == "page.modal.tsx"),
+    "{:?}",
+    parts[2]
+  );
   let sidecar = snapfire_fsr_runtime::segments_to_json(&assembly.segments);
   assert_eq!(sidecar["keep"], serde_json::json!(["content"]));
   assert_eq!(sidecar["c"][0]["n"], "modal");
@@ -182,9 +225,30 @@ fn a_node_with_children_learns_which_slots_the_plan_fills_or_keeps() {
   evaluators.register(|_: &ModuleId| true, Arc::new(Recording(Arc::clone(&seen))));
   let runtime = Runtime::new(DataSources::new(), evaluators);
 
-  let plan = layout_plan(vec![(SlotName("modal".into()), leaf(1, "page.modal.tsx"))], vec!["content", "promo"]);
-  block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let plan = layout_plan(
+    vec![(SlotName("modal".into()), leaf(1, "page.modal.tsx"))],
+    vec!["content", "promo"],
+  );
+  block_on(assemble(
+    &runtime,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   let props = seen.lock();
-  assert_eq!(props[0].get("$slots"), Some(&Value::Seq(vec![Value::str("modal"), Value::str("content"), Value::str("promo")])), "children first, then the kept ones");
-  assert!(props.iter().skip(1).all(|p| p.get("$slots").is_none()), "a leaf has no slots to name: {:?}", props);
+  assert_eq!(
+    props[0].get("$slots"),
+    Some(&Value::Seq(vec![
+      Value::str("modal"),
+      Value::str("content"),
+      Value::str("promo")
+    ])),
+    "children first, then the kept ones"
+  );
+  assert!(
+    props.iter().skip(1).all(|p| p.get("$slots").is_none()),
+    "a leaf has no slots to name: {:?}",
+    props
+  );
 }

@@ -14,11 +14,10 @@ pub mod stream;
 
 pub use actions::{ActionError, ActionHandler, ActionRegistry, FailureKind};
 pub use assembler::{
-  assemble, Assembly, AssembleError, Evaluators, PendingResolution, Resolved, Runtime,
-  RuntimeBuilder,
+  AssembleError, Assembly, Evaluators, PendingResolution, Resolved, Runtime, RuntimeBuilder, assemble,
 };
 pub use cache::{CacheEntry, FibreCache, MemoryCache, NoCache, NodeCache};
-pub use ctx::{parse_query, Identity, Locale, RequestCtx, SessionCell};
+pub use ctx::{Identity, Locale, RequestCtx, SessionCell, parse_query};
 pub use data::{DataSource, DataSources, LoadError};
 pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
@@ -27,4 +26,4 @@ pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use store::Seeds;
-pub use stream::{html_stream, meta_to_json, segments_to_json, seed_to_json, wire_stream, FILL_SCRIPT};
+pub use stream::{FILL_SCRIPT, html_stream, meta_to_json, seed_to_json, segments_to_json, wire_stream};

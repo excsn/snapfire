@@ -1,16 +1,14 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::executor::block_on;
 use futures_util::stream;
 use snapfire_fsr_core::{
-  CacheKey, Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value,
-  ValueMap,
+  CacheKey, Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap,
 };
 use snapfire_fsr_runtime::{
-  RequestCtx,
-  assemble, AssembleError, Chunk, DataSources, Evaluator, Evaluators, LoadError, MemoryCache,
-  NodeChunks, Runtime,
+  AssembleError, Chunk, DataSources, Evaluator, Evaluators, LoadError, MemoryCache, NodeChunks, RequestCtx, Runtime,
+  assemble,
 };
 
 struct Shell;
@@ -33,7 +31,9 @@ impl Evaluator for Page {
       Some(Value::Str(s)) => s.clone(),
       _ => "?".to_owned(),
     };
-    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("<page>{body}</page>"))))]))
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!(
+      "<page>{body}</page>"
+    ))))]))
   }
 }
 
@@ -45,7 +45,9 @@ impl Evaluator for ErrorPartial {
       Some(Value::Str(s)) => s.clone(),
       _ => panic!("error module receives the failure message"),
     };
-    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("<oops>{message}</oops>"))))]))
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!(
+      "<oops>{message}</oops>"
+    ))))]))
   }
 }
 
@@ -71,7 +73,10 @@ fn plan_with_page(error_module: bool) -> PlanNode {
 fn failing_sources() -> DataSources {
   let mut sources = DataSources::new();
   sources.insert_fn("page_loader", |_p| async {
-    Err(LoadError { source_id: "page_loader".into(), message: "backend down".into() })
+    Err(LoadError {
+      source_id: "page_loader".into(),
+      message: "backend down".into(),
+    })
   });
   sources
 }
@@ -79,20 +84,35 @@ fn failing_sources() -> DataSources {
 #[test]
 fn an_eager_loader_failure_degrades_one_segment_never_the_page() {
   let rt = Runtime::new(failing_sources(), evaluators());
-  let assembly = block_on(assemble(&rt, &plan_with_page(false), &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(
+    &rt,
+    &plan_with_page(false),
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
 
   let Node::Seq(parts) = &assembly.tree else { panic!() };
   assert_eq!(parts[0], Node::raw("<layout>"), "the layout still renders");
   assert_eq!(parts[2], Node::raw("</layout>"));
   let rendered = format!("{:?}", parts[1]);
-  assert!(rendered.contains("data-sf-error"), "the failed segment became its error node: {rendered}");
+  assert!(
+    rendered.contains("data-sf-error"),
+    "the failed segment became its error node: {rendered}"
+  );
   assert!(rendered.contains("backend down"));
 }
 
 #[test]
 fn the_plan_error_module_renders_with_the_failure_message() {
   let rt = Runtime::new(failing_sources(), evaluators());
-  let assembly = block_on(assemble(&rt, &plan_with_page(true), &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let assembly = block_on(assemble(
+    &rt,
+    &plan_with_page(true),
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   let Node::Seq(parts) = &assembly.tree else { panic!() };
   let rendered = format!("{:?}", parts[1]);
   assert!(rendered.contains("<oops>"), "custom error partial rendered: {rendered}");
@@ -102,8 +122,17 @@ fn the_plan_error_module_renders_with_the_failure_message() {
 #[test]
 fn a_missing_data_source_stays_a_hard_error() {
   let rt = Runtime::new(DataSources::new(), evaluators());
-  let err = block_on(assemble(&rt, &plan_with_page(false), &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap_err();
-  assert!(matches!(err, AssembleError::MissingDataSource(_)), "misconfiguration is not a runtime degrade");
+  let err = block_on(assemble(
+    &rt,
+    &plan_with_page(false),
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap_err();
+  assert!(
+    matches!(err, AssembleError::MissingDataSource(_)),
+    "misconfiguration is not a runtime degrade"
+  );
 }
 
 #[test]
@@ -119,7 +148,10 @@ fn a_failed_subtree_is_never_cached() {
         data.insert("body".to_owned(), Value::str("recovered"));
         Ok(data)
       } else {
-        Err(LoadError { source_id: "page_loader".into(), message: "backend down".into() })
+        Err(LoadError {
+          source_id: "page_loader".into(),
+          message: "backend down".into(),
+        })
       }
     }
   });
@@ -133,11 +165,23 @@ fn a_failed_subtree_is_never_cached() {
     .cache(Arc::new(MemoryCache::new()))
     .build();
 
-  let broken = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let broken = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   assert!(format!("{:?}", broken.tree).contains("data-sf-error"));
 
   healthy.store(true, Ordering::Relaxed);
-  let recovered = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let recovered = block_on(assemble(
+    &rt,
+    &plan,
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
   assert!(
     format!("{:?}", recovered.tree).contains("recovered"),
     "no poisoned cache entry survives the failure: {:?}",

@@ -45,6 +45,8 @@ export interface Payload {
   catalog: { [key: string]: string } | null;
   /** A module to load before this response's islands can mount, a mounted site's entry; null when the document's own entry covers them. */
   entry: string | null;
+  /** Stylesheets this response needs beyond the document's own, a mounted site's; empty when it needs none, which is also what says to drop the ones a previous response added. */
+  styles: string[];
   resolutions: { slot: number; node: SfNode }[];
 }
 
@@ -57,6 +59,7 @@ export type Row =
   | { tag: "T"; seed: { [key: string]: SfValue } }
   | { tag: "L"; locale: string }
   | { tag: "E"; entry: string }
+  | { tag: "C"; styles: string[] }
   | { tag: "D"; catalog: { [key: string]: string } }
   | { tag: "S"; slot: number; node: SfNode };
 
@@ -106,6 +109,8 @@ export function parseRow(line: string): Row {
       return { tag, locale: JSON.parse(line.slice(2)) as string };
     case "E":
       return { tag, entry: JSON.parse(line.slice(2)) as string };
+    case "C":
+      return { tag, styles: JSON.parse(line.slice(2)) as string[] };
     case "D":
       return { tag, catalog: JSON.parse(line.slice(2)) as { [key: string]: string } };
     case "S": {
@@ -156,6 +161,7 @@ export function parsePayload(text: string): Payload {
   let locale: string | null = null;
   let catalog: { [key: string]: string } | null = null;
   let entry: string | null = null;
+  let styles: string[] = [];
 
   for (const line of text.split("\n")) {
     if (line.length === 0) continue;
@@ -183,6 +189,9 @@ export function parsePayload(text: string): Payload {
       case "E":
         entry = row.entry;
         break;
+      case "C":
+        styles = row.styles;
+        break;
       case "D":
         catalog = row.catalog;
         break;
@@ -192,5 +201,5 @@ export function parsePayload(text: string): Payload {
     }
   }
   if (tree === null) throw new Error("payload has no N row");
-  return { format, encoding, tree, segments, heads, seeds, locale, catalog, entry, resolutions };
+  return { format, encoding, tree, segments, heads, seeds, locale, catalog, entry, styles, resolutions };
 }

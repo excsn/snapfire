@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fibre_cache::{EvictionListener, EvictionReason};
-use futures_util::future::{ready, BoxFuture};
+use futures_util::future::{BoxFuture, ready};
 use parking_lot::Mutex;
 use snapfire_fsr_core::Node;
 
@@ -110,7 +110,10 @@ impl FibreCache {
   /// drops on its own stays in the index until its plan key is invalidated;
   /// register `FibreCache::listener` on the builder to keep the two in step.
   pub fn new(cache: fibre_cache::Cache<String, CacheEntry>) -> Self {
-    Self { cache, index: Index::default() }
+    Self {
+      cache,
+      index: Index::default(),
+    }
   }
 
   /// `new` over a cache whose builder carried `listener`.
@@ -183,7 +186,12 @@ impl NodeCache for FibreCache {
   }
 
   fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()> {
-    self.index.lock().entry(plan_key_of(&key).to_owned()).or_default().insert(key.clone());
+    self
+      .index
+      .lock()
+      .entry(plan_key_of(&key).to_owned())
+      .or_default()
+      .insert(key.clone());
     self.cache.insert(key, entry, 1);
     Box::pin(ready(()))
   }
@@ -203,13 +211,21 @@ mod tests {
   use futures::executor::block_on;
 
   fn entry() -> CacheEntry {
-    CacheEntry { node: Node::raw("x"), segments: Vec::new() }
+    CacheEntry {
+      node: Node::raw("x"),
+      segments: Vec::new(),
+    }
   }
 
   #[test]
   fn a_key_put_again_is_indexed_once() {
     let (index, listener) = FibreCache::listener();
-    let inner = fibre_cache::CacheBuilder::default().capacity(100).time_to_live(Duration::from_secs(60)).eviction_listener(listener).build().expect("fibre_cache build");
+    let inner = fibre_cache::CacheBuilder::default()
+      .capacity(100)
+      .time_to_live(Duration::from_secs(60))
+      .eviction_listener(listener)
+      .build()
+      .expect("fibre_cache build");
     let cache = FibreCache::with_index(inner, index);
     for _ in 0..3 {
       block_on(cache.put("plan|a|f1".to_owned(), entry()));
