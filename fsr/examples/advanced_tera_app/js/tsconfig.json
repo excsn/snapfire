@@ -1,10 +1,22 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "outDir": "dist",
-    "rootDir": "src",
-    "sourceMap": true,
-    "jsx": "react-jsx"
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@snapfire/fsr-client": ["./types/@snapfire/fsr-client/index.d.ts"],
+      "@snapfire/fsr-client/*": ["./types/@snapfire/fsr-client/*"],
+      "csstype": ["./types/csstype/index.d.ts"],
+      "csstype/*": ["./types/csstype/*"],
+      "react": ["./types/react/index.d.ts"],
+      "react/*": ["./types/react/*"],
+      "react-dom": ["./types/react-dom/index.d.ts"],
+      "react-dom/*": ["./types/react-dom/*"]
+    }
   },
   "include": [
     "src/**/*"

@@ -139,7 +139,14 @@ Build the application's own modules the same way, against that map:
 
 ```sh
 cd fsr/examples/advanced_tera_app/js
-snapfirec --source-map --minify compact --public-path /static/js/app --import-map importmap.json
+snapfirec -c tsconfig.build.json --source-map --minify compact --public-path /static/js/app --import-map importmap.json
+```
+
+Two tsconfigs, the way an FSR application's build writes two. `tsconfig.build.json` is what snapfirec compiles from and names no declarations, since a `paths` entry pointing at a `.d.ts` would be rewritten into the output as an import of a file that does not exist. `tsconfig.json` is the one an editor picks up and the one to typecheck, carrying `strict`, `noEmit` and a `paths` entry per package in the map:
+
+```sh
+fsr types .            # fills types/ from the import map
+snapfiretc --root . --config tsconfig.json
 ```
 
 ## Registering an Island
