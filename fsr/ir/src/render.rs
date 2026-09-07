@@ -575,6 +575,54 @@ pub fn html_attr_name(name: &str) -> &str {
     "spellCheck" => "spellcheck",
     "encType" => "enctype",
     "formAction" => "formaction",
+    // SVG presentation and reference attributes React spells in camelCase.
+    // Only the ones SVG itself spells dashed belong here: `viewBox`, `refX`,
+    // `markerWidth`, `preserveAspectRatio` and `gradientUnits` are camelCase
+    // in SVG too and must reach the document as written.
+    "strokeWidth" => "stroke-width",
+    "strokeDasharray" => "stroke-dasharray",
+    "strokeDashoffset" => "stroke-dashoffset",
+    "strokeLinecap" => "stroke-linecap",
+    "strokeLinejoin" => "stroke-linejoin",
+    "strokeMiterlimit" => "stroke-miterlimit",
+    "strokeOpacity" => "stroke-opacity",
+    "fillOpacity" => "fill-opacity",
+    "fillRule" => "fill-rule",
+    "clipPath" => "clip-path",
+    "clipRule" => "clip-rule",
+    "stopColor" => "stop-color",
+    "stopOpacity" => "stop-opacity",
+    "markerStart" => "marker-start",
+    "markerMid" => "marker-mid",
+    "markerEnd" => "marker-end",
+    "textAnchor" => "text-anchor",
+    "dominantBaseline" => "dominant-baseline",
+    "alignmentBaseline" => "alignment-baseline",
+    "baselineShift" => "baseline-shift",
+    "vectorEffect" => "vector-effect",
+    "paintOrder" => "paint-order",
+    "colorInterpolation" => "color-interpolation",
+    "colorInterpolationFilters" => "color-interpolation-filters",
+    "floodColor" => "flood-color",
+    "floodOpacity" => "flood-opacity",
+    "lightingColor" => "lighting-color",
+    "letterSpacing" => "letter-spacing",
+    "wordSpacing" => "word-spacing",
+    "fontFamily" => "font-family",
+    "fontSize" => "font-size",
+    "fontSizeAdjust" => "font-size-adjust",
+    "fontStretch" => "font-stretch",
+    "fontStyle" => "font-style",
+    "fontVariant" => "font-variant",
+    "fontWeight" => "font-weight",
+    "pointerEvents" => "pointer-events",
+    "shapeRendering" => "shape-rendering",
+    "textRendering" => "text-rendering",
+    "imageRendering" => "image-rendering",
+    "writingMode" => "writing-mode",
+    "unicodeBidi" => "unicode-bidi",
+    "xlinkHref" => "xlink:href",
+    "xmlnsXlink" => "xmlns:xlink",
     other => other,
   }
 }
@@ -644,6 +692,48 @@ mod tests {
 
   fn p(name: &str) -> Expr {
     Expr::var("$props").field(name)
+  }
+
+  #[test]
+  fn an_svg_attribute_reaches_the_document_the_way_svg_spells_it() {
+    for (jsx, printed) in [
+      ("markerEnd", "marker-end"),
+      ("strokeWidth", "stroke-width"),
+      ("strokeDasharray", "stroke-dasharray"),
+      ("fillRule", "fill-rule"),
+      ("clipPath", "clip-path"),
+      ("stopColor", "stop-color"),
+      ("textAnchor", "text-anchor"),
+      ("dominantBaseline", "dominant-baseline"),
+      ("vectorEffect", "vector-effect"),
+      ("paintOrder", "paint-order"),
+      ("xlinkHref", "xlink:href"),
+    ] {
+      assert_eq!(html_attr_name(jsx), printed);
+    }
+    for camel in ["viewBox", "refX", "refY", "markerWidth", "markerHeight", "preserveAspectRatio", "gradientUnits", "patternUnits", "spreadMethod", "startOffset"] {
+      assert_eq!(html_attr_name(camel), camel, "SVG spells this one in camelCase itself");
+    }
+  }
+
+  #[test]
+  fn an_svg_element_prints_its_dashed_attributes() {
+    let component = Component {
+      body: Vec::new(),
+      render: Tmpl::Element {
+        tag: "path".to_owned(),
+        attrs: vec![
+          Entry::Field(html_attr_name("markerEnd").to_owned(), Expr::lit_str("url(#a)")),
+          Entry::Field(html_attr_name("strokeWidth").to_owned(), Expr::Lit(Lit::Int(2))),
+          Entry::Field(html_attr_name("viewBox").to_owned(), Expr::lit_str("0 0 8 8")),
+        ],
+        children: Vec::new(),
+      },
+      state: Vec::new(),
+      handlers: Vec::new(),
+    };
+    let html = Interpreter::default().render(&component, &ValueMap::new(), &Components::new()).unwrap().html;
+    assert_eq!(html, "<path marker-end=\"url(#a)\" stroke-width=\"2\" viewBox=\"0 0 8 8\"></path>");
   }
 
   #[test]
