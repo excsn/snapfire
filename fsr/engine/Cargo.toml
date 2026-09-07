@@ -6,6 +6,7 @@ description = "QuickJS in process for fsr test: a DOM, React and an application'
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+readme = "README.md"
 
 [dependencies]
 fibre = "0.6"

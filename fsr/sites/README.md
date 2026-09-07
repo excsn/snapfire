@@ -1,5 +1,9 @@
 # snapfire_fsr_sites
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_sites.svg)](https://crates.io/crates/snapfire_fsr_sites)
+[![Docs.rs](https://docs.rs/snapfire_fsr_sites/badge.svg)](https://docs.rs/snapfire_fsr_sites)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 Where a mounted site's artifact comes from. The stock host knows how to mount a site it is handed; this crate knows how to find one: the `[sites]` table of a shell's configuration resolved to directories, each hashed and refused when the table pins another hash, then mounted and the table watched so a deploy is a pointer moved and a signal sent.
 
 ## Install
@@ -20,4 +24,4 @@ snapfire_fsr_sites = { path = "../sites" }
 
 ## Status
 
-Pre-release and unpublished. `fsr serve` and `portal_react_ts` use it; the host it mounts into is `snapfire_fsr_host`. A site across a transport, a site in its own process the shell reaches by address, is not built.
+ `fsr serve` and `portal_react_ts` use it; the host it mounts into is `snapfire_fsr_host`. A site across a transport, a site in its own process the shell reaches by address, is not built.

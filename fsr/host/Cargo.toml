@@ -6,6 +6,7 @@ description = "The stock host for SnapFire FSR: an app.toml, a plan file and a c
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+readme = "README.md"
 
 [features]
 default = []

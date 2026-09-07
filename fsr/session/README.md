@@ -1,6 +1,8 @@
 # snapfire_fsr_session
 
-MPL-2.0. Pre-release, version 0.1.0, not published to crates.io.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_session.svg)](https://crates.io/crates/snapfire_fsr_session)
+[![Docs.rs](https://docs.rs/snapfire_fsr_session/badge.svg)](https://docs.rs/snapfire_fsr_session)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The session layer for SnapFire FSR: it opens a request's session from the `Cookie` header, keeps two separate cells for it, saves them when the response starts and issues the CSRF tokens forms carry. The two cells are the point of the crate. `SessionCell` holds application-visible data and the resolved `Identity`; it flows into `RequestCtx` where loaders, actions and evaluators read it. `TokenCell` holds backend credentials and auth flow state; it lives only on `Opened` and it never enters `RequestCtx`, so the only things that can reach it are the session layer, the auth flow and the service layer's outbound call chain. The cookie itself carries a signed opaque session id, never session data and never a credential. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -33,4 +35,4 @@ The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value
 
 ## Status
 
-Pre-release and unpublished, with no stability guarantee on any signature here. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which wires it into an actix-web adapter alongside `snapfire_fsr_auth` and `snapfire_fsr_service`. The crate carries nine integration tests in `tests/session.rs` covering the cookie round trip, tamper rejection, the clean-fresh-session case, identity persistence, destroy, CSRF binding, token custody and store tuning.
+No stability guarantee on any signature here. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which wires it into an actix-web adapter alongside `snapfire_fsr_auth` and `snapfire_fsr_service`. The crate carries nine integration tests in `tests/session.rs` covering the cookie round trip, tamper rejection, the clean-fresh-session case, identity persistence, destroy, CSRF binding, token custody and store tuning.

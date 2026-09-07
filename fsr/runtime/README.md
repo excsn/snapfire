@@ -1,6 +1,8 @@
 # snapfire_fsr_runtime
 
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_runtime.svg)](https://crates.io/crates/snapfire_fsr_runtime)
+[![Docs.rs](https://docs.rs/snapfire_fsr_runtime/badge.svg)](https://docs.rs/snapfire_fsr_runtime)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The request blocks of SnapFire FSR: matching a path, resolving it to a plan, loading the plan's data, evaluating its modules, assembling the payload tree and streaming it out. It works in the vocabulary types of `snapfire_fsr_core` (`Value`, `Node`, `PlanNode`) and hands its result to the encoders in `snapfire_fsr_payload`. Task-by-task instructions live in the [usage guide](README.USAGE.md); the full surface is in the [API reference](API_REFERENCE.md).
 
@@ -62,4 +64,4 @@ The crate has no cargo features. Everything below is always compiled.
 
 ## Status
 
-Pre-release and unpublished: version 0.1.0, edition 2024, MPL-2.0, no crates.io release. The public surface is not stable. It carries 20 integration tests across `tests/assembler.rs`, `tests/cache.rs`, `tests/failure.rs` and `tests/streaming.rs`. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which serves matched routes, a cached page, a deferred chart and a service-backed action off this crate.
+The public surface is not stable. It carries 20 integration tests across `tests/assembler.rs`, `tests/cache.rs`, `tests/failure.rs` and `tests/streaming.rs`. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which serves matched routes, a cached page, a deferred chart and a service-backed action off this crate.

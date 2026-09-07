@@ -1,7 +1,8 @@
 # SnapFire FSR Core (`snapfire_fsr_core`)
 
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
-![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange?style=flat-square)
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_core.svg)](https://crates.io/crates/snapfire_fsr_core)
+[![Docs.rs](https://docs.rs/snapfire_fsr_core/badge.svg)](https://docs.rs/snapfire_fsr_core)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. Task-by-task instructions live in the [usage guide](README.USAGE.md); every signature is in the [API reference](API_REFERENCE.md).
 
@@ -44,4 +45,4 @@ The crate has no Cargo features. It compiles with two dependencies and no option
 
 ## Status
 
-Pre-release and unpublished. The API is not stable and carries no compatibility guarantee; consumers take it by path dependency inside the workspace. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/` and carries 19 tests of its own: `tests/vocabulary.rs` pins the fingerprint's canonical rules and `ModuleId` parsing, `tests/walk_fixtures.rs` pins the two hand-walked pages as literal `Node` and `PlanNode` values. `benches/fingerprint.rs` measures hashing a page tree and a nested map under criterion.
+The API is not stable and carries no compatibility guarantee. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/` and carries 19 tests of its own: `tests/vocabulary.rs` pins the fingerprint's canonical rules and `ModuleId` parsing, `tests/walk_fixtures.rs` pins the two hand-walked pages as literal `Node` and `PlanNode` values. `benches/fingerprint.rs` measures hashing a page tree and a nested map under criterion.

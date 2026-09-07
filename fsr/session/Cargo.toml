@@ -6,6 +6,7 @@ description = "Sessions for SnapFire FSR: signed cookies, the session store and 
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+readme = "README.md"
 
 [dependencies]
 snapfire_fsr_core.workspace = true

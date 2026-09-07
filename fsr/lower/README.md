@@ -1,6 +1,8 @@
 # snapfire_fsr_lower
 
-MPL-2.0. Pre-release, version 0.1.0, not published to crates.io.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_lower.svg)](https://crates.io/crates/snapfire_fsr_lower)
+[![Docs.rs](https://docs.rs/snapfire_fsr_lower/badge.svg)](https://docs.rs/snapfire_fsr_lower)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The recogniser for SnapFire FSR. It reads a TypeScript loader or actions module with the swc parser snapfirec uses and lowers each body to the IR in `snapfire_fsr_ir`, so the body runs in Rust with no JavaScript engine. A body that uses anything outside the IR is residue, reported with the file, the line, the column and the construct, so the developer knows exactly what stopped it. It also reads schema modules, exported interfaces in the subset the contract holds, into contract types, which is how a session schema or an action input declared in TypeScript reaches the runtime. The recogniser follows the syntax, not a type checker: every read is typed by where it comes from on `ctx`, which is what makes a syntactic pass sufficient for the bodies it accepts. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -28,4 +30,4 @@ The crate has no Cargo features. It depends on `snapfire_fsr_ir` for the tree it
 
 ## Status
 
-Pre-release and unpublished, with no stability guarantee on any signature here. The five bodies of the `shopping_react_ts` example lower to exactly the IR the interpreter's own tests hand-write, which `tests/shopping.rs` asserts, alongside residue cases for an unfollowable import, `try`, a lambda with statements and a write outside the session. The `fsr` binary in `snapfire_fsr_cli` is the only caller.
+No stability guarantee on any signature here. The five bodies of the `shopping_react_ts` example lower to exactly the IR the interpreter's own tests hand-write, which `tests/shopping.rs` asserts, alongside residue cases for an unfollowable import, `try`, a lambda with statements and a write outside the session. The `fsr` binary in `snapfire_fsr_cli` is the only caller.

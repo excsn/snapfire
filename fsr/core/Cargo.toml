@@ -6,6 +6,7 @@ description = "Vocabulary types for SnapFire FSR: the payload tree, the render p
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+readme = "README.md"
 
 [dependencies]
 indexmap = "2"

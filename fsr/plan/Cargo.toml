@@ -6,6 +6,7 @@ description = "The plan file for SnapFire FSR: routes and their plans as a build
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+readme = "README.md"
 
 [dependencies]
 snapfire_fsr_core.workspace = true

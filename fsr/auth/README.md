@@ -1,6 +1,8 @@
 # snapfire_fsr_auth
 
-MPL-2.0. Pre-release, unpublished.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_auth.svg)](https://crates.io/crates/snapfire_fsr_auth)
+[![Docs.rs](https://docs.rs/snapfire_fsr_auth/badge.svg)](https://docs.rs/snapfire_fsr_auth)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 Auth for SnapFire FSR: the front door of the session layer, covering how an anonymous session becomes an identified one and where backend tokens live. `IdentityProvider` is the seam, `Auth` is the flow over it (`login`, `callback`, `logout`) and `DevProvider` is a name-and-password implementation for development. The crate never renders and owns no HTTP endpoints; the login page is an ordinary route through the ordinary plan, identity reaches templates only as the injected `identity` prop and the flow endpoints live at whatever HTTP adapter the application brings. Task-shaped instructions are in [README.USAGE.md](README.USAGE.md); signatures are in [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -31,4 +33,4 @@ snapfire_fsr_session = { path = "../session" }
 
 ## Status
 
-Pre-release and unpublished; nothing here is on crates.io yet, no compatibility is promised across versions and the API moves with the rest of FSR. `DevProvider` is the only provider that ships, so an application that needs a real identity source writes its own `IdentityProvider`. The stock host, `snapfire_fsr_host`, serves the flow endpoints over it from an `[auth]` section, with `DevProvider::from_toml` as the `file` provider; the `advanced_tera_app` example under `fsr/examples/` runs on that host with its own login route and logout form. It carries 5 integration tests in `tests/auth.rs`.
+No compatibility is promised across versions; the API moves with the rest of FSR. `DevProvider` is the only provider that ships, so an application that needs a real identity source writes its own `IdentityProvider`. The stock host, `snapfire_fsr_host`, serves the flow endpoints over it from an `[auth]` section, with `DevProvider::from_toml` as the `file` provider; the `advanced_tera_app` example under `fsr/examples/` runs on that host with its own login route and logout form. It carries 5 integration tests in `tests/auth.rs`.

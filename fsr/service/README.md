@@ -1,6 +1,8 @@
 # snapfire_fsr_service
 
-MPL-2.0. Version 0.1.0, pre-release, not published to crates.io.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_service.svg)](https://crates.io/crates/snapfire_fsr_service)
+[![Docs.rs](https://docs.rs/snapfire_fsr_service/badge.svg)](https://docs.rs/snapfire_fsr_service)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The typed service boundary for SnapFire FSR. Application code asks for a capability by naming a service, a method and its arguments; it never names a host, a header or a token. A *contract* declares what exists, a *registry* binds that contract to one request, *interceptors* attach identity and credentials on the way out and a *transport* carries the call to wherever the implementation lives. Start with the [usage guide](README.USAGE.md); look calls up in the [API reference](API_REFERENCE.md).
 
@@ -40,4 +42,4 @@ One cargo feature, `grpc`, adds `import_proto` and `GrpcTransport` with protox, 
 
 ## Status
 
-Pre-release and unpublished, with no stability guarantee on any name here. The layer is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which declares a `fleet` contract, serves it from a `LocalTransport` and calls it from both a loader and an action. `shopping_react_ts` imports an OpenAPI document and a `.proto` and reaches an HTTP service and a gRPC service through the same registry. The crate carries 29 integration tests, 3 of them over the proto importer and the message conversions behind `grpc`, plus: 10 over the contract and its checking; 11 over the registry with its interceptor chain, its local transport and its mock transport; 5 driving `HttpTransport` against a real socket.
+with no stability guarantee on any name here. The layer is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, which declares a `fleet` contract, serves it from a `LocalTransport` and calls it from both a loader and an action. `shopping_react_ts` imports an OpenAPI document and a `.proto` and reaches an HTTP service and a gRPC service through the same registry. The crate carries 29 integration tests, 3 of them over the proto importer and the message conversions behind `grpc`, plus: 10 over the contract and its checking; 11 over the registry with its interceptor chain, its local transport and its mock transport; 5 driving `HttpTransport` against a real socket.

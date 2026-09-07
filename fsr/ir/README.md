@@ -1,6 +1,8 @@
 # snapfire_fsr_ir
 
-MPL-2.0. Pre-release, version 0.1.0, not published to crates.io.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_ir.svg)](https://crates.io/crates/snapfire_fsr_ir)
+[![Docs.rs](https://docs.rs/snapfire_fsr_ir/badge.svg)](https://docs.rs/snapfire_fsr_ir)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The lowered form of a loader or action body for SnapFire FSR plus the interpreter that runs it. A body is a small typed tree over the value model: reads from the request context, literals, field access, arithmetic and comparison, lambdas over typed arrays, service calls, session writes and guards. The runtime executes it directly over `Value`, through the same service handle and session cell a Rust data source uses, so a TypeScript loader lowered to this form runs with no JavaScript engine in the path. The build produces the tree; this crate carries its JSON form, its interpreter and the two adapters that make a body answer a data source id or an action id. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -30,4 +32,4 @@ The crate has no Cargo features. It depends on `snapfire_fsr_core` for the value
 
 ## Status
 
-Pre-release and unpublished, with no stability guarantee on any signature here. The five bodies of the `shopping_react_ts` example, three loaders and two actions, are hand-written as IR in `tests/shopping.rs` and produce the values their Rust originals do; the same file covers JSON round trips, the session draft, guard ordering, parallel and dependent calls, `identity` and `now` reads and the two runtime adapters. `snapfire_fsr_lower` produces this form from TypeScript and `snapfire_fsr_cli` writes it into the plan file. `render.rs` prints a lowered component the way React's server renderer would, byte for byte and synchronously, which its tests pin against React's spellings.
+No stability guarantee on any signature here. The five bodies of the `shopping_react_ts` example, three loaders and two actions, are hand-written as IR in `tests/shopping.rs` and produce the values their Rust originals do; the same file covers JSON round trips, the session draft, guard ordering, parallel and dependent calls, `identity` and `now` reads and the two runtime adapters. `snapfire_fsr_lower` produces this form from TypeScript and `snapfire_fsr_cli` writes it into the plan file. `render.rs` prints a lowered component the way React's server renderer would, byte for byte and synchronously, which its tests pin against React's spellings.

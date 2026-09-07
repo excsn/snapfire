@@ -1,6 +1,8 @@
 # snapfire_fsr_plan
 
-MPL-2.0. Pre-release, version 0.1.0, not published to crates.io.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_plan.svg)](https://crates.io/crates/snapfire_fsr_plan)
+[![Docs.rs](https://docs.rs/snapfire_fsr_plan/badge.svg)](https://docs.rs/snapfire_fsr_plan)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The plan file for SnapFire FSR: `generated/plan.json`, the artifact `fsr build` writes and a host reads at boot. It carries the routes as trees of nodes, a row per data source and per action saying who answers it, lowered or Rust, with the lowered body inline, and a row per component the build lowered to a render tree. The format is its own rather than serde over the runtime's types, so a field can be added to the file without the vocabulary crate gaining a dependency. `Manifest` is the file in memory and `Node` its serialized tree; a `Manifest` converts to the runtime's `PlanNode`s with `routes` and lists what a host has to bind with `sources` and `modules`. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -29,4 +31,4 @@ No features. The crate depends on `snapfire_fsr_core` for the vocabulary types, 
 
 ## Status
 
-Pre-release and unpublished. Format 2 is current and a format 1 file, with bare action ids and no `sources` table, still reads. `fsr build` writes the file and `snapfire_fsr` reads it through `App::from_manifest`; `shopping_react_ts` is built and served that way. The crate's 12 tests cover the round trip, absent fields staying absent, the source and module lists, the version check, the module id and duplicate refusals, a hand-written file, a format 1 file and lowered rows with and without a body.
+ Format 2 is current and a format 1 file, with bare action ids and no `sources` table, still reads. `fsr build` writes the file and `snapfire_fsr` reads it through `App::from_manifest`; `shopping_react_ts` is built and served that way. The crate's 12 tests cover the round trip, absent fields staying absent, the source and module lists, the version check, the module id and duplicate refusals, a hand-written file, a format 1 file and lowered rows with and without a body.

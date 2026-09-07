@@ -6,6 +6,7 @@ description = "Payload encodings for SnapFire FSR: the JSON pair and the HTML se
 edition = { workspace = true }
 authors = { workspace = true }
 license = { workspace = true }
+readme = "README.md"
 
 [dependencies]
 snapfire_fsr_core.workspace = true

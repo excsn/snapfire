@@ -1,6 +1,8 @@
 # snapfire_fsr_tera
 
-MPL-2.0. Version 0.1.0, pre-release and unpublished.
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_tera.svg)](https://crates.io/crates/snapfire_fsr_tera)
+[![Docs.rs](https://docs.rs/snapfire_fsr_tera/badge.svg)](https://docs.rs/snapfire_fsr_tera)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 The Tera evaluator for SnapFire FSR. It implements `snapfire_fsr_runtime::Evaluator` by rendering a Tera template to a string and splitting that string into payload chunks: literal markup becomes a raw node, an `island()` call becomes a client node the browser mounts, a `slot()` call becomes the stitch point where a plan child's subtree lands. There is no JavaScript engine here, no hydration protocol, no participation in the module graph; the whole crate is one file, which is the point. The runtime half of the seam, the `Evaluator` trait plus the assembler that stitches slots, lives in `snapfire_fsr_runtime`. To wire one up, read the [usage guide](README.USAGE.md); for signatures and constraints, the [API reference](API_REFERENCE.md).
 
@@ -34,4 +36,4 @@ A `Tera` instance is built by the application and handed over, so an application
 
 ## Status
 
-Pre-release, unpublished, no stability guarantee on any name here. `tests/tera.rs` covers the seam: chunk order, the three functions, props in both directions, and every way the split can refuse. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, whose 21 integration tests cover rendering, streaming, actions, sessions, auth and services through these templates.
+no stability guarantee on any name here. `tests/tera.rs` covers the seam: chunk order, the three functions, props in both directions, and every way the split can refuse. It is exercised end to end by the `advanced_tera_app` example under `fsr/examples/`, whose 21 integration tests cover rendering, streaming, actions, sessions, auth and services through these templates.
