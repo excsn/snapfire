@@ -52,6 +52,29 @@ export const who = key<ShellStore["portal/who"]>("portal/who");
 
 The other direction is the site's own contract: its clients, its cache tags, its types, all prefixed, merged into the shell's registry without a collision.
 
+## A site owns its own backends
+
+A site declares `[clients]` in its own configuration and puts the contract beside it in `app/clients/`, exactly as a standalone application does. Nothing about the mount changes that: at mount the host runs the same client build over the site's configuration as over the shell's, so a `grpc` client gets its own `GrpcTransport` against its own `base_url`, an OpenAPI client its own HTTP transport, and a `transport = "mock"` client the JSON file beside it.
+
+```toml
+[clients.ledger]
+transport = "grpc"
+base_url = "http://ledger.internal:50051"
+document = "clients/ledger.proto"
+```
+
+In the loader it is `services.ledger`, because the site's build lowered its plan against its own contract. In the host's table it is `billing:ledger`, since a site's client names carry the same `<name>:` prefix as its route ids. So the shell and a site can each have a `ledger`, pointing at different backends with different contracts, and neither can see the other's. The merge is checked rather than assumed: a genuine collision fails the mount and names the site.
+
+Credentials are scoped the same way. A `bearer` key on a site's client installs an interceptor for that client alone, so a site's token never rides on the shell's calls or another site's.
+
+The exception is a host built with its services supplied directly rather than from configuration. That override replaces every client the process would have built, the sites' included, which is what a test harness wants and a surprise anywhere else.
+
+## What the shell wins
+
+The shell owns the document, so where the two configurations disagree the shell's answer stands. Its import map overrides the site's on any shared specifier, which is what keeps one React in the page. The site's `[session]`, `[auth]` and `[cache]` are dropped, along with its `not-found.tsx`, because the shell already answers those for the whole document. A static root outside the site's own prefix is dropped rather than served, so a site cannot claim `/static/js/vendor` and shadow the shell's. Every one of those is listed under `ignored` in the boot report rather than happening quietly.
+
+Store keys are the exception, and the only place a site and the shell can genuinely collide: nothing namespaces them, the map is flat and shared. A site prefixes its own by hand, `billing/draft` rather than `draft`, the way the shell's own keys already are.
+
 ## What a version is
 
 An artifact is the files the host reads and nothing more: the configuration, the plan, the contracts, every static root and the import map. Routes, sources, types and a site's own markdown are build inputs and stay out. The set is derived from the site's configuration rather than written down twice, so a hash taken in a working tree is the hash of what a release copied out of it, and a pin made in development still holds against the deployed directory.

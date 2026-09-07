@@ -16,6 +16,23 @@ routes    /                      routes
           /product/{id}          routes/product/[id]
 ```
 
+## What a route is called
+
+Every route has a **source id**, and it is the name you see in the boot report, in a trace, in the plan and in the generated types. It is the directory's segments joined with `.`, with two markers.
+
+`$root` is the route at `routes/` itself, since it has no segments to join. A parameter contributes `$<name>` rather than the bracketed directory: `routes/product/[id]/` is `product.$id`, and `routes/docs/[...rest]/` is `docs.$rest`.
+
+| Directory | Pattern | Source id | Props type |
+| --- | --- | --- | --- |
+| `routes/` | `/` | `$root` | `RootProps` |
+| `routes/cart/` | `/cart` | `cart` | `CartProps` |
+| `routes/product/[id]/` | `/product/{id}` | `product.$id` | `ProductIdProps` |
+| `routes/admin/users/` | `/admin/users` | `admin.users` | `AdminUsersProps` |
+
+The `$` is what makes the id injective rather than decorative. A directory name may hold alphanumerics, `_` and `-` and nothing else, so no static segment can ever produce a `$` part, which is why `routes/a/x/` and `routes/a/[x]/` cannot collide on a name. The marker is dropped when the props type is derived, so `product.$id` is `ProductIdProps` and the `$` never reaches your TypeScript.
+
+Actions and slots extend the same id. An `addToCart` exported from `routes/cart/actions.ts` is `cart.addToCart`, and a parallel slot beside a layout is `layout.<name>`. Under a site prefix the whole thing carries it, so the billing site's root is `billing:$root`.
+
 ## The loader is the page's only input
 
 A loader exports `load` and receives the context: `params` from the pattern, `query` from the query string, `session`, `identity` and `services`. What it returns is the page's props, whole. There is no other way for data to reach a page, which is the point: a page is a function of what its loader returned, so the server can render it, cache it and reason about it.
