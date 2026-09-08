@@ -3459,7 +3459,7 @@ impl HostBuilder {
     }
 
     let manifest =
-      Manifest::from_json(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+      Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
     let shell_module = config.document.shell.clone();
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();
@@ -3504,7 +3504,7 @@ impl HostBuilder {
         ));
       }
       let mut site_manifest =
-        Manifest::from_json(&mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+        Manifest::from_text(&mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       let engine_rows: Vec<String> = site_manifest
         .sources
         .iter()
@@ -3874,8 +3874,9 @@ fn leaks(config: &Config, plan: &str) -> Result<(), HostError> {
   };
   let json: serde_json::Value =
     serde_json::from_str(&text).map_err(|e| HostError::Config(facts.clone(), e.to_string()))?;
-  let plan: serde_json::Value =
-    serde_json::from_str(plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+  let manifest = Manifest::from_text(plan)
+    .map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+  let plan = serde_json::to_value(&manifest).expect("a manifest serializes");
   let found = leaked_outputs(&plan, &json);
   if found.is_empty() {
     Ok(())

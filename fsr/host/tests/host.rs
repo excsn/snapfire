@@ -14,6 +14,24 @@ use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_service::MockTransport;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+/// The tests keep their plans as JSON literals, which read better inline than
+/// s-expressions do inside a Rust string; the host is handed the form a build
+/// writes.
+fn write_plan(dir: &std::path::Path, json: &str) {
+  let manifest = snapfire_fsr_plan::Manifest::from_text(json).expect("a plan");
+  std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
+}
+
+fn read_plan(dir: &std::path::Path) -> serde_json::Value {
+  let text = std::fs::read_to_string(dir.join("generated/plan.sexp")).unwrap();
+  serde_json::to_value(snapfire_fsr_plan::Manifest::from_text(&text).expect("a plan")).unwrap()
+}
+
+fn write_plan_value(dir: &std::path::Path, json: serde_json::Value) {
+  let manifest: snapfire_fsr_plan::Manifest = serde_json::from_value(json).expect("a plan");
+  std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
+}
+
 const PLAN: &str = r#"{
   "version": 2,
   "routes": [
@@ -86,7 +104,7 @@ fn app_dir() -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr-host-test-{}-{}", std::process::id(), rand_suffix()));
   std::fs::create_dir_all(dir.join("generated/contracts")).unwrap();
   std::fs::create_dir_all(dir.join("public")).unwrap();
-  std::fs::write(dir.join("generated/plan.json"), PLAN).unwrap();
+  write_plan(&dir, PLAN);
   std::fs::write(dir.join("generated/contracts/shop.json"), CONTRACT).unwrap();
   std::fs::write(dir.join("public/app.js"), "console.log('hello')").unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
@@ -478,7 +496,7 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
   std::fs::create_dir_all(app.join("styles")).unwrap();
   std::fs::write(app.join("styles/app.css"), "body{}").unwrap();
   std::fs::write(app.join("styles/notes.txt"), "not a sheet").unwrap();
-  std::fs::write(app.join("generated/plan.json"), PLAN).unwrap();
+  write_plan(&app, PLAN);
   std::fs::write(app.join("generated/contracts/shop.json"), CONTRACT).unwrap();
   std::fs::write(app.join("dist/src/main.js"), "boot()").unwrap();
   std::fs::write(
@@ -1357,7 +1375,7 @@ const SHOP_OPENAPI: &str = r#"{
 fn identified_dir(users: &str) -> PathBuf {
   let dir = app_dir();
   std::fs::create_dir_all(dir.join("clients")).unwrap();
-  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  write_plan(&dir, WHO_PLAN);
   std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
   std::fs::write(dir.join("auth.toml"), users).unwrap();
   std::fs::write(
@@ -1811,7 +1829,7 @@ async fn a_payload_request_may_only_name_an_encoding_that_exists() {
 fn mocked_dir(responses: &str, transport: &str) -> PathBuf {
   let dir = app_dir();
   std::fs::create_dir_all(dir.join("clients")).unwrap();
-  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  write_plan(&dir, WHO_PLAN);
   std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
   std::fs::write(dir.join("clients/shop.mock.json"), responses).unwrap();
   std::fs::write(
@@ -2007,7 +2025,7 @@ impl snapfire_fsr_service::Transport for IdentityService {
 fn remote_dir() -> PathBuf {
   let dir = app_dir();
   std::fs::create_dir_all(dir.join("clients")).unwrap();
-  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  write_plan(&dir, WHO_PLAN);
   std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
   std::fs::write(dir.join("clients/identity.openapi.json"), IDENTITY_OPENAPI).unwrap();
   std::fs::write(
@@ -2180,7 +2198,7 @@ const CACHED_OPENAPI: &str = r##"{
 fn cached_dir() -> PathBuf {
   let dir = app_dir();
   std::fs::create_dir_all(dir.join("clients")).unwrap();
-  std::fs::write(dir.join("generated/plan.json"), WHO_PLAN).unwrap();
+  write_plan(&dir, WHO_PLAN);
   std::fs::write(dir.join("clients/shop.openapi.json"), CACHED_OPENAPI).unwrap();
   std::fs::write(
     dir.join("app.toml"),
@@ -2309,7 +2327,7 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
     "{html}"
   );
 
-  std::fs::write(dir.join("generated/plan.json"), PLAN.replace("\"hi \"", "\"hey \"")).unwrap();
+  write_plan(&dir, &PLAN.replace("\"hi \"", "\"hey \""));
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   std::fs::write(dir.join("app.toml"), toml.replace("Test <app>", "Reloaded")).unwrap();
   let response = host
@@ -2393,7 +2411,7 @@ fn site_dir() -> PathBuf {
   let manifest = snapfire_fsr_plan::Manifest::from_json(PLAN)
     .unwrap()
     .namespaced("shop", "/shop", "shell#document");
-  std::fs::write(dir.join("generated/plan.json"), manifest.to_json()).unwrap();
+  write_plan(&dir, &manifest.to_json());
   let contract = snapfire_fsr_service::Contract::from_json(CONTRACT)
     .unwrap()
     .namespaced("shop");
@@ -2480,10 +2498,9 @@ const SHELL_LAYOUT: &str = r#"{ "module": "routes/layout.tsx#default", "body": {
 /// site's pages land inside it.
 fn shell_dir() -> PathBuf {
   let dir = app_dir();
-  let plan = std::fs::read_to_string(dir.join("generated/plan.json")).unwrap();
-  let mut json: serde_json::Value = serde_json::from_str(&plan).unwrap();
+  let mut json = read_plan(&dir);
   json["components"] = serde_json::json!([serde_json::from_str::<serde_json::Value>(SHELL_LAYOUT).unwrap()]);
-  std::fs::write(dir.join("generated/plan.json"), json.to_string()).unwrap();
+  write_plan_value(&dir, json);
   dir
 }
 
@@ -2520,10 +2537,9 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
 #[tokio::test]
 async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middleware_head_and_clients() {
   let site = site_dir();
-  let plan = std::fs::read_to_string(site.join("generated/plan.json")).unwrap();
-  let mut json: serde_json::Value = serde_json::from_str(&plan).unwrap();
+  let mut json = read_plan(&site);
   json["middleware"] = serde_json::from_str(SITE_MIDDLEWARE).unwrap();
-  std::fs::write(site.join("generated/plan.json"), json.to_string()).unwrap();
+  write_plan_value(&site, json);
   let toml = std::fs::read_to_string(site.join("app.toml")).unwrap();
   std::fs::write(
     site.join("app.toml"),
@@ -2661,11 +2677,10 @@ fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_
     .to_string();
   assert!(e.contains("site `billing`") && e.contains("is the site `shop`"), "{e}");
 
-  let plan = std::fs::read_to_string(site.join("generated/plan.json")).unwrap();
-  let mut json: serde_json::Value = serde_json::from_str(&plan).unwrap();
+  let mut json = read_plan(&site);
   json["sources"][0]["owner"] = serde_json::Value::String("engine".to_owned());
   json["sources"][0]["export"] = serde_json::Value::String("load".to_owned());
-  std::fs::write(site.join("generated/plan.json"), json.to_string()).unwrap();
+  write_plan_value(&site, json);
   let mount = snapfire_fsr_host::Mount::load("shop", &site, "dev", "-", false).unwrap();
   let e = Host::from(app_dir().join("app.toml"))
     .unwrap()
@@ -2705,7 +2720,7 @@ const EXT_PLAN: &str = r#"{
 #[tokio::test]
 async fn a_registered_native_pair_answers_a_lowered_body_and_an_unregistered_one_refuses_to_build() {
   let dir = app_dir();
-  std::fs::write(dir.join("generated/plan.json"), EXT_PLAN).unwrap();
+  write_plan(&dir, EXT_PLAN);
   let err = Host::from(dir.join("app.toml"))
     .unwrap()
     .build()
@@ -2756,15 +2771,14 @@ async fn catalogs_under_locales_reach_the_document_the_payload_and_t() {
     "[hello]\nworld = \"Hello {name}\"\nnum = 3\n[items]\none = \"{count} item\"\nother = \"{count} items\"\n",
   )
   .unwrap();
-  std::fs::write(
-    dir.join("generated/plan.json"),
+  write_plan(
+    &dir,
     r#"{ "version": 2, "routes": [ { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ],
       "sources": [ { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "object": [
         { "field": [ "hi", { "ext": { "module": "i18n", "name": "t", "args": [ { "lit": { "str": "hello.world" } }, { "object": [ { "field": [ "name", { "lit": { "str": "Norm" } } ] } ] } ] } } ] },
         { "field": [ "n", { "ext": { "module": "i18n", "name": "t", "args": [ { "lit": { "str": "items" } }, { "object": [ { "field": [ "count", { "lit": { "float": 2.0 } } ] } ] } ] } } ] }
       ] } } ] } ] }"#,
-  )
-  .unwrap();
+  );
   let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
   assert_eq!(host.report().catalogs, vec![("en".to_owned(), 4)]);
   assert!(

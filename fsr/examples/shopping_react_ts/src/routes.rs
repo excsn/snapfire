@@ -6,7 +6,7 @@ use snapfire_fsr::Plan;
 /// lowered actions. `build.rs` runs that build, so the file exists whenever
 /// the crate compiles.
 pub fn plan_path() -> PathBuf {
-  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("app/generated/plan.json")
+  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("app/generated/plan.sexp")
 }
 
 pub fn plan() -> String {

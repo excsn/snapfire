@@ -458,7 +458,7 @@ fn default_listen() -> String {
   "127.0.0.1:8080".to_owned()
 }
 fn default_plan() -> String {
-  "generated/plan.json".to_owned()
+  "generated/plan.sexp".to_owned()
 }
 fn default_render() -> String {
   "rust".to_owned()

@@ -23,7 +23,7 @@ How to bind a plan file, add and replace routes, answer names in Rust, take lowe
 
 ## Core Concepts
 
-* **Plan file** is `generated/plan.json`, read by `snapfire_fsr_plan`; `App::from_manifest` starts from its text.
+* **Plan file** is `generated/plan.sexp`, read by `snapfire_fsr_plan`; `App::from_manifest` starts from its text and takes either form.
 * **Route** is a pattern and a plan, from the file or from Rust; a pattern claimed twice is refused unless the second is an override.
 * **Plan** is the tree a route resolves to, written in Rust with the `Plan` builder or read from the file.
 * **Data source** is a name a plan node loads through, answered by a lowered loader or a Rust function.
@@ -41,7 +41,7 @@ How to bind a plan file, add and replace routes, answer names in Rust, take lowe
 use snapfire_fsr::App;
 
 fn main() -> Result<(), snapfire_fsr::BindError> {
-  let text = std::fs::read_to_string("app/generated/plan.json").expect("run `fsr build app` first");
+  let text = std::fs::read_to_string("app/generated/plan.sexp").expect("run `fsr build app` first");
   let app = App::from_manifest(&text)?.build()?;
   print!("{}", app.report);
   Ok(())

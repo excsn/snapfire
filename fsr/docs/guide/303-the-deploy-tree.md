@@ -16,7 +16,7 @@ dist/
   fibre_logging.yaml
   config/                  app.toml and the environment files
   app/
-    generated/             plan.json and contracts/, read at boot
+    generated/             plan.sexp and contracts/, read at boot
   serve/
     static/js/app/         the bundle
     static/js/vendor/      the vendored packages
@@ -37,7 +37,7 @@ serve/static/js/app      app/dist
 serve/static/js/vendor   app/vendor
 serve/static/icons       app/icons
 serve/static/css         app/styles
-app/generated/plan.json  read by the host, never served
+app/generated/plan.sexp  read by the host, never served
 app/generated/contracts  read by the host, never served
 
 place beside it: the binary, config/, the logging configuration

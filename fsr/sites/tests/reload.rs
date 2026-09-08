@@ -27,7 +27,8 @@ fn route(pattern: &str) -> String {
 
 fn shell(root: &Path, routes: &str) {
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
-  std::fs::write(root.join("app/generated/plan.json"), plan(routes)).unwrap();
+  let manifest = snapfire_fsr_plan::Manifest::from_json(&plan(routes)).unwrap();
+  std::fs::write(root.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();
   std::fs::write(
     root.join("app.toml"),
     "[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[sites]\nroot = \"sites\"\n[sites.billing]\nartifact = \"billing@1.0.0\"\n",
@@ -40,7 +41,7 @@ fn site(at: &Path, routes: &str) {
   let manifest = snapfire_fsr_plan::Manifest::from_json(&plan(routes))
     .unwrap()
     .namespaced("billing", "/billing", "shell#document");
-  std::fs::write(at.join("app/generated/plan.json"), manifest.to_json()).unwrap();
+  std::fs::write(at.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();
   std::fs::write(
     at.join("app.toml"),
     "[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[site]\nname = \"billing\"\nat = \"/billing\"\n",
@@ -70,11 +71,8 @@ fn a_sites_reload_takes_the_site_from_disk_and_leaves_the_shell_as_it_booted() {
   assert_eq!(host.report().sites.len(), 1);
 
   // Both trees move under the running process. Only the site's may be read.
-  std::fs::write(
-    root.join("app/generated/plan.json"),
-    plan(&format!("{},{}", route("/"), route("/shell-edit"))),
-  )
-  .unwrap();
+  let moved = snapfire_fsr_plan::Manifest::from_json(&plan(&format!("{},{}", route("/"), route("/shell-edit")))).unwrap();
+  std::fs::write(root.join("app/generated/plan.sexp"), moved.to_sexpr()).unwrap();
   site(&artifact, &format!("{},{}", route("/"), route("/invoices")));
 
   host.reload_sites().unwrap();
@@ -97,7 +95,7 @@ fn a_sites_reload_that_is_refused_leaves_the_running_tables_serving() {
   site(&artifact, &route("/"));
   let host = host(&root);
 
-  std::fs::write(artifact.join("app/generated/plan.json"), "{ not a plan").unwrap();
+  std::fs::write(artifact.join("app/generated/plan.sexp"), "(not a plan").unwrap();
   let e = host.reload_sites().unwrap_err().to_string();
   assert!(!e.is_empty());
   assert!(

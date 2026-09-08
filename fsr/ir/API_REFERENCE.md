@@ -18,7 +18,13 @@ The lowered form of a loader or action body and the interpreter that runs it ove
 * [2. The JSON Form](#2-the-json-form)
   * [from_json](#from_json)
   * [to_json](#to_json)
-* [3. The Interpreter](#3-the-interpreter)
+* [3. The S-Expression Form](#3-the-s-expression-form)
+  * [Sx](#sx)
+  * [parse](#parse)
+  * [print](#print)
+  * [the IR conversions](#the-ir-conversions)
+  * [SexprError](#sexprerror)
+* [4. The Interpreter](#4-the-interpreter)
   * [Interpreter](#interpreter)
   * [Outcome](#outcome)
   * [Clock](#clock)
@@ -27,7 +33,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Ambient](#ambient)
   * [The Standard Library](#the-standard-library)
   * [Catalogs](#catalogs)
-* [4. Evaluation Rules](#4-evaluation-rules)
+* [5. Evaluation Rules](#5-evaluation-rules)
   * [Reads](#reads)
   * [Truthiness](#truthiness)
   * [Operators](#operators)
@@ -37,10 +43,10 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Session writes](#session-writes)
   * [Guards](#guards)
   * [Parallel lets](#parallel-lets)
-* [5. Runtime Adapters](#5-runtime-adapters)
+* [6. Runtime Adapters](#6-runtime-adapters)
   * [IrSource](#irsource)
   * [IrAction](#iraction)
-* [6. Error Handling](#6-error-handling)
+* [7. Error Handling](#7-error-handling)
   * [Fail](#fail)
   * [ParseError](#parseerror)
 
@@ -138,7 +144,38 @@ One member of an object or array literal.
 
 * `pub fn ast::to_json(body: &Body) -> String`, pretty printed.
 
-## 3. The Interpreter
+## 3. The S-Expression Form
+
+`snapfire_fsr_ir::sexpr` is the IR half of what a `plan.sexp` carries. The manifest half is `snapfire_fsr_plan::sexpr`.
+
+### Sx
+
+* `pub enum Sx { Sym(String), Str(String), List(Vec<Sx>), Interp(Box<Sx>) }`: one node of the syntax. A symbol and a string are distinct terms, so `nil` is the null literal and `"nil"` the string. `Interp` is `{expr}`, an expression where a template child is expected.
+
+### parse
+
+* `pub fn parse(src: &str) -> Result<Vec<Sx>, SexprError>`: every top-level form. `;` runs to the end of the line, `"..."` is a string and `|...|` a symbol whose bare spelling would not lex.
+
+### print
+
+* `pub fn print(forms: &[Sx]) -> String`: one form per line, each wrapped at 100 columns and indented by two.
+
+### the IR conversions
+
+Each is a pair, and every pair round-trips: `parse(print(to(x))) == to(x)` and `from(to(x)) == x`.
+
+* `expr_to_sx(&Expr) -> Sx` and `expr_from_sx(&Sx) -> Result<Expr, SexprError>`: a string literal is a quoted term, a variable a bare symbol, so `(class "wide")` is a field holding a literal.
+* `tmpl_to_sx(&Tmpl) -> Sx` and `tmpl_from_sx(&Sx) -> Result<Tmpl, SexprError>`
+* `stmt_to_sx(&Stmt) -> Sx` and `stmt_from_sx(&Sx) -> Result<Stmt, SexprError>`
+* `component_to_sx(&Component) -> Sx` and `component_from_sx(&Sx) -> Result<Component, SexprError>`
+* `component_sections(&Component) -> Vec<Sx>` and `component_from_sections(&[Sx]) -> Result<Component, SexprError>`: the sections without the `component` head, for a plan that puts the module id between the two.
+
+### SexprError
+
+* `pub struct SexprError`: what the text says it is, with the line for a syntax error and the form for a shape error.
+* `SexprError::new(msg: impl Display) -> Self`
+
+## 4. The Interpreter
 
 ### Interpreter
 
@@ -223,7 +260,7 @@ Message tables by locale, `catalog::Catalogs`, `Clone`, `Default`, `Eq`. `pub ty
 * `table(&self, tag: &str) -> Option<&Arc<Table>>` and `json(&self, tag: &str) -> Option<Arc<str>>`: the merged table for `tag`, the default locale's when `tag` has none, `None` when neither exists.
 * `lookup(&self, tag: &str, key: &str) -> Option<&str>`.
 
-## 4. Evaluation Rules
+## 5. Evaluation Rules
 
 ### Reads
 
@@ -280,7 +317,7 @@ Message tables by locale, `catalog::Catalogs`, `Clone`, `Default`, `Eq`. `pub ty
 * A run of consecutive `Let` statements in one block, none of which reads a name bound earlier in the run, is evaluated together when at least two of them contain a `Call`. Each evaluates over a snapshot of the current scope and draft, which is safe because writes are statements, never expressions.
 * Any other statement is evaluated in sequence, as is any `Let` that reads an earlier name in the run.
 
-## 5. Runtime Adapters
+## 6. Runtime Adapters
 
 ### IrSource
 
@@ -298,7 +335,7 @@ A body answering an action id. Implements `snapfire_fsr_runtime::ActionHandler`.
 * `IrAction::with_interpreter(self, interpreter: Interpreter) -> IrAction`
 * `call` runs the body with the submitted value as `Input` and returns what it returned. A `Fail` is an `ActionError` with the kind preserved.
 
-## 6. Error Handling
+## 7. Error Handling
 
 ### Fail
 

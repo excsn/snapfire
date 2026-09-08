@@ -323,7 +323,7 @@ impl App {
   /// in the file is bound here as a default; Rust takes a name back with
   /// `source_override` or `action_override`.
   pub fn from_manifest(manifest: &str) -> Result<AppBuilder, BindError> {
-    let parsed = snapfire_fsr_plan::Manifest::from_json(manifest)?;
+    let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
     let mut builder = Self::builder(Routes::from_manifest(manifest)?);
     builder.declared_actions = parsed.action_ids();
     builder.lowered_sources = parsed
@@ -363,7 +363,7 @@ impl AppBuilder {
   /// ids already prefixed so nothing collides. Its middleware and not-found
   /// tree are the caller's to place.
   pub fn mount_manifest(&mut self, manifest: &str) -> Result<(), BindError> {
-    let parsed = snapfire_fsr_plan::Manifest::from_json(manifest)?;
+    let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
     self.routes.extend_manifest(manifest)?;
     self.declared_actions.extend(parsed.action_ids());
     self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));

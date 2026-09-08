@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_plan/badge.svg)](https://docs.rs/snapfire_fsr_plan)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The plan file for SnapFire FSR: `generated/plan.json`, the artifact `fsr build` writes and a host reads at boot. It carries the routes as trees of nodes, a row per data source and per action saying who answers it, lowered or Rust, with the lowered body inline, and a row per component the build lowered to a render tree. The format is its own rather than serde over the runtime's types, so a field can be added to the file without the vocabulary crate gaining a dependency. `Manifest` is the file in memory and `Node` its serialized tree; a `Manifest` converts to the runtime's `PlanNode`s with `routes` and lists what a host has to bind with `sources` and `modules`. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+The plan file for SnapFire FSR: `generated/plan.sexp`, the artifact `fsr build` writes and a host reads at boot. It carries the routes as trees of nodes, a row per data source and per action saying who answers it, lowered or Rust, with the lowered body inline, and a row per component the build lowered to a render tree. The format is its own rather than serde over the runtime's types, so a field can be added to the file without the vocabulary crate gaining a dependency. `Manifest` is the file in memory and `Node` its serialized tree; a `Manifest` converts to the runtime's `PlanNode`s with `routes` and lists what a host has to bind with `sources` and `modules`. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -19,8 +19,9 @@ It depends on `snapfire_fsr_core` for the vocabulary types, `snapfire_fsr_ir` fo
 
 | What you are doing | What to reach for |
 | --- | --- |
-| Read a plan file | `Manifest::from_json` |
-| Write one | `Manifest::to_json` |
+| Read a plan file, either form | `Manifest::from_text` |
+| Write one | `Manifest::to_sexpr` |
+| Read or write the JSON an older build wrote | `Manifest::from_json`, `Manifest::to_json` |
 | Build one from routes | `Manifest::new`, `with_sources`, `with_actions`, `with_components` |
 | Turn a runtime tree into a file row | `Node::from_plan` |
 | Get the runtime's trees back | `Manifest::routes` |

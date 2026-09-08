@@ -60,7 +60,7 @@ fn main() -> Result<(), snapfire_fsr_plan::PlanError> {
 `from_json` parses, checks the version and refuses a `lowered` row with no body. Everything else is checked when the trees are built.
 
 ```rust
-let text = std::fs::read_to_string("app/generated/plan.json")?;
+let text = std::fs::read_to_string("app/generated/plan.sexp")?;
 let manifest = snapfire_fsr_plan::Manifest::from_json(&text)?;
 println!("format {} with {} routes", manifest.version, manifest.routes.len());
 ```

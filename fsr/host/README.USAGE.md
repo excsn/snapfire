@@ -46,7 +46,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **App directory** is `[app] dir` under the project root, `app` by default; every path in the configuration and everything inferred resolves against it.
 * **Config directory** is `config/`. The host loads a fixed ladder out of it through c5store, `app.toml` first and the deployment overlays after it, later files overriding earlier ones, then `C5_` environment variables over all of them. A file the ladder does not name is not read.
 * **Deployment** is three environment variables: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (unset by default). Each names an overlay file.
-* **Plan file** is `generated/plan.json`, written by `fsr build`, with routes and lowered bodies.
+* **Plan file** is `generated/plan.sexp`, written by `fsr build`, with routes and lowered bodies. A `plan.json` from an older build still reads: the reader tells the two apart by the file's first term.
 * **Contracts** are `generated/contracts/*.json`, the same build's output, one file per client document plus `schemas.json`; the host merges them at boot, refusing a type or service two files define, then checks a lowered action's input against the result.
 * **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document and gRPC for a `.proto`.
 * **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.

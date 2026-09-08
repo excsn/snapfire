@@ -65,7 +65,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
 * **Client** is a document under `clients/`, `<name>.openapi.json` or `<name>.proto`, imported as the service `<name>`; the host reaches the first over HTTP and the second over gRPC.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
-* **Generated** is `generated/`, rewritten on every build: `plan.json`, `services.d.ts`, `fsr.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
+* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `fsr.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
 * **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.
 * **Types** is `types/`, gitignored: the declarations of every package the import map names, one directory per package, written by `fsr types` and path-mapped by the generated tsconfig. Never served, never load-bearing.
 * **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; an `xwpm.wmf` in the app names its own.
@@ -102,7 +102,7 @@ actions   cart.addToCart         lowered     routes/cart/actions.ts
 services  shopping               http        clients/shopping.openapi.json
 schemas   AddToCart              schemas/cart.ts
           Session                schemas/session.ts
-wrote app/generated/plan.json
+wrote app/generated/plan.sexp
 wrote app/generated/contracts/shopping.json
 wrote app/generated/contracts/schemas.json
 wrote app/generated/services.d.ts
@@ -837,7 +837,7 @@ Ten sections, each row naming what was found and where it came from. The `extens
 
 ## Reading the Plan File
 
-`plan.json` is format 2 of `snapfire_fsr_plan`: routes with their plan trees, a `sources` table and an `actions` table, each lowered row carrying its body as IR.
+`plan.sexp` is format 2 of `snapfire_fsr_plan` in s-expressions: routes with their plan trees, a `sources` table and an `actions` table, each lowered row carrying its body as IR. `Manifest::from_text` reads it or the `plan.json` an older build wrote, told apart by the file's first term.
 
 ```json
 { "id": "cart.checkout", "owner": "lowered", "module": "routes/cart/actions.ts", "export": "checkout",

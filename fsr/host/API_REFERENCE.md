@@ -97,7 +97,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### ServerConfig
 
-* `listen` (default `127.0.0.1:8080`), `plan` (default `generated/plan.json`), `contracts` (default `generated/contracts`), a directory whose `*.json` files are merged in name order at boot.
+* `listen` (default `127.0.0.1:8080`), `plan` (default `generated/plan.sexp`), `contracts` (default `generated/contracts`), a directory whose `*.json` files are merged in name order at boot.
 * `prerender: Option<String>`: the directory, relative to the app, that `prerender` writes and the host reads; absent by default.
 * `dev: Option<bool>`: whether the document carries the live-refresh script and the host answers `/__fsr/events` and `/__fsr/changed`; absent, it follows `RELEASE_ENV`.
 * `render: String` (default `rust`): who renders a lowered component. `rust` registers the IR evaluator for it; `islands` registers none, so every lowered component falls to `NullEvaluator` and reaches the browser as a node naming its module, one region per plan child beside it. Loaders, actions, metadata, the store and the session are unaffected either way, since none of them goes through an evaluator. Any other value is a configuration error naming it.

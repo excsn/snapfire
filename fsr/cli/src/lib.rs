@@ -127,7 +127,7 @@ pub struct Report {
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
-  pub plan: Option<(usize, usize)>,
+  pub plan: Option<usize>,
 }
 
 impl fmt::Display for Report {
@@ -179,9 +179,8 @@ impl fmt::Display for Report {
     }
     section(f, "schemas", &self.schemas, "")?;
     section(f, "types", &self.types, "")?;
-    if let Some((pretty, compact)) = self.plan {
-      let kb = |n: usize| format!("{:.1} KB", n as f64 / 1024.0);
-      writeln!(f, "{:<9} {:<22} {} written, {} without whitespace", "plan", "generated/plan.json", kb(pretty), kb(compact))?;
+    if let Some(written) = self.plan {
+      writeln!(f, "{:<9} {:<22} {:.1} KB written", "plan", PLAN_FILE, written as f64 / 1024.0)?;
     }
     Ok(())
   }
@@ -202,7 +201,7 @@ fn section(f: &mut fmt::Formatter<'_>, label: &str, rows: &[(String, String)], o
 /// Where the build writes one contract file per client document plus `schemas.json`; the host merges the directory.
 pub const CONTRACTS_DIR: &str = "generated/contracts";
 /// Where the build writes the plan file.
-pub const PLAN_FILE: &str = "generated/plan.json";
+pub const PLAN_FILE: &str = "generated/plan.sexp";
 
 pub struct Options {
   /// The application as a site: every id the build emits prefixed
@@ -701,7 +700,6 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let prefix = options.prefix();
   let client = client_module(&contract, session_type, &routes, &layout_ids, &sources, &actions, &prefix, &set.consts);
   let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone());
-  report.plan = Some((manifest.to_json().len() + 1, serde_json::to_string(&manifest).expect("a manifest serializes").len() + 1));
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
@@ -713,7 +711,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     None => (manifest, contract, contracts),
   };
 
-  let mut files = vec![(PLAN_FILE.to_owned(), manifest.to_json() + "\n")];
+  let plan_text = manifest.to_sexpr();
+  report.plan = Some(plan_text.len());
+  let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {

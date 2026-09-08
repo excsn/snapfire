@@ -7,6 +7,8 @@ use snapfire_fsr_core::{CacheKey, DataSourceId, ModuleId, NodeId, PlanNode, Slot
 use snapfire_fsr_ir::ast::Consts;
 use snapfire_fsr_ir::{Body, Component};
 
+pub mod sexpr;
+
 /// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
 /// with bare action ids and no sources, still reads.
 pub const FORMAT_VERSION: u32 = 2;

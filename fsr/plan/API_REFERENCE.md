@@ -19,14 +19,16 @@ The plan file: routes, source rows, action rows and component rows as a build ar
   * [ActionEntry](#actionentry)
   * [HandlerEntry](#handlerentry)
   * [ComponentEntry](#componententry)
-* [5. Error Handling](#5-error-handling)
+* [5. The S-Expression Form](#5-the-s-expression-form)
+  * [sexpr](#sexpr)
+* [6. Error Handling](#6-error-handling)
   * [PlanError](#planerror)
 
 ## 1. Versions
 
 ### FORMAT_VERSION
 
-* `pub const FORMAT_VERSION: u32 = 2`: what `Manifest::new` stamps and `to_json` writes. Format 2 adds the `sources` table and makes actions rows.
+* `pub const FORMAT_VERSION: u32 = 2`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows.
 * A file from version 1 up to `FORMAT_VERSION` reads; anything else is `PlanError::Version`. A format 1 file's bare action ids read as `rust` rows.
 
 ## 2. The Manifest
@@ -46,7 +48,10 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 * `Manifest::with_middleware(self, middleware: Option<Body>) -> Self`
 * `Manifest::with_intercepts(self, intercepts: Vec<RouteEntry>) -> Self`
 * `Manifest::intercepts(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the intercept trees in file order, checked like routes.
-* `Manifest::from_json(source: &str) -> Result<Self, PlanError>`: parses, checks the version and refuses a `lowered` source or action row with no body.
+* `Manifest::from_text(source: &str) -> Result<Self, PlanError>`: reads either form, told apart by the file's first term: `(` is s-expressions, `{` the JSON an older build wrote. What a host should call.
+* `Manifest::from_sexpr(source: &str) -> Result<Self, PlanError>`: parses `plan.sexp`, checks the version and refuses a `lowered` source or action row with no body.
+* `Manifest::to_sexpr(&self) -> String`: the text of a `plan.sexp`, one form per row, wrapped at 100 columns.
+* `Manifest::from_json(source: &str) -> Result<Self, PlanError>`: the same over the JSON form. A non-finite float has no JSON term, so a plan carrying one only round-trips through `to_sexpr`.
 * `Manifest::to_json(&self) -> String`: pretty-printed, in field order.
 * `Manifest::routes(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the runtime's trees in file order; refuses an empty pattern, a malformed module id, a node id used twice within one route and a slot used twice on one node.
 * `Manifest::not_found(&self) -> Result<Option<PlanNode>, PlanError>`: the not-found tree, checked like a route's, at `not_found`.
@@ -120,7 +125,16 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 
 * `pub struct ComponentEntry { pub module: String, pub body: Component }`: a module lowered to a render tree, `snapfire_fsr_ir::Component`.
 
-## 5. Error Handling
+## 5. The S-Expression Form
+
+### sexpr
+
+`snapfire_fsr_plan::sexpr` is the manifest half of the format; `snapfire_fsr_ir::sexpr` is the IR half and holds the syntax type.
+
+* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then routes, intercepts, the not-found tree, middleware, rows, consts and components.
+* `manifest_from_sx(&[Sx]) -> Result<Manifest, SexprError>`: the same in reverse, with no version check; `Manifest::from_sexpr` adds it.
+
+## 6. Error Handling
 
 ### PlanError
 

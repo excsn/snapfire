@@ -62,4 +62,4 @@ The labs mostly use the report. The build and the host print the same table, eve
 
 ## The lab
 
-Run the example and read the boot report from top to bottom. Every row is a name the application declared and the thing that answers it. Then open `app/generated/plan.json` and find the same names. The report is the plan file with the host's decisions added; nothing on the screen is not in one of the two artifacts.
+Run the example and read the boot report from top to bottom. Every row is a name the application declared and the thing that answers it. Then open `app/generated/plan.sexp` and find the same names. The report is the plan file with the host's decisions added; nothing on the screen is not in one of the two artifacts.

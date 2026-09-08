@@ -8,6 +8,7 @@ pub mod ext;
 pub mod interp;
 pub mod std;
 pub mod render;
+pub mod sexpr;
 
 pub use ast::{
   ArithOp, Body, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl, ParseError, body_params_read, body_reads_ambient, body_reads_request, body_visit};
