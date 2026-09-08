@@ -1258,9 +1258,37 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let n = number(name, arg(0)?)?;
       let digits = args.get(1).map(|d| number(name, d)).transpose()?.unwrap_or(0.0).max(0.0) as usize;
       let scale = 10f64.powi(digits as i32);
-      let rounded = (n.abs() * scale + 0.5).floor() / scale;
-      let rounded = if n < 0.0 { -rounded } else { rounded };
-      Value::str(format!("{rounded:.digits$}"))
+      let scaled = (n.abs() * scale + 0.5).floor();
+      // Below 2^53 the scaled value is a whole number an f64 holds exactly, so
+      // the digits can be printed from an integer instead of through the float
+      // formatter. Anything above falls back, and negative zero keeps its sign
+      // the way `{:.digits$}` gives it.
+      match (scaled < 9007199254740992.0 && digits <= 18).then(|| scaled as u64) {
+        Some(whole) => {
+          let mut out = String::with_capacity(digits + 24);
+          if n < 0.0 {
+            out.push('-');
+          }
+          let unit = 10u64.pow(digits as u32);
+          let mut buffer = itoa::Buffer::new();
+          out.push_str(buffer.format(whole / unit));
+          if digits > 0 {
+            out.push('.');
+            let fraction = whole % unit;
+            let printed = buffer.format(fraction);
+            for _ in printed.len()..digits {
+              out.push('0');
+            }
+            out.push_str(printed);
+          }
+          Value::str(out)
+        }
+        None => {
+          let rounded = scaled / scale;
+          let rounded = if n < 0.0 { -rounded } else { rounded };
+          Value::str(format!("{rounded:.digits$}"))
+        }
+      }
     }
     Builtin::Repeat => {
       let s = text(name, arg(0)?)?;

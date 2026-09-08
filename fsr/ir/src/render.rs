@@ -332,6 +332,43 @@ fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Co
 }
 
 /// Evaluates attribute or prop entries into one map in order, later entries winning; attributes are keyed by HTML spelling so a spread's `className` and a literal `class` are one key.
+/// A component's or an island's props, built straight into the map the callee
+/// reads. The map is the deduplication, so there is no intermediate vector and
+/// no linear scan for a name already written.
+fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
+  let mut map = snapfire_fsr_core::Fields::with_capacity_and_hasher(entries.len(), Default::default());
+  for entry in entries {
+    match entry {
+      Entry::Field(name, expr) => {
+        let value = env.eval_sync(expr)?;
+        if name != "children" {
+          map.insert(name.clone(), value);
+        }
+      }
+      Entry::Spread(expr) => match env.eval_sync(expr)? {
+        Value::Map(spread) => {
+          for (name, value) in spread {
+            if name != "children" {
+              map.insert(name, value);
+            }
+          }
+        }
+        Value::Null => {}
+        other => return Err(crate::interp::type_error("spread", "an object", &other)),
+      },
+      Entry::Computed(key, expr) => {
+        let key = stringify(&env.eval_sync(key)?)?;
+        let value = env.eval_sync(expr)?;
+        if key != "children" {
+          map.insert(key, value);
+        }
+      }
+      Entry::Item(_) => return Err(Fail::internal("an item entry among props")),
+    }
+  }
+  Ok(ValueMap::from(map))
+}
+
 fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(Cow<'a, str>, Value)>, Fail> {
   let mut out: Vec<(Cow<'a, str>, Value)> = Vec::with_capacity(entries.len());
   let mut put = |name: Cow<'a, str>, value: Value| {
@@ -492,12 +529,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     }
     Tmpl::Component { module, props, children, .. } => {
       let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
-      let mut map = ValueMap::default();
-      for (name, value) in entries(env, props, false)? {
-        if name != "children" {
-          map.insert(name.into_owned(), value);
-        }
-      }
+      let map = self::props(env, props)?;
       let depth = env.scope.len();
       let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
       slots.push(Slot { children, scope: Rc::clone(&outer) });
@@ -510,12 +542,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Island { module, props, children, when, mode, id } => {
       let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
       let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
-      let mut map = ValueMap::default();
-      for (name, value) in entries(env, props, false)? {
-        if name != "children" {
-          map.insert(name.into_owned(), value);
-        }
-      }
+      let map = self::props(env, props)?;
       let depth = env.scope.len();
       let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
       slots.push(Slot { children, scope: Rc::clone(&outer) });

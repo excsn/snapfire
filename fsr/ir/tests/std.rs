@@ -172,3 +172,30 @@ fn t_reads_the_catalog_under_the_locale_with_plurals_and_placeholders() {
   assert_eq!(call("en_US", vec![s("missing.key")]), Ok(s("missing.key")));
   assert_eq!(registry.call("i18n.t", &Ambient::default(), &[s("hi")]).unwrap(), s("hi"), "no catalogs at all answers the key");
 }
+
+#[test]
+fn to_fixed_prints_from_an_integer_exactly_as_the_float_formatter_would() {
+  let interpreter = Interpreter::default();
+  let runtime = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
+  let mut checked = 0;
+  for digits in 0usize..=6 {
+    for raw in [0.0f64, -0.0, 0.5, -0.5, 1.005, 2.675, 12.345, 0.001, -0.001, 1e15, 1.0 / 3.0, 99999.99999, -1234.5678, 8.0, -8.0, 1e-9] {
+      for factor in [1.0f64, 7.0, 1234.0] {
+        let value: f64 = raw * factor;
+        let unit = 10f64.powi(digits as i32);
+        let rounded = (value.abs() * unit + 0.5).floor() / unit;
+        let rounded = if value < 0.0 { -rounded } else { rounded };
+        let expected = format!("{rounded:.digits$}");
+        let expr = Expr::Builtin {
+          name: snapfire_fsr_ir::Builtin::ToFixed,
+          args: vec![Expr::Lit(snapfire_fsr_ir::Lit::Float(value)), Expr::Lit(snapfire_fsr_ir::Lit::Int(digits as i128))],
+        };
+        let got = runtime.block_on(interpreter.evaluate(&expr, Vec::new())).expect("toFixed evaluates");
+        let Value::Str(got) = got else { panic!("toFixed answers a string") };
+        assert_eq!(&*got, expected.as_str(), "toFixed({value}, {digits})");
+        checked += 1;
+      }
+    }
+  }
+  assert!(checked > 300, "the sweep covered {checked} cases");
+}
