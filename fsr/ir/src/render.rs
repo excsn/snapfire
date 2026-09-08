@@ -805,8 +805,24 @@ fn interpolate(value: &Value, out: &mut Out) -> Result<(), Fail> {
 /// `undefined` and `false` omit it, `true` on a boolean attribute writes
 /// `name=""`, a `style` with nothing in it is omitted, anything else is
 /// stringified.
+/// Whether `name` may be written into a tag. A name is printed as it stands,
+/// and a `{...spread}` or a computed key takes one from a runtime value, so a
+/// name carrying a space or a quote would close the attribute and start
+/// another: `{"x onerror=alert(1)": 1}` spread onto an element was an event
+/// handler. Anything holding a character that ends a name is dropped, the way
+/// React drops one it cannot write.
+fn writable_attr_name(name: &str) -> bool {
+  !name.is_empty()
+    && !name.chars().any(|c| {
+      c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '>' | '<' | '/' | '=' | '&')
+    })
+}
+
 fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
   if matches!(value, Value::Null | Value::Bool(false)) {
+    return Ok(());
+  }
+  if !writable_attr_name(name) {
     return Ok(());
   }
   if name == "style" {
