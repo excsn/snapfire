@@ -30,6 +30,39 @@ The bench prepares the app the way `fsr test` does, compiling the pages into `ap
 
 ## Results
 
+### 2026-09-07, `8bf357a`, MacBook M4 Pro
+
+Every group re-run back to back on one machine state, powermode 2, load 1.82 at the start and 3.61 at the end. The fidelity line read `identical` on all three pages in every group. This run follows a day of renderer work: the catalogue went from 992.74 µs to 127.67 µs on the system allocator, **7.8x**, and to 82.29 µs with mimalloc under it.
+
+The allocator is a bench feature, `cargo bench --features mimalloc`, not something the library or the host sets. Both columns are shown because the choice is a deployment one and it is worth about 1.5x.
+
+**Warm render, median**
+
+| Page | QuickJS | React in V8 | IR, system malloc | IR, mimalloc | IR against QuickJS |
+| --- | --- | --- | --- | --- | --- |
+| catalog, 12 products | 1.8609 ms | 131.79 µs | 127.67 µs | **82.29 µs** | **22.6x** |
+| product | 368.76 µs | 18.17 µs | 17.99 µs | **12.55 µs** | **29.4x** |
+| cart, 3 lines | 425.67 µs | 11.54 µs | 19.50 µs | **12.72 µs** | **33.5x** |
+
+QuickJS is quoted under mimalloc so both renderers get the same allocator. On the system allocator it is 1.8657 ms, 353.64 µs and 407.73 µs, within noise of the mimalloc column, which is itself worth noting: the engine's own allocation dominates whatever the process allocator does.
+
+**With the props decoded per request**, which is what an engine path would actually pay: 2.0061 ms, 391.88 µs and 466.96 µs. The decode is 8% to 10% on top.
+
+**Cold start**
+
+| | catalog | product | cart |
+| --- | --- | --- | --- |
+| `quickjs/cold_context`, a fresh context in a warm process | 29.255 ms | 29.400 ms | 28.398 ms |
+| `v8/cold_process`, a whole node process and its module graph | 68.46 ms | 68.38 ms | 57.90 ms |
+
+These are different units and neither is the other's answer. The honest comparison for V8 would be a `vm` context in a warm node process, which is not measured.
+
+**Controls.** `quickjs/eval_overhead` is 1.02 µs, the `eval_string` call every QuickJS row pays, so 0.05% of the catalog row and 0.3% of the product row. `ir/load_components` is 135.55 µs, paid once at boot rather than per render.
+
+**How to read the V8 column.** These pages are markup-heavy: they loop over data and emit tags. A component doing real arithmetic is precisely where a JIT wins, and no such page is measured here. The claim the numbers support is narrower than a general speed claim: for server-rendering markup, an interpreter that skipped the JavaScript object model at build time does less work than a JIT that cannot. One machine, one architecture, warm render only.
+
+The V8 rows are `benches/render.node.mjs` under node v26.8.1, 2000 samples after 500 warmups, run with `/Users/norm/n/bin/node` since a plain `node` on this machine is an older version.
+
 ### 2026-09-03, `780be15`, MacBook M4 Pro
 
 Criterion, release profile, one run. The fidelity line read `DIFFERENT` on all three pages: the IR wrote `disabled` where React writes `disabled=""`, `<input>` where React writes `<input/>` and `selected` before `value` on an option. All three were serialisation only and the renderer now matches React byte for byte, which the `--test` pass confirmed as `identical` for every page. The timings below are from before that change; it adds a few bytes per page and nothing else.
