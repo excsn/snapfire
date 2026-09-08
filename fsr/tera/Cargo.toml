@@ -18,7 +18,7 @@ snapfire_fsr_core.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_runtime.workspace = true
 tera = { version = "2", features = ["fast"] }
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 base64 = "0.22"
 futures-util = "0.3"
 

@@ -21,7 +21,7 @@ fibre_cache = "0.4"
 indexmap = "2"
 matchit = "0.8"
 parking_lot = "0.12"
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"
 tracing = "0.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

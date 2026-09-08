@@ -31,7 +31,7 @@ futures-util = "0.3"
 parking_lot = "0.12"
 notify = "8"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 snapfire_fsr_core.workspace = true
 snapfire_fsr_engine.workspace = true
 snapfire_fsr_host.workspace = true

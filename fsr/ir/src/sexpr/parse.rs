@@ -7,11 +7,17 @@ pub(super) struct Parser<'a> {
   src: &'a [u8],
   pos: usize,
   line: usize,
+  depth: usize,
 }
+
+/// How deep a file may nest. `form` recurses, so without a bound a file of
+/// nothing but `(` overflows the stack, which aborts the process rather than
+/// erroring. The deepest tree any real plan has reached is 23.
+const MAX_DEPTH: usize = 256;
 
 /// Every top-level form in `src`.
 pub fn parse(src: &str) -> Res<Vec<Sx>> {
-  let mut p = Parser { src: src.as_bytes(), pos: 0, line: 1 };
+  let mut p = Parser { src: src.as_bytes(), pos: 0, line: 1, depth: 0 };
   let mut out = Vec::new();
   loop {
     p.skip_trivia();
@@ -41,7 +47,20 @@ impl<'a> Parser<'a> {
     }
   }
 
+  /// Every nested form goes through here, so one counter bounds the recursion
+  /// however the file is shaped.
   fn form(&mut self) -> Res<Sx> {
+    self.skip_trivia();
+    if self.depth >= MAX_DEPTH {
+      return Err(SexprError::at(self.line, format!("nested deeper than {MAX_DEPTH}")));
+    }
+    self.depth += 1;
+    let out = self.form_inner();
+    self.depth -= 1;
+    out
+  }
+
+  fn form_inner(&mut self) -> Res<Sx> {
     self.skip_trivia();
     let line = self.line;
     match self.src.get(self.pos) {

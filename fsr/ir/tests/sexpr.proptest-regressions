@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc cc1d7c8dcba7cf9540d9fb88288e807814770fa81e13bb6889336c81340a7c08 # shrinks to form = Interp(Sym("#"))
+cc 5d7be653a11ed53d32e71aa45879fba8877ee312b34c84127b4cd472949f0d71 # shrinks to c = '¡'
+cc a5a96d37af130d6dec633d46020251d042999600216dd0985fe83cf552e574be # shrinks to form = List([List([Str("¡")])]), bytes = [48]

@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc ef9a3a237b9196d71e2531f17d2ac1a6b833c28521cb4b42fc3d4c18d8b157c8 # shrinks to v = Seq([Map({"": F64(-1.1630018828911409e30)})])
+cc 7a4bcf47ebf5f8da37fdc3df8582ce89a456c7c54a068c34ee8f55488452de2f # shrinks to n = Client { module: ModuleId { path: "m.tsx", export: "default" }, props: {"": Seq([F64(2.0880027973515285e-173)])}, children: [], ssr: None }

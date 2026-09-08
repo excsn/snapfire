@@ -23,7 +23,7 @@ snapfire_fsr_core.workspace = true
 snapfire_fsr_host.workspace = true
 flate2 = "1.1.10"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 tar = "0.4.46"
 thiserror = "2"

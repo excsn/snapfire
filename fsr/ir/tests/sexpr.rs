@@ -690,3 +690,26 @@ proptest! {
     prop_assert_eq!(once, twice);
   }
 }
+
+/// Nesting is bounded. `form` recurses, so without a limit a file of nothing
+/// but `(` overflows the stack, and a stack overflow aborts the process: a
+/// corrupt plan file would take the host down at boot with no error to report.
+/// The deepest tree any real plan has reached is 23.
+#[test]
+fn a_deeply_nested_file_is_refused_rather_than_crashing() {
+  for n in [300usize, 10_000, 200_000] {
+    let err = parse(&"(".repeat(n)).expect_err("must not parse").to_string();
+    assert!(err.contains("nested deeper than"), "{n}: {err}");
+  }
+  let err = parse(&"{".repeat(10_000)).expect_err("must not parse").to_string();
+  assert!(err.contains("nested deeper than"), "{err}");
+}
+
+/// The bound is above anything a plan reaches and below anything that hurts.
+#[test]
+fn nesting_up_to_the_bound_still_reads() {
+  let deep = format!("{}{}", "(".repeat(255), ")".repeat(255));
+  assert!(parse(&deep).is_ok(), "255 deep must read");
+  let over = format!("{}{}", "(".repeat(257), ")".repeat(257));
+  assert!(parse(&over).is_err(), "257 deep must not");
+}
