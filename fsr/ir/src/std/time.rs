@@ -86,7 +86,7 @@ fn format(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "time.format";
   let ms = number(what, args, 0)?;
   let pattern = text(what, args, 1)?;
-  Ok(Value::Str(format_utc(ms, pattern)))
+  Ok(Value::str(format_utc(ms, pattern)))
 }
 
 pub fn format_utc(ms: f64, pattern: &str) -> String {

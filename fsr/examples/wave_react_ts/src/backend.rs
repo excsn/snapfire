@@ -45,11 +45,11 @@ pub fn seed() -> Vec<Wave> {
 
 fn summary(wave: &Wave) -> Value {
   let mut map = ValueMap::default();
-  map.insert("id".to_owned(), Value::Str(wave.id.clone()));
-  map.insert("title".to_owned(), Value::Str(wave.title.clone()));
-  map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::Str(who.clone())).collect()));
+  map.insert("id".to_owned(), Value::str(wave.id.clone()));
+  map.insert("title".to_owned(), Value::str(wave.title.clone()));
+  map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::str(who.clone())).collect()));
   map.insert("blips".to_owned(), Value::F64(wave.blips.len() as f64));
-  map.insert("last".to_owned(), Value::Str(wave.blips.last().map(|blip| blip.at.clone()).unwrap_or_default()));
+  map.insert("last".to_owned(), Value::str(wave.blips.last().map(|blip| blip.at.clone()).unwrap_or_default()));
   Value::Map(map)
 }
 
@@ -71,7 +71,7 @@ fn people(field: &Field) -> Value {
         let mut map = ValueMap::default();
         map.insert("here".to_owned(), Value::Bool(here.contains(&name)));
         map.insert("waves".to_owned(), Value::F64(waves));
-        map.insert("name".to_owned(), Value::Str(name));
+        map.insert("name".to_owned(), Value::str(name));
         Value::Map(map)
       })
       .collect(),
@@ -91,13 +91,13 @@ fn under(field: &Field, view: &str, who: &str) -> Value {
 
 fn blip_value(blip: &Blip, depth: f64) -> Value {
   let mut map = ValueMap::default();
-  map.insert("id".to_owned(), Value::Str(blip.id.to_string()));
-  map.insert("parent".to_owned(), Value::Str(blip.parent.clone()));
-  map.insert("who".to_owned(), Value::Str(blip.who.clone()));
-  map.insert("body".to_owned(), Value::Str(blip.body.clone()));
-  map.insert("at".to_owned(), Value::Str(blip.at.clone()));
-  map.insert("edited".to_owned(), Value::Str(blip.edited.clone()));
-  map.insert("editors".to_owned(), Value::Seq(blip.editors.iter().map(|who| Value::Str(who.clone())).collect()));
+  map.insert("id".to_owned(), Value::str(blip.id.to_string()));
+  map.insert("parent".to_owned(), Value::str(blip.parent.clone()));
+  map.insert("who".to_owned(), Value::str(blip.who.clone()));
+  map.insert("body".to_owned(), Value::str(blip.body.clone()));
+  map.insert("at".to_owned(), Value::str(blip.at.clone()));
+  map.insert("edited".to_owned(), Value::str(blip.edited.clone()));
+  map.insert("editors".to_owned(), Value::Seq(blip.editors.iter().map(|who| Value::str(who.clone())).collect()));
   map.insert("depth".to_owned(), Value::F64(depth));
   Value::Map(map)
 }
@@ -119,16 +119,16 @@ fn threaded(blips: &[Blip]) -> Vec<Value> {
 fn wave_value(field: &Field, id: &str) -> Option<Value> {
   let wave = field.waves.get(id)?;
   let mut map = ValueMap::default();
-  map.insert("id".to_owned(), Value::Str(wave.id.clone()));
-  map.insert("title".to_owned(), Value::Str(wave.title.clone()));
-  map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::Str(who.clone())).collect()));
+  map.insert("id".to_owned(), Value::str(wave.id.clone()));
+  map.insert("title".to_owned(), Value::str(wave.title.clone()));
+  map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::str(who.clone())).collect()));
   map.insert("blips".to_owned(), Value::seq(threaded(&wave.blips)));
   Some(Value::Map(map))
 }
 
 fn string(args: &ValueMap, key: &str) -> String {
   match args.get(key) {
-    Some(Value::Str(text)) => text.clone(),
+    Some(Value::Str(text)) => text.to_string(),
     _ => String::new(),
   }
 }

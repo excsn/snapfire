@@ -39,7 +39,7 @@ impl Wire {
         let _ = self.presence.try_send(PresenceEvent::Joined { agent: plaza::Agent::Human(who.connection), conn_id: who.connection });
         if let Some(wave) = who.topic.strip_prefix("wave/") {
           let name = match who.session.get("name") {
-            Some(Value::Str(name)) => name,
+            Some(Value::Str(name)) => name.to_string(),
             _ => String::new(),
           };
           self.submit(who.connection, Op::Watch { wave: wave.to_owned(), name });
@@ -126,16 +126,16 @@ impl Session<Op, Conn> for Wire {
 fn rows_of(op: &Op) -> Vec<Row> {
   match op {
     Op::View(view) => {
-      let here = Value::Seq(view.here.iter().map(|who| Value::Str(who.clone())).collect());
+      let here = Value::Seq(view.here.iter().map(|who| Value::str(who.clone())).collect());
       let drafts = Value::Seq(
         view
           .drafts
           .iter()
           .map(|draft| {
             let mut map = ValueMap::default();
-            map.insert("who".to_owned(), Value::Str(draft.who.clone()));
-            map.insert("parent".to_owned(), Value::Str(draft.parent.clone()));
-            map.insert("body".to_owned(), Value::Str(draft.body.clone()));
+            map.insert("who".to_owned(), Value::str(draft.who.clone()));
+            map.insert("parent".to_owned(), Value::str(draft.parent.clone()));
+            map.insert("body".to_owned(), Value::str(draft.body.clone()));
             Value::Map(map)
           })
           .collect(),
@@ -146,9 +146,9 @@ fn rows_of(op: &Op) -> Vec<Row> {
           .iter()
           .map(|edit| {
             let mut map = ValueMap::default();
-            map.insert("blip".to_owned(), Value::Str(edit.blip.clone()));
-            map.insert("who".to_owned(), Value::Str(edit.who.clone()));
-            map.insert("body".to_owned(), Value::Str(edit.body.clone()));
+            map.insert("blip".to_owned(), Value::str(edit.blip.clone()));
+            map.insert("who".to_owned(), Value::str(edit.who.clone()));
+            map.insert("body".to_owned(), Value::str(edit.body.clone()));
             Value::Map(map)
           })
           .collect(),
@@ -169,7 +169,7 @@ fn blip_of(row: &Row) -> String {
 
 fn text(map: &ValueMap, key: &str) -> String {
   match map.get(key) {
-    Some(Value::Str(text)) => text.clone(),
+    Some(Value::Str(text)) => text.to_string(),
     _ => String::new(),
   }
 }

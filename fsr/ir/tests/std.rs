@@ -12,7 +12,7 @@ fn call(locale: &str, name: &str, args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn s(text: &str) -> Value {
-  Value::Str(text.to_owned())
+  Value::str(text.to_owned())
 }
 
 fn n(f: f64) -> Value {
@@ -136,7 +136,7 @@ async fn an_ext_expression_runs_through_the_interpreter_under_its_locale() {
   assert!(err.message.contains("extension `fmt.pretty` is not registered"), "{}", err.message);
 
   let mut extensions = Extensions::standard();
-  extensions.register("fmt.pretty", Reach::Render, |ambient, args| Ok(Value::Str(format!("{}:{}", ambient.bcp47(), args.len()))));
+  extensions.register("fmt.pretty", Reach::Render, |ambient, args| Ok(Value::str(format!("{}:{}", ambient.bcp47(), args.len()))));
   let interpreter = Interpreter::default().with_extensions(Arc::new(extensions));
   assert_eq!(interpreter.evaluate(&missing, Vec::new()).await.unwrap(), s("en:0"));
   assert!(interpreter.extensions().contains("fmt.pretty"));

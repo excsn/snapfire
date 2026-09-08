@@ -260,7 +260,7 @@ struct Panes;
 impl Evaluator for Panes {
   fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks {
     let view = match props.get("view") {
-      Some(Value::Str(v)) => v.clone(),
+      Some(Value::Str(v)) => v.to_string(),
       _ => String::new(),
     };
     Box::pin(stream::iter(match module.path.as_str() {

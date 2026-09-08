@@ -22,7 +22,7 @@ fn queue_label_ext(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(Value::F32(f)) => *f as f64,
     other => return Err(Fail::new(snapfire_fsr_runtime::FailureKind::Internal, format!("fleet.queueLabel takes a number, got {other:?}"))),
   };
-  Ok(Value::Str(queue_label(depth)))
+  Ok(Value::str(queue_label(depth)))
 }
 
 /// Registers every pair on `builder`.

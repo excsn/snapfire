@@ -7,7 +7,7 @@ use crate::ext::{number, text, Ambient, Extensions, Reach};
 use crate::interp::Fail;
 
 pub fn register(extensions: &mut Extensions) {
-  extensions.register("crypto.hash", Reach::Render, |_, args| Ok(Value::Str(hash(text("crypto.hash", args, 0)?))));
+  extensions.register("crypto.hash", Reach::Render, |_, args| Ok(Value::str(hash(text("crypto.hash", args, 0)?))));
   extensions.register("crypto.verify", Reach::Render, verify);
   extensions.register("crypto.random", Reach::Body, random);
 }
@@ -43,5 +43,5 @@ fn random(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let n = number(what, args, 0)?.clamp(0.0, 1024.0) as usize;
   let mut buf = vec![0u8; n];
   getrandom::fill(&mut buf).map_err(|e| Fail::internal(format!("{what}: {e}")))?;
-  Ok(Value::Str(hex(&buf)))
+  Ok(Value::str(hex(&buf)))
 }

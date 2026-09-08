@@ -134,7 +134,7 @@ pub fn value_to_json(value: &Value) -> Json {
       }
     }
     Value::F64(v) => f64_to_json(*v),
-    Value::Str(v) => json!(v),
+    Value::Str(v) => json!(v.as_str()),
     Value::Bytes(v) => tag("b", vec![("v", json!(B64.encode(v)))]),
     Value::TypedArray(a) => tag(
       "ta",
@@ -255,7 +255,7 @@ pub fn json_to_value(json: &Json) -> Result<Value, DecodeError> {
         Ok(Value::F64(n.as_f64().ok_or_else(|| err("unrepresentable number"))?))
       }
     }
-    Json::String(v) => Ok(Value::Str(v.clone())),
+    Json::String(v) => Ok(Value::str(v.clone())),
     Json::Array(items) => {
       let mut out = Vec::with_capacity(items.len());
       for item in items {

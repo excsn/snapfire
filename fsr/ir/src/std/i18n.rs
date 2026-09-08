@@ -65,5 +65,5 @@ fn t(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   };
   let found = ambient.catalogs.as_ref().and_then(|catalogs| candidates(key, category.as_deref()).into_iter().find_map(|k| catalogs.lookup(&ambient.locale, &k).map(str::to_owned)));
   let text = found.unwrap_or_else(|| key.to_owned());
-  Ok(Value::Str(interpolate(&text, options)?))
+  Ok(Value::str(interpolate(&text, options)?))
 }

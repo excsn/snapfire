@@ -187,7 +187,7 @@ impl Preflight {
         let Value::Str(value) = value else {
           return Err(format!("middleware header `{name}` must be a string"));
         };
-        headers.push((name.clone(), value.clone()));
+        headers.push((name.clone(), value.to_string()));
       }
     }
     let status = match map.get("status") {
@@ -205,7 +205,7 @@ impl Preflight {
     let text = |key: &str| -> Result<Option<String>, String> {
       match map.get(key) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::Str(s)) => Ok(Some(s.clone())),
+        Some(Value::Str(s)) => Ok(Some(s.to_string())),
         Some(other) => Err(format!("middleware `{key}` must be a string, found {}", kind_of(other))),
       }
     };
@@ -1437,15 +1437,15 @@ impl Host {
     let internal = |message: String| ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message);
     let request = |path: &str, site: Option<&SiteTables>| {
       let mut request = ValueMap::default();
-      request.insert("method".to_owned(), Value::Str(method.to_ascii_uppercase()));
-      request.insert("path".to_owned(), Value::Str(path.to_owned()));
+      request.insert("method".to_owned(), Value::str(method.to_ascii_uppercase()));
+      request.insert("path".to_owned(), Value::str(path.to_owned()));
       request.insert(
         "payload".to_owned(),
         Value::Bool(raw_query.split('&').any(|p| p == "__payload")),
       );
       request.insert(
         "site".to_owned(),
-        site.map(|s| Value::Str(s.name.clone())).unwrap_or(Value::Null),
+        site.map(|s| Value::str(s.name.clone())).unwrap_or(Value::Null),
       );
       Value::Map(request)
     };
@@ -2062,7 +2062,7 @@ impl Host {
             .status(status)
             .body(Body::default())
             .expect("an empty response"),
-          Value::Str(text) => text_response(status, text.clone()),
+          Value::Str(text) => text_response(status, text.to_string()),
           other => json_response(status, &snapfire_fsr_payload::value_to_json(other)),
         };
         with_headers(&mut response, &preflight.headers);
@@ -2102,7 +2102,7 @@ impl Host {
         let input = if is_form {
           let mut fields = form_params(req.body());
           let token = match fields.shift_remove("_csrf") {
-            Some(Value::Str(token)) => token,
+            Some(Value::Str(token)) => token.to_string(),
             _ => String::new(),
           };
           if !self.sessions.verify_csrf(&opened.id, &token) {
@@ -2945,7 +2945,7 @@ pub fn island_step(
   if !locale.is_empty() {
     props
       .entry("locale".to_owned())
-      .or_insert_with(|| Value::Str(locale.to_owned()));
+      .or_insert_with(|| Value::str(locale.to_owned()));
   }
   match evaluator
     .interpreter()
@@ -3025,13 +3025,13 @@ fn percent_decoded(segment: &str) -> String {
 
 fn form_params(body: &[u8]) -> ValueMap {
   form_urlencoded::parse(body)
-    .map(|(k, v)| (k.into_owned(), Value::Str(v.into_owned())))
+    .map(|(k, v)| (k.into_owned(), Value::str(v.into_owned())))
     .collect()
 }
 
 fn form_field(body: &[u8], name: &str) -> Option<String> {
   match form_params(body).get(name) {
-    Some(Value::Str(value)) => Some(value.clone()),
+    Some(Value::Str(value)) => Some(value.to_string()),
     _ => None,
   }
 }
@@ -3040,7 +3040,7 @@ fn form_field(body: &[u8], name: &str) -> Option<String> {
 /// JSON object on a POST.
 fn callback_params(req: &Request<Bytes>, query: &Params) -> Result<ValueMap, String> {
   if req.method() == Method::GET {
-    return Ok(query.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect());
+    return Ok(query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect());
   }
   let content_type = req
     .headers()

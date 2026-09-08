@@ -18,7 +18,7 @@ pub struct Call {
 
 impl Call {
   pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
-    self.metadata.insert(key.into(), Value::Str(value.into()));
+    self.metadata.insert(key.into(), Value::str(value.into()));
   }
 
   pub fn metadata_str(&self, key: &str) -> Option<&str> {

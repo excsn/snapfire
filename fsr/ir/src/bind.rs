@@ -138,7 +138,7 @@ impl Metadata for IrMeta {
         return Err(LoadError { source_id: id, message: format!("meta must return an object, got {}", kind_name(&outcome.value)) });
       };
       let text = |key: &str| match map.get(key) {
-        Some(Value::Str(s)) => Ok(Some(s.clone())),
+        Some(Value::Str(s)) => Ok(Some(s.to_string())),
         None | Some(Value::Null) => Ok(None),
         Some(other) => Err(LoadError { source_id: id.clone(), message: format!("meta.{key} must be a string, got {}", kind_name(other)) }),
       };
@@ -175,7 +175,7 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
     }
     let text = match value {
       Value::Null => continue,
-      Value::Str(s) => s.clone(),
+      Value::Str(s) => s.to_string(),
       Value::F64(n) => n.to_string(),
       Value::Int(n) => n.to_string(),
       Value::Bool(b) => b.to_string(),
@@ -190,7 +190,7 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
     }
     attrs.push((key.clone(), text));
   }
-  Ok(HeadEl { tag: tag.clone(), attrs, children })
+  Ok(HeadEl { tag: tag.to_string(), attrs, children })
 }
 
 /// A lowered `store` seeding the browser's store from its loader's data,

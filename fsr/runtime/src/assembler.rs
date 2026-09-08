@@ -260,7 +260,7 @@ struct Loaded {
 fn params_value(params: &Params) -> Value {
   let mut map = ValueMap::default();
   for (k, v) in params {
-    map.insert(k.clone(), Value::Str(v.clone()));
+    map.insert(k.clone(), Value::str(v.clone()));
   }
   Value::Map(map)
 }
@@ -440,7 +440,7 @@ impl Session {
     };
     let mut props = ValueMap::default();
     self.inject_ctx_props(&mut props);
-    props.insert("error".to_owned(), Value::Str(failure.to_string()));
+    props.insert("error".to_owned(), Value::str(failure.to_string()));
     let chunks: Vec<Chunk> = self
       .runtime
       .evaluators
@@ -626,13 +626,13 @@ impl Session {
   fn inject_ctx_props(&self, props: &mut Data) {
     props.insert("params".to_owned(), params_value(&self.ctx.params));
     if !self.ctx.locale.tag.is_empty() {
-      props.insert("locale".to_owned(), Value::Str(self.ctx.locale.tag.clone()));
+      props.insert("locale".to_owned(), Value::str(self.ctx.locale.tag.clone()));
     }
     if let Some(identity) = self.ctx.identity_value() {
       props.insert("identity".to_owned(), identity);
     }
     if let Some(csrf) = &self.ctx.csrf {
-      props.insert("csrf_token".to_owned(), Value::Str(csrf.clone()));
+      props.insert("csrf_token".to_owned(), Value::str(csrf.clone()));
     }
   }
 
@@ -778,7 +778,7 @@ impl Session {
           .iter()
           .map(|(name, _)| name)
           .chain(&node.keep)
-          .map(|name| Value::Str(name.0.clone()))
+          .map(|name| Value::str(name.0.clone()))
           .collect();
         props.insert("$slots".to_owned(), Value::Seq(slots));
       }

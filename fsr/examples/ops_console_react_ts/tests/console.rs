@@ -55,7 +55,7 @@ fn signed(subject: &str, role: &str) -> Value {
   let mut map = ValueMap::default();
   map.insert("subject".to_owned(), Value::str(subject));
   map.insert("claims".to_owned(), Value::Map(claims));
-  map.insert("access_token".to_owned(), Value::Str(format!("svc-token-{subject}")));
+  map.insert("access_token".to_owned(), Value::str(format!("svc-token-{subject}")));
   Value::Map(map)
 }
 

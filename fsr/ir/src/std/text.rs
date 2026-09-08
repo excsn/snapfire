@@ -9,7 +9,7 @@ use crate::ext::{number, text, text_opt, Ambient, Extensions, Reach};
 use crate::interp::Fail;
 
 pub fn register(extensions: &mut Extensions) {
-  extensions.register("text.slug", Reach::Render, |_, args| Ok(Value::Str(slug(text("text.slug", args, 0)?))));
+  extensions.register("text.slug", Reach::Render, |_, args| Ok(Value::str(slug(text("text.slug", args, 0)?))));
   extensions.register("text.truncate", Reach::Render, truncate);
 }
 
@@ -41,9 +41,9 @@ fn truncate(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let ellipsis = text_opt(what, args, 2)?.unwrap_or("…");
   let count = s.chars().count();
   if count <= max {
-    return Ok(Value::Str(s.to_owned()));
+    return Ok(Value::str(s.to_owned()));
   }
   let mut out: String = s.chars().take(max).collect();
   out.push_str(ellipsis);
-  Ok(Value::Str(out))
+  Ok(Value::str(out))
 }

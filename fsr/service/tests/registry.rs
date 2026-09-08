@@ -171,7 +171,7 @@ fn a_local_implementation_is_the_same_machinery() {
     .contract(contract())
     .default_transport(Arc::new(LocalTransport::new().method("fleet.get", |call| async move {
       let name = match call.args.get("name") {
-        Some(Value::Str(name)) => name.clone(),
+        Some(Value::Str(name)) => name.to_string(),
         _ => unreachable!("the contract checked this"),
       };
       Ok(server(&name, 0.25))

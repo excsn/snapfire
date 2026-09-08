@@ -125,7 +125,7 @@ impl Interpreter {
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
-        map.insert("subject".to_owned(), Value::Str(id.subject));
+        map.insert("subject".to_owned(), Value::str(id.subject));
         map.insert("claims".to_owned(), Value::Map(id.claims));
         Value::Map(map)
       }),
@@ -218,40 +218,49 @@ impl Hoists {
   /// The region key of an island placement, numbered apart from the hoist
   /// candidates and marked `i` so the two namespaces cannot be read as one.
   pub fn island_key(&self, id: u32) -> String {
-    self.keyed(&format!("i{id}"))
+    let mut digits = itoa::Buffer::new();
+    let mut marked = String::with_capacity(12);
+    marked.push('i');
+    marked.push_str(digits.format(id));
+    self.keyed(&marked)
   }
 
   pub fn key(&self, id: u32) -> String {
-    self.keyed(&id.to_string())
+    let mut digits = itoa::Buffer::new();
+    self.keyed(digits.format(id))
   }
 
   fn keyed(&self, id: &str) -> String {
-    let mut key = format!("{}|{id}", self.module);
+    let mut key = String::with_capacity(self.module.len() + id.len() + 2 + self.path.len() * 3);
+    key.push_str(&self.module);
+    key.push('|');
+    key.push_str(id);
     if !self.path.is_empty() {
       key.push('@');
       for (i, index) in self.path.iter().enumerate() {
         if i > 0 {
           key.push('.');
         }
-        key.push_str(&index.to_string());
+        let mut digits = itoa::Buffer::new();
+        key.push_str(digits.format(*index));
       }
     }
     key
   }
 
-  pub fn record(&mut self, id: u32, value: &Value) {
+  pub fn record(&mut self, id: u32, value: Value) {
     let key = self.key(id);
     if self.dead.contains(&key) {
       return;
     }
     match self.table.get(&key) {
-      Some(existing) if existing == value => {}
+      Some(existing) if *existing == value => {}
       Some(_) => {
         self.table.shift_remove(&key);
         self.dead.push(key);
       }
       None => {
-        self.table.insert(key, value.clone());
+        self.table.insert(key, value);
       }
     }
   }
@@ -314,7 +323,7 @@ impl Env {
     if self.ctx.locale.tag.is_empty() {
       Value::Null
     } else {
-      Value::Str(self.ctx.locale.tag.clone())
+      Value::str(self.ctx.locale.tag.clone())
     }
   }
 
@@ -471,12 +480,12 @@ impl Env {
           None => Err(Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))),
         }
       }
-      Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
-      Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
+      Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
+      Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Locale => Ok(self.locale()),
-      Expr::Path => Ok(Value::Str(self.ctx.path.clone())),
+      Expr::Path => Ok(Value::str(self.ctx.path.clone())),
       Expr::Identity(path) => {
         let mut current = self.identity.clone().unwrap_or(Value::Null);
         for step in path {
@@ -492,7 +501,7 @@ impl Env {
         Lit::Bool(b) => Value::Bool(*b),
         Lit::Int(n) => Value::Int(*n),
         Lit::Float(f) => Value::F64(*f),
-        Lit::Str(s) => Value::Str(s.clone()),
+        Lit::Str(s) => Value::str(s.clone()),
       }),
       Expr::Object(entries) => {
         let mut map = ValueMap::default();
@@ -504,7 +513,7 @@ impl Env {
             }
             Entry::Computed(k, e) => {
               let key = match self.eval_sync(k)? {
-                Value::Str(s) => s,
+                Value::Str(s) => s.to_string(),
                 other => return Err(type_error("a computed key", "a string", &other)),
               };
               let v = self.eval_sync(e)?;
@@ -575,7 +584,7 @@ impl Env {
         for part in parts {
           out.push_str(&stringify(&self.eval_sync(part)?)?);
         }
-        Ok(Value::Str(out))
+        Ok(Value::str(out))
       }
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
       Expr::NativeCall { module, method, args, sync } => {
@@ -600,7 +609,7 @@ impl Env {
       Expr::Hoist { id, expr } => {
         let value = self.eval_sync(expr)?;
         if let Some(hoists) = &mut self.hoists {
-          hoists.record(*id, &value);
+          hoists.record(*id, value.clone());
         }
         Ok(value)
       }
@@ -689,12 +698,12 @@ impl Env {
       }
       Expr::Entries(e) => match self.eval_sync(e)? {
         Value::Map(map) => Ok(Value::Seq(
-          map.into_iter().map(|(k, v)| Value::seq(vec![Value::Str(k), v])).collect(),
+          map.into_iter().map(|(k, v)| Value::seq(vec![Value::str(k), v])).collect(),
         )),
         other => Err(type_error("Object.entries", "an object", &other)),
       },
       Expr::Keys(e) => match self.eval_sync(e)? {
-        Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::Str).collect())),
+        Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::str).collect())),
         other => Err(type_error("Object.keys", "an object", &other)),
       },
       Expr::Values(e) => match self.eval_sync(e)? {
@@ -707,7 +716,7 @@ impl Env {
         Value::Map(map) => Ok(Value::F64(map.len() as f64)),
         other => Err(type_error("length", "an array, a string or an object", &other)),
       },
-      Expr::Str(e) => stringify(&self.eval_sync(e)?).map(Value::Str),
+      Expr::Str(e) => stringify(&self.eval_sync(e)?).map(Value::str),
       Expr::Num(e) => match self.eval_sync(e)? {
         Value::Int(n) => Ok(Value::F64(n as f64)),
         Value::UInt(n) => Ok(Value::F64(n as f64)),
@@ -772,12 +781,12 @@ impl Env {
             None => Err(Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))),
           }
         }
-        Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
-        Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::Str(s.clone())).unwrap_or(Value::Null)),
+        Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
+        Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Locale => Ok(self.locale()),
-        Expr::Path => Ok(Value::Str(self.ctx.path.clone())),
+        Expr::Path => Ok(Value::str(self.ctx.path.clone())),
         Expr::Identity(path) => {
           let mut current = self.identity.clone().unwrap_or(Value::Null);
           for step in path {
@@ -793,7 +802,7 @@ impl Env {
           Lit::Bool(b) => Value::Bool(*b),
           Lit::Int(n) => Value::Int(*n),
           Lit::Float(f) => Value::F64(*f),
-          Lit::Str(s) => Value::Str(s.clone()),
+          Lit::Str(s) => Value::str(s.clone()),
         }),
         Expr::Object(entries) => {
           let mut map = ValueMap::default();
@@ -805,7 +814,7 @@ impl Env {
               }
               Entry::Computed(k, e) => {
                 let key = match self.eval(k).await? {
-                  Value::Str(s) => s,
+                  Value::Str(s) => s.to_string(),
                   other => return Err(type_error("a computed key", "a string", &other)),
                 };
                 let v = self.eval(e).await?;
@@ -876,7 +885,7 @@ impl Env {
           for part in parts {
             out.push_str(&stringify(&self.eval(part).await?)?);
           }
-          Ok(Value::Str(out))
+          Ok(Value::str(out))
         }
         Expr::Call { service, method, args } => {
           let mut map = ValueMap::default();
@@ -996,12 +1005,12 @@ impl Env {
         }
         Expr::Entries(e) => match self.eval(e).await? {
           Value::Map(map) => Ok(Value::Seq(
-            map.into_iter().map(|(k, v)| Value::seq(vec![Value::Str(k), v])).collect(),
+            map.into_iter().map(|(k, v)| Value::seq(vec![Value::str(k), v])).collect(),
           )),
           other => Err(type_error("Object.entries", "an object", &other)),
         },
         Expr::Keys(e) => match self.eval(e).await? {
-          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::Str).collect())),
+          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::str).collect())),
           other => Err(type_error("Object.keys", "an object", &other)),
         },
         Expr::Values(e) => match self.eval(e).await? {
@@ -1014,7 +1023,7 @@ impl Env {
           Value::Map(map) => Ok(Value::F64(map.len() as f64)),
           other => Err(type_error("length", "an array, a string or an object", &other)),
         },
-        Expr::Str(e) => stringify(&self.eval(e).await?).map(Value::Str),
+        Expr::Str(e) => stringify(&self.eval(e).await?).map(Value::str),
         Expr::Num(e) => match self.eval(e).await? {
           Value::Int(n) => Ok(Value::F64(n as f64)),
           Value::UInt(n) => Ok(Value::F64(n as f64)),
@@ -1123,7 +1132,7 @@ fn get_field(target: &Value, name: &str) -> Value {
 
 fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
   match (target, key) {
-    (Value::Map(map), Value::Str(k)) => Ok(map.get(k).cloned().unwrap_or(Value::Null)),
+    (Value::Map(map), Value::Str(k)) => Ok(map.get(k.as_str()).cloned().unwrap_or(Value::Null)),
     (Value::Seq(items), Value::Int(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Null)),
     (Value::Seq(items), Value::UInt(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Null)),
     (Value::Seq(items), Value::F64(f)) if f.fract() == 0.0 && *f >= 0.0 => Ok(items.get(*f as usize).cloned().unwrap_or(Value::Null)),
@@ -1150,7 +1159,7 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
       ArithOp::Div => a / b,
       ArithOp::Rem => a % b,
     })),
-    (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => Ok(Value::Str(a + &b)),
+    (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => Ok(Value::str(format!("{a}{b}"))),
     (l, r) => Err(Fail::internal(format!(
       "{:?} wants two integers, two numbers or two strings, got {} and {}",
       op,
@@ -1200,20 +1209,20 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
 /// integer to promote to.
 const SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
-fn number(what: &str, value: &Value) -> Result<f64, Fail> {
+fn number(what: Builtin, value: &Value) -> Result<f64, Fail> {
   match value {
     Value::Int(n) => Ok(*n as f64),
     Value::UInt(n) => Ok(*n as f64),
     Value::F32(f) => Ok(*f as f64),
     Value::F64(f) => Ok(*f),
-    other => Err(type_error(what, "a number", other)),
+    other => Err(type_error(&format!("{what:?}"), "a number", other)),
   }
 }
 
-fn text<'a>(what: &str, value: &'a Value) -> Result<&'a str, Fail> {
+fn text<'a>(what: Builtin, value: &'a Value) -> Result<&'a str, Fail> {
   match value {
     Value::Str(s) => Ok(s),
-    other => Err(type_error(what, "a string", other)),
+    other => Err(type_error(&format!("{what:?}"), "a string", other)),
   }
 }
 
@@ -1227,54 +1236,53 @@ fn whole(f: f64) -> Value {
 /// half up, `toFixed` rounds half away from zero, `localeNumber` groups by
 /// thousands with a comma.
 fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
-  let what = format!("{name:?}");
-  let arg = |i: usize| args.get(i).ok_or_else(|| Fail::internal(format!("{what} takes more arguments")));
+  let arg = |i: usize| args.get(i).ok_or_else(|| Fail::internal(format!("{name:?} takes more arguments")));
   Ok(match name {
-    Builtin::Round => whole((number(&what, arg(0)?)? + 0.5).floor()),
-    Builtin::Floor => whole(number(&what, arg(0)?)?.floor()),
-    Builtin::Ceil => whole(number(&what, arg(0)?)?.ceil()),
-    Builtin::Abs => whole(number(&what, arg(0)?)?.abs()),
+    Builtin::Round => whole((number(name, arg(0)?)? + 0.5).floor()),
+    Builtin::Floor => whole(number(name, arg(0)?)?.floor()),
+    Builtin::Ceil => whole(number(name, arg(0)?)?.ceil()),
+    Builtin::Abs => whole(number(name, arg(0)?)?.abs()),
     Builtin::Min | Builtin::Max => {
       let mut best: Option<f64> = None;
       for value in &args {
-        let n = number(&what, value)?;
+        let n = number(name, value)?;
         best = Some(match best {
           None => n,
           Some(b) if name == Builtin::Min => b.min(n),
           Some(b) => b.max(n),
         });
       }
-      whole(best.ok_or_else(|| Fail::internal(format!("{what} takes a number")))?)
+      whole(best.ok_or_else(|| Fail::internal(format!("{name:?} takes a number")))?)
     }
     Builtin::ToFixed => {
-      let n = number(&what, arg(0)?)?;
-      let digits = args.get(1).map(|d| number(&what, d)).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+      let n = number(name, arg(0)?)?;
+      let digits = args.get(1).map(|d| number(name, d)).transpose()?.unwrap_or(0.0).max(0.0) as usize;
       let scale = 10f64.powi(digits as i32);
       let rounded = (n.abs() * scale + 0.5).floor() / scale;
       let rounded = if n < 0.0 { -rounded } else { rounded };
-      Value::Str(format!("{rounded:.digits$}"))
+      Value::str(format!("{rounded:.digits$}"))
     }
     Builtin::Repeat => {
-      let s = text(&what, arg(0)?)?;
-      let n = number(&what, arg(1)?)?.max(0.0) as usize;
-      Value::Str(s.repeat(n))
+      let s = text(name, arg(0)?)?;
+      let n = number(name, arg(1)?)?.max(0.0) as usize;
+      Value::str(s.repeat(n))
     }
     Builtin::Join => {
-      let Value::Seq(items) = arg(0)? else { return Err(type_error(&what, "an array", arg(0)?)) };
+      let Value::Seq(items) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "an array", arg(0)?)) };
       let sep = match args.get(1) {
-        Some(v) => text(&what, v)?.to_owned(),
+        Some(v) => text(name, v)?.to_owned(),
         None => ",".to_owned(),
       };
       let parts: Result<Vec<String>, Fail> = items.iter().map(|v| if matches!(v, Value::Null) { Ok(String::new()) } else { stringify(v) }).collect();
-      Value::Str(parts?.join(&sep))
+      Value::str(parts?.join(&sep))
     }
-    Builtin::Trim => Value::Str(text(&what, arg(0)?)?.trim().to_owned()),
-    Builtin::Upper => Value::Str(text(&what, arg(0)?)?.to_uppercase()),
-    Builtin::Lower => Value::Str(text(&what, arg(0)?)?.to_lowercase()),
+    Builtin::Trim => Value::str(text(name, arg(0)?)?.trim().to_owned()),
+    Builtin::Upper => Value::str(text(name, arg(0)?)?.to_uppercase()),
+    Builtin::Lower => Value::str(text(name, arg(0)?)?.to_lowercase()),
     Builtin::Includes => match arg(0)? {
-      Value::Str(s) => Value::Bool(s.contains(text(&what, arg(1)?)?)),
+      Value::Str(s) => Value::Bool(s.contains(text(name, arg(1)?)?)),
       Value::Seq(items) => Value::Bool(items.contains(arg(1)?)),
-      other => return Err(type_error(&what, "a string or an array", other)),
+      other => return Err(type_error(&format!("{name:?}"), "a string or an array", other)),
     },
     Builtin::EncodeUriComponent => {
       let s = stringify(arg(0)?)?;
@@ -1285,10 +1293,10 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
           _ => out.push_str(&format!("%{byte:02X}")),
         }
       }
-      Value::Str(out)
+      Value::str(out)
     }
     Builtin::LocaleNumber => {
-      let n = number(&what, arg(0)?)?;
+      let n = number(name, arg(0)?)?;
       let text = stringify(&whole(n))?;
       let (sign, digits) = text.strip_prefix('-').map(|d| ("-", d)).unwrap_or(("", &text));
       let (int, frac) = digits.split_once('.').map(|(i, f)| (i, Some(f))).unwrap_or((digits, None));
@@ -1299,23 +1307,23 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         }
         grouped.push(c);
       }
-      Value::Str(match frac {
+      Value::str(match frac {
         Some(f) => format!("{sign}{grouped}.{f}"),
         None => format!("{sign}{grouped}"),
       })
     }
     Builtin::Range => {
-      let n = number(&what, arg(0)?)?.max(0.0) as i64;
+      let n = number(name, arg(0)?)?.max(0.0) as i64;
       Value::Seq((0..n).map(|i| Value::F64(i as f64)).collect())
     }
     Builtin::Omit => {
       let mut map = match arg(0)? {
         Value::Map(map) => map.clone(),
         Value::Null => ValueMap::default(),
-        other => return Err(type_error(&what, "an object", other)),
+        other => return Err(type_error(&format!("{name:?}"), "an object", other)),
       };
       for key in args.iter().skip(1) {
-        map.shift_remove(text(&what, key)?);
+        map.shift_remove(text(name, key)?);
       }
       Value::Map(map)
     }
@@ -1345,7 +1353,7 @@ pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
     Value::F64(f) => f.to_string(),
     Value::F32(f) if *f == 0.0 => "0".to_owned(),
     Value::F32(f) => (*f as f64).to_string(),
-    Value::Str(s) => s.clone(),
+    Value::Str(s) => s.to_string(),
     other => return Err(type_error("String", "a scalar", other)),
   })
 }
@@ -1360,7 +1368,7 @@ fn set_path(root: &mut Value, steps: &[Value], value: Value) -> Result<(), Fail>
   }
   match (root, first) {
     (Value::Map(map), Value::Str(key)) => {
-      let child = map.entry(key.clone()).or_insert(Value::Null);
+      let child = map.entry(key.to_string()).or_insert(Value::Null);
       set_path(child, rest, value)
     }
     (Value::Seq(items), Value::Int(i)) => {
@@ -1384,9 +1392,9 @@ fn delete_path(root: &mut Value, steps: &[Value]) -> Result<(), Fail> {
   match (root, first) {
     (Value::Map(map), Value::Str(key)) => {
       if rest.is_empty() {
-        map.shift_remove(key);
+        map.shift_remove(key.as_str());
         Ok(())
-      } else if let Some(child) = map.get_mut(key) {
+      } else if let Some(child) = map.get_mut(key.as_str()) {
         delete_path(child, rest)
       } else {
         Ok(())

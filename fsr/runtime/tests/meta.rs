@@ -28,7 +28,7 @@ struct Page;
 impl Evaluator for Page {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
     let name = match props.get("name") {
-      Some(Value::Str(s)) => s.clone(),
+      Some(Value::Str(s)) => s.to_string(),
       _ => "?".to_owned(),
     };
     Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("<h1>{name}</h1>"))))]))
@@ -41,7 +41,7 @@ struct ProductMeta;
 impl Metadata for ProductMeta {
   fn describe(&self, _ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
     let name = match data.get("name") {
-      Some(Value::Str(s)) => s.clone(),
+      Some(Value::Str(s)) => s.to_string(),
       _ => String::new(),
     };
     Box::pin(async move {

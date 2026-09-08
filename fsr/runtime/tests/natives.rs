@@ -61,10 +61,10 @@ fn a_native_module_answers_by_the_name_a_body_calls_it() {
   let handle = NativeHandle::new(Arc::new(natives));
 
   let answered = block_on(handle.call("rooms", "greet", args(&[("who", Value::str("alice")), ("loud", Value::Bool(true))]))).unwrap();
-  assert_eq!(answered, Value::Str("ALICE".to_owned()), "an async method composes with the module it holds");
+  assert_eq!(answered, Value::str("ALICE".to_owned()), "an async method composes with the module it holds");
 
   let unknown = block_on(handle.call("rooms", "greet", args(&[("who", Value::str("bob")), ("loud", Value::Bool(false))]))).unwrap();
-  assert_eq!(unknown, Value::Str("stranger".to_owned()));
+  assert_eq!(unknown, Value::str("stranger".to_owned()));
 
   let tallied = handle.call_sync("rooms", "tally", ValueMap::default()).expect("a method the build read as `fn` answers without a future");
   assert_eq!(tallied.unwrap(), Value::Int(2), "and it sees what the async ones did");

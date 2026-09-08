@@ -158,8 +158,8 @@ impl Transport for LambdaTransport {
     call.service = crate::unprefixed(&call.service).to_owned();
     let path = format!("{}.{}", call.service, call.method);
     let mut record = ValueMap::default();
-    record.insert("service".to_owned(), Value::Str(call.service.clone()));
-    record.insert("method".to_owned(), Value::Str(call.method.clone()));
+    record.insert("service".to_owned(), Value::str(call.service.clone()));
+    record.insert("method".to_owned(), Value::str(call.method.clone()));
     record.insert("args".to_owned(), Value::Map(call.args.clone()));
     self.calls.lock().push(Value::Map(record));
     let Some(lambda) = self.methods.get(&path).cloned() else {
@@ -189,13 +189,13 @@ impl MockCtx {
     let (session, _) = self.ctx.session.snapshot();
     let mut map = ValueMap::default();
     map.insert("session".to_owned(), Value::Map(session));
-    map.insert("params".to_owned(), Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect()));
-    map.insert("query".to_owned(), Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect()));
+    map.insert("params".to_owned(), Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect()));
+    map.insert("query".to_owned(), Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect()));
     map.insert("input".to_owned(), self.input.clone().unwrap_or(Value::Null));
     let mut trace = ValueMap::default();
     trace.insert("calls".to_owned(), Value::seq(self.transport.calls.lock().clone()));
     let mut session_trace = ValueMap::default();
-    session_trace.insert("written".to_owned(), Value::Seq(self.written.iter().cloned().map(Value::Str).collect()));
+    session_trace.insert("written".to_owned(), Value::Seq(self.written.iter().map(Value::str).collect()));
     trace.insert("session".to_owned(), Value::Map(session_trace));
     map.insert("trace".to_owned(), Value::Map(trace));
     Value::Map(map)
@@ -231,7 +231,7 @@ impl Run<'_> {
       Some(expr) => match self.eval(expr).await.map_err(|f| format!("identity: {}", f.message))? {
         Value::Map(map) => {
           let subject = match map.get("subject") {
-            Some(Value::Str(s)) => s.clone(),
+            Some(Value::Str(s)) => s.to_string(),
             _ => return Err("identity.subject must be a string".to_owned()),
           };
           let claims = match map.get("claims") {
@@ -267,7 +267,7 @@ impl Run<'_> {
     };
     let path = match &mock.path {
       Some(expr) => match self.eval(expr).await.map_err(|f| format!("path: {}", f.message))? {
-        Value::Str(path) => path,
+        Value::Str(path) => path.to_string(),
         other => return Err(format!("path must be a string, got {}", show(&other))),
       },
       None => String::new(),
@@ -284,7 +284,7 @@ impl Run<'_> {
     for (key, expr) in entries {
       match self.eval(expr).await.map_err(|f| format!("{what}.{key}: {}", f.message))? {
         Value::Str(s) => {
-          out.insert(key.clone(), s);
+          out.insert(key.to_string(), s.to_string());
         }
         other => return Err(format!("{what}.{key} must be a string, got {}", show(&other))),
       }

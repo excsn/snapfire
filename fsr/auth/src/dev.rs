@@ -74,11 +74,11 @@ struct UserRow {
 
 fn toml_value(value: toml::Value) -> Value {
   match value {
-    toml::Value::String(s) => Value::Str(s),
+    toml::Value::String(s) => Value::str(s),
     toml::Value::Integer(i) => Value::int(i),
     toml::Value::Float(f) => Value::F64(f),
     toml::Value::Boolean(b) => Value::Bool(b),
-    toml::Value::Datetime(d) => Value::Str(d.to_string()),
+    toml::Value::Datetime(d) => Value::str(d.to_string()),
     toml::Value::Array(items) => Value::Seq(items.into_iter().map(toml_value).collect()),
     toml::Value::Table(table) => Value::Map(table.into_iter().map(|(k, v)| (k, toml_value(v))).collect()),
   }
@@ -109,7 +109,7 @@ impl IdentityProvider for DevProvider {
         .ok_or_else(|| AuthError::Denied("unknown user or wrong password".to_owned()))?;
 
       let mut tokens = ValueMap::default();
-      tokens.insert("access_token".to_owned(), Value::Str(format!("dev-token-{}", user.name)));
+      tokens.insert("access_token".to_owned(), Value::str(format!("dev-token-{}", user.name)));
       Ok(AuthOutcome {
         identity: Identity { subject: user.name.clone(), claims: user.claims.clone() },
         tokens,

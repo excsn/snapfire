@@ -14,7 +14,7 @@ struct Page;
 impl Evaluator for Page {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
     let seen = match props.get("locale") {
-      Some(Value::Str(tag)) => tag.clone(),
+      Some(Value::Str(tag)) => tag.to_string(),
       _ => "none".to_owned(),
     };
     Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("<p>{seen}</p>"))))]))

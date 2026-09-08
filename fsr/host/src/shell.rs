@@ -11,7 +11,7 @@ pub struct DocumentShell;
 impl Evaluator for DocumentShell {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
     let tag = match props.get("locale") {
-      Some(Value::Str(tag)) => tag.clone(),
+      Some(Value::Str(tag)) => tag.to_string(),
       _ => "en".to_owned(),
     };
     let open = format!(

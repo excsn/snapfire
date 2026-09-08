@@ -28,7 +28,7 @@ struct Page;
 impl Evaluator for Page {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
     let body = match props.get("body") {
-      Some(Value::Str(s)) => s.clone(),
+      Some(Value::Str(s)) => s.to_string(),
       _ => "?".to_owned(),
     };
     Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!(
@@ -42,7 +42,7 @@ struct ErrorPartial;
 impl Evaluator for ErrorPartial {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
     let message = match props.get("error") {
-      Some(Value::Str(s)) => s.clone(),
+      Some(Value::Str(s)) => s.to_string(),
       _ => panic!("error module receives the failure message"),
     };
     Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!(

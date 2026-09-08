@@ -22,7 +22,7 @@ impl Auth {
   pub async fn login(&self, opened: &Opened, return_to: &str) -> String {
     let begin = self.provider.begin(return_to).await;
     let mut state = begin.state;
-    state.insert("return_to".to_owned(), Value::Str(return_to.to_owned()));
+    state.insert("return_to".to_owned(), Value::str(return_to.to_owned()));
     opened.tokens.set(FLOW_STATE_KEY, Value::Map(state));
     begin.redirect
   }
@@ -39,7 +39,7 @@ impl Auth {
   pub fn pending_return_to(&self, opened: &Opened) -> Option<String> {
     match opened.tokens.get(FLOW_STATE_KEY) {
       Some(Value::Map(state)) => match state.get("return_to") {
-        Some(Value::Str(path)) => Some(path.clone()),
+        Some(Value::Str(path)) => Some(path.to_string()),
         _ => None,
       },
       _ => None,
@@ -52,7 +52,7 @@ impl Auth {
       _ => return Err(AuthError::Invalid("no login in progress for this session".to_owned())),
     };
     let return_to = match state.get("return_to") {
-      Some(Value::Str(path)) => path.clone(),
+      Some(Value::Str(path)) => path.to_string(),
       _ => "/".to_owned(),
     };
 

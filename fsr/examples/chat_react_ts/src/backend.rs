@@ -73,10 +73,10 @@ impl Rooms {
 
   fn message(said: &Said) -> Value {
     let mut map = ValueMap::default();
-    map.insert("id".to_owned(), Value::Str(said.id.to_string()));
-    map.insert("who".to_owned(), Value::Str(said.who.clone()));
-    map.insert("body".to_owned(), Value::Str(said.body.clone()));
-    map.insert("at".to_owned(), Value::Str(said.at.clone()));
+    map.insert("id".to_owned(), Value::str(said.id.to_string()));
+    map.insert("who".to_owned(), Value::str(said.who.clone()));
+    map.insert("body".to_owned(), Value::str(said.body.clone()));
+    map.insert("at".to_owned(), Value::str(said.at.clone()));
     Value::Map(map)
   }
 
@@ -135,7 +135,7 @@ pub fn rooms() -> (Arc<dyn Transport>, Arc<Rooms>) {
 
 fn string(args: &ValueMap, key: &str) -> String {
   match args.get(key) {
-    Some(Value::Str(text)) => text.clone(),
+    Some(Value::Str(text)) => text.to_string(),
     _ => String::new(),
   }
 }

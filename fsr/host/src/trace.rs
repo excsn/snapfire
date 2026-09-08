@@ -68,17 +68,17 @@ pub fn to_value(traces: &[Trace]) -> snapfire_fsr_core::Value {
               .iter()
               .map(|span| {
                 let mut row = ValueMap::default();
-                row.insert("name".to_owned(), Value::Str(span.name.to_owned()));
+                row.insert("name".to_owned(), Value::str(span.name.to_owned()));
                 row.insert("depth".to_owned(), Value::Int(span.depth as i128));
                 row.insert("at".to_owned(), ms(span.at));
                 row.insert("ms".to_owned(), ms(span.duration));
                 if let Some(outcome) = span.outcome() {
-                  row.insert("outcome".to_owned(), Value::Str(outcome.to_owned()));
+                  row.insert("outcome".to_owned(), Value::str(outcome.to_owned()));
                 }
                 let mut fields = ValueMap::default();
                 for (key, value) in &span.fields {
                   if !key.starts_with("fibre.") {
-                    fields.insert(key.clone(), Value::Str(value.to_string()));
+                    fields.insert(key.clone(), Value::str(value.to_string()));
                   }
                 }
                 row.insert("fields".to_owned(), Value::Map(fields));

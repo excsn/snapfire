@@ -53,7 +53,7 @@ fn path(method: &str) -> String {
 
 fn arg_str(args: &ValueMap, key: &str) -> String {
   match args.get(key) {
-    Some(Value::Str(v)) => v.clone(),
+    Some(Value::Str(v)) => v.to_string(),
     _ => String::new(),
   }
 }

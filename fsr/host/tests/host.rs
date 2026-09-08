@@ -943,7 +943,7 @@ fn localised() -> Arc<Host> {
         _ => Value::Null,
       };
       let mut headers = ValueMap::default();
-      headers.insert("x-locale".to_owned(), Value::Str(ctx.locale.tag.clone()));
+      headers.insert("x-locale".to_owned(), Value::str(ctx.locale.tag.clone()));
       headers.insert("x-path".to_owned(), path);
       let mut out = ValueMap::default();
       out.insert("headers".to_owned(), Value::Map(headers));
@@ -1931,7 +1931,7 @@ struct IdentityService {
 
 fn str_arg(args: &ValueMap, key: &str) -> String {
   match args.get(key) {
-    Some(Value::Str(s)) => s.clone(),
+    Some(Value::Str(s)) => s.to_string(),
     other => panic!("{key} is not a string: {other:?}"),
   }
 }
@@ -1946,7 +1946,7 @@ impl snapfire_fsr_service::Transport for IdentityService {
     let result = match path.as_str() {
       "shop.list" => {
         *self.shop_bearer.lock() = match call.metadata.get("authorization") {
-          Some(Value::Str(s)) => Some(s.clone()),
+          Some(Value::Str(s)) => Some(s.to_string()),
           _ => None,
         };
         Ok(Value::seq(vec![Value::str("a")]))
@@ -1972,7 +1972,7 @@ impl snapfire_fsr_service::Transport for IdentityService {
       "identity.getSession" => match self.sessions.lock().get(&str_arg(&call.args, "id")) {
         Some(record) => {
           let mut stored = ValueMap::default();
-          stored.insert("record".to_owned(), Value::Str(record.clone()));
+          stored.insert("record".to_owned(), Value::str(record.clone()));
           Ok(Value::Map(stored))
         }
         None => Err(ServiceError::new(
@@ -2500,13 +2500,13 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
     .middleware(|_ctx, input| async move {
       let site = match &input {
         Value::Map(map) => match map.get("site") {
-          Some(Value::Str(name)) => name.clone(),
+          Some(Value::Str(name)) => name.to_string(),
           _ => "none".to_owned(),
         },
         _ => "none".to_owned(),
       };
       let mut headers = ValueMap::default();
-      headers.insert("x-shell".to_owned(), Value::Str(site));
+      headers.insert("x-shell".to_owned(), Value::str(site));
       let mut out = ValueMap::default();
       out.insert("headers".to_owned(), Value::Map(headers));
       Ok(Value::Map(out))
@@ -2720,7 +2720,7 @@ async fn a_registered_native_pair_answers_a_lowered_body_and_an_unregistered_one
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .extension("fmt.pretty", snapfire_fsr_ir::Reach::Render, |ambient, args| {
-      Ok(Value::Str(format!("{}:{}", ambient.bcp47(), args.len())))
+      Ok(Value::str(format!("{}:{}", ambient.bcp47(), args.len())))
     })
     .build()
     .unwrap();

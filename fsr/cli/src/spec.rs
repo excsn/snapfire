@@ -533,8 +533,8 @@ impl Transport for JsTransport {
     let mut call = call;
     call.service = crate::unprefixed(&call.service).to_owned();
     let mut record = ValueMap::default();
-    record.insert("service".to_owned(), Value::Str(call.service.clone()));
-    record.insert("method".to_owned(), Value::Str(call.method.clone()));
+    record.insert("service".to_owned(), Value::str(call.service.clone()));
+    record.insert("method".to_owned(), Value::str(call.method.clone()));
     record.insert("args".to_owned(), Value::Map(call.args.clone()));
     self.records.lock().entry(id).or_default().push(Value::Map(record));
     let key = format!("{id}:{}.{}", call.service, call.method);
@@ -734,7 +734,7 @@ impl Hooks for SpecHooks {
       _ => return Err("props must be an object".to_owned()),
     };
     if let Ok(current) = self.get(self.current.load(Ordering::Relaxed)) {
-      props.entry("locale".to_owned()).or_insert_with(|| Value::Str(current.ctx.locale.tag.clone()));
+      props.entry("locale".to_owned()).or_insert_with(|| Value::str(current.ctx.locale.tag.clone()));
     }
     let rendered = self.interpreter.render_module(module, &component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
     let hoisted = value_to_json(&Value::Map(rendered.hoisted.clone()));
@@ -756,8 +756,8 @@ impl Hooks for SpecHooks {
       let preflight = match middleware {
         Some(body_ir) => {
           let mut request = ValueMap::default();
-          request.insert("method".to_owned(), Value::Str(method.clone()));
-          request.insert("path".to_owned(), Value::Str(path.clone()));
+          request.insert("method".to_owned(), Value::str(method.clone()));
+          request.insert("path".to_owned(), Value::str(path.clone()));
           let mut ctx = mock.ctx.clone();
           ctx.params = Params::new();
           ctx.query = parse_query(&query);

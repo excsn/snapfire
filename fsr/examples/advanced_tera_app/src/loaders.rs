@@ -17,7 +17,7 @@ fn series(points: Vec<f64>) -> Value {
 
 async fn fetch_servers(ctx: &RequestCtx) -> Result<Value, snapfire_fsr_runtime::ServiceError> {
   let mut args = ValueMap::default();
-  args.insert("section".to_owned(), Value::Str(ctx.params.get("section").cloned().unwrap_or_default()));
+  args.insert("section".to_owned(), Value::str(ctx.params.get("section").cloned().unwrap_or_default()));
   ctx.services.call(fleet::NAME, fleet::LIST, args).await
 }
 

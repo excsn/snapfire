@@ -69,7 +69,7 @@ fn to_value(json: &serde_json::Value) -> Value {
     serde_json::Value::Null => Value::Null,
     serde_json::Value::Bool(b) => Value::Bool(*b),
     serde_json::Value::Number(n) => Value::F64(n.as_f64().unwrap()),
-    serde_json::Value::String(s) => Value::Str(s.clone()),
+    serde_json::Value::String(s) => Value::str(s.clone()),
     serde_json::Value::Array(items) => Value::Seq(items.iter().map(to_value).collect()),
     serde_json::Value::Object(map) => Value::Map(map.iter().map(|(k, v)| (k.clone(), to_value(v))).collect()),
   }
@@ -77,7 +77,7 @@ fn to_value(json: &serde_json::Value) -> Value {
 
 fn rendered(value: &Value) -> String {
   match value {
-    Value::Str(s) => s.clone(),
+    Value::Str(s) => s.to_string(),
     Value::Bool(b) => b.to_string(),
     Value::Null => "null".to_owned(),
     Value::F64(f) if f.fract() == 0.0 && f.abs() < 1e21 => format!("{}", *f as i64),

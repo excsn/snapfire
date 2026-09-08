@@ -57,7 +57,7 @@ impl Route {
 
 fn scalar_to_path(value: &Value) -> String {
   match value {
-    Value::Str(s) => s.clone(),
+    Value::Str(s) => s.to_string(),
     Value::Int(v) => v.to_string(),
     Value::UInt(v) => v.to_string(),
     Value::Bool(b) => b.to_string(),

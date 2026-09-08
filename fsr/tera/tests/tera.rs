@@ -47,7 +47,7 @@ fn text_islands_and_slots_come_back_in_source_order() {
   assert_eq!(raw(&chunks[0]), "<main>");
   let (module, props) = island(&chunks[1]);
   assert_eq!(module.to_string(), "ui/Chart.tsx#default");
-  assert_eq!(props.get("series"), Some(&Value::Str("cpu".to_owned())));
+  assert_eq!(props.get("series"), Some(&Value::str("cpu".to_owned())));
   assert_eq!(raw(&chunks[2]), "<hr>");
   assert_eq!(chunks[3], Chunk::Slot(SlotName("content".to_owned())));
   assert_eq!(raw(&chunks[4]), "</main>");
@@ -79,12 +79,12 @@ fn props_reach_the_template_by_type() {
   let ev = evaluator(&[("page.tera", "{{ name }}|{{ count }}|{{ on }}|{{ tags[1] }}|{{ user.city }}")]);
 
   let mut props = Data::default();
-  props.insert("name".to_owned(), Value::Str("fleet".to_owned()));
+  props.insert("name".to_owned(), Value::str("fleet".to_owned()));
   props.insert("count".to_owned(), Value::Int(42));
   props.insert("on".to_owned(), Value::Bool(true));
-  props.insert("tags".to_owned(), Value::seq(vec![Value::Str("a".to_owned()), Value::Str("b".to_owned())]));
+  props.insert("tags".to_owned(), Value::seq(vec![Value::str("a".to_owned()), Value::str("b".to_owned())]));
   let mut user = Data::default();
-  user.insert("city".to_owned(), Value::Str("Oslo".to_owned()));
+  user.insert("city".to_owned(), Value::str("Oslo".to_owned()));
   props.insert("user".to_owned(), Value::Map(user));
 
   let chunks = render(&ev, "page.tera", props).expect("renders");
@@ -99,12 +99,12 @@ fn island_props_survive_escaping_intact() {
   )]);
 
   let mut props = Data::default();
-  props.insert("hostile".to_owned(), Value::Str("<b>a & b</b>".to_owned()));
+  props.insert("hostile".to_owned(), Value::str("<b>a & b</b>".to_owned()));
 
   let chunks = render(&ev, "page.html", props).expect("renders");
   let (_, island_props) = island(&chunks[chunks.len() - 1]);
-  assert_eq!(island_props.get("body"), Some(&Value::Str("<b>a & b</b>".to_owned())), "base64 has no character escaping can touch");
-  assert_eq!(island_props.get("quote"), Some(&Value::Str("\"q\"".to_owned())));
+  assert_eq!(island_props.get("body"), Some(&Value::str("<b>a & b</b>".to_owned())), "base64 has no character escaping can touch");
+  assert_eq!(island_props.get("quote"), Some(&Value::str("\"q\"".to_owned())));
   assert!(!raw(&chunks[0]).contains("<b>"), "the surrounding text is escaped, so the props above went through the same pass: {:?}", raw(&chunks[0]));
 }
 

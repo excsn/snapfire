@@ -73,13 +73,13 @@ fn number_fn(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.number";
   let mut d = match decimal(what, args, 0)? {
     Ok(d) => d,
-    Err(text) => return Ok(Value::Str(text.to_owned())),
+    Err(text) => return Ok(Value::str(text.to_owned())),
   };
   let min = digits(what, args, 1, "minimumFractionDigits")?.unwrap_or(0);
   let max = digits(what, args, 1, "maximumFractionDigits")?.unwrap_or(3.max(min)).max(min);
   round(&mut d, min, max);
   let formatter = DecimalFormatter::try_new(locale_of(ambient).into(), Default::default()).map_err(|e| data(what, e))?;
-  Ok(Value::Str(formatter.format(&d).to_string()))
+  Ok(Value::str(formatter.format(&d).to_string()))
 }
 
 /// `intl.currency(n, code)`: the amount with the ISO code, the currency's
@@ -88,12 +88,12 @@ fn currency(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.currency";
   let d = match decimal(what, args, 0)? {
     Ok(d) => d,
-    Err(text) => return Ok(Value::Str(text.to_owned())),
+    Err(text) => return Ok(Value::str(text.to_owned())),
   };
   let code = text(what, args, 1)?;
   let code: CurrencyType = code.parse().map_err(|_| Fail::internal(format!("{what}: `{code}` is not a currency code")))?;
   let formatter = CurrencyFormatter::try_new_code(locale_of(ambient).into(), code, Default::default()).map_err(|e| data(what, e))?;
-  Ok(Value::Str(formatter.format_fixed_decimal(&d).to_string()))
+  Ok(Value::str(formatter.format_fixed_decimal(&d).to_string()))
 }
 
 /// `intl.date(when, style?)`: a calendar date in UTC at `dateStyle`
@@ -107,7 +107,7 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   };
   let style = match args.get(1) {
     Some(Value::Map(map)) => match map.get("style") {
-      Some(Value::Str(s)) => s.clone(),
+      Some(Value::Str(s)) => s.to_string(),
       _ => "medium".to_owned(),
     },
     _ => text_opt(what, args, 1)?.unwrap_or("medium").to_owned(),
@@ -122,13 +122,13 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     "full" => DateTimeFormatter::try_new(prefs, YMDE::long()).map_err(|e| data(what, e))?.format(&date).to_string(),
     other => return Err(Fail::internal(format!("{what}: `{other}` is not a style; short, medium, long or full"))),
   };
-  Ok(Value::Str(out))
+  Ok(Value::str(out))
 }
 
 /// `intl.plural(n)`: the cardinal category, `zero`, `one`, `two`, `few`,
 /// `many` or `other`.
 fn plural(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
-  Ok(Value::Str(category(ambient, args.first().unwrap_or(&Value::Null))?))
+  Ok(Value::str(category(ambient, args.first().unwrap_or(&Value::Null))?))
 }
 
 /// The cardinal plural category of `n` under the ambient locale.

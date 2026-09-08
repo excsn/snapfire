@@ -187,7 +187,7 @@ fn scalar_to_reflect(kind: &Kind, value: &Value, at: &str) -> Result<Option<Refl
       other => return Err(format!("{at}: expected a number, found {other:?}")),
     },
     Kind::String => match value {
-      Value::Str(s) => Reflect::String(s.clone()),
+      Value::Str(s) => Reflect::String(s.to_string()),
       other => return Err(format!("{at}: expected a string, found {other:?}")),
     },
     Kind::Bytes => match value {
@@ -253,11 +253,11 @@ fn from_reflect(kind: &Kind, value: &Reflect) -> Result<Value, String> {
     Reflect::U64(v) => Value::int(*v),
     Reflect::F32(v) => Value::F32(*v),
     Reflect::F64(v) => Value::F64(*v),
-    Reflect::String(s) => Value::Str(s.clone()),
+    Reflect::String(s) => Value::str(s.clone()),
     Reflect::Bytes(b) => Value::Bytes(b.to_vec()),
     Reflect::EnumNumber(n) => match kind {
       Kind::Enum(e) => match e.get_value(*n) {
-        Some(v) => Value::Str(v.name().to_owned()),
+        Some(v) => Value::str(v.name().to_owned()),
         None => Value::int(*n),
       },
       _ => Value::int(*n),
@@ -296,11 +296,11 @@ pub fn from_message(message: &DynamicMessage) -> Result<Value, String> {
   match desc.full_name() {
     "google.protobuf.Timestamp" => {
       let ts: prost_types::Timestamp = message.transcode_to().map_err(|e| e.to_string())?;
-      return Ok(Value::Str(ts.to_string()));
+      return Ok(Value::str(ts.to_string()));
     }
     "google.protobuf.Duration" => {
       let d: prost_types::Duration = message.transcode_to().map_err(|e| e.to_string())?;
-      return Ok(Value::Str(d.to_string()));
+      return Ok(Value::str(d.to_string()));
     }
     name if WRAPPERS.contains(&name) => {
       let inner = desc.get_field_by_name("value").ok_or_else(|| format!("{name} has no value field"))?;

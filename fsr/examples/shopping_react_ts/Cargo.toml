@@ -60,3 +60,7 @@ harness = false
 [[bench]]
 name = "hashers"
 harness = false
+
+[[bench]]
+name = "scale"
+harness = false

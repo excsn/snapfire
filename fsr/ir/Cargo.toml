@@ -14,6 +14,8 @@ repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]
+memchr = "2"
+itoa = "1"
 snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
 fixed_decimal = { version = "0.7", features = ["ryu"] }

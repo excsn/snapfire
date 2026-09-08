@@ -232,7 +232,7 @@ fn titles(listed: &Value) -> Vec<String> {
       .iter()
       .filter_map(|wave| match wave {
         Value::Map(map) => match map.get("title") {
-          Some(Value::Str(title)) => Some(title.clone()),
+          Some(Value::Str(title)) => Some(title.to_string()),
           _ => None,
         },
         _ => None,

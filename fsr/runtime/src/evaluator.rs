@@ -57,7 +57,7 @@ fn slot_regions(props: &Data) -> Vec<Node> {
           "content" => "<sf-s>".to_owned(),
           named => format!("<sf-s data-sf-name=\"{named}\">"),
         }),
-        Node::Slot(SlotName(name.clone())),
+        Node::Slot(SlotName(name.to_string())),
         Node::raw("</sf-s>"),
       ])),
       _ => None,

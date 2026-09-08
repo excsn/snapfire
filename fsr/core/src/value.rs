@@ -7,6 +7,117 @@ pub type ValueHasher = foldhash::fast::RandomState;
 
 pub type Fields = IndexMap<String, Value, ValueHasher>;
 
+/// What a `ValueStr` holds. Changing this changes the representation of every
+/// string in the value model in one line, without reaching any consumer.
+pub type Text = String;
+
+/// The string of the value model, behind a name so its representation is one
+/// crate's business. Reads go through `Deref<Target = str>`, so a consumer
+/// sees a string slice and does not care what is underneath.
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ValueStr(Text);
+
+impl ValueStr {
+  pub fn as_str(&self) -> &str {
+    &self.0
+  }
+
+  pub fn into_text(self) -> Text {
+    self.0
+  }
+}
+
+impl std::ops::Deref for ValueStr {
+  type Target = str;
+  fn deref(&self) -> &str {
+    &self.0
+  }
+}
+
+impl std::fmt::Debug for ValueStr {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.fmt(f)
+  }
+}
+
+impl std::fmt::Display for ValueStr {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    std::fmt::Display::fmt(&self.0, f)
+  }
+}
+
+impl std::borrow::Borrow<str> for ValueStr {
+  fn borrow(&self) -> &str {
+    &self.0
+  }
+}
+
+impl AsRef<str> for ValueStr {
+  fn as_ref(&self) -> &str {
+    &self.0
+  }
+}
+
+impl From<String> for ValueStr {
+  fn from(v: String) -> Self {
+    ValueStr(Text::from(v))
+  }
+}
+
+impl From<&String> for ValueStr {
+  fn from(v: &String) -> Self {
+    ValueStr(Text::from(v.as_str()))
+  }
+}
+
+impl From<&str> for ValueStr {
+  fn from(v: &str) -> Self {
+    ValueStr(Text::from(v))
+  }
+}
+
+impl From<std::borrow::Cow<'_, str>> for ValueStr {
+  fn from(v: std::borrow::Cow<'_, str>) -> Self {
+    ValueStr(Text::from(v))
+  }
+}
+
+impl From<ValueStr> for String {
+  fn from(v: ValueStr) -> Self {
+    v.0.into()
+  }
+}
+
+impl PartialEq<str> for ValueStr {
+  fn eq(&self, other: &str) -> bool {
+    &*self.0 == other
+  }
+}
+
+impl PartialEq<&str> for ValueStr {
+  fn eq(&self, other: &&str) -> bool {
+    &*self.0 == *other
+  }
+}
+
+impl PartialEq<String> for ValueStr {
+  fn eq(&self, other: &String) -> bool {
+    &*self.0 == other.as_str()
+  }
+}
+
+impl PartialEq<ValueStr> for str {
+  fn eq(&self, other: &ValueStr) -> bool {
+    self == &*other.0
+  }
+}
+
+impl PartialEq<ValueStr> for &str {
+  fn eq(&self, other: &ValueStr) -> bool {
+    *self == &*other.0
+  }
+}
+
 /// Copy on write: cloning shares, and the first `&mut` after a share copies.
 /// A render clones a props map at every component and every loop iteration
 /// without reading it back, which is what the sharing is for.
@@ -182,7 +293,7 @@ pub enum Value {
   UInt(u128),
   F32(f32),
   F64(f64),
-  Str(String),
+  Str(ValueStr),
   Bytes(Vec<u8>),
   TypedArray(TypedArray),
   Seq(ValueSeq),
@@ -223,7 +334,7 @@ impl Value {
     }
   }
 
-  pub fn str(v: impl Into<String>) -> Self {
+  pub fn str(v: impl Into<ValueStr>) -> Self {
     Value::Str(v.into())
   }
 
@@ -244,13 +355,13 @@ impl From<bool> for Value {
 
 impl From<&str> for Value {
   fn from(v: &str) -> Self {
-    Value::Str(v.to_owned())
+    Value::Str(ValueStr::from(v))
   }
 }
 
 impl From<String> for Value {
   fn from(v: String) -> Self {
-    Value::Str(v)
+    Value::Str(ValueStr::from(v))
   }
 }
 

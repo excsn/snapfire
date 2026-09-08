@@ -137,7 +137,7 @@ impl FromNativeValue for ValueMap {
 impl FromNativeValue for String {
   fn from_native_value(value: Value) -> Option<Self> {
     match value {
-      Value::Str(s) => Some(s),
+      Value::Str(s) => Some(s.to_string()),
       _ => None,
     }
   }
@@ -211,7 +211,7 @@ impl IntoNativeValue for ValueMap {
 
 impl IntoNativeValue for String {
   fn into_native_value(self) -> Value {
-    Value::Str(self)
+    Value::str(self)
   }
 }
 
@@ -279,7 +279,7 @@ impl<T: IntoNativeValue> IntoNativeValue for Result<T, ServiceError> {
   fn into_native_value(self) -> Value {
     match self {
       Ok(v) => v.into_native_value(),
-      Err(e) => Value::Str(e.message),
+      Err(e) => Value::str(e.message),
     }
   }
 }

@@ -95,7 +95,7 @@ impl MockTransport {
   pub fn last_metadata(&self, key: &str) -> Option<String> {
     let calls = self.recorded.lock();
     match calls.calls.last()?.2.get(key) {
-      Some(Value::Str(s)) => Some(s.clone()),
+      Some(Value::Str(s)) => Some(s.to_string()),
       _ => None,
     }
   }

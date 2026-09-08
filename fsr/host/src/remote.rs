@@ -35,7 +35,7 @@ impl ServiceSessionStore {
 
 fn id_args(id: &SessionId) -> ValueMap {
   let mut args = ValueMap::default();
-  args.insert("id".to_owned(), Value::Str(id.0.clone()));
+  args.insert("id".to_owned(), Value::str(id.0.clone()));
   args
 }
 
@@ -76,14 +76,14 @@ pub fn decode_record(text: &str) -> Option<SessionRecord> {
 
 fn identity_map(identity: &Identity) -> ValueMap {
   let mut map = ValueMap::default();
-  map.insert("subject".to_owned(), Value::Str(identity.subject.clone()));
+  map.insert("subject".to_owned(), Value::str(identity.subject.clone()));
   map.insert("claims".to_owned(), Value::Map(identity.claims.clone()));
   map
 }
 
 fn identity_of(map: &ValueMap) -> Option<Identity> {
   let subject = match map.get("subject") {
-    Some(Value::Str(subject)) => subject.clone(),
+    Some(Value::Str(subject)) => subject.to_string(),
     _ => return None,
   };
   let claims = match map.get("claims") {
@@ -116,7 +116,7 @@ impl SessionStore for ServiceSessionStore {
 
   fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>> {
     let mut args = id_args(id);
-    args.insert("record".to_owned(), Value::Str(encode_record(&record)));
+    args.insert("record".to_owned(), Value::str(encode_record(&record)));
     let call = self.call("putSession", args);
     Box::pin(async move {
       call.await.map(|_| ()).map_err(|error| StoreError::new(format!("putSession: {error}")))
@@ -156,7 +156,7 @@ impl ServiceProvider {
 
 fn param(params: &ValueMap, key: &str) -> Option<String> {
   match params.get(key) {
-    Some(Value::Str(s)) => Some(s.clone()),
+    Some(Value::Str(s)) => Some(s.to_string()),
     _ => None,
   }
 }
@@ -176,8 +176,8 @@ impl IdentityProvider for ServiceProvider {
     let (user, password) = (param(&params, "user"), param(&params, "password"));
     let call = match (user, password) {
       (Some(user), Some(password)) => {
-        args.insert("user".to_owned(), Value::Str(user));
-        args.insert("password".to_owned(), Value::Str(password));
+        args.insert("user".to_owned(), Value::str(user));
+        args.insert("password".to_owned(), Value::str(password));
         Some(self.services.bind_anonymous().call(&self.client, "authenticate", args))
       }
       _ => None,

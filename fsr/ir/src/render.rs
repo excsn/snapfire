@@ -24,8 +24,21 @@ const VOID: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "inpu
 const BOOLEAN: &[&str] = &["disabled", "checked", "selected", "readonly", "required", "hidden", "multiple", "open", "autofocus", "autoplay", "controls", "loop", "muted", "novalidate", "defer", "async"];
 
 fn escape_into(input: &str, out: &mut String, quotes: bool) {
-  let mut last = 0;
-  for (i, byte) in input.bytes().enumerate() {
+  let bytes = input.as_bytes();
+  let first = match quotes {
+    true => match (memchr::memchr3(b'&', b'<', b'>', bytes), memchr::memchr(b'"', bytes)) {
+      (Some(a), Some(b)) => Some(a.min(b)),
+      (a, b) => a.or(b),
+    },
+    false => memchr::memchr3(b'&', b'<', b'>', bytes),
+  };
+  let Some(first) = first else {
+    out.push_str(input);
+    return;
+  };
+  out.push_str(&input[..first]);
+  let mut last = first;
+  for (offset, byte) in bytes[first..].iter().enumerate() {
     let replacement = match byte {
       b'&' => "&amp;",
       b'<' => "&lt;",
@@ -33,13 +46,13 @@ fn escape_into(input: &str, out: &mut String, quotes: bool) {
       b'"' if quotes => "&quot;",
       _ => continue,
     };
+    let i = first + offset;
     out.push_str(&input[last..i]);
     out.push_str(replacement);
     last = i + 1;
   }
   out.push_str(&input[last..]);
 }
-
 fn escape_text(input: &str, out: &mut String) {
   escape_into(input, out, false);
 }
@@ -113,7 +126,7 @@ impl RenderedIsland {
       props.insert(STATE_PROP.to_owned(), Value::Map(self.state.clone()));
     }
     if !self.key.is_empty() {
-      props.insert(KEY_PROP.to_owned(), Value::Str(self.key.clone()));
+      props.insert(KEY_PROP.to_owned(), Value::str(self.key.clone()));
     }
     props
   }
@@ -396,7 +409,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
         attribute(&name, &value, &mut open)?;
       }
       if !bound.is_empty() {
-        attribute("data-sf-on", &Value::Str(bound.join(" ")), &mut open)?;
+        attribute("data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
       }
       if VOID.contains(&tag.as_str()) {
         open.push_str("/>");
@@ -416,11 +429,11 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
               }
             }
           }
-          if let Some(hoists) = &mut env.hoists {
-            hoists.record(id, &Value::Str(inner.html.clone()));
-          }
-          out.islands.extend(inner.islands);
+          out.islands.extend(std::mem::take(&mut inner.islands));
           out.markup(&inner.html);
+          if let Some(hoists) = &mut env.hoists {
+            hoists.record(id, Value::str(inner.html));
+          }
         }
         None => match &raw {
           Some(html) => out.markup(html),
@@ -787,7 +800,7 @@ mod tests {
     let render = |component: &Component, props: &ValueMap| Interpreter::default().render(component, props, &Components::new()).unwrap().html;
 
     let component = raw(p("body"), Vec::new());
-    let html = render(&component, &props(&[("body", Value::Str("<p>a <b>markdown</b> blip</p>".to_owned()))]));
+    let html = render(&component, &props(&[("body", Value::str("<p>a <b>markdown</b> blip</p>".to_owned()))]));
     assert_eq!(html, "<div class=\"md\"><p>a <b>markdown</b> blip</p></div>", "the string is written as markup, not as text");
 
     assert_eq!(render(&component, &props(&[("body", Value::Null)])), "<div class=\"md\"></div>", "React renders nothing for a missing __html");
