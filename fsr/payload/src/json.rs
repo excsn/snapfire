@@ -261,7 +261,7 @@ pub fn json_to_value(json: &Json) -> Result<Value, DecodeError> {
       for item in items {
         out.push(json_to_value(item)?);
       }
-      Ok(Value::Seq(out))
+      Ok(Value::seq(out))
     }
     Json::Object(map) => {
       if let Some(Json::String(name)) = map.get("$") {

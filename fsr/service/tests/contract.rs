@@ -46,14 +46,14 @@ fn conform_makes_an_integral_number_a_double_and_nothing_else() {
   let mut line = ValueMap::default();
   line.insert("total".to_owned(), Value::Int(320));
   line.insert("n".to_owned(), Value::Int(2));
-  line.insert("more".to_owned(), Value::Seq(vec![Value::UInt(7), Value::F32(1.5)]));
+  line.insert("more".to_owned(), Value::seq(vec![Value::UInt(7), Value::F32(1.5)]));
   let mut value = Value::Map(line);
   assert!(contract.check_value(&Type::named("Line"), &value, "line").is_err(), "an integer where the contract says double is a mismatch before conforming");
   contract.conform(&Type::named("Line"), &mut value);
   let Value::Map(line) = &value else { panic!("{value:?}") };
   assert_eq!(line["total"], Value::F64(320.0));
   assert_eq!(line["n"], Value::Int(2));
-  assert_eq!(line["more"], Value::Seq(vec![Value::F32(7.0), Value::F32(1.5)]));
+  assert_eq!(line["more"], Value::seq(vec![Value::F32(7.0), Value::F32(1.5)]));
   contract.check_value(&Type::named("Line"), &value, "line").unwrap();
 
   let mut fractional = Value::Map(ValueMap::from_iter([("total".to_owned(), Value::F64(1.5)), ("n".to_owned(), Value::F64(2.5))]));
@@ -177,10 +177,10 @@ fn unions_carry_tags_and_payloads() {
 #[test]
 fn lists_maps_bytes_and_typed_arrays_name_the_failing_position() {
   let contract = users();
-  let good = Value::Seq(vec![user_value(1, "alice"), user_value(2, "bob")]);
+  let good = Value::seq(vec![user_value(1, "alice"), user_value(2, "bob")]);
   assert!(contract.check_return("users", "list", &good).is_ok());
 
-  let bad = Value::Seq(vec![user_value(1, "alice"), Value::str("nope")]);
+  let bad = Value::seq(vec![user_value(1, "alice"), Value::str("nope")]);
   let err = contract.check_return("users", "list", &bad).unwrap_err();
   assert!(err.to_string().starts_with("users.list()[1]:"), "{err}");
 
@@ -226,7 +226,7 @@ fn the_vocabulary_receives_a_proto3_message() {
   let account = Value::Map(args(vec![
     ("id", Value::Int(9)),
     ("balance_cents", Value::Int(-250)),
-    ("labels", Value::Seq(vec![Value::str("vip")])),
+    ("labels", Value::seq(vec![Value::str("vip")])),
     ("annotations", Value::Map(args(vec![("region", Value::str("eu"))]))),
     ("status", Value::Variant { tag: "ACTIVE".into(), payload: None }),
     ("payment", Value::Variant { tag: "card".into(), payload: Some(Box::new(Value::str("4242"))) }),

@@ -533,7 +533,7 @@ impl Env {
             Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
           }
         }
-        Ok(Value::Seq(items))
+        Ok(Value::seq(items))
       }
       Expr::Field(target, name) => Ok(get_field(&self.eval_sync(target)?, name)),
       Expr::Index(target, key) => {
@@ -631,7 +631,7 @@ impl Env {
         for (i, item) in items.into_iter().enumerate() {
           out.push(self.apply_sync(f, vec![item, Value::F64(i as f64)])?);
         }
-        Ok(Value::Seq(out))
+        Ok(Value::seq(out))
       }
       Expr::Filter(over, f) => {
         let items = self.seq_sync(over, "filter")?;
@@ -641,7 +641,7 @@ impl Env {
             out.push(item);
           }
         }
-        Ok(Value::Seq(out))
+        Ok(Value::seq(out))
       }
       Expr::Reduce(over, init, f) => {
         let items = self.seq_sync(over, "reduce")?;
@@ -689,7 +689,7 @@ impl Env {
       }
       Expr::Entries(e) => match self.eval_sync(e)? {
         Value::Map(map) => Ok(Value::Seq(
-          map.into_iter().map(|(k, v)| Value::Seq(vec![Value::Str(k), v])).collect(),
+          map.into_iter().map(|(k, v)| Value::seq(vec![Value::Str(k), v])).collect(),
         )),
         other => Err(type_error("Object.entries", "an object", &other)),
       },
@@ -738,7 +738,7 @@ impl Env {
 
   fn seq_sync(&mut self, over: &Expr, what: &str) -> Result<Vec<Value>, Fail> {
     match self.eval_sync(over)? {
-      Value::Seq(items) => Ok(items),
+      Value::Seq(items) => Ok(items.into_items()),
       other => Err(type_error(what, "an array", &other)),
     }
   }
@@ -834,7 +834,7 @@ impl Env {
               Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
             }
           }
-          Ok(Value::Seq(items))
+          Ok(Value::seq(items))
         }
         Expr::Field(target, name) => Ok(get_field(&self.eval(target).await?, name)),
         Expr::Index(target, key) => {
@@ -938,7 +938,7 @@ impl Env {
           for (i, item) in items.into_iter().enumerate() {
             out.push(self.apply(f, vec![item, Value::F64(i as f64)]).await?);
           }
-          Ok(Value::Seq(out))
+          Ok(Value::seq(out))
         }
         Expr::Filter(over, f) => {
           let items = self.seq(over, "filter").await?;
@@ -948,7 +948,7 @@ impl Env {
               out.push(item);
             }
           }
-          Ok(Value::Seq(out))
+          Ok(Value::seq(out))
         }
         Expr::Reduce(over, init, f) => {
           let items = self.seq(over, "reduce").await?;
@@ -996,7 +996,7 @@ impl Env {
         }
         Expr::Entries(e) => match self.eval(e).await? {
           Value::Map(map) => Ok(Value::Seq(
-            map.into_iter().map(|(k, v)| Value::Seq(vec![Value::Str(k), v])).collect(),
+            map.into_iter().map(|(k, v)| Value::seq(vec![Value::Str(k), v])).collect(),
           )),
           other => Err(type_error("Object.entries", "an object", &other)),
         },
@@ -1046,7 +1046,7 @@ impl Env {
 
   async fn seq(&mut self, over: &Expr, what: &str) -> Result<Vec<Value>, Fail> {
     match self.eval(over).await? {
-      Value::Seq(items) => Ok(items),
+      Value::Seq(items) => Ok(items.into_items()),
       other => Err(type_error(what, "an array", &other)),
     }
   }

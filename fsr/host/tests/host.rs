@@ -127,7 +127,7 @@ fn rand_suffix() -> u128 {
 
 fn host() -> (Arc<Host>, Arc<MockTransport>) {
   let transport =
-    Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a"), Value::str("b")])));
+    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
   let host = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -327,7 +327,7 @@ async fn http2_is_off_until_the_configuration_asks_for_it() {
 
 #[tokio::test]
 async fn http2_serves_a_prior_knowledge_client_beside_http1() {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Arc::new(
     Host::from(app_dir().join("app.toml"))
       .unwrap()
@@ -613,7 +613,7 @@ async fn a_cache_section_installs_the_render_memo_and_the_report_says_so() {
   let dir = app_dir();
   let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   std::fs::write(dir.join("app.toml"), format!("{base}\n[cache]\nttl = \"5m\"\n")).unwrap();
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -671,7 +671,7 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
   use http_body_util::BodyExt;
 
   let dir = app_dir();
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -758,7 +758,7 @@ async fn dev_off_in_the_configuration_drops_the_script_and_the_endpoints() {
     base.replace("[server]\n", "[server]\ndev = false\n"),
   )
   .unwrap();
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -933,7 +933,7 @@ async fn a_source_reads_the_path_the_request_carried() {
 }
 
 fn localised() -> Arc<Host> {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(localised_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -1243,7 +1243,7 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
 #[tokio::test]
 async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_directory() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(localised_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -1404,7 +1404,7 @@ password = "builder"
 "#;
 
 fn identified() -> (Arc<Host>, Arc<MockTransport>) {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(identified_dir(USERS).join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -1707,7 +1707,7 @@ impl snapfire_fsr_runtime::Metadata for ItemsTitle {
 
 fn formed() -> Arc<Host> {
   let transport =
-    Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a"), Value::str("b")])));
+    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
   let host = Host::from(formed_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -1949,7 +1949,7 @@ impl snapfire_fsr_service::Transport for IdentityService {
           Some(Value::Str(s)) => Some(s.clone()),
           _ => None,
         };
-        Ok(Value::Seq(vec![Value::str("a")]))
+        Ok(Value::seq(vec![Value::str("a")]))
       }
       "identity.authenticate" => {
         if str_arg(&call.args, "user") == "alice" && str_arg(&call.args, "password") == "wonder" {
@@ -2216,7 +2216,7 @@ base_url = "http://127.0.0.1:1"
 async fn a_cached_method_answers_renders_from_memory_until_a_write_or_a_drop() {
   let transport = Arc::new(
     MockTransport::new()
-      .returns("shop.list", Value::Seq(vec![Value::str("socks")]))
+      .returns("shop.list", Value::seq(vec![Value::str("socks")]))
       .returns("shop.add", Value::Null),
   );
   let host = Host::from(cached_dir().join("app.toml"))
@@ -2259,7 +2259,7 @@ fn without_cache_data_no_method_is_cached_whatever_the_contract_says() {
     .unwrap()
     .replace("[cache.data]\ncapacity = 50\n", "");
   std::fs::write(dir.join("app.toml"), text).unwrap();
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("socks")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("socks")])));
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -2272,7 +2272,7 @@ fn without_cache_data_no_method_is_cached_whatever_the_contract_says() {
 #[tokio::test]
 async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
   let dir = app_dir();
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let reload_from = dir.clone();
   let reload_with = transport.clone();
   let host = Host::from(dir.join("app.toml"))
@@ -2412,7 +2412,7 @@ fn site_dir() -> PathBuf {
 #[tokio::test]
 async fn a_site_serves_standalone_under_its_prefix_with_its_ids_prefixed() {
   let dir = site_dir();
-  let transport = Arc::new(MockTransport::new().returns("shop:shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop:shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -2490,8 +2490,8 @@ fn shell_dir() -> PathBuf {
 fn shell_with(site: &std::path::Path) -> Arc<Host> {
   let transport = Arc::new(
     MockTransport::new()
-      .returns("shop.list", Value::Seq(vec![Value::str("a")]))
-      .returns("shop:shop.list", Value::Seq(vec![Value::str("b")])),
+      .returns("shop.list", Value::seq(vec![Value::str("a")]))
+      .returns("shop:shop.list", Value::seq(vec![Value::str("b")])),
   );
   let mount = snapfire_fsr_host::Mount::load("shop", site, "dev", "deadbeef", false).unwrap();
   let host = Host::from(shell_dir().join("app.toml"))
@@ -2823,7 +2823,7 @@ async fn catalogs_under_locales_reach_the_document_the_payload_and_t() {
 
 #[tokio::test]
 async fn a_route_reading_only_the_identity_prerenders_for_anonymous_visitors_and_renders_live_for_a_signed_in_one() {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let host = Host::from(identified_dir(USERS).join("app.toml"))
     .unwrap()
@@ -2932,7 +2932,7 @@ mod tls {
   }
 
   fn served(dir: &std::path::Path) -> Arc<Host> {
-    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
     Arc::new(
       Host::from(dir.join("app.toml"))
         .unwrap()
@@ -3134,7 +3134,7 @@ async fn live_needs_topics_and_publishing_to_nobody_costs_nothing() {
 
 #[tokio::test]
 async fn a_topic_rule_decides_who_may_follow_what() {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -3196,7 +3196,7 @@ async fn a_socket_is_refused_without_a_handler_a_topic_or_the_rule_s_blessing() 
     .await;
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "no handler, no socket");
 
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -3317,7 +3317,7 @@ async fn a_warmed_load_answers_a_route_the_layout_keeps_dynamic() {
   assert_eq!(warmed["console.page"]["rows"][0], serde_json::json!("a"));
   assert!(warmed.get("console.layout").is_none(), "{warmed}");
 
-  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("moved on")])));
+  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("moved on")])));
   let warm = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .services_over(moved.clone())
@@ -3371,7 +3371,7 @@ async fn a_source_reading_the_request_is_never_warmed() {
     "it reads the path, which one source answers for many routes: {warmed}"
   );
 
-  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("moved on")])));
+  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("moved on")])));
   let warm = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .services_over(moved)
@@ -3393,7 +3393,7 @@ async fn a_second_warm_pass_writes_documents_from_the_loads_it_just_took() {
   let first = Host::from(app.join("app.toml"))
     .unwrap()
     .services_over(Arc::new(
-      MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("first")])),
+      MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("first")])),
     ))
     .prerendered(&out)
     .build()
@@ -3404,7 +3404,7 @@ async fn a_second_warm_pass_writes_documents_from_the_loads_it_just_took() {
   let second = Host::from(app.join("app.toml"))
     .unwrap()
     .services_over(Arc::new(
-      MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("second")])),
+      MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("second")])),
     ))
     .prerendered(&out)
     .build()
@@ -3425,7 +3425,7 @@ async fn a_source_reading_the_identity_is_warmed_for_anonymous_visitors_alone() 
   let host = Host::from(identified_dir(USERS).join("app.toml"))
     .unwrap()
     .services_over(Arc::new(
-      MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])),
+      MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])),
     ))
     .prerendered(&out)
     .build()

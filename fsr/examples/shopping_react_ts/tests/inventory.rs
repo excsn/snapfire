@@ -26,7 +26,7 @@ async fn the_proto_reaches_the_warehouse_over_grpc_with_no_generated_client() {
   assert_eq!(level.get("product_id"), Some(&Value::int(4)));
   assert_eq!(level.get("on_hand"), Some(&Value::int(7)));
   assert_eq!(level.get("warehouse"), Some(&Value::str("north")));
-  assert_eq!(level.get("bins"), Some(&Value::Seq(vec![Value::str("N-04")])));
+  assert_eq!(level.get("bins"), Some(&Value::seq(vec![Value::str("N-04")])));
 
   let missing = transport.call(call("getStock", 99)).await.unwrap_err();
   assert_eq!(missing.kind, FailureKind::NotFound, "a gRPC status maps onto a failure kind: {missing:?}");

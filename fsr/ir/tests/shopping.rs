@@ -201,11 +201,11 @@ fn run(body: &Body, ctx: &RequestCtx, input: Option<Value>) -> Result<Value, sna
 
 #[test]
 fn the_catalog_loader_passes_the_tag_and_omits_it_when_absent() {
-  let mock = Mock::returning("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400)]));
+  let mock = Mock::returning("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400)]));
 
   let data = run(&catalog_loader(), &ctx(mock.clone(), &[("tag", "printing")], ValueMap::default()), None).unwrap();
   let Value::Map(data) = data else { panic!("a loader returns an object") };
-  assert_eq!(data.get("products"), Some(&Value::Seq(vec![product(1, "Filament", 2400)])));
+  assert_eq!(data.get("products"), Some(&Value::seq(vec![product(1, "Filament", 2400)])));
   assert_eq!(mock.calls()[0].1.get("tag"), Some(&Value::str("printing")));
 
   run(&catalog_loader(), &ctx(mock.clone(), &[], ValueMap::default()), None).unwrap();
@@ -230,7 +230,7 @@ fn the_product_loader_coerces_the_id_and_rejects_a_non_number() {
 fn the_cart_loader_joins_held_lines_with_the_catalog() {
   let mock = Mock::returning(
     "shopping.listProducts",
-    Value::Seq(vec![product(1, "Filament", 2400), product(2, "Nozzle", 900), product(3, "Bed", 5000)]),
+    Value::seq(vec![product(1, "Filament", 2400), product(2, "Nozzle", 900), product(3, "Bed", 5000)]),
   );
   let data = run(&cart_loader(), &ctx(mock, &[], cart_of(&[("1", 2), ("3", 1)])), None).unwrap();
   let Value::Map(data) = data else { panic!() };
@@ -311,7 +311,7 @@ async fn independent_lets_issue_their_calls_together() {
     barrier: Some(Arc::new(tokio::sync::Barrier::new(2))),
     ..Default::default()
   });
-  mock.returns.lock().insert("shopping.listProducts".into(), Value::Seq(vec![]));
+  mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![]));
   mock.returns.lock().insert("shopping.getProduct".into(), product(1, "Filament", 2400));
   let body = vec![
     Stmt::Let { name: "a".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
@@ -330,7 +330,7 @@ async fn independent_lets_issue_their_calls_together() {
 #[tokio::test]
 async fn a_dependent_let_waits_for_the_one_it_reads() {
   let mock = Mock::returning("shopping.getProduct", product(1, "Filament", 2400));
-  mock.returns.lock().insert("shopping.listProducts".into(), Value::Seq(vec![product(1, "Filament", 2400)]));
+  mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![product(1, "Filament", 2400)]));
   let body = vec![
     Stmt::Let { name: "catalog".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
     Stmt::Let {
@@ -410,7 +410,7 @@ fn every_body_round_trips_through_json() {
 
 #[test]
 fn the_bound_source_and_action_answer_through_the_runtime_traits() {
-  let mock = Mock::returning("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400)]));
+  let mock = Mock::returning("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400)]));
   let rt = tokio::runtime::Runtime::new().unwrap();
 
   let source = IrSource::new("cart_loader", cart_loader());

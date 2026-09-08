@@ -452,9 +452,9 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
         other => return Err(crate::interp::type_error("map", "an array", &other)),
       };
       let depth = env.scope.len();
-      for (i, item) in items.into_iter().enumerate() {
+      for i in 0..items.len() {
         env.scope.truncate(depth);
-        for (param, value) in params.iter().zip([item, Value::F64(i as f64)]) {
+        for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
           env.scope.push((param.clone(), value));
         }
         in_iteration(env, i, |env| render(env, body, library, slots, out))?;
@@ -806,7 +806,7 @@ mod tests {
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
       }, state: Vec::new(), handlers: Vec::new()
     };
-    let html = (Interpreter::default().render(&component, &props(&[("items", Value::Seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap().html;
+    let html = (Interpreter::default().render(&component, &props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap().html;
     assert_eq!(html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
   }
 
@@ -832,7 +832,7 @@ mod tests {
         }],
       }, state: Vec::new(), handlers: Vec::new()
     };
-    let lines = Value::Seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
+    let lines = Value::seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
     let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap().html;
     assert_eq!(html, "<ul><li data-i=\"0\">1</li><li data-i=\"1\">3<b>many</b></li></ul>");
   }
@@ -896,7 +896,7 @@ mod tests {
     attrs.insert("dataId".to_owned(), Value::Int(7));
     attrs.insert("onClick".to_owned(), Value::str("handler"));
     attrs.insert("hidden".to_owned(), Value::Bool(true));
-    let items = Value::Seq(vec![Value::Map(props(&[("name", Value::str("A")), ("attrs", Value::Map(attrs))])), Value::Map(props(&[("name", Value::str("B")), ("attrs", Value::Null)]))]);
+    let items = Value::seq(vec![Value::Map(props(&[("name", Value::str("A")), ("attrs", Value::Map(attrs))])), Value::Map(props(&[("name", Value::str("B")), ("attrs", Value::Null)]))]);
     let html = (Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap().html;
     assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p></div></main>");
   }
@@ -948,9 +948,9 @@ mod tests {
     let render = |props: ValueMap| Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
     assert_eq!(render(ValueMap::default()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
     let mut props = ValueMap::default();
-    props.insert("$slots".to_owned(), Value::Seq(vec![Value::str("content")]));
+    props.insert("$slots".to_owned(), Value::seq(vec![Value::str("content")]));
     assert_eq!(render(props.clone()), "<sf-s>closed</sf-s>");
-    props.insert("$slots".to_owned(), Value::Seq(vec![Value::str("content"), Value::str("modal")]));
+    props.insert("$slots".to_owned(), Value::seq(vec![Value::str("content"), Value::str("modal")]));
     assert_eq!(render(props), format!("<sf-s>{}</sf-s>", slot_mark("modal")));
   }
 
@@ -1008,8 +1008,8 @@ mod hoist_tests {
     };
     let mut props = ValueMap::default();
     props.insert("total".to_owned(), Value::F64(2.5));
-    props.insert("prices".to_owned(), Value::Seq(vec![Value::F64(1.0), Value::F64(2.0)]));
-    props.insert("taxes".to_owned(), Value::Seq(vec![Value::F64(1.0), Value::F64(1.5)]));
+    props.insert("prices".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
+    props.insert("taxes".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(1.5)]));
     let rendered = Interpreter::default().render_module("src/ui/Bill.tsx#Bill", &component, &props, &Components::new()).unwrap();
     assert_eq!(rendered.html, "2.5<!-- -->1.0<!-- -->1.5<!-- -->2.0<!-- -->3.0");
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
@@ -1035,7 +1035,7 @@ mod hoist_tests {
       ]), state: Vec::new(), handlers: Vec::new()
     };
     let mut props = ValueMap::default();
-    props.insert("items".to_owned(), Value::Seq(vec![Value::F64(2.0), Value::F64(3.0)]));
+    props.insert("items".to_owned(), Value::seq(vec![Value::F64(2.0), Value::F64(3.0)]));
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &props, &library).unwrap();
     assert_eq!(rendered.html, "1.0<!-- -->2.0<!-- -->3.0<!-- -->9.0");
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
@@ -1066,7 +1066,7 @@ mod hoist_tests {
       }, state: Vec::new(), handlers: Vec::new()
     };
     let mut props = ValueMap::default();
-    props.insert("items".to_owned(), Value::Seq(vec![Value::F64(1.0), Value::F64(2.0)]));
+    props.insert("items".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &component, &props, &Components::new()).unwrap();
     assert_eq!(rendered.html, "<ul class=\"list\"><li>1.0</li><li>2.0</li></ul>");
     assert_eq!(rendered.hoisted["routes/index/page.tsx#default|4"], Value::str("<li>1.0</li><li>2.0</li>"));
@@ -1180,7 +1180,7 @@ mod island_tests {
       handlers: Vec::new(),
     };
     let mut props = ValueMap::default();
-    props.insert("blips".to_owned(), Value::Seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
+    props.insert("blips".to_owned(), Value::seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
     let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &props, &library).unwrap();
     let keys: Vec<&str> = rendered.islands.iter().map(|i| i.key.as_str()).collect();
     assert_eq!(keys, ["routes/w/page.tsx#default|i1@0", "routes/w/page.tsx#default|i1@1", "routes/w/page.tsx#default|i1@2"], "one placement in a loop is one region per iteration");

@@ -25,8 +25,8 @@ fn contract() -> Contract {
 fn mock() -> Arc<MockTransport> {
   Arc::new(
     MockTransport::new()
-      .returns("catalog.list", Value::Seq(vec![Value::str("socks")]))
-      .returns("catalog.mine", Value::Seq(vec![Value::str("hat")]))
+      .returns("catalog.list", Value::seq(vec![Value::str("socks")]))
+      .returns("catalog.mine", Value::seq(vec![Value::str("hat")]))
       .returns("catalog.secret", Value::str("s"))
       .returns("catalog.add", Value::Null)
       .returns("catalog.plain", Value::str("p"))
@@ -135,7 +135,7 @@ impl Transport for Flaky {
     self.calls.fetch_add(1, Ordering::SeqCst);
     let mut failed = self.failed.lock();
     let result = if *failed {
-      Ok(Value::Seq(vec![Value::str("socks")]))
+      Ok(Value::seq(vec![Value::str("socks")]))
     } else {
       *failed = true;
       Err(ServiceError::new(FailureKind::Unavailable, call.service, call.method, "down"))

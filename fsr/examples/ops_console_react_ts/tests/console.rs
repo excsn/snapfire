@@ -40,11 +40,11 @@ fn job(id: i64, name: &str, seconds: i64) -> Value {
 fn fleet() -> Arc<MockTransport> {
   Arc::new(
     MockTransport::new()
-      .returns("fleet.listAgents", Value::Seq(vec![agent(1, "builder-eu-1", "eu", "up", 3), agent(3, "builder-us-1", "us", "down", 7)]))
+      .returns("fleet.listAgents", Value::seq(vec![agent(1, "builder-eu-1", "eu", "up", 3), agent(3, "builder-us-1", "us", "down", 7)]))
       .returns("fleet.getAgent", agent(1, "builder-eu-1", "eu", "up", 3))
-      .returns("fleet.listJobs", Value::Seq(vec![job(11, "compile", 92)]))
-      .returns("fleet.listAlerts", Value::Seq(vec![alert(21, 3, "page", "builder-us-1 stopped answering"), alert(22, 1, "warn", "queue over 3")]))
-      .returns("fleet.acknowledgeAlert", Value::Seq(vec![alert(22, 1, "warn", "queue over 3")]))
+      .returns("fleet.listJobs", Value::seq(vec![job(11, "compile", 92)]))
+      .returns("fleet.listAlerts", Value::seq(vec![alert(21, 3, "page", "builder-us-1 stopped answering"), alert(22, 1, "warn", "queue over 3")]))
+      .returns("fleet.acknowledgeAlert", Value::seq(vec![alert(22, 1, "warn", "queue over 3")]))
       .returns("identity.authenticate", signed("alice", "admin")),
   )
 }

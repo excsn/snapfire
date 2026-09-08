@@ -82,7 +82,7 @@ fn props_reach_the_template_by_type() {
   props.insert("name".to_owned(), Value::Str("fleet".to_owned()));
   props.insert("count".to_owned(), Value::Int(42));
   props.insert("on".to_owned(), Value::Bool(true));
-  props.insert("tags".to_owned(), Value::Seq(vec![Value::Str("a".to_owned()), Value::Str("b".to_owned())]));
+  props.insert("tags".to_owned(), Value::seq(vec![Value::Str("a".to_owned()), Value::Str("b".to_owned())]));
   let mut user = Data::default();
   user.insert("city".to_owned(), Value::Str("Oslo".to_owned()));
   props.insert("user".to_owned(), Value::Map(user));

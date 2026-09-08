@@ -89,8 +89,8 @@ fn product(id: i128, name: &str, category: &str, stock: i128) -> Value {
     ("reviews", Value::Int(12 * id)),
     ("stock", Value::Int(stock)),
     ("description", Value::str("A spool of filament for the printer on your desk, wound tight and dried before shipping.")),
-    ("tags", Value::Seq(vec![Value::str("pla"), Value::str("1.75mm")])),
-    ("attributes", Value::Seq(vec![map(vec![("name", Value::str("Ingredients")), ("value", Value::str("PLA"))]), map(vec![("name", Value::str("Weight")), ("value", Value::str("1 kg"))])])),
+    ("tags", Value::seq(vec![Value::str("pla"), Value::str("1.75mm")])),
+    ("attributes", Value::seq(vec![map(vec![("name", Value::str("Ingredients")), ("value", Value::str("PLA"))]), map(vec![("name", Value::str("Weight")), ("value", Value::str("1 kg"))])])),
   ])
 }
 
@@ -102,17 +102,17 @@ fn with_quantity(product: Value, quantity: i128) -> Value {
 
 fn pages() -> Vec<Page> {
   let catalog: Vec<Value> = (1..=12).map(|i| product(i, &format!("Filament {i}"), if i % 3 == 0 { "tools" } else { "printing" }, i % 4 * 3)).collect();
-  let Value::Map(catalog_props) = map(vec![("products", Value::Seq(catalog)), ("q", Value::str("")), ("category", Value::str("printing")), ("cartCount", Value::Int(2))]) else { unreachable!() };
+  let Value::Map(catalog_props) = map(vec![("products", Value::seq(catalog)), ("q", Value::str("")), ("category", Value::str("printing")), ("cartCount", Value::Int(2))]) else { unreachable!() };
   let Value::Map(product_props) = map(vec![
     ("product", product(1, "PLA filament", "printing", 8)),
-    ("stock", map(vec![("product_id", Value::Int(1)), ("on_hand", Value::Int(8)), ("reserved", Value::Int(0)), ("warehouse", Value::str("Prague")), ("bins", Value::Seq(vec![Value::str("A1"), Value::str("B2")]))])),
+    ("stock", map(vec![("product_id", Value::Int(1)), ("on_hand", Value::Int(8)), ("reserved", Value::Int(0)), ("warehouse", Value::str("Prague")), ("bins", Value::seq(vec![Value::str("A1"), Value::str("B2")]))])),
     ("inCart", Value::Int(0)),
     ("cartCount", Value::Int(2)),
   ]) else {
     unreachable!()
   };
   let lines: Vec<Value> = (1..=3).map(|i| with_quantity(product(i, &format!("Filament {i}"), "printing", 5), i)).collect();
-  let Value::Map(cart_props) = map(vec![("lines", Value::Seq(lines)), ("cartCount", Value::Int(6))]) else { unreachable!() };
+  let Value::Map(cart_props) = map(vec![("lines", Value::seq(lines)), ("cartCount", Value::Int(6))]) else { unreachable!() };
   vec![
     Page { name: "catalog_12", module: "routes/page.tsx#default", file: "routes/page.js", props: catalog_props },
     Page { name: "product", module: "routes/product/[id]/page.tsx#default", file: "routes/product/[id]/page.js", props: product_props },

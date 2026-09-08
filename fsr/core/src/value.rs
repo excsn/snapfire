@@ -15,6 +15,98 @@ pub struct ValueMap(std::sync::Arc<Fields>);
 
 pub type Props = ValueMap;
 
+pub type Items = Vec<Value>;
+
+/// Copy on write, the way [`ValueMap`] is: a loop clones the sequence it walks
+/// and never writes to it.
+#[derive(Clone, Default)]
+pub struct ValueSeq(std::sync::Arc<Items>);
+
+impl ValueSeq {
+  pub fn into_items(self) -> Items {
+    std::sync::Arc::try_unwrap(self.0).unwrap_or_else(|held| (*held).clone())
+  }
+}
+
+impl std::ops::Deref for ValueSeq {
+  type Target = Items;
+  fn deref(&self) -> &Items {
+    &self.0
+  }
+}
+
+impl std::ops::DerefMut for ValueSeq {
+  fn deref_mut(&mut self) -> &mut Items {
+    std::sync::Arc::make_mut(&mut self.0)
+  }
+}
+
+impl std::fmt::Debug for ValueSeq {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.fmt(f)
+  }
+}
+
+impl PartialEq for ValueSeq {
+  fn eq(&self, other: &Self) -> bool {
+    std::sync::Arc::ptr_eq(&self.0, &other.0) || *self.0 == *other.0
+  }
+}
+
+impl PartialEq<Items> for ValueSeq {
+  fn eq(&self, other: &Items) -> bool {
+    *self.0 == *other
+  }
+}
+
+impl PartialEq<Fields> for ValueMap {
+  fn eq(&self, other: &Fields) -> bool {
+    *self.0 == *other
+  }
+}
+
+impl From<Items> for ValueSeq {
+  fn from(items: Items) -> Self {
+    ValueSeq(std::sync::Arc::new(items))
+  }
+}
+
+impl FromIterator<Value> for ValueSeq {
+  fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
+    ValueSeq(std::sync::Arc::new(Items::from_iter(iter)))
+  }
+}
+
+impl IntoIterator for ValueSeq {
+  type Item = Value;
+  type IntoIter = std::vec::IntoIter<Value>;
+  fn into_iter(self) -> Self::IntoIter {
+    self.into_items().into_iter()
+  }
+}
+
+impl<'a> IntoIterator for &'a ValueSeq {
+  type Item = &'a Value;
+  type IntoIter = std::slice::Iter<'a, Value>;
+  fn into_iter(self) -> Self::IntoIter {
+    self.0.iter()
+  }
+}
+
+impl<'a> IntoIterator for &'a mut ValueSeq {
+  type Item = &'a mut Value;
+  type IntoIter = std::slice::IterMut<'a, Value>;
+  fn into_iter(self) -> Self::IntoIter {
+    std::sync::Arc::make_mut(&mut self.0).iter_mut()
+  }
+}
+
+impl Extend<Value> for ValueSeq {
+  fn extend<T: IntoIterator<Item = Value>>(&mut self, iter: T) {
+    std::sync::Arc::make_mut(&mut self.0).extend(iter);
+  }
+}
+
 impl ValueMap {
   pub fn into_fields(self) -> Fields {
     std::sync::Arc::try_unwrap(self.0).unwrap_or_else(|held| (*held).clone())
@@ -93,7 +185,7 @@ pub enum Value {
   Str(String),
   Bytes(Vec<u8>),
   TypedArray(TypedArray),
-  Seq(Vec<Value>),
+  Seq(ValueSeq),
   Map(ValueMap),
   Variant { tag: String, payload: Option<Box<Value>> },
   Ref { kind: RefKind, id: String },
@@ -133,6 +225,10 @@ impl Value {
 
   pub fn str(v: impl Into<String>) -> Self {
     Value::Str(v.into())
+  }
+
+  pub fn seq(items: impl Into<ValueSeq>) -> Self {
+    Value::Seq(items.into())
   }
 
   pub fn action_ref(id: impl Into<String>) -> Self {

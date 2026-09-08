@@ -26,8 +26,8 @@ fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
   map.insert("rating".to_owned(), Value::F64(4.5));
   map.insert("reviews".to_owned(), Value::int(10));
   map.insert("description".to_owned(), Value::str("a spool"));
-  map.insert("tags".to_owned(), Value::Seq(vec![Value::str("printing")]));
-  map.insert("attributes".to_owned(), Value::Seq(vec![Value::Map(attribute)]));
+  map.insert("tags".to_owned(), Value::seq(vec![Value::str("printing")]));
+  map.insert("attributes".to_owned(), Value::seq(vec![Value::Map(attribute)]));
   map.insert("image".to_owned(), Value::Map(image));
   Value::Map(map)
 }
@@ -38,7 +38,7 @@ fn stock(id: i64) -> Value {
   map.insert("on_hand".to_owned(), Value::int(12));
   map.insert("reserved".to_owned(), Value::int(0));
   map.insert("warehouse".to_owned(), Value::str("north"));
-  map.insert("bins".to_owned(), Value::Seq(vec![Value::str("N-01")]));
+  map.insert("bins".to_owned(), Value::seq(vec![Value::str("N-01")]));
   Value::Map(map)
 }
 
@@ -87,7 +87,7 @@ fn the_published_document_is_the_only_client_description() {
 #[test]
 fn a_route_renders_its_page_on_the_server_with_no_javascript_engine() {
   let transport = Arc::new(
-    MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)])),
+    MockTransport::new().returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)])),
   );
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
@@ -233,7 +233,7 @@ fn the_cart_page_names_and_prices_what_the_session_holds() {
   use snapfire_fsr_runtime::SessionCell;
 
   let transport = Arc::new(
-    MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)])),
+    MockTransport::new().returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)])),
   );
   let app = app_over(transport);
   let session = SessionCell::default();
@@ -264,7 +264,7 @@ fn the_order_page_reads_the_placed_order_back() {
   let mut order = ValueMap::default();
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
-  order.insert("lines".to_owned(), Value::Seq(vec![Value::Map(line)]));
+  order.insert("lines".to_owned(), Value::seq(vec![Value::Map(line)]));
   let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
   let app = app_over(transport.clone());
 
@@ -283,7 +283,7 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let mut order = ValueMap::default();
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
-  order.insert("lines".to_owned(), Value::Seq(Vec::new()));
+  order.insert("lines".to_owned(), Value::seq(Vec::new()));
   let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
@@ -305,7 +305,7 @@ fn checkout_places_the_order_and_empties_the_cart() {
   let mut order = ValueMap::default();
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
-  order.insert("lines".to_owned(), Value::Seq(vec![]));
+  order.insert("lines".to_owned(), Value::seq(vec![]));
 
   let transport = Arc::new(MockTransport::new().returns("shopping.placeOrder", Value::Map(order)));
   let app = app_over(transport.clone());
@@ -448,7 +448,7 @@ fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
 fn a_loader_meta_titles_the_document_and_a_streamed_page_retitles_it_on_resolution() {
   let transport = Arc::new(
     MockTransport::new()
-      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)]))
       .returns("shopping.getProduct", product(1, "Nozzle", 1200, 3))
       .returns("inventory.getStock", stock(1)),
   );
@@ -471,7 +471,7 @@ fn the_layouts_store_seeds_the_cart_count_and_follows_the_session() {
 
   let transport = Arc::new(
     MockTransport::new()
-      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)]))
       .returns("shopping.getProduct", product(1, "Nozzle", 1200, 3))
       .returns("inventory.getStock", stock(1)),
   );
@@ -495,7 +495,7 @@ fn the_layouts_store_seeds_the_cart_count_and_follows_the_session() {
 fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
   let transport = Arc::new(
     MockTransport::new()
-      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)]))
       .returns("shopping.getProduct", product(1, "Nozzle", 1200, 3))
       .returns("inventory.getStock", stock(1)),
   );
@@ -551,7 +551,7 @@ fn an_action_input_the_schema_rejects_never_reaches_the_body() {
 
 #[test]
 fn the_catalog_filters_by_the_query_string() {
-  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![])));
+  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![])));
   let app = app_over(transport.clone());
 
   let catalog_calls = || transport.calls().into_iter().filter(|(_, args, _)| args.get("tag") != Some(&Value::str("snack"))).collect::<Vec<_>>();
@@ -568,7 +568,7 @@ fn the_catalog_filters_by_the_query_string() {
 fn a_soft_navigation_from_a_page_under_the_layout_opens_the_product_in_its_modal_slot() {
   let transport = Arc::new(
     MockTransport::new()
-      .returns("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400, 12)]))
+      .returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)]))
       .returns("shopping.getProduct", product(1, "Filament", 2400, 12))
       .returns("inventory.getStock", stock(1)),
   );
@@ -598,10 +598,10 @@ fn a_soft_navigation_from_a_page_under_the_layout_opens_the_product_in_its_modal
 
 #[test]
 fn the_promo_slot_renders_beside_the_page_from_its_own_loader() {
-  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::Seq(vec![{
+  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![{
     let mut snack = product(8, "Crackers", 395, 3);
     if let Value::Map(map) = &mut snack {
-      map.insert("tags".to_owned(), Value::Seq(vec![Value::str("food"), Value::str("snack")]));
+      map.insert("tags".to_owned(), Value::seq(vec![Value::str("food"), Value::str("snack")]));
     }
     snack
   }])));

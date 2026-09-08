@@ -306,7 +306,7 @@ fn native_modules(manifest: &Manifest) -> Vec<String> {
 /// through the engine, since the application's Rust does not run here.
 fn browser_half(name: String) -> impl Fn(&snapfire_fsr_ir::Ambient, &[Value]) -> Result<Value, snapfire_fsr_ir::Fail> + Send + Sync + 'static {
   move |_, args| {
-    let json = value_to_json(&Value::Seq(args.to_vec())).to_string();
+    let json = value_to_json(&Value::seq(args.to_vec())).to_string();
     let answer = snapfire_fsr_engine::native(&name, &json).map_err(|m| snapfire_fsr_ir::Fail::new(snapfire_fsr_runtime::FailureKind::Internal, m))?;
     let json: serde_json::Value = serde_json::from_str(&answer).map_err(|e| snapfire_fsr_ir::Fail::new(snapfire_fsr_runtime::FailureKind::Internal, format!("{name}: {e}")))?;
     json_to_value(&json).map_err(|e| snapfire_fsr_ir::Fail::new(snapfire_fsr_runtime::FailureKind::Internal, format!("{name}: {e}")))
@@ -711,7 +711,7 @@ impl Hooks for SpecHooks {
   fn calls(&self, id: u32) -> Result<String, String> {
     self.get(id)?;
     let calls = self.records.lock().get(&id).cloned().unwrap_or_default();
-    Ok(value_to_json(&Value::Seq(calls)).to_string())
+    Ok(value_to_json(&Value::seq(calls)).to_string())
   }
 
   fn ext(&self, name: &str, args: &str, locale: &str) -> Result<String, String> {

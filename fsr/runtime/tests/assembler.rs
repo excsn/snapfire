@@ -239,7 +239,7 @@ fn a_node_with_children_learns_which_slots_the_plan_fills_or_keeps() {
   let props = seen.lock();
   assert_eq!(
     props[0].get("$slots"),
-    Some(&Value::Seq(vec![
+    Some(&Value::seq(vec![
       Value::str("modal"),
       Value::str("content"),
       Value::str("promo")

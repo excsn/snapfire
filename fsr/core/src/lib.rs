@@ -10,7 +10,7 @@ pub use fingerprint::Fingerprint;
 pub use module_id::ModuleId;
 pub use node::{Html, Node, SlotId};
 pub use plan::{CacheKey, DataSourceId, NodeId, PlanNode, SlotName};
-pub use value::{Props, RefKind, TypedArray, Value, ValueMap};
+pub use value::{Fields, Items, Props, RefKind, TypedArray, Value, ValueHasher, ValueMap, ValueSeq};
 
 pub type Params = indexmap::IndexMap<String, String>;
 pub type Data = value::ValueMap;

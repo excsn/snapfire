@@ -67,7 +67,7 @@ fn unnormalized_uint_still_matches_int_fingerprint() {
 #[test]
 fn typed_array_is_not_a_seq_of_scalars() {
   let arr = Value::TypedArray(TypedArray::F64(vec![1.0, 2.0]));
-  let seq = Value::Seq(vec![Value::F64(1.0), Value::F64(2.0)]);
+  let seq = Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]);
   assert_ne!(arr.fingerprint(), seq.fingerprint());
 }
 
@@ -101,7 +101,7 @@ fn ref_kinds_are_distinct() {
 
 #[test]
 fn seq_length_prefix_prevents_boundary_shifts() {
-  let a = Value::Seq(vec![Value::str("ab"), Value::str("c")]);
-  let b = Value::Seq(vec![Value::str("a"), Value::str("bc")]);
+  let a = Value::seq(vec![Value::str("ab"), Value::str("c")]);
+  let b = Value::seq(vec![Value::str("a"), Value::str("bc")]);
   assert_ne!(a.fingerprint(), b.fingerprint());
 }

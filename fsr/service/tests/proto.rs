@@ -102,7 +102,7 @@ fn values_round_trip_through_the_messages() {
   fields.insert("on_hand".to_owned(), Value::int(12));
   fields.insert("warehouse".to_owned(), Value::str("north"));
   fields.insert("status".to_owned(), Value::str("ACTIVE"));
-  fields.insert("bins".to_owned(), Value::Seq(vec![Value::str("a1")]));
+  fields.insert("bins".to_owned(), Value::seq(vec![Value::str("a1")]));
   fields.insert("counted_at".to_owned(), Value::str("2026-09-02T10:00:00Z"));
   let mut by_bin = ValueMap::default();
   by_bin.insert("a1".to_owned(), Value::int(3));

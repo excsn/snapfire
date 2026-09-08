@@ -85,7 +85,7 @@ impl Rooms {
     let messages: Vec<Value> = self.said.lock().iter().filter(|(at, _)| at == id).map(|(_, said)| Self::message(said)).collect();
     let mut map = ValueMap::default();
     map.insert("room".to_owned(), self.room(room));
-    map.insert("messages".to_owned(), Value::Seq(messages));
+    map.insert("messages".to_owned(), Value::seq(messages));
     Some(Value::Map(map))
   }
 

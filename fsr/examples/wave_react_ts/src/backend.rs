@@ -122,7 +122,7 @@ fn wave_value(field: &Field, id: &str) -> Option<Value> {
   map.insert("id".to_owned(), Value::Str(wave.id.clone()));
   map.insert("title".to_owned(), Value::Str(wave.title.clone()));
   map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::Str(who.clone())).collect()));
-  map.insert("blips".to_owned(), Value::Seq(threaded(&wave.blips)));
+  map.insert("blips".to_owned(), Value::seq(threaded(&wave.blips)));
   Some(Value::Map(map))
 }
 

@@ -193,7 +193,7 @@ impl MockCtx {
     map.insert("query".to_owned(), Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect()));
     map.insert("input".to_owned(), self.input.clone().unwrap_or(Value::Null));
     let mut trace = ValueMap::default();
-    trace.insert("calls".to_owned(), Value::Seq(self.transport.calls.lock().clone()));
+    trace.insert("calls".to_owned(), Value::seq(self.transport.calls.lock().clone()));
     let mut session_trace = ValueMap::default();
     session_trace.insert("written".to_owned(), Value::Seq(self.written.iter().cloned().map(Value::Str).collect()));
     trace.insert("session".to_owned(), Value::Map(session_trace));
