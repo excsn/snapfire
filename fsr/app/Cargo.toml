@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr"
-version = "0.5.0"
+version = "0.6.0"
 description = "The SnapFire FSR application host: binds a plan file to the implementations that answer it."
 keywords = ["snapfire", "fsr", "fullstack", "routing", "ssr"]
 categories = ["web-programming::http-server"]
