@@ -5,8 +5,80 @@ use indexmap::IndexMap;
 /// and a caller must not swap in a fixed-state one.
 pub type ValueHasher = foldhash::fast::RandomState;
 
-pub type ValueMap = IndexMap<String, Value, ValueHasher>;
+pub type Fields = IndexMap<String, Value, ValueHasher>;
+
+/// Copy on write: cloning shares, and the first `&mut` after a share copies.
+/// A render clones a props map at every component and every loop iteration
+/// without reading it back, which is what the sharing is for.
+#[derive(Clone, Default)]
+pub struct ValueMap(std::sync::Arc<Fields>);
+
 pub type Props = ValueMap;
+
+impl ValueMap {
+  pub fn into_fields(self) -> Fields {
+    std::sync::Arc::try_unwrap(self.0).unwrap_or_else(|held| (*held).clone())
+  }
+}
+
+impl std::ops::Deref for ValueMap {
+  type Target = Fields;
+  fn deref(&self) -> &Fields {
+    &self.0
+  }
+}
+
+impl std::ops::DerefMut for ValueMap {
+  fn deref_mut(&mut self) -> &mut Fields {
+    std::sync::Arc::make_mut(&mut self.0)
+  }
+}
+
+impl std::fmt::Debug for ValueMap {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.fmt(f)
+  }
+}
+
+impl PartialEq for ValueMap {
+  fn eq(&self, other: &Self) -> bool {
+    std::sync::Arc::ptr_eq(&self.0, &other.0) || *self.0 == *other.0
+  }
+}
+
+impl From<Fields> for ValueMap {
+  fn from(fields: Fields) -> Self {
+    ValueMap(std::sync::Arc::new(fields))
+  }
+}
+
+impl FromIterator<(String, Value)> for ValueMap {
+  fn from_iter<T: IntoIterator<Item = (String, Value)>>(iter: T) -> Self {
+    ValueMap(std::sync::Arc::new(Fields::from_iter(iter)))
+  }
+}
+
+impl IntoIterator for ValueMap {
+  type Item = (String, Value);
+  type IntoIter = indexmap::map::IntoIter<String, Value>;
+  fn into_iter(self) -> Self::IntoIter {
+    self.into_fields().into_iter()
+  }
+}
+
+impl<'a> IntoIterator for &'a ValueMap {
+  type Item = (&'a String, &'a Value);
+  type IntoIter = indexmap::map::Iter<'a, String, Value>;
+  fn into_iter(self) -> Self::IntoIter {
+    self.0.iter()
+  }
+}
+
+impl Extend<(String, Value)> for ValueMap {
+  fn extend<T: IntoIterator<Item = (String, Value)>>(&mut self, iter: T) {
+    std::sync::Arc::make_mut(&mut self.0).extend(iter);
+  }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

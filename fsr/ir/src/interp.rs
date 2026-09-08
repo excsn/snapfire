@@ -694,11 +694,11 @@ impl Env {
         other => Err(type_error("Object.entries", "an object", &other)),
       },
       Expr::Keys(e) => match self.eval_sync(e)? {
-        Value::Map(map) => Ok(Value::Seq(map.into_keys().map(Value::Str).collect())),
+        Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::Str).collect())),
         other => Err(type_error("Object.keys", "an object", &other)),
       },
       Expr::Values(e) => match self.eval_sync(e)? {
-        Value::Map(map) => Ok(Value::Seq(map.into_values().collect())),
+        Value::Map(map) => Ok(Value::Seq(map.into_fields().into_values().collect())),
         other => Err(type_error("Object.values", "an object", &other)),
       },
       Expr::Length(e) => match self.eval_sync(e)? {
@@ -1001,11 +1001,11 @@ impl Env {
           other => Err(type_error("Object.entries", "an object", &other)),
         },
         Expr::Keys(e) => match self.eval(e).await? {
-          Value::Map(map) => Ok(Value::Seq(map.into_keys().map(Value::Str).collect())),
+          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::Str).collect())),
           other => Err(type_error("Object.keys", "an object", &other)),
         },
         Expr::Values(e) => match self.eval(e).await? {
-          Value::Map(map) => Ok(Value::Seq(map.into_values().collect())),
+          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_values().collect())),
           other => Err(type_error("Object.values", "an object", &other)),
         },
         Expr::Length(e) => match self.eval(e).await? {
