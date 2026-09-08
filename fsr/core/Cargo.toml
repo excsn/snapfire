@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_core"
-version = "0.6.0"
+version = "0.6.1"
 description = "Vocabulary types for SnapFire FSR: the payload tree, the render plan and the value model."
 keywords = ["snapfire", "fsr", "payload", "render", "value"]
 categories = ["web-programming", "data-structures"]

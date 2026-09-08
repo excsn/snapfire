@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_session"
-version = "0.6.0"
+version = "0.6.1"
 description = "Sessions for SnapFire FSR: signed cookies, the session store and CSRF."
 keywords = ["snapfire", "fsr", "session", "cookie", "csrf"]
 categories = ["web-programming", "authentication"]

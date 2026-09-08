@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_service"
-version = "0.6.0"
+version = "0.6.1"
 description = "The typed service boundary for SnapFire FSR: the contract artifact, the registry and transports."
 keywords = ["snapfire", "fsr", "openapi", "grpc", "contract"]
 categories = ["web-programming::http-client", "api-bindings"]
