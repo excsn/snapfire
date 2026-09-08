@@ -318,7 +318,7 @@ impl Env {
     }
   }
 
-  /// The request's locale, or null under a context that has none.
+  /// The request's locale or null under a context that has none.
   fn locale(&self) -> Value {
     if self.ctx.locale.tag.is_empty() {
       Value::Null
@@ -1261,7 +1261,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let scaled = (n.abs() * scale + 0.5).floor();
       // Below 2^53 the scaled value is a whole number an f64 holds exactly, so
       // the digits can be printed from an integer instead of through the float
-      // formatter. Anything above falls back, and negative zero keeps its sign
+      // formatter. Anything above falls back and negative zero keeps its sign
       // the way `{:.digits$}` gives it.
       match (scaled < 9007199254740992.0 && digits <= 18).then(|| scaled as u64) {
         Some(whole) => {

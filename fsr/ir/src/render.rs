@@ -612,7 +612,7 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
 
 /// Rewrites a loaded component so every element whose open tag is entirely
 /// literal carries that tag as one slice. The plan is untouched: this runs
-/// when a component is put into a [`Components`] library, and an element it
+/// when a component is put into a [`Components`] library and an element it
 /// cannot bake is left exactly as it was.
 pub fn prepare(component: &Component) -> Component {
   Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), handlers: component.handlers.clone() }
@@ -682,7 +682,7 @@ fn skipped_attr(name: &str) -> bool {
   name == "key" || name == "ref" || name == "children" || name == "dangerouslySetInnerHTML" || name.starts_with('$') || (name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase())
 }
 
-/// The attribute marking an element whose inner markup is recorded as a hoisted chunk, and its id.
+/// The attribute marking an element whose inner markup is recorded as a hoisted chunk and its id.
 pub const CHUNK_ATTR: &str = "$chunk";
 
 /// An element's `dangerouslySetInnerHTML`, holding the `__html` expression.
@@ -695,7 +695,7 @@ pub const RAW_ATTR: &str = "$html";
 /// mode and never otherwise.
 pub const HANDLER_ATTR: &str = "$on:";
 /// An element's React `key`, printed as `data-sf-key` in server mode so the
-/// browser's patch keeps a moved element, and never otherwise.
+/// browser's patch keeps a moved element and never otherwise.
 pub const KEY_ATTR: &str = "$key";
 /// Left on an element whose handler the build could not lower, holding the
 /// line and the reason; an island in server mode is refused over it.

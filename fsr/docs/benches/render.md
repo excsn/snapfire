@@ -2,7 +2,7 @@
 
 **Bench:** `fsr/examples/shopping_react_ts/benches/render.rs`, run from `fsr/examples/shopping_react_ts` with `cargo bench --bench render`.
 
-**Question:** a page the build lowered is rendered by the interpreter in Rust; the same page could be rendered by React's own `renderToString` in QuickJS, the engine `fsr test` already embeds. How far apart are they per page, what does a QuickJS context cost to bring up and is the IR worth keeping for rendering at all, or only for the pages an engine would be too slow for?
+**Question:** a page the build lowered is rendered by the interpreter in Rust; the same page could be rendered by React's own `renderToString` in QuickJS, the engine `fsr test` already embeds. How far apart are they per page, what does a QuickJS context cost to bring up and is the IR worth keeping for rendering at all or only for the pages an engine would be too slow for?
 
 ## What is measured
 
@@ -22,17 +22,17 @@ The host's work around the render: route matching, loaders, the payload assembly
 
 ## How to read it
 
-`ir/render` against `quickjs/render` is the direct answer. If the gap is small on these pages, the IR buys sandboxing and no JavaScript in the serving path rather than speed, and the vocabulary work in the lowerer is justified on those grounds alone. If it is large, the IR is the fast path and the engine is the fallback for residue, which is the split JS_ENGINE.md sketches. `quickjs/cold_context` says whether a context can be per request or must be pooled and warmed; `render_with_decode` is the per-request number for the engine path.
+`ir/render` against `quickjs/render` is the direct answer. If the gap is small on these pages, the IR buys sandboxing and no JavaScript in the serving path rather than speed and the vocabulary work in the lowerer is justified on those grounds alone. If it is large, the IR is the fast path and the engine is the fallback for residue, which is the split JS_ENGINE.md sketches. `quickjs/cold_context` says whether a context can be per request or must be pooled and warmed; `render_with_decode` is the per-request number for the engine path.
 
 ## Preparation
 
-The bench prepares the app the way `fsr test` does, compiling the pages into `app/.fsr-test/dist` with the workspace's `target/debug/snapfirec`, or the one `SNAPFIREC` names; a `snapfirec` on `PATH` from before tsconfig `paths` support cannot compile the aliases. It fetches `react-dom/server` from esm.sh into `app/.fsr-test/vendor` on its first run and keeps it.
+The bench prepares the app the way `fsr test` does, compiling the pages into `app/.fsr-test/dist` with the workspace's `target/debug/snapfirec` or the one `SNAPFIREC` names; a `snapfirec` on `PATH` from before tsconfig `paths` support cannot compile the aliases. It fetches `react-dom/server` from esm.sh into `app/.fsr-test/vendor` on its first run and keeps it.
 
 ## Results
 
 ### 2026-09-07, `8bf357a`, MacBook M4 Pro
 
-Every group re-run back to back on one machine state, powermode 2, load 1.82 at the start and 3.61 at the end. The fidelity line read `identical` on all three pages in every group. This run follows a day of renderer work: the catalogue went from 992.74 µs to 127.67 µs on the system allocator, **7.8x**, and to 82.29 µs with mimalloc under it.
+Every group re-run back to back on one machine state, powermode 2, load 1.82 at the start and 3.61 at the end. The fidelity line read `identical` on all three pages in every group. This run follows a day of renderer work: the catalogue went from 992.74 µs to 127.67 µs on the system allocator, **7.8x** and to 82.29 µs with mimalloc under it.
 
 The allocator is a bench feature, `cargo bench --features mimalloc`, not something the library or the host sets. Both columns are shown because the choice is a deployment one and it is worth about 1.5x.
 
@@ -59,7 +59,7 @@ These are different units and neither is the other's answer. The honest comparis
 
 **Controls.** `quickjs/eval_overhead` is 1.02 µs, the `eval_string` call every QuickJS row pays, so 0.05% of the catalog row and 0.3% of the product row. `ir/load_components` is 135.55 µs, paid once at boot rather than per render.
 
-**How to read the V8 column.** These pages are markup-heavy: they loop over data and emit tags. A component doing real arithmetic is precisely where a JIT wins, and no such page is measured here. The claim the numbers support is narrower than a general speed claim: for server-rendering markup, an interpreter that skipped the JavaScript object model at build time does less work than a JIT that cannot. One machine, one architecture, warm render only.
+**How to read the V8 column.** These pages are markup-heavy: they loop over data and emit tags. A component doing real arithmetic is precisely where a JIT wins and no such page is measured here. The claim the numbers support is narrower than a general speed claim: for server-rendering markup, an interpreter that skipped the JavaScript object model at build time does less work than a JIT that cannot. One machine, one architecture, warm render only.
 
 The V8 rows are `benches/render.node.mjs` under node v26.8.1, 2000 samples after 500 warmups, run with `/Users/norm/n/bin/node` since a plain `node` on this machine is an older version.
 
@@ -85,7 +85,7 @@ Criterion, release profile, one run. The fidelity line read `DIFFERENT` on all t
 
 Page sizes: catalog 10400 bytes, product 2821 bytes, cart 3053 bytes.
 
-What it says. The IR is 3.1x to 3.4x faster than React in QuickJS on the two small pages and 1.6x on the catalog, where the twelve product cards make the interpreter's own overhead visible: 1.1 ms for 10 KB is about 110 ns per byte of output, which is slow for a Rust string builder and says the interpreter's evaluation, not the serialisation, is where the time goes. React's production build in QuickJS is closer than expected, and the decode of wire props adds under 10 percent on top of it. A cold QuickJS context with React and a page loaded costs about 19.5 ms, so an engine path is a warmed pool per worker, never a context per request. The gap is not the cliff JS_ENGINE.md was written to guard against: on these pages, either renderer serves a request in under 2 ms and the IR's case rests on the sandbox and on running no JavaScript in the serving path, with its speed a bonus that a profiling pass on the interpreter would widen.
+What it says. The IR is 3.1x to 3.4x faster than React in QuickJS on the two small pages and 1.6x on the catalog, where the twelve product cards make the interpreter's own overhead visible: 1.1 ms for 10 KB is about 110 ns per byte of output, which is slow for a Rust string builder and says the interpreter's evaluation, not the serialisation, is where the time goes. React's production build in QuickJS is closer than expected and the decode of wire props adds under 10 percent on top of it. A cold QuickJS context with React and a page loaded costs about 19.5 ms, so an engine path is a warmed pool per worker, never a context per request. The gap is not the cliff JS_ENGINE.md was written to guard against: on these pages, either renderer serves a request in under 2 ms and the IR's case rests on the sandbox and on running no JavaScript in the serving path, with its speed a bonus that a profiling pass on the interpreter would widen.
 
 ### 2026-09-03, `089fc17`, MacBook M4 Pro
 
@@ -109,4 +109,4 @@ Criterion, release profile, one run, after step 1 of the interpreter optimisatio
 
 Page sizes unchanged: catalog 10400 bytes, product 2821 bytes, cart 3053 bytes.
 
-What it says. Against the first run, the IR renders are 11 percent faster on the catalog and 15 to 17 percent faster on the two small pages; every QuickJS group is within 3 percent of last time, which is the control that says the machine was in the same state and the change is the interpreter's. The IR is now 1.8x ahead on the catalog and 3.6x to 3.9x on the small pages. Step 1 removed the future per node and per expression and bought a sixth, not the half the optimisation note expected, so the boxed futures were a cost but not the cost: the time is in what the evaluator does per node, the string lookups, the clones at every boundary and the per-element allocations the note lists next, and a flamegraph of a catalog render loop is the next measurement before any of those is touched. `ir/load_components` moved from 106 to 119 µs, a parse of the same rows that gained the `Omit` builtin and nothing else; within a run's variance for a group that allocates as it goes.
+What it says. Against the first run, the IR renders are 11 percent faster on the catalog and 15 to 17 percent faster on the two small pages; every QuickJS group is within 3 percent of last time, which is the control that says the machine was in the same state and the change is the interpreter's. The IR is now 1.8x ahead on the catalog and 3.6x to 3.9x on the small pages. Step 1 removed the future per node and per expression and bought a sixth, not the half the optimisation note expected, so the boxed futures were a cost but not the cost: the time is in what the evaluator does per node, the string lookups, the clones at every boundary and the per-element allocations the note lists next and a flamegraph of a catalog render loop is the next measurement before any of those is touched. `ir/load_components` moved from 106 to 119 µs, a parse of the same rows that gained the `Omit` builtin and nothing else; within a run's variance for a group that allocates as it goes.

@@ -118,7 +118,7 @@ impl PartialEq<ValueStr> for &str {
   }
 }
 
-/// Copy on write: cloning shares, and the first `&mut` after a share copies.
+/// Copy on write: cloning shares and the first `&mut` after a share copies.
 /// A render clones a props map at every component and every loop iteration
 /// without reading it back, which is what the sharing is for.
 #[derive(Clone, Default)]

@@ -1,6 +1,6 @@
 //! Sustained load rather than a timed batch: N requesters hit the same page
 //! flat out for a fixed window and the harness counts what came out. This is
-//! the shape a server sees, and it is not criterion's shape, so this target
+//! the shape a server sees and it is not criterion's shape, so this target
 //! runs its own loop and prints renders per second.
 //!
 //! `cargo bench --features mimalloc --bench soak`, after `--bench render` has
