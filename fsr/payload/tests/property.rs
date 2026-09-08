@@ -209,3 +209,24 @@ fn a_float_crosses_the_wire_unchanged() {
     }
   }
 }
+
+/// A payload is a request body, so its nesting is the client's choice. serde_json
+/// caps its own recursion; this holds the rest of the path to answering rather
+/// than overflowing, which aborts.
+#[test]
+fn a_deeply_nested_payload_is_refused_rather_than_fatal() {
+  for depth in [64usize, 200, 5_000, 100_000] {
+    let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    match serde_json::from_str::<serde_json::Value>(&text) {
+      Err(_) => {}
+      Ok(json) => {
+        let _ = json_to_value(&json);
+        let _ = row_json_to_node(&json);
+      }
+    }
+    let object = format!("{}{}", r#"{"a":"#.repeat(depth), format!("1{}", "}".repeat(depth)));
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&object) {
+      let _ = json_to_value(&json);
+    }
+  }
+}
