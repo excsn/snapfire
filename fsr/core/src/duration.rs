@@ -6,12 +6,14 @@ pub fn parse_duration(raw: &str) -> Option<Duration> {
   let raw = raw.trim();
   let (digits, unit) = raw.split_at(raw.find(|c: char| !c.is_ascii_digit()).unwrap_or(raw.len()));
   let n: u64 = digits.parse().ok()?;
+  // Checked: `9999999999999999d` parses as a `u64` and then leaves the range,
+  // which panics a debug build and silently wraps a release one.
   let seconds = match unit.trim() {
-    "" | "s" => n,
-    "m" => n * 60,
-    "h" => n * 3600,
-    "d" => n * 86_400,
-    _ => return None,
+    "" | "s" => Some(n),
+    "m" => n.checked_mul(60),
+    "h" => n.checked_mul(3600),
+    "d" => n.checked_mul(86_400),
+    _ => None,
   };
-  Some(Duration::from_secs(seconds))
+  seconds.map(Duration::from_secs)
 }

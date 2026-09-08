@@ -19,6 +19,7 @@ indexmap = "2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
+proptest = "1"
 criterion = "0.5"
 
 [[bench]]
