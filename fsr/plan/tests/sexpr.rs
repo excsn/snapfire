@@ -602,3 +602,34 @@ fn malformed_plan_terms_are_refused() {
     assert!(err.contains(want), "`{src}`: wanted `{want}`, got `{err}`");
   }
 }
+
+/// The bytes themselves. Every other test here is self-consistent: it prints,
+/// reads back and compares to itself, so a change to the spelling of a form
+/// passes all of them while making every `plan.sexp` already on disk unreadable
+/// by the new code. This one pins format 2 as text.
+///
+/// The file covers every variant, since `every_manifest` holds them all. When
+/// it fails, either the change is a mistake or it is a format change and the
+/// file is regenerated with `SEXP_GOLDEN=overwrite`, alongside a bump of
+/// `FORMAT_VERSION` and a reader that still takes the old spelling.
+const GOLDEN: &str = include_str!("golden/format-2.sexp");
+
+#[test]
+fn the_printed_bytes_are_the_ones_format_2_promises() {
+  let printed = every_manifest().to_sexpr();
+  if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-2.sexp"), &printed)
+      .expect("the golden file is writable");
+    return;
+  }
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 2");
+}
+
+/// The same file read back: a reader that stops accepting what earlier builds
+/// wrote fails here rather than at someone's boot.
+#[test]
+fn the_promised_bytes_still_read() {
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 2 still reads");
+  assert_eq!(read, every_manifest());
+  assert_eq!(read.to_sexpr(), GOLDEN);
+}
