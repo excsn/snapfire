@@ -33,11 +33,19 @@ pub(crate) fn to_hex(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn from_hex(s: &str) -> Option<Vec<u8>> {
-  if s.len() % 2 != 0 {
+  // Over bytes rather than `&s[i..i + 2]`: the value is whatever a browser
+  // sent, and slicing a string by byte index panics when the index lands
+  // inside a character.
+  let bytes = s.as_bytes();
+  if bytes.len() % 2 != 0 {
     return None;
   }
-  (0..s.len())
-    .step_by(2)
-    .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+  bytes
+    .chunks_exact(2)
+    .map(|pair| {
+      let hi = (pair[0] as char).to_digit(16)?;
+      let lo = (pair[1] as char).to_digit(16)?;
+      Some((hi * 16 + lo) as u8)
+    })
     .collect()
 }

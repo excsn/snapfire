@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6ec03d50082e17f74b397126fa26360d92aa4f6783a0fa258e60f210c95cc1f6 # shrinks to l = Locales { supported: ["pt-BR"], default: "pt-BR", order: [Prefix], remember: true, cookie: "sf_locale" }, path = "/pt-BR/a", cookie = None, accept = None

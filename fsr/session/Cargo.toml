@@ -24,4 +24,5 @@ rand = "0.9"
 sha2 = "0.10"
 
 [dev-dependencies]
+proptest = "1"
 futures = "0.3"

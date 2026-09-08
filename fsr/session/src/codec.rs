@@ -42,7 +42,9 @@ impl CookieCodec for HmacCodec {
   }
 
   fn decode(&self, value: &str) -> Option<SessionId> {
-    let (id, signature) = value.split_once('.')?;
+    // The signature is hex and carries no `.`, so the last one separates
+    // them: an id that holds a dot still reads back.
+    let (id, signature) = value.rsplit_once('.')?;
     if id.is_empty() || !self.verify(id.as_bytes(), signature) {
       return None;
     }
