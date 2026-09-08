@@ -357,3 +357,248 @@ fn example_plans_round_trip() {
     }
   }
 }
+
+// The expression and template layers are generated exhaustively in
+// `snapfire_fsr_ir`'s own suite; here the generators stay small and the
+// pressure is on the rows, the sections and the node tree.
+
+use proptest::prelude::*;
+use proptest::strategy::BoxedStrategy;
+
+fn text() -> BoxedStrategy<String> {
+  prop_oneof![
+    2 => "[a-zA-Z0-9$#./:@_-]{0,12}",
+    1 => "(?s).{0,8}",
+    1 => prop_oneof![
+      Just(String::new()),
+      Just("nil".to_owned()),
+      Just("a b".to_owned()),
+      Just("(".to_owned()),
+      Just("|".to_owned()),
+      Just("\"".to_owned()),
+      Just(";".to_owned()),
+      Just("\n".to_owned()),
+      Just("é🌍".to_owned()),
+    ],
+  ]
+  .boxed()
+}
+
+fn small_expr() -> BoxedStrategy<Expr> {
+  prop_oneof![
+    text().prop_map(|s| Expr::Lit(Lit::Str(s))),
+    any::<i128>().prop_map(|n| Expr::Lit(Lit::Int(n))),
+    any::<f64>().prop_map(|f| Expr::Lit(Lit::Float(f))),
+    text().prop_map(Expr::Var),
+    text().prop_map(Expr::Param),
+    Just(Expr::Locale),
+  ]
+  .boxed()
+}
+
+fn small_body() -> BoxedStrategy<Vec<Stmt>> {
+  prop::collection::vec(
+    prop_oneof![
+      (text(), small_expr()).prop_map(|(name, expr)| Stmt::Let { name, expr }),
+      small_expr().prop_map(Stmt::Return),
+      (small_expr(), text(), text()).prop_map(|(cond, kind, message)| Stmt::Guard { cond, kind, message }),
+    ],
+    0..3,
+  )
+  .boxed()
+}
+
+fn owner() -> BoxedStrategy<RowOwner> {
+  prop_oneof![Just(RowOwner::Lowered), Just(RowOwner::Engine), Just(RowOwner::Rust)].boxed()
+}
+
+fn node() -> BoxedStrategy<Node> {
+  let leaf = (
+    any::<u32>(),
+    text(),
+    prop::option::of(text()),
+    any::<bool>(),
+    prop::option::of(text()),
+    prop::option::of(text()),
+    prop::option::of(text()),
+    prop::collection::vec(text(), 0..3),
+  )
+    .prop_map(|(id, module, source, deferred, fallback, error, cache_key, keep)| Node {
+      id,
+      module,
+      source,
+      deferred,
+      fallback,
+      error,
+      cache_key,
+      children: Vec::new(),
+      keep,
+    });
+  leaf
+    .prop_recursive(3, 12, 3, |inner| {
+      (inner.clone(), prop::collection::vec((text(), inner), 0..3)).prop_map(|(mut parent, kids)| {
+        parent.children = kids.into_iter().map(|(slot, node)| Child { slot, node }).collect();
+        parent
+      })
+    })
+    .boxed()
+}
+
+fn manifest() -> BoxedStrategy<Manifest> {
+  (
+    prop::collection::vec((text(), node()), 0..3),
+    prop::collection::vec(
+      (text(), owner(), prop::option::of(text()), prop::option::of(text()), prop::option::of(text()),
+       prop::option::of(small_body()), prop::option::of(small_body()), prop::option::of(small_body())),
+      0..3,
+    ),
+    prop::collection::vec(
+      (text(), owner(), prop::option::of(text()), prop::option::of(text()), prop::option::of(text()), prop::option::of(small_body())),
+      0..3,
+    ),
+    prop::collection::vec(
+      (text(), text(), text(), owner(), prop::option::of(text()), prop::option::of(text()), prop::option::of(small_body())),
+      0..3,
+    ),
+    prop::option::of(node()),
+    prop::option::of(small_body()),
+    prop::collection::vec((text(), node()), 0..2),
+    prop::collection::vec((text(), small_expr()), 0..3),
+  )
+    .prop_map(|(routes, sources, actions, handlers, not_found, middleware, intercepts, consts)| Manifest {
+      version: 2,
+      routes: routes.into_iter().map(|(pattern, plan)| RouteEntry { pattern, plan }).collect(),
+      sources: sources
+        .into_iter()
+        .map(|(id, owner, module, export, reason, body, meta, store)| SourceEntry {
+          // a `lowered` row must carry a body, which is what the reader checks
+          owner: if body.is_none() && owner == RowOwner::Lowered { RowOwner::Rust } else { owner },
+          id, module, export, reason, body, meta, store,
+        })
+        .collect(),
+      actions: actions
+        .into_iter()
+        .map(|(id, owner, module, export, input, body)| ActionEntry {
+          owner: if body.is_none() && owner == RowOwner::Lowered { RowOwner::Rust } else { owner },
+          id, module, export, input, reason: None, body,
+        })
+        .collect(),
+      components: Vec::new(),
+      consts: consts.into_iter().collect(),
+      not_found,
+      handlers: handlers
+        .into_iter()
+        .map(|(id, method, pattern, owner, module, input, body)| HandlerEntry {
+          id, method, pattern, owner, module, input, reason: None, body,
+        })
+        .collect(),
+      middleware,
+      intercepts: intercepts.into_iter().map(|(pattern, plan)| RouteEntry { pattern, plan }).collect(),
+    })
+    .boxed()
+}
+
+proptest! {
+  #![proptest_config(ProptestConfig { cases: 384, ..ProptestConfig::default() })]
+
+  /// A generated manifest survives the text, and printing it twice is stable.
+  #[test]
+  fn a_manifest_survives_the_text(m in manifest()) {
+    let text = m.to_sexpr();
+    let back = Manifest::from_sexpr(&text).map_err(|e| TestCaseError::fail(format!("{e}\n{text}")))?;
+    prop_assert_eq!(&back, &m);
+    prop_assert_eq!(back.to_sexpr(), text);
+  }
+
+  /// Whatever the text is, reading a plan is an answer or an error.
+  #[test]
+  fn reading_arbitrary_text_as_a_plan_never_panics(src in "(?s).{0,400}") {
+    let _ = Manifest::from_sexpr(&src);
+    let _ = Manifest::from_text(&src);
+  }
+
+  #[test]
+  fn plan_shaped_noise_never_panics(src in r#"[()"|; \na-z0-9]{0,200}"#) {
+    let _ = Manifest::from_sexpr(&src);
+  }
+
+  /// One byte changed in a real plan leaves it readable or refused, never a panic.
+  #[test]
+  fn a_mutated_plan_never_panics(at in 0usize..65536, byte in prop::sample::select(
+    vec![b'(', b')', b'"', b'|', b'\\', b';', b' ', b'\n', b'a', b'0']
+  ), op in 0u8..3) {
+    let text = every_manifest().to_sexpr();
+    let mut bytes = text.into_bytes();
+    let at = at % bytes.len();
+    match op {
+      0 => bytes[at] = byte,
+      1 => { bytes.remove(at); }
+      _ => bytes.insert(at, byte),
+    }
+    let _ = Manifest::from_sexpr(&String::from_utf8_lossy(&bytes));
+  }
+
+  #[test]
+  fn a_truncated_plan_never_panics(cut in 0usize..65536) {
+    let text = every_manifest().to_sexpr();
+    let src: String = text.chars().take(cut % text.chars().count()).collect();
+    let _ = Manifest::from_sexpr(&src);
+  }
+}
+
+/// Every way a plan file can be malformed at the manifest layer.
+#[test]
+fn malformed_plans_are_refused() {
+  let cases: &[(&str, &str)] = &[
+    ("(plan 2)\n(nope)", "not a plan form"),
+    ("(plan 2)\n(route /)", "`(route pattern node)`"),
+    ("(plan 2)\n(route / (nope 0 m))", "a plan node is `(node"),
+    ("(plan 2)\n(route / (node 0))", "needs an id and a module"),
+    ("(plan 2)\n(route / (node x m))", "a node id is a number"),
+    ("(plan 2)\n(route / (node 0 m (nope)))", "not a node section"),
+    ("(plan 2)\n(route / (node 0 m (slot a)))", "`(slot name node)`"),
+    ("(plan 2)\n(not-found)", "`not-found` takes one node"),
+    ("(plan 2)\n(source id)", "needs an id and an owner"),
+    ("(plan 2)\n(source id nope)", "not a row owner"),
+    ("(plan 2)\n(source id rust (nope x))", "not a source section"),
+    ("(plan 2)\n(action id rust (nope x))", "not an action section"),
+    ("(plan 2)\n(handler id GET /)", "an id, a method, a pattern and an owner"),
+    ("(plan 2)\n(handler id GET / rust (nope x))", "not a handler section"),
+    ("(plan 2)\n(const only)", "`(const name expr)`"),
+    ("(plan 2)\n(component)", "needs a module id"),
+    ("(plan x)", "a plan version is a number"),
+    ("(route / (node 0 m))", "no `(plan <version>)`"),
+    ("(plan 99)", "version 99"),
+    ("(plan 0)", "version 0"),
+  ];
+  for (src, want) in cases {
+    let err = Manifest::from_sexpr(src).expect_err(&format!("`{src}` must not read")).to_string();
+    assert!(err.contains(want), "`{src}`: wanted `{want}`, got `{err}`");
+  }
+}
+
+/// A `lowered` row with no body is refused, the way the JSON reader refuses it.
+#[test]
+fn a_lowered_row_without_a_body_is_refused() {
+  let err = Manifest::from_sexpr("(plan 2)\n(source index lowered)").unwrap_err().to_string();
+  assert!(err.contains("`index`") && err.contains("no body"), "{err}");
+  let err = Manifest::from_sexpr("(plan 2)\n(action cart.add lowered)").unwrap_err().to_string();
+  assert!(err.contains("`cart.add`") && err.contains("no body"), "{err}");
+}
+
+/// The manifest layer's own term errors: a head that is not a symbol, a name
+/// that is not one, and a section with nothing after its name.
+#[test]
+fn malformed_plan_terms_are_refused() {
+  let cases: &[(&str, &str)] = &[
+    ("(plan 2)\n((a) b)", "a form starts with a symbol"),
+    ("(plan 2)\n(source (a) rust)", "expected a name"),
+    ("(plan 2)\n(route / (node 0 m (source)))", "this node section needs a value"),
+    ("(plan 2)\n(source id rust (module))", "`module` needs a value"),
+    ("(plan)", "`plan` needs a value"),
+  ];
+  for (src, want) in cases {
+    let err = Manifest::from_sexpr(src).expect_err(&format!("`{src}` must not read")).to_string();
+    assert!(err.contains(want), "`{src}`: wanted `{want}`, got `{err}`");
+  }
+}

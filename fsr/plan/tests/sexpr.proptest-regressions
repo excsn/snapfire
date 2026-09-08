@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3bdd6558960ddd9c176db292c3d1e4a28d4522091227c3b54e0c3d4e1344752a # shrinks to m = Manifest { version: 2, routes: [], sources: [SourceEntry { id: "", owner: Lowered, module: None, export: None, reason: None, body: None, meta: None, store: None }], actions: [], components: [], consts: {}, not_found: None, handlers: [], middleware: None, intercepts: [] }

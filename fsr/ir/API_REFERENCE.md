@@ -154,7 +154,7 @@ One member of an object or array literal.
 
 ### parse
 
-* `pub fn parse(src: &str) -> Result<Vec<Sx>, SexprError>`: every top-level form. `;` runs to the end of the line, `"..."` is a string and `|...|` a symbol whose bare spelling would not lex.
+* `pub fn parse(src: &str) -> Result<Vec<Sx>, SexprError>`: every top-level form. `;` runs to the end of the line, `"..."` is a string and `|...|` a symbol whose bare spelling would not lex. `\n`, `\r` and `\t` are those characters; any other escape is the character after it, whole, so `\é` is `é`. A syntax error names the line it is on.
 
 ### print
 
