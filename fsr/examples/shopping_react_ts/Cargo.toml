@@ -64,3 +64,7 @@ harness = false
 [[bench]]
 name = "scale"
 harness = false
+
+[[bench]]
+name = "soak"
+harness = false

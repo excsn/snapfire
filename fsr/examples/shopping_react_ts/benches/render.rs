@@ -6,6 +6,8 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Barrier;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -204,6 +206,56 @@ fn bench(c: &mut Criterion) {
     // Every quickjs row above pays one `eval_string`, which parses its source.
     // This is that cost alone, so the rows can be read net of the harness.
     c.bench_with_input(BenchmarkId::new("quickjs/eval_overhead", page.name), &page, |b, _| b.iter(|| engine.eval_string("''").expect("evaluates")));
+    if page.name == "catalog_12" {
+      quickjs_threads(c, &resolution, &prepared.dom, &module, &json);
+    }
+  }
+}
+
+/// QuickJS on many threads: one context per thread, built and warmed before
+/// the clock starts, because a context costs about 29 ms to bring up and a
+/// pooled server would pay that once. The barriers make every thread render
+/// its batch inside the timed window and nothing else.
+fn quickjs_threads(c: &mut Criterion, resolution: &Resolution, dom: &Path, module: &Path, json: &str) {
+  const RENDERS_PER_THREAD: usize = 50;
+  for &threads in &[1usize, 2, 4, 8] {
+    let start = Arc::new(Barrier::new(threads + 1));
+    let done = Arc::new(Barrier::new(threads + 1));
+    let stop = Arc::new(AtomicBool::new(false));
+    let ready = Arc::new(Barrier::new(threads + 1));
+    let mut workers = Vec::new();
+    for _ in 0..threads {
+      let (resolution, dom, module, json) = (resolution.clone(), dom.to_path_buf(), module.to_path_buf(), json.to_owned());
+      let (start, done, stop, ready) = (Arc::clone(&start), Arc::clone(&done), Arc::clone(&stop), Arc::clone(&ready));
+      workers.push(std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
+        let engine = engine_for(&resolution, &dom, &module, &rt);
+        engine.eval_string(&format!("globalThis.__json = {}; globalThis.__props = __decode(__json); ''", serde_json::to_string(&json).expect("a JSON string"))).expect("props set");
+        ready.wait();
+        loop {
+          start.wait();
+          if stop.load(Ordering::Relaxed) {
+            return;
+          }
+          for _ in 0..RENDERS_PER_THREAD {
+            engine.eval_string("__render(__props)").expect("react renders");
+          }
+          done.wait();
+        }
+      }));
+    }
+    ready.wait();
+    c.bench_with_input(BenchmarkId::new("quickjs/threads", threads), &threads, |b, _| {
+      b.iter(|| {
+        start.wait();
+        done.wait();
+      })
+    });
+    stop.store(true, Ordering::Relaxed);
+    start.wait();
+    for worker in workers {
+      worker.join().expect("worker joins");
+    }
   }
 }
 
