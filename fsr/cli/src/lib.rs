@@ -1064,6 +1064,7 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   let mut out = Vec::new();
   fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
     match tmpl {
+      Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::Island { module, children, .. } => {
         out.push(module.clone());
         children.iter().for_each(|c| walk(c, out));
@@ -1272,6 +1273,7 @@ fn server_islands(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   use snapfire_fsr_ir::Tmpl;
   fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
     match tmpl {
+      Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::Island { module, mode, children, .. } => {
         if mode.as_deref() == Some(snapfire_fsr_ir::render::SERVER_MODE) && !out.contains(module) {
           out.push(module.clone());
@@ -1301,6 +1303,7 @@ fn unlowered_handler(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
   use snapfire_fsr_ir::Tmpl;
   fn walk(tmpl: &Tmpl) -> Option<String> {
     match tmpl {
+      Tmpl::Baked { children, .. } => children.iter().find_map(walk),
       Tmpl::Element { attrs, children, .. } => attrs
         .iter()
         .find_map(|e| match e {
@@ -1323,6 +1326,7 @@ fn nested_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   use snapfire_fsr_ir::Tmpl;
   fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
     match tmpl {
+      Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::Component { module, children, .. } => {
         if !out.contains(module) {
           out.push(module.clone());
@@ -1352,6 +1356,7 @@ fn slots_placed(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   let mut out = Vec::new();
   fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
     match tmpl {
+      Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::Slot(name) if name != "content" && !out.contains(name) => out.push(name.clone()),
       Tmpl::Slot(_) | Tmpl::Text(_) | Tmpl::Expr(_) => {}
       Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),

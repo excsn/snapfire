@@ -149,6 +149,13 @@ pub enum Tmpl {
   /// `content`; at a layout's root, the plan child of that name, so a
   /// `<Slot name="modal" />` names a second segment beside the page.
   Slot(String),
+  /// An element whose open tag is entirely literal, baked into one slice when
+  /// the component was prepared. The plan never carries this: it is what
+  /// `snapfire_fsr_ir::render::prepare` turns an `Element` into, so the
+  /// renderer copies the tag instead of evaluating it. `tag` is `None` for a
+  /// void element, whose `open` already closes itself and which has no
+  /// children.
+  Baked { open: String, tag: Option<String>, children: Vec<Tmpl> },
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -287,6 +294,7 @@ impl Tmpl {
         entries(props, f);
         children.iter().for_each(|c| c.visit(f));
       }
+      Tmpl::Baked { children, .. } => children.iter().for_each(|c| c.visit(f)),
     }
   }
 }

@@ -141,7 +141,7 @@ fn bench(c: &mut Criterion) {
     unsafe { std::env::set_var("SNAPFIREC", &workspace_snapfirec) };
   }
   let built = build(&app, &Options::default()).expect("fsr build app");
-  let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
+  let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let catalogue = components.get(CATALOGUE).cloned().expect("the catalogue page lowered");
   let interpreter = Interpreter::default();
   let prepared = prepare(&app).expect("fsr test's preparation");

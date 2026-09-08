@@ -410,6 +410,8 @@ type IslandTiming = (Option<String>, Option<String>);
 /// The ids of the placements that became islands, whose sites the rewrite keeps.
 fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
   match tmpl {
+    // `Baked` is what a loaded component becomes, so the lowerer never meets one.
+    Tmpl::Baked { .. } => {}
     Tmpl::Island { id, children, .. } => {
       out.push(*id);
       children.iter().for_each(|c| island_ids(c, out));
@@ -1894,6 +1896,7 @@ mod tests {
 
   fn chunk_ids(tmpl: &Tmpl, out: &mut Vec<(String, u32)>) {
     match tmpl {
+      Tmpl::Baked { .. } => {}
       Tmpl::Element { tag, attrs, children } => {
         if let Some(Entry::Field(_, Expr::Lit(Lit::Int(id)))) = attrs.iter().find(|e| matches!(e, Entry::Field(n, _) if n == hoist::CHUNK_ATTR)) {
           out.push((tag.clone(), *id as u32));

@@ -128,14 +128,16 @@ pub type Props = ValueMap;
 
 pub type Items = Vec<Value>;
 
-/// Copy on write, the way [`ValueMap`] is: a loop clones the sequence it walks
-/// and never writes to it.
+/// The sequence of the value model, behind a name so its representation is one
+/// crate's business, the way [`ValueStr`] is. A refcount was measured here and
+/// bought nothing at any list length from one to a thousand, so the plain
+/// vector stands until something measures otherwise.
 #[derive(Clone, Default)]
-pub struct ValueSeq(std::sync::Arc<Items>);
+pub struct ValueSeq(Items);
 
 impl ValueSeq {
   pub fn into_items(self) -> Items {
-    std::sync::Arc::try_unwrap(self.0).unwrap_or_else(|held| (*held).clone())
+    self.0
   }
 }
 
@@ -148,7 +150,7 @@ impl std::ops::Deref for ValueSeq {
 
 impl std::ops::DerefMut for ValueSeq {
   fn deref_mut(&mut self) -> &mut Items {
-    std::sync::Arc::make_mut(&mut self.0)
+    &mut self.0
   }
 }
 
@@ -160,7 +162,7 @@ impl std::fmt::Debug for ValueSeq {
 
 impl PartialEq for ValueSeq {
   fn eq(&self, other: &Self) -> bool {
-    std::sync::Arc::ptr_eq(&self.0, &other.0) || *self.0 == *other.0
+    self.0 == other.0
   }
 }
 
@@ -178,13 +180,13 @@ impl PartialEq<Fields> for ValueMap {
 
 impl From<Items> for ValueSeq {
   fn from(items: Items) -> Self {
-    ValueSeq(std::sync::Arc::new(items))
+    ValueSeq(items)
   }
 }
 
 impl FromIterator<Value> for ValueSeq {
   fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
-    ValueSeq(std::sync::Arc::new(Items::from_iter(iter)))
+    ValueSeq(Items::from_iter(iter))
   }
 }
 
@@ -208,13 +210,13 @@ impl<'a> IntoIterator for &'a mut ValueSeq {
   type Item = &'a mut Value;
   type IntoIter = std::slice::IterMut<'a, Value>;
   fn into_iter(self) -> Self::IntoIter {
-    std::sync::Arc::make_mut(&mut self.0).iter_mut()
+    self.0.iter_mut()
   }
 }
 
 impl Extend<Value> for ValueSeq {
   fn extend<T: IntoIterator<Item = Value>>(&mut self, iter: T) {
-    std::sync::Arc::make_mut(&mut self.0).extend(iter);
+    self.0.extend(iter);
   }
 }
 

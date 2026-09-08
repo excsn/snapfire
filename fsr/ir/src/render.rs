@@ -446,6 +446,15 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       }
       out.close_tag(tag);
     }
+    Tmpl::Baked { open, tag, children } => {
+      out.markup(open);
+      if let Some(tag) = tag {
+        for child in children {
+          render(env, child, library, slots, out)?;
+        }
+        out.close_tag(tag);
+      }
+    }
     Tmpl::Fragment(children) => {
       for child in children {
         render(env, child, library, slots, out)?;
@@ -572,6 +581,73 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
     out.push_str(&text);
   }
   Ok(out)
+}
+
+/// Rewrites a loaded component so every element whose open tag is entirely
+/// literal carries that tag as one slice. The plan is untouched: this runs
+/// when a component is put into a [`Components`] library, and an element it
+/// cannot bake is left exactly as it was.
+pub fn prepare(component: &Component) -> Component {
+  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), handlers: component.handlers.clone() }
+}
+
+fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
+  match tmpl {
+    Tmpl::Element { tag, attrs, children } => {
+      let children: Vec<Tmpl> = children.iter().map(prepare_tmpl).collect();
+      match baked_open(tag, attrs) {
+        Some(open) if VOID.contains(&tag.as_str()) => Tmpl::Baked { open, tag: None, children: Vec::new() },
+        Some(open) => Tmpl::Baked { open, tag: Some(tag.clone()), children },
+        None => Tmpl::Element { tag: tag.clone(), attrs: attrs.clone(), children },
+      }
+    }
+    Tmpl::Fragment(children) => Tmpl::Fragment(children.iter().map(prepare_tmpl).collect()),
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond: cond.clone(), then: Box::new(prepare_tmpl(then)), r#else: r#else.as_ref().map(|other| Box::new(prepare_tmpl(other))) },
+    Tmpl::For { over, params, body } => Tmpl::For { over: over.clone(), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name: name.clone(), expr: expr.clone(), then: Box::new(prepare_tmpl(then)) },
+    Tmpl::Component { module, props, children, id } => Tmpl::Component { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), id: *id },
+    Tmpl::Island { module, props, children, when, mode, id } => {
+      Tmpl::Island { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id }
+    }
+    other => other.clone(),
+  }
+}
+
+/// The open tag of an element whose attributes are all literals and none of
+/// them is a marker the renderer answers for. `None` keeps the element on the
+/// evaluating path, which is never a different answer.
+fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
+  let mut open = String::with_capacity(tag.len() + 16);
+  open.push('<');
+  open.push_str(tag);
+  let mut written: Vec<&str> = Vec::new();
+  for entry in attrs {
+    let Entry::Field(name, crate::ast::Expr::Lit(lit)) = entry else { return None };
+    let name = html_attr_name(name);
+    if name.starts_with('$') {
+      return None;
+    }
+    if written.contains(&name) {
+      return None;
+    }
+    written.push(name);
+    if skipped_attr(name) {
+      continue;
+    }
+    let value = match lit {
+      crate::ast::Lit::Null => Value::Null,
+      crate::ast::Lit::Bool(b) => Value::Bool(*b),
+      crate::ast::Lit::Int(n) => Value::Int(*n),
+      crate::ast::Lit::Float(f) => Value::F64(*f),
+      crate::ast::Lit::Str(text) => Value::str(text.as_str()),
+    };
+    attribute(name, &value, &mut open).ok()?;
+  }
+  match VOID.contains(&tag) {
+    true => open.push_str("/>"),
+    false => open.push('>'),
+  }
+  Some(open)
 }
 
 /// Attribute keys the browser owns or that name no attribute: handlers, `key`, `ref`, `children` and a spread's `dangerouslySetInnerHTML`.

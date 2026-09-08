@@ -124,7 +124,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   crate::write_overlay(&app, built)?;
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app)?;
 
-  let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(c.body.clone()))).collect());
+  let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let natives = native_names(&built.manifest);
   let actions: HashMap<String, Arc<Body>> = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), Arc::new(b)))).collect();
   let mut handlers: HashMap<String, (Option<String>, Arc<Body>)> = HashMap::new();
