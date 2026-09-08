@@ -57,7 +57,7 @@ impl Metadata for ProductMeta {
 fn runtime() -> Arc<Runtime> {
   let mut sources = DataSources::new();
   sources.insert_fn("product", |_p| async move {
-    let mut data = ValueMap::new();
+    let mut data = ValueMap::default();
     data.insert("name".to_owned(), Value::str("Nozzle <XL>"));
     Ok(data)
   });
@@ -110,7 +110,7 @@ fn a_described_segment_titles_the_document_over_the_defaults() {
 #[test]
 fn without_a_described_segment_the_head_keeps_its_defaults() {
   let mut sources = DataSources::new();
-  sources.insert_fn("product", |_p| async move { Ok(ValueMap::new()) });
+  sources.insert_fn("product", |_p| async move { Ok(ValueMap::default()) });
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
   evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));

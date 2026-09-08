@@ -74,7 +74,7 @@ fn a_deferred_slot_streams_its_resolution_row() {
 
   let mut sources = DataSources::new();
   sources.insert_fn("chart_loader", |_p| async {
-    let mut data = ValueMap::new();
+    let mut data = ValueMap::default();
     data.insert("late".to_owned(), Value::str("ready"));
     Ok(data)
   });
@@ -215,7 +215,7 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
     fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
       Box::pin(stream::iter([Ok(Chunk::Node(Node::Client {
         module: ModuleId::new("components/Chart.tsx", "default"),
-        props: ValueMap::new(),
+        props: ValueMap::default(),
         children: Vec::new(),
         ssr: None,
       }))]))
@@ -228,7 +228,7 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
       Box::pin(stream::iter([
         Ok(Chunk::Node(Node::Client {
           module: ModuleId::new("components/Nav.tsx", "default"),
-          props: ValueMap::new(),
+          props: ValueMap::default(),
           children: Vec::new(),
           ssr: None,
         })),

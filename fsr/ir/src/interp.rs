@@ -118,13 +118,13 @@ impl Interpreter {
     let (data, identity) = ctx.session.snapshot();
     let mut env = Env {
       ctx: ctx.clone(),
-      store: ValueMap::new(),
+      store: ValueMap::default(),
       hoists: None,
       state: None,
       server_mode: false,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
-        let mut map = ValueMap::new();
+        let mut map = ValueMap::default();
         map.insert("subject".to_owned(), Value::Str(id.subject));
         map.insert("claims".to_owned(), Value::Map(id.claims));
         Value::Map(map)
@@ -212,7 +212,7 @@ pub struct Hoists {
 
 impl Hoists {
   pub fn new(module: impl Into<String>) -> Self {
-    Self { module: module.into(), path: Vec::new(), table: ValueMap::new(), dead: Vec::new() }
+    Self { module: module.into(), path: Vec::new(), table: ValueMap::default(), dead: Vec::new() }
   }
 
   /// The region key of an island placement, numbered apart from the hoist
@@ -265,10 +265,10 @@ impl Env {
       ctx: RequestCtx::anonymous(Default::default()),
       input: Value::Null,
       identity: None,
-      session: ValueMap::new(),
+      session: ValueMap::default(),
       written: Vec::new(),
       scope,
-      store: ValueMap::new(),
+      store: ValueMap::default(),
       clock: interpreter.clock.clone(),
       extensions: interpreter.extensions.clone(),
       catalogs: interpreter.catalogs.clone(),
@@ -495,7 +495,7 @@ impl Env {
         Lit::Str(s) => Value::Str(s.clone()),
       }),
       Expr::Object(entries) => {
-        let mut map = ValueMap::new();
+        let mut map = ValueMap::default();
         for entry in entries {
           match entry {
             Entry::Field(name, e) => {
@@ -582,7 +582,7 @@ impl Env {
         if !sync {
           return Err(Fail::internal("an async native call in an expression that cannot suspend"));
         }
-        let mut map = ValueMap::new();
+        let mut map = ValueMap::default();
         for (name, e) in args {
           match self.eval_sync(e)? {
             Value::Null => {}
@@ -796,7 +796,7 @@ impl Env {
           Lit::Str(s) => Value::Str(s.clone()),
         }),
         Expr::Object(entries) => {
-          let mut map = ValueMap::new();
+          let mut map = ValueMap::default();
           for entry in entries {
             match entry {
               Entry::Field(name, e) => {
@@ -879,7 +879,7 @@ impl Env {
           Ok(Value::Str(out))
         }
         Expr::Call { service, method, args } => {
-          let mut map = ValueMap::new();
+          let mut map = ValueMap::default();
           for (name, e) in args {
             match self.eval(e).await? {
               Value::Null => {}
@@ -891,7 +891,7 @@ impl Env {
           self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
         Expr::NativeCall { module, method, args, sync } => {
-          let mut map = ValueMap::new();
+          let mut map = ValueMap::default();
           for (name, e) in args {
             match self.eval(e).await? {
               Value::Null => {}
@@ -1311,7 +1311,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::Omit => {
       let mut map = match arg(0)? {
         Value::Map(map) => map.clone(),
-        Value::Null => ValueMap::new(),
+        Value::Null => ValueMap::default(),
         other => return Err(type_error(&what, "an object", other)),
       };
       for key in args.iter().skip(1) {
@@ -1356,7 +1356,7 @@ fn set_path(root: &mut Value, steps: &[Value], value: Value) -> Result<(), Fail>
     return Ok(());
   };
   if matches!(root, Value::Null) {
-    *root = Value::Map(ValueMap::new());
+    *root = Value::Map(ValueMap::default());
   }
   match (root, first) {
     (Value::Map(map), Value::Str(key)) => {

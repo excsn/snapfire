@@ -39,11 +39,11 @@ fn services(transport: Arc<dyn Transport>) -> Arc<Services> {
 }
 
 fn alice() -> Option<Identity> {
-  Some(Identity { subject: "alice".to_owned(), claims: ValueMap::new() })
+  Some(Identity { subject: "alice".to_owned(), claims: ValueMap::default() })
 }
 
 fn bob() -> Option<Identity> {
-  Some(Identity { subject: "bob".to_owned(), claims: ValueMap::new() })
+  Some(Identity { subject: "bob".to_owned(), claims: ValueMap::default() })
 }
 
 fn count(transport: &MockTransport, path: &str) -> usize {
@@ -51,7 +51,7 @@ fn count(transport: &MockTransport, path: &str) -> usize {
 }
 
 fn args(tag: Option<&str>) -> ValueMap {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   if let Some(tag) = tag {
     map.insert("tag".to_owned(), Value::str(tag));
   }
@@ -70,8 +70,8 @@ async fn a_shared_method_is_answered_once_per_distinct_arguments() {
   anon.call("catalog", "list", args(Some("wool"))).await.unwrap();
   assert_eq!(count(&transport, "catalog.list"), 2, "other arguments are another entry");
   assert_eq!(services.data_cache().unwrap().hits(), 2);
-  anon.call("catalog", "plain", ValueMap::new()).await.unwrap();
-  anon.call("catalog", "plain", ValueMap::new()).await.unwrap();
+  anon.call("catalog", "plain", ValueMap::default()).await.unwrap();
+  anon.call("catalog", "plain", ValueMap::default()).await.unwrap();
   assert_eq!(count(&transport, "catalog.plain"), 2, "a method without a policy is never cached");
 }
 
@@ -80,12 +80,12 @@ async fn a_private_method_bypasses_the_cache_for_an_identified_call() {
   let transport = mock();
   let services = services(transport.clone());
   let anon = services.bind_anonymous();
-  anon.call("catalog", "secret", ValueMap::new()).await.unwrap();
-  anon.call("catalog", "secret", ValueMap::new()).await.unwrap();
+  anon.call("catalog", "secret", ValueMap::default()).await.unwrap();
+  anon.call("catalog", "secret", ValueMap::default()).await.unwrap();
   assert_eq!(count(&transport, "catalog.secret"), 1, "anonymous calls share an entry");
   let signed = services.bind(alice(), Arc::new(NoCredentials));
-  signed.call("catalog", "secret", ValueMap::new()).await.unwrap();
-  signed.call("catalog", "secret", ValueMap::new()).await.unwrap();
+  signed.call("catalog", "secret", ValueMap::default()).await.unwrap();
+  signed.call("catalog", "secret", ValueMap::default()).await.unwrap();
   assert_eq!(count(&transport, "catalog.secret"), 3, "an identified call never reads or writes the cache");
 }
 
@@ -95,11 +95,11 @@ async fn a_subject_method_keeps_one_entry_per_subject() {
   let services = services(transport.clone());
   let a = services.bind(alice(), Arc::new(NoCredentials));
   let b = services.bind(bob(), Arc::new(NoCredentials));
-  a.call("catalog", "mine", ValueMap::new()).await.unwrap();
-  a.call("catalog", "mine", ValueMap::new()).await.unwrap();
-  b.call("catalog", "mine", ValueMap::new()).await.unwrap();
-  b.call("catalog", "mine", ValueMap::new()).await.unwrap();
-  services.bind_anonymous().call("catalog", "mine", ValueMap::new()).await.unwrap();
+  a.call("catalog", "mine", ValueMap::default()).await.unwrap();
+  a.call("catalog", "mine", ValueMap::default()).await.unwrap();
+  b.call("catalog", "mine", ValueMap::default()).await.unwrap();
+  b.call("catalog", "mine", ValueMap::default()).await.unwrap();
+  services.bind_anonymous().call("catalog", "mine", ValueMap::default()).await.unwrap();
   assert_eq!(count(&transport, "catalog.mine"), 3, "alice, bob and nobody");
 }
 
@@ -109,7 +109,7 @@ async fn a_write_drops_the_tags_it_names_and_so_does_invalidate_tags() {
   let services = services(transport.clone());
   let anon = services.bind_anonymous();
   anon.call("catalog", "list", args(None)).await.unwrap();
-  let mut add = ValueMap::new();
+  let mut add = ValueMap::default();
   add.insert("name".to_owned(), Value::str("scarf"));
   anon.call("catalog", "add", add).await.unwrap();
   anon.call("catalog", "list", args(None)).await.unwrap();
@@ -160,13 +160,13 @@ async fn a_stale_window_serves_the_last_answer_and_refreshes_behind_it() {
   let transport = mock();
   let services = services(transport.clone());
   let anon = services.bind_anonymous();
-  anon.call("feed", "latest", ValueMap::new()).await.unwrap();
+  anon.call("feed", "latest", ValueMap::default()).await.unwrap();
   tokio::time::sleep(Duration::from_millis(1300)).await;
-  let served = anon.call("feed", "latest", ValueMap::new()).await.unwrap();
+  let served = anon.call("feed", "latest", ValueMap::default()).await.unwrap();
   assert_eq!(served, Value::str("now"), "past the ttl the stale answer is served");
   tokio::time::sleep(Duration::from_millis(400)).await;
   assert_eq!(count(&transport, "feed.latest"), 2, "and a refresh ran behind it");
-  anon.call("feed", "latest", ValueMap::new()).await.unwrap();
+  anon.call("feed", "latest", ValueMap::default()).await.unwrap();
   assert_eq!(count(&transport, "feed.latest"), 2, "the refreshed entry is fresh again");
 }
 

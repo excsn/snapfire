@@ -87,24 +87,24 @@ fn a_streaming_method_and_a_non_string_map_key_are_refused() {
 fn values_round_trip_through_the_messages() {
   let imported = import_proto_source("inventory.proto", INVENTORY, "inventory").unwrap();
   let request = imported.pool.get_message_by_name("shop.inventory.StockRequest").unwrap();
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("product_id".to_owned(), Value::Int(9_007_199_254_740_993));
   let bytes = encode_request(&request, &args).unwrap();
   assert!(!bytes.is_empty());
 
-  let mut extra = ValueMap::new();
+  let mut extra = ValueMap::default();
   extra.insert("nope".to_owned(), Value::int(1));
   assert!(encode_request(&request, &extra).is_err(), "an argument the message lacks is refused");
 
   let level = imported.pool.get_message_by_name("shop.inventory.StockLevel").unwrap();
-  let mut fields = ValueMap::new();
+  let mut fields = ValueMap::default();
   fields.insert("product_id".to_owned(), Value::Int(9_007_199_254_740_993));
   fields.insert("on_hand".to_owned(), Value::int(12));
   fields.insert("warehouse".to_owned(), Value::str("north"));
   fields.insert("status".to_owned(), Value::str("ACTIVE"));
   fields.insert("bins".to_owned(), Value::Seq(vec![Value::str("a1")]));
   fields.insert("counted_at".to_owned(), Value::str("2026-09-02T10:00:00Z"));
-  let mut by_bin = ValueMap::new();
+  let mut by_bin = ValueMap::default();
   by_bin.insert("a1".to_owned(), Value::int(3));
   fields.insert("by_bin".to_owned(), Value::Map(by_bin));
   let bytes = encode_request(&level, &fields).unwrap();

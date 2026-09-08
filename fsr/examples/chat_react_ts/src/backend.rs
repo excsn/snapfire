@@ -63,7 +63,7 @@ impl Rooms {
   }
 
   fn room(&self, room: &Room) -> Value {
-    let mut map = ValueMap::new();
+    let mut map = ValueMap::default();
     map.insert("id".to_owned(), Value::str(room.id));
     map.insert("name".to_owned(), Value::str(room.name));
     map.insert("about".to_owned(), Value::str(room.about));
@@ -72,7 +72,7 @@ impl Rooms {
   }
 
   fn message(said: &Said) -> Value {
-    let mut map = ValueMap::new();
+    let mut map = ValueMap::default();
     map.insert("id".to_owned(), Value::Str(said.id.to_string()));
     map.insert("who".to_owned(), Value::Str(said.who.clone()));
     map.insert("body".to_owned(), Value::Str(said.body.clone()));
@@ -83,7 +83,7 @@ impl Rooms {
   fn transcript(&self, id: &str) -> Option<Value> {
     let room = ROOMS.iter().find(|room| room.id == id)?;
     let messages: Vec<Value> = self.said.lock().iter().filter(|(at, _)| at == id).map(|(_, said)| Self::message(said)).collect();
-    let mut map = ValueMap::new();
+    let mut map = ValueMap::default();
     map.insert("room".to_owned(), self.room(room));
     map.insert("messages".to_owned(), Value::Seq(messages));
     Some(Value::Map(map))

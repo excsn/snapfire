@@ -161,7 +161,7 @@ impl RequestCtx {
 
   pub fn identity_value(&self) -> Option<Value> {
     self.session.identity().map(|identity| {
-      let mut map = ValueMap::new();
+      let mut map = ValueMap::default();
       map.insert("subject".to_owned(), Value::Str(identity.subject));
       map.insert("claims".to_owned(), Value::Map(identity.claims));
       Value::Map(map)

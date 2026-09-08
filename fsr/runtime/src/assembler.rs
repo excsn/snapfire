@@ -258,7 +258,7 @@ struct Loaded {
 }
 
 fn params_value(params: &Params) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   for (k, v) in params {
     map.insert(k.clone(), Value::Str(v.clone()));
   }
@@ -438,7 +438,7 @@ impl Session {
     let Some(module) = &node.error else {
       return Ok(error_node(&failure.to_string()));
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     self.inject_ctx_props(&mut props);
     props.insert("error".to_owned(), Value::Str(failure.to_string()));
     let chunks: Vec<Chunk> = self
@@ -466,7 +466,7 @@ impl Session {
     let Some(module) = &child.fallback else {
       return Ok(Node::raw(""));
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     self.inject_ctx_props(&mut props);
     inject_store(&mut props, store);
     let chunks: Vec<Chunk> = self
@@ -512,7 +512,7 @@ impl Session {
             node: error_node(&e.to_string()),
             pending: Vec::new(),
             meta: Meta::default(),
-            store: Data::new(),
+            store: Data::default(),
           },
         }
       }),
@@ -537,7 +537,7 @@ impl Session {
   async fn seed(&self, plan: &PlanNode, loaded: &Loaded) -> Data {
     let mut nodes = Vec::new();
     seeding_nodes(&self.runtime, plan, loaded, true, &mut nodes);
-    let mut out = Data::new();
+    let mut out = Data::default();
     for node in nodes {
       let source = node.data_source.as_ref().expect("a seeding node has a source");
       match self.runtime.stores[&source.0]

@@ -206,7 +206,7 @@ impl ServiceCaller for BoundServices {
       method: method.to_owned(),
       args,
       identity: self.identity.clone(),
-      metadata: ValueMap::new(),
+      metadata: ValueMap::default(),
       credentials: self.credentials.clone(),
     };
     let running = Next::start(chain.clone()).run(call);

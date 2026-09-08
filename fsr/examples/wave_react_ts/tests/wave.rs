@@ -164,7 +164,7 @@ async fn the_service_reads_and_writes_through_the_controller() {
   tokio::spawn(controller.run());
   let (service, mut kept) = backend::service(field);
 
-  let waves = call(&service, "listWaves", ValueMap::new()).await;
+  let waves = call(&service, "listWaves", ValueMap::default()).await;
   assert!(format!("{waves:?}").contains("Snapfire kickoff"), "{waves:?}");
 
   let args = ValueMap::from_iter([
@@ -219,7 +219,7 @@ async fn a_view_names_which_waves_the_inbox_lists() {
     .unwrap();
   assert_eq!(listed("active", "alice").await, ["Arrivals board review"], "a watched wave is the active one");
 
-  let people = call(&service, "listPeople", ValueMap::new()).await;
+  let people = call(&service, "listPeople", ValueMap::default()).await;
   let shown = format!("{people:?}");
   assert!(shown.contains("\"alice\""), "everyone on any wave is a contact: {shown}");
   assert!(shown.contains("Bool(true)"), "and alice is here, on the wave she is watching: {shown}");
@@ -248,7 +248,7 @@ async fn call(service: &Arc<dyn Transport>, method: &str, args: ValueMap) -> Val
     method: method.to_owned(),
     args,
     identity: None,
-    metadata: ValueMap::new(),
+    metadata: ValueMap::default(),
     credentials: Arc::new(snapfire_fsr_service::NoCredentials),
   };
   service.call(call).await.unwrap()

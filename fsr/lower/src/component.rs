@@ -1941,13 +1941,13 @@ export default function Page({ blip, note }: { blip: { body: string }; note: { _
     assert!(!format!("{component:?}").contains(UNLOWERED_ATTR), "the component lowers rather than falling to the browser: {component:?}");
 
     let map = |pairs: &[(&str, &str)]| {
-      let mut out = snapfire_fsr_core::ValueMap::new();
+      let mut out = snapfire_fsr_core::ValueMap::default();
       for (k, v) in pairs {
         out.insert((*k).to_owned(), snapfire_fsr_core::Value::str(*v));
       }
       out
     };
-    let mut props = snapfire_fsr_core::ValueMap::new();
+    let mut props = snapfire_fsr_core::ValueMap::default();
     props.insert("blip".to_owned(), snapfire_fsr_core::Value::Map(map(&[("body", "<p>a <b>markdown</b> blip</p>")])));
     props.insert("note".to_owned(), snapfire_fsr_core::Value::Map(map(&[("__html", "<i>&amp; a note</i>")])));
     let html = snapfire_fsr_ir::Interpreter::default().render(component, &props, &snapfire_fsr_ir::render::Components::new()).unwrap().html;

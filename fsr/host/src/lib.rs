@@ -679,7 +679,7 @@ impl AuthFlow {
   pub fn new() -> Self {
     Self {
       id: SessionId::generate(),
-      tokens: TokenCell::new(ValueMap::new()),
+      tokens: TokenCell::new(ValueMap::default()),
     }
   }
 }
@@ -1436,7 +1436,7 @@ impl Host {
   ) -> Result<Preflight, ActionError> {
     let internal = |message: String| ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message);
     let request = |path: &str, site: Option<&SiteTables>| {
-      let mut request = ValueMap::new();
+      let mut request = ValueMap::default();
       request.insert("method".to_owned(), Value::Str(method.to_ascii_uppercase()));
       request.insert("path".to_owned(), Value::Str(path.to_owned()));
       request.insert(
@@ -2900,7 +2900,7 @@ pub fn island_step(
   };
   let mut props = match input.get("props") {
     Some(Value::Map(map)) => map.clone(),
-    None | Some(Value::Null) => ValueMap::new(),
+    None | Some(Value::Null) => ValueMap::default(),
     Some(_) => {
       return (
         StatusCode::BAD_REQUEST,
@@ -2910,7 +2910,7 @@ pub fn island_step(
   };
   let state = match input.get("state") {
     Some(Value::Map(map)) => map.clone(),
-    None | Some(Value::Null) => ValueMap::new(),
+    None | Some(Value::Null) => ValueMap::default(),
     Some(_) => {
       return (
         StatusCode::BAD_REQUEST,

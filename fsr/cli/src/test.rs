@@ -157,7 +157,7 @@ impl Transport for LambdaTransport {
     let mut call = call;
     call.service = crate::unprefixed(&call.service).to_owned();
     let path = format!("{}.{}", call.service, call.method);
-    let mut record = ValueMap::new();
+    let mut record = ValueMap::default();
     record.insert("service".to_owned(), Value::Str(call.service.clone()));
     record.insert("method".to_owned(), Value::Str(call.method.clone()));
     record.insert("args".to_owned(), Value::Map(call.args.clone()));
@@ -187,14 +187,14 @@ impl MockCtx {
   /// `c` as the test's expressions see it, refreshed after every run.
   fn value(&self) -> Value {
     let (session, _) = self.ctx.session.snapshot();
-    let mut map = ValueMap::new();
+    let mut map = ValueMap::default();
     map.insert("session".to_owned(), Value::Map(session));
     map.insert("params".to_owned(), Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect()));
     map.insert("query".to_owned(), Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect()));
     map.insert("input".to_owned(), self.input.clone().unwrap_or(Value::Null));
-    let mut trace = ValueMap::new();
+    let mut trace = ValueMap::default();
     trace.insert("calls".to_owned(), Value::Seq(self.transport.calls.lock().clone()));
-    let mut session_trace = ValueMap::new();
+    let mut session_trace = ValueMap::default();
     session_trace.insert("written".to_owned(), Value::Seq(self.written.iter().cloned().map(Value::Str).collect()));
     trace.insert("session".to_owned(), Value::Map(session_trace));
     map.insert("trace".to_owned(), Value::Map(trace));
@@ -223,7 +223,7 @@ impl Run<'_> {
   }
 
   async fn mock(&mut self, name: &str, mock: &Mock) -> Result<(), String> {
-    let mut session = ValueMap::new();
+    let mut session = ValueMap::default();
     for (key, expr) in &mock.session {
       session.insert(key.clone(), self.eval(expr).await.map_err(|f| format!("session.{key}: {}", f.message))?);
     }
@@ -236,7 +236,7 @@ impl Run<'_> {
           };
           let claims = match map.get("claims") {
             Some(Value::Map(claims)) => claims.clone(),
-            None => ValueMap::new(),
+            None => ValueMap::default(),
             _ => return Err("identity.claims must be an object".to_owned()),
           };
           Some(Identity { subject, claims })

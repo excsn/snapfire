@@ -41,7 +41,7 @@ pub fn contract() -> Contract {
 }
 
 fn server(name: &str, load: f64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("name".to_owned(), Value::str(name));
   map.insert("load".to_owned(), Value::F64(load));
   Value::Map(map)
@@ -92,7 +92,7 @@ pub fn build(fleet: Fleet) -> Arc<Services> {
         let count = fleet.add(name.clone(), load).map_err(|_| {
           ServiceError::new(FailureKind::Conflict, fleet::NAME, fleet::ADD, format!("server `{name}` already exists"))
         })?;
-        let mut out = ValueMap::new();
+        let mut out = ValueMap::default();
         out.insert("count".to_owned(), Value::int(count as i64));
         Ok(Value::Map(out))
       }

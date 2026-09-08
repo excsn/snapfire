@@ -2,7 +2,7 @@ use snapfire_fsr_core::{ModuleId, Node, SlotId, TypedArray, Value, ValueMap};
 use snapfire_fsr_payload::{html_serialize, serialize_page};
 
 fn walked_page() -> Node {
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])));
   Node::Seq(vec![
     Node::raw("<main><h1>Servers</h1>"),
@@ -46,7 +46,7 @@ fn text_nodes_escape_markup() {
 
 #[test]
 fn string_props_cannot_break_out_of_the_script_tag() {
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert("payload".to_owned(), Value::str("</script><script>alert(1)</script>"));
   let node = Node::Client {
     module: ModuleId::new("components/X.tsx", "default"),
@@ -64,7 +64,7 @@ fn string_props_cannot_break_out_of_the_script_tag() {
 fn ssr_content_renders_inside_the_island_marker() {
   let node = Node::Client {
     module: ModuleId::new("components/X.tsx", "default"),
-    props: ValueMap::new(),
+    props: ValueMap::default(),
     children: Vec::new(),
     ssr: Some(Box::new(Node::raw("<svg></svg>"))),
   };
@@ -83,7 +83,7 @@ fn pending_emits_fallback_in_place() {
 fn island_ids_allocate_in_tree_order() {
   let island = |name: &str| Node::Client {
     module: ModuleId::new(format!("components/{name}.tsx"), "default"),
-    props: ValueMap::new(),
+    props: ValueMap::default(),
     children: Vec::new(),
     ssr: None,
   };

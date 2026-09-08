@@ -132,7 +132,7 @@ fn rows_of(op: &Op) -> Vec<Row> {
           .drafts
           .iter()
           .map(|draft| {
-            let mut map = ValueMap::new();
+            let mut map = ValueMap::default();
             map.insert("who".to_owned(), Value::Str(draft.who.clone()));
             map.insert("parent".to_owned(), Value::Str(draft.parent.clone()));
             map.insert("body".to_owned(), Value::Str(draft.body.clone()));
@@ -145,7 +145,7 @@ fn rows_of(op: &Op) -> Vec<Row> {
           .edits
           .iter()
           .map(|edit| {
-            let mut map = ValueMap::new();
+            let mut map = ValueMap::default();
             map.insert("blip".to_owned(), Value::Str(edit.blip.clone()));
             map.insert("who".to_owned(), Value::Str(edit.who.clone()));
             map.insert("body".to_owned(), Value::Str(edit.body.clone()));

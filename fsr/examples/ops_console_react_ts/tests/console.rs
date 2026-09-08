@@ -10,7 +10,7 @@ use snapfire_fsr_service::MockTransport;
 use snapfire_fsr_session::MemorySessionStore;
 
 fn agent(id: i64, name: &str, region: &str, status: &str, queue: i64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::int(id));
   map.insert("name".to_owned(), Value::str(name));
   map.insert("region".to_owned(), Value::str(region));
@@ -21,7 +21,7 @@ fn agent(id: i64, name: &str, region: &str, status: &str, queue: i64) -> Value {
 }
 
 fn alert(id: i64, agent_id: i64, level: &str, text: &str) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::int(id));
   map.insert("agent_id".to_owned(), Value::int(agent_id));
   map.insert("level".to_owned(), Value::str(level));
@@ -30,7 +30,7 @@ fn alert(id: i64, agent_id: i64, level: &str, text: &str) -> Value {
 }
 
 fn job(id: i64, name: &str, seconds: i64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::int(id));
   map.insert("name".to_owned(), Value::str(name));
   map.insert("seconds".to_owned(), Value::int(seconds));
@@ -50,9 +50,9 @@ fn fleet() -> Arc<MockTransport> {
 }
 
 fn signed(subject: &str, role: &str) -> Value {
-  let mut claims = ValueMap::new();
+  let mut claims = ValueMap::default();
   claims.insert("role".to_owned(), Value::str(role));
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("subject".to_owned(), Value::str(subject));
   map.insert("claims".to_owned(), Value::Map(claims));
   map.insert("access_token".to_owned(), Value::Str(format!("svc-token-{subject}")));
@@ -72,7 +72,7 @@ fn console(transport: Arc<MockTransport>) -> Host {
 }
 
 fn watching(session: &SessionCell, ids: &[i64]) {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   for id in ids {
     map.insert(id.to_string(), Value::Bool(true));
   }
@@ -145,13 +145,13 @@ fn acknowledging_an_alert_and_watching_an_agent_reach_the_backend_and_the_sessio
   let app = console(transport.clone());
   let session = SessionCell::default();
 
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("alert_id".to_owned(), Value::int(21i64));
   let left = block_on(app.call_action("layout.alerts.ackAlert", session.clone(), Value::Map(input))).unwrap();
   assert_eq!(left, Value::Map(ValueMap::from_iter([("open".to_owned(), Value::Int(1))])));
   assert!(transport.calls().iter().any(|(method, _, _)| method == "fleet.acknowledgeAlert"));
 
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("agent_id".to_owned(), Value::int(3i64));
   block_on(app.call_action("agents.watchAgent", session.clone(), Value::Map(input.clone()))).unwrap();
   assert_eq!(session.get("watching"), Some(Value::Map(ValueMap::from_iter([("3".to_owned(), Value::Bool(true))]))));
@@ -160,8 +160,8 @@ fn acknowledging_an_alert_and_watching_an_agent_reach_the_backend_and_the_sessio
 
   let dropped = block_on(app.call_action("settings.unwatchAgent", session.clone(), Value::Map(input))).unwrap();
   assert_eq!(dropped, Value::Map(ValueMap::from_iter([("watching".to_owned(), Value::Int(0))])));
-  assert_eq!(session.get("watching"), Some(Value::Map(ValueMap::new())));
-  let mut input = ValueMap::new();
+  assert_eq!(session.get("watching"), Some(Value::Map(ValueMap::default())));
+  let mut input = ValueMap::default();
   input.insert("density".to_owned(), Value::str("compact"));
   block_on(app.call_action("settings.setDensity", session.clone(), Value::Map(input))).unwrap();
   assert_eq!(session.get("density"), Some(Value::str("compact")));
@@ -239,7 +239,7 @@ fn the_edge_remembers_a_chosen_locale_and_an_action_takes_the_documents() {
 
   let session = SessionCell::default();
   watching(&session, &[]);
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("density".to_owned(), Value::str("compact"));
   let value = block_on(app.call_action_in("settings.setDensity", session, app.locales().locale("fr_FR"), Value::Map(input))).unwrap();
   let Value::Map(map) = value else { panic!("a map") };

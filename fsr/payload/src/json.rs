@@ -214,7 +214,7 @@ fn decode_tagged(name: &str, map: &JsonMap<String, Json>) -> Result<Value, Decod
     }
     "m" => {
       let entries = field(map, "v", name)?.as_array().ok_or_else(|| err("tag `m` field `v` must be an array"))?;
-      let mut out = ValueMap::new();
+      let mut out = ValueMap::default();
       for entry in entries {
         let pair = entry.as_array().filter(|p| p.len() == 2).ok_or_else(|| err("tag `m` entries must be pairs"))?;
         let key = pair[0].as_str().ok_or_else(|| err("tag `m` keys must be strings"))?;
@@ -267,7 +267,7 @@ pub fn json_to_value(json: &Json) -> Result<Value, DecodeError> {
       if let Some(Json::String(name)) = map.get("$") {
         decode_tagged(name.clone().as_str(), map)
       } else {
-        let mut out = ValueMap::new();
+        let mut out = ValueMap::default();
         for (k, v) in map {
           out.insert(k.clone(), json_to_value(v)?);
         }

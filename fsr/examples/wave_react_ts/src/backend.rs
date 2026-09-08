@@ -44,7 +44,7 @@ pub fn seed() -> Vec<Wave> {
 }
 
 fn summary(wave: &Wave) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::Str(wave.id.clone()));
   map.insert("title".to_owned(), Value::Str(wave.title.clone()));
   map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::Str(who.clone())).collect()));
@@ -68,7 +68,7 @@ fn people(field: &Field) -> Value {
     counts
       .into_iter()
       .map(|(name, waves)| {
-        let mut map = ValueMap::new();
+        let mut map = ValueMap::default();
         map.insert("here".to_owned(), Value::Bool(here.contains(&name)));
         map.insert("waves".to_owned(), Value::F64(waves));
         map.insert("name".to_owned(), Value::Str(name));
@@ -90,7 +90,7 @@ fn under(field: &Field, view: &str, who: &str) -> Value {
 }
 
 fn blip_value(blip: &Blip, depth: f64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::Str(blip.id.to_string()));
   map.insert("parent".to_owned(), Value::Str(blip.parent.clone()));
   map.insert("who".to_owned(), Value::Str(blip.who.clone()));
@@ -118,7 +118,7 @@ fn threaded(blips: &[Blip]) -> Vec<Value> {
 
 fn wave_value(field: &Field, id: &str) -> Option<Value> {
   let wave = field.waves.get(id)?;
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::Str(wave.id.clone()));
   map.insert("title".to_owned(), Value::Str(wave.title.clone()));
   map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::Str(who.clone())).collect()));

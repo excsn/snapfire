@@ -5,7 +5,7 @@ use snapfire_fsr_core::{
 };
 
 fn chart_island(series: Vec<f64>) -> Node {
-  let mut props = indexmap::IndexMap::new();
+  let mut props = snapfire_fsr_core::ValueMap::default();
   props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(series)));
   Node::Client {
     module: ModuleId::new("components/ServerChart.tsx", "default"),
@@ -143,7 +143,7 @@ fn a_plan_fingerprint_does_not_depend_on_node_numbering() {
 
 #[test]
 fn a_map_fingerprints_the_same_bare_as_it_does_wrapped() {
-  let mut map = indexmap::IndexMap::new();
+  let mut map = snapfire_fsr_core::ValueMap::default();
   map.insert("who".to_owned(), Value::str("alice"));
   map.insert("count".to_owned(), Value::Int(3));
   assert_eq!(

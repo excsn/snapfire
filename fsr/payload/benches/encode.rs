@@ -3,7 +3,7 @@ use snapfire_fsr_core::{ModuleId, Node, TypedArray, Value, ValueMap};
 use snapfire_fsr_payload::{html_serialize, serialize_page, value_to_json};
 
 fn island(series_len: usize) -> Node {
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert(
     "series".to_owned(),
     Value::TypedArray(TypedArray::F64((0..series_len).map(|i| i as f64).collect())),
@@ -28,13 +28,13 @@ fn page(sections: usize, series_len: usize) -> Node {
 }
 
 fn typical_props() -> Value {
-  let mut server = ValueMap::new();
+  let mut server = ValueMap::default();
   server.insert("id".to_owned(), Value::int(90_071_992_547_409_920i128));
   server.insert("name".to_owned(), Value::str("web-1"));
   server.insert("healthy".to_owned(), Value::Bool(true));
   server.insert("load".to_owned(), Value::F64(0.73));
   let servers = Value::Seq((0..50).map(|_| Value::Map(server.clone())).collect());
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert("servers".to_owned(), servers);
   Value::Map(props)
 }

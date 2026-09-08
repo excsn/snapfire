@@ -6,9 +6,9 @@ use snapfire_fsr_runtime::FailureKind;
 use snapfire_fsr_service::{import_proto, Call, GrpcTransport, NoCredentials, Transport};
 
 fn call(method: &str, product_id: i64) -> Call {
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("product_id".to_owned(), Value::int(product_id));
-  Call { service: "inventory".to_owned(), method: method.to_owned(), args, identity: None, metadata: ValueMap::new(), credentials: Arc::new(NoCredentials) }
+  Call { service: "inventory".to_owned(), method: method.to_owned(), args, identity: None, metadata: ValueMap::default(), credentials: Arc::new(NoCredentials) }
 }
 
 #[tokio::test]

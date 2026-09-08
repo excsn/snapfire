@@ -45,7 +45,7 @@ impl Seeds for FieldSeed {
     let (key, field) = (self.0.to_owned(), self.1.to_owned());
     let value = data.get(&field).cloned().unwrap_or(Value::Null);
     Box::pin(async move {
-      let mut out = Data::new();
+      let mut out = Data::default();
       out.insert(key, value);
       Ok(out)
     })
@@ -68,13 +68,13 @@ impl Seeds for Failing {
 fn runtime(page_seeds: Option<Arc<dyn Seeds>>) -> Arc<Runtime> {
   let mut sources = DataSources::new();
   sources.insert_fn("layout", |_p| async move {
-    let mut data = ValueMap::new();
+    let mut data = ValueMap::default();
     data.insert("count".to_owned(), Value::Int(2));
     data.insert("where".to_owned(), Value::str("layout"));
     Ok(data)
   });
   sources.insert_fn("page", |_p| async move {
-    let mut data = ValueMap::new();
+    let mut data = ValueMap::default();
     data.insert("where".to_owned(), Value::str("page"));
     Ok(data)
   });
@@ -99,7 +99,7 @@ impl Seeds for LayoutSeed {
     let count = data.get("count").cloned().unwrap_or(Value::Null);
     let owner = data.get("where").cloned().unwrap_or(Value::Null);
     Box::pin(async move {
-      let mut out = Data::new();
+      let mut out = Data::default();
       out.insert("cart/count".to_owned(), count);
       out.insert("owner".to_owned(), owner);
       Ok(out)

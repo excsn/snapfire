@@ -144,7 +144,7 @@ fn a_failed_subtree_is_never_cached() {
     let ok = flag.load(Ordering::Relaxed);
     async move {
       if ok {
-        let mut data = ValueMap::new();
+        let mut data = ValueMap::default();
         data.insert("body".to_owned(), Value::str("recovered"));
         Ok(data)
       } else {

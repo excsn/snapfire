@@ -470,7 +470,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     }
     Tmpl::Component { module, props, children, .. } => {
       let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
-      let mut map = ValueMap::new();
+      let mut map = ValueMap::default();
       for (name, value) in entries(env, props, false)? {
         if name != "children" {
           map.insert(name.into_owned(), value);
@@ -488,7 +488,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Island { module, props, children, when, mode, id } => {
       let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
       let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
-      let mut map = ValueMap::new();
+      let mut map = ValueMap::default();
       for (name, value) in entries(env, props, false)? {
         if name != "children" {
           map.insert(name.into_owned(), value);
@@ -772,7 +772,7 @@ mod tests {
       state: Vec::new(),
       handlers: Vec::new(),
     };
-    let html = Interpreter::default().render(&component, &ValueMap::new(), &Components::new()).unwrap().html;
+    let html = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html;
     assert_eq!(html, "<path marker-end=\"url(#a)\" stroke-width=\"2\" viewBox=\"0 0 8 8\"></path>");
   }
 
@@ -793,7 +793,7 @@ mod tests {
     assert_eq!(render(&component, &props(&[("body", Value::Null)])), "<div class=\"md\"></div>", "React renders nothing for a missing __html");
 
     let with_children = raw(Expr::lit_str("<i>from the loader</i>"), vec![Tmpl::Text("never rendered".to_owned())]);
-    assert_eq!(render(&with_children, &ValueMap::new()), "<div class=\"md\"><i>from the loader</i></div>", "the markup replaces the children the way React refuses to have both");
+    assert_eq!(render(&with_children, &ValueMap::default()), "<div class=\"md\"><i>from the loader</i></div>", "the markup replaces the children the way React refuses to have both");
   }
 
   #[test]
@@ -891,7 +891,7 @@ mod tests {
         id: 0,
       }, state: Vec::new(), handlers: Vec::new()
     };
-    let mut attrs = ValueMap::new();
+    let mut attrs = ValueMap::default();
     attrs.insert("className".to_owned(), Value::str("ignored"));
     attrs.insert("dataId".to_owned(), Value::Int(7));
     attrs.insert("onClick".to_owned(), Value::str("handler"));
@@ -912,7 +912,7 @@ mod tests {
         Tmpl::Expr(Expr::Lit(Lit::Null)),
       ]), state: Vec::new(), handlers: Vec::new()
     };
-    let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap().html;
+    let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
     assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
   }
 
@@ -930,10 +930,10 @@ mod tests {
       ]), state: Vec::new(), handlers: Vec::new()
     };
     let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
-    assert_eq!(render(ValueMap::new()), "0<b>0</b>", "no seed leaves both reads on the fallback");
-    let mut store = ValueMap::new();
+    assert_eq!(render(ValueMap::default()), "0<b>0</b>", "no seed leaves both reads on the fallback");
+    let mut store = ValueMap::default();
     store.insert("cart/count".to_owned(), Value::Int(3));
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("$store".to_owned(), Value::Map(store));
     assert_eq!(render(props), "3<b>3</b>", "a nested component reads the seed without a prop");
   }
@@ -946,8 +946,8 @@ mod tests {
       render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), handlers: Vec::new()
     };
     let render = |props: ValueMap| Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
-    assert_eq!(render(ValueMap::new()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
-    let mut props = ValueMap::new();
+    assert_eq!(render(ValueMap::default()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
+    let mut props = ValueMap::default();
     props.insert("$slots".to_owned(), Value::Seq(vec![Value::str("content")]));
     assert_eq!(render(props.clone()), "<sf-s>closed</sf-s>");
     props.insert("$slots".to_owned(), Value::Seq(vec![Value::str("content"), Value::str("modal")]));
@@ -970,7 +970,7 @@ mod tests {
     ];
     for (expr, expected) in cases {
       let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), handlers: Vec::new() };
-      let html = (Interpreter::default().render(&component, &ValueMap::new(), &Components::new())).unwrap().html;
+      let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
       assert_eq!(html, expected, "{expr:?}");
     }
   }
@@ -1006,7 +1006,7 @@ mod hoist_tests {
         },
       ]), state: Vec::new(), handlers: Vec::new()
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("total".to_owned(), Value::F64(2.5));
     props.insert("prices".to_owned(), Value::Seq(vec![Value::F64(1.0), Value::F64(2.0)]));
     props.insert("taxes".to_owned(), Value::Seq(vec![Value::F64(1.0), Value::F64(1.5)]));
@@ -1034,7 +1034,7 @@ mod hoist_tests {
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(9.0))))),
       ]), state: Vec::new(), handlers: Vec::new()
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::Seq(vec![Value::F64(2.0), Value::F64(3.0)]));
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &props, &library).unwrap();
     assert_eq!(rendered.html, "1.0<!-- -->2.0<!-- -->3.0<!-- -->9.0");
@@ -1043,7 +1043,7 @@ mod hoist_tests {
     assert_eq!(rendered.hoisted["src/ui/Price.tsx#Price|0@1"], Value::str("3.0"));
 
     let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), handlers: Vec::new() };
-    let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &twice, &ValueMap::new(), &library).unwrap();
+    let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &twice, &ValueMap::default(), &library).unwrap();
     assert!(rendered.hoisted.is_empty(), "Price placed three times outside a loop shares one key: 1.0 twice agrees, 2.0 drops it: {:?}", rendered.hoisted);
   }
 
@@ -1065,7 +1065,7 @@ mod hoist_tests {
         }],
       }, state: Vec::new(), handlers: Vec::new()
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::Seq(vec![Value::F64(1.0), Value::F64(2.0)]));
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &component, &props, &Components::new()).unwrap();
     assert_eq!(rendered.html, "<ul class=\"list\"><li>1.0</li><li>2.0</li></ul>");
@@ -1087,7 +1087,7 @@ mod hoist_tests {
         Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9 },
       ]), state: Vec::new(), handlers: Vec::new()
     };
-    let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::new(), &library).unwrap();
+    let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["routes/index/page.tsx#default|0"], "the island's values are not the page's");
     assert_eq!(rendered.islands[0].body.hoisted.keys().collect::<Vec<_>>(), ["src/ui/Help.tsx#Help|0"]);
@@ -1123,10 +1123,10 @@ mod server_tests {
     let mut library = Components::new();
     library.insert("src/ui/Help.tsx#Help".to_owned(), Arc::new(help()));
     let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9 }, state: Vec::new(), handlers: Vec::new() };
-    let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::new(), &library).unwrap();
+    let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::default(), &library).unwrap();
     assert_eq!(browser.islands[0].body.html, "<section>order 7<button>Show</button></section>");
     assert!(browser.islands[0].mode.is_none() && !browser.islands[0].mount_props().contains_key(STATE_PROP));
-    let server = Interpreter::default().render_module("page", &island(Some("server")), &ValueMap::new(), &library).unwrap();
+    let server = Interpreter::default().render_module("page", &island(Some("server")), &ValueMap::default(), &library).unwrap();
     assert_eq!(server.islands[0].body.html, "<section>order 7<button data-sf-key=\"toggle\" data-sf-on=\"click:0\">Show</button></section>");
     assert_eq!(server.islands[0].mode.as_deref(), Some("server"));
     let props = server.islands[0].mount_props();
@@ -1139,7 +1139,7 @@ mod server_tests {
   fn a_step_runs_the_handler_over_the_state_and_renders_from_the_result() {
     let library = Components::new();
     let component = help();
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::Int(7));
     let state = ValueMap::from_iter([("open".to_owned(), Value::Bool(false))]);
     let stepped = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(0), &Value::Null, &library).unwrap();
@@ -1179,7 +1179,7 @@ mod island_tests {
       state: Vec::new(),
       handlers: Vec::new(),
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("blips".to_owned(), Value::Seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
     let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &props, &library).unwrap();
     let keys: Vec<&str> = rendered.islands.iter().map(|i| i.key.as_str()).collect();
@@ -1212,7 +1212,7 @@ mod island_tests {
         ],
       }, state: Vec::new(), handlers: Vec::new()
     };
-    let mut props = ValueMap::new();
+    let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::int(7i64));
     let rendered = Interpreter::default().render(&page, &props, &library).unwrap();
     assert_eq!(rendered.html, format!("<main>before{ISLAND_MARK}0\u{0}after</main>"));

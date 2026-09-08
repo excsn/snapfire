@@ -44,7 +44,7 @@ fn numbers_group_and_round_under_the_locale() {
   assert_eq!(call("en_US", "intl.number", vec![Value::Int(12345678901234567890)]), Ok(s("12,345,678,901,234,567,890")));
   assert_eq!(call("", "intl.number", vec![n(1000.0)]), Ok(s("1,000")), "no locale is `en`");
   let options = |min: f64, max: f64| {
-    let mut map = snapfire_fsr_core::ValueMap::new();
+    let mut map = snapfire_fsr_core::ValueMap::default();
     map.insert("minimumFractionDigits".to_owned(), n(min));
     map.insert("maximumFractionDigits".to_owned(), n(max));
     Value::Map(map)
@@ -158,7 +158,7 @@ fn t_reads_the_catalog_under_the_locale_with_plurals_and_placeholders() {
   let registry = Extensions::standard();
   let call = |locale: &str, args: Vec<Value>| registry.call("i18n.t", &Ambient { locale: locale.to_owned(), now: 0, catalogs: Some(catalogs.clone()) }, &args).map_err(|e| e.message);
   let named = |pairs: Vec<(&str, Value)>| {
-    let mut map = snapfire_fsr_core::ValueMap::new();
+    let mut map = snapfire_fsr_core::ValueMap::default();
     for (k, v) in pairs {
       map.insert(k.to_owned(), v);
     }

@@ -10,13 +10,13 @@ use crate::services::fleet;
 use crate::state::Renders;
 
 fn series(points: Vec<f64>) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(points)));
   Value::Map(map)
 }
 
 async fn fetch_servers(ctx: &RequestCtx) -> Result<Value, snapfire_fsr_runtime::ServiceError> {
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("section".to_owned(), Value::Str(ctx.params.get("section").cloned().unwrap_or_default()));
   ctx.services.call(fleet::NAME, fleet::LIST, args).await
 }
@@ -32,7 +32,7 @@ impl Metadata for SectionTitle {
     let services = ctx.services.clone();
     Box::pin(async move {
       let Some(section) = section else { return Ok(Meta::default()) };
-      let count = match services.call(fleet::NAME, fleet::COUNT, ValueMap::new()).await {
+      let count = match services.call(fleet::NAME, fleet::COUNT, ValueMap::default()).await {
         Ok(Value::Int(count)) => count,
         _ => 0,
       };
@@ -50,7 +50,7 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
     .source("chrome_loader", move |_ctx| {
       let renders = chrome_renders.clone();
       async move {
-        let mut data = ValueMap::new();
+        let mut data = ValueMap::default();
         data.insert("renders".to_owned(), Value::int(renders.get() as i64));
         Ok(data)
       }
@@ -62,7 +62,7 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
           Some(Value::Int(n)) => n,
           _ => 0,
         };
-        let mut data = ValueMap::new();
+        let mut data = ValueMap::default();
         data.insert("nav_label".to_owned(), Value::str("SnapFire FSR"));
         data.insert("visits".to_owned(), Value::Int(visits));
         data.insert("renders".to_owned(), Value::int(renders.get() as i64));
@@ -73,10 +73,10 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
     .source("hydrate_loader", move |_ctx| {
       let renders = hydrate_renders.clone();
       async move {
-        let mut data = ValueMap::new();
+        let mut data = ValueMap::default();
         data.insert("renders".to_owned(), Value::int(renders.get() as i64));
         for when in ["load", "visible", "idle"] {
-          let mut stamp = ValueMap::new();
+          let mut stamp = ValueMap::default();
           stamp.insert("when".to_owned(), Value::str(when));
           data.insert(format!("stamp_{when}"), Value::Map(stamp));
         }
@@ -87,7 +87,7 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
       let renders = page_renders.clone();
       async move {
         let servers = fetch_servers(&ctx).await.map_err(|e| LoadError { source_id: "servers_loader".into(), message: e.message })?;
-        let mut data = ValueMap::new();
+        let mut data = ValueMap::default();
         data.insert("servers".to_owned(), servers);
         data.insert("chart".to_owned(), series(vec![12.0, 15.5, 9.25]));
         data.insert("renders".to_owned(), Value::int(renders.get() as i64));
@@ -98,7 +98,7 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
       if !chart_delay.is_zero() {
         tokio::time::sleep(chart_delay).await;
       }
-      let mut data = ValueMap::new();
+      let mut data = ValueMap::default();
       data.insert("latency".to_owned(), series(vec![4.25, 7.5, 3.75, 6.5]));
       Ok(data)
     })

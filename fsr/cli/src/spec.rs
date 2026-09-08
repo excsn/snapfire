@@ -532,7 +532,7 @@ impl Transport for JsTransport {
     let id = self.ctx.unwrap_or_else(|| self.current.load(Ordering::Relaxed));
     let mut call = call;
     call.service = crate::unprefixed(&call.service).to_owned();
-    let mut record = ValueMap::new();
+    let mut record = ValueMap::default();
     record.insert("service".to_owned(), Value::Str(call.service.clone()));
     record.insert("method".to_owned(), Value::Str(call.method.clone()));
     record.insert("args".to_owned(), Value::Map(call.args.clone()));
@@ -623,7 +623,7 @@ impl SpecHooks {
 
   fn build(&self, spec: CtxSpec) -> Result<MockCtx, String> {
     let session = match &spec.session {
-      serde_json::Value::Null => ValueMap::new(),
+      serde_json::Value::Null => ValueMap::default(),
       json => match json_to_value(json).map_err(|e| format!("session: {e}"))? {
         Value::Map(map) => map,
         _ => return Err("session must be an object".to_owned()),
@@ -632,7 +632,7 @@ impl SpecHooks {
     let identity = match spec.identity {
       Some(id) => {
         let claims = match &id.claims {
-          serde_json::Value::Null => ValueMap::new(),
+          serde_json::Value::Null => ValueMap::default(),
           json => match json_to_value(json).map_err(|e| format!("identity.claims: {e}"))? {
             Value::Map(map) => map,
             _ => return Err("identity.claims must be an object".to_owned()),
@@ -730,7 +730,7 @@ impl Hooks for SpecHooks {
     let json: serde_json::Value = serde_json::from_str(props).map_err(|e| format!("props: {e}"))?;
     let mut props = match json_to_value(&json).map_err(|e| format!("props: {e}"))? {
       Value::Map(map) => map,
-      Value::Null => ValueMap::new(),
+      Value::Null => ValueMap::default(),
       _ => return Err("props must be an object".to_owned()),
     };
     if let Ok(current) = self.get(self.current.load(Ordering::Relaxed)) {
@@ -755,7 +755,7 @@ impl Hooks for SpecHooks {
     Box::pin(async move {
       let preflight = match middleware {
         Some(body_ir) => {
-          let mut request = ValueMap::new();
+          let mut request = ValueMap::default();
           request.insert("method".to_owned(), Value::Str(method.clone()));
           request.insert("path".to_owned(), Value::Str(path.clone()));
           let mut ctx = mock.ctx.clone();

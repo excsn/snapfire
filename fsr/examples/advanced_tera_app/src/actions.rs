@@ -20,7 +20,7 @@ pub fn register(builder: HostBuilder) -> HostBuilder {
       _ => return Err(ActionError::new(FailureKind::Invalid, "`load` must be a number")),
     };
 
-    let mut args = ValueMap::new();
+    let mut args = ValueMap::default();
     args.insert("name".to_owned(), Value::Str(name));
     args.insert("load".to_owned(), Value::F64(load));
     ctx.services.call(fleet::NAME, fleet::ADD, args).await.map_err(|e| ActionError::new(e.kind, e.message))

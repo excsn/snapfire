@@ -21,7 +21,7 @@ fn contract() -> Contract {
 }
 
 fn server(name: &str, load: f64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("name".to_owned(), Value::str(name));
   map.insert("load".to_owned(), Value::F64(load));
   Value::Map(map)
@@ -47,7 +47,7 @@ fn a_loader_calls_through_ctx_services_and_never_names_a_transport() {
 fn an_unbound_handle_fails_rather_than_pretending() {
   let ctx = RequestCtx::anonymous(Default::default());
   assert!(!ctx.services.is_bound());
-  let err = block_on(ctx.services.call("fleet", "get", ValueMap::new())).unwrap_err();
+  let err = block_on(ctx.services.call("fleet", "get", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::Unavailable);
 }
 
@@ -64,7 +64,7 @@ fn the_contract_rejects_a_bad_call_before_the_transport_sees_it() {
   assert_eq!(err.kind, FailureKind::Invalid);
   assert!(err.to_string().contains("expected str"), "{err}");
 
-  let err = block_on(handle.call("fleet", "purge", ValueMap::new())).unwrap_err();
+  let err = block_on(handle.call("fleet", "purge", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::NotFound);
 
   assert!(transport.calls().is_empty(), "nothing reached the wire");
@@ -99,7 +99,7 @@ fn interceptors_attach_identity_and_the_token_without_application_code() {
   let identity = Identity { subject: "alice".into(), claims: Default::default() };
   let handle = services.bind(Some(identity), Arc::new(tokens));
 
-  assert_eq!(block_on(handle.call("fleet", "count", ValueMap::new())).unwrap(), Value::Int(3));
+  assert_eq!(block_on(handle.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(3));
   assert_eq!(transport.last_metadata("x-sf-subject").as_deref(), Some("alice"));
   assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer secret-abc"));
   assert!(transport.last_metadata("x-sf-request-id").is_some());
@@ -115,7 +115,7 @@ fn an_anonymous_request_attaches_neither() {
     .default_transport(transport.clone())
     .build();
 
-  block_on(services.bind_anonymous().call("fleet", "count", ValueMap::new())).unwrap();
+  block_on(services.bind_anonymous().call("fleet", "count", ValueMap::default())).unwrap();
   assert_eq!(transport.last_metadata("x-sf-subject"), None);
   assert_eq!(transport.last_metadata("authorization"), None);
 }
@@ -146,7 +146,7 @@ fn an_interceptor_can_short_circuit_the_chain() {
     .default_transport(transport.clone())
     .build();
 
-  let err = block_on(services.bind_anonymous().call("fleet", "count", ValueMap::new())).unwrap_err();
+  let err = block_on(services.bind_anonymous().call("fleet", "count", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::Unauthorized);
   assert!(transport.calls().is_empty(), "a short circuit never reaches the transport");
 }
@@ -161,7 +161,7 @@ fn a_transport_is_per_service_with_a_fallback() {
     .default_transport(fallback.clone())
     .build();
 
-  assert_eq!(block_on(services.bind_anonymous().call("fleet", "count", ValueMap::new())).unwrap(), Value::Int(7));
+  assert_eq!(block_on(services.bind_anonymous().call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(7));
   assert!(fallback.calls().is_empty());
 }
 
@@ -191,7 +191,7 @@ fn a_failing_backend_keeps_its_kind_for_the_ui() {
     ))
     .build();
 
-  let err = block_on(services.bind_anonymous().call("fleet", "count", ValueMap::new())).unwrap_err();
+  let err = block_on(services.bind_anonymous().call("fleet", "count", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::Unavailable);
   assert_eq!(err.kind.http_status(), 503);
   assert_eq!(err.service, "fleet");
@@ -207,5 +207,5 @@ fn the_handle_is_clonable_into_a_request_ctx() {
   let ctx = RequestCtx { services: handle.clone(), ..Default::default() };
   let cloned = ctx.clone();
   assert!(cloned.services.is_bound());
-  assert_eq!(block_on(cloned.services.call("fleet", "count", ValueMap::new())).unwrap(), Value::Int(1));
+  assert_eq!(block_on(cloned.services.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(1));
 }

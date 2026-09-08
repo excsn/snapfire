@@ -59,7 +59,7 @@ fn versioned_sources(version: Arc<AtomicU32>) -> DataSources {
   sources.insert_fn("ver", move |_p| {
     let v = version.load(Ordering::Relaxed);
     async move {
-      let mut data = ValueMap::new();
+      let mut data = ValueMap::default();
       data.insert("version".to_owned(), Value::int(v as i64));
       Ok(data)
     }
@@ -272,7 +272,7 @@ fn identity_is_part_of_the_key() {
     let cell = SessionCell::default();
     cell.set_identity(Some(Identity {
       subject: subject.to_owned(),
-      claims: ValueMap::new(),
+      claims: ValueMap::default(),
     }));
     RequestCtx {
       params: Params::new(),

@@ -75,12 +75,12 @@ fn variants_and_refs_round_trip() {
 
 #[test]
 fn maps_round_trip_including_dollar_keys() {
-  let mut plain = ValueMap::new();
+  let mut plain = ValueMap::default();
   plain.insert("name".to_owned(), Value::str("web-1"));
   plain.insert("id".to_owned(), Value::int(7i64));
   assert_value_round_trips(Value::Map(plain));
 
-  let mut tricky = ValueMap::new();
+  let mut tricky = ValueMap::default();
   tricky.insert("$".to_owned(), Value::str("not a tag"));
   tricky.insert("other".to_owned(), Value::int(1i64));
   assert_value_round_trips(Value::Map(tricky));
@@ -99,7 +99,7 @@ fn foreign_plain_json_decodes() {
 
 #[test]
 fn node_rows_round_trip_the_walked_page() {
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])));
   props.insert("onSave".to_owned(), Value::action_ref("saveServer"));
   let page = Node::Seq(vec![

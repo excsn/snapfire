@@ -112,7 +112,7 @@ fn loader_data_reaches_props_and_params_ride_along() {
 
   let mut sources = DataSources::new();
   sources.insert_fn("greeting", |_p| async {
-    let mut data = ValueMap::new();
+    let mut data = ValueMap::default();
     data.insert("greeting".to_owned(), Value::str("hello"));
     Ok(data)
   });
@@ -284,7 +284,7 @@ fn a_segment_digest_says_what_came_out_the_same_when_the_key_did_not() {
     sources.insert_fn("view", move |_p| {
       let held = held.clone();
       async move {
-        let mut data = ValueMap::new();
+        let mut data = ValueMap::default();
         data.insert("view".to_owned(), Value::str(held));
         Ok(data)
       }

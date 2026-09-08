@@ -34,14 +34,14 @@ impl ServiceSessionStore {
 }
 
 fn id_args(id: &SessionId) -> ValueMap {
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("id".to_owned(), Value::Str(id.0.clone()));
   args
 }
 
 /// The record as one JSON string in the payload encoding.
 pub fn encode_record(record: &SessionRecord) -> String {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("data".to_owned(), Value::Map(record.data.clone()));
   map.insert(
     "identity".to_owned(),
@@ -61,7 +61,7 @@ pub fn decode_record(text: &str) -> Option<SessionRecord> {
   };
   let data = match map.shift_remove("data") {
     Some(Value::Map(data)) => data,
-    _ => ValueMap::new(),
+    _ => ValueMap::default(),
   };
   let identity = match map.shift_remove("identity") {
     Some(Value::Map(identity)) => identity_of(&identity),
@@ -69,13 +69,13 @@ pub fn decode_record(text: &str) -> Option<SessionRecord> {
   };
   let tokens = match map.shift_remove("tokens") {
     Some(Value::Map(tokens)) => tokens,
-    _ => ValueMap::new(),
+    _ => ValueMap::default(),
   };
   Some(SessionRecord { data, identity, tokens })
 }
 
 fn identity_map(identity: &Identity) -> ValueMap {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("subject".to_owned(), Value::Str(identity.subject.clone()));
   map.insert("claims".to_owned(), Value::Map(identity.claims.clone()));
   map
@@ -88,7 +88,7 @@ fn identity_of(map: &ValueMap) -> Option<Identity> {
   };
   let claims = match map.get("claims") {
     Some(Value::Map(claims)) => claims.clone(),
-    _ => ValueMap::new(),
+    _ => ValueMap::default(),
   };
   Some(Identity { subject, claims })
 }
@@ -167,12 +167,12 @@ impl IdentityProvider for ServiceProvider {
     let redirect = format!("{}?return_to={}", self.login_path, encoded);
     Box::pin(ready(Begin {
       redirect,
-      state: ValueMap::new(),
+      state: ValueMap::default(),
     }))
   }
 
   fn callback(&self, params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<AuthOutcome, AuthError>> {
-    let mut args = ValueMap::new();
+    let mut args = ValueMap::default();
     let (user, password) = (param(&params, "user"), param(&params, "password"));
     let call = match (user, password) {
       (Some(user), Some(password)) => {
@@ -200,7 +200,7 @@ impl IdentityProvider for ServiceProvider {
       };
       let identity =
         identity_of(&answer).ok_or_else(|| AuthError::Invalid("authenticate answered without a subject".to_owned()))?;
-      let mut tokens = ValueMap::new();
+      let mut tokens = ValueMap::default();
       if let Some(Value::Str(token)) = answer.get("access_token") {
         tokens.insert("access_token".to_owned(), Value::Str(token.clone()));
       }

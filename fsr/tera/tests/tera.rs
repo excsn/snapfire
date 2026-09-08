@@ -18,7 +18,7 @@ fn render(ev: &TeraEvaluator, path: &str, props: Data) -> Result<Vec<Chunk>, Eva
 }
 
 fn one(ev: &TeraEvaluator, path: &str) -> Result<Vec<Chunk>, EvalError> {
-  render(ev, path, Data::new())
+  render(ev, path, Data::default())
 }
 
 fn raw(chunk: &Chunk) -> &str {
@@ -78,12 +78,12 @@ fn an_island_without_props_carries_an_empty_map() {
 fn props_reach_the_template_by_type() {
   let ev = evaluator(&[("page.tera", "{{ name }}|{{ count }}|{{ on }}|{{ tags[1] }}|{{ user.city }}")]);
 
-  let mut props = Data::new();
+  let mut props = Data::default();
   props.insert("name".to_owned(), Value::Str("fleet".to_owned()));
   props.insert("count".to_owned(), Value::Int(42));
   props.insert("on".to_owned(), Value::Bool(true));
   props.insert("tags".to_owned(), Value::Seq(vec![Value::Str("a".to_owned()), Value::Str("b".to_owned())]));
-  let mut user = Data::new();
+  let mut user = Data::default();
   user.insert("city".to_owned(), Value::Str("Oslo".to_owned()));
   props.insert("user".to_owned(), Value::Map(user));
 
@@ -98,7 +98,7 @@ fn island_props_survive_escaping_intact() {
     r#"{{ hostile }}{{ island(module="ui/Note.tsx#default", props={"body": "<b>a & b</b>", "quote": "\"q\""}) }}"#,
   )]);
 
-  let mut props = Data::new();
+  let mut props = Data::default();
   props.insert("hostile".to_owned(), Value::Str("<b>a & b</b>".to_owned()));
 
   let chunks = render(&ev, "page.html", props).expect("renders");

@@ -391,7 +391,7 @@ async fn the_tower_service_answers_like_the_edge() {
 async fn call_action_runs_the_lowered_body_against_a_given_session() {
   let (host, _) = host();
   let session = SessionCell::default();
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("by".to_owned(), Value::int(4i64));
   let out = host
     .call_action("index.bump", session.clone(), Value::Map(input))
@@ -942,10 +942,10 @@ fn localised() -> Arc<Host> {
         Value::Map(map) => map.get("path").cloned().unwrap_or(Value::Null),
         _ => Value::Null,
       };
-      let mut headers = ValueMap::new();
+      let mut headers = ValueMap::default();
       headers.insert("x-locale".to_owned(), Value::Str(ctx.locale.tag.clone()));
       headers.insert("x-path".to_owned(), path);
-      let mut out = ValueMap::new();
+      let mut out = ValueMap::default();
       out.insert("headers".to_owned(), Value::Map(headers));
       Ok(Value::Map(out))
     })
@@ -1228,13 +1228,13 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
       "index.where",
       SessionCell::default(),
       host.locales().locale("fr_FR"),
-      Value::Map(ValueMap::new()),
+      Value::Map(ValueMap::default()),
     )
     .await
     .unwrap();
   assert_eq!(value, Value::str("fr_FR"));
   let value = host
-    .call_action("index.where", SessionCell::default(), Value::Map(ValueMap::new()))
+    .call_action("index.where", SessionCell::default(), Value::Map(ValueMap::default()))
     .await
     .unwrap();
   assert_eq!(value, Value::str("en_US"));
@@ -1953,9 +1953,9 @@ impl snapfire_fsr_service::Transport for IdentityService {
       }
       "identity.authenticate" => {
         if str_arg(&call.args, "user") == "alice" && str_arg(&call.args, "password") == "wonder" {
-          let mut claims = ValueMap::new();
+          let mut claims = ValueMap::default();
           claims.insert("role".to_owned(), Value::str("admin"));
-          let mut signed = ValueMap::new();
+          let mut signed = ValueMap::default();
           signed.insert("subject".to_owned(), Value::str("alice"));
           signed.insert("claims".to_owned(), Value::Map(claims));
           signed.insert("access_token".to_owned(), Value::str("svc-token-alice"));
@@ -1971,7 +1971,7 @@ impl snapfire_fsr_service::Transport for IdentityService {
       }
       "identity.getSession" => match self.sessions.lock().get(&str_arg(&call.args, "id")) {
         Some(record) => {
-          let mut stored = ValueMap::new();
+          let mut stored = ValueMap::default();
           stored.insert("record".to_owned(), Value::Str(record.clone()));
           Ok(Value::Map(stored))
         }
@@ -2245,7 +2245,7 @@ async fn a_cached_method_answers_renders_from_memory_until_a_write_or_a_drop() {
   host
     .services()
     .bind_anonymous()
-    .call("shop", "add", ValueMap::new())
+    .call("shop", "add", ValueMap::default())
     .await
     .unwrap();
   host.handle(Request::get("/who").body(Bytes::new()).unwrap()).await;
@@ -2505,9 +2505,9 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
         },
         _ => "none".to_owned(),
       };
-      let mut headers = ValueMap::new();
+      let mut headers = ValueMap::default();
       headers.insert("x-shell".to_owned(), Value::Str(site));
-      let mut out = ValueMap::new();
+      let mut out = ValueMap::default();
       out.insert("headers".to_owned(), Value::Map(headers));
       Ok(Value::Map(out))
     })

@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use snapfire_fsr_core::{Fingerprint, ModuleId, Node, TypedArray, Value, ValueMap};
 
 fn island(series_len: usize) -> Node {
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert(
     "series".to_owned(),
     Value::TypedArray(TypedArray::F64((0..series_len).map(|i| i as f64).collect())),
@@ -30,7 +30,7 @@ fn page(sections: usize, series_len: usize) -> Node {
 fn deep_map(depth: usize, width: usize) -> Value {
   let mut current = Value::str("leaf");
   for _ in 0..depth {
-    let mut map = ValueMap::new();
+    let mut map = ValueMap::default();
     for i in 0..width {
       map.insert(format!("key_{i}"), current.clone());
     }

@@ -24,8 +24,8 @@ fn plan(module: &str) -> PlanNode {
 fn bound() -> snapfire_fsr::AppBuilder {
   App::from_manifest(MANIFEST)
     .unwrap()
-    .source("catalog", |_ctx| async { Ok(ValueMap::new()) })
-    .source("cart", |_ctx| async { Ok(ValueMap::new()) })
+    .source("catalog", |_ctx| async { Ok(ValueMap::default()) })
+    .source("cart", |_ctx| async { Ok(ValueMap::default()) })
     .evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator))
 }
 
@@ -33,7 +33,7 @@ fn bound() -> snapfire_fsr::AppBuilder {
 fn a_plan_naming_a_source_nothing_answers_refuses_to_start() {
   let err = App::from_manifest(MANIFEST)
     .unwrap()
-    .source("catalog", |_ctx| async { Ok(ValueMap::new()) })
+    .source("catalog", |_ctx| async { Ok(ValueMap::default()) })
     .build()
     .unwrap_err();
 
@@ -44,7 +44,7 @@ fn a_plan_naming_a_source_nothing_answers_refuses_to_start() {
 #[test]
 fn an_override_that_names_nothing_refuses_to_start() {
   let err = bound()
-    .source_override("pricing", |_ctx| async { Ok(ValueMap::new()) })
+    .source_override("pricing", |_ctx| async { Ok(ValueMap::default()) })
     .build()
     .unwrap_err();
 
@@ -54,7 +54,7 @@ fn an_override_that_names_nothing_refuses_to_start() {
 #[test]
 fn the_report_says_who_answers_what() {
   let app = bound()
-    .source_override("cart", |_ctx| async { Ok(ValueMap::new()) })
+    .source_override("cart", |_ctx| async { Ok(ValueMap::default()) })
     .route("/about", plan("About"))
     .action("checkout", |_ctx, input| async move { Ok(input) })
     .build()
@@ -209,7 +209,7 @@ fn a_lowered_row_binds_itself_and_the_report_says_so() {
 fn rust_takes_a_lowered_name_back_only_as_an_override() {
   let err = App::from_manifest(LOWERED)
     .unwrap()
-    .source("catalog", |_ctx| async { Ok(ValueMap::new()) })
+    .source("catalog", |_ctx| async { Ok(ValueMap::default()) })
     .build()
     .unwrap_err();
   assert_eq!(err, BindError::Claimed("catalog".into()));
@@ -223,7 +223,7 @@ fn rust_takes_a_lowered_name_back_only_as_an_override() {
 
   let app = App::from_manifest(LOWERED)
     .unwrap()
-    .source_override("catalog", |_ctx| async { Ok(ValueMap::new()) })
+    .source_override("catalog", |_ctx| async { Ok(ValueMap::default()) })
     .action_override("checkout", |_ctx, input| async move { Ok(input) })
     .evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator))
     .build()

@@ -16,7 +16,7 @@ fn the_applications_contract_is_internally_valid() {
 fn a_loader_reaches_the_backend_through_the_bound_handle() {
   let handle = services::build(Fleet::seed()).bind_anonymous();
 
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("section".to_owned(), Value::str("servers"));
   let Value::Seq(servers) = block_on(handle.call(fleet::NAME, fleet::LIST, args)).unwrap() else {
     panic!("list returns a sequence")
@@ -28,10 +28,10 @@ fn a_loader_reaches_the_backend_through_the_bound_handle() {
 fn a_call_outside_the_contract_never_reaches_the_backend() {
   let handle = services::build(Fleet::seed()).bind_anonymous();
 
-  let err = block_on(handle.call(fleet::NAME, "purge", ValueMap::new())).unwrap_err();
+  let err = block_on(handle.call(fleet::NAME, "purge", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::NotFound);
 
-  let mut wrong = ValueMap::new();
+  let mut wrong = ValueMap::default();
   wrong.insert("section".to_owned(), Value::Int(1));
   let err = block_on(handle.call(fleet::NAME, fleet::LIST, wrong)).unwrap_err();
   assert_eq!(err.kind, FailureKind::Invalid);

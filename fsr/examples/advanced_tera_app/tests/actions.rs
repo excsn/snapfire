@@ -6,7 +6,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, SessionCell};
 
 fn input(pairs: &[(&str, Value)]) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   for (k, v) in pairs {
     map.insert((*k).to_owned(), v.clone());
   }
@@ -41,10 +41,10 @@ fn form_shaped_string_input_coerces() {
 fn action_failures_are_typed() {
   let host = app();
 
-  let missing = block_on(host.call_action("nope", SessionCell::default(), Value::Map(ValueMap::new()))).unwrap_err();
+  let missing = block_on(host.call_action("nope", SessionCell::default(), Value::Map(ValueMap::default()))).unwrap_err();
   assert_eq!(missing.kind, FailureKind::NotFound);
 
-  let invalid = block_on(host.call_action("add_server", SessionCell::default(), Value::Map(ValueMap::new()))).unwrap_err();
+  let invalid = block_on(host.call_action("add_server", SessionCell::default(), Value::Map(ValueMap::default()))).unwrap_err();
   assert_eq!(invalid.kind, FailureKind::Invalid);
 
   block_on(host.call_action("add_server", SessionCell::default(), input(&[("name", Value::str("dup")), ("load", Value::F64(0.1))]))).unwrap();

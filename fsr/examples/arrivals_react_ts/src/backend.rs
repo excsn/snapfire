@@ -88,7 +88,7 @@ fn flight(row: &Scheduled, now: i64, departing: bool) -> Value {
     Some((at, gate)) if now >= at => gate,
     _ => row.gate,
   };
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("flight".to_owned(), Value::str(row.flight));
   map.insert("city".to_owned(), Value::str(row.city));
   map.insert("scheduled".to_owned(), Value::str(&clock(row.at)));
@@ -111,7 +111,7 @@ fn board(now: i64) -> Value {
         .collect(),
     )
   };
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("at".to_owned(), Value::str(&clock(now)));
   map.insert("arrivals".to_owned(), of(ARRIVALS, false));
   map.insert("departures".to_owned(), of(DEPARTURES, true));
@@ -121,7 +121,7 @@ fn board(now: i64) -> Value {
 /// The field's own reading, drifting with the morning.
 fn weather(now: i64) -> Value {
   let quarter = (now / 90).rem_euclid(FIELDS.len() as i64) as usize;
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("field".to_owned(), Value::str(FIELDS[quarter]));
   map.insert("wind".to_owned(), Value::str(&format!("{}° at {} kt", (now / 7 % 36) * 10, 6 + now % 11)));
   map.insert("visibility".to_owned(), Value::str(&format!("{} km", 4 + (now / 13) % 7)));
@@ -137,7 +137,7 @@ fn gates(now: i64) -> Value {
     .filter_map(|row| row.moved.map(|(at, to)| (at, row, to)))
     .filter(|(at, _, _)| now >= *at)
     .map(|(at, row, to)| {
-      let mut map = ValueMap::new();
+      let mut map = ValueMap::default();
       map.insert("flight".to_owned(), Value::str(row.flight));
       map.insert("was".to_owned(), Value::str(row.gate));
       map.insert("now".to_owned(), Value::str(to));

@@ -27,7 +27,7 @@ impl DevProvider {
   }
 
   pub fn user(mut self, name: impl Into<String>, password: impl Into<String>) -> Self {
-    self.users.push(DevUser { name: name.into(), password: password.into(), claims: ValueMap::new() });
+    self.users.push(DevUser { name: name.into(), password: password.into(), claims: ValueMap::default() });
     self
   }
 
@@ -95,7 +95,7 @@ impl IdentityProvider for DevProvider {
   fn begin(&self, return_to: &str) -> BoxFuture<'_, Begin> {
     let encoded: String = form_urlencoded::byte_serialize(return_to.as_bytes()).collect();
     let redirect = format!("{}?return_to={}", self.login_path, encoded);
-    Box::pin(ready(Begin { redirect, state: ValueMap::new() }))
+    Box::pin(ready(Begin { redirect, state: ValueMap::default() }))
   }
 
   fn callback(&self, params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<AuthOutcome, AuthError>> {
@@ -108,7 +108,7 @@ impl IdentityProvider for DevProvider {
         .find(|u| u.name == name && u.password == password)
         .ok_or_else(|| AuthError::Denied("unknown user or wrong password".to_owned()))?;
 
-      let mut tokens = ValueMap::new();
+      let mut tokens = ValueMap::default();
       tokens.insert("access_token".to_owned(), Value::Str(format!("dev-token-{}", user.name)));
       Ok(AuthOutcome {
         identity: Identity { subject: user.name.clone(), claims: user.claims.clone() },

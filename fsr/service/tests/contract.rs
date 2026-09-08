@@ -30,7 +30,7 @@ fn users() -> Contract {
 }
 
 fn user_value(id: i128, name: &str) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::Int(id));
   map.insert("name".to_owned(), Value::str(name));
   Value::Map(map)
@@ -43,7 +43,7 @@ fn args(pairs: Vec<(&str, Value)>) -> ValueMap {
 #[test]
 fn conform_makes_an_integral_number_a_double_and_nothing_else() {
   let contract = Contract::new().record("Line", vec![Field::new("total", Type::F64), Field::new("n", Type::I64), Field::new("more", Type::optional(Type::list(Type::F32)))]);
-  let mut line = ValueMap::new();
+  let mut line = ValueMap::default();
   line.insert("total".to_owned(), Value::Int(320));
   line.insert("n".to_owned(), Value::Int(2));
   line.insert("more".to_owned(), Value::Seq(vec![Value::UInt(7), Value::F32(1.5)]));
@@ -86,18 +86,18 @@ fn validate_catches_a_dangling_type_reference() {
 fn a_call_is_checked_against_the_signature() {
   let contract = users();
   assert!(contract.check_call("users", "get", &args(vec![("id", Value::Int(7))])).is_ok());
-  assert!(contract.check_call("users", "list", &ValueMap::new()).is_ok(), "an optional param may be omitted");
+  assert!(contract.check_call("users", "list", &ValueMap::default()).is_ok(), "an optional param may be omitted");
 
   assert!(matches!(
-    contract.check_call("billing", "get", &ValueMap::new()).unwrap_err(),
+    contract.check_call("billing", "get", &ValueMap::default()).unwrap_err(),
     ContractError::UnknownService(name) if name == "billing"
   ));
   assert!(matches!(
-    contract.check_call("users", "purge", &ValueMap::new()).unwrap_err(),
+    contract.check_call("users", "purge", &ValueMap::default()).unwrap_err(),
     ContractError::UnknownMethod { .. }
   ));
   assert!(matches!(
-    contract.check_call("users", "get", &ValueMap::new()).unwrap_err(),
+    contract.check_call("users", "get", &ValueMap::default()).unwrap_err(),
     ContractError::MissingField { field, .. } if field == "id"
   ));
   assert!(matches!(
@@ -130,7 +130,7 @@ fn records_are_strict_in_both_directions() {
   let contract = users();
   assert!(contract.check_return("users", "get", &user_value(1, "alice")).is_ok());
 
-  let mut missing = ValueMap::new();
+  let mut missing = ValueMap::default();
   missing.insert("id".to_owned(), Value::Int(1));
   assert!(matches!(
     contract.check_return("users", "get", &Value::Map(missing)).unwrap_err(),
@@ -285,14 +285,14 @@ fn a_route_argument_and_metadata_that_cannot_be_sent_are_refused() {
     credentials: Arc::new(NoCredentials),
   };
 
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("other".to_owned(), Value::str("x"));
-  let error = block_on(transport.call(call(args, ValueMap::new()))).expect_err("the id is not there");
+  let error = block_on(transport.call(call(args, ValueMap::default()))).expect_err("the id is not there");
   assert!(error.message.contains("does not carry"), "{}", error.message);
 
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("id".to_owned(), Value::str("7"));
-  let mut metadata = ValueMap::new();
+  let mut metadata = ValueMap::default();
   metadata.insert("x-count".to_owned(), Value::Int(3));
   let error = block_on(transport.call(call(args, metadata))).expect_err("a header is a string");
   assert!(error.message.contains("not a string"), "{}", error.message);

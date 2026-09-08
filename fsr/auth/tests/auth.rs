@@ -21,7 +21,7 @@ fn auth() -> Auth {
 }
 
 fn creds(user: &str, password: &str) -> ValueMap {
-  let mut params = ValueMap::new();
+  let mut params = ValueMap::default();
   params.insert("user".to_owned(), Value::Str(user.to_owned()));
   params.insert("password".to_owned(), Value::Str(password.to_owned()));
   params

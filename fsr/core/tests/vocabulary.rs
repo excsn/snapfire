@@ -34,10 +34,10 @@ fn nan_inside_typed_array_is_canonical() {
 
 #[test]
 fn map_fingerprint_ignores_insertion_order() {
-  let mut ab = IndexMap::new();
+  let mut ab = snapfire_fsr_core::ValueMap::default();
   ab.insert("a".to_owned(), Value::int(1));
   ab.insert("b".to_owned(), Value::int(2));
-  let mut ba = IndexMap::new();
+  let mut ba = snapfire_fsr_core::ValueMap::default();
   ba.insert("b".to_owned(), Value::int(2));
   ba.insert("a".to_owned(), Value::int(1));
 

@@ -225,7 +225,7 @@ impl DataCache {
           let cache = loader_of.clone();
           async move {
             let path = format!("{}.{}", key.service, key.method);
-            let call = Call { service: key.service.clone(), method: key.method.clone(), args: key.args.clone(), identity: None, metadata: ValueMap::new(), credentials: Arc::new(NoCredentials) };
+            let call = Call { service: key.service.clone(), method: key.method.clone(), args: key.args.clone(), identity: None, metadata: ValueMap::default(), credentials: Arc::new(NoCredentials) };
             let result = match cache.inner.continuation.get() {
               Some(continuation) => continuation.run(call).await,
               None => Err(ServiceError::new(FailureKind::Unavailable, key.service.clone(), key.method.clone(), "the data cache is not attached to a registry")),

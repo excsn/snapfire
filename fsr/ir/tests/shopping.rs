@@ -51,7 +51,7 @@ impl ServiceCaller for Mock {
 }
 
 fn product(id: i64, name: &str, price: i64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::int(id));
   map.insert("name".to_owned(), Value::str(name));
   map.insert("price_cents".to_owned(), Value::int(price));
@@ -75,11 +75,11 @@ fn ctx(mock: Arc<Mock>, params: &[(&str, &str)], session: ValueMap) -> RequestCt
 }
 
 fn cart_of(entries: &[(&str, i64)]) -> ValueMap {
-  let mut cart = ValueMap::new();
+  let mut cart = ValueMap::default();
   for (id, qty) in entries {
     cart.insert((*id).to_owned(), Value::int(*qty));
   }
-  let mut session = ValueMap::new();
+  let mut session = ValueMap::default();
   session.insert("cart".to_owned(), Value::Map(cart));
   session
 }
@@ -203,12 +203,12 @@ fn run(body: &Body, ctx: &RequestCtx, input: Option<Value>) -> Result<Value, sna
 fn the_catalog_loader_passes_the_tag_and_omits_it_when_absent() {
   let mock = Mock::returning("shopping.listProducts", Value::Seq(vec![product(1, "Filament", 2400)]));
 
-  let data = run(&catalog_loader(), &ctx(mock.clone(), &[("tag", "printing")], ValueMap::new()), None).unwrap();
+  let data = run(&catalog_loader(), &ctx(mock.clone(), &[("tag", "printing")], ValueMap::default()), None).unwrap();
   let Value::Map(data) = data else { panic!("a loader returns an object") };
   assert_eq!(data.get("products"), Some(&Value::Seq(vec![product(1, "Filament", 2400)])));
   assert_eq!(mock.calls()[0].1.get("tag"), Some(&Value::str("printing")));
 
-  run(&catalog_loader(), &ctx(mock.clone(), &[], ValueMap::new()), None).unwrap();
+  run(&catalog_loader(), &ctx(mock.clone(), &[], ValueMap::default()), None).unwrap();
   assert!(mock.calls()[1].1.is_empty(), "an absent optional param is not sent as null");
 }
 
@@ -216,12 +216,12 @@ fn the_catalog_loader_passes_the_tag_and_omits_it_when_absent() {
 fn the_product_loader_coerces_the_id_and_rejects_a_non_number() {
   let mock = Mock::returning("shopping.getProduct", product(7, "Nozzle", 900));
 
-  let data = run(&product_loader(), &ctx(mock.clone(), &[("id", "7")], ValueMap::new()), None).unwrap();
+  let data = run(&product_loader(), &ctx(mock.clone(), &[("id", "7")], ValueMap::default()), None).unwrap();
   let Value::Map(data) = data else { panic!() };
   assert_eq!(data.get("product"), Some(&product(7, "Nozzle", 900)));
   assert_eq!(mock.calls()[0].1.get("id"), Some(&Value::int(7)));
 
-  let fail = run(&product_loader(), &ctx(mock.clone(), &[("id", "seven")], ValueMap::new()), None).unwrap_err();
+  let fail = run(&product_loader(), &ctx(mock.clone(), &[("id", "seven")], ValueMap::default()), None).unwrap_err();
   assert_eq!(fail.kind, FailureKind::Invalid);
   assert_eq!(mock.calls().len(), 1, "the backend is never asked for `seven`");
 }
@@ -251,7 +251,7 @@ fn the_cart_loader_joins_held_lines_with_the_catalog() {
 fn add_to_cart_adds_removes_and_returns_the_lines() {
   let mock = Arc::new(Mock::default());
   let input = |id: i64, qty: i64| {
-    let mut m = ValueMap::new();
+    let mut m = ValueMap::default();
     m.insert("product_id".into(), Value::int(id));
     m.insert("quantity".into(), Value::int(qty));
     Value::Map(m)
@@ -265,7 +265,7 @@ fn add_to_cart_adds_removes_and_returns_the_lines() {
 
   let out = run(&add_to_cart(), &c, Some(input(1, -3))).unwrap();
   let Value::Map(out) = out else { panic!() };
-  assert_eq!(out.get("lines"), Some(&Value::Map(ValueMap::new())), "a quantity at zero removes the line");
+  assert_eq!(out.get("lines"), Some(&Value::Map(ValueMap::default())), "a quantity at zero removes the line");
   assert!(mock.calls().is_empty(), "adding to the cart never calls the backend");
 }
 
@@ -284,11 +284,11 @@ fn checkout_refuses_an_empty_cart_before_any_call_and_clears_it_after() {
   assert_eq!(out, Value::str("order-1"));
   let (_, args) = &mock.calls()[0];
   let Some(Value::Seq(lines)) = args.get("lines") else { panic!("lines were sent") };
-  let mut line = ValueMap::new();
+  let mut line = ValueMap::default();
   line.insert("product_id".into(), Value::int(2));
   line.insert("quantity".into(), Value::int(1));
   assert_eq!(lines[0], Value::Map(line));
-  assert_eq!(full.session.get("cart"), Some(Value::Map(ValueMap::new())), "the cart is cleared");
+  assert_eq!(full.session.get("cart"), Some(Value::Map(ValueMap::default())), "the cart is cleared");
 }
 
 #[test]
@@ -318,7 +318,7 @@ async fn independent_lets_issue_their_calls_together() {
     Stmt::Let { name: "b".into(), expr: Expr::call("shopping", "getProduct", vec![("id", Expr::lit_int(1))]) },
     Stmt::Return(Expr::object(vec![("a", Expr::var("a")), ("b", Expr::var("b"))])),
   ];
-  let c = ctx(mock, &[], ValueMap::new());
+  let c = ctx(mock, &[], ValueMap::default());
   let outcome = tokio::time::timeout(Duration::from_secs(2), Interpreter::default().run(&body, &c, None))
     .await
     .expect("both calls were in flight at once, so the barrier released")
@@ -339,7 +339,7 @@ async fn a_dependent_let_waits_for_the_one_it_reads() {
     },
     Stmt::Return(Expr::var("first")),
   ];
-  let c = ctx(mock.clone(), &[], ValueMap::new());
+  let c = ctx(mock.clone(), &[], ValueMap::default());
   let outcome = Interpreter::default().run(&body, &c, None).await.unwrap();
   assert_eq!(outcome.value, product(1, "Filament", 2400));
   assert_eq!(mock.calls()[1].1.get("id"), Some(&Value::int(1)));
@@ -353,13 +353,13 @@ fn identity_and_now_are_reads() {
       1_700_000_000_000
     }
   }
-  let mut claims = ValueMap::new();
+  let mut claims = ValueMap::default();
   claims.insert("tenant".into(), Value::str("acme"));
   let c = RequestCtx {
     params: Params::new(),
     query: Params::new(),
     path: String::new(),
-    session: SessionCell::new(ValueMap::new(), Some(Identity { subject: "u1".into(), claims })),
+    session: SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims })),
     locale: Default::default(),
     csrf: None,
     services: ServiceHandle::default(), natives: Default::default() 
@@ -382,7 +382,7 @@ fn identity_and_now_are_reads() {
 #[test]
 fn a_query_read_is_a_string_or_null() {
   let mock = Arc::new(Mock::default());
-  let mut c = ctx(mock, &[], ValueMap::new());
+  let mut c = ctx(mock, &[], ValueMap::default());
   c.query.insert("tag".into(), "printing".into());
   let body = vec![Stmt::Return(Expr::object(vec![("tag", Expr::Query("tag".into())), ("missing", Expr::Query("other".into()))]))];
   let Value::Map(out) = run(&body, &c, None).unwrap() else { panic!() };
@@ -393,7 +393,7 @@ fn a_query_read_is_a_string_or_null() {
 #[test]
 fn mixed_operand_types_are_an_internal_failure_not_a_coercion() {
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Add, Box::new(Expr::lit_int(1)), Box::new(Expr::lit_str("1"))))];
-  let c = ctx(Arc::new(Mock::default()), &[], ValueMap::new());
+  let c = ctx(Arc::new(Mock::default()), &[], ValueMap::default());
   let fail = run(&body, &c, None).unwrap_err();
   assert_eq!(fail.kind, FailureKind::Internal);
   assert!(fail.message.contains("int and string"), "{}", fail.message);

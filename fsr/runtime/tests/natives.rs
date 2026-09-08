@@ -66,14 +66,14 @@ fn a_native_module_answers_by_the_name_a_body_calls_it() {
   let unknown = block_on(handle.call("rooms", "greet", args(&[("who", Value::str("bob")), ("loud", Value::Bool(false))]))).unwrap();
   assert_eq!(unknown, Value::Str("stranger".to_owned()));
 
-  let tallied = handle.call_sync("rooms", "tally", ValueMap::new()).expect("a method the build read as `fn` answers without a future");
+  let tallied = handle.call_sync("rooms", "tally", ValueMap::default()).expect("a method the build read as `fn` answers without a future");
   assert_eq!(tallied.unwrap(), Value::Int(2), "and it sees what the async ones did");
-  assert!(handle.call_sync("rooms", "greet", ValueMap::new()).is_none(), "an async method has no sync half");
-  assert!(handle.call_sync("rooms", "private", ValueMap::new()).is_none(), "a method that is not `pub` never crosses");
+  assert!(handle.call_sync("rooms", "greet", ValueMap::default()).is_none(), "an async method has no sync half");
+  assert!(handle.call_sync("rooms", "private", ValueMap::default()).is_none(), "a method that is not `pub` never crosses");
 
-  let missing = block_on(handle.call("rooms", "nothing", ValueMap::new())).unwrap_err();
+  let missing = block_on(handle.call("rooms", "nothing", ValueMap::default())).unwrap_err();
   assert_eq!(missing.kind, snapfire_fsr_runtime::FailureKind::NotFound);
-  let unbound = block_on(NativeHandle::default().call("rooms", "greet", ValueMap::new())).unwrap_err();
+  let unbound = block_on(NativeHandle::default().call("rooms", "greet", ValueMap::default())).unwrap_err();
   assert_eq!(unbound.kind, snapfire_fsr_runtime::FailureKind::Unavailable);
 }
 

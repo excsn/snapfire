@@ -1,6 +1,11 @@
 use indexmap::IndexMap;
 
-pub type ValueMap = IndexMap<String, Value>;
+/// Keys reach a `ValueMap` from a request body through
+/// `snapfire_fsr_payload::json_to_value`, so the hasher is seeded per instance
+/// and a caller must not swap in a fixed-state one.
+pub type ValueHasher = foldhash::fast::RandomState;
+
+pub type ValueMap = IndexMap<String, Value, ValueHasher>;
 pub type Props = ValueMap;
 
 #[derive(Debug, Clone, PartialEq)]

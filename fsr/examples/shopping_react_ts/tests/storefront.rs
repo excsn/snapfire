@@ -10,13 +10,13 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_service::MockTransport;
 
 fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
-  let mut image = ValueMap::new();
+  let mut image = ValueMap::default();
   image.insert("color".to_owned(), Value::str("#2f3e46"));
   image.insert("emoji".to_owned(), Value::str("x"));
-  let mut attribute = ValueMap::new();
+  let mut attribute = ValueMap::default();
   attribute.insert("name".to_owned(), Value::str("Diameter"));
   attribute.insert("value".to_owned(), Value::str("1.75 mm"));
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::int(id));
   map.insert("name".to_owned(), Value::str(name));
   map.insert("brand".to_owned(), Value::str("Polymaker"));
@@ -33,7 +33,7 @@ fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
 }
 
 fn stock(id: i64) -> Value {
-  let mut map = ValueMap::new();
+  let mut map = ValueMap::default();
   map.insert("product_id".to_owned(), Value::int(id));
   map.insert("on_hand".to_owned(), Value::int(12));
   map.insert("reserved".to_owned(), Value::int(0));
@@ -45,7 +45,7 @@ fn stock(id: i64) -> Value {
 fn cart_lines(session: &snapfire_fsr_runtime::SessionCell) -> ValueMap {
   match session.get("cart") {
     Some(Value::Map(map)) => map,
-    _ => ValueMap::new(),
+    _ => ValueMap::default(),
   }
 }
 
@@ -218,7 +218,7 @@ fn adding_to_the_cart_holds_it_in_the_session() {
   let app = app_over(Arc::new(MockTransport::new()));
   let session = SessionCell::default();
 
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("product_id".to_owned(), Value::int(1i64));
   input.insert("quantity".to_owned(), Value::int(2i64));
   block_on(app.call_action("cart.addToCart", session.clone(), Value::Map(input)))
@@ -256,12 +256,12 @@ fn the_cart_page_names_and_prices_what_the_session_holds() {
 
 #[test]
 fn the_order_page_reads_the_placed_order_back() {
-  let mut line = ValueMap::new();
+  let mut line = ValueMap::default();
   line.insert("product_id".to_owned(), Value::int(1i64));
   line.insert("name".to_owned(), Value::str("Filament"));
   line.insert("quantity".to_owned(), Value::int(2i64));
   line.insert("line_cents".to_owned(), Value::int(4800i64));
-  let mut order = ValueMap::new();
+  let mut order = ValueMap::default();
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
   order.insert("lines".to_owned(), Value::Seq(vec![Value::Map(line)]));
@@ -280,7 +280,7 @@ fn the_order_page_reads_the_placed_order_back() {
 
 #[test]
 fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
-  let mut order = ValueMap::new();
+  let mut order = ValueMap::default();
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
   order.insert("lines".to_owned(), Value::Seq(Vec::new()));
@@ -302,7 +302,7 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
 fn checkout_places_the_order_and_empties_the_cart() {
   use snapfire_fsr_runtime::SessionCell;
 
-  let mut order = ValueMap::new();
+  let mut order = ValueMap::default();
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
   order.insert("lines".to_owned(), Value::Seq(vec![]));
@@ -315,7 +315,7 @@ fn checkout_places_the_order_and_empties_the_cart() {
   let placed = block_on(app.call_action(
     "cart.checkout",
     session.clone(),
-    Value::Map(ValueMap::new()),
+    Value::Map(ValueMap::default()),
   ))
   .unwrap();
 
@@ -336,7 +336,7 @@ fn checking_out_an_empty_cart_never_reaches_the_backend() {
   let err = block_on(app.call_action(
     "cart.checkout",
     SessionCell::default(),
-    Value::Map(ValueMap::new()),
+    Value::Map(ValueMap::default()),
   ))
   .unwrap_err();
 
@@ -369,14 +369,14 @@ fn a_route_handler_answers_a_request_with_a_value() {
   let Value::Map(map) = got else { panic!("a map") };
   assert_eq!(map.get("count"), Some(&Value::int(2i64)));
 
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("product_id".to_owned(), Value::int(3i64));
   input.insert("quantity".to_owned(), Value::int(1i64));
   let Value::Map(map) = block_on(app.call_handler("post", "/api/cart", session.clone(), Value::Map(input))).unwrap() else { panic!("a map") };
   assert_eq!(map.get("count"), Some(&Value::int(3i64)));
   assert_eq!(cart_lines(&session).get("3"), Some(&Value::int(1i64)), "the handler wrote the session");
 
-  let mut bad = ValueMap::new();
+  let mut bad = ValueMap::default();
   bad.insert("product_id".to_owned(), Value::str("three"));
   let err = block_on(app.call_handler("POST", "/api/cart", session.clone(), Value::Map(bad))).unwrap_err();
   assert_eq!(err.kind, FailureKind::Invalid, "the input is checked against AddToCart before the body runs");
@@ -539,7 +539,7 @@ fn an_action_input_the_schema_rejects_never_reaches_the_body() {
 
   let app = app_over(Arc::new(MockTransport::new()));
   let session = SessionCell::default();
-  let mut input = ValueMap::new();
+  let mut input = ValueMap::default();
   input.insert("product_id".to_owned(), Value::str("one"));
   input.insert("quantity".to_owned(), Value::int(1i64));
 

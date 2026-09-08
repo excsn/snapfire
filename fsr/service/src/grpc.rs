@@ -267,7 +267,7 @@ fn from_reflect(kind: &Kind, value: &Reflect) -> Result<Value, String> {
     Reflect::Map(entries) => {
       let Kind::Message(entry) = kind else { return Err("a map value without an entry message".to_owned()) };
       let value_kind = entry.map_entry_value_field().kind();
-      let mut out = ValueMap::new();
+      let mut out = ValueMap::default();
       let mut pairs: Vec<(String, &Reflect)> = entries.iter().map(|(k, v)| (map_key(k), v)).collect();
       pairs.sort_by(|a, b| a.0.cmp(&b.0));
       for (k, v) in pairs {
@@ -308,7 +308,7 @@ pub fn from_message(message: &DynamicMessage) -> Result<Value, String> {
     }
     _ => {}
   }
-  let mut out = ValueMap::new();
+  let mut out = ValueMap::default();
   for field in desc.fields() {
     let unset = !message.has_field(&field);
     let nullable = matches!(field.kind(), Kind::Message(_)) || field.supports_presence() || field.containing_oneof().is_some();
