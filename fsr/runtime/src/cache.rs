@@ -5,7 +5,7 @@ use std::time::Duration;
 use fibre_cache::{EvictionListener, EvictionReason};
 use futures_util::future::{BoxFuture, ready};
 use parking_lot::Mutex;
-use snapfire_fsr_core::Node;
+use snapfire_fsr_core::{Data, Node};
 
 use crate::segments::SegmentInfo;
 
@@ -261,5 +261,99 @@ mod tests {
       std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(cache.indexed("plan"), 0, "the listener trimmed the index");
+  }
+}
+
+/// Memoizes a source's loaded data under the key its `LoadKeyer` composed. A
+/// hit skips the loader entirely: no service call, no interpreter.
+///
+/// This sits below the `NodeCache`, which memoizes what a subtree *rendered*
+/// and is keyed by the fingerprint of the data a load produced. That key
+/// cannot exist before the load runs, so the render memo can never skip one.
+pub trait LoadCache: Send + Sync {
+  fn get(&self, key: &str) -> BoxFuture<'_, Option<Data>>;
+  fn put(&self, key: String, data: Data) -> BoxFuture<'_, ()>;
+}
+
+pub struct NoLoadCache;
+
+impl LoadCache for NoLoadCache {
+  fn get(&self, _key: &str) -> BoxFuture<'_, Option<Data>> {
+    Box::pin(ready(None))
+  }
+
+  fn put(&self, _key: String, _data: Data) -> BoxFuture<'_, ()> {
+    Box::pin(ready(()))
+  }
+}
+
+/// What a build warmed. A request never writes to it, so a source the build
+/// did not reach costs a load per request and nothing grows unbounded; a
+/// rebuild is what refreshes it, the same contract a prerendered document
+/// keeps. `replace` is that rebuild: a warm pass swaps the whole map in
+/// before it renders anything, so a document is never written from the
+/// generation before it.
+#[derive(Default)]
+pub struct WarmLoads {
+  entries: parking_lot::RwLock<HashMap<String, Data>>,
+}
+
+impl WarmLoads {
+  pub fn new(entries: HashMap<String, Data>) -> Self {
+    Self {
+      entries: parking_lot::RwLock::new(entries),
+    }
+  }
+
+  pub fn replace(&self, entries: HashMap<String, Data>) {
+    *self.entries.write() = entries;
+  }
+
+  pub fn len(&self) -> usize {
+    self.entries.read().len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.entries.read().is_empty()
+  }
+}
+
+impl LoadCache for WarmLoads {
+  fn get(&self, key: &str) -> BoxFuture<'_, Option<Data>> {
+    Box::pin(ready(self.entries.read().get(key).cloned()))
+  }
+
+  fn put(&self, _key: String, _data: Data) -> BoxFuture<'_, ()> {
+    Box::pin(ready(()))
+  }
+}
+
+/// Read and written in process, unbounded and never expiring. For a warm pass
+/// filling it and for a Rust host that knows its keyed sources are few; an
+/// application serving unbounded keys wants a bounded cache instead.
+#[derive(Default)]
+pub struct MemoryLoadCache {
+  entries: Mutex<HashMap<String, Data>>,
+}
+
+impl MemoryLoadCache {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn snapshot(&self) -> HashMap<String, Data> {
+    self.entries.lock().clone()
+  }
+}
+
+impl LoadCache for MemoryLoadCache {
+  fn get(&self, key: &str) -> BoxFuture<'_, Option<Data>> {
+    let hit = self.entries.lock().get(key).cloned();
+    Box::pin(ready(hit))
+  }
+
+  fn put(&self, key: String, data: Data) -> BoxFuture<'_, ()> {
+    self.entries.lock().insert(key, data);
+    Box::pin(ready(()))
   }
 }

@@ -8,9 +8,9 @@ use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, SlotId, SlotName
 
 use snapfire_fsr_core::Fingerprint;
 
-use crate::cache::{CacheEntry, NoCache, NodeCache};
+use crate::cache::{CacheEntry, LoadCache, NoCache, NoLoadCache, NodeCache};
 use crate::ctx::RequestCtx;
-use crate::data::{DataSources, LoadError};
+use crate::data::{DataSources, LoadError, LoadKeyer, NoLoadKey};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
@@ -74,6 +74,10 @@ pub struct Runtime {
   pub evaluators: Evaluators,
   pub keyer: Arc<dyn SegmentKeyer>,
   pub cache: Arc<dyn NodeCache>,
+  /// What a source reads of the request, so a load can be answered from the
+  /// memo below rather than run.
+  pub load_keyer: Arc<dyn LoadKeyer>,
+  pub loads: Arc<dyn LoadCache>,
   /// Plan nodes whose markup was seen to place the head slot. Such a subtree
   /// is never written to the cache, and whether it places the head is a
   /// property of its module rather than of the request, so once one build has
@@ -90,6 +94,8 @@ pub struct RuntimeBuilder {
   evaluators: Evaluators,
   keyer: Arc<dyn SegmentKeyer>,
   cache: Arc<dyn NodeCache>,
+  load_keyer: Arc<dyn LoadKeyer>,
+  loads: Arc<dyn LoadCache>,
   metas: HashMap<String, Arc<dyn Metadata>>,
   stores: HashMap<String, Arc<dyn Seeds>>,
 }
@@ -115,6 +121,16 @@ impl RuntimeBuilder {
     self
   }
 
+  pub fn load_keyer(mut self, keyer: Arc<dyn LoadKeyer>) -> Self {
+    self.load_keyer = keyer;
+    self
+  }
+
+  pub fn loads(mut self, loads: Arc<dyn LoadCache>) -> Self {
+    self.loads = loads;
+    self
+  }
+
   pub fn meta(mut self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self {
     self.metas.insert(source_id.into(), meta);
     self
@@ -131,6 +147,8 @@ impl RuntimeBuilder {
       evaluators: self.evaluators,
       keyer: self.keyer,
       cache: self.cache,
+      load_keyer: self.load_keyer,
+      loads: self.loads,
       metas: self.metas,
       stores: self.stores,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
@@ -145,6 +163,8 @@ impl Runtime {
       evaluators: Evaluators::new(),
       keyer: Arc::new(DefaultKeyer),
       cache: Arc::new(NoCache),
+      load_keyer: Arc::new(NoLoadKey),
+      loads: Arc::new(NoLoadCache),
       metas: HashMap::new(),
       stores: HashMap::new(),
     }
@@ -369,12 +389,26 @@ impl Session {
       let node_id = *node_id;
       let source = self.runtime.sources.get(source_id);
       let source_name = source_id.0.clone();
+      let runtime = &self.runtime;
       let ctx = &self.ctx;
-      let span = tracing::info_span!(target: "fsr::trace", "source", id = %source_id.0, node = node_id, fibre.outcome = tracing::field::Empty);
+      let memo = runtime.load_keyer.key(source_id, ctx);
+      let span = tracing::info_span!(target: "fsr::trace", "source", id = %source_id.0, node = node_id, memo = tracing::field::Empty, fibre.outcome = tracing::field::Empty);
       let loading = async move {
         let source = source.ok_or(AssembleError::MissingDataSource(source_name))?;
+        if let Some(key) = &memo {
+          if let Some(data) = runtime.loads.get(key).await {
+            tracing::Span::current().record("memo", "hit");
+            tracing::Span::current().record("fibre.outcome", "ok");
+            tracing::debug!(target: "fsr::load", key = %key, "memo hit");
+            return Ok::<_, AssembleError>((node_id, Ok(data)));
+          }
+          tracing::Span::current().record("memo", "miss");
+        }
         let loaded = source.load(ctx).await;
         tracing::Span::current().record("fibre.outcome", if loaded.is_ok() { "ok" } else { "failed" });
+        if let (Some(key), Ok(data)) = (&memo, &loaded) {
+          runtime.loads.put(key.clone(), data.clone()).await;
+        }
         Ok::<_, AssembleError>((node_id, loaded))
       };
       tracing::Instrument::instrument(loading, span)

@@ -56,3 +56,24 @@ impl DataSources {
     self.sources.get(&id.0)
   }
 }
+
+/// How much of the request a source reads, so a load may be answered from a
+/// memo shared across requests that agree on exactly that much. `None` is
+/// "never memoize": the source reads params, the query, the session or the
+/// clock, and no two requests can be assumed to agree.
+///
+/// The key must be complete. A source keyed without something it reads
+/// serves one request's data to another, so a keyer widens to `None` rather
+/// than guessing.
+pub trait LoadKeyer: Send + Sync {
+  fn key(&self, source: &DataSourceId, ctx: &RequestCtx) -> Option<String>;
+}
+
+/// Memoizes nothing, which is what a runtime built by hand gets.
+pub struct NoLoadKey;
+
+impl LoadKeyer for NoLoadKey {
+  fn key(&self, _source: &DataSourceId, _ctx: &RequestCtx) -> Option<String> {
+    None
+  }
+}

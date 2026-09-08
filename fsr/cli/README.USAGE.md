@@ -695,7 +695,7 @@ The shell writes `<html lang="fr-FR" data-sf-locale="fr_FR">`. Every segment key
 
 ## Prerendering
 
-`fsr prerender app` renders every route that reads nothing of the request once per locale, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. The default locale lands at the top and every other under its tag, `fr_FR/about/index.html`. It prints what it wrote. The host serves those files from then on; the boot report's `prerender` rows say which routes qualify.
+`fsr prerender app` warms every loader that reads nothing of the request and renders every route that does the same once per locale, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. The default locale lands at the top and every other under its tag, `fr_FR/about/index.html`. It prints what it wrote. The host serves those files from then on; the boot report's `prerender` rows say which routes qualify.
 
 ```sh
 fsr prerender app
@@ -703,6 +703,8 @@ fsr prerender app --out build/static
 ```
 
 A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route, and so does a page or layout on it reading its `csrf_token` prop. Reading `identity`, in a loader or as a page's prop, or calling a client whose `bearer` is set, keeps the route qualified for anonymous visitors: the report says `for anonymous visitors`, the file serves everyone with no identity and a signed-in visitor is rendered live. An editor previewing unpublished content is that: signed in, with the loader's call carrying their token.
+
+The same pass also warms loads, which is what an application with no qualifying route gets out of it. One layout reading the session makes every route under it dynamic however fixed the pages are, so the command applies the test per loader as well: a loader reading nothing of the request is run once per locale and written to `loads.json` beside the documents, whatever its route does. The report lists those under `warm`, the host reads the file at boot and a request that reaches such a loader takes its data instead of calling the backend. Reading `path` disqualifies a loader here though not a route, since a layout's loader answers every route beneath it; reading `identity` warms the anonymous case alone. A request never adds to the file, so rerunning the command is what refreshes it.
 
 ## Hoisting Render-Path Calls
 

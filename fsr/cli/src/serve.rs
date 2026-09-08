@@ -46,8 +46,9 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
 }
 
 /// The stock host over `app`, refusing a configuration that names a different app directory.
-/// Renders every prerenderable route of the stock host into `out`, else
-/// `server.prerender` from the configuration, else `dist/prerender` under the app.
+/// Warms every memoizable load and renders every prerenderable route of the
+/// stock host into `out`, else `server.prerender` from the configuration, else
+/// `dist/prerender` under the app.
 pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)>, BuildError> {
   let host = host_for(app)?;
   let out = match out {

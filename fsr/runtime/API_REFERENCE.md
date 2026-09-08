@@ -16,6 +16,8 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
 * [3. Data sources](#3-data-sources)
   * [`DataSource`](#datasource)
   * [`DataSources`](#datasources)
+  * [`LoadKeyer`](#loadkeyer)
+  * [`NoLoadKey`](#noloadkey)
 * [4. Evaluation](#4-evaluation)
   * [`Chunk`](#chunk)
   * [`NodeChunks`](#nodechunks)
@@ -43,6 +45,10 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`NoCache`](#nocache)
   * [`MemoryCache`](#memorycache)
   * [`FibreCache`](#fibrecache)
+  * [`LoadCache`](#loadcache)
+  * [`NoLoadCache`](#noloadcache)
+  * [`WarmLoads`](#warmloads)
+  * [`MemoryLoadCache`](#memoryloadcache)
 * [9. Request context](#9-request-context)
   * [`Identity`](#identity)
   * [`SessionCell`](#sessioncell)
@@ -145,6 +151,18 @@ Registry from source id to implementation, insertion-ordered. `Default`.
 
 A plan node naming an id that was never inserted is `AssembleError::MissingDataSource`, which fails the whole assembly. A source that returns `LoadError` degrades only its own segment.
 
+### `LoadKeyer`
+
+`pub trait LoadKeyer: Send + Sync`. How much of the request a source reads, so a load may be answered from the [`LoadCache`](#loadcache) rather than run.
+
+* `fn key(&self, source: &DataSourceId, ctx: &RequestCtx) -> Option<String>`: `None` means never memoize.
+
+The key must name everything the source reads. A source keyed without something it reads serves one request's data to another, so a keyer widens to `None` rather than guessing. `snapfire_fsr`'s keyer answers a key only for a lowered source whose body reads nothing of the request beyond the identity, and only the anonymous case for one that reads the identity.
+
+### `NoLoadKey`
+
+The default. Unit struct, `key` is always `None`, so a runtime built by hand memoizes nothing.
+
 ## 4. Evaluation
 
 ### `Chunk`
@@ -194,6 +212,8 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub evaluators: Evaluators`
 * `pub keyer: Arc<dyn SegmentKeyer>`
 * `pub cache: Arc<dyn NodeCache>`
+* `pub load_keyer: Arc<dyn LoadKeyer>`
+* `pub loads: Arc<dyn LoadCache>`
 * `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id, how a segment describes the document from its data.
 * `pub fn builder() -> RuntimeBuilder`
 * `pub fn new(sources: DataSources, evaluators: Evaluators) -> Arc<Self>`: default keyer, no cache.
@@ -207,10 +227,12 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn evaluators(self, evaluators: Evaluators) -> Self`
 * `pub fn keyer(self, keyer: Arc<dyn SegmentKeyer>) -> Self`
 * `pub fn cache(self, cache: Arc<dyn NodeCache>) -> Self`
+* `pub fn load_keyer(self, keyer: Arc<dyn LoadKeyer>) -> Self`
+* `pub fn loads(self, loads: Arc<dyn LoadCache>) -> Self`
 * `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
 * `pub fn build(self) -> Arc<Runtime>`
 
-Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, no metadata.
+Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata.
 
 ## 6. Assembly
 
@@ -372,6 +394,37 @@ The default. Unit struct. `get` is always `None`, `put` does nothing and `invali
 * Every entry is inserted with a cost of 1, so `capacity` counts entries.
 * `bounded` and `bounded_sharded` panic if `fibre_cache` refuses the configuration.
 * The side index holds each composed key once and drops a key when the cache evicts it, on TTL or for room, through the eviction listener `bounded` and `bounded_sharded` install; `invalidate` clears a plan key's set. Expiry follows the cache's timer tick, so a key leaves the index when the janitor drops it, within a tick of its TTL.
+
+### `LoadCache`
+
+`pub trait LoadCache: Send + Sync`. Memoizes a source's loaded data under the key its [`LoadKeyer`](#loadkeyer) composed. A hit skips the loader entirely: no service call, no interpreter.
+
+* `fn get(&self, key: &str) -> BoxFuture<'_, Option<Data>>`
+* `fn put(&self, key: String, data: Data) -> BoxFuture<'_, ()>`
+
+This sits below the `NodeCache`, which memoizes what a subtree rendered and is keyed by the fingerprint of the data a load produced. That key cannot exist before the load runs, so the render memo can never skip one.
+
+### `NoLoadCache`
+
+The default. Unit struct. `get` is always `None` and `put` does nothing.
+
+### `WarmLoads`
+
+What a build warmed. A request never writes to it, so a source the build did not reach costs a load per request and nothing grows unbounded. `Default`.
+
+* `pub fn new(entries: HashMap<String, Data>) -> Self`
+* `pub fn replace(&self, entries: HashMap<String, Data>)`: swaps the whole map, which a warm pass does before it renders anything so a document is never written from the generation before it.
+* `pub fn len(&self) -> usize`, `pub fn is_empty(&self) -> bool`
+* `put` is a no-op; `replace` is the only way in.
+
+### `MemoryLoadCache`
+
+`HashMap` behind a `parking_lot::Mutex`, read and written in process. Unbounded, no expiry. `Default`.
+
+* `pub fn new() -> Self`
+* `pub fn snapshot(&self) -> HashMap<String, Data>`
+
+For a warm pass filling it and for a Rust host that knows its keyed sources are few. An application serving unbounded keys wants a bounded cache instead.
 
 ## 9. Request context
 

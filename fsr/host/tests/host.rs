@@ -37,7 +37,10 @@ const PLAN: &str = r#"{
     { "pattern": "/deck/card/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
       { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
         { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "children": [
-          { "slot": "content", "node": { "id": 3, "module": "routes/deck/card/page.tsx#default" } } ] } } ] } } ] } }
+          { "slot": "content", "node": { "id": 3, "module": "routes/deck/card/page.tsx#default" } } ] } } ] } } ] } },
+    { "pattern": "/console", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/console/layout.tsx#default", "source": "console.layout", "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/console/page.tsx#default", "source": "console.page" } } ] } } ] } }
   ],
   "intercepts": [
     { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
@@ -57,7 +60,11 @@ const PLAN: &str = r#"{
     { "id": "hello", "owner": "lowered", "module": "routes/hello/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "greeting", { "template": [ { "lit": { "str": "hi " } }, { "param": "name" }, { "lit": { "str": " via " } }, { "query": "from" } ] } ] } ] } } ] },
     { "id": "where", "owner": "lowered", "module": "routes/where/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "here", "path" ] } ] } } ] }
+      "body": [ { "return": { "object": [ { "field": [ "here", "path" ] } ] } } ] },
+    { "id": "console.layout", "owner": "lowered", "module": "routes/console/layout.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "density", { "coalesce": [ { "session": "density" }, { "lit": { "str": "cosy" } } ] } ] } ] } } ] },
+    { "id": "console.page", "owner": "lowered", "module": "routes/console/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "rows", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
   ],
   "actions": [
     { "id": "index.where", "owner": "lowered", "module": "routes/index/actions.ts",
@@ -154,7 +161,7 @@ async fn a_route_renders_through_the_stock_shell_with_the_configured_head() {
     "{html}"
   );
   assert!(html.contains("\"a\""), "the lowered loader ran: {html}");
-  assert_eq!(host.report().app.sources.len(), 3);
+  assert_eq!(host.report().app.sources.len(), 5);
   assert!(host.report().to_string().contains("lowered"), "{}", host.report());
   assert!(host.report().to_string().contains("/static"), "{}", host.report());
 }
@@ -3281,4 +3288,156 @@ async fn an_application_with_no_document_section_still_renders_a_document() {
     .await
     .unwrap();
   assert!(html.contains("<!doctype html>"), "{html}");
+}
+
+#[tokio::test]
+async fn a_warmed_load_answers_a_route_the_layout_keeps_dynamic() {
+  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let (host, _) = host();
+  assert!(
+    !host.prerenderable().contains(&"/console".to_owned())
+      && !host.prerenderable_anonymous().contains(&"/console".to_owned()),
+    "the layout reads the session: {}",
+    host.report()
+  );
+  assert!(
+    host.report().app.warmable.contains(&"console.page".to_owned()),
+    "the page under it reads nothing: {}",
+    host.report()
+  );
+  assert!(
+    !host.report().app.warmable.contains(&"console.layout".to_owned()),
+    "{}",
+    host.report()
+  );
+  host.prerender(&out).await.unwrap();
+
+  let warmed: serde_json::Value =
+    serde_json::from_str(&std::fs::read_to_string(out.join("loads.json")).unwrap()).unwrap();
+  assert_eq!(warmed["console.page"]["rows"][0], serde_json::json!("a"));
+  assert!(warmed.get("console.layout").is_none(), "{warmed}");
+
+  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("moved on")])));
+  let warm = Host::from(app_dir().join("app.toml"))
+    .unwrap()
+    .services_over(moved.clone())
+    .prerendered(&out)
+    .build()
+    .unwrap();
+  let html = warm
+    .render_to_string("/console", RenderMode::Html, SessionCell::default())
+    .await
+    .unwrap();
+  assert!(html.contains("\"a\""), "the page came from the warm pass: {html}");
+  assert!(!html.contains("moved on"), "its loader did not run: {html}");
+  assert!(html.contains("cosy"), "the layout loaded live: {html}");
+  assert!(moved.calls().is_empty(), "no service call was made: {:?}", moved.calls());
+
+  let dense = SessionCell::default();
+  dense.insert("density", Value::str("dense"));
+  let html = warm.render_to_string("/console", RenderMode::Html, dense).await.unwrap();
+  assert!(html.contains("dense"), "the layout is still per request: {html}");
+  assert!(html.contains("\"a\""), "and the page is still memoized: {html}");
+
+  assert!(warm.report().to_string().contains("loads memoized"), "{}", warm.report());
+  std::fs::remove_dir_all(&out).ok();
+}
+
+#[tokio::test]
+async fn without_a_warm_pass_every_load_runs() {
+  let (host, transport) = host();
+  host
+    .render_to_string("/console", RenderMode::Html, SessionCell::default())
+    .await
+    .unwrap();
+  host
+    .render_to_string("/console", RenderMode::Html, SessionCell::default())
+    .await
+    .unwrap();
+  assert_eq!(transport.calls().len(), 2, "nothing is memoized without a warm pass");
+  assert!(host.report().to_string().contains("not warmed"), "{}", host.report());
+}
+
+#[tokio::test]
+async fn a_source_reading_the_request_is_never_warmed() {
+  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let (host, _) = host();
+  host.prerender(&out).await.unwrap();
+  let warmed: serde_json::Value =
+    serde_json::from_str(&std::fs::read_to_string(out.join("loads.json")).unwrap()).unwrap();
+  assert!(warmed.get("hello").is_none(), "it reads a param and the query: {warmed}");
+  assert!(
+    warmed.get("where").is_none(),
+    "it reads the path, which one source answers for many routes: {warmed}"
+  );
+
+  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("moved on")])));
+  let warm = Host::from(app_dir().join("app.toml"))
+    .unwrap()
+    .services_over(moved)
+    .prerendered(&out)
+    .build()
+    .unwrap();
+  let payload = warm
+    .render_to_string("/hello/norm?from=test", RenderMode::Payload, SessionCell::default())
+    .await
+    .unwrap();
+  assert!(payload.contains("hi norm via test"), "{payload}");
+  std::fs::remove_dir_all(&out).ok();
+}
+
+#[tokio::test]
+async fn a_second_warm_pass_writes_documents_from_the_loads_it_just_took() {
+  let app = app_dir();
+  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let first = Host::from(app.join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(
+      MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("first")])),
+    ))
+    .prerendered(&out)
+    .build()
+    .unwrap();
+  first.prerender(&out).await.unwrap();
+  assert!(first.prerendered("/", RenderMode::Html).unwrap().contains("first"));
+
+  let second = Host::from(app.join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(
+      MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("second")])),
+    ))
+    .prerendered(&out)
+    .build()
+    .unwrap();
+  assert_eq!(second.report().warmed, 2, "it booted on the first pass's file");
+  second.prerender(&out).await.unwrap();
+  let html = second.prerendered("/", RenderMode::Html).unwrap();
+  assert!(
+    html.contains("second") && !html.contains("first"),
+    "the document is not a generation behind: {html}"
+  );
+  std::fs::remove_dir_all(&out).ok();
+}
+
+#[tokio::test]
+async fn a_source_reading_the_identity_is_warmed_for_anonymous_visitors_alone() {
+  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let host = Host::from(identified_dir(USERS).join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(
+      MockTransport::new().returns("shop.list", Value::Seq(vec![Value::str("a")])),
+    ))
+    .prerendered(&out)
+    .build()
+    .unwrap();
+  assert_eq!(host.report().app.warmable, vec!["who".to_owned()]);
+  host.prerender(&out).await.unwrap();
+  let warmed: serde_json::Value =
+    serde_json::from_str(&std::fs::read_to_string(out.join("loads.json")).unwrap()).unwrap();
+  assert_eq!(warmed["who|anon"]["subject"], serde_json::json!("anonymous"));
+  assert!(
+    warmed.get("who").is_none(),
+    "nothing is memoized for a signed-in visitor: {warmed}"
+  );
+  std::fs::remove_dir_all(&out).ok();
 }

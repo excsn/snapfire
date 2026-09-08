@@ -165,7 +165,7 @@ fn main() -> ExitCode {
       match serve::prerender(&app, out.as_deref()) {
         Ok(written) => {
           if written.is_empty() {
-            println!("nothing to prerender: every route reads the request");
+            println!("nothing to prerender or warm: every source reads the request");
           }
           for (pattern, file) in written {
             println!("{pattern:<22} {}", file.display());

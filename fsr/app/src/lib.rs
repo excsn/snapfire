@@ -6,14 +6,14 @@ pub mod plan;
 pub mod routes;
 
 use std::future::Future;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
 use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrSource, IrStore, Reach};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Runtime, TableResolver,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -94,6 +94,8 @@ pub struct Report {
   /// request reads are the identity and calls that carry its token, so the
   /// host prerenders them and serves the file to visitors with no identity.
   pub prerenderable_anonymous: Vec<String>,
+  /// Sources whose load a build can run once and a request can then skip.
+  pub warmable: Vec<String>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
 }
@@ -152,6 +154,11 @@ pub struct App {
   /// token: one anonymous render serves every anonymous request and a
   /// signed-in visitor is rendered live.
   pub prerenderable_anonymous: Vec<String>,
+  /// Lowered sources reading nothing of the request beyond the identity, so
+  /// one load answers every request (or every anonymous one). A build runs
+  /// each once per locale and the memo answers from then on; which of the two
+  /// a source is stays with the keyer, since only it composes the key.
+  pub warmable: Vec<String>,
   pub runtime: Arc<Runtime>,
   pub services: Arc<Services>,
   /// The application's own Rust, by the name a body reaches it under as
@@ -263,6 +270,7 @@ pub struct AppBuilder {
   action_overrides: Vec<String>,
   services: Option<Arc<Services>>,
   cache: Option<Arc<dyn NodeCache>>,
+  loads: Option<Arc<dyn LoadCache>>,
   extensions: Extensions,
   catalogs: Option<Arc<snapfire_fsr_ir::Catalogs>>,
   /// The plan's named constants, which `Expr::Const` reads.
@@ -307,6 +315,7 @@ impl App {
       action_overrides: Vec::new(),
       services: None,
       cache: None,
+      loads: None,
     }
   }
 
@@ -512,6 +521,13 @@ impl AppBuilder {
     self
   }
 
+  /// Where a load answered once is kept, for the sources `warmable` names.
+  /// Nothing is memoized without one.
+  pub fn loads(mut self, loads: Arc<dyn LoadCache>) -> Self {
+    self.loads = Some(loads);
+    self
+  }
+
   pub fn route(mut self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self {
     self.routes = self.routes.add(pattern, plan);
     self
@@ -645,6 +661,12 @@ impl AppBuilder {
     let fixed_sources: Vec<String> = statics.iter().filter(|(_, class)| **class == Static::Fixed).map(|(name, _)| name.clone()).collect();
     let anonymous_sources: Vec<String> = statics.iter().filter(|(_, class)| **class != Static::Dynamic).map(|(name, _)| name.clone()).collect();
     let reads: HashMap<String, Vec<String>> = self.lowered_sources.iter().map(|(name, body)| (name.clone(), snapfire_fsr_ir::body_params_read(body))).collect();
+    let path_readers: HashSet<String> = self
+      .lowered_sources
+      .iter()
+      .filter(|(_, body)| reads_path(body))
+      .map(|(name, _)| name.clone())
+      .collect();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
       match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
         Some(Owner::RustOverride) => {}
@@ -776,6 +798,18 @@ impl AppBuilder {
     }
     let resolved = self.routes.resolved()?;
     let lowered = |name: &String| matches!(self.claimed.iter().rev().find(|(claimed, _)| claimed == name).map(|(_, o)| *o), Some(Owner::Lowered));
+    let warm_fixed: HashSet<String> = fixed_sources
+      .iter()
+      .filter(|n| lowered(n) && !path_readers.contains(*n))
+      .cloned()
+      .collect();
+    let warm_anonymous: HashSet<String> = anonymous_sources
+      .iter()
+      .filter(|n| lowered(n) && !path_readers.contains(*n) && !warm_fixed.contains(*n))
+      .cloned()
+      .collect();
+    let mut warmable: Vec<String> = warm_fixed.iter().chain(&warm_anonymous).cloned().collect();
+    warmable.sort();
     let prerenderable: Vec<String> = resolved
       .iter()
       .filter(|(pattern, plan, _)| {
@@ -829,6 +863,7 @@ impl AppBuilder {
       middleware: middleware_owner,
       prerenderable: prerenderable.clone(),
       prerenderable_anonymous: prerenderable_anonymous.clone(),
+      warmable: warmable.clone(),
       components,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -843,9 +878,19 @@ impl AppBuilder {
       resolver.insert(entry, plan);
     }
 
-    let mut runtime = Runtime::builder().sources(self.sources).evaluators(self.evaluators).keyer(Arc::new(ReadsKeyer { reads }));
+    let mut runtime = Runtime::builder()
+      .sources(self.sources)
+      .evaluators(self.evaluators)
+      .keyer(Arc::new(ReadsKeyer { reads }))
+      .load_keyer(Arc::new(ClassKeyer {
+        fixed: warm_fixed,
+        anonymous: warm_anonymous,
+      }));
     if let Some(cache) = self.cache {
       runtime = runtime.cache(cache);
+    }
+    if let Some(loads) = self.loads {
+      runtime = runtime.loads(loads);
     }
     for (name, meta) in std::mem::take(&mut self.lowered_metas) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
@@ -871,6 +916,7 @@ impl AppBuilder {
       intercepts,
       prerenderable,
       prerenderable_anonymous,
+      warmable,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
       natives: Arc::new(self.natives),
@@ -917,6 +963,43 @@ impl ActionHandler for CheckedInput {
       return Box::pin(async move { Err(error) });
     }
     self.inner.call(ctx, input)
+  }
+}
+
+/// A body reading `Expr::Path`. A prerendered route has one path, so the
+/// classification calls that fixed; a memo is keyed by the source rather than
+/// the route, and one layout source answers every path beneath it, so a
+/// source reading the path is never memoized.
+fn reads_path(body: &snapfire_fsr_ir::Body) -> bool {
+  let mut found = false;
+  body_visit(body, &mut |e| {
+    if matches!(e, Expr::Path) {
+      found = true;
+    }
+  });
+  found
+}
+
+/// Keys a load by what its source was seen to read. A `Fixed` source reads
+/// nothing of the request, so its locale alone separates two loads; an
+/// `Anonymous` source reads the identity or calls through a client carrying
+/// its token, so only the anonymous case is shared and a signed-in request
+/// loads for itself.
+struct ClassKeyer {
+  fixed: HashSet<String>,
+  anonymous: HashSet<String>,
+}
+
+impl snapfire_fsr_runtime::LoadKeyer for ClassKeyer {
+  fn key(&self, source: &snapfire_fsr_core::DataSourceId, ctx: &RequestCtx) -> Option<String> {
+    let suffix = ctx.locale.key_suffix();
+    if self.fixed.contains(&source.0) {
+      return Some(format!("{}{suffix}", source.0));
+    }
+    if self.anonymous.contains(&source.0) && ctx.session.identity().is_none() {
+      return Some(format!("{}{suffix}|anon", source.0));
+    }
+    None
   }
 }
 

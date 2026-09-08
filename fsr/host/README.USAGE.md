@@ -21,6 +21,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Posting a Form to an Action](#posting-a-form-to-an-action)
 * [Middleware in Rust](#middleware-in-rust)
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
+* [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
@@ -414,6 +415,28 @@ assert_eq!(host.prerenderable_anonymous(), vec!["/posts".to_owned()]);
 ```
 
 `fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
+
+## Warming the Loads a Route Cannot Prerender
+
+A whole route prerenders only when everything on it reads nothing of the request, and one layout is enough to lose that: a console whose header shows what you are watching makes every page under it dynamic, however fixed the page itself is. The verdict is correct per route and too coarse to be useful, since the cost on such a route is the loader, not the render.
+
+`prerender` therefore does a second thing before it writes any document. It runs every source the report lists under `warm`, once per locale with nothing of a request behind it, and writes them to `loads.json` beside the documents. The classification is the same one, applied per source rather than per route, so a fixed page under a dynamic layout is warmed and so is a fixed layout over dynamic pages.
+
+```
+warm      layout.promo           2 loads memoized
+          widths
+```
+
+At boot the host reads that file, and from then on a request that reaches one of those sources takes the loaded data instead of running the loader: no service call, no interpreter. Everything else on the route runs live, so the console's header is still per session while the page beneath it costs nothing.
+
+A source reading a parameter, the query, the session or the clock is never warmed, and neither is one reading `path`, since a route that prerenders has one path but a layout source answers every route beneath it. A source reading the identity is warmed for the anonymous case alone, under `<source>|anon`, and a signed-in request loads for itself. Values are written in the payload crate's JSON encoding, so a wide integer survives the round trip the way it does on the wire.
+
+The memo is only ever filled by a build. A request never writes to it, so a source the build did not reach costs a load every time and nothing grows without bound; a rebuild is what refreshes it, the same contract the documents keep. Rerunning `prerender` takes fresh loads before it renders anything, so a second pass never writes a document from the first pass's data. Without `server.prerender` configured, or with the file deleted, every load runs per request.
+
+```rust
+assert_eq!(host.report().app.warmable, vec!["layout.promo".to_owned(), "widths".to_owned()]);
+assert_eq!(host.report().warmed, 2);
+```
 
 ## Serving Locales
 

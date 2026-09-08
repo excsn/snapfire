@@ -17,6 +17,7 @@ pub mod tls;
 #[cfg(feature = "ws")]
 pub mod socket;
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -36,7 +37,7 @@ use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, Rout
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
   ActionError, AssembleError, DataSource, Evaluator, FailureKind, FibreCache, Head, Identity, LoadError, Locale,
-  Matcher, Metadata, RequestCtx, Resolver, SessionCell, assemble, html_stream, parse_query, wire_stream,
+  Matcher, Metadata, RequestCtx, Resolver, SessionCell, WarmLoads, assemble, html_stream, parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials,
@@ -55,6 +56,47 @@ pub use remote::{ServiceProvider, ServiceSessionStore};
 /// The encodings a payload request may name in `enc`; the wire's `V` row
 /// names the one it got.
 pub const PAYLOAD_ENCODINGS: &[&str] = &["json"];
+
+/// What a warm pass writes into the prerender directory and a boot reads back:
+/// every memoizable source's data under the key a request composes for it.
+pub const LOADS_FILE: &str = "loads.json";
+
+fn warm_to_json(warmed: &HashMap<String, Data>) -> String {
+  let mut rows: Vec<(&String, &Data)> = warmed.iter().collect();
+  rows.sort_by(|a, b| a.0.cmp(b.0));
+  let obj: serde_json::Map<String, serde_json::Value> = rows
+    .into_iter()
+    .map(|(key, data)| {
+      (
+        key.clone(),
+        snapfire_fsr_payload::value_to_json(&Value::Map(data.clone())),
+      )
+    })
+    .collect();
+  serde_json::to_string(&serde_json::Value::Object(obj)).expect("a value map serializes")
+}
+
+/// What a build warmed, or nothing when the file is absent or unreadable: a
+/// warm pass is an optimization, so a bad file costs loads rather than a boot.
+fn warm_from_file(path: &Path) -> HashMap<String, Data> {
+  let Ok(text) = std::fs::read_to_string(path) else {
+    return HashMap::new();
+  };
+  let Ok(serde_json::Value::Object(obj)) = serde_json::from_str::<serde_json::Value>(&text) else {
+    tracing::warn!(target: "fsr::load", file = %path.display(), "warmed loads are not an object");
+    return HashMap::new();
+  };
+  let mut out = HashMap::new();
+  for (key, json) in obj {
+    match snapfire_fsr_payload::json_to_value(&json) {
+      Ok(Value::Map(data)) => {
+        out.insert(key, data);
+      }
+      _ => tracing::warn!(target: "fsr::load", key = %key, "warmed load is not a value map"),
+    }
+  }
+  out
+}
 
 /// The response body: a stream of chunks, the same one the runtime produces.
 pub type Body = http_body_util::combinators::UnsyncBoxBody<Bytes, std::io::Error>;
@@ -224,6 +266,9 @@ pub struct HostReport {
   pub statics: Vec<(String, PathBuf)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
+  /// How many of `app.warmable`'s keys the prerender directory answered at
+  /// boot. Zero with sources listed means the warm pass has not run.
+  pub warmed: usize,
   /// The render memo's capacity and lifetime, when configured.
   pub cache: Option<(u64, String)>,
   /// Whether the document carries the live-refresh script and the host
@@ -317,6 +362,13 @@ impl std::fmt::Display for HostReport {
       match &self.prerender {
         Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}{who}", dir.display())?,
         None => writeln!(f, "{label:<9} {pattern:<22} not configured{who}")?,
+      }
+    }
+    for (i, source) in self.app.warmable.iter().enumerate() {
+      match (i, self.warmed) {
+        (0, 0) => writeln!(f, "{:<9} {source:<22} not warmed", "warm")?,
+        (0, n) => writeln!(f, "{:<9} {source:<22} {n} loads memoized", "warm")?,
+        _ => writeln!(f, "{:<9} {source}", "")?,
       }
     }
     if let Some((capacity, ttl)) = &self.cache {
@@ -528,6 +580,9 @@ struct Tables {
   dev_bundle: Option<PathBuf>,
   statics: Vec<(String, ServeDir)>,
   prerendered: Option<PathBuf>,
+  /// The memo the app's runtime reads a warmable source's data from, held
+  /// here so a warm pass swaps its contents in before it renders anything.
+  warm: Arc<WarmLoads>,
   locales: Locales,
   catalogs: Arc<snapfire_fsr_ir::Catalogs>,
   auth: Option<Mounted>,
@@ -1200,14 +1255,27 @@ impl Host {
     self.tables().app.services.invalidate_tags(tags);
   }
 
-  /// Renders every prerenderable route once per locale, anonymously, writing
-  /// the document as `<out>/<path>/index.html` and the payload beside it as
-  /// `index.payload`; `/` lands at the top of `out`. A locale other than the
-  /// default lands under its tag, `<out>/fr_FR/about/index.html`. Returns
-  /// what was written, each path with its prefix.
+  /// Warms every memoizable load, then renders every prerenderable route once
+  /// per locale, anonymously, writing the document as `<out>/<path>/index.html`
+  /// and the payload beside it as `index.payload`; `/` lands at the top of
+  /// `out`. A locale other than the default lands under its tag,
+  /// `<out>/fr_FR/about/index.html`. Returns what was written, each path with
+  /// its prefix.
+  ///
+  /// The warm pass runs first and its result replaces whatever an earlier one
+  /// left, so a rerun writes documents from the loads it just took rather than
+  /// from the file it booted with.
   pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
     let t = self.tables();
     let mut written = Vec::new();
+    let warmed = self.warm(&t).await?;
+    t.warm.replace(warmed.clone());
+    if !warmed.is_empty() {
+      std::fs::create_dir_all(out).map_err(|e| HostError::Io(out.to_path_buf(), e))?;
+      let file = out.join(LOADS_FILE);
+      std::fs::write(&file, warm_to_json(&warmed)).map_err(|e| HostError::Io(file.clone(), e))?;
+      written.push((LOADS_FILE.to_owned(), file));
+    }
     for pattern in t
       .app
       .prerenderable
@@ -1255,6 +1323,44 @@ impl Host {
       }
     }
     Ok(written)
+  }
+
+  /// Runs every warmable source once per locale with nothing of a request
+  /// behind it, keyed the way a request will key it. A source that fails is
+  /// left out rather than written as a failure: a request loads it live and
+  /// degrades to its error node the way it does without a warm pass.
+  async fn warm(&self, t: &Tables) -> Result<HashMap<String, Data>, HostError> {
+    let mut warmed = HashMap::new();
+    for name in &t.app.warmable {
+      let id = snapfire_fsr_core::DataSourceId(name.clone());
+      let Some(source) = t.app.runtime.sources.get(&id) else {
+        continue;
+      };
+      for tag in t.locales.supported.clone() {
+        let locale = t.locales.locale(&tag);
+        let ctx = self.ctx(
+          t,
+          Incoming::anonymous(SessionCell::default()),
+          Params::new(),
+          Params::new(),
+          "/",
+          locale,
+        );
+        let Some(key) = t.app.runtime.load_keyer.key(&id, &ctx) else {
+          continue;
+        };
+        if warmed.contains_key(&key) {
+          continue;
+        }
+        match source.load(&ctx).await {
+          Ok(data) => {
+            warmed.insert(key, data);
+          }
+          Err(e) => tracing::warn!(target: "fsr::load", source = %name, error = %e, "warm load failed"),
+        }
+      }
+    }
+    Ok(warmed)
   }
 
   /// The prerendered text for `path` in `mode`, when the prerender directory
@@ -3565,6 +3671,18 @@ impl HostBuilder {
     }
     let catalog_rows = catalogs.rows();
     app = app.bearer_services(bearer_rows.iter().map(|(client, _)| client.clone()));
+    let prerendered = self
+      .prerendered
+      .take()
+      .or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
+    let warm = Arc::new(WarmLoads::new(
+      prerendered
+        .as_ref()
+        .map(|dir| warm_from_file(&dir.join(LOADS_FILE)))
+        .unwrap_or_default(),
+    ));
+    let warmed_count = warm.len();
+    app = app.loads(warm.clone());
     let extension_rows: Vec<String> = app
       .extensions()
       .names()
@@ -3594,10 +3712,6 @@ impl HostBuilder {
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
 
-    let prerendered = self
-      .prerendered
-      .take()
-      .or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
     let locale_rows = match &config.locales {
       Some(_) => {
         let mut rows = vec![locales.default.clone()];
@@ -3707,6 +3821,7 @@ impl HostBuilder {
         .unwrap_or_default(),
       statics: static_rows,
       prerender: prerendered.clone(),
+      warmed: warmed_count,
       cache: cache_row,
       dev,
       locales: locale_rows,
@@ -3726,6 +3841,7 @@ impl HostBuilder {
         dev_bundle,
         statics,
         prerendered,
+        warm,
         locales,
         catalogs,
         auth,
