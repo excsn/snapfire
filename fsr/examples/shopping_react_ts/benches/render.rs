@@ -21,7 +21,9 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_payload::value_to_json;
 
-struct NoHooks;
+struct NoHooks {
+  interpreter: Interpreter,
+}
 
 impl Hooks for NoHooks {
   fn ctx(&self, _spec: &str) -> Result<u32, String> {
@@ -42,8 +44,17 @@ impl Hooks for NoHooks {
   fn render(&self, _module: &str, _props: &str) -> Result<Option<String>, String> {
     Ok(None)
   }
-  fn ext(&self, name: &str, _: &str, _: &str) -> Result<String, String> {
-    Err(format!("no extension {name} here"))
+  // QuickJS has no `Intl`, so the page's `std` asks the Rust half for it, the
+  // same call `fsr test` answers.
+  fn ext(&self, name: &str, args: &str, locale: &str) -> Result<String, String> {
+    let json: serde_json::Value = serde_json::from_str(args).map_err(|e| format!("{name}: {e}"))?;
+    let args = match snapfire_fsr_payload::json_to_value(&json).map_err(|e| format!("{name}: {e}"))? {
+      Value::Seq(items) => items,
+      _ => return Err(format!("{name}: arguments must be an array")),
+    };
+    let ambient = snapfire_fsr_ir::Ambient { locale: locale.to_owned(), now: 0, catalogs: self.interpreter.catalogs().cloned() };
+    let value = self.interpreter.extensions().call(name, &ambient, &args).map_err(|f| f.message)?;
+    Ok(value_to_json(&value).to_string())
   }
   fn fetch(&self, _method: String, _url: String, _body: Option<String>, _headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
     Box::pin(async { FetchResponse { status: 404, body: "{}".to_owned(), headers: Vec::new() } })
@@ -123,7 +134,7 @@ fn bench_module(prepared: &Prepared, page: &Page) -> std::path::PathBuf {
 }
 
 fn engine_for(resolution: &Resolution, dom: &Path, module: &Path, rt: &tokio::runtime::Runtime) -> Engine {
-  let engine = Engine::new(resolution.clone(), dom, Rc::new(NoHooks), JsCalls::new()).expect("engine");
+  let engine = Engine::new(resolution.clone(), dom, Rc::new(NoHooks { interpreter: Interpreter::default() }), JsCalls::new()).expect("engine");
   let local = tokio::task::LocalSet::new();
   rt.block_on(local.run_until(engine.import(module))).expect("bench module loads");
   engine
@@ -148,6 +159,19 @@ fn bench(c: &mut Criterion) {
   resolution.overrides.remove("react-dom/client");
   resolution.overrides.insert("react-dom/server".to_owned(), server);
 
+  let mut specifiers: Vec<(String, String)> = resolution
+    .import_map
+    .keys()
+    .chain(resolution.overrides.keys())
+    .filter_map(|k| resolution.resolve(k).map(|p| (k.clone(), p.to_string_lossy().into_owned())))
+    .collect();
+  specifiers.sort();
+  std::fs::write(
+    prepared.test_dir.join("resolution.json"),
+    serde_json::to_string_pretty(&specifiers.into_iter().collect::<std::collections::BTreeMap<_, _>>()).expect("map"),
+  )
+  .expect("dump");
+
   let interpreter = Interpreter::default();
   let rt = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
   let components_json = serde_json::to_string(&built.manifest.components).expect("components serialise");
@@ -165,11 +189,17 @@ fn bench(c: &mut Criterion) {
     eprintln!("{}: ir {} bytes, react {} bytes, {}", page.name, ir_html.len(), js_html.len(), if ir_html == js_html { "identical" } else { "DIFFERENT" });
     std::fs::write(prepared.test_dir.join(format!("render-{}.ir.html", page.name)), &ir_html).expect("dump");
     std::fs::write(prepared.test_dir.join(format!("render-{}.react.html", page.name)), &js_html).expect("dump");
+    // What `benches/render.node.mjs` needs to render the same page with the
+    // same props under V8; see docs/benches/render.md.
+    std::fs::write(prepared.test_dir.join(format!("props-{}.json", page.name)), &json).expect("dump");
 
     c.bench_with_input(BenchmarkId::new("ir/render", page.name), &page, |b, page| b.iter(|| interpreter.render(black_box(&component), black_box(&page.props), &components).expect("ir renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/render", page.name), &page, |b, _| b.iter(|| engine.eval_string("__render(__props)").expect("react renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/render_with_decode", page.name), &page, |b, _| b.iter(|| engine.eval_string("__render(__decode(__json))").expect("react renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/cold_context", page.name), &page, |b, _| b.iter(|| engine_for(&resolution, &prepared.dom, &module, &rt)));
+    // Every quickjs row above pays one `eval_string`, which parses its source.
+    // This is that cost alone, so the rows can be read net of the harness.
+    c.bench_with_input(BenchmarkId::new("quickjs/eval_overhead", page.name), &page, |b, _| b.iter(|| engine.eval_string("''").expect("evaluates")));
   }
 }
 

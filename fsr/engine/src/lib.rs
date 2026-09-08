@@ -41,6 +41,12 @@ pub struct Resolution {
 }
 
 impl Resolution {
+  /// Where a bare specifier lands on disk, an override first and the import
+  /// map against the roots otherwise.
+  pub fn resolve(&self, specifier: &str) -> Option<PathBuf> {
+    self.bare(specifier)
+  }
+
   fn bare(&self, specifier: &str) -> Option<PathBuf> {
     if let Some(path) = self.overrides.get(specifier) {
       return Some(path.clone());
