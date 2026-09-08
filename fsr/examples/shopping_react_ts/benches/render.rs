@@ -21,6 +21,10 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_payload::value_to_json;
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 struct NoHooks {
   interpreter: Interpreter,
 }

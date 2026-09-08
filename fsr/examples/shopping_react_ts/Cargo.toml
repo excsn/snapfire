@@ -40,7 +40,11 @@ snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_service = { path = "../../service", features = ["grpc"] }
 criterion = "0.5"
 futures = "0.3"
+mimalloc = "0.1"
 serde_json = "1"
+
+[features]
+mimalloc = []
 
 [[bench]]
 name = "render"

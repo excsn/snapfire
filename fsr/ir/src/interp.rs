@@ -289,6 +289,26 @@ impl Env {
       .ok_or_else(|| Fail::internal(format!("`{name}` is not bound")))
   }
 
+  /// `None` is always safe: it means the caller must evaluate the expression,
+  /// never that the expression has no value.
+  pub(crate) fn place(&self, expr: &Expr) -> Option<&Value> {
+    match expr {
+      Expr::Var(name) => self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v),
+      Expr::Store(key) => self.store.get(key),
+      Expr::Session(key) => self.session.get(key),
+      Expr::Field(target, name) => match self.place(target)? {
+        Value::Map(map) => map.get(name.as_str()),
+        _ => None,
+      },
+      Expr::Index(target, key) => match (self.place(target)?, &**key) {
+        (Value::Map(map), Expr::Lit(Lit::Str(k))) => map.get(k.as_str()),
+        (Value::Seq(items), Expr::Lit(Lit::Int(i))) => usize::try_from(*i).ok().and_then(|i| items.get(i)),
+        _ => None,
+      },
+      _ => None,
+    }
+  }
+
   /// The request's locale, or null under a context that has none.
   fn locale(&self) -> Value {
     if self.ctx.locale.tag.is_empty() {
@@ -438,6 +458,11 @@ impl Env {
   /// `eval` for an expression with no service call in it: a component body,
   /// a render, a test's assertion. One plain recursion and no future per node.
   pub(crate) fn eval_sync(&mut self, expr: &Expr) -> Result<Value, Fail> {
+    if matches!(expr, Expr::Field(..) | Expr::Index(..)) {
+      if let Some(value) = self.place(expr) {
+        return Ok(value.clone());
+      }
+    }
     match expr {
       Expr::Const(key) => {
         let held = self.consts.as_ref().and_then(|c| c.get(key)).cloned();
@@ -1294,6 +1319,19 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::Map(map)
     }
+  })
+}
+
+pub(crate) fn scalar_str(value: &Value) -> Result<std::borrow::Cow<'_, str>, Fail> {
+  use std::borrow::Cow;
+  Ok(match value {
+    Value::Str(s) => Cow::Borrowed(s.as_str()),
+    Value::Null => Cow::Borrowed("null"),
+    Value::Bool(true) => Cow::Borrowed("true"),
+    Value::Bool(false) => Cow::Borrowed("false"),
+    Value::F64(f) if *f == 0.0 => Cow::Borrowed("0"),
+    Value::F32(f) if *f == 0.0 => Cow::Borrowed("0"),
+    other => Cow::Owned(stringify(other)?),
   })
 }
 

@@ -5,7 +5,9 @@
 //! separated by an empty comment, empty text writes nothing, a boolean
 //! attribute is `name=""`, a void element closes with `/>`.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Value, ValueMap};
@@ -21,27 +23,29 @@ const VOID: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "inpu
 /// Attributes that are present or absent rather than valued.
 const BOOLEAN: &[&str] = &["disabled", "checked", "selected", "readonly", "required", "hidden", "multiple", "open", "autofocus", "autoplay", "controls", "loop", "muted", "novalidate", "defer", "async"];
 
-fn escape_text(input: &str, out: &mut String) {
-  for c in input.chars() {
-    match c {
-      '&' => out.push_str("&amp;"),
-      '<' => out.push_str("&lt;"),
-      '>' => out.push_str("&gt;"),
-      c => out.push(c),
-    }
+fn escape_into(input: &str, out: &mut String, quotes: bool) {
+  let mut last = 0;
+  for (i, byte) in input.bytes().enumerate() {
+    let replacement = match byte {
+      b'&' => "&amp;",
+      b'<' => "&lt;",
+      b'>' => "&gt;",
+      b'"' if quotes => "&quot;",
+      _ => continue,
+    };
+    out.push_str(&input[last..i]);
+    out.push_str(replacement);
+    last = i + 1;
   }
+  out.push_str(&input[last..]);
+}
+
+fn escape_text(input: &str, out: &mut String) {
+  escape_into(input, out, false);
 }
 
 fn escape_attr(input: &str, out: &mut String) {
-  for c in input.chars() {
-    match c {
-      '&' => out.push_str("&amp;"),
-      '<' => out.push_str("&lt;"),
-      '>' => out.push_str("&gt;"),
-      '"' => out.push_str("&quot;"),
-      c => out.push(c),
-    }
-  }
+  escape_into(input, out, true);
 }
 
 /// The output and whether the last thing written was text, which decides
@@ -145,6 +149,13 @@ impl Out {
     self.html.push_str(html);
     self.text_open = false;
   }
+
+  fn close_tag(&mut self, tag: &str) {
+    self.html.push_str("</");
+    self.html.push_str(tag);
+    self.html.push('>');
+    self.text_open = false;
+  }
 }
 
 /// What a root component's own `Slot` writes, since it has no caller: the
@@ -157,9 +168,9 @@ pub fn slot_mark(name: &str) -> String {
 }
 
 /// A caller's children and the scope they read, rendered wherever the callee places its `Slot`.
-struct Slot {
-  children: Vec<Tmpl>,
-  scope: Vec<(String, Value)>,
+struct Slot<'a> {
+  children: &'a [Tmpl],
+  scope: Rc<Vec<(String, Value)>>,
 }
 
 impl Interpreter {
@@ -286,7 +297,7 @@ fn in_module<T>(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> T) -> T
   result
 }
 
-fn render_component(env: &mut Env, component: &Component, library: &Components, slots: &mut Vec<Slot>, out: &mut Out) -> Result<(), Fail> {
+fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let depth = env.scope.len();
   let overrides = env.state.take();
   for stmt in &component.body {
@@ -308,10 +319,16 @@ fn render_component(env: &mut Env, component: &Component, library: &Components, 
 }
 
 /// Evaluates attribute or prop entries into one map in order, later entries winning; attributes are keyed by HTML spelling so a spread's `className` and a literal `class` are one key.
-fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(String, Value)>, Fail> {
-  let mut out: Vec<(String, Value)> = Vec::new();
-  let mut put = |name: String, value: Value| {
-    let name = if attrs { html_attr_name(&name).to_owned() } else { name };
+fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(Cow<'a, str>, Value)>, Fail> {
+  let mut out: Vec<(Cow<'a, str>, Value)> = Vec::with_capacity(entries.len());
+  let mut put = |name: Cow<'a, str>, value: Value| {
+    let name = match attrs {
+      true => match html_attr_name(&name) {
+        html if html.len() == name.len() && html == name => name,
+        html => Cow::Owned(html.to_owned()),
+      },
+      false => name,
+    };
     if let Some(slot) = out.iter_mut().find(|(n, _)| *n == name) {
       slot.1 = value;
     } else {
@@ -320,11 +337,11 @@ fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(String,
   };
   for entry in entries {
     match entry {
-      Entry::Field(name, expr) => put(name.clone(), env.eval_sync(expr)?),
+      Entry::Field(name, expr) => put(Cow::Borrowed(name.as_str()), env.eval_sync(expr)?),
       Entry::Spread(expr) => match env.eval_sync(expr)? {
         Value::Map(map) => {
           for (name, value) in map {
-            put(name, value);
+            put(Cow::Owned(name), value);
           }
         }
         Value::Null => {}
@@ -332,7 +349,7 @@ fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(String,
       },
       Entry::Computed(key, expr) => {
         let key = stringify(&env.eval_sync(key)?)?;
-        put(key, env.eval_sync(expr)?);
+        put(Cow::Owned(key), env.eval_sync(expr)?);
       }
       Entry::Item(_) => return Err(Fail::internal("an item entry among attributes")),
     }
@@ -340,7 +357,7 @@ fn entries(env: &mut Env, entries: &[Entry], attrs: bool) -> Result<Vec<(String,
   Ok(out)
 }
 
-fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot>, out: &mut Out) -> Result<(), Fail> {
+fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   match tmpl {
     Tmpl::Text(text) => out.text(text),
     Tmpl::Expr(expr) => {
@@ -348,7 +365,9 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       interpolate(&value, out)?;
     }
     Tmpl::Element { tag, attrs, children } => {
-      let mut open = format!("<{tag}");
+      let mut open = String::with_capacity(tag.len() + 32);
+      open.push('<');
+      open.push_str(tag);
       let mut bound = Vec::new();
       let mut raw: Option<String> = None;
       for (name, value) in entries(env, attrs, true)? {
@@ -412,7 +431,7 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
           }
         },
       }
-      out.markup(&format!("</{tag}>"));
+      out.close_tag(tag);
     }
     Tmpl::Fragment(children) => {
       for child in children {
@@ -450,42 +469,42 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
       env.scope.truncate(depth);
     }
     Tmpl::Component { module, props, children, .. } => {
-      let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+      let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
       let mut map = ValueMap::new();
       for (name, value) in entries(env, props, false)? {
         if name != "children" {
-          map.insert(name, value);
+          map.insert(name.into_owned(), value);
         }
       }
       let depth = env.scope.len();
-      let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]);
-      slots.push(Slot { children: children.clone(), scope: outer.clone() });
-      let result = in_module(env, module, |env| render_component(env, &component, library, slots, out));
+      let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
+      slots.push(Slot { children, scope: Rc::clone(&outer) });
+      let result = in_module(env, module, |env| render_component(env, component, library, slots, out));
       slots.pop();
-      env.scope = outer;
+      env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
       env.scope.truncate(depth);
       result?;
     }
     Tmpl::Island { module, props, children, when, mode, id } => {
-      let component = library.get(module).cloned().ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+      let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
       let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
       let mut map = ValueMap::new();
       for (name, value) in entries(env, props, false)? {
         if name != "children" {
-          map.insert(name, value);
+          map.insert(name.into_owned(), value);
         }
       }
       let depth = env.scope.len();
-      let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]);
-      slots.push(Slot { children: children.clone(), scope: outer.clone() });
+      let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
+      slots.push(Slot { children, scope: Rc::clone(&outer) });
       let mut inner = Out::default();
       let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
       let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
-      let result = render_component(env, &component, library, slots, &mut inner);
+      let result = render_component(env, component, library, slots, &mut inner);
       env.server_mode = outer_mode;
       let hoisted = std::mem::replace(&mut env.hoists, outer_hoists).map(|h| h.table).unwrap_or_default();
       slots.pop();
-      env.scope = outer;
+      env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
       env.scope.truncate(depth);
       result?;
       let index = out.islands.len();
@@ -497,9 +516,9 @@ fn render(env: &mut Env, tmpl: &Tmpl, library: &Components, slots: &mut Vec<Slot
         out.html.push_str(&slot_mark(name));
         return Ok(());
       };
-      let inner = std::mem::replace(&mut env.scope, slot.scope.clone());
+      let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
       let mut result = Ok(());
-      for child in &slot.children {
+      for child in slot.children {
         result = render(env, child, library, slots, out);
         if result.is_err() {
           break;
@@ -660,7 +679,7 @@ fn interpolate(value: &Value, out: &mut Out) -> Result<(), Fail> {
       Ok(())
     }
     other => {
-      out.text(&stringify(other)?);
+      out.text(&crate::interp::scalar_str(other)?);
       Ok(())
     }
   }
@@ -698,7 +717,7 @@ fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
   out.push(' ');
   out.push_str(name);
   out.push_str("=\"");
-  escape_attr(&stringify(value)?, out);
+  escape_attr(&crate::interp::scalar_str(value)?, out);
   out.push('"');
   Ok(())
 }
