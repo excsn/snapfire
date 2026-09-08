@@ -1143,6 +1143,13 @@ fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
   }
 }
 
+/// The most items `range` may build, for the same reason as [`MAX_REPEAT`].
+const MAX_RANGE: usize = 1_000_000;
+
+/// The largest string `repeat` may build, so a count from data cannot ask for
+/// an allocation the process does not survive.
+const MAX_REPEAT: usize = 64 * 1024 * 1024;
+
 fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
   match (l, r) {
     (Value::Int(a), Value::Int(b)) => Ok(Value::Int(match op {
@@ -1256,7 +1263,13 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::ToFixed => {
       let n = number(name, arg(0)?)?;
-      let digits = args.get(1).map(|d| number(name, d)).transpose()?.unwrap_or(0.0).max(0.0) as usize;
+      // JavaScript throws a RangeError past 100 digits; without the bound the
+      // count saturates to `usize::MAX` and `{:.digits$}` panics the render.
+      let digits = args.get(1).map(|d| number(name, d)).transpose()?.unwrap_or(0.0).max(0.0);
+      if digits > 100.0 {
+        return Err(Fail::internal(format!("{name:?} takes at most 100 digits, got {digits}")));
+      }
+      let digits = digits as usize;
       let scale = 10f64.powi(digits as i32);
       let scaled = (n.abs() * scale + 0.5).floor();
       // Below 2^53 the scaled value is a whole number an f64 holds exactly, so
@@ -1292,8 +1305,14 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::Repeat => {
       let s = text(name, arg(0)?)?;
-      let n = number(name, arg(1)?)?.max(0.0) as usize;
-      Value::str(s.repeat(n))
+      let n = number(name, arg(1)?)?.max(0.0);
+      // JavaScript throws a RangeError when the result cannot be a string;
+      // unbounded this is an allocation the process does not survive.
+      let len = s.len() as f64 * n;
+      if !n.is_finite() || len > MAX_REPEAT as f64 {
+        return Err(Fail::internal(format!("{name:?} would build {len:.0} bytes")));
+      }
+      Value::str(s.repeat(n as usize))
     }
     Builtin::Join => {
       let Value::Seq(items) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "an array", arg(0)?)) };
@@ -1341,7 +1360,13 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       })
     }
     Builtin::Range => {
-      let n = number(name, arg(0)?)?.max(0.0) as i64;
+      let n = number(name, arg(0)?)?.max(0.0);
+      // A length from data would otherwise ask for an allocation the process
+      // does not survive, which aborts rather than failing the request.
+      if !n.is_finite() || n > MAX_RANGE as f64 {
+        return Err(Fail::internal(format!("{name:?} would build {n:.0} items")));
+      }
+      let n = n as i64;
       Value::Seq((0..n).map(|i| Value::F64(i as f64)).collect())
     }
     Builtin::Omit => {

@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e2b67d96383758636d9058bd1b07cc72e912b030132c4881b1976c4aad607469 # shrinks to name = ToFixed, a = Int(0), b = Int(170141183460469231731687303715884105727)
+cc c2fd00454f57917acf9e9fa1a0f6e621d7fd97effc1fcb198ee198f7e249ce1b # shrinks to name = Range, a = F64(inf), b = Int(0)
