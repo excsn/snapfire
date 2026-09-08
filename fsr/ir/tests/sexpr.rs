@@ -1,5 +1,5 @@
 //! The syntax layer under generated input: every term the printer can write
-//! must read back as itself, and no input at all may panic the parser.
+//! must read back as itself; no input at all may panic the parser.
 
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
@@ -12,7 +12,7 @@ use snapfire_fsr_ir::sexpr::{
 };
 
 /// Names and text as awkward as the format allows: empty, whitespace, every
-/// delimiter, the atoms that mean something else bare, and arbitrary unicode.
+/// delimiter, the atoms that mean something else bare, plus arbitrary unicode.
 fn text() -> BoxedStrategy<String> {
   prop_oneof![
     2 => "[a-zA-Z$#.:@/_-]{0,10}",
@@ -555,5 +555,138 @@ proptest! {
     prop_assume!(!matches!(c, 'n' | 'r' | 't'));
     let src = format!("\"\\{c}\"");
     prop_assert_eq!(parse(&src).map_err(|e| TestCaseError::fail(e.to_string()))?, vec![Sx::Str(c.to_string())]);
+  }
+}
+
+// Everything above generates from the printer's output, which is a strictly
+// smaller language than the parser accepts: the printer escapes four
+// characters, quotes a symbol only when it must and never writes a comment, so
+// a round-trip property can never reach the rest of what a hand-written or
+// generated file may contain. These generate the text instead.
+
+/// One valid spelling of `sx`, chosen among the several the grammar allows:
+/// a symbol may be bare or `|quoted|`, any character inside a quoted term may
+/// be written with a backslash, while whitespace may be any run of blanks or
+/// comments.
+fn spell(sx: &Sx, rng: &mut impl RngChoice, out: &mut String) {
+  match sx {
+    Sx::Sym(s) => {
+      if s.is_empty() || rng.yes() || !bare_ok(s) {
+        out.push('|');
+        escape_into(s, '|', rng, out);
+        out.push('|');
+      } else {
+        out.push_str(s);
+      }
+    }
+    Sx::Str(s) => {
+      out.push('"');
+      escape_into(s, '"', rng, out);
+      out.push('"');
+    }
+    Sx::Interp(inner) => {
+      out.push('{');
+      spell(inner, rng, out);
+      out.push('}');
+    }
+    Sx::List(items) => {
+      out.push('(');
+      for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+          gap(rng, out);
+        }
+        spell(item, rng, out);
+      }
+      out.push(')');
+    }
+  }
+}
+
+fn bare_ok(s: &str) -> bool {
+  !s.is_empty() && !s.bytes().any(|b| b.is_ascii_whitespace() || b"()\"|;{}\\".contains(&b))
+}
+
+/// A character may be written plainly or behind a backslash; `n`, `r` and `t`
+/// are the three the format spells, so those stay plain.
+fn escape_into(s: &str, quote: char, rng: &mut impl RngChoice, out: &mut String) {
+  for c in s.chars() {
+    match c {
+      '\\' => out.push_str("\\\\"),
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '\t' => out.push_str("\\t"),
+      c if c == quote => {
+        out.push('\\');
+        out.push(c);
+      }
+      'n' | 'r' | 't' => out.push(c),
+      c if rng.yes() => {
+        out.push('\\');
+        out.push(c);
+      }
+      c => out.push(c),
+    }
+  }
+}
+
+/// Whatever may sit between two terms: blanks, newlines and comments.
+fn gap(rng: &mut impl RngChoice, out: &mut String) {
+  match rng.pick(4) {
+    0 => out.push(' '),
+    1 => out.push_str("  \t "),
+    2 => out.push_str("\n  "),
+    _ => out.push_str(" ; a comment\n  "),
+  }
+}
+
+trait RngChoice {
+  fn pick(&mut self, n: usize) -> usize;
+  fn yes(&mut self) -> bool {
+    self.pick(2) == 0
+  }
+}
+
+/// A reproducible stream taken from the case proptest generated, so a failure
+/// shrinks with the rest of the input rather than drifting.
+struct Bits {
+  bytes: Vec<u8>,
+  at: usize,
+}
+
+impl RngChoice for Bits {
+  fn pick(&mut self, n: usize) -> usize {
+    if self.bytes.is_empty() {
+      return 0;
+    }
+    let b = self.bytes[self.at % self.bytes.len()];
+    self.at += 1;
+    b as usize % n
+  }
+}
+
+proptest! {
+  #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+  /// Any valid spelling of a form parses to that form. This reaches the
+  /// escapes, the quoting and the comments the printer never writes.
+  #[test]
+  fn any_spelling_of_a_form_parses_to_it(form in sx(), bytes in prop::collection::vec(any::<u8>(), 1..32)) {
+    let mut rng = Bits { bytes, at: 0 };
+    let mut text = String::new();
+    spell(&form, &mut rng, &mut text);
+    let parsed = parse(&text).map_err(|e| TestCaseError::fail(format!("{e}\n{text}")))?;
+    prop_assert_eq!(&parsed, &vec![form], "spelled as: {}", text);
+  }
+
+  /// Reading text and printing it gives text that reads the same: the printer
+  /// normalises a spelling, it never changes what the term is.
+  #[test]
+  fn printing_a_parsed_form_is_idempotent(form in sx(), bytes in prop::collection::vec(any::<u8>(), 1..32)) {
+    let mut rng = Bits { bytes, at: 0 };
+    let mut text = String::new();
+    spell(&form, &mut rng, &mut text);
+    let once = parse(&text).map_err(|e| TestCaseError::fail(e.to_string()))?;
+    let twice = parse(&print(&once)).map_err(|e| TestCaseError::fail(e.to_string()))?;
+    prop_assert_eq!(once, twice);
   }
 }
