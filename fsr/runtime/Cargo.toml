@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_runtime"
-version = "0.6.1"
+version = "0.6.2"
 description = "Request blocks for SnapFire FSR: matching, resolution, data sources, evaluation and assembly."
 keywords = ["snapfire", "fsr", "ssr", "streaming", "cache"]
 categories = ["web-programming::http-server"]
