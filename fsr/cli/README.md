@@ -21,6 +21,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Emit the whole artifact: the plan, the generated types, the tsconfigs and the browser bundle | `fsr build <app>` |
 | See what a build would emit without writing | `fsr check <app>` |
 | Check a deployment for what the host will not refuse to start over | `fsr doctor <app>` |
+| Write the deploy tree, checked first | `fsr bundle <app> [--out <dir>]` |
 | Vendor a package for the browser | `fsr add <app> react@18.3.1` |
 | Fetch declarations for the editor and `tsc` | `fsr types <app>` |
 | Keep an xwpm application in step | an `xwpm.wmf` in the app; the same commands |

@@ -10,6 +10,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr build](#fsr-build)
   * [fsr check](#fsr-check)
   * [fsr doctor](#fsr-doctor)
+  * [fsr bundle](#fsr-bundle)
   * [fsr serve](#fsr-serve)
   * [Sites](#sites)
 * [2. The Build](#2-the-build)
@@ -72,7 +73,15 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 * `Report { findings: Vec<Finding>, clean: Vec<&'static str> }`, `Report::is_clean`; `Display` prints one finding per pair of lines, the fact then the remedy, followed by a count.
 * `Finding { check: &'static str, what: String, remedy: String }`. `check` is the short name a report can be grepped for.
 * The checks, each answering from what a build already computed: `canonical`, `[document] origin` unset while the deployment names hosts or prerenders; `ctx.host`, a body reading `ctx.host` against an empty `[server] hosts`; `locales`, a supported locale with no catalog under `locales/`; `stale`, a plan missing or older than `routes/`, `src/`, `clients/` or `schemas/`; `vendor`, an import map naming a package with nothing under `vendor/`; `render`, `[server] render` set to `islands` on a plan with no island; `statics`, a `[[static]]` root with no directory; `sites`, a `name@version` mount pinning no hash, an artifact missing a part it ships or missing its plan, a site plan older than its routes and artifacts under the root no mount names.
-* Reports only. A condition the host refuses to start over stays a boot error rather than moving here.
+* Reports only. A condition the host refuses to start over stays a boot error rather than moving here. `fsr bundle` calls this before it writes, so a deploy that ends in a bundle needs no separate step.
+
+### fsr bundle
+
+* `fsr bundle <app dir> [--out <dir>] [--no-doctor]`
+* `bundle::run(app: &Path, out: &Path) -> Result<Bundled, BuildError>`: the deploy tree, `dist/` beside the project by default. Every static root lands under `serve/<route>/` for a web server to point at, and the parts the host reads keep the paths they hold in the project.
+* Runs `doctor::run` over the project before writing anything and returns `BuildError::Doctor(Report)` on a finding, which carries the findings rather than a summary so the caller prints the remedies. Nothing is written when it refuses.
+* `bundle::run_checked(app, out, check)` is the same with the check optional, which is `--no-doctor`.
+* `Bundled { out, served: Vec<(String, PathBuf)>, read: Vec<PathBuf>, beside: Vec<&'static str> }`. `bundle::SERVE` is `"serve"`, the one directory a web server is pointed at.
 
 ### fsr serve
 

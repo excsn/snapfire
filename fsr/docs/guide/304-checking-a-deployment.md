@@ -19,8 +19,16 @@ fsr doctor app
 It reads the configuration and the plan the way the host would, runs every check and prints what it found with what to do about it. Nothing found is exit 0. Anything found is exit 1, so a deploy script can stop on it:
 
 ```sh
-fsr build app && fsr doctor app && fsr bundle app
+fsr build app && fsr doctor app
 ```
+
+`fsr bundle` runs the same checks itself and refuses on a finding, so a deploy that ends in a bundle needs no separate step:
+
+```sh
+fsr build app && fsr bundle app
+```
+
+The command stays worth running on its own in CI, where there is a plan to check but no tree to write. `fsr bundle --no-doctor` skips the check for a caller that means to bundle anyway.
 
 ## What it checks
 

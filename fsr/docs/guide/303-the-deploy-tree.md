@@ -30,6 +30,8 @@ The process reads `config/` and `app/generated/` from its working directory. The
 
 `fsr bundle <app> [--out <dir>]` produces that tree. It defaults to `dist/` beside the project.
 
+It runs the checks chapter 304 describes before it writes anything, so a finding stops it. A bundle is a thing about to be shipped, so the moment to notice that the canonical link is relative or that a mounted site pins nothing is before the tree exists rather than after a server is serving it. `--no-doctor` bundles anyway, for the case where the finding is understood and the tree is wanted regardless.
+
 ```
 $ fsr bundle app --out dist
 serve/static/js/fsr      app/../public/static/js/fsr

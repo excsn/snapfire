@@ -29,8 +29,22 @@ pub struct Bundled {
 /// the paths they hold in the project, where the host's configuration and its
 /// inference both already look for them.
 pub fn run(app: &Path, out: &Path) -> Result<Bundled, BuildError> {
+  run_checked(app, out, true)
+}
+
+/// `run` with the check made optional. A bundle is a thing about to be
+/// shipped, so the checks run before anything is written and a finding stops
+/// it; `check` is false only for a caller that means to bundle anyway.
+pub fn run_checked(app: &Path, out: &Path, check: bool) -> Result<Bundled, BuildError> {
   let root = project_root(app);
   let config = Config::load(&root).map_err(|e| BuildError::Bundle(e.to_string()))?;
+
+  if check {
+    let report = crate::doctor::run(&root).map_err(|e| BuildError::Bundle(e.to_string()))?;
+    if !report.is_clean() {
+      return Err(BuildError::Doctor(report));
+    }
+  }
 
   if out.exists() {
     std::fs::remove_dir_all(out).map_err(|e| BuildError::Io(out.to_path_buf(), e))?;

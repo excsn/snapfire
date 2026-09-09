@@ -34,6 +34,10 @@ use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
+  /// What `fsr doctor` found, when a bundle asked for it first. Carries the
+  /// report so a caller prints the findings rather than a summary of them.
+  #[error("{0}")]
+  Doctor(crate::doctor::Report),
   #[error("{0}: {1}")]
   Io(PathBuf, std::io::Error),
   #[error("no `routes/` directory under {0}")]

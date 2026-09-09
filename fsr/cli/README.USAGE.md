@@ -506,8 +506,10 @@ A package with nothing to fetch is reported `missing` and the build goes on; its
 `fsr doctor <app dir>` reads the configuration and the plan the way the host would, then reports what starts and serves without doing what it says. The host is already strict at boot: a declared action nothing answers, a bundle carrying a server module, a route claimed twice. Those stop the process. Doctor is the middle, the settings that load cleanly and still cannot do their job.
 
 ```sh
-fsr build app && fsr doctor app && fsr bundle app
+fsr build app && fsr doctor app
 ```
+
+`fsr bundle` runs the same checks before it writes anything and refuses on a finding, so a deploy ending in a bundle needs no separate step; `--no-doctor` skips it.
 
 Nothing found is exit 0, anything found is exit 1, so a deploy script stops on it. A finding is the fact and then the remedy:
 

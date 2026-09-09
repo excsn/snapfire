@@ -10,7 +10,7 @@ use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>] [--no-pin]\n       fsr sites pin    <shell dir> [<name>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>] [--no-doctor]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>] [--no-pin]\n       fsr sites pin    <shell dir> [<name>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -129,15 +129,20 @@ fn main() -> ExitCode {
     }
     "bundle" => {
       let mut out: Option<PathBuf> = None;
-      let mut rest = rest.iter();
+      let mut check = true;
+      let mut rest = rest.iter().peekable();
       while let Some(flag) = rest.next() {
-        match (flag.as_str(), rest.next()) {
-          ("--out", Some(value)) => out = Some(PathBuf::from(value)),
+        match flag.as_str() {
+          "--no-doctor" => check = false,
+          "--out" => match rest.next() {
+            Some(value) => out = Some(PathBuf::from(value)),
+            None => return usage(),
+          },
           _ => return usage(),
         }
       }
       let out = out.unwrap_or_else(|| snapfire_fsr_cli::serve::project_root(&app).join("dist"));
-      match snapfire_fsr_cli::bundle::run(&app, &out) {
+      match snapfire_fsr_cli::bundle::run_checked(&app, &out, check) {
         Ok(bundled) => {
           for (route, from) in &bundled.served {
             println!("{:<24} {}", format!("{}/{}", bundle::SERVE, route.trim_start_matches('/')), from.display());
