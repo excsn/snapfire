@@ -486,6 +486,7 @@ impl Env {
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Locale => Ok(self.locale()),
       Expr::Path => Ok(Value::str(self.ctx.path.clone())),
+      Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
       Expr::Identity(path) => {
         let mut current = self.identity.clone().unwrap_or(Value::Null);
         for step in path {
@@ -787,6 +788,7 @@ impl Env {
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Locale => Ok(self.locale()),
         Expr::Path => Ok(Value::str(self.ctx.path.clone())),
+        Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
         Expr::Identity(path) => {
           let mut current = self.identity.clone().unwrap_or(Value::Null);
           for step in path {

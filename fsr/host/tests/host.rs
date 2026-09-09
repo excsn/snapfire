@@ -3455,3 +3455,209 @@ async fn a_source_reading_the_identity_is_warmed_for_anonymous_visitors_alone() 
   );
   std::fs::remove_dir_all(&out).ok();
 }
+
+/// An app whose `/where` loader returns `ctx.host`, with `server.hosts` set to
+/// `listed` and left out entirely when that is empty.
+fn host_reading_host(listed: &[&str]) -> Arc<Host> {
+  let dir = app_dir();
+  write_plan(&dir, &PLAN.replace(r#"{ "field": [ "here", "path" ] }"#, r#"{ "field": [ "here", "host" ] }"#));
+  if !listed.is_empty() {
+    let quoted: Vec<String> = listed.iter().map(|h| format!("\"{h}\"")).collect();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace(
+      "listen = \"127.0.0.1:0\"",
+      &format!("listen = \"127.0.0.1:0\"\nhosts = [{}]", quoted.join(", ")),
+    );
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+  }
+  let transport =
+    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+  Arc::new(
+    Host::from(dir.join("app.toml"))
+      .unwrap()
+      .services_over(transport)
+      .build()
+      .unwrap(),
+  )
+}
+
+async fn where_with_host(host: &Host, sent: &str) -> String {
+  let response = host
+    .handle(Request::get("/where").header(header::HOST, sent).body(Bytes::new()).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  body_of(response).await
+}
+
+#[tokio::test]
+async fn ctx_host_answers_only_a_host_the_configuration_lists() {
+  let host = host_reading_host(&["example.com", "www.example.com"]);
+
+  let html = where_with_host(&host, "example.com").await;
+  assert!(html.contains(r#"{"here":"example.com","#), "a listed host reaches the body: {html}");
+
+  let html = where_with_host(&host, "WWW.Example.COM").await;
+  assert!(
+    html.contains(r#"{"here":"www.example.com","#),
+    "matched case-insensitively, answered as configured: {html}"
+  );
+
+  let html = where_with_host(&host, "evil.com").await;
+  assert!(
+    html.contains(r#"{"here":null,"#),
+    "a host the list does not hold never reaches the body: {html}"
+  );
+
+  let html = where_with_host(&host, "example.com:8080").await;
+  assert!(
+    html.contains(r#"{"here":null,"#),
+    "the comparison is whole, so a port is part of the entry or it does not match: {html}"
+  );
+}
+
+#[tokio::test]
+async fn a_source_reading_the_host_is_neither_memoized_nor_prerendered() {
+  let host = host_reading_host(&["example.com", "other.example.com"]);
+  let report = host.report();
+  assert!(
+    !report.app.warmable.iter().any(|s| s == "where"),
+    "a host read is dynamic, so the load is not memoized: {:?}",
+    report.app.warmable
+  );
+  assert!(
+    !report.app.prerenderable.iter().any(|p| p == "/where")
+      && !report.app.prerenderable_anonymous.iter().any(|p| p == "/where"),
+    "and the route is not prerendered; one host would otherwise answer the other"
+  );
+  assert_eq!(report.hosts, vec!["example.com".to_owned(), "other.example.com".to_owned()]);
+}
+
+/// An app whose document head carries a canonical and two alternates, with
+/// `document.origin` set to `origin` when it is given.
+fn host_with_origin(origin: Option<&str>) -> Arc<Host> {
+  let dir = app_dir();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  if let Some(origin) = origin {
+    toml = toml.replace("title = \"Test <app>\"", &format!("title = \"Test <app>\"\norigin = \"{origin}\""));
+  }
+  toml.push_str(
+    r#"
+[[document.head]]
+tag = "link"
+rel = "canonical"
+href = "/about"
+
+[[document.head]]
+tag = "link"
+rel = "alternate"
+hreflang = "fr"
+href = "/fr/about"
+
+[[document.head]]
+tag = "link"
+rel = "alternate"
+hreflang = "de"
+href = "https://de.example.org/about"
+
+[[document.head]]
+tag = "link"
+rel = "icon"
+href = "/icon.png"
+"#,
+  );
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let transport =
+    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+  Arc::new(
+    Host::from(dir.join("app.toml"))
+      .unwrap()
+      .services_over(transport)
+      .build()
+      .unwrap(),
+  )
+}
+
+#[tokio::test]
+async fn an_origin_makes_canonical_and_alternate_hrefs_absolute() {
+  let host = host_with_origin(Some("https://example.com"));
+  let html = host
+    .render_to_string("/", RenderMode::Html, SessionCell::default())
+    .await
+    .unwrap();
+
+  assert!(
+    html.contains(r#"href="https://example.com/about" rel="canonical""#),
+    "a path on rel=canonical is absolute, which is the only form a crawler reads: {html}"
+  );
+  assert!(
+    html.contains(r#"href="https://example.com/fr/about" hreflang="fr""#),
+    "and so is one on rel=alternate: {html}"
+  );
+  assert!(
+    html.contains(r#"href="https://de.example.org/about" hreflang="de""#),
+    "an href already absolute is left as written, wherever it points: {html}"
+  );
+  assert!(
+    html.contains(r#"href="/icon.png" rel="icon""#),
+    "every other rel keeps its path, since a crawler reads those relative: {html}"
+  );
+}
+
+#[tokio::test]
+async fn without_an_origin_every_href_is_written_as_the_application_wrote_it() {
+  let host = host_with_origin(None);
+  let html = host
+    .render_to_string("/", RenderMode::Html, SessionCell::default())
+    .await
+    .unwrap();
+  assert!(html.contains(r#"href="/about" rel="canonical""#), "{html}");
+  assert!(html.contains(r#"href="/fr/about" hreflang="fr""#), "{html}");
+}
+
+#[test]
+fn an_origin_that_is_not_a_scheme_and_a_host_refuses_to_start() {
+  for (written, want) in [
+    ("example.com", "scheme"),
+    ("https://", "names no host"),
+    ("https://example.com/docs", "carries a path"),
+    ("https://example.com/", "carries a path"),
+  ] {
+    let dir = app_dir();
+    let toml = std::fs::read_to_string(dir.join("app.toml"))
+      .unwrap()
+      .replace("title = \"Test <app>\"", &format!("title = \"Test <app>\"\norigin = \"{written}\""));
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    let err = match Host::from(dir.join("app.toml")).unwrap().build() {
+      Ok(_) => panic!("`{written}` must be refused"),
+      Err(e) => e,
+    };
+    assert!(
+      err.to_string().contains(want),
+      "`{written}` must be refused with `{want}`, got `{err}`"
+    );
+  }
+}
+
+#[tokio::test]
+async fn the_locale_canonical_is_absolute_once_an_origin_is_configured() {
+  let dir = localised_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml"))
+    .unwrap()
+    .replace("title = \"Test <app>\"", "title = \"Test <app>\"\norigin = \"https://example.com\"");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let transport =
+    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .build()
+    .unwrap();
+
+  let html = host
+    .render_to_string("/en-us/hello/norm?from=test", RenderMode::Html, SessionCell::default())
+    .await
+    .unwrap();
+  assert!(
+    html.contains("<link rel=\"canonical\" href=\"https://example.com/hello/norm\">"),
+    "the host's own locale canonical carries the origin too: {html}"
+  );
+}

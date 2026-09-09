@@ -121,6 +121,10 @@ pub struct Head {
   /// The head elements every document carries, from `[document.head]` and
   /// what the host inferred. A segment's `meta` folds over these.
   pub head: Vec<HeadEl>,
+  /// `scheme://host` for this deployment, `[document] origin`. A crawler reads
+  /// `rel=canonical` and `rel=alternate` as absolute URLs only, so a path on
+  /// either is prefixed with this. Absent, an href is written as given.
+  pub origin: Option<String>,
 }
 
 /// How a response's own stylesheets are written into a document, and the mark
@@ -138,8 +142,13 @@ impl Head {
       styles: Vec::new(),
       catalog: None,
       head: Vec::new(),
+      origin: None,
     }
   }
+
+  /// Every `rel` whose href a crawler reads as an absolute URL, so a path on
+  /// one is not a weaker version of the tag but an ignored one.
+  const ABSOLUTE_RELS: [&'static str; 2] = ["canonical", "alternate"];
 
   /// The head node for a document: `rest`, then the title and description
   /// with `meta` overriding the defaults, then the response's own stylesheets
@@ -164,6 +173,19 @@ impl Head {
       head: self.head.clone(),
     };
     merged.merge(meta.clone());
+    if let Some(origin) = &self.origin {
+      for element in &mut merged.head {
+        let rel = element.attrs.iter().find(|(k, _)| k == "rel").map(|(_, v)| v.as_str());
+        if !rel.is_some_and(|rel| Self::ABSOLUTE_RELS.contains(&rel)) {
+          continue;
+        }
+        for (name, value) in element.attrs.iter_mut() {
+          if name == "href" && is_path(value) {
+            *value = format!("{origin}{value}");
+          }
+        }
+      }
+    }
     for element in &merged.head {
       element.render(&mut tail);
     }
@@ -189,6 +211,7 @@ impl From<Node> for Head {
       styles: Vec::new(),
       catalog: None,
       head: Vec::new(),
+      origin: None,
     }
   }
 }
@@ -203,6 +226,12 @@ impl From<&Head> for Head {
   fn from(head: &Head) -> Self {
     head.clone()
   }
+}
+
+/// A path on this deployment's own origin, which is what an origin may be put
+/// in front of: `/` first and not a scheme-relative `//host`.
+fn is_path(href: &str) -> bool {
+  href.starts_with('/') && !href.starts_with("//")
 }
 
 fn escape(text: &str) -> String {

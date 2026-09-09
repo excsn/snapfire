@@ -33,6 +33,7 @@ pub struct Mock {
   pub identity: Option<Expr>,
   pub locale: Option<Expr>,
   pub path: Option<Expr>,
+  pub host: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,6 +340,7 @@ impl<'a> TestLowerer<'a> {
         "identity" => mock.identity = Some(self.lowerer.expr(value)?),
         "locale" => mock.locale = Some(self.lowerer.expr(value)?),
         "path" => mock.path = Some(self.lowerer.expr(value)?),
+        "host" => mock.host = Some(self.lowerer.expr(value)?),
         "services" => {
           let js::Expr::Object(services) = value else {
             return Err(self.lowerer.residue(value.span(), "`services` must be an object of services"));

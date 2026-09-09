@@ -276,6 +276,11 @@ pub struct HostReport {
   pub dev: bool,
   /// The configured locales, the default first; empty without a `[locales]` section.
   pub locales: Vec<String>,
+  /// The hosts a request's `Host` is matched against, `server.hosts`; empty
+  /// when the header is never read.
+  pub hosts: Vec<String>,
+  /// `document.origin`, which a canonical or alternate href is absolute against.
+  pub origin: Option<String>,
   /// The identity provider and its login page, when one is mounted.
   pub auth: Option<(String, String)>,
   /// Client, custody key: which clients send a bearer token.
@@ -390,6 +395,20 @@ impl std::fmt::Display for HostReport {
         f,
         "{:<9} live refresh on /__fsr/events, told by POST /__fsr/changed",
         "dev"
+      )?;
+    }
+    if let Some(origin) = &self.origin {
+      writeln!(f, "{:<9} {origin}, which canonical and alternate hrefs are absolute against", "origin")?;
+    }
+    for (i, host) in self.hosts.iter().enumerate() {
+      let label = if i == 0 { "hosts" } else { "" };
+      writeln!(f, "{label:<9} {host}")?;
+    }
+    if !self.hosts.is_empty() {
+      writeln!(
+        f,
+        "{:<9} ctx.host reads the request's Host against these; the server in front must set it; a client otherwise names its own",
+        ""
       )?;
     }
     if self.http2 {
@@ -531,6 +550,11 @@ pub struct Host {
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
   max_body: usize,
+  /// The hosts a request's `Host` is matched against, `server.hosts`,
+  /// lowercased once at boot. Empty, the header is never read.
+  hosts: Vec<String>,
+  /// `document.origin`, checked at boot, which the canonical link carries.
+  origin: Option<String>,
   /// Whether `serve_listener` negotiates HTTP/2 as well as HTTP/1.1 on a
   /// connection, `server.http2`.
   http2: bool,
@@ -701,6 +725,8 @@ struct Incoming {
   /// The locale whose catalog the navigator already holds, `x-sf-catalog`,
   /// so a payload for that locale carries no `D` row.
   held_catalog: Option<String>,
+  /// The request's `Host`, already matched against `server.hosts`.
+  host: Option<String>,
 }
 
 impl Incoming {
@@ -710,6 +736,7 @@ impl Incoming {
       csrf: None,
       credentials: Arc::new(NoCredentials),
       held_catalog: None,
+      host: None,
     }
   }
 }
@@ -1115,7 +1142,7 @@ impl Host {
       extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts))));
     }
     if visit.prefixed && visit.locale.is_default {
-      extra.push(snapfire_fsr_core::Node::raw(shell::canonical(&visit.path)));
+      extra.push(snapfire_fsr_core::Node::raw(shell::canonical(self.origin.as_deref(), &visit.path)));
     }
     let site = t.site_for(&visit.path);
     if let Some(entry) = site.and_then(|s| s.entry.as_deref()) {
@@ -1657,6 +1684,7 @@ impl Host {
       path: path.to_owned(),
       session: incoming.session,
       locale,
+      host: incoming.host,
       csrf: incoming.csrf,
       services,
       natives: snapfire_fsr_runtime::NativeHandle::new(t.app.natives.clone()),
@@ -1666,19 +1694,31 @@ impl Host {
   /// What a request at the edge carries: the session, its custody and, once
   /// the session is identified, a CSRF token. An anonymous request carries no
   /// token so its renders share the memo; the token joins the memo key.
-  fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>) -> Incoming {
-    let mut incoming = self.incoming(opened);
+  fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>) -> Incoming {
+    let mut incoming = self.incoming(opened, host);
     incoming.held_catalog = held_catalog;
     incoming
   }
 
-  fn incoming(&self, opened: &Opened) -> Incoming {
+  /// The request's `Host` when `server.hosts` lists it. Absent that key nothing
+  /// is read. A header naming an unlisted host answers `None`, so a client
+  /// cannot choose what a body sees.
+  fn matched_host(&self, headers: &header::HeaderMap) -> Option<String> {
+    if self.hosts.is_empty() {
+      return None;
+    }
+    let asked = headers.get(header::HOST)?.to_str().ok()?.to_lowercase();
+    self.hosts.iter().find(|h| **h == asked).cloned()
+  }
+
+  fn incoming(&self, opened: &Opened, host: Option<String>) -> Incoming {
     let csrf = (self.csrf_always || opened.cell.identity().is_some()).then(|| self.sessions.csrf_token(&opened.id));
     Incoming {
       session: opened.cell.clone(),
       csrf,
       credentials: Arc::new(opened.tokens.clone()),
       held_catalog: None,
+      host,
     }
   }
 
@@ -2016,7 +2056,7 @@ impl Host {
         req.method().as_str(),
         &path,
         &raw_query,
-        self.incoming(opened),
+        self.incoming(opened, self.matched_host(req.headers())),
         &visit.locale,
       )
       .await
@@ -2124,7 +2164,7 @@ impl Host {
           }
         };
         let mut response = match self
-          .dispatch_action(t, id, self.incoming(opened), &visit.path, visit.locale.clone(), input)
+          .dispatch_action(t, id, self.incoming(opened, self.matched_host(req.headers())), &visit.path, visit.locale.clone(), input)
           .await
         {
           Ok(_) if is_form => {
@@ -2171,7 +2211,7 @@ impl Host {
           req.method().as_str(),
           target_path,
           target_query,
-          self.incoming(opened),
+          self.incoming(opened, self.matched_host(req.headers())),
           &visit.locale,
           input,
         )
@@ -2259,7 +2299,7 @@ impl Host {
           target_query,
           from.as_deref(),
           into.as_deref(),
-          self.incoming_holding(opened, held_catalog.clone()),
+          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
         )
         .await
     } else {
@@ -2269,7 +2309,7 @@ impl Host {
           &target_visit,
           target_query,
           mode,
-          self.incoming_holding(opened, held_catalog.clone()),
+          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
         )
         .await
     };
@@ -2281,7 +2321,7 @@ impl Host {
           &target_visit,
           target_query,
           mode,
-          self.incoming_holding(opened, held_catalog.clone()),
+          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
         )
         .await
       {
@@ -3415,6 +3455,8 @@ impl HostBuilder {
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
       max_body: config.server.max_body,
+      hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
+      origin: config.origin()?,
       http2,
       #[cfg(feature = "tls")]
       tls,
@@ -3706,6 +3748,7 @@ impl HostBuilder {
       config.document.entry.as_deref(),
     );
     head.head = config.document.head_meta()?.head;
+    head.origin = config.origin()?;
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
 
@@ -3825,6 +3868,8 @@ impl HostBuilder {
       cache: cache_row,
       dev,
       locales: locale_rows,
+      hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
+      origin: config.origin()?,
       catalogs: catalog_rows,
       auth: auth_row,
       bearer: bearer_rows,

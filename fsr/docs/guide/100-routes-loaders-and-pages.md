@@ -87,6 +87,19 @@ export async function load({ locale, services }: Ctx) {
 
 The ops console picks its language from the settings drawer, two document loads with a prefix each, and the host remembers the choice in a cookie.
 
+## The loader can know the host
+
+`ctx.host` is the host the request named, for a deployment that answers on more than one and has to tell them apart: an absolute URL in a `rel=canonical`, a tenant read off the domain. It is `string | null`. It is null until `[server] hosts` lists the hosts, which chapter 200 covers along with what the server in front has to do for the value to mean anything.
+
+```ts
+export const meta = ({ data }: MetaCtx<Data>) => ({
+  title: data.title,
+  head: [canonical(`https://${data.host}/docs/${data.slug}`)],
+});
+```
+
+A source reading it is never prerendered, since two configured hosts are two answers.
+
 ## The page receives what the loader returned
 
 The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `RootProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.

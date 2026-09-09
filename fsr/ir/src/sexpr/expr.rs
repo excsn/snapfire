@@ -26,6 +26,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::Identity(path) => form("identity", path.iter().map(|p| Sx::Sym(p.clone())).collect()),
     Expr::Locale => form("locale", vec![]),
     Expr::Path => form("path", vec![]),
+    Expr::Host => form("host", vec![]),
     Expr::Input => form("input", vec![]),
     Expr::Now => form("now", vec![]),
     Expr::Object(entries) => form("obj", entries.iter().map(entry_to_sx).collect()),
@@ -137,6 +138,10 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "path" => {
       args(items, head, 0)?;
       Expr::Path
+    }
+    "host" => {
+      args(items, head, 0)?;
+      Expr::Host
     }
     "input" => {
       args(items, head, 0)?;

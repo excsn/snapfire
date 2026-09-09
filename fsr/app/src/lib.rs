@@ -1060,7 +1060,7 @@ fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, 
     let mut class = Static::Fixed;
     body_visit(body, &mut |e| {
       let read = match e {
-        Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Now => Static::Dynamic,
+        Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Now | Expr::Host => Static::Dynamic,
         Expr::Input if input_is_request => Static::Dynamic,
         Expr::Identity(_) => Static::Anonymous,
         Expr::Call { service, .. } if bearer.contains(service) => Static::Anonymous,

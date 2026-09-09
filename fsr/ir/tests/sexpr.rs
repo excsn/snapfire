@@ -83,6 +83,7 @@ fn expr() -> BoxedStrategy<Expr> {
     prop::collection::vec(text(), 0..3).prop_map(Expr::Identity),
     Just(Expr::Locale),
     Just(Expr::Path),
+    Just(Expr::Host),
     Just(Expr::Input),
     Just(Expr::Now),
   ];

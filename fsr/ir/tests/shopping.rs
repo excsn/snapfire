@@ -69,6 +69,7 @@ fn ctx(mock: Arc<Mock>, params: &[(&str, &str)], session: ValueMap) -> RequestCt
     path: String::new(),
     session: SessionCell::new(session, None),
     locale: Default::default(),
+    host: None,
     csrf: None,
     services: ServiceHandle::new(mock), natives: Default::default() 
   }
@@ -361,6 +362,7 @@ fn identity_and_now_are_reads() {
     path: String::new(),
     session: SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims })),
     locale: Default::default(),
+    host: None,
     csrf: None,
     services: ServiceHandle::default(), natives: Default::default() 
   };

@@ -45,6 +45,42 @@ inferred  document.entry from dist/.snapfire-build.json
 
 **Nothing the host decided is invisible.** That is the contract the report keeps with the person reading the log at three in the morning.
 
+## The origin a canonical link points at
+
+A crawler reads `rel=canonical` and `rel=alternate` as absolute URLs only. A path on either is not a weaker version of the tag, it is an ignored one, so name the origin this deployment is reached at:
+
+```toml
+[document]
+origin = "https://example.com"
+```
+
+The host then writes every path href on those two rels absolute, whichever of three places it came from. A `canonical()` a loader's `meta` returned. A `[[document.head]]` row. Its own locale canonical, the one pointing `/en_US/about` at `/about` so a prefixed request for the default locale is not a second page. An href that is already absolute is left exactly as written, which is how a cross-domain `alternate` still works. Every other `rel` keeps its path, since a crawler reads those relative to the document.
+
+It is the scheme and the host and nothing else. A trailing slash or a path is refused at boot rather than producing `https://example.com//about` on a live page. A value with no scheme is refused the same way, since the scheme is the part a host name cannot supply on its own.
+
+This is a deployment's one preferred origin, not the host a request arrived on. Those differ on purpose: two host names serving the same pages is exactly what a canonical link exists to collapse, so a self-referential one per host would assert both as originals and create the duplicate it is meant to prevent. An application that genuinely serves a different site per host wants `ctx.host` and a `canonical()` it builds itself, which passes through untouched because it is already absolute.
+
+## The host this deployment answers on
+
+A body reads `ctx.host`. It is null until `[server]` lists the hosts the deployment answers on:
+
+```toml
+[server]
+hosts = ["example.com", "www.example.com"]
+```
+
+The list is an allowlist, not a format. A request's `Host` is lowercased and compared whole, port included, so a deployment on a port lists the port and `localhost:3000` is a separate entry from `localhost`. A header naming anything the list does not hold answers null rather than the value the client sent, so nothing a caller writes reaches a body unless the deployment already named it.
+
+**The server in front must set the header.** `ctx.host` is only as trustworthy as whatever terminates the connection, because a value the list happens to hold is indistinguishable from the same value sent by hand. With nginx that is `proxy_set_header Host $host;` under a `server_name` that matches, plus a default server for the socket so a request naming something else is answered there instead of being passed through. The boot report says so on every start while the key is set:
+
+```
+hosts     example.com
+          www.example.com
+          ctx.host reads the request's Host against these; the server in front must set it; a client otherwise names its own
+```
+
+Leave the key out and the header is never read at all, which is the default and the right setting for an application that does not need it.
+
 ## The boot report
 
 Boot prints the application's report, every route, source, action and rendered module with its owner, then the services with their transport and base URL, the static roots, the configuration files and the inferences. It is the same table the build printed, with the host's own rows added. A host that cannot bind a name refuses to boot with the name, rather than serving a plan it cannot answer; the failure modes are a source nothing answers, an action nothing answers, a route claimed twice without an override and a service with no transport.

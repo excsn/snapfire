@@ -138,6 +138,10 @@ pub struct RequestCtx {
   pub path: String,
   pub session: SessionCell,
   pub locale: Locale,
+  /// The host the request named, already matched against `[server] hosts`.
+  /// `None` when that key is unset, so nothing a client sends reaches a body
+  /// unless the deployment listed it.
+  pub host: Option<String>,
   pub csrf: Option<String>,
   pub services: ServiceHandle,
   /// The application's own Rust, `ctx.native`. No wire, so no contract and no
@@ -153,6 +157,7 @@ impl RequestCtx {
       path: String::new(),
       session: SessionCell::default(),
       locale: Locale::default(),
+      host: None,
       csrf: None,
       services: ServiceHandle::default(),
       natives: crate::natives::NativeHandle::default(),

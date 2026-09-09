@@ -76,9 +76,15 @@ pub fn dev_script(bundle: &str) -> String {
 }
 
 /// The canonical link a prefixed request for the default locale carries, so
-/// `/en_US/about` and `/about` are one page to a crawler.
-pub fn canonical(path: &str) -> String {
-  format!("<link rel=\"canonical\" href=\"{}\">", escape(path))
+/// `/en_US/about` and `/about` are one page to a crawler. A crawler reads the
+/// href as an absolute URL only, so `document.origin` goes in front of it when
+/// the deployment names one.
+pub fn canonical(origin: Option<&str>, path: &str) -> String {
+  let href = match origin {
+    Some(origin) => format!("{origin}{path}"),
+    None => path.to_owned(),
+  };
+  format!("<link rel=\"canonical\" href=\"{}\">", escape(&href))
 }
 
 fn escape(text: &str) -> String {

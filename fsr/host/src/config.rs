@@ -125,6 +125,13 @@ pub struct ServerConfig {
   /// before anything reads it. Default 1 MiB.
   #[serde(default = "default_max_body")]
   pub max_body: usize,
+  /// The hosts this deployment answers on, which a body reads as `ctx.host`.
+  /// Empty, the request's `Host` is never read and `ctx.host` is null. A
+  /// header naming anything absent from this list does not match, so a client
+  /// cannot put a host of its own into a body. Compared lowercased and whole,
+  /// port included, so a deployment on a port lists the port.
+  #[serde(default)]
+  pub hosts: Vec<String>,
   /// Where `prerender` writes and the host reads a route rendered once at
   /// build time, relative to the app directory. Absent, nothing is prerendered.
   #[serde(default)]
@@ -203,6 +210,7 @@ impl Default for ServerConfig {
       plan: default_plan(),
       contracts: default_contracts(),
       max_body: default_max_body(),
+      hosts: Vec::new(),
       prerender: None,
       dev: None,
       render: default_render(),
@@ -232,6 +240,12 @@ pub struct DocumentConfig {
   pub head: Vec<BTreeMap<String, String>>,
   #[serde(default = "default_shell")]
   pub shell: String,
+  /// `scheme://host` this deployment is reached at, with no trailing slash.
+  /// A crawler reads `rel=canonical` and `rel=alternate` as absolute URLs
+  /// only, so the host prefixes a path on either with this. Absent, both are
+  /// written as the application wrote them.
+  #[serde(default)]
+  pub origin: Option<String>,
 }
 
 impl DocumentConfig {
@@ -1099,6 +1113,27 @@ impl Config {
       .and_then(|p| p.parent())
       .map(Path::to_path_buf)
       .unwrap_or_else(|| self.root.clone())
+  }
+
+  /// `document.origin` checked: a scheme this host can be reached over, a
+  /// host after it and nothing else, since anything further would land in the
+  /// middle of a URL it is prefixed to.
+  pub fn origin(&self) -> Result<Option<String>, HostError> {
+    let Some(origin) = self.document.origin.as_deref() else {
+      return Ok(None);
+    };
+    let why = |reason: &str| HostError::Value("document.origin".to_owned(), format!("`{origin}` {reason}"));
+    let rest = origin
+      .strip_prefix("https://")
+      .or_else(|| origin.strip_prefix("http://"))
+      .ok_or_else(|| why("needs an https:// or http:// scheme"))?;
+    if rest.is_empty() {
+      return Err(why("names no host"));
+    }
+    if rest.contains('/') {
+      return Err(why("carries a path; an origin is the scheme and host alone"));
+    }
+    Ok(Some(origin.to_owned()))
   }
 
   pub fn session_ttl(&self) -> Result<Duration, HostError> {

@@ -336,3 +336,26 @@ export async function load(ctx: Ctx) {
   assert_eq!(body, vec![Stmt::Return(Expr::object(vec![("locale", Expr::Locale)]))]);
   assert!(!snapfire_fsr_ir::body_reads_request(&body), "the locale alone leaves a route prerenderable, once per locale");
 }
+
+#[test]
+fn the_host_lowers_destructured_and_through_ctx() {
+  let destructured = r#"
+export async function load({ host }: Ctx) {
+  return { origin: host };
+}
+"#;
+  let body = lower_loader("routes/where/page.loader.ts", destructured).unwrap();
+  assert_eq!(body, vec![Stmt::Return(Expr::object(vec![("origin", Expr::Host)]))]);
+
+  let via_ctx = r#"
+export async function load(ctx: Ctx) {
+  return { origin: ctx.host };
+}
+"#;
+  let body = lower_loader("routes/where/page.loader.ts", via_ctx).unwrap();
+  assert_eq!(body, vec![Stmt::Return(Expr::object(vec![("origin", Expr::Host)]))]);
+  assert!(
+    snapfire_fsr_ir::body_reads_request(&body),
+    "two configured hosts are two answers, so the route is not prerenderable"
+  );
+}

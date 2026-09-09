@@ -206,6 +206,7 @@ impl<'a> Inferer<'a> {
       Expr::Input => self.input_type.clone().or_else(|| self.input.map(|n| Ts::Named(n.to_owned()))).unwrap_or(Ts::Unknown),
       Expr::Now => Ts::Big,
       Expr::Path => Ts::Str,
+      Expr::Host => Ts::Str,
       Expr::Var(name) => env.iter().rev().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or(Ts::Unknown),
       Expr::Lit(lit) => match lit {
         Lit::Null => Ts::Null,
