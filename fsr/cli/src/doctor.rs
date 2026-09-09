@@ -363,7 +363,10 @@ fn sites(config: &Config) -> Vec<Finding> {
   let mut findings = Vec::new();
   let mut unpinned = Vec::new();
   for site in &resolved {
-    if section.mounts.get(&site.name).is_some_and(|m| m.hash.is_none()) {
+    // A path mount is a linked working tree that changes on every build, so a
+    // pin there would be stale by the next one. Only a `name@version`
+    // artifact, which is a release someone installed, is worth pinning.
+    if site.version != "path" && section.mounts.get(&site.name).is_some_and(|m| m.hash.is_none()) {
       unpinned.push(site.name.clone());
     }
     findings.extend(site_artifact(site));

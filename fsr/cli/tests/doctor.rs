@@ -219,6 +219,16 @@ fn a_mount_that_pins_no_hash_is_reported() {
   assert!(text.contains("fsr sites hash"), "{text}");
 }
 
+/// A mount naming a path rather than a version is a linked working tree, which
+/// changes on every build. Asking that to be pinned would be asking for a pin
+/// that is stale by the next one.
+#[test]
+fn a_linked_working_tree_is_not_asked_to_pin() {
+  let dir = shell("[sites.billing]\nartifact = \"sites/billing/1.0.0\"\n", "", &[]);
+  let text = doctor::run(&dir).expect("runs").to_string();
+  assert!(!text.contains("pins no hash"), "{text}");
+}
+
 #[test]
 fn a_site_whose_plan_is_older_than_its_routes_is_reported() {
   let dir = shell(MOUNT, "", &[]);

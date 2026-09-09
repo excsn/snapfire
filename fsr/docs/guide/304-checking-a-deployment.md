@@ -49,7 +49,7 @@ doctor       1 of 8 checks found something
 
 A shell serves a mounted site and never builds it, so the artifact is the only thing that says what it should carry. Three of those findings are worth spelling out.
 
-A mount that pins no `hash` accepts whatever sits at the path. The pin is what makes a deploy reproducible; `fsr sites hash <site dir>` prints the one to set.
+A mount that pins no `hash` accepts whatever sits at the path. The pin is what makes a deploy reproducible; `fsr sites hash <site dir>` prints the one to set. Only a `name@version` artifact is asked for one: a mount naming a path is a linked working tree that changes on every build, so a pin there would be stale by the next one.
 
 A part the artifact says it ships and does not carry is hashed as absent rather than refused, so the site mounts and then answers 404 for its own assets. That happens when a site is packed without being rebuilt.
 
