@@ -4,7 +4,7 @@
 //! the project: configuration under `config/`, everything the application
 //! reads under `app/`, every static root under `serve/<route>/`. Nothing a
 //! configuration says is joined onto the tree root, so no setting can place a
-//! file outside the directory the bundle owns, and a tree is the same shape
+//! file outside the directory the bundle owns and a tree is the same shape
 //! whatever layout the project it came from happened to use.
 //!
 //! The paths that moved are named back in a generated `config/bundle.toml`,
@@ -48,7 +48,7 @@ pub enum LayoutError {
   Layer(String),
 }
 
-/// What a placed file is made of: something in the project, or something the
+/// What a placed file is made of: something in the project or something the
 /// layout writes itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -56,12 +56,17 @@ pub enum Source {
   Text(String),
 }
 
-/// One thing that ships: where it goes in the tree, and what it is made of. A
-/// `Path` source is a file or a directory, and a directory ships whole.
+/// One thing that ships: where it goes in the tree and what it is made of. A
+/// `Path` source is a file or a directory and a directory ships whole.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
   pub to: String,
   pub from: Source,
+  /// Whether the host refuses to start without it. A contracts directory, a
+  /// prerender cache and a message catalog are each read as whatever is
+  /// there, so their absence is a quieter application rather than one that
+  /// does not come up.
+  pub required: bool,
 }
 
 impl Placement {
@@ -181,12 +186,12 @@ fn name_of(path: &str) -> Option<String> {
 pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   let mut places: Vec<Placement> = Vec::new();
   let mut layer = Layer::default();
-  let mut place = |to: String, from: Source| -> Result<(), LayoutError> {
+  let mut place = |to: String, from: Source, required: bool| -> Result<(), LayoutError> {
     inside(&to)?;
     if places.iter().any(|p: &Placement| p.to == to) {
       return Err(LayoutError::Collides(to));
     }
-    places.push(Placement { to, from });
+    places.push(Placement { to, from, required });
     Ok(())
   };
 
@@ -198,7 +203,7 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   if config_dir != root && config_dir.is_dir() {
     // The whole directory, not the files this run loaded: a tree deployed
     // under one `RELEASE_ENV` carries the overlays of every other.
-    place(CONFIG.to_owned(), Source::Path(config_dir.clone()))?;
+    place(CONFIG.to_owned(), Source::Path(config_dir.clone()), true)?;
     if let Ok(entries) = std::fs::read_dir(&config_dir) {
       written.extend(entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()));
     }
@@ -207,7 +212,7 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
       let Some(name) = source.file_name().map(|n| n.to_string_lossy().into_owned()) else {
         continue;
       };
-      place(format!("{CONFIG}/{name}"), Source::Path(source.clone()))?;
+      place(format!("{CONFIG}/{name}"), Source::Path(source.clone()), true)?;
       written.insert(name);
     }
   }
@@ -219,6 +224,7 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   place(
     format!("{APP}/{plan_at}"),
     Source::Path(config.resolve(&config.server.plan)),
+    true,
   )?;
   layer.plan = plan_at;
 
@@ -226,18 +232,19 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   place(
     format!("{APP}/{contracts}"),
     Source::Path(config.resolve(&config.server.contracts)),
+    false,
   )?;
   layer.contracts = contracts;
 
   if let Some(prerender) = &config.server.prerender {
     let at = format!("{GENERATED}/prerender");
-    place(format!("{APP}/{at}"), Source::Path(config.resolve(prerender)))?;
+    place(format!("{APP}/{at}"), Source::Path(config.resolve(prerender)), false)?;
     layer.prerender = Some(at);
   }
 
   if let Some(map) = &config.document.import_map {
     let name = name_of(map).unwrap_or_else(|| "importmap.json".to_owned());
-    place(format!("{APP}/{name}"), Source::Path(config.resolve(map)))?;
+    place(format!("{APP}/{name}"), Source::Path(config.resolve(map)), true)?;
     layer.import_map = Some(name);
   }
   layer.entry = config.document.entry.clone();
@@ -245,13 +252,14 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   layer.head = config.document.head.clone();
 
   // `build_facts` and the leak check read this by name. It also ships inside
-  // whichever static root `dist/` serves, and both copies are wanted: one
+  // whichever static root `dist/` serves and both copies are wanted: one
   // answers a request, this one answers the host at boot.
   let facts = config.app.join("dist/.snapfire-build.json");
   if facts.is_file() {
     place(
       format!("{APP}/dist/.snapfire-build.json"),
       Source::Path(facts),
+      false,
     )?;
   }
 
@@ -259,7 +267,7 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   // setting, so nothing else names it and a tree without it serves keys.
   let locales = config.app.join("locales");
   if locales.is_dir() {
-    place(format!("{APP}/locales"), Source::Path(locales))?;
+    place(format!("{APP}/locales"), Source::Path(locales), false)?;
   }
 
   for (name, client) in &config.clients {
@@ -274,13 +282,13 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     } else {
       format!("clients/{name}.openapi.json")
     };
-    place(format!("{APP}/{at}"), Source::Path(config.resolve(&document)))?;
+    place(format!("{APP}/{at}"), Source::Path(config.resolve(&document)), true)?;
     let responses = client.is_mock().then(|| {
       let at = format!("clients/{name}.mock.json");
       (at, config.resolve(&client.responses_file(name)))
     });
     if let Some((at, from)) = &responses {
-      place(format!("{APP}/{at}"), Source::Path(from.clone()))?;
+      place(format!("{APP}/{at}"), Source::Path(from.clone()), true)?;
     }
     layer.clients.insert(
       name.clone(),
@@ -295,15 +303,15 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     } else {
       format!("{SERVE}/{route}")
     };
-    place(at.clone(), Source::Path(config.resolve(&served.dir)))?;
+    place(at.clone(), Source::Path(config.resolve(&served.dir)), false)?;
     layer.statics.push((served.route.clone(), format!("../{at}")));
   }
 
-  // A tree already carries a layer, and regenerating it would be a second
+  // A tree already carries a layer and regenerating it would be a second
   // opinion about paths that are already the tree's own.
   if !written.contains(LAYER) {
     let text = layer.render()?;
-    place(format!("{CONFIG}/{LAYER}"), Source::Text(text))?;
+    place(format!("{CONFIG}/{LAYER}"), Source::Text(text), true)?;
   }
 
   places.sort_by(|a, b| a.to.cmp(&b.to));
@@ -322,7 +330,7 @@ struct Layer {
   entry: Option<String>,
   styles: Option<Vec<String>>,
   head: Vec<BTreeMap<String, String>>,
-  /// Client name to its document, and its recorded responses when it mocks.
+  /// Client name to its document and its recorded responses when it mocks.
   clients: BTreeMap<String, (String, Option<String>)>,
   /// Route and the directory serving it, relative to the application.
   statics: Vec<(String, String)>,

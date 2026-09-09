@@ -34,3 +34,5 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
 snapfire_fsr_plan.workspace = true
+bolero = "0.13"
+proptest = "1"

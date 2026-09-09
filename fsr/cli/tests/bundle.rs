@@ -75,3 +75,52 @@ fn a_clean_application_bundles() {
   assert_eq!(bundled.out, out);
   assert!(out.join("serve/static/app.css").is_file());
 }
+
+/// The defect the layout exists to make impossible. A static root outside the
+/// project used to be joined onto `--out`, where its `..` segments resolved
+/// outside it; on this machine that reached the filesystem root.
+#[test]
+fn a_static_root_outside_the_project_is_written_inside_the_output() {
+  let dir = app("[[static]]\nroute = \"/static/js\"\ndir = \"../../shared/client/dist\"\n");
+  // The project moves one level down so the root it points outside of is a
+  // directory the test owns, which is where a monorepo's shared client sits.
+  let base = dir.with_extension("base");
+  let project = base.join("project");
+  std::fs::create_dir_all(&base).unwrap();
+  std::fs::rename(&dir, &project).unwrap();
+  let dir = project;
+  let escapes = base.join("shared/client/dist");
+  std::fs::create_dir_all(&escapes).unwrap();
+  std::fs::write(escapes.join("main.js"), "export {}\n").unwrap();
+
+  let out = dir.join("dist");
+  let bundled = bundle::run_checked(&dir, &out, false).expect("bundles");
+  assert!(out.join("serve/static/js/main.js").is_file());
+  assert!(bundled.served.iter().any(|(route, at)| route == "/static/js" && at == "serve/static/js"));
+
+  // Every file written is under the output directory and the directory the
+  // configuration pointed outside the project holds only what it started with.
+  for entry in walk(&out) {
+    assert!(entry.starts_with(&out), "{} is outside {}", entry.display(), out.display());
+  }
+  assert_eq!(walk(&escapes).len(), 1);
+
+  // The tree names the moved path back, so the host resolves it from the
+  // application directory the tree carries.
+  let layer = std::fs::read_to_string(out.join("config/bundle.toml")).unwrap();
+  assert!(layer.contains(r#"dir = "../serve/static/js""#), "{layer}");
+}
+
+fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+  let mut out = Vec::new();
+  let Ok(entries) = std::fs::read_dir(dir) else { return out };
+  for entry in entries.flatten() {
+    let path = entry.path();
+    if path.is_dir() {
+      out.extend(walk(&path));
+    } else {
+      out.push(path);
+    }
+  }
+  out
+}

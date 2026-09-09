@@ -47,7 +47,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 8, "{out}");
+  assert_eq!(out.clean.len(), 9, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -158,7 +158,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 8 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 9 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -305,4 +305,31 @@ fn a_mount_pointing_at_nothing_is_not_told_to_repin() {
   assert!(text.contains("will refuse to start"), "{text}");
   assert!(!text.contains("moved under its pin"), "{text}");
   assert!(text.contains("fsr sites unlink"), "{text}");
+}
+
+/// A client's document is imported at boot and no other check names it, so a
+/// tree that would not carry it is the one thing this check is for.
+#[test]
+fn a_client_document_that_would_not_ship_is_reported() {
+  let dir = app("[clients.billing]\nbase_url = \"https://b\"\n", &[]);
+  assert_eq!(findings(&dir), vec!["tree"]);
+  let out = report(&dir);
+  assert!(out.contains("app/clients/billing.openapi.json"), "{out}");
+
+  let dir = app(
+    "[clients.billing]\nbase_url = \"https://b\"\n",
+    &[("app/clients/billing.openapi.json", "{}")],
+  );
+  std::fs::write(dir.join("app/generated/plan.sexp"), PLAN).unwrap();
+  assert!(findings(&dir).is_empty(), "{}", report(&dir));
+}
+
+/// A route that would place a file outside the tree is refused by the layout,
+/// and the doctor says so before `fsr bundle` gets there.
+#[test]
+fn a_route_that_leaves_the_tree_is_reported() {
+  let dir = app("[[static]]\nroute = \"/../outside\"\ndir = \"public\"\n", &[("app/public/a.css", "a{}")]);
+  assert_eq!(findings(&dir), vec!["tree"]);
+  let out = report(&dir);
+  assert!(out.contains("cannot be laid out") && out.contains("outside the tree"), "{out}");
 }

@@ -87,6 +87,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("vendor", vendor(&config)),
     ("render", render_mode(&config, manifest.as_ref())),
     ("statics", statics(&config)),
+    ("tree", tree(app, &config)),
     ("sites", sites(&config)),
   ] {
     if findings.is_empty() {
@@ -338,6 +339,47 @@ fn statics(config: &Config) -> Vec<Finding> {
     "statics",
     format!("a static root has no directory: {}", missing.join(", ")),
     "create the directory or correct `[[statics]] dir`; a missing root answers 404 for every path under its route",
+  )]
+}
+
+/// What a deploy tree would carry. Everything the host reads at boot is
+/// placed by name, so a file the configuration promises and the project does
+/// not hold is a deployment that starts on this machine and not on the one it
+/// is copied to.
+fn tree(app: &Path, config: &Config) -> Vec<Finding> {
+  let root = crate::serve::project_root(app);
+  let import_map = config
+    .document
+    .import_map
+    .as_deref()
+    .and_then(|map| Path::new(map).file_name())
+    .map(|name| format!("app/{}", name.to_string_lossy()));
+  let laid = match snapfire_fsr_sites::layout(&root, config) {
+    Ok(laid) => laid,
+    Err(e) => {
+      return vec![Finding::new(
+        "tree",
+        format!("a deploy tree cannot be laid out: {e}"),
+        "correct the setting the message names; `fsr bundle` writes every file under a path it derives and refuses one it cannot place inside the tree",
+      )];
+    }
+  };
+  // `stale` owns the plan and `vendor` owns the import map, each with a remedy
+  // of its own, so a tree missing one of those is already reported.
+  let owned = |to: &str| to.ends_with(&config.server.plan) || Some(to) == import_map.as_deref();
+  let absent: Vec<String> = laid
+    .places
+    .iter()
+    .filter(|place| place.required && !place.exists() && !owned(&place.to))
+    .filter_map(|place| place.path().map(|from| format!("{} from {}", place.to, from.display())))
+    .collect();
+  if absent.is_empty() {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "tree",
+    format!("a deploy tree would not carry {}", absent.join(", ")),
+    "build what is missing or correct the setting that names it; the host reads each of these at boot, so a tree without one starts here and fails where it is deployed",
   )]
 }
 
