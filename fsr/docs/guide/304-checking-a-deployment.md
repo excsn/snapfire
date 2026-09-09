@@ -34,14 +34,28 @@ Each check answers from something a build already computed, so none of it needs 
 | `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` | The host reads the plan and never the sources, so an unbuilt change is invisible until the next build |
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it | The browser asks for the file the map names, so a missing one is a page that does not mount |
 | `render` | `[server] render` is `islands` and the plan carries no island | Every page is handed to the browser to render, for no reason |
+| `statics` | a `[[static]]` root whose directory is not there | Every path under that route answers 404, including the client bundle when it is served that way |
+| `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
 
 A report names the check, the fact and the remedy:
 
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 6 checks found something
+doctor       1 of 8 checks found something
 ```
+
+### What a shell owes its sites
+
+A shell serves a mounted site and never builds it, so the artifact is the only thing that says what it should carry. Three of those findings are worth spelling out.
+
+A mount that pins no `hash` accepts whatever sits at the path. The pin is what makes a deploy reproducible; `fsr sites hash <site dir>` prints the one to set.
+
+A part the artifact says it ships and does not carry is hashed as absent rather than refused, so the site mounts and then answers 404 for its own assets. That happens when a site is packed without being rebuilt.
+
+Artifacts under the sites root that no mount names are what `fsr sites install` leaves behind. They cost disk and they make it hard to tell which version is live; `--keep <n>` bounds them.
+
+A mount the table points at with nothing there is reported too, though that one is a refusal to start rather than a warning. Doctor says it before the deploy rather than instead of it.
 
 ## What it will not do
 

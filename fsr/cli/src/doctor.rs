@@ -86,6 +86,8 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("stale", stale(&config)),
     ("vendor", vendor(&config)),
     ("render", render_mode(&config, manifest.as_ref())),
+    ("statics", statics(&config)),
+    ("sites", sites(&config)),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -319,4 +321,134 @@ fn reads_host(manifest: &Manifest) -> bool {
     entry.body.visit(&mut look);
   }
   found
+}
+
+/// A static root that is not there answers 404 for everything under its route.
+fn statics(config: &Config) -> Vec<Finding> {
+  let mut missing = Vec::new();
+  for root in &config.statics {
+    if !config.resolve(&root.dir).is_dir() {
+      missing.push(format!("`{}` serving {}", root.route, config.resolve(&root.dir).display()));
+    }
+  }
+  if missing.is_empty() {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "statics",
+    format!("a static root has no directory: {}", missing.join(", ")),
+    "create the directory or correct `[[statics]] dir`; a missing root answers 404 for every path under its route",
+  )]
+}
+
+/// The mounted sites, which a shell serves and never builds, so nothing about
+/// them is checked until one is asked for.
+fn sites(config: &Config) -> Vec<Finding> {
+  let Some(section) = &config.sites else { return Vec::new() };
+  if section.mounts.is_empty() {
+    return Vec::new();
+  }
+  let resolved = match snapfire_fsr_sites::resolve(config) {
+    Ok(resolved) => resolved,
+    // The host refuses to start over this; saying so here is saying it before
+    // the deploy rather than instead of it.
+    Err(e) => {
+      return vec![Finding::new(
+        "sites",
+        format!("the host will refuse to start: {e}"),
+        "correct the artifact the mount names, or repin it with `fsr sites hash <site dir>`",
+      )]
+    }
+  };
+  let mut findings = Vec::new();
+  let mut unpinned = Vec::new();
+  for site in &resolved {
+    if section.mounts.get(&site.name).is_some_and(|m| m.hash.is_none()) {
+      unpinned.push(site.name.clone());
+    }
+    findings.extend(site_artifact(site));
+  }
+  if !unpinned.is_empty() {
+    findings.push(Finding::new(
+      "sites",
+      format!("{} pins no hash, so any content under the artifact is mounted", unpinned.join(", ")),
+      format!("take the hash with `fsr sites hash <site dir>` and set `hash` on the mount, for {}", unpinned[0]),
+    ));
+  }
+  findings.extend(orphans(config, section, &resolved));
+  findings
+}
+
+/// One artifact: what its own configuration says it ships, and whether its
+/// plan is older than the sources beside it.
+fn site_artifact(site: &snapfire_fsr_sites::Resolved) -> Vec<Finding> {
+  let Ok(config) = Config::load(&site.artifact) else { return Vec::new() };
+  let mut findings = Vec::new();
+  let absent: Vec<String> = snapfire_fsr_sites::parts(&site.artifact, &config)
+    .into_iter()
+    .filter(|part| !site.artifact.join(part).exists())
+    .collect();
+  if !absent.is_empty() {
+    findings.push(Finding::new(
+      "sites",
+      format!("the site `{}` ships {} and it is not in the artifact", site.name, absent.join(", ")),
+      "rebuild the site and pack it again with `fsr sites pack <site dir> --version <version>`; a part that is absent is hashed as absent and answers 404",
+    ));
+  }
+  let plan = config.resolve(&config.server.plan);
+  if !plan.exists() {
+    findings.push(Finding::new(
+      "sites",
+      format!("the site `{}` has no plan at {}", site.name, plan.display()),
+      "run `fsr build` in the site before packing it",
+    ));
+  } else if let Some(built) = std::fs::metadata(&plan).ok().and_then(|m| m.modified().ok()) {
+    let stale: Vec<&str> = ["routes", "src"]
+      .into_iter()
+      .filter(|dir| newest(&config.app.join(dir)).is_some_and(|t| t > built))
+      .collect();
+    if !stale.is_empty() {
+      findings.push(Finding::new(
+        "sites",
+        format!("the site `{}` has a plan older than {}", site.name, stale.iter().map(|d| format!("`{d}/`")).collect::<Vec<_>>().join(" and ")),
+        "run `fsr build` in the site; a shell serves the plan the artifact carries",
+      ));
+    }
+  }
+  findings
+}
+
+/// Artifacts under the root that no mount names: what an install leaves behind
+/// and a table never picked up.
+fn orphans(
+  config: &Config,
+  section: &snapfire_fsr_host::config::SitesSection,
+  resolved: &[snapfire_fsr_sites::Resolved],
+) -> Vec<Finding> {
+  let Some(root) = &section.root else { return Vec::new() };
+  let root = config.root.join(root);
+  let Ok(entries) = std::fs::read_dir(&root) else { return Vec::new() };
+  let mounted: BTreeSet<PathBuf> = resolved.iter().map(|s| s.artifact.clone()).collect();
+  let mut orphans = Vec::new();
+  for name in entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+    let Ok(versions) = std::fs::read_dir(&name) else { continue };
+    for version in versions.flatten().map(|e| e.path()).filter(|p| p.is_dir()) {
+      if !mounted.contains(&version) {
+        orphans.push(format!(
+          "{}@{}",
+          name.file_name().unwrap_or_default().to_string_lossy(),
+          version.file_name().unwrap_or_default().to_string_lossy()
+        ));
+      }
+    }
+  }
+  if orphans.is_empty() {
+    return Vec::new();
+  }
+  orphans.sort();
+  vec![Finding::new(
+    "sites",
+    format!("{} sits under the sites root with no mount naming it: {}", orphans.len(), orphans.join(", ")),
+    "point a mount at it, or drop it; `fsr sites install --keep <n>` bounds what is kept",
+  )]
 }

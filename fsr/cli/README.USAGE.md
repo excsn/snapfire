@@ -514,10 +514,10 @@ Nothing found is exit 0, anything found is exit 1, so a deploy script stops on i
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 6 checks found something
+doctor       1 of 8 checks found something
 ```
 
-Six checks, each answering from something the build already computed, so none of them needs a server or a network:
+Eight checks, each answering from something the build already computed, so none of them needs a server or a network:
 
 | Check | Fires when |
 | --- | --- |
@@ -527,6 +527,8 @@ Six checks, each answering from something the build already computed, so none of
 | `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` |
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it |
 | `render` | `[server] render` is `islands` and the plan carries no island |
+| `statics` | a `[[static]]` root whose directory is not there, so every path under its route answers 404 |
+| `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
 
 It reports and never fixes, since every remedy here is a judgement: whether a locale gains a catalog or leaves the table, whether an island is missing or the render mode is wrong. Nothing the host refuses to start over is moved here. There is no file for turning checks off either, because every check is a fact the application stated and then contradicted rather than a matter of taste.
 

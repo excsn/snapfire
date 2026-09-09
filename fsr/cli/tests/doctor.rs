@@ -47,7 +47,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 6, "{out}");
+  assert_eq!(out.clean.len(), 8, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -158,7 +158,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 6 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 8 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -183,4 +183,93 @@ fn a_directory_with_no_configuration_is_an_error_rather_than_a_finding() {
   let dir = std::env::temp_dir().join(format!("fsr-doctor-none-{}", std::process::id()));
   std::fs::create_dir_all(&dir).unwrap();
   assert!(doctor::run(&dir).is_err());
+}
+
+/// A shell with one mounted site, and the site's own artifact beside it.
+fn shell(sites_toml: &str, site_toml: &str, site_files: &[(&str, &str)]) -> PathBuf {
+  let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let root = std::env::temp_dir().join(format!("fsr-doctor-shell-{}-{n}-{nanos}", std::process::id()));
+  std::fs::create_dir_all(root.join("app/generated")).unwrap();
+  std::fs::create_dir_all(root.join("app/routes")).unwrap();
+  std::fs::write(root.join("app.toml"), format!("[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[sites]\nroot = \"sites\"\n{sites_toml}")).unwrap();
+  std::fs::write(root.join("app/generated/plan.sexp"), PLAN).unwrap();
+
+  let site = root.join("sites/billing/1.0.0");
+  std::fs::create_dir_all(site.join("app/generated")).unwrap();
+  std::fs::create_dir_all(site.join("app/routes")).unwrap();
+  std::fs::write(site.join("app.toml"), format!("[app]\ndir = \"app\"\n[document]\ntitle = \"b\"\n[session]\nkey = \"k\"\n[site]\nname = \"billing\"\nat = \"/billing\"\n{site_toml}")).unwrap();
+  std::fs::write(site.join("app/generated/plan.sexp"), PLAN).unwrap();
+  for (name, source) in site_files {
+    let path = site.join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, source).unwrap();
+  }
+  root
+}
+
+const MOUNT: &str = "[sites.billing]\nartifact = \"billing@1.0.0\"\n";
+
+#[test]
+fn a_mount_that_pins_no_hash_is_reported() {
+  let dir = shell(MOUNT, "", &[]);
+  let out = doctor::run(&dir).expect("runs");
+  let text = out.to_string();
+  assert!(text.contains("pins no hash"), "{text}");
+  assert!(text.contains("fsr sites hash"), "{text}");
+}
+
+#[test]
+fn a_site_whose_plan_is_older_than_its_routes_is_reported() {
+  let dir = shell(MOUNT, "", &[]);
+  std::thread::sleep(std::time::Duration::from_millis(20));
+  std::fs::write(dir.join("sites/billing/1.0.0/app/routes/page.tsx"), "export default function P() { return <p/>; }\n").unwrap();
+  let text = doctor::run(&dir).expect("runs").to_string();
+  assert!(text.contains("the site `billing` has a plan older than `routes/`"), "{text}");
+}
+
+#[test]
+fn a_site_with_no_plan_is_reported() {
+  let dir = shell(MOUNT, "", &[]);
+  std::fs::remove_file(dir.join("sites/billing/1.0.0/app/generated/plan.sexp")).unwrap();
+  let text = doctor::run(&dir).expect("runs").to_string();
+  assert!(text.contains("the site `billing` has no plan"), "{text}");
+}
+
+/// An artifact under the root that the table never names is what an install
+/// leaves behind.
+#[test]
+fn an_unmounted_artifact_under_the_root_is_reported() {
+  let dir = shell(MOUNT, "", &[]);
+  std::fs::create_dir_all(dir.join("sites/billing/0.9.0/app")).unwrap();
+  std::fs::create_dir_all(dir.join("sites/invoices/2.0.0/app")).unwrap();
+  let text = doctor::run(&dir).expect("runs").to_string();
+  assert!(text.contains("billing@0.9.0") && text.contains("invoices@2.0.0"), "{text}");
+  assert!(text.contains("2 sits under the sites root"), "{text}");
+}
+
+/// A shell whose mount points at nothing is a host that will not start, and
+/// saying so before the deploy is the point.
+#[test]
+fn a_mount_pointing_at_nothing_is_reported_as_a_refusal_to_start() {
+  let dir = shell("[sites.missing]\nartifact = \"missing@1.0.0\"\n", "", &[]);
+  let text = doctor::run(&dir).expect("runs").to_string();
+  assert!(text.contains("will refuse to start"), "{text}");
+}
+
+#[test]
+fn a_shell_with_no_sites_table_reports_nothing_about_sites() {
+  let dir = app("", &[]);
+  let out = doctor::run(&dir).expect("runs");
+  assert!(out.clean.contains(&"sites"), "{out}");
+}
+
+#[test]
+fn a_static_root_with_no_directory_is_reported() {
+  let dir = app("[[static]]\nroute = \"/assets\"\ndir = \"public\"\n", &[]);
+  assert_eq!(findings(&dir), vec!["statics"]);
+  assert!(report(&dir).contains("/assets"), "{}", report(&dir));
+
+  let there = app("[[static]]\nroute = \"/assets\"\ndir = \"public\"\n", &[("app/public/x.css", "a{}")]);
+  assert!(doctor::run(&there).unwrap().is_clean(), "{}", report(&there));
 }
