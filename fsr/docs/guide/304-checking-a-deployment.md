@@ -43,6 +43,7 @@ Each check answers from something a build already computed, so none of it needs 
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it | The browser asks for the file the map names, so a missing one is a page that does not mount |
 | `render` | `[server] render` is `islands` and the plan carries no island | Every page is handed to the browser to render, for no reason |
 | `statics` | a `[[static]]` root whose directory is not there | Every path under that route answers 404, including the client bundle when it is served that way |
+| `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
 | `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
 
 A report names the check, the fact and the remedy:
@@ -50,8 +51,18 @@ A report names the check, the fact and the remedy:
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 8 checks found something
+doctor       1 of 9 checks found something
 ```
+
+### What a deploy tree would carry
+
+The other checks read settings. This one reads the deploy tree that `fsr bundle` is about to write, before it exists, then reports a file the tree would name and the project cannot supply.
+
+That is a class of failure the other checks cannot see, because the files it covers are not named in any setting. The host imports each service client's document at boot and will not start without it. It reads `locales/` by name and an application whose catalogs went missing serves message keys. Neither is a path anybody writes down, so the only way to check them is to derive what the tree holds from what the host reads, which is what the bundle does anyway. Chapter 303 describes that derivation.
+
+The check also refuses a setting no tree can express. A `[[static]]` route that climbs out of its own prefix has no place to land under `serve/`, so the layout stops rather than picking one.
+
+The plan and the import map are left to `stale` and `vendor`, which already report them with remedies of their own.
 
 ### What a shell owes its sites
 

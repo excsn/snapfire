@@ -20,4 +20,6 @@ snapfire_fsr_sites = "0.5"
 | Mount every site the configuration names | `mount_all` over a `HostBuilder` |
 | See where each row of the table resolves and what it hashes to | `resolve` |
 | Hash an artifact the way the table pins it | `hash_dir` |
+| Lay a project out as a deploy tree | `layout`, `parts` |
+| Pack an artifact, unpack it and verify it against its manifest | `pack`, `unpack`, `Manifest::verify` |
 | Reread the table on `SIGHUP` or a poll and reload the host when it moved | `watch`, `poll_of` |

@@ -24,6 +24,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Vendoring a Package](#vendoring-a-package)
 * [Fetching Declarations](#fetching-declarations)
 - [Checking a Deployment](#checking-a-deployment)
+- [Writing the Deploy Tree](#writing-the-deploy-tree)
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
@@ -516,10 +517,10 @@ Nothing found is exit 0, anything found is exit 1, so a deploy script stops on i
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 8 checks found something
+doctor       1 of 9 checks found something
 ```
 
-Eight checks, each answering from something the build already computed, so none of them needs a server or a network:
+Nine checks, each answering from something the build already computed, so none of them needs a server or a network:
 
 | Check | Fires when |
 | --- | --- |
@@ -530,9 +531,61 @@ Eight checks, each answering from something the build already computed, so none 
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it |
 | `render` | `[server] render` is `islands` and the plan carries no island |
 | `statics` | a `[[static]]` root whose directory is not there, so every path under its route answers 404 |
+| `tree` | a deploy tree would carry a file the project does not hold, or a setting no tree can express |
 | `sites` | a mounted `name@version` site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
 
 It reports and never fixes, since every remedy here is a judgement: whether a locale gains a catalog or leaves the table, whether an island is missing or the render mode is wrong. Nothing the host refuses to start over is moved here. There is no file for turning checks off either, because every check is a fact the application stated and then contradicted rather than a matter of taste.
+
+## Writing the Deploy Tree
+
+`fsr bundle <app dir> [--out <dir>]` writes what a server needs and nothing else, defaulting to `dist/` beside the project. It runs the checks above first and refuses on a finding.
+
+```
+$ fsr bundle app --out dist
+serve/static/js/app              serves /static/js/app
+serve/static/js/vendor           serves /static/js/vendor
+serve/static/css                 serves /static/css
+app/clients                      read by the host
+app/generated/contracts          read by the host
+app/generated/plan.sexp          read by the host
+app/importmap.json               read by the host
+config                           read by the host
+config/bundle.toml               read by the host
+
+74 files, 402911 bytes under dist
+place beside it: the binary, the logging configuration
+```
+
+The tree has one directory a web server is pointed at, `serve/`, with everything else outside it. Where a file lands is decided by what it is rather than by where it sat in the project: configuration under `config/`, everything the host reads at boot under `app/` and each static root under `serve/` at the route it answers. A `[[static]]` root pointing at a shared build outside the project, `dir = "../../client/dist"`, is a normal thing to write in a monorepo and a meaningless path on a server, so the tree keeps the route and drops the provenance.
+
+Both lists come from what the host itself reads, so neither is a copy list to keep in step. That covers files no setting names: `app/clients/` because each service document is imported at boot; `app/locales/` because the host reads that directory by name and an application whose catalogs did not ship serves message keys.
+
+Moving a file means the configuration no longer describes where it is, so the bundle writes `config/bundle.toml` and the host loads it last, after every environment overlay. It names the moved paths, plus the settings the host would otherwise infer from directories the tree no longer has under its application directory: `document.entry` from the build facts, `styles` from `styles/`, the favicon links from `icons/`.
+
+```toml
+[app]
+dir = "app"
+
+[server]
+contracts = "generated/contracts"
+plan = "generated/plan.sexp"
+
+[document]
+entry = "/static/js/app/src/main.js"
+import_map = "importmap.json"
+
+[[static]]
+dir = "../serve/static/js/app"
+route = "/static/js/app"
+```
+
+Because destinations are derived, bundling a tree reproduces it byte for byte, which is what lets a site artifact be verified against the hash of the bundle that produced it. `config/` ships whole, since a tree is deployed under a `RELEASE_ENV` the bundle need not have run under. The binary and the logging file are what a deploy places beside it:
+
+```sh
+fsr bundle app --out dist
+cp target/release/snapfire_www dist/
+cp fibre_logging.production.yaml dist/fibre_logging.yaml
+```
 
 ## Reading the Generated tsconfig
 

@@ -28,8 +28,11 @@ Configuration is TOML or YAML under `config/`, read as a ladder of files where a
 | `local` | `APP_ENV`, default `local` |
 | `<region>` | `APP_REGION`, when set |
 | `<env>-<region>` | both, when the region is set |
+| `bundle` | always, last |
 
 For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, in that order, then lets `C5_`-prefixed environment variables override any key with `__` as the separator. A file that is absent is simply not on the ladder, so a checkout with only `app.toml` runs while a deployment adds `production.toml` and `production-eu.yaml` without touching the base. The report lists every file it read under `config`, in order, so the ladder is never a guess. Secrets follow the same ladder: c5store's encrypted values are written by c5cli into a YAML overlay, which is why a secret lives in a `.yaml` beside the `.toml` that holds the rest.
+
+`bundle.toml` is the last rung and a project does not write one. `fsr bundle` writes it into the deploy tree it produces, naming the paths that moved when the files were laid out; chapter 303 covers what it holds. It loads after every deployment overlay because those describe a deployment while it describes a directory and no deployment has an opinion about where in the tree its own plan file ended up.
 
 The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map and the stylesheets. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory.
 

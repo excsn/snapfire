@@ -6,14 +6,16 @@
 * [Quick Start](#quick-start)
 * [Writing the Table](#writing-the-table)
 * [Pinning an Artifact](#pinning-an-artifact)
+* [Laying Out a Deploy Tree](#laying-out-a-deploy-tree)
 * [Deploying a Site](#deploying-a-site)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
 
-* **Artifact.** The directory a site's build leaves behind, `config/` beside `app/`, the way `Host::from` reads a project. It is what the shell mounts.
+* **Artifact.** A deploy tree: `config/` beside `app/` and `serve/`, the way `Host::from` reads a project. It is what the shell mounts.
+* **Layout.** Where each file of a tree goes, derived from what the file is rather than from where it sat in the project. A configured path is never joined onto the tree root, so nothing a configuration says can place a file outside it.
 * **Table.** The `[sites]` section of the shell's configuration: one `[sites.<name>]` per mounted site, a `root` versions resolve under and a `poll` interval.
-* **Hash.** xxh3 over every file of the artifact in path order, name and bytes, dot entries and `target` skipped. The table may pin it; a directory whose hash differs is refused.
+* **Hash.** xxh3 over the artifact's listing, each file's path, size and sha256 in path order. Over the listing rather than the bytes, so a manifest alone yields it. The table may pin it; a directory whose hash differs is refused.
 * **Reread.** The host rebuilds its tables through its reloader; this crate asks for it on `SIGHUP` and when a poll finds the table resolving differently from last time.
 
 ## Quick Start
@@ -72,6 +74,24 @@ The hash is the one `hash_dir` computes and the report and `GET /__fsr/sites` pr
 ```rust
 let hash = snapfire_fsr_sites::hash_dir(std::path::Path::new("/srv/sites/billing/1.4.2"))?;
 ```
+
+## Laying Out a Deploy Tree
+
+`layout` answers what a tree holds and where, for a project about to be packed or for an artifact being verified.
+
+```rust
+let config = snapfire_fsr_host::config::Config::load("sites/billing")?;
+let laid = snapfire_fsr_sites::layout(std::path::Path::new("sites/billing"), &config)?;
+for row in laid.rows()? {
+  println!("{}", row.path);
+}
+```
+
+Configuration lands under `config/`, everything the host reads at boot under `app/` and each static root under `serve/` at the route it answers. None of those is the path the file had in the project, which is what lets a site point a static root at a build outside its own directory and still pack. A destination that is not a plain relative path is an error rather than a write, so a route that climbs is refused.
+
+The paths that moved are named back in a generated `config/bundle.toml`, the last file the host's configuration ladder loads. That makes the layout idempotent: laying a tree out again yields the same tree, which is why `Listing::of` works on a working tree and on the artifact copied out of it and gets the same hash.
+
+`Placement::required` marks what the host will not start without, which is what `fsr doctor` reports on before a bundle is written.
 
 ## Deploying a Site
 
