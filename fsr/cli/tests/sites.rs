@@ -219,3 +219,157 @@ fn pinning_a_name_the_table_does_not_mount_says_so() {
   let e = snapfire_fsr_cli::sites::pin(&shell, Some("nope")).unwrap_err().to_string();
   assert!(e.contains("`nope` is not mounted"), "{e}");
 }
+
+// --------------------------------------------------- a shell over the wire
+
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
+
+/// A server that answers each request with the next canned response, so the
+/// client is exercised without a host behind it. Returns the address and the
+/// requests it saw.
+fn serving(answers: Vec<(u16, String)>) -> (String, std::sync::mpsc::Receiver<String>) {
+  let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+  let addr = listener.local_addr().expect("an address").to_string();
+  let (tx, rx) = std::sync::mpsc::channel();
+  std::thread::spawn(move || {
+    for (status, body) in answers {
+      let Ok((stream, _)) = listener.accept() else { return };
+      let mut reader = BufReader::new(&stream);
+      let mut line = String::new();
+      reader.read_line(&mut line).ok();
+      let mut headers = String::new();
+      loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).unwrap_or(0) <= 2 {
+          break;
+        }
+        headers.push_str(&header);
+      }
+      tx.send(format!("{}{headers}", line.trim_end())).ok();
+      let reason = if status == 200 { "OK" } else { "Conflict" };
+      let out = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+      );
+      (&stream).write_all(out.as_bytes()).ok();
+    }
+  });
+  (addr, rx)
+}
+
+const SERVING_ONE: &str = r#"{"sites":[{"name":"billing","at":"/billing","version":"1.0.0","hash":"aaaa"}]}"#;
+
+#[test]
+fn a_header_is_name_and_value_or_it_is_refused() {
+  assert_eq!(snapfire_fsr_cli::sites::header("Authorization: Bearer x").unwrap(), ("Authorization".to_owned(), "Bearer x".to_owned()));
+  assert_eq!(snapfire_fsr_cli::sites::header("  X-Key :  v  ").unwrap(), ("X-Key".to_owned(), "v".to_owned()));
+  for bad in ["nocolon", ": value", "name:", ""] {
+    assert!(snapfire_fsr_cli::sites::header(bad).is_err(), "{bad:?} was taken as a header");
+  }
+}
+
+#[test]
+fn asking_an_instance_reports_what_it_serves() {
+  let (addr, seen) = serving(vec![(200, SERVING_ONE.to_owned())]);
+  let instance = snapfire_fsr_cli::sites::mounted(&addr, &[]).expect("asks");
+  assert_eq!(instance.host, addr);
+  assert_eq!(instance.sites.len(), 1);
+  assert_eq!(instance.sites[0].name, "billing");
+  assert_eq!(instance.sites[0].hash, "aaaa");
+  assert!(seen.recv().expect("a request").starts_with("GET /__fsr/sites "));
+}
+
+/// Headers are forwarded as given: the command carries a proxy's credentials
+/// and creates none of its own.
+#[test]
+fn headers_are_forwarded_to_the_instance() {
+  let (addr, seen) = serving(vec![(200, SERVING_ONE.to_owned())]);
+  let headers = vec![("Authorization".to_owned(), "Bearer tok".to_owned())];
+  snapfire_fsr_cli::sites::mounted(&addr, &headers).expect("asks");
+  let request = seen.recv().expect("a request").to_lowercase();
+  assert!(request.contains("authorization: bearer tok"), "{request}");
+}
+
+#[test]
+fn reloading_reports_what_the_instance_serves_now() {
+  let (addr, seen) = serving(vec![(200, r#"{"reloaded":true,"sites":[{"name":"billing","at":"/billing","version":"1.0.0","hash":"aaaa"}]}"#.to_owned())]);
+  let answers = snapfire_fsr_cli::sites::reload(&[addr], &[], false).expect("reloads");
+  assert_eq!(answers.len(), 1);
+  assert!(answers[0].ok());
+  assert_eq!(answers[0].sites.as_ref().unwrap()[0].name, "billing");
+  assert!(seen.recv().unwrap().starts_with("POST /__fsr/sites/reload "));
+}
+
+/// A 409 carries the reason, which is the whole value of the route over a signal.
+#[test]
+fn a_refusal_carries_the_reason() {
+  let (addr, _seen) = serving(vec![(409, r#"{"reloaded":false,"error":"sites.billing: hash bbbb, pinned aaaa"}"#.to_owned())]);
+  let answers = snapfire_fsr_cli::sites::reload(&[addr], &[], false).expect("asks");
+  assert!(!answers[0].ok());
+  assert_eq!(answers[0].refused.as_deref(), Some("sites.billing: hash bbbb, pinned aaaa"));
+}
+
+/// A refusal stops the fleet: carrying on ships what was refused to the rest.
+#[test]
+fn a_refusal_stops_before_the_next_instance() {
+  let (first, _a) = serving(vec![(409, r#"{"reloaded":false,"error":"no"}"#.to_owned())]);
+  let (second, seen) = serving(vec![(200, r#"{"reloaded":true,"sites":[]}"#.to_owned())]);
+  let answers = snapfire_fsr_cli::sites::reload(&[first, second], &[], false).expect("asks");
+  assert_eq!(answers.len(), 1, "the second instance was asked after a refusal");
+  assert!(seen.recv_timeout(std::time::Duration::from_millis(300)).is_err(), "the second instance saw a request");
+}
+
+#[test]
+fn all_carries_on_past_a_refusal() {
+  let (first, _a) = serving(vec![(409, r#"{"reloaded":false,"error":"no"}"#.to_owned())]);
+  let (second, _b) = serving(vec![(200, r#"{"reloaded":true,"sites":[]}"#.to_owned())]);
+  let answers = snapfire_fsr_cli::sites::reload(&[first, second], &[], true).expect("asks");
+  assert_eq!(answers.len(), 2);
+  assert!(!answers[0].ok());
+  assert!(answers[1].ok());
+}
+
+/// A route the host does not serve says why, since that is a build-time fact
+/// rather than a wrong URL.
+#[test]
+fn a_missing_route_says_the_host_was_not_built_for_it() {
+  let (addr, _seen) = serving(vec![(404, "not found".to_owned())]);
+  let e = snapfire_fsr_cli::sites::reload(&[addr], &[], false).unwrap_err().to_string();
+  assert!(e.contains("sites_reload"), "{e}");
+  assert!(e.contains("sites mounter"), "{e}");
+}
+
+#[test]
+fn the_table_is_compared_against_every_instance() {
+  let shell = pinnable();
+  let hash = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins")[0].hash.clone();
+  let agrees = format!(r#"{{"sites":[{{"name":"billing","at":"/billing","version":"1.0.0","hash":"{hash}"}}]}}"#);
+  let lags = r#"{"sites":[{"name":"billing","at":"/billing","version":"0.9.0","hash":"old"}]}"#;
+  let (a, _x) = serving(vec![(200, agrees)]);
+  let (b, _y) = serving(vec![(200, lags.to_owned())]);
+  let rows = snapfire_fsr_cli::sites::compare(&shell, &[a.clone(), b.clone()], &[]).expect("compares");
+  assert_eq!(rows.len(), 1);
+  assert!(!rows[0].agrees(), "a lagging instance was reported as agreeing");
+  assert_eq!(rows[0].against.iter().map(|(h, _)| h.clone()).collect::<Vec<_>>(), vec![a, b]);
+}
+
+/// An instance that does not mount the site at all does not agree either.
+#[test]
+fn an_instance_missing_the_site_does_not_agree() {
+  let shell = pinnable();
+  snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  let (addr, _x) = serving(vec![(200, r#"{"sites":[]}"#.to_owned())]);
+  let rows = snapfire_fsr_cli::sites::compare(&shell, &[addr], &[]).expect("compares");
+  assert!(!rows[0].agrees());
+  assert!(rows[0].against[0].1.is_none());
+}
+
+#[test]
+fn a_host_comes_from_the_flag_then_the_shells_listen() {
+  let shell = pinnable();
+  let given = vec!["a.internal:8080".to_owned()];
+  assert_eq!(snapfire_fsr_cli::sites::hosts_for(Some(&shell), &given).unwrap(), given);
+  assert_eq!(snapfire_fsr_cli::sites::hosts_for(Some(&shell), &[]).unwrap().len(), 1);
+  assert!(snapfire_fsr_cli::sites::hosts_for(None, &[]).is_err());
+}

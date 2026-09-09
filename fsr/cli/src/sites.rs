@@ -10,7 +10,7 @@ use snapfire_fsr_host::config::Config;
 use crate::BuildError;
 
 /// One row of a shell's table as `list` reports it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Row {
   pub name: String,
   pub artifact: String,
@@ -528,4 +528,181 @@ pub fn cached(shell: &Path) -> Result<Vec<(String, Vec<String>)>, BuildError> {
     .collect();
   names.sort();
   Ok(names.into_iter().map(|name| { let versions = cache.versions(&name); (name, versions) }).collect())
+}
+
+// ---------------------------------------------------------- a running shell
+
+/// One site as an instance reports it, which is what it is serving rather than
+/// what a table asked for.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct Mounted {
+  pub name: String,
+  pub at: String,
+  pub version: String,
+  pub hash: String,
+}
+
+/// What one instance answered.
+#[derive(Debug, Clone)]
+pub struct Instance {
+  /// The host as it was given, so a report names what the caller named.
+  pub host: String,
+  pub sites: Vec<Mounted>,
+}
+
+/// A site the table names, against every instance asked about it.
+#[derive(Debug, Clone)]
+pub struct Compared {
+  pub row: Row,
+  /// Host, what it serves, and whether that is what the table says.
+  pub against: Vec<(String, Option<Mounted>)>,
+}
+
+impl Compared {
+  /// Whether every instance serves what the table names. An instance that does
+  /// not mount the site at all does not agree either.
+  pub fn agrees(&self) -> bool {
+    self.against.iter().all(|(_, mounted)| {
+      mounted.as_ref().is_some_and(|m| m.version == self.row.version && m.hash == self.row.hash)
+    })
+  }
+}
+
+/// What one instance did when asked to reload.
+#[derive(Debug, Clone)]
+pub struct Reloaded {
+  pub host: String,
+  /// The sites it serves now, when it reloaded.
+  pub sites: Option<Vec<Mounted>>,
+  /// Why it refused, when it did. The host answers 409 with the reason, which
+  /// is the whole value of the route over a signal.
+  pub refused: Option<String>,
+}
+
+impl Reloaded {
+  pub fn ok(&self) -> bool {
+    self.refused.is_none()
+  }
+}
+
+/// A `--header 'Name: Value'` as the two halves, refusing one with no colon
+/// rather than sending a header the caller did not mean.
+pub fn header(raw: &str) -> Result<(String, String), BuildError> {
+  let (name, value) = raw.split_once(':').ok_or_else(|| refuse(format!("`{raw}` is not `Name: Value`")))?;
+  let (name, value) = (name.trim(), value.trim());
+  if name.is_empty() || value.is_empty() {
+    return Err(refuse(format!("`{raw}` is not `Name: Value`")));
+  }
+  Ok((name.to_owned(), value.to_owned()))
+}
+
+/// `http://<host>` unless the caller already said which scheme.
+fn url(host: &str, path: &str) -> String {
+  match host.contains("://") {
+    true => format!("{}{path}", host.trim_end_matches('/')),
+    false => format!("http://{}{path}", host.trim_end_matches('/')),
+  }
+}
+
+fn send(
+  method: reqwest::Method,
+  host: &str,
+  path: &str,
+  headers: &[(String, String)],
+) -> Result<(reqwest::StatusCode, String), BuildError> {
+  let target = url(host, path);
+  let client = crate::vendor::client()?;
+  let mut request = client.request(method, &target);
+  for (name, value) in headers {
+    request = request.header(name.as_str(), value.as_str());
+  }
+  let response = request.send().map_err(|e| BuildError::Http(target.clone(), e.to_string()))?;
+  let status = response.status();
+  let body = response.text().map_err(|e| BuildError::Http(target.clone(), e.to_string()))?;
+  if status == reqwest::StatusCode::NOT_FOUND {
+    return Err(refuse(format!(
+      "{target}: no such route. The host serves it only when it was built with the `sites_reload` feature and the application installed a sites mounter"
+    )));
+  }
+  Ok((status, body))
+}
+
+/// `GET /__fsr/sites` on one instance: what it is serving now.
+pub fn mounted(host: &str, headers: &[(String, String)]) -> Result<Instance, BuildError> {
+  let (status, body) = send(reqwest::Method::GET, host, "/__fsr/sites", headers)?;
+  if !status.is_success() {
+    return Err(refuse(format!("{}: HTTP {status}", url(host, "/__fsr/sites"))));
+  }
+  #[derive(serde::Deserialize)]
+  struct Answer {
+    sites: Vec<Mounted>,
+  }
+  let answer: Answer = serde_json::from_str(&body)
+    .map_err(|e| refuse(format!("{}: {e}", url(host, "/__fsr/sites"))))?;
+  Ok(Instance { host: host.to_owned(), sites: answer.sites })
+}
+
+/// The shell's table against what every instance is serving, which is the
+/// comparison a fleet is watched with.
+pub fn compare(shell: &Path, hosts: &[String], headers: &[(String, String)]) -> Result<Vec<Compared>, BuildError> {
+  let rows = list(shell)?;
+  let mut instances = Vec::new();
+  for host in hosts {
+    instances.push(mounted(host, headers)?);
+  }
+  Ok(
+    rows
+      .into_iter()
+      .map(|row| {
+        let against = instances
+          .iter()
+          .map(|instance| (instance.host.clone(), instance.sites.iter().find(|s| s.name == row.name).cloned()))
+          .collect();
+        Compared { row, against }
+      })
+      .collect(),
+  )
+}
+
+/// `POST /__fsr/sites/reload` on each instance in turn.
+///
+/// One at a time, stopping at the first refusal unless `all`: a 409 says what
+/// was published is bad, so carrying on ships it to the rest of the fleet.
+pub fn reload(hosts: &[String], headers: &[(String, String)], all: bool) -> Result<Vec<Reloaded>, BuildError> {
+  #[derive(serde::Deserialize)]
+  struct Answer {
+    #[serde(default)]
+    sites: Vec<Mounted>,
+    #[serde(default)]
+    error: Option<String>,
+  }
+  let mut out = Vec::new();
+  for host in hosts {
+    let (status, body) = send(reqwest::Method::POST, host, "/__fsr/sites/reload", headers)?;
+    let answer: Answer = serde_json::from_str(&body)
+      .map_err(|e| refuse(format!("{}: {e}", url(host, "/__fsr/sites/reload"))))?;
+    let refused = match status == reqwest::StatusCode::CONFLICT {
+      true => Some(answer.error.unwrap_or_else(|| format!("HTTP {status}"))),
+      false if !status.is_success() => Some(format!("HTTP {status}")),
+      false => None,
+    };
+    let stop = refused.is_some() && !all;
+    out.push(Reloaded { host: host.clone(), sites: refused.is_none().then_some(answer.sites), refused });
+    if stop {
+      break;
+    }
+  }
+  Ok(out)
+}
+
+/// Where to ask, given what the caller said: every `--host`, else the shell's
+/// own `server.listen` when a shell was named.
+pub fn hosts_for(shell: Option<&Path>, given: &[String]) -> Result<Vec<String>, BuildError> {
+  if !given.is_empty() {
+    return Ok(given.to_vec());
+  }
+  let Some(shell) = shell else {
+    return Err(refuse("name a host with --host, or a shell directory to read `server.listen` from".to_owned()));
+  };
+  Ok(vec![load(shell)?.server.listen.clone()])
 }

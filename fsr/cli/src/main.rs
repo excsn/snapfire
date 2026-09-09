@@ -10,11 +10,65 @@ use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>] [--no-doctor]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>] [--no-pin]\n       fsr sites pin    <shell dir> [<name>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>] [--no-doctor]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir> [--host <url>]... [--header \"K: V\"]...\n       fsr sites reload [<shell dir>] [--host <url>]... [--header \"K: V\"]... [--all]\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>] [--no-pin]\n       fsr sites pin    <shell dir> [<name>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
   ExitCode::from(2)
+}
+
+/// `--host` and `--header` off a flag list, `None` when anything else is in
+/// it. Headers parse late so a malformed one is an error rather than a usage
+/// dump, and `$FSR_SITES_HEADER` joins them so a token stays out of history.
+type Headers = Result<Vec<(String, String)>, snapfire_fsr_cli::BuildError>;
+
+fn remote_flags(args: &[String]) -> Option<(Vec<String>, Headers)> {
+  let (mut hosts, mut raw) = (Vec::new(), Vec::new());
+  let mut rest = args.iter();
+  while let Some(flag) = rest.next() {
+    match flag.as_str() {
+      "--host" => hosts.push(rest.next()?.clone()),
+      "--header" => raw.push(rest.next()?.clone()),
+      _ => return None,
+    }
+  }
+  if let Ok(from_env) = std::env::var("FSR_SITES_HEADER") {
+    if !from_env.is_empty() {
+      raw.push(from_env);
+    }
+  }
+  Some((hosts, raw.iter().map(|h| sites::header(h)).collect()))
+}
+
+/// The shell's table against what every instance serves, which is what a fleet
+/// is watched with.
+fn list_against(shell: &Path, hosts: &[String], headers: &[(String, String)]) -> ExitCode {
+  match sites::compare(shell, hosts, headers) {
+    Ok(rows) => {
+      let mut lagging = 0;
+      for row in &rows {
+        let at = row.row.at.as_deref().unwrap_or("-");
+        println!("site      {:<20} {:<24} {:<8} {:<18} table", row.row.name, at, row.row.version, row.row.hash);
+        for (host, mounted) in &row.against {
+          match mounted {
+            Some(m) if m.version == row.row.version && m.hash == row.row.hash => {
+              println!("          {:<20} {:<24} {:<8} {:<18} ok", host, m.at, m.version, m.hash)
+            }
+            Some(m) => println!("          {:<20} {:<24} {:<8} {:<18} lags", host, m.at, m.version, m.hash),
+            None => println!("          {:<20} {:<24} {:<8} {:<18} absent", host, "-", "-", "-"),
+          }
+        }
+        if !row.agrees() {
+          lagging += 1;
+        }
+      }
+      if lagging > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS }
+    }
+    Err(e) => {
+      eprintln!("{e}");
+      ExitCode::from(1)
+    }
+  }
 }
 
 /// The typecheck rows of a report, and the exit code the diagnostics call for.
@@ -372,7 +426,18 @@ fn sites_command(args: &[String]) -> ExitCode {
   let Some(sub) = args.first() else { return usage() };
   match sub.as_str() {
     "list" => {
-      let [_, shell] = args else { return usage() };
+      let Some(shell) = args.get(1) else { return usage() };
+      let Some((hosts, headers)) = remote_flags(&args[2..]) else { return usage() };
+      let headers = match headers {
+        Ok(headers) => headers,
+        Err(e) => {
+          eprintln!("{e}");
+          return ExitCode::from(2);
+        }
+      };
+      if !hosts.is_empty() {
+        return list_against(&PathBuf::from(shell), &hosts, &headers);
+      }
       match sites::list(&PathBuf::from(shell)) {
         Ok(rows) => {
           if rows.is_empty() {
@@ -492,6 +557,54 @@ fn sites_command(args: &[String]) -> ExitCode {
             Some(pinned) if pinned.moved() => println!("pinned    [sites.{}] hash = \"{}\"", pinned.name, pinned.hash),
             Some(pinned) => println!("pinned    [sites.{}] already {}", pinned.name, pinned.hash),
             None => println!("next      artifact = \"{}@{}\" in [sites.{}]", installed.name, installed.version, installed.name),
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "reload" => {
+      let shell = args.get(1).filter(|a| !a.starts_with("--")).map(PathBuf::from);
+      let from = if shell.is_some() { 2 } else { 1 };
+      let all = args[from..].iter().any(|a| a == "--all");
+      let rest: Vec<String> = args[from..].iter().filter(|a| *a != "--all").cloned().collect();
+      let Some((given, headers)) = remote_flags(&rest) else { return usage() };
+      let headers = match headers {
+        Ok(headers) => headers,
+        Err(e) => {
+          eprintln!("{e}");
+          return ExitCode::from(2);
+        }
+      };
+      let hosts = match sites::hosts_for(shell.as_deref(), &given) {
+        Ok(hosts) => hosts,
+        Err(e) => {
+          eprintln!("{e}");
+          return ExitCode::from(2);
+        }
+      };
+      match sites::reload(&hosts, &headers, all) {
+        Ok(answers) => {
+          for answer in &answers {
+            match (&answer.refused, &answer.sites) {
+              (Some(why), _) => println!("refused   {:<24} {why}", answer.host),
+              (None, Some(sites)) => {
+                println!("reloaded  {:<24} {} sites", answer.host, sites.len());
+                for site in sites {
+                  println!("          {:<20} {:<24} {:<8} {}", site.name, site.at, site.version, site.hash);
+                }
+              }
+              (None, None) => println!("reloaded  {}", answer.host),
+            }
+          }
+          if answers.iter().any(|a| !a.ok()) {
+            if !all && answers.len() < hosts.len() {
+              println!("stopped   {} of {} asked; what was published is refused", answers.len(), hosts.len());
+            }
+            return ExitCode::from(1);
           }
           ExitCode::SUCCESS
         }
