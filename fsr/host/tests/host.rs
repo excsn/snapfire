@@ -2378,6 +2378,43 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
   assert!(none.contains("no reloader"), "{none}");
 }
 
+/// The route trims a trailing slash off the public path and the entry has to
+/// put one back, so a build written either way yields the same URL. Everything
+/// snapfirec writes ends in a slash; `fsr build --public-path` does not.
+#[test]
+fn the_inferred_entry_is_a_url_under_the_route_however_the_public_path_is_written() {
+  for public_path in ["/static/js/app/", "/static/js/app"] {
+    let dir = std::env::temp_dir().join(format!("fsr-host-entry-{}-{}", std::process::id(), rand_suffix()));
+    std::fs::create_dir_all(dir.join("generated/contracts")).unwrap();
+    std::fs::create_dir_all(dir.join("dist/src")).unwrap();
+    write_plan(&dir, PLAN);
+    std::fs::write(dir.join("dist/src/main.js"), "boot()").unwrap();
+    std::fs::write(
+      dir.join("dist/.snapfire-build.json"),
+      format!(r#"{{"version":1,"entries":["src/main.js"],"publicPath":"{public_path}","outputs":[],"graph":{{}}}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+      dir.join("app.toml"),
+      "[app]\ndir = \".\"\n[server]\nlisten = \"127.0.0.1:0\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n",
+    )
+    .unwrap();
+
+    let config = snapfire_fsr_host::config::Config::load(&dir).unwrap();
+    assert_eq!(
+      config.document.entry.as_deref(),
+      Some("/static/js/app/src/main.js"),
+      "public path {public_path}"
+    );
+    assert!(
+      config.statics.iter().any(|s| s.route == "/static/js/app" && s.dir == "dist"),
+      "public path {public_path}: {:?}",
+      config.statics
+    );
+    std::fs::remove_dir_all(&dir).ok();
+  }
+}
+
 #[test]
 fn a_bundle_carrying_a_server_module_refuses_to_start() {
   let dir = app_dir();

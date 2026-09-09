@@ -971,7 +971,10 @@ impl Config {
           inferred.push(format!("static {route} from dist/.snapfire-build.json"));
         }
         if document.entry.is_none() && facts.entries.iter().any(|e| e == "src/main.js") {
-          document.entry = Some(format!("{}src/main.js", public_path));
+          // From the route rather than from the path it was trimmed out of:
+          // the entry is a URL the static root above answers, so a public
+          // path written without a trailing slash cannot run the two together.
+          document.entry = Some(format!("{route}/src/main.js"));
           inferred.push("document.entry from dist/.snapfire-build.json".to_owned());
         }
       }
