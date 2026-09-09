@@ -20,7 +20,7 @@ use snapfire_fsr_host::config::Config;
 pub const MANIFEST: &str = ".snapfire-site.json";
 
 /// The manifest format this crate writes and reads.
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
@@ -48,6 +48,8 @@ pub enum ArtifactError {
   Extra { path: String },
   #[error("{0}: {1}")]
   Archive(PathBuf, String),
+  #[error(transparent)]
+  Layout(#[from] crate::layout::LayoutError),
 }
 
 /// One file of an artifact.
@@ -74,14 +76,22 @@ impl Listing {
   /// The listing of the artifact at `root` whose configuration is already
   /// loaded, so a caller that has one does not parse it twice.
   pub fn of_config(root: &Path, config: &Config) -> Result<Self, ArtifactError> {
+    Self::of_rows(&crate::layout::layout(root, config)?.rows()?)
+  }
+
+  /// The listing of a tree already laid out, which is what a bundle is about
+  /// to write and what a pack is about to tar. Both hash the same rows, so a
+  /// working tree and the archive taken from it agree without either walking
+  /// the other.
+  pub fn of_rows(rows: &[crate::layout::Row]) -> Result<Self, ArtifactError> {
     let mut entries = Vec::new();
-    for part in parts(root, config) {
-      let path = root.join(&part);
-      if path.is_dir() {
-        walk(root, &path, &mut entries)?;
-      } else if path.is_file() {
-        entries.push(entry(root, &path)?);
-      }
+    for row in rows {
+      let bytes = row.bytes()?;
+      entries.push(Entry {
+        path: row.path.clone(),
+        size: bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+      });
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     entries.dedup_by(|a, b| a.path == b.path);
@@ -109,63 +119,15 @@ impl Listing {
   }
 }
 
-/// The parts of a site's project directory that ship, relative to its root:
-/// its configuration, whatever holds the plan, the contracts and the prerender
-/// cache, every static root it serves and its import map. A part that another
-/// part contains is dropped, so `app/generated/contracts` beside
-/// `app/generated` is one entry.
-pub fn parts(root: &Path, config: &Config) -> Vec<String> {
-  let app = relative(root, &config.app);
-  let under = |path: &str| {
-    if app.is_empty() {
-      path.to_owned()
-    } else {
-      format!("{app}/{path}")
-    }
-  };
-
-  let mut parts = Vec::new();
-  let config_dir = relative(root, &config.config_dir());
-  if config_dir.is_empty() {
-    // The configuration sits in the artifact root rather than a directory of
-    // its own, so the files themselves are the part; the root is not.
-    parts.extend(config.sources.iter().map(|source| relative(root, source)));
-  } else {
-    parts.push(config_dir);
-  }
-  parts.push(match Path::new(&config.server.plan).parent() {
-    Some(dir) if !dir.as_os_str().is_empty() => under(&slashed(dir)),
-    _ => under(&config.server.plan),
-  });
-  parts.push(under(&config.server.contracts));
-  if let Some(prerender) = &config.server.prerender {
-    parts.push(under(prerender));
-  }
-  for served in &config.statics {
-    parts.push(under(&served.dir));
-  }
-  if let Some(map) = &config.document.import_map {
-    parts.push(under(map));
-  }
-  parts.retain(|part| !part.is_empty());
-  parts.sort();
-  parts.dedup();
-  subsume(parts)
-}
-
-fn subsume(parts: Vec<String>) -> Vec<String> {
-  let mut kept: Vec<String> = Vec::new();
-  for part in parts {
-    if kept
-      .iter()
-      .any(|held| part == *held || part.starts_with(&format!("{held}/")))
-    {
-      continue;
-    }
-    kept.retain(|held| !held.starts_with(&format!("{part}/")));
-    kept.push(part);
-  }
-  kept
+/// What a site's deploy tree holds, in destination order: its configuration,
+/// the plan and contracts the build wrote, whatever the application reads by
+/// name and every static root under the route it serves.
+///
+/// These are paths in the tree rather than in the project. For an artifact,
+/// which is a tree, they are also paths in the directory itself; for a
+/// project about to be bundled they are where its files are going.
+pub fn parts(root: &Path, config: &Config) -> Result<Vec<String>, ArtifactError> {
+  Ok(crate::layout::layout(root, config)?.parts())
 }
 
 /// What a packed artifact carries at its root and an install reads back.
@@ -186,11 +148,23 @@ impl Manifest {
   /// The manifest for the artifact at `dir` released as `version`.
   pub fn of(dir: &Path, version: &str) -> Result<Self, ArtifactError> {
     let config = Config::load(dir)?;
+    let rows = crate::layout::layout(dir, &config)?.rows()?;
+    Self::of_rows(dir, version, &config, &rows)
+  }
+
+  /// The manifest for a tree already laid out, so a pack hashes the rows it
+  /// is about to write rather than walking the directory a second time.
+  pub fn of_rows(
+    dir: &Path,
+    version: &str,
+    config: &Config,
+    rows: &[crate::layout::Row],
+  ) -> Result<Self, ArtifactError> {
     let site = config
       .site
       .as_ref()
       .ok_or_else(|| ArtifactError::NotASite(dir.to_path_buf()))?;
-    let listing = Listing::of_config(dir, &config)?;
+    let listing = Listing::of_rows(rows)?;
     Ok(Self {
       format: FORMAT,
       name: site.name.clone(),
@@ -308,7 +282,9 @@ impl Manifest {
 /// archive root, and returns the manifest. Entries carry no timestamp and no
 /// owner, so packing the same tree twice produces the same bytes.
 pub fn pack(dir: &Path, version: &str, out: &Path) -> Result<Manifest, ArtifactError> {
-  let manifest = Manifest::of(dir, version)?;
+  let config = Config::load(dir)?;
+  let rows = crate::layout::layout(dir, &config)?.rows()?;
+  let manifest = Manifest::of_rows(dir, version, &config, &rows)?;
   if let Some(parent) = out.parent() {
     if !parent.as_os_str().is_empty() {
       std::fs::create_dir_all(parent).map_err(|e| ArtifactError::Io(parent.to_path_buf(), e))?;
@@ -322,10 +298,8 @@ pub fn pack(dir: &Path, version: &str, out: &Path) -> Result<Manifest, ArtifactE
     message: e.to_string(),
   })?;
   append(&mut builder, out, MANIFEST, format!("{text}\n").as_bytes())?;
-  for entry in &manifest.files {
-    let path = dir.join(&entry.path);
-    let bytes = std::fs::read(&path).map_err(|e| ArtifactError::Io(path.clone(), e))?;
-    append(&mut builder, out, &entry.path, &bytes)?;
+  for row in &rows {
+    append(&mut builder, out, &row.path, &row.bytes()?)?;
   }
   builder
     .into_inner()
@@ -408,36 +382,6 @@ pub fn unpack(archive: &Path, into: &Path) -> Result<Manifest, ArtifactError> {
     manifest.ok_or_else(|| ArtifactError::Archive(archive.to_path_buf(), format!("no {MANIFEST} at its root")))?;
   manifest.write(into)?;
   Ok(manifest)
-}
-
-fn walk(root: &Path, dir: &Path, out: &mut Vec<Entry>) -> Result<(), ArtifactError> {
-  let read = std::fs::read_dir(dir).map_err(|e| ArtifactError::Io(dir.to_path_buf(), e))?;
-  let mut paths: Vec<PathBuf> = Vec::new();
-  for found in read {
-    paths.push(found.map_err(|e| ArtifactError::Io(dir.to_path_buf(), e))?.path());
-  }
-  paths.sort();
-  for path in paths {
-    if path.is_dir() {
-      walk(root, &path, out)?;
-    } else if path.is_file() {
-      out.push(entry(root, &path)?);
-    }
-  }
-  Ok(())
-}
-
-fn entry(root: &Path, path: &Path) -> Result<Entry, ArtifactError> {
-  let bytes = std::fs::read(path).map_err(|e| ArtifactError::Io(path.to_path_buf(), e))?;
-  Ok(Entry {
-    path: relative(root, path),
-    size: bytes.len() as u64,
-    sha256: format!("{:x}", Sha256::digest(&bytes)),
-  })
-}
-
-fn relative(root: &Path, path: &Path) -> String {
-  slashed(path.strip_prefix(root).unwrap_or(path))
 }
 
 fn slashed(path: &Path) -> String {

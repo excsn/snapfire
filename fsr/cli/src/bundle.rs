@@ -5,29 +5,37 @@
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_host::config::Config;
+use snapfire_fsr_sites::layout::{self, Source};
 
 use crate::BuildError;
 use crate::serve::project_root;
 
 /// The `serve/` prefix, the one directory a web server is pointed at. Nothing
 /// outside it is reachable from the network.
-pub const SERVE: &str = "serve";
+pub const SERVE: &str = layout::SERVE;
 
 pub struct Bundled {
   pub out: PathBuf,
-  /// Route and the directory it came from, for every static root.
-  pub served: Vec<(String, PathBuf)>,
-  /// Everything under the tree the host reads: its configuration, the plan,
-  /// the contracts, every static root and the import map.
-  pub read: Vec<PathBuf>,
+  /// Route and the directory under `serve/` that answers it, for every static
+  /// root.
+  pub served: Vec<(String, String)>,
+  /// Everything under the tree the host reads, in the order it is laid out.
+  pub read: Vec<String>,
+  /// How many files the tree holds and how many bytes they come to.
+  pub files: usize,
+  pub bytes: u64,
   /// What the bundle does not hold and a deployment still places beside it.
   pub beside: Vec<&'static str>,
 }
 
-/// Writes the deploy tree for `app` under `out`: every static root under
-/// `serve/<route>/` for a web server to point at, and the site's own parts at
-/// the paths they hold in the project, where the host's configuration and its
-/// inference both already look for them.
+/// Writes the deploy tree for `app` under `out`: configuration under
+/// `config/`, everything the application reads under `app/`, every static root
+/// under `serve/<route>/` for a web server to point at, and a generated
+/// `config/bundle.toml` naming the paths that moved.
+///
+/// Every destination is derived from what a file is rather than from where it
+/// sat in the project, so nothing the configuration says can write outside
+/// `out`.
 pub fn run(app: &Path, out: &Path) -> Result<Bundled, BuildError> {
   run_checked(app, out, true)
 }
@@ -46,36 +54,57 @@ pub fn run_checked(app: &Path, out: &Path, check: bool) -> Result<Bundled, Build
     }
   }
 
+  let laid = layout::layout(&root, &config).map_err(|e| BuildError::Bundle(e.to_string()))?;
+  let rows = laid.rows().map_err(|e| BuildError::Bundle(e.to_string()))?;
+
   if out.exists() {
     std::fs::remove_dir_all(out).map_err(|e| BuildError::Io(out.to_path_buf(), e))?;
   }
 
-  let mut served = Vec::new();
-  for root in &config.statics {
-    let from = config.resolve(&root.dir);
-    if !from.is_dir() {
-      continue;
+  let mut bytes = 0;
+  for row in &rows {
+    let to = out.join(&row.path);
+    match &row.from {
+      Source::Path(from) => {
+        bytes += std::fs::metadata(from).map(|m| m.len()).unwrap_or(0);
+        copy_file(from, &to)?;
+      }
+      Source::Text(text) => {
+        bytes += text.len() as u64;
+        write_file(text.as_bytes(), &to)?;
+      }
     }
-    let to = out.join(SERVE).join(root.route.trim_start_matches('/'));
-    copy_dir(&from, &to)?;
-    served.push((root.route.clone(), from));
   }
 
-  let mut read = Vec::new();
-  for part in snapfire_fsr_sites::parts(&root, &config) {
-    let from = root.join(&part);
-    let to = out.join(&part);
-    if from.is_dir() {
-      copy_dir(&from, &to)?;
-    } else if from.is_file() {
-      copy_file(&from, &to)?;
-    } else {
-      continue;
-    }
-    read.push(to);
-  }
+  let served = config
+    .statics
+    .iter()
+    .map(|root| {
+      let route = root.route.trim_matches('/');
+      let at = if route.is_empty() {
+        SERVE.to_owned()
+      } else {
+        format!("{SERVE}/{route}")
+      };
+      (root.route.clone(), at)
+    })
+    .collect();
 
-  Ok(Bundled { out: out.to_path_buf(), served, read, beside: vec!["the binary", "the logging configuration"] })
+  Ok(Bundled {
+    out: out.to_path_buf(),
+    served,
+    read: laid.places.iter().filter(|p| p.exists()).map(|p| p.to.clone()).collect(),
+    files: rows.len(),
+    bytes,
+    beside: vec!["the binary", "the logging configuration"],
+  })
+}
+
+fn write_file(bytes: &[u8], to: &Path) -> Result<(), BuildError> {
+  if let Some(parent) = to.parent() {
+    std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+  }
+  std::fs::write(to, bytes).map_err(|e| BuildError::Io(to.to_path_buf(), e))
 }
 
 fn copy_file(from: &Path, to: &Path) -> Result<(), BuildError> {
@@ -83,19 +112,5 @@ fn copy_file(from: &Path, to: &Path) -> Result<(), BuildError> {
     std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
   }
   std::fs::copy(from, to).map_err(|e| BuildError::Io(to.to_path_buf(), e))?;
-  Ok(())
-}
-
-fn copy_dir(from: &Path, to: &Path) -> Result<(), BuildError> {
-  std::fs::create_dir_all(to).map_err(|e| BuildError::Io(to.to_path_buf(), e))?;
-  for entry in std::fs::read_dir(from).map_err(|e| BuildError::Io(from.to_path_buf(), e))?.flatten() {
-    let path = entry.path();
-    let target = to.join(entry.file_name());
-    if path.is_dir() {
-      copy_dir(&path, &target)?;
-    } else {
-      copy_file(&path, &target)?;
-    }
-  }
   Ok(())
 }

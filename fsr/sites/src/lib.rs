@@ -12,8 +12,10 @@ use snapfire_fsr_host::{Host, HostBuilder, HostError, Mount};
 
 pub mod artifact;
 pub mod install;
+pub mod layout;
 
 pub use artifact::{pack, parts, unpack, ArtifactError, Entry, Listing, Manifest};
+pub use layout::{layout, Layout, LayoutError, Placement, Row, Source};
 pub use install::{ArchiveStore, Cache, InstallError, Installed, Store, TarStore};
 
 #[derive(Debug, thiserror::Error)]

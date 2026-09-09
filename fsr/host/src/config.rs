@@ -534,7 +534,7 @@ impl Default for Deployment {
   }
 }
 
-/// The files a configuration directory contributes, in loading order: `app`, `<release_env>`, `<app_env>`, `<region>` and `<app_env>-<region>`, each as `.toml` then `.yaml`, keeping only those that exist. Any other file in the directory is ignored.
+/// The files a configuration directory contributes, in loading order: `app`, `<release_env>`, `<app_env>`, `<region>`, `<app_env>-<region>` and `bundle`, each as `.toml` then `.yaml`, keeping only those that exist. Any other file in the directory is ignored. `bundle.toml` is what `fsr bundle` writes to name the paths a deploy tree moved, so it loads last and no deployment overlay displaces it.
 pub fn config_paths(dir: &Path, deployment: &Deployment) -> Vec<PathBuf> {
   let mut stems = vec![
     "app".to_owned(),
@@ -545,6 +545,9 @@ pub fn config_paths(dir: &Path, deployment: &Deployment) -> Vec<PathBuf> {
     stems.push(region.clone());
     stems.push(format!("{}-{}", deployment.app_env, region));
   }
+  // Last, so a deploy tree's own layout wins over every overlay: the paths in
+  // it are the tree's, not a deployment's opinion about them.
+  stems.push("bundle".to_owned());
   let mut seen = Vec::new();
   let mut paths = Vec::new();
   for stem in stems {

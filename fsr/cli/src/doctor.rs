@@ -392,9 +392,14 @@ fn sites(config: &Config) -> Vec<Finding> {
 fn site_artifact(site: &snapfire_fsr_sites::Resolved) -> Vec<Finding> {
   let Ok(config) = Config::load(&site.artifact) else { return Vec::new() };
   let mut findings = Vec::new();
-  let absent: Vec<String> = snapfire_fsr_sites::parts(&site.artifact, &config)
-    .into_iter()
-    .filter(|part| !site.artifact.join(part).exists())
+  let Ok(laid) = snapfire_fsr_sites::layout(&site.artifact, &config) else {
+    return Vec::new();
+  };
+  let absent: Vec<String> = laid
+    .places
+    .iter()
+    .filter(|place| !place.exists())
+    .map(|place| place.to.clone())
     .collect();
   if !absent.is_empty() {
     findings.push(Finding::new(

@@ -5,7 +5,6 @@ use snapfire_fsr_cli::dev::DevOptions;
 use snapfire_fsr_cli::doctor;
 use snapfire_fsr_cli::new::{NewOptions, SiteScaffold};
 use snapfire_fsr_cli::serve::ServeOptions;
-use snapfire_fsr_cli::bundle;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
@@ -198,13 +197,21 @@ fn main() -> ExitCode {
       let out = out.unwrap_or_else(|| snapfire_fsr_cli::serve::project_root(&app).join("dist"));
       match snapfire_fsr_cli::bundle::run_checked(&app, &out, check) {
         Ok(bundled) => {
-          for (route, from) in &bundled.served {
-            println!("{:<24} {}", format!("{}/{}", bundle::SERVE, route.trim_start_matches('/')), from.display());
+          for (route, at) in &bundled.served {
+            println!("{at:<32} serves {route}");
           }
           for path in &bundled.read {
-            println!("{:<24} read by the host", path.strip_prefix(&bundled.out).unwrap_or(path).display());
+            if !bundled.served.iter().any(|(_, at)| at == path) {
+              println!("{path:<32} read by the host");
+            }
           }
-          println!("\nplace beside it: {}", bundled.beside.join(", "));
+          println!(
+            "\n{} files, {} bytes under {}",
+            bundled.files,
+            bundled.bytes,
+            bundled.out.display()
+          );
+          println!("place beside it: {}", bundled.beside.join(", "));
           ExitCode::SUCCESS
         }
         Err(e) => {

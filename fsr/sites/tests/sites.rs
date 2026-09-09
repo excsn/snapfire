@@ -16,7 +16,7 @@ fn dir(name: &str) -> PathBuf {
 fn shell(sites: &str) -> PathBuf {
   let root = dir("shell");
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
-  std::fs::write(root.join("app/generated/plan.json"), r#"{"version":2,"routes":[]}"#).unwrap();
+  std::fs::write(root.join("app/generated/plan.sexp"), "(plan 2)").unwrap();
   std::fs::write(
     root.join("app.toml"),
     format!("[app]\ndir = \"app\"\n[session]\nkey = \"k\"\n{sites}"),
@@ -31,7 +31,7 @@ fn site(at: &Path, name: &str, prefix: &str) {
   std::fs::create_dir_all(at.join("app/generated")).unwrap();
   std::fs::create_dir_all(at.join("app/dist")).unwrap();
   std::fs::create_dir_all(at.join("app/styles")).unwrap();
-  std::fs::write(at.join("app/generated/plan.json"), r#"{"version":2,"routes":[]}"#).unwrap();
+  std::fs::write(at.join("app/generated/plan.sexp"), "(plan 2)").unwrap();
   std::fs::write(at.join("app/dist/main.js"), "export {}\n").unwrap();
   // `dist/` is a static root only once the build facts name a public path, so
   // a fixture without one is not a site the host would serve a bundle for.
@@ -129,13 +129,22 @@ fn a_working_tree_and_the_release_copied_out_of_it_hash_the_same() {
 
   let release = dir("hash-release");
   let config = Config::load(&at).unwrap();
-  for part in snapfire_fsr_sites::parts(&at, &config) {
-    let from = at.join(&part);
-    let to = release.join(&part);
+  for row in snapfire_fsr_sites::layout(&at, &config).unwrap().rows().unwrap() {
+    let to = release.join(&row.path);
     std::fs::create_dir_all(to.parent().unwrap()).unwrap();
-    copy(&from, &to);
+    std::fs::write(&to, row.bytes().unwrap()).unwrap();
   }
   assert_eq!(hash_dir(&release).unwrap(), hash_dir(&at).unwrap());
+
+  // The tree lays out as itself, so laying it out again moves nothing.
+  let again = dir("hash-again");
+  let config = Config::load(&release).unwrap();
+  for row in snapfire_fsr_sites::layout(&release, &config).unwrap().rows().unwrap() {
+    let to = again.join(&row.path);
+    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+    std::fs::write(&to, row.bytes().unwrap()).unwrap();
+  }
+  assert_eq!(hash_dir(&again).unwrap(), hash_dir(&at).unwrap());
 }
 
 #[test]
@@ -186,19 +195,19 @@ fn a_staged_tree_whose_bytes_differ_from_its_manifest_is_refused() {
   snapfire_fsr_sites::unpack(&out, &staged).unwrap();
   assert!(manifest.verify(&staged).is_ok());
 
-  std::fs::write(staged.join("app/dist/main.js"), "export const tampered = 1\n").unwrap();
+  std::fs::write(staged.join("serve/billing/static/js/app/main.js"), "export const tampered = 1\n").unwrap();
   let e = manifest.verify(&staged).unwrap_err().to_string();
-  assert!(e.contains("app/dist/main.js") && e.contains("sha256"), "{e}");
+  assert!(e.contains("serve/billing/static/js/app/main.js") && e.contains("sha256"), "{e}");
 
-  std::fs::write(staged.join("app/dist/extra.js"), "export {}\n").unwrap();
-  std::fs::write(staged.join("app/dist/main.js"), "export {}\n").unwrap();
+  std::fs::write(staged.join("serve/billing/static/js/app/extra.js"), "export {}\n").unwrap();
+  std::fs::write(staged.join("serve/billing/static/js/app/main.js"), "export {}\n").unwrap();
   let e = manifest.verify(&staged).unwrap_err().to_string();
-  assert!(e.contains("app/dist/extra.js") && e.contains("not listed"), "{e}");
+  assert!(e.contains("serve/billing/static/js/app/extra.js") && e.contains("not listed"), "{e}");
 
-  std::fs::remove_file(staged.join("app/dist/extra.js")).unwrap();
-  std::fs::remove_file(staged.join("app/styles/site.css")).unwrap();
+  std::fs::remove_file(staged.join("serve/billing/static/js/app/extra.js")).unwrap();
+  std::fs::remove_file(staged.join("serve/billing/static/css/site.css")).unwrap();
   let e = manifest.verify(&staged).unwrap_err().to_string();
-  assert!(e.contains("app/styles/site.css") && e.contains("absent"), "{e}");
+  assert!(e.contains("serve/billing/static/css/site.css") && e.contains("absent"), "{e}");
 }
 
 #[test]
@@ -236,16 +245,24 @@ fn a_sweep_keeps_the_newest_and_never_the_active_one() {
 }
 
 #[test]
-fn the_listing_covers_the_parts_the_configuration_names() {
+fn a_part_is_where_a_file_lands_rather_than_where_it_came_from() {
   let at = dir("parts");
   site(&at, "billing", "/billing");
   let config = Config::load(&at).unwrap();
-  let parts = snapfire_fsr_sites::parts(&at, &config);
-  assert!(parts.contains(&"app/generated".to_owned()), "{parts:?}");
-  assert!(parts.contains(&"app/dist".to_owned()), "{parts:?}");
-  assert!(parts.contains(&"app/styles".to_owned()), "{parts:?}");
-  assert!(parts.contains(&"app/importmap.json".to_owned()), "{parts:?}");
+  let parts = snapfire_fsr_sites::parts(&at, &config).unwrap();
+  let held = |p: &str| parts.contains(&p.to_owned());
+  assert!(held("config/app.toml"), "{parts:?}");
+  assert!(held("config/bundle.toml"), "{parts:?}");
+  assert!(held("app/generated/plan.sexp"), "{parts:?}");
+  assert!(held("app/importmap.json"), "{parts:?}");
+  // A static root is placed under the route it answers, so `dist/` and
+  // `styles/` are named by their prefixes rather than by their directories.
+  assert!(held("serve/billing/static/js/app"), "{parts:?}");
+  assert!(held("serve/billing/static/css"), "{parts:?}");
+  assert!(!held("app/dist"), "{parts:?}");
+  assert!(!held("app/styles"), "{parts:?}");
   assert!(!parts.iter().any(|p| p.starts_with("app/types")), "{parts:?}");
+
   let listing = Listing::of(&at).unwrap();
   assert!(listing.entries.iter().all(|e| parts
     .iter()

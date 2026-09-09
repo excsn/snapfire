@@ -27,6 +27,7 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 tar = "0.4.46"
 thiserror = "2"
+toml = "0.8"
 tokio = { version = "1", features = ["rt", "time", "signal", "macros"] }
 tracing = "0.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

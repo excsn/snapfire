@@ -362,12 +362,14 @@ pub fn hash(site: &Path) -> Result<Hashed, BuildError> {
   let Some(section) = &config.site else {
     return Err(BuildError::Sites(format!("{} has no [site], so it is not a site", site.display())));
   };
-  let listing = snapfire_fsr_sites::Listing::of_config(site, &config).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let laid = snapfire_fsr_sites::layout(site, &config).map_err(|e| BuildError::Sites(e.to_string()))?;
+  let rows = laid.rows().map_err(|e| BuildError::Sites(e.to_string()))?;
+  let listing = snapfire_fsr_sites::Listing::of_rows(&rows).map_err(|e| BuildError::Sites(e.to_string()))?;
   Ok(Hashed {
     name: section.name.clone(),
     at: section.at.clone(),
     hash: listing.hash(),
-    parts: snapfire_fsr_sites::parts(site, &config),
+    parts: laid.parts(),
     bytes: listing.bytes(),
     files: listing.entries,
   })
