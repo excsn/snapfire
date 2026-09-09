@@ -10,7 +10,7 @@ use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>] [--no-pin]\n       fsr sites pin    <shell dir> [<name>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -460,16 +460,19 @@ fn sites_command(args: &[String]) -> ExitCode {
       let (Some(shell), Some(archive)) = (args.get(1), args.get(2)) else { return usage() };
       let mut name = None;
       let mut keep = None;
+      let mut pin_it = true;
       let mut rest = args[3..].iter();
       while let Some(flag) = rest.next() {
         match flag.as_str() {
           "--as" => name = rest.next().cloned(),
           "--keep" => keep = rest.next().and_then(|n| n.parse::<usize>().ok()),
+          "--no-pin" => pin_it = false,
           _ => return usage(),
         }
       }
-      match sites::install(&PathBuf::from(shell), Path::new(archive), name.as_deref(), keep) {
-        Ok(installed) => {
+      match sites::install(&PathBuf::from(shell), Path::new(archive), name.as_deref(), keep, pin_it) {
+        Ok(out) => {
+          let installed = &out.installed;
           if installed.held {
             println!("held      {} {} already at {}", installed.name, installed.version, installed.path.display());
           } else {
@@ -480,7 +483,37 @@ fn sites_command(args: &[String]) -> ExitCode {
           for version in &installed.swept {
             println!("removed   {} {version}", installed.name);
           }
-          println!("next      artifact = \"{}@{}\" in [sites.{}]", installed.name, installed.version, installed.name);
+          match &out.pinned {
+            Some(pinned) if pinned.moved() => println!("pinned    [sites.{}] hash = \"{}\"", pinned.name, pinned.hash),
+            Some(pinned) => println!("pinned    [sites.{}] already {}", pinned.name, pinned.hash),
+            None => println!("next      artifact = \"{}@{}\" in [sites.{}]", installed.name, installed.version, installed.name),
+          }
+          ExitCode::SUCCESS
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(1)
+        }
+      }
+    }
+    "pin" => {
+      let Some(shell) = args.get(1) else { return usage() };
+      let only = args.get(2).cloned();
+      if args.len() > 3 {
+        return usage();
+      }
+      match sites::pin(&PathBuf::from(shell), only.as_deref()) {
+        Ok(pinned) => {
+          if pinned.is_empty() {
+            println!("pinned    nothing: a mount naming a path is a working tree and is never pinned");
+          }
+          for entry in &pinned {
+            match (&entry.was, entry.moved()) {
+              (Some(was), true) => println!("repinned  [sites.{}] {was} -> {}", entry.name, entry.hash),
+              (_, true) => println!("pinned    [sites.{}] hash = \"{}\"", entry.name, entry.hash),
+              (_, false) => println!("held      [sites.{}] already {}", entry.name, entry.hash),
+            }
+          }
           ExitCode::SUCCESS
         }
         Err(e) => {

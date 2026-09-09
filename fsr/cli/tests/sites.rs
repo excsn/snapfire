@@ -132,3 +132,90 @@ fn unlinking_a_name_the_table_does_not_hold_says_what_it_holds() {
   assert!(refused.contains("`nope` is not mounted"), "{refused}");
   assert!(refused.contains("handbook"), "it names what is mounted: {refused}");
 }
+
+/// A shell whose table mounts a versioned artifact in its own cache.
+fn pinnable() -> PathBuf {
+  let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let root = std::env::temp_dir().join(format!("fsr-pin-{}-{nanos}", std::process::id()));
+  std::fs::create_dir_all(root.join("app/generated")).unwrap();
+  std::fs::write(root.join("app.toml"), "[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[sites]\nroot = \"sites\"\n\n[sites.billing]\nartifact = \"billing@1.0.0\"\n").unwrap();
+  std::fs::write(root.join("app/generated/plan.sexp"), "(plan 2)\n").unwrap();
+
+  let site = root.join("sites/billing/1.0.0");
+  std::fs::create_dir_all(site.join("app/generated")).unwrap();
+  std::fs::write(site.join("app.toml"), "[app]\ndir = \"app\"\n[document]\ntitle = \"b\"\n[session]\nkey = \"k\"\n[site]\nname = \"billing\"\nat = \"/billing\"\n").unwrap();
+  std::fs::write(site.join("app/generated/plan.sexp"), "(plan 2)\n").unwrap();
+  root
+}
+
+#[test]
+fn pinning_writes_the_hash_into_the_mount() {
+  let shell = pinnable();
+  let pinned = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  assert_eq!(pinned.len(), 1);
+  assert_eq!(pinned[0].name, "billing");
+  assert!(pinned[0].was.is_none());
+  assert!(pinned[0].moved());
+
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  assert!(toml.contains(&format!("hash = \"{}\"", pinned[0].hash)), "{toml}");
+  assert!(toml.contains("[sites.billing]"), "{toml}");
+}
+
+/// Pinning twice is one pin: the second run has nothing to write.
+#[test]
+fn pinning_again_holds_when_nothing_moved() {
+  let shell = pinnable();
+  let first = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  let again = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  assert_eq!(again[0].was.as_deref(), Some(first[0].hash.as_str()));
+  assert!(!again[0].moved(), "the hash moved without the artifact moving");
+  assert_eq!(std::fs::read_to_string(shell.join("app.toml")).unwrap().matches("hash = ").count(), 1);
+}
+
+/// A changed artifact repins to the new content rather than appending a second key.
+#[test]
+fn repinning_replaces_the_hash_it_had() {
+  let shell = pinnable();
+  let before = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins")[0].hash.clone();
+  std::fs::write(shell.join("sites/billing/1.0.0/app/generated/plan.sexp"), "(plan 2)\n(route / (node 0 shell#document))\n").unwrap();
+  let after = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  assert_eq!(after[0].was.as_deref(), Some(before.as_str()));
+  assert_ne!(after[0].hash, before);
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  assert_eq!(toml.matches("hash = ").count(), 1, "{toml}");
+  assert!(toml.contains(&after[0].hash), "{toml}");
+}
+
+/// A mount naming a path is a working tree, so it is never pinned.
+#[test]
+fn a_path_mount_is_not_pinned() {
+  let shell = pinnable();
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  std::fs::write(shell.join("app.toml"), toml.replace("artifact = \"billing@1.0.0\"", "artifact = \"sites/billing/1.0.0\"")).unwrap();
+  assert!(snapfire_fsr_cli::sites::pin(&shell, None).expect("pins").is_empty());
+  assert!(!std::fs::read_to_string(shell.join("app.toml")).unwrap().contains("hash = "));
+}
+
+#[test]
+fn pinning_one_mount_leaves_the_others() {
+  let shell = pinnable();
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  std::fs::write(shell.join("app.toml"), format!("{toml}\n[sites.other]\nartifact = \"other@2.0.0\"\n")).unwrap();
+  let site = shell.join("sites/other/2.0.0");
+  std::fs::create_dir_all(site.join("app/generated")).unwrap();
+  std::fs::write(site.join("app.toml"), "[app]\ndir = \"app\"\n[document]\ntitle = \"o\"\n[session]\nkey = \"k\"\n[site]\nname = \"other\"\nat = \"/other\"\n").unwrap();
+  std::fs::write(site.join("app/generated/plan.sexp"), "(plan 2)\n").unwrap();
+
+  let pinned = snapfire_fsr_cli::sites::pin(&shell, Some("billing")).expect("pins");
+  assert_eq!(pinned.len(), 1);
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  assert_eq!(toml.matches("hash = ").count(), 1, "{toml}");
+}
+
+#[test]
+fn pinning_a_name_the_table_does_not_mount_says_so() {
+  let shell = pinnable();
+  let e = snapfire_fsr_cli::sites::pin(&shell, Some("nope")).unwrap_err().to_string();
+  assert!(e.contains("`nope` is not mounted"), "{e}");
+}

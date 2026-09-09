@@ -48,6 +48,24 @@ pub struct Unlinked {
 }
 
 /// Every `[sites.<name>]` row of the shell at `shell`, resolved.
+/// What pinning one mount did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pinned {
+  pub name: String,
+  pub hash: String,
+  /// The hash the mount carried before, when it carried one.
+  pub was: Option<String>,
+  pub artifact: PathBuf,
+}
+
+impl Pinned {
+  /// Whether the file changed, so a caller can say what it did rather than
+  /// what it looked at.
+  pub fn moved(&self) -> bool {
+    self.was.as_deref() != Some(self.hash.as_str())
+  }
+}
+
 pub fn list(shell: &Path) -> Result<Vec<Row>, BuildError> {
   let config = load(shell)?;
   let Some(section) = &config.sites else { return Ok(Vec::new()) };
@@ -382,7 +400,19 @@ pub fn pack(site: &Path, version: &str, out: Option<&Path>) -> Result<Packed, Bu
 /// `[sites] root`, under `name` when given and the artifact's own name
 /// otherwise. Verifies before anything is renamed into place, so a shell
 /// running the previous version keeps running it when the archive is wrong.
-pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<usize>) -> Result<snapfire_fsr_sites::Installed, BuildError> {
+/// What an install did, and the pin it wrote.
+pub struct Installation {
+  pub installed: snapfire_fsr_sites::Installed,
+  /// The mount that now names this version, when the table has one. An
+  /// archive installed before it is linked has nothing to pin.
+  pub pinned: Option<Pinned>,
+}
+
+/// Installs an archive into the shell's cache and pins the mount that names
+/// it. Install is the one moment when computing the hash and meaning to ship
+/// that version are the same act, so the pin is written here rather than left
+/// as a step someone remembers.
+pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<usize>, pin_it: bool) -> Result<Installation, BuildError> {
   let config = Config::load(shell).map_err(|e| BuildError::Sites(e.to_string()))?;
   let root = config
     .sites
@@ -393,9 +423,94 @@ pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<us
   let name = name.unwrap_or(&manifest.name).to_owned();
   let store = snapfire_fsr_sites::ArchiveStore { archive: archive.to_path_buf() };
   let cache = snapfire_fsr_sites::Cache::new(config.root.join(root));
-  cache
+  let installed = cache
     .install(&store, &name, &manifest.name, &manifest.version, keep)
-    .map_err(|e| BuildError::Sites(e.to_string()))
+    .map_err(|e| BuildError::Sites(e.to_string()))?;
+  // Only the mount that names this very version: installing 1.1.0 while the
+  // table still mounts 1.0.0 has installed a version nothing serves yet, and
+  // moving the pointer is a separate decision.
+  let names_it = config
+    .sites
+    .as_ref()
+    .and_then(|section| section.mounts.get(&name))
+    .is_some_and(|mount| mount.artifact == format!("{name}@{}", installed.version));
+  let pinned = match pin_it && names_it {
+    true => pin(shell, Some(&name))?.into_iter().next(),
+    false => None,
+  };
+  Ok(Installation { installed, pinned })
+}
+
+/// Writes `hash` into the shell's `[sites.<name>]` rows: the content hash of
+/// the artifact each one resolves to, so the mount is the version someone
+/// meant rather than whatever is at the path.
+///
+/// Only a `name@version` artifact is pinned. A mount naming a path is a linked
+/// working tree that changes on every build, and a pin there would be stale by
+/// the next one.
+pub fn pin(shell: &Path, only: Option<&str>) -> Result<Vec<Pinned>, BuildError> {
+  let config = load(shell)?;
+  let Some(section) = &config.sites else {
+    return Err(refuse(format!("{} mounts no sites", config.root.display())));
+  };
+  if let Some(name) = only {
+    if !section.mounts.contains_key(name) {
+      return Err(refuse(format!("`{name}` is not mounted by {}", config.root.display())));
+    }
+  }
+  let file = writable(&config)?;
+  let mut pinned = Vec::new();
+  for (name, mount) in &section.mounts {
+    if only.is_some_and(|wanted| wanted != name) {
+      continue;
+    }
+    let versioned = mount.artifact.contains('@') && !mount.artifact.contains('/');
+    if !versioned {
+      continue;
+    }
+    let (artifact_name, version) = mount.artifact.split_once('@').expect("an @");
+    let root = section
+      .root
+      .as_deref()
+      .ok_or_else(|| refuse(format!("sites.{name}.artifact names a version, which needs sites.root")))?;
+    let artifact = config.root.join(root).join(artifact_name).join(version);
+    if !artifact.is_dir() {
+      return Err(refuse(format!("sites.{name}: {} is not a directory", artifact.display())));
+    }
+    let hash = snapfire_fsr_sites::hash_dir(&artifact).map_err(|e| BuildError::Sites(e.to_string()))?;
+    let entry = Pinned { name: name.clone(), hash: hash.clone(), was: mount.hash.clone(), artifact };
+    if entry.moved() {
+      set_key(&file, &format!("sites.{name}"), "hash", &hash)?;
+    }
+    pinned.push(entry);
+  }
+  Ok(pinned)
+}
+
+/// Sets `key = "value"` inside `[header]`, replacing the line when it is there
+/// and adding it under the header when it is not.
+fn set_key(path: &Path, header: &str, key: &str, value: &str) -> Result<(), BuildError> {
+  let text = std::fs::read_to_string(path).map_err(|e| BuildError::Io(path.to_path_buf(), e))?;
+  let wanted = format!("[{header}]");
+  let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+  let Some(start) = lines.iter().position(|l| l.trim() == wanted) else {
+    return Err(refuse(format!("{}: no [{header}] to set `{key}` in", path.display())));
+  };
+  let end = lines[start + 1..]
+    .iter()
+    .position(|l| l.trim_start().starts_with('['))
+    .map(|at| start + 1 + at)
+    .unwrap_or(lines.len());
+  let row = format!("{key} = \"{value}\"");
+  match lines[start + 1..end].iter().position(|l| l.trim_start().starts_with(&format!("{key} "))) {
+    Some(at) => lines[start + 1 + at] = row,
+    None => lines.insert(start + 1, row),
+  }
+  let mut out = lines.join("\n");
+  out.push('\n');
+  std::fs::write(path, &out).map_err(|e| BuildError::Io(path.to_path_buf(), e))?;
+  toml::from_str::<toml::Value>(&out).map_err(|e| refuse(format!("{}: {e}", path.display())))?;
+  Ok(())
 }
 
 /// Every version of every site the shell's cache holds, against what its table

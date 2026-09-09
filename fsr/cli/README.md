@@ -33,5 +33,6 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Mount pages with something other than React | `Options::mounter_module` and `Options::mounter` |
 | Run an application with no Rust beside it | `fsr serve <app>` or `fsr dev <app>` with no `Cargo.toml` beside it |
 | Build one team's application as a site another mounts under a path | a `[site]` section beside the app; `fsr serve` on the shell mounts its `[sites]` table |
+| Hold a mounted site to the bytes you meant to ship | `fsr sites install` pins what it installed; `fsr sites pin <shell>` repins |
 | Run the build from Rust | `build` and `write` |
 | Read what was discovered, imported and lowered | `Report` |

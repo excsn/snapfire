@@ -675,6 +675,8 @@ An application without `[site]` is a shell as far as the build is concerned: it 
 
 Mounting is the host's: a `[sites]` table in the shell's configuration names each site's artifact, and `fsr serve` mounts them through `snapfire_fsr_sites`, rereading the table on `SIGHUP` or the configured poll. The host guide's "Mounting Sites" chapter says what a mount does.
 
+A mount may pin the artifact's content hash, so a pinned mount refuses bytes the table did not mean. `fsr sites install` writes that pin for the version it just installed, since that is the one moment when computing the hash and meaning to ship it are the same act; `--no-pin` leaves the table alone. `fsr sites pin <shell> [<name>]` writes or replaces it later, which is what a deliberate upgrade needs. Only a `name@version` artifact is pinned: a mount naming a path is a linked working tree that changes on every build, so a pin there would be stale by the next one.
+
 ## Serving Without a Rust Project
 
 `serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app, or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.

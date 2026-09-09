@@ -86,6 +86,8 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * Every command reads the `[site]` section of the configuration beside the app, `site_beside`, and builds with it; `fsr dev` then serves the bundle under `<at>/static/js/app`.
 * `fsr serve` mounts every site the shell's `[sites]` table names, `snapfire_fsr_sites::mount_all`, sets a reloader that mounts them again and watches the table, `snapfire_fsr_sites::watch`, on `SIGHUP` and on `sites.poll`.
+* `fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>] [--no-pin]`: `sites::install(shell, archive, name, keep, pin) -> Result<Installation, BuildError>`. Unpacks into the cache, then writes `hash` into the mount that names that exact version. `Installation { installed: snapfire_fsr_sites::Installed, pinned: Option<Pinned> }`; `pinned` is `None` when nothing is mounted at that version yet or `--no-pin` was given.
+* `fsr sites pin <shell dir> [<name>]`: `sites::pin(shell, only) -> Result<Vec<Pinned>, BuildError>`. Hashes what each mount resolves to and writes `hash` into `[sites.<name>]`, replacing the line when it is there. `Pinned { name, hash, was: Option<String>, artifact }` with `Pinned::moved()` for whether the file changed. Only a `name@version` artifact is pinned; a path mount is a working tree and is skipped, so pinning a table of those returns empty. Errors on a name the table does not mount.
 
 ### fsr add
 
