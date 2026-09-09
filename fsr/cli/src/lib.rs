@@ -4,6 +4,7 @@
 //! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
 pub mod dev;
+pub mod doctor;
 pub mod new;
 pub mod serve;
 pub mod sites;

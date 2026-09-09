@@ -9,6 +9,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr types](#fsr-types)
   * [fsr build](#fsr-build)
   * [fsr check](#fsr-check)
+  * [fsr doctor](#fsr-doctor)
   * [fsr serve](#fsr-serve)
   * [Sites](#sites)
 * [2. The Build](#2-the-build)
@@ -63,6 +64,15 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * `fsr check <app dir> [--shell <module id>] [--slot <name>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * Runs the build and prints the report; writes nothing, so the typecheck reads whichever `tsconfig.json` is on disk. Same exit codes, plus 1 when a diagnostic is an error.
+
+### fsr doctor
+
+* `fsr doctor <app dir>`
+* `doctor::run(app: &Path) -> Result<Report, DoctorError>`: reads the configuration and the plan the way the host would, runs every check and returns what it found. Needs nothing running. Exit 0 when clean, 1 when anything was found, 2 when the configuration or the plan could not be read.
+* `Report { findings: Vec<Finding>, clean: Vec<&'static str> }`, `Report::is_clean`; `Display` prints one finding per pair of lines, the fact then the remedy, followed by a count.
+* `Finding { check: &'static str, what: String, remedy: String }`. `check` is the short name a report can be grepped for.
+* The checks, each answering from what a build already computed: `canonical`, `[document] origin` unset while the deployment names hosts or prerenders; `ctx.host`, a body reading `ctx.host` against an empty `[server] hosts`; `locales`, a supported locale with no catalog under `locales/`; `stale`, a plan missing or older than `routes/`, `src/`, `clients/` or `schemas/`; `vendor`, an import map naming a package with nothing under `vendor/`; `render`, `[server] render` set to `islands` on a plan with no island.
+* Reports only. A condition the host refuses to start over stays a boot error rather than moving here.
 
 ### fsr serve
 

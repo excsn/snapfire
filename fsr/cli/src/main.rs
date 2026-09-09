@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use snapfire_fsr_cli::dev::DevOptions;
+use snapfire_fsr_cli::doctor;
 use snapfire_fsr_cli::new::{NewOptions, SiteScaffold};
 use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::bundle;
@@ -9,7 +10,7 @@ use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
-const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
+const USAGE: &str = "usage: fsr new   <project dir> [--no-fetch] [--shell | --site --at <path> [--name <name>] [--into <shell dir>]]\n       fsr dev   <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr test  <app dir> [<name filter>]\n       fsr serve <app dir> [--listen <addr>]\n       fsr prerender <app dir> [--out <dir>]\n       fsr bundle <app dir> [--out <dir>]\n       fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--typecheck flags]\n       fsr doctor <app dir>\n       fsr check <app dir> [--shell <module id>] [--slot <name>] [--typecheck flags]\n       fsr add   <app dir> <name@version[/subpath]>... [--external <name,...>]\n       fsr types <app dir> [--refresh]\n       fsr sites list   <shell dir>\n       fsr sites hash   <site dir> [--files]\n       fsr sites pack   <site dir> --version <version> [-o <file>]\n       fsr sites install <shell dir> <archive> [--as <name>] [--keep <n>]\n       fsr sites link   <shell dir> <site dir> --at <path> [--name <name>]\n       fsr sites unlink <shell dir> <name> [--keep-site]\n\ntypecheck flags: [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]";
 
 fn usage() -> ExitCode {
   eprintln!("{USAGE}");
@@ -150,6 +151,21 @@ fn main() -> ExitCode {
         Err(e) => {
           eprintln!("{e}");
           ExitCode::from(1)
+        }
+      }
+    }
+    "doctor" => {
+      if !rest.is_empty() {
+        return usage();
+      }
+      match doctor::run(&app) {
+        Ok(report) => {
+          print!("{report}");
+          if report.is_clean() { ExitCode::SUCCESS } else { ExitCode::from(1) }
+        }
+        Err(e) => {
+          eprintln!("{e}");
+          ExitCode::from(2)
         }
       }
     }

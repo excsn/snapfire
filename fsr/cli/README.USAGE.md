@@ -23,6 +23,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Typing Pages and Calling Actions](#typing-pages-and-calling-actions)
 * [Vendoring a Package](#vendoring-a-package)
 * [Fetching Declarations](#fetching-declarations)
+- [Checking a Deployment](#checking-a-deployment)
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
@@ -499,6 +500,35 @@ types     csstype                      csstype 3.2.3
 ```
 
 A package with nothing to fetch is reported `missing` and the build goes on; its imports are `any` in the editor and errors under `strict`. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit`, never shipped, so a fresh checkout runs `fsr types` once rather than committing them.
+
+## Checking a Deployment
+
+`fsr doctor <app dir>` reads the configuration and the plan the way the host would, then reports what starts and serves without doing what it says. The host is already strict at boot: a declared action nothing answers, a bundle carrying a server module, a route claimed twice. Those stop the process. Doctor is the middle, the settings that load cleanly and still cannot do their job.
+
+```sh
+fsr build app && fsr doctor app && fsr bundle app
+```
+
+Nothing found is exit 0, anything found is exit 1, so a deploy script stops on it. A finding is the fact and then the remedy:
+
+```
+canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
+             set `[document] origin` to the address this deployment is reached at, `https://example.com`
+doctor       1 of 6 checks found something
+```
+
+Six checks, each answering from something the build already computed, so none of them needs a server or a network:
+
+| Check | Fires when |
+| --- | --- |
+| `canonical` | `[document] origin` is unset while the deployment names hosts or prerenders, which leaves every canonical link relative |
+| `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty, so the read answers null for ever |
+| `locales` | `[locales] supported` names a locale with no catalog under `locales/` |
+| `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` |
+| `vendor` | the import map names a package with nothing under `vendor/` to answer it |
+| `render` | `[server] render` is `islands` and the plan carries no island |
+
+It reports and never fixes, since every remedy here is a judgement: whether a locale gains a catalog or leaves the table, whether an island is missing or the render mode is wrong. Nothing the host refuses to start over is moved here. There is no file for turning checks off either, because every check is a fact the application stated and then contradicted rather than a matter of taste.
 
 ## Reading the Generated tsconfig
 
