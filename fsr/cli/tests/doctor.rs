@@ -283,3 +283,26 @@ fn a_static_root_with_no_directory_is_reported() {
   let there = app("[[static]]\nroute = \"/assets\"\ndir = \"public\"\n", &[("app/public/x.css", "a{}")]);
   assert!(doctor::run(&there).unwrap().is_clean(), "{}", report(&there));
 }
+
+/// A pin the artifact has moved out from under is the common sites failure,
+/// and it gets the answer for that rather than the generic one.
+#[test]
+fn a_pin_the_artifact_no_longer_matches_is_reported_with_how_to_repin() {
+  let dir = shell("[sites.billing]\nartifact = \"billing@1.0.0\"\nhash = \"0000000000000000\"\n", "", &[]);
+  let out = doctor::run(&dir).expect("runs");
+  let text = out.to_string();
+  assert!(text.contains("will refuse to start"), "{text}");
+  assert!(text.contains("pinned 0000000000000000"), "{text}");
+  assert!(text.contains("moved under its pin"), "{text}");
+  assert!(text.contains("fsr sites pin"), "{text}");
+}
+
+/// A mount pointing at nothing is a different fault, so it gets different advice.
+#[test]
+fn a_mount_pointing_at_nothing_is_not_told_to_repin() {
+  let dir = shell("[sites.missing]\nartifact = \"missing@1.0.0\"\n", "", &[]);
+  let text = doctor::run(&dir).expect("runs").to_string();
+  assert!(text.contains("will refuse to start"), "{text}");
+  assert!(!text.contains("moved under its pin"), "{text}");
+  assert!(text.contains("fsr sites unlink"), "{text}");
+}

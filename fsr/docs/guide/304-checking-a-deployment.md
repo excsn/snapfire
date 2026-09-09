@@ -55,7 +55,7 @@ A part the artifact says it ships and does not carry is hashed as absent rather 
 
 Artifacts under the sites root that no mount names are what `fsr sites install` leaves behind. They cost disk and they make it hard to tell which version is live; `--keep <n>` bounds them.
 
-A mount the table points at with nothing there is reported too, though that one is a refusal to start rather than a warning. Doctor says it before the deploy rather than instead of it.
+A pin the artifact no longer matches is reported with what to do about it. The content moved. If that was meant, `fsr sites pin` records it. If it was not, the directory is not the version the shell pinned. A mount pointing at nothing is reported too. Both are refusals to start rather than warnings; doctor says them before the deploy rather than instead of it.
 
 ## What it will not do
 

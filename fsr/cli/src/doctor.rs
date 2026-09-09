@@ -353,11 +353,16 @@ fn sites(config: &Config) -> Vec<Finding> {
     // The host refuses to start over this; saying so here is saying it before
     // the deploy rather than instead of it.
     Err(e) => {
-      return vec![Finding::new(
-        "sites",
-        format!("the host will refuse to start: {e}"),
-        "correct the artifact the mount names, or repin it with `fsr sites hash <site dir>`",
-      )]
+      let message = e.to_string();
+      // A pin that no longer matches is the common one and has its own answer:
+      // the artifact moved, so either the move was meant or the artifact is
+      // not the one the shell pinned.
+      let remedy = if message.contains("pinned") {
+        "the artifact moved under its pin: `fsr sites pin <shell dir> <name>` if the new content is what you meant to serve, otherwise the directory is not the version the shell pinned"
+      } else {
+        "correct the artifact the mount names, or take the mount out with `fsr sites unlink <shell dir> <name>`"
+      };
+      return vec![Finding::new("sites", format!("the host will refuse to start: {message}"), remedy)];
     }
   };
   let mut findings = Vec::new();
