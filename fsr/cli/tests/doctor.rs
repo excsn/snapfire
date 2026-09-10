@@ -47,7 +47,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 9, "{out}");
+  assert_eq!(out.clean.len(), 12, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -158,7 +158,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 9 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 12 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -333,3 +333,92 @@ fn a_route_that_leaves_the_tree_is_reported() {
   let out = report(&dir);
   assert!(out.contains("cannot be laid out") && out.contains("outside the tree"), "{out}");
 }
+
+/// A static root returns rather than falling through, so a route under one can
+/// never run. The boot refuses a route two plans both claim and is silent
+/// about this pair.
+#[test]
+fn a_static_root_swallowing_a_route_is_reported() {
+  const CART: &str = "(plan 2)\n(route / (node 0 shell#document))\n(route /cart (node 1 shell#document))\n";
+  let dir = app(
+    "[[static]]\nroute = \"/cart\"\ndir = \"public\"\n",
+    &[("app/public/a.css", "a{}"), ("app/generated/plan.sexp", CART)],
+  );
+  assert_eq!(findings(&dir), vec!["shadow"]);
+  let out = report(&dir);
+  assert!(out.contains("/cart") && out.contains("never runs"), "{out}");
+
+  // A static root on a prefix of its own takes nothing from the plan.
+  let dir = app(
+    "[[static]]\nroute = \"/assets\"\ndir = \"public\"\n",
+    &[("app/public/a.css", "a{}"), ("app/generated/plan.sexp", CART)],
+  );
+  assert!(findings(&dir).is_empty(), "{}", report(&dir));
+}
+
+/// Only an `[auth]` provider writes a token into custody, so a client asking
+/// for one without a provider sends nothing.
+#[test]
+fn a_bearer_client_with_no_auth_provider_is_reported() {
+  let bearer = |toml: &str, files: &[(&str, &str)]| {
+    let dir = app(toml, files);
+    std::fs::write(dir.join("app/generated/plan.sexp"), PLAN).unwrap();
+    (findings(&dir), report(&dir))
+  };
+
+  let (found, out) = bearer(
+    "[clients.ledger]\nbase_url = \"https://l\"\nbearer = true\n",
+    &[("app/clients/ledger.openapi.json", OPENAPI)],
+  );
+  assert_eq!(found, vec!["bearer"], "{out}");
+  assert!(out.contains("ledger") && out.contains("in custody"), "{out}");
+
+  let (found, out) = bearer(
+    "[auth]\nprovider = \"file\"\nusers = \"users.toml\"\n[clients.ledger]\nbase_url = \"https://l\"\nbearer = true\n",
+    &[("app/clients/ledger.openapi.json", OPENAPI), ("users.toml", "[alice]\npassword = \"x\"\n")],
+  );
+  assert!(!found.contains(&"bearer".to_owned()), "{out}");
+
+  // A client that asks for no token is not asked about a provider.
+  let (found, out) = bearer(
+    "[clients.ledger]\nbase_url = \"https://l\"\n",
+    &[("app/clients/ledger.openapi.json", OPENAPI)],
+  );
+  assert!(!found.contains(&"bearer".to_owned()), "{out}");
+}
+
+/// A cache tag is a string two sides spell, and a mismatch is a stale page
+/// rather than an error.
+#[test]
+fn a_cache_tag_only_one_side_names_is_reported() {
+  let contract = |cached: &str, writes: &str| {
+    format!(
+      r#"{{"services":{{"ledger":{{"methods":{{"list":{{"params":[],"returns":{{"named":"Row"}}{cached}}},"pay":{{"params":[],"returns":{{"named":"Row"}}{writes}}}}}}}}}}}"#
+    )
+  };
+  let of = |cached: &str, writes: &str| {
+    let dir = app("", &[("app/generated/contracts/ledger.json", &contract(cached, writes))]);
+    std::fs::write(dir.join("app/generated/plan.sexp"), PLAN).unwrap();
+    (findings(&dir), report(&dir))
+  };
+
+  // A typo either way leaves a written tag nothing caches.
+  let (found, out) = of(r#","cache":{"ttl":"30s","tags":["invoices"]}"#, r#","writes":["invoice"]"#);
+  assert_eq!(found, vec!["cache.tags"], "{out}");
+  assert!(out.contains("invoice is dropped by a call and cached by none"), "{out}");
+
+  let (found, out) = of(r#","cache":{"ttl":"30s","tags":["invoice"]}"#, r#","writes":["invoices"]"#);
+  assert_eq!(found, vec!["cache.tags"], "{out}");
+  assert!(out.contains("invoices is dropped by a call and cached by none"), "{out}");
+
+  // Spelled the same on both sides, nothing to say.
+  let (found, out) = of(r#","cache":{"ttl":"30s","tags":["invoices"]}"#, r#","writes":["invoices"]"#);
+  assert!(found.is_empty(), "{out}");
+
+  // A read-only service expires by ttl and writes nothing, which is a design
+  // rather than a defect.
+  let (found, out) = of(r#","cache":{"ttl":"30s","tags":["invoices"]}"#, "");
+  assert!(found.is_empty(), "{out}");
+}
+
+const OPENAPI: &str = r#"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{}}"#;

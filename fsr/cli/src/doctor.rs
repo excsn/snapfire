@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_host::config::Config;
+use snapfire_fsr_host::config::{BearerKey, Config};
 use snapfire_fsr_ir::ast::{Expr, Tmpl};
 use snapfire_fsr_plan::Manifest;
 
@@ -87,6 +87,9 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("vendor", vendor(&config)),
     ("render", render_mode(&config, manifest.as_ref())),
     ("statics", statics(&config)),
+    ("shadow", shadow(&config, manifest.as_ref())),
+    ("bearer", bearer(&config)),
+    ("cache.tags", cache_tags(&config)),
     ("tree", tree(app, &config)),
     ("sites", sites(&config)),
   ] {
@@ -340,6 +343,111 @@ fn statics(config: &Config) -> Vec<Finding> {
     format!("a static root has no directory: {}", missing.join(", ")),
     "create the directory or correct `[[statics]] dir`; a missing root answers 404 for every path under its route",
   )]
+}
+
+/// A static root answers every path under its route and returns rather than
+/// falling through, so a route pattern underneath one is unreachable for as
+/// long as both are declared. The boot refuses a route two plans both claim
+/// and says nothing about this, which is the same collision with a different
+/// pair of claimants.
+fn shadow(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
+  let Some(manifest) = manifest else { return Vec::new() };
+  let mut findings = Vec::new();
+  for root in &config.statics {
+    let route = root.route.trim_end_matches('/');
+    if route.is_empty() {
+      continue;
+    }
+    let under: Vec<&str> = manifest
+      .routes
+      .iter()
+      .map(|r| r.pattern.as_str())
+      .filter(|pattern| *pattern == route || pattern.starts_with(&format!("{route}/")))
+      .collect();
+    if under.is_empty() {
+      continue;
+    }
+    findings.push(Finding::new(
+      "shadow",
+      format!(
+        "the static root `{}` answers {}, so {} never runs",
+        root.route,
+        if under.len() == 1 { "the route".to_owned() } else { "the routes".to_owned() },
+        under.join(", ")
+      ),
+      "move the static root to a prefix of its own, or take the route out; a request under a static route is answered from the directory and never reaches a page",
+    ));
+  }
+  findings
+}
+
+/// `bearer` takes a token out of the request's custody, and an `[auth]`
+/// provider is the only thing that ever puts one there. Without one the interceptor is still
+/// installed and still finds nothing, so the call goes out with no
+/// `Authorization` header at all.
+fn bearer(config: &Config) -> Vec<Finding> {
+  if config.auth.is_some() {
+    return Vec::new();
+  }
+  let carrying: Vec<&str> = config
+    .clients
+    .iter()
+    .filter(|(_, client)| client.bearer.as_ref().and_then(BearerKey::key).is_some())
+    .map(|(name, _)| name.as_str())
+    .collect();
+  if carrying.is_empty() {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "bearer",
+    format!(
+      "{} carries a bearer token while `[auth]` is unset, so nothing ever puts one in custody",
+      carrying.join(", ")
+    ),
+    "configure an `[auth]` provider, which is what writes the token; failing that take `bearer` off the client; the call is made either way and goes out unauthenticated",
+  )]
+}
+
+/// A cache tag is a string two sides have to spell the same way. A mismatch
+/// is a stale page rather than an error. Only the write side is
+/// asked about: a typo either way leaves a written tag nothing caches, while
+/// a cached tag nothing writes is how a read-only service says it expires by
+/// ttl alone.
+fn cache_tags(config: &Config) -> Vec<Finding> {
+  let dir = config.resolve(&config.server.contracts);
+  let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+  let mut files: Vec<PathBuf> = entries
+    .flatten()
+    .map(|e| e.path())
+    .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "json"))
+    .collect();
+  files.sort();
+
+  let mut read: BTreeSet<String> = BTreeSet::new();
+  let mut written: BTreeSet<String> = BTreeSet::new();
+  for file in files {
+    let Ok(text) = std::fs::read_to_string(&file) else { continue };
+    let Ok(contract) = snapfire_fsr_service::Contract::from_json(&text) else { continue };
+    for service in contract.services.values() {
+      for method in service.methods.values() {
+        if let Some(cache) = &method.cache {
+          read.extend(cache.tags.iter().cloned());
+        }
+        written.extend(method.writes.iter().cloned());
+      }
+    }
+  }
+
+  let mut findings = Vec::new();
+  let dropped: Vec<&str> = written.difference(&read).map(String::as_str).collect();
+  if !dropped.is_empty() {
+    findings.push(Finding::new(
+      "cache.tags",
+      format!("{} is dropped by a call and cached by none", dropped.join(", ")),
+      "spell the tag the way the cached method spells it, else take it off `writes`; a tag nothing caches on drops nothing",
+    ));
+  }
+  findings
 }
 
 /// What a deploy tree would carry. Everything the host reads at boot is
