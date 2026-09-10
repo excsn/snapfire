@@ -653,6 +653,28 @@ impl Config {
   /// the store left out inferred. Nothing here reads the filesystem for
   /// configuration, so an application that already loaded its own store hands
   /// it over: `Config::from_store_at(&store.branch("fsr"), root)`.
+  ///
+  /// **The caller owns the ladder too.** `config_paths` is not called, so a file
+  /// reaches the host only if the store already holds it. Two of those files are
+  /// not overlays and a store that omits either is wrong rather than minimal:
+  ///
+  /// - `app.toml` is the configuration. Without it there is nothing to load.
+  /// - `bundle.toml`, whenever it exists, which is in a deploy tree and nowhere
+  ///   else. `fsr bundle` writes it to name the paths that moved during layout.
+  ///   A host that does not read it resolves every static root to where the file
+  ///   sat in the project instead of where the tree put it, so a bundled
+  ///   deployment answers 404 for its own assets.
+  ///
+  /// `<release_env>`, `<app_env>`, `<region>` and `<app_env>-<region>` are
+  /// overlays: absent is normal, so omitting one costs only what it held.
+  ///
+  /// Ask for the list rather than restating it, since the stems grow:
+  ///
+  /// ```ignore
+  /// let files = config::config_paths(&config_dir, &Deployment::from_env());
+  /// ```
+  ///
+  /// Every path it returns exists, so it can be handed to a loader whole.
   pub fn from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Self, HostError> {
     let root = root.as_ref();
     Self::sections(store, root, root.to_path_buf())
