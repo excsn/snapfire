@@ -35,7 +35,7 @@ repository = "https://github.com/excsn/snapfire"
 [workspace.dependencies]
 snapfire_fsr = { path = "app", version = "0.7.1" }
 snapfire_fsr_auth = { path = "auth", version = "0.6.0" }
-snapfire_fsr_cli = { path = "cli", version = "0.8.0" }
+snapfire_fsr_cli = { path = "cli", version = "0.8.1" }
 snapfire_fsr_core = { path = "core", version = "0.6.1" }
 snapfire_fsr_engine = { path = "engine", version = "0.5.1" }
 snapfire_fsr_host = { path = "host", version = "0.8.0" }
