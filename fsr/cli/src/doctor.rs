@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_host::config::{BearerKey, Config};
-use snapfire_fsr_ir::ast::{Expr, Tmpl};
+use snapfire_fsr_ir::ast::{Entry, Expr, Tmpl};
 use snapfire_fsr_plan::Manifest;
 
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +90,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("shadow", shadow(&config, manifest.as_ref())),
     ("bearer", bearer(&config)),
     ("cache.tags", cache_tags(&config)),
+    ("links", links(&config, manifest.as_ref())),
     ("tree", tree(app, &config)),
     ("sites", sites(&config)),
   ] {
@@ -375,13 +376,13 @@ fn shadow(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
         if under.len() == 1 { "the route".to_owned() } else { "the routes".to_owned() },
         under.join(", ")
       ),
-      "move the static root to a prefix of its own, or take the route out; a request under a static route is answered from the directory and never reaches a page",
+      "move the static root to a prefix of its own, else take the route out; a request under a static route is answered from the directory and never reaches a page",
     ));
   }
   findings
 }
 
-/// `bearer` takes a token out of the request's custody, and an `[auth]`
+/// `bearer` takes a token out of the request's custody. An `[auth]`
 /// provider is the only thing that ever puts one there. Without one the interceptor is still
 /// installed and still finds nothing, so the call goes out with no
 /// `Authorization` header at all.
@@ -448,6 +449,149 @@ fn cache_tags(config: &Config) -> Vec<Finding> {
     ));
   }
   findings
+}
+
+/// A literal internal link in a render tree, against everything this
+/// deployment answers: its own routes, its static roots, the sites it mounts
+/// and the framework's own prefixes. A link matching none of them is a 404
+/// nobody sees until someone clicks it.
+///
+/// A site is exempt. Its links reach into a shell it is mounted under, and
+/// the shell it was built against is not necessarily the shell it runs in, so
+/// nothing here can tell a wrong link from one the shell answers.
+fn links(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
+  let Some(manifest) = manifest else { return Vec::new() };
+  if config.site.is_some() {
+    return Vec::new();
+  }
+  let mut hrefs: BTreeSet<String> = BTreeSet::new();
+  for component in &manifest.components {
+    hrefs.extend(hrefs_of(&component.body.render));
+  }
+  if hrefs.is_empty() {
+    return Vec::new();
+  }
+
+  let locales: Vec<&str> = config
+    .locales
+    .as_ref()
+    .map(|l| l.supported.iter().map(String::as_str).collect())
+    .unwrap_or_default();
+  let patterns: Vec<&str> = manifest.routes.iter().map(|r| r.pattern.as_str()).collect();
+  let prefixes: Vec<String> = config
+    .statics
+    .iter()
+    .map(|r| r.route.trim_end_matches('/').to_owned())
+    .chain(mounted_prefixes(config))
+    .chain(["/_sf".to_owned(), "/__fsr".to_owned(), "/auth".to_owned()])
+    .filter(|p| !p.is_empty())
+    .collect();
+
+  let dead: Vec<String> = hrefs
+    .into_iter()
+    .filter(|href| !answered(href, &locales, &patterns, &prefixes))
+    .collect();
+  if dead.is_empty() {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "links",
+    format!(
+      "{} is linked to and matches no route, static root or mounted site",
+      dead.join(", ")
+    ),
+    "correct the link or add the route it names; a path this deployment does not answer is a 404 at the moment someone clicks it",
+  )]
+}
+
+/// The prefix each mounted site claims, which the shell answers and its own
+/// plan says nothing about. Read from the artifacts rather than the table,
+/// since `at` is the site's own and fixed at its build.
+fn mounted_prefixes(config: &Config) -> Vec<String> {
+  let Ok(resolved) = snapfire_fsr_sites::resolve(config) else { return Vec::new() };
+  resolved
+    .iter()
+    .filter_map(|site| Config::load(&site.artifact).ok())
+    .filter_map(|config| config.site.as_ref().map(|site| site.at.trim_end_matches('/').to_owned()))
+    .filter(|at| !at.is_empty())
+    .collect()
+}
+
+/// Every literal same-origin path an anchor in `tmpl` points at. A computed
+/// href is not one: only what the build already knows the whole of is asked
+/// about.
+fn hrefs_of(tmpl: &Tmpl) -> Vec<String> {
+  let mut out = Vec::new();
+  let mut children = |list: &Vec<Tmpl>, out: &mut Vec<String>| {
+    for child in list {
+      out.extend(hrefs_of(child));
+    }
+  };
+  match tmpl {
+    Tmpl::Element { tag, attrs, children: kids } if tag == "a" => {
+      for attr in attrs {
+        if let Entry::Field(name, Expr::Lit(snapfire_fsr_ir::ast::Lit::Str(href))) = attr {
+          // `//host/path` is another origin wearing the current scheme.
+          if name == "href" && href.starts_with('/') && !href.starts_with("//") {
+            out.push(href.split(['?', '#']).next().unwrap_or(href).to_owned());
+          }
+        }
+      }
+      children(kids, &mut out);
+    }
+    Tmpl::Element { children: kids, .. }
+    | Tmpl::Fragment(kids)
+    | Tmpl::Component { children: kids, .. }
+    | Tmpl::Island { children: kids, .. }
+    | Tmpl::Baked { children: kids, .. } => children(kids, &mut out),
+    Tmpl::If { then, r#else, .. } => {
+      out.extend(hrefs_of(then));
+      if let Some(otherwise) = r#else {
+        out.extend(hrefs_of(otherwise));
+      }
+    }
+    Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => out.extend(hrefs_of(body)),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+  }
+  out
+}
+
+/// Whether this deployment answers `href`, with a leading locale segment
+/// stripped the way the host strips one before it resolves a route.
+fn answered(href: &str, locales: &[&str], patterns: &[&str], prefixes: &[String]) -> bool {
+  let path = href.trim_end_matches('/');
+  let path = if path.is_empty() { "/" } else { path };
+  if prefixes
+    .iter()
+    .any(|prefix| path == prefix || path.starts_with(&format!("{prefix}/")))
+  {
+    return true;
+  }
+  let bare = locales
+    .iter()
+    .find_map(|tag| path.strip_prefix(&format!("/{tag}")))
+    .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+    .map(|rest| if rest.is_empty() { "/" } else { rest })
+    .unwrap_or(path);
+  patterns.iter().any(|pattern| matches_pattern(pattern, bare))
+}
+
+/// One path against one route pattern, where a `{name}` segment takes any one
+/// segment and a trailing `{name*}` takes the rest.
+fn matches_pattern(pattern: &str, path: &str) -> bool {
+  let expected: Vec<&str> = pattern.trim_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+  let found: Vec<&str> = path.trim_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+  for (i, segment) in expected.iter().enumerate() {
+    let wildcard = segment.starts_with('{') && segment.ends_with('}');
+    if wildcard && segment.contains('*') {
+      return found.len() >= i;
+    }
+    match found.get(i) {
+      Some(actual) if wildcard || actual == segment => {}
+      _ => return false,
+    }
+  }
+  found.len() == expected.len()
 }
 
 /// What a deploy tree would carry. Everything the host reads at boot is

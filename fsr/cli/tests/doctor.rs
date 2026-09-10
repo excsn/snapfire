@@ -47,7 +47,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 12, "{out}");
+  assert_eq!(out.clean.len(), 13, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -158,7 +158,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 12 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 13 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -387,7 +387,7 @@ fn a_bearer_client_with_no_auth_provider_is_reported() {
   assert!(!found.contains(&"bearer".to_owned()), "{out}");
 }
 
-/// A cache tag is a string two sides spell, and a mismatch is a stale page
+/// A cache tag is a string two sides spell. A mismatch is a stale page
 /// rather than an error.
 #[test]
 fn a_cache_tag_only_one_side_names_is_reported() {
@@ -422,3 +422,65 @@ fn a_cache_tag_only_one_side_names_is_reported() {
 }
 
 const OPENAPI: &str = r#"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{}}"#;
+
+/// A literal internal link against everything the deployment answers. Nothing
+/// here needs a crawler: the plan already holds the link and the routes.
+#[test]
+fn a_link_to_a_path_nothing_answers_is_reported() {
+  let plan = |href: &str| {
+    format!(
+      "(plan 2)\n(route / (node 0 shell#document))\n(route |/product/{{id}}| (node 1 shell#document))\n\
+       (component routes/page.tsx#default\n  (render (el a ((href \"{href}\")) \"go\")))\n"
+    )
+  };
+  let of = |toml: &str, href: &str, files: &[(&str, &str)]| {
+    let mut all: Vec<(&str, String)> = files.iter().map(|(a, b)| (*a, (*b).to_owned())).collect();
+    all.push(("app/generated/plan.sexp", plan(href)));
+    let borrowed: Vec<(&str, &str)> = all.iter().map(|(a, b)| (*a, b.as_str())).collect();
+    let dir = app(toml, &borrowed);
+    (findings(&dir), report(&dir))
+  };
+
+  let (found, out) = of("", "/about", &[]);
+  assert_eq!(found, vec!["links"], "{out}");
+  assert!(out.contains("/about"), "{out}");
+
+  // A route with a parameter answers the path that fills it.
+  let (found, out) = of("", "/product/9", &[]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
+  // A path under a static root is answered from the directory.
+  let (found, out) = of(
+    "[[static]]\nroute = \"/assets\"\ndir = \"public\"\n",
+    "/assets/logo.svg",
+    &[("app/public/logo.svg", "<svg/>")],
+  );
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
+  // A locale prefix is stripped before the route is looked for, the way the
+  // host strips one.
+  let (found, out) = of("[locales]\nsupported = [\"en\", \"fr\"]\n", "/fr/product/9", &[("app/locales/fr.toml", "a = \"b\"\n"), ("app/locales/en.toml", "a = \"b\"\n")]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
+  // A query or a fragment is not part of the path.
+  let (found, out) = of("", "/product/9?ref=home", &[]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
+  // Another origin is nobody's business here.
+  let (found, out) = of("", "https://example.com/about", &[]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+}
+
+/// A site's links reach into a shell it cannot see. The shell it was built
+/// against need not be the one it runs in.
+#[test]
+fn a_sites_links_are_not_checked() {
+  let dir = app(
+    "[site]\nname = \"billing\"\nat = \"/billing\"\nshell = \"../shell/app/generated/shell.json\"\n",
+    &[(
+      "app/generated/plan.sexp",
+      "(plan 2)\n(route /billing (node 0 shell#document))\n(component routes/page.tsx#default\n  (render (el a ((href \"/help\")) \"help\")))\n",
+    )],
+  );
+  assert!(!findings(&dir).contains(&"links".to_owned()), "{}", report(&dir));
+}

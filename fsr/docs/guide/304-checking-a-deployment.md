@@ -43,6 +43,10 @@ Each check answers from something a build already computed, so none of it needs 
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it | The browser asks for the file the map names, so a missing one is a page that does not mount |
 | `render` | `[server] render` is `islands` and the plan carries no island | Every page is handed to the browser to render, for no reason |
 | `statics` | a `[[static]]` root whose directory is not there | Every path under that route answers 404, including the client bundle when it is served that way |
+| `shadow` | a `[[static]]` root whose route swallows an application route | A matched static prefix answers from the directory and returns, so the page underneath it never runs |
+| `bearer` | a client carries a bearer token while `[auth]` is unset | An `[auth]` provider is the only thing that writes a token into custody, so the call goes out with no `Authorization` header |
+| `cache.tags` | a call drops a cache tag no cached method names | The two sides are strings that have to agree; a typo either way leaves a write that invalidates nothing |
+| `links` | a literal internal link matching no route, static root or mounted site | The plan already holds the link and the routes, so a 404 nobody would find without clicking is findable without a crawler |
 | `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
 | `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
 
@@ -51,8 +55,18 @@ A report names the check, the fact and the remedy:
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 9 checks found something
+doctor       1 of 13 checks found something
 ```
+
+### What the plan and the configuration say about each other
+
+Four of the checks compare two artifacts that were written separately and have to agree.
+
+`shadow` is the one with a boot error beside it. The host refuses to start when two plans claim one route and says nothing when a static root claims one, even though the outcome is worse: a matched static prefix answers and returns rather than falling through, so the page under it is unreachable for as long as both are declared.
+
+`bearer` and `cache.tags` are both a name that only works if two places spell it the same. A bearer client reads a token out of custody and an `[auth]` provider is the only thing that puts one there. A cache tag is dropped by whatever names it in `writes`. Only the write side of a tag is asked about, because a cached tag nothing writes is how a read-only service says it expires by its own ttl. A typo in either direction leaves a written tag nothing caches.
+
+`links` reads the literal `href` of every anchor the build lowered and asks whether this deployment answers it, against its routes, its static roots, the prefixes of the sites it mounts and the framework's own paths. A locale prefix is stripped first, the way the host strips one. Only a literal is asked about, since a computed href is not something the build knows the whole of. A site is exempt: its links reach into a shell it cannot see, so the shell it was built against need not be the one it runs in.
 
 ### What a deploy tree would carry
 

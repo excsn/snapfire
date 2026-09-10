@@ -517,10 +517,10 @@ Nothing found is exit 0, anything found is exit 1, so a deploy script stops on i
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 9 checks found something
+doctor       1 of 13 checks found something
 ```
 
-Nine checks, each answering from something the build already computed, so none of them needs a server or a network:
+Thirteen checks, each answering from something the build already computed, so none of them needs a server or a network:
 
 | Check | Fires when |
 | --- | --- |
@@ -531,7 +531,11 @@ Nine checks, each answering from something the build already computed, so none o
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it |
 | `render` | `[server] render` is `islands` and the plan carries no island |
 | `statics` | a `[[static]]` root whose directory is not there, so every path under its route answers 404 |
-| `tree` | a deploy tree would carry a file the project does not hold, or a setting no tree can express |
+| `shadow` | a `[[static]]` route swallows an application route, which then never runs |
+| `bearer` | a client carries a bearer token while `[auth]`, the only thing that writes one, is unset |
+| `cache.tags` | a call drops a cache tag no cached method names, so it invalidates nothing |
+| `links` | a literal internal link matches no route, static root or mounted site |
+| `tree` | a deploy tree would carry a file the project does not hold; a setting no tree can express |
 | `sites` | a mounted `name@version` site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
 
 It reports and never fixes, since every remedy here is a judgement: whether a locale gains a catalog or leaves the table, whether an island is missing or the render mode is wrong. Nothing the host refuses to start over is moved here. There is no file for turning checks off either, because every check is a fact the application stated and then contradicted rather than a matter of taste.
