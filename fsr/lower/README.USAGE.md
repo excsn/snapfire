@@ -25,7 +25,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 * **Context** is the body's first parameter, either `ctx` or a destructuring of `params`, `query`, `session`, `services`, `identity`, `input` and `now`.
 * **Read** is a context field the IR knows: `params.x`, `query.x`, `session.x`, `identity.x`, `input`, `now`.
 * **Call** is `await services.<service>.<method>({ ...args })`, the only call shape besides builtins.
-* **Builtin** is one of `String`, `Number`, `BigInt`, `Object.entries`, `Object.keys`, `Object.values`, `.length` and the array methods `map`, `filter`, `reduce`, `find`, `some`, `every`.
+* **Builtin** is one of a fixed set the lowerer knows by spelling: `String`, `Number`, `BigInt`, `Object.entries`, `Object.keys`, `Object.values` and `.length`; the array methods `map`, `filter`, `reduce`, `find`, `findIndex`, `some` and `every`; the `Math` functions, `Array.from({ length })` and `encodeURIComponent`; the string methods `toFixed`, `repeat`, `join`, `split`, `trim`, `toUpperCase`, `toLowerCase`, `includes`, `startsWith`, `endsWith`, `replace` and `toLocaleString("en-US")`.
 * **Lambda** is an arrow function passed to an array method, one expression or a block that only returns one.
 * **Number and bigint** lower differently: `1` is a float, `1n` is an integer, as in TypeScript.
 * **Residue** is anything else, reported with its position and never guessed at.

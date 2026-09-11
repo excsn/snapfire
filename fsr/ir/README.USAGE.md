@@ -30,7 +30,7 @@ How to write a body as IR, run it against a request, read and write its JSON for
 * **Read** is an expression with no operands that names something on the request: `Param`, `Query`, `Session`, `Identity`, `Input`, `Now`.
 * **Call** is `Expr::Call`, an `await services.<service>.<method>(args)`; it goes through `RequestCtx::services`.
 * **Lambda** is `Expr::Lambda`, an arrow function applied by a builtin; it is never a value.
-* **Builtin** is one of the fixed array and conversion operations: `Map`, `Filter`, `Reduce`, `Find`, `Some`, `Every`, `Entries`, `Keys`, `Values`, `Length`, `Str`, `Num`, `BigInt`.
+* **Builtin** is a fixed operation with no name to resolve, in two shapes. The array and conversion ones are each their own `Expr`: `Map`, `Filter`, `Reduce`, `Find`, `FindIndex`, `Some`, `Every`, `Entries`, `Keys`, `Values`, `Length`, `Str`, `Num` and `BigInt`. The pure ones share `Expr::Builtin { name, args }`, where the receiver is the first argument and `name` is the `Builtin` enum: `Round`, `Floor`, `Ceil`, `Abs`, `Min`, `Max`, `ToFixed`, `Repeat`, `Join`, `Split`, `Trim`, `Upper`, `Lower`, `Includes`, `StartsWith`, `EndsWith`, `Replace`, `EncodeUriComponent`, `LocaleNumber`, `Range` and `Omit`.
 * **Guard** is `Stmt::Guard`, an `if (cond) fail(kind, message)`; a guard the interpreter can evaluate from reads alone runs before anything else.
 * **Draft** is the copy of the session a body writes to; it is committed to the `SessionCell` when the body succeeds and dropped when it fails.
 * **Outcome** is what a successful run returns: the value and the session keys written.

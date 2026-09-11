@@ -33,7 +33,7 @@ app/routes/cart/page.loader.ts:2:9: `try`
 
 and stops, because today there is no engine to hand the body to. That is a deliberate floor rather than a gap. The failure fsr is built to prevent is the silent one, where a build quietly moves a body from "data the runtime executes" to "JavaScript some engine runs" so that an application that meant to have no server JavaScript grows one without anybody deciding. When an engine exists, residue will run there and the report will say `engine` beside the name. It will never say nothing.
 
-The language grows when an application shows a body that needs a construct and cannot be written another way. The storefront's cart forced computed keys, its catalog forced the query string, its pages forced `Math.round` and `toFixed`. Each arrived with the body that needed it; each is one more thing every fsr application can now say.
+The language grows when an application shows a body that needs a construct and cannot be written another way. The storefront's cart forced computed keys, its catalog forced the query string, its pages forced `Math.round` and `toFixed`; the arrivals board, the chat and the terminal between them forced `split`, `startsWith`, `endsWith` and `replace`. Each arrived with the body that needed it; each is one more thing every fsr application can now say.
 
 ## The report
 

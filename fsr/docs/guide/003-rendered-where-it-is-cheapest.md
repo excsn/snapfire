@@ -28,7 +28,17 @@ rendered  routes/page.tsx#default            lowered
           src/ui/Stars.tsx#Stars             lowered
 ```
 
-A page it could not read is marked `client` with the line that decided it, which may sit in a component the page imports, since a page cannot be rendered around a hole. That page arrives as a module reference with its props, exactly as every page did before rendering existed. It mounts in the browser and works. What it lacks is first paint.
+A page it could not read is marked `client`, pointing at the residue that decided it, which may sit in a component the page imports, since a page cannot be rendered around a hole. A `client` section below states each such residue once, with the rewrite that does the same thing in the IR and the tags to follow from the page down to it, so a cause three files below a page names the path rather than leaving it to be found:
+
+```
+rendered  routes/page.tsx#default            client      src/ui/Stars.tsx:12:19
+client    src/ui/Stars.tsx:12:19             `.slice()`, which is not a builtin
+          the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
+          1 page renders in the browser for it
+            routes/page.tsx#default          <Header> routes/page.tsx:22:7, <Stars> src/ui/Header.tsx:8:5
+```
+
+That page arrives as a module reference with its props, exactly as every page did before rendering existed. It mounts in the browser and works. What it lacks is first paint.
 
 ## What the browser receives
 
@@ -84,4 +94,4 @@ Look at the props script that follows the catalog's island. Beside the products 
 
 Now put `render = "islands"` under `[server]` in `config/app.toml` and restart. View the source: the shell, the head, the store seed and three elements naming `routes/layout.tsx#default`, `routes/cart/page.tsx#default` and the promo slot, each followed by its props, and not one product card. The page still works, and the console is still clean: click a card, the modal opens over the catalog; add to cart, the badge moves. Everything you can see the browser drew, and everything it drew from the server sent it the data for. Take the line back out.
 
-Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. Every page that imports `Stars` is now marked `client`, each with the same line in `Stars.tsx` that decided it. The pages still load and still work; view the source again and the cards are gone from the HTML, present only as props. Put `Math.round` back.
+Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. Every page that imports `Stars` is now marked `client`; the `client` section names that one line in `Stars.tsx` once, with all of those pages under it and the tags to follow to reach each. The pages still load and still work; view the source again and the cards are gone from the HTML, present only as props. Put `Math.round` back.
