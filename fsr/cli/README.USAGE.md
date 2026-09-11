@@ -549,6 +549,7 @@ $ fsr bundle app --out dist
 serve/static/js/app              serves /static/js/app
 serve/static/js/vendor           serves /static/js/vendor
 serve/static/css                 serves /static/css
+serve/static/js/fsr              serves /static/js/fsr
 app/clients                      read by the host
 app/generated/contracts          read by the host
 app/generated/plan.sexp          read by the host
@@ -561,6 +562,8 @@ place beside it: the binary, the logging configuration
 ```
 
 The tree has one directory a web server is pointed at, `serve/`, with everything else outside it. Where a file lands is decided by what it is rather than by where it sat in the project: configuration under `config/`, everything the host reads at boot under `app/` and each static root under `serve/` at the route it answers. A `[[static]]` root pointing at a shared build outside the project, `dir = "../../client/dist"`, is a normal thing to write in a monorepo and a meaningless path on a server, so the tree keeps the route and drops the provenance.
+
+`serve/static/js/fsr` has no `[[static]]` behind it. The host carries `@snapfire/fsr-client` in its binary and answers that prefix from there, so the tree writes the modules only for a web server that answers `serve/` before a request reaches the host. An application that configures a root on the same route is serving a client of its own and the tree writes nothing there.
 
 Both lists come from what the host itself reads, so neither is a copy list to keep in step. That covers files no setting names: `app/clients/` because each service document is imported at boot; `app/locales/` because the host reads that directory by name and an application whose catalogs did not ship serves message keys.
 

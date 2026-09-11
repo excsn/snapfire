@@ -307,6 +307,24 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     layer.statics.push((served.route.clone(), format!("../{at}")));
   }
 
+  // The host answers this prefix out of its own binary, so the tree carries it
+  // only for a web server that answers `serve/` before a request reaches the
+  // host. A static root on the same prefix is an application serving its own
+  // client. Nothing here is written then.
+  //
+  // A site is skipped because the shell answers the prefix on its behalf: a
+  // root outside the site's own prefix is dropped at mount, and these rows
+  // would otherwise move the hash every pin is checked against.
+  use snapfire_fsr_host::client;
+  let serves_client = config.site.is_none()
+    && !config.statics.iter().any(|s| s.route.trim_end_matches('/') == client::ROUTE);
+  if serves_client {
+    let under = client::ROUTE.trim_matches('/');
+    for (name, body) in client::FILES {
+      place(format!("{SERVE}/{under}/{name}"), Source::Text((*body).to_owned()), false)?;
+    }
+  }
+
   // A tree already carries a layer and regenerating it would be a second
   // opinion about paths that are already the tree's own.
   if !written.contains(LAYER) {

@@ -23,9 +23,5 @@ provider = "file"
 login = "/login"
 
 [[static]]
-route = "/static/js/fsr"
-dir = "../../client/dist"
-
-[[static]]
 route = "/static/js/app"
 dir = "js/dist"

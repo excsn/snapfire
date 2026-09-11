@@ -170,6 +170,8 @@ From the app directory, each reported at boot under `inferred`:
 
 Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.
 
+`/static/js/fsr` is not inferred from anything and needs no entry. The host carries `@snapfire/fsr-client` in its own binary and answers the prefix from there, so the client a page loads is the version of the host serving it and an application vendors no copy. The boot report names it on a `client` row rather than a `static` one. `fsr bundle` writes the same modules under `serve/static/js/fsr`, for a deployment whose web server answers `serve/` before a request reaches the host. A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client of its own.
+
 ## Overriding per Deployment
 
 The files in `config/` load in this order, each `.toml` then `.yaml`, skipping the ones that do not exist:

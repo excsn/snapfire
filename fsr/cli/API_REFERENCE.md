@@ -5,6 +5,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 ## Contents
 
 * [1. The Binary](#1-the-binary)
+  * [fsr new](#fsr-new)
   * [fsr add](#fsr-add)
   * [fsr types](#fsr-types)
   * [fsr build](#fsr-build)
@@ -52,6 +53,17 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [BuildError](#builderror)
 
 ## 1. The Binary
+
+Every command parses its arguments with clap, so each takes `--help` and a flag given without its value is an error rather than a swallowed argument. A usage error exits 2.
+
+### fsr new
+
+* `fsr new <project dir> [--no-fetch] [--shell] [--site --at <path> [--name <name>] [--into <shell dir>]]`
+* Writes `config/app.toml`, `.gitignore` and the smallest application the stock host serves under `app/`: an import map, an entry module, a root layout, an index page and its loader, a not-found page, an error page and a stylesheet. Refuses a directory that already holds `app/` or `config/`.
+* Then, unless `--no-fetch`: vendors React into `app/vendor/`, writes the declarations for every import-map package into `app/types/` and runs the generation, which writes `app/generated/` and both tsconfigs. That last step is what makes the scaffold resolve in an editor without a build first, since the routes import `@snapfire/fsr` and `@generated/client`, neither of which the template carries. The browser bundle is not built; `fsr dev` writes `dist/`.
+* `--no-fetch` writes the template alone and names `fsr add`, `fsr types` and `fsr build` as the steps to run.
+* `--shell` gives the configuration a `[sites]` table. `--site` gives it a `[site]` section and needs `--at`; `--into` writes both halves of the mount through `sites::link` instead. The two are refused together.
+* Prints `wrote <path>` per file, `added <specifier> <file> <bytes>` per vendored module, `types <package> <from> <version>` per declaration set, `note <text>` on stderr for a step that failed without stopping the scaffold and `next <command>` for what to run. Exit 0 on success, 1 on a `BuildError`.
 
 ### fsr build
 

@@ -24,9 +24,5 @@ poll = "5s"
 [sites.billing]
 artifact = "../billing_site_react_ts"
 
-[[static]]
-route = "/static/js/fsr"
-dir = "../../../client/dist"
-
 [typecheck]
 version = "7.0.2"

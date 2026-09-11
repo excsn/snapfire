@@ -46,6 +46,14 @@ inferred  document.entry from dist/.snapfire-build.json
           clients.inventory.document from clients/
 ```
 
+One prefix is not inferred and cannot be written away. `/static/js/fsr` is answered out of the binary, because `@snapfire/fsr-client` is carried by `snapfire_fsr_host` itself, so the client a page loads is the version of the host serving it and there is no copy in the project to fall behind. The boot report gives it a `client` row of its own rather than a `static` one:
+
+```
+client    /static/js/fsr         15 modules, 87 KiB from the binary
+```
+
+A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client it built itself.
+
 **Nothing the host decided is invisible.** That is the contract the report keeps with the person reading the log at three in the morning.
 
 ## The origin a canonical link points at

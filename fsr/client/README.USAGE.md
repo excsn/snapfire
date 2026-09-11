@@ -121,7 +121,9 @@ cd fsr/client
 snapfirec --source-map --minify compact --public-path /static/js/fsr --import-map importmap.json
 ```
 
-`--import-map` fails the build when a bare import has no entry, which is what keeps `react` and `react-dom/client` declared. Serve `dist/` at the prefix given to `--public-path`, then point the page's map at the two entry points:
+`--import-map` fails the build when a bare import has no entry, which is what keeps `react` and `react-dom/client` declared.
+
+Nothing serves `dist/` in an application. `snapfire_fsr_host` carries the modules and answers `/static/js/fsr` from its own binary. `fsr bundle` writes them under `serve/static/js/fsr` for a web server that answers the prefix first. A rebuilt `dist/` reaches the host by being copied into `host/embedded/client/`, which is where `include_str!` reads it. Point the page's map at the two entry points:
 
 ```json
 {

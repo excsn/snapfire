@@ -76,7 +76,8 @@ pub fn run_checked(app: &Path, out: &Path, check: bool) -> Result<Bundled, Build
     }
   }
 
-  let served = config
+  let client = snapfire_fsr_host::client::ROUTE;
+  let mut served: Vec<(String, String)> = config
     .statics
     .iter()
     .map(|root| {
@@ -89,6 +90,9 @@ pub fn run_checked(app: &Path, out: &Path, check: bool) -> Result<Bundled, Build
       (root.route.clone(), at)
     })
     .collect();
+  if !served.iter().any(|(route, _)| route.trim_end_matches('/') == client) {
+    served.push((client.to_owned(), format!("{SERVE}{client}")));
+  }
 
   Ok(Bundled {
     out: out.to_path_buf(),

@@ -19,6 +19,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [DataCacheSection](#datacachesection)
   * [ClientConfig](#clientconfig)
   * [StaticRoot](#staticroot)
+  * [client](#client)
   * [LocalesSection](#localessection)
   * [AuthSection](#authsection)
   * [BearerKey](#bearerkey)
@@ -140,6 +141,15 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### StaticRoot
 
 * `route: String`, `dir: String` relative to the app directory. A trailing slash on `route` is ignored. A written root with the same `route` as an inferred one replaces it.
+
+### client
+
+The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/static/js/fsr`, unless a `StaticRoot` claims that prefix.
+
+* `pub const ROUTE: &str`, the prefix; `pub const MEDIA_TYPE: &str`, what a module is served as.
+* `pub const FILES: &[(&str, &str)]`: every module by file name, `index.js` through `values.js`. `pub const TYPES: &[(&str, &str)]`: the matching declarations, which `fsr types` writes into an application.
+* `pub fn get(name: &str) -> Option<&'static str>`: one module by file name. A name holding `/` or `\\` matches nothing, so the prefix is the whole of what it answers.
+* `pub fn bytes() -> usize`: what the modules come to. `pub fn write_to(dir: &Path) -> std::io::Result<Vec<PathBuf>>`: writes them into `dir`, which is what `fsr bundle` does.
 
 ### LocalesSection
 
@@ -303,6 +313,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub extensions: Vec<String>, pub site: Option<(String, String)>, pub sites: Vec<SiteReport>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
 * `extensions: Vec<String>`: the native pairs registered beside the standard library, by name; `Display` prints them as `natives` rows labelled `rust`, after `bearer`.
 * `catalogs: Vec<(String, usize)>`: each locale with a file under `locales/` and how many keys it holds; `Display` prints one `catalogs` row, `en_US 5 keys, fr_FR 5 keys`.
+* `client: Option<(&'static str, usize, usize)>`: the prefix the embedded client answers, how many modules it holds and what they come to; `None` when a static root claims the prefix. `Display` prints one `client` row after the `static` rows.
 * `site: Option<(String, String)>`: the application's own `[site]`, name and prefix; `Display` prints one `site` row. `sites: Vec<SiteReport>`: the mounted sites; `Display` prints a `sites` row per mount, `billing at /billing from <artifact> <version> <hash>`, and a row naming what the mount ignored.
 
 ### SiteReport

@@ -11,4 +11,3 @@ ttl = "24h"
 [cache]
 capacity = 1000
 ttl = "1m"
-{{statics}}

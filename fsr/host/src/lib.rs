@@ -2,6 +2,7 @@
 //! become a `tower::Service` over `http` types. hyper serves it, axum nests
 //! it, actix reaches it through the `actix` feature's shim.
 
+pub mod client;
 pub mod config;
 pub mod locale;
 mod remote;
@@ -264,6 +265,9 @@ pub struct HostReport {
   /// Method and tags for every method that drops cached answers.
   pub writers: Vec<(String, String)>,
   pub statics: Vec<(String, PathBuf)>,
+  /// The prefix the embedded client answers, how many modules it holds and
+  /// what they come to. `None` when a static root claims the prefix instead.
+  pub client: Option<(&'static str, usize, usize)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
   /// How many of `app.warmable`'s keys the prerender directory answered at
@@ -353,6 +357,9 @@ impl std::fmt::Display for HostReport {
     for (i, (route, dir)) in self.statics.iter().enumerate() {
       let label = if i == 0 { "static" } else { "" };
       writeln!(f, "{label:<9} {route:<22} {}", dir.display())?;
+    }
+    if let Some((route, files, bytes)) = self.client {
+      writeln!(f, "{:<9} {route:<22} {files} modules, {} KiB from the binary", "client", bytes / 1024)?;
     }
     for (i, (pattern, anonymous)) in self
       .app
@@ -603,6 +610,9 @@ struct Tables {
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
   statics: Vec<(String, ServeDir)>,
+  /// Whether [`client::ROUTE`] is answered out of the binary, which it is
+  /// unless a static root claims the prefix.
+  client: bool,
   prerendered: Option<PathBuf>,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
@@ -1936,6 +1946,14 @@ impl Host {
       }
     }
 
+    if t.client {
+      if let Some(name) = path.strip_prefix(client::ROUTE).and_then(|rest| rest.strip_prefix('/')) {
+        if let Some(body) = client::get(name) {
+          return js_response(body, self.changed.is_some());
+        }
+      }
+    }
+
     for (route, dir) in &t.statics {
       if let Some(rest) = path.strip_prefix(route.as_str()) {
         if rest.is_empty() || rest.starts_with('/') {
@@ -3005,6 +3023,24 @@ pub fn island_step(
   }
 }
 
+/// One module of the embedded client. `no_cache` for a development host, whose
+/// client changes when the binary it is built beside does.
+fn js_response(body: &'static str, no_cache: bool) -> Response<Body> {
+  let mut response = Response::builder()
+    .status(StatusCode::OK)
+    .header(header::CONTENT_TYPE, client::MEDIA_TYPE);
+  if no_cache {
+    response = response.header(header::CACHE_CONTROL, "no-cache");
+  }
+  response
+    .body(
+      http_body_util::Full::new(Bytes::from_static(body.as_bytes()))
+        .map_err(|never| match never {})
+        .boxed_unsync(),
+    )
+    .expect("a script response")
+}
+
 fn text_response(status: StatusCode, text: String) -> Response<Body> {
   Response::builder()
     .status(status)
@@ -3752,6 +3788,7 @@ impl HostBuilder {
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
 
+    let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
 
@@ -3863,6 +3900,7 @@ impl HostBuilder {
         })
         .unwrap_or_default(),
       statics: static_rows,
+      client: serve_client.then(|| (client::ROUTE, client::FILES.len(), client::bytes())),
       prerender: prerendered.clone(),
       warmed: warmed_count,
       cache: cache_row,
@@ -3885,6 +3923,7 @@ impl HostBuilder {
         head,
         dev_bundle,
         statics,
+        client: serve_client,
         prerendered,
         warm,
         locales,

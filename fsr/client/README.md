@@ -8,14 +8,16 @@ The package is browser-native ES modules. There is no bundler step, no `node_mod
 
 ## Install
 
-Installation is an import map entry, not a package manager install. Build the package with `snapfirec`, never `tsc`, since `tsc` drops the `.map` and `.min.js` outputs and the build facts file:
+Installation is an import map entry, not a package manager install. An application installs nothing at all. `snapfire_fsr_host` carries the modules and answers `/static/js/fsr` out of its own binary, so the client an application runs is the version of the host serving it. `fsr bundle` writes the same files under `serve/static/js/fsr` for a web server that answers the prefix before a request reaches the host. A `[[static]]` root on that route takes the prefix back, for an application that means to serve a client of its own.
+
+Building the package is for working on it and uses `snapfirec` rather than `tsc`, since `tsc` drops the `.map` and `.min.js` outputs and the build facts file:
 
 ```sh
 cd fsr/client
 snapfirec --source-map --minify compact --public-path /static/js/fsr --import-map importmap.json
 ```
 
-Serve the resulting `dist/` under the same prefix passed to `--public-path`, then name the two entry points in the page's import map. This is the map the `advanced_tera_app` example serves:
+`host/embedded/client/` holds the copy the host serves, since `include_str!` cannot reach outside the crate, so a rebuilt `dist/` is copied there. The page's import map names the entry points either way. This is the map the `advanced_tera_app` example serves:
 
 ```json
 {

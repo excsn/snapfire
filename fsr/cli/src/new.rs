@@ -10,9 +10,6 @@ use crate::{types, BuildError};
 /// The React runtime a scaffolded app vendors, pinned the way the examples pin it.
 pub const REACT: &str = "18.3.1";
 
-/// How far up the ancestors `client_dist` looks before giving up.
-const SEARCH_DEPTH: usize = 8;
-
 const TEMPLATE: &[(&str, &str)] = &[
   (".gitignore", include_str!("../templates/new/gitignore")),
   ("config/app.toml", include_str!("../templates/new/config/app.toml")),
@@ -102,16 +99,9 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   };
 
   let mut created = Created::default();
-  let statics = match client_dist(root) {
-    Some(dir) => format!("\n[[static]]\nroute = \"/static/js/fsr\"\ndir = \"{dir}\"\n"),
-    None => {
-      created.notes.push("no fsr client build beside this project; add a `[[static]]` for /static/js/fsr naming the client's dist/".to_owned());
-      String::new()
-    }
-  };
 
   for (path, contents) in TEMPLATE {
-    let contents = contents.replace("{{name}}", &name).replace("{{statics}}", &statics).replace("{{site}}", &site_section);
+    let contents = contents.replace("{{name}}", &name).replace("{{site}}", &site_section);
     let path = root.join(path);
     if let Some(parent) = path.parent() {
       std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
@@ -131,12 +121,24 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
       Err(e) => created.notes.push(format!("vendoring React failed ({e}); run `{add}`")),
     }
     match types::fetch(&app, false) {
-      Ok(report) => created.typed = report.fetched,
+      Ok(report) => {
+        created.typed = report.fetched;
+        // The scaffold's own routes import `@snapfire/fsr` and `@generated/*`,
+        // which are written by a build rather than by the template. The
+        // `paths` that resolve every other import live in the `tsconfig.json`
+        // a build writes. Without this an editor opened on a fresh project
+        // reports four unresolved imports that are not wrong.
+        match generate(&app) {
+          Ok(written) => created.written.extend(written),
+          Err(e) => created.notes.push(format!("writing the generated modules failed ({e}); run `fsr build {}`", app.display())),
+        }
+      }
       Err(e) => created.notes.push(format!("fetching types failed ({e}); run `fsr types {}`", app.display())),
     }
   } else {
     created.next.push(add);
     created.next.push(format!("fsr types {}", app.display()));
+    created.next.push(format!("fsr build {}", app.display()));
   }
   if let Some(site) = &options.site {
     if let Some(shell) = &site.into {
@@ -148,16 +150,11 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   Ok(created)
 }
 
-/// The client runtime's build, looked for the way an example's `build.rs` looks
-/// for snapfirec: up the ancestors of the project being created. The path is
-/// written relative to the app directory, which is where `[[static]] dir`
-/// resolves.
-fn client_dist(root: &Path) -> Option<String> {
-  let absolute = std::path::absolute(root).ok()?;
-  for (up, ancestor) in absolute.ancestors().skip(1).take(SEARCH_DEPTH).enumerate() {
-    if ancestor.join("fsr/client/dist").is_dir() {
-      return Some(format!("{}fsr/client/dist", "../".repeat(up + 2)));
-    }
-  }
-  None
+/// `generated/`, `tsconfig.json` and `tsconfig.build.json`, which is what the
+/// editor resolves imports through. The bundler is not run: `dist/` is what
+/// serving needs and `fsr dev` writes it.
+fn generate(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
+  let built = crate::build(app, &crate::Options::beside(app))?;
+  crate::write(app, &built)
 }
+
