@@ -1,7 +1,7 @@
 [package]
 name = "basic_site"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
 publish = false # Prevent this example from being published
 
 [dependencies]
