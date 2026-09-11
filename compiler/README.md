@@ -68,6 +68,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Kill the module-discovery waterfall | `dist/.snapfire-build.json`, written every build |
 | Check the types it strips | `--typecheck`, which runs `snapfiretc` over the same tsconfig |
 | Rebuild as you edit | `--watch` |
+| Rebuild what another process names on stdin | `--driven` |
 | Strip development logging | `--strip-log --strip-debug` |
 | Pick browser targets | `.browserslistrc` in the project root |
 
@@ -93,6 +94,7 @@ Then read `example/dist`, which is what a browser would be served.
 | `--tsc-version <VERSION>` | The TypeScript version to typecheck with. | the checker's default |
 | `--snapfiretc <PATH>` | The typechecker itself. | `$SNAPFIRETC`, beside this binary, then `PATH` |
 | `-w`, `--watch` | Rebuilds whenever a source changes. | `false` |
+| `--driven` | Rebuilds the paths read on stdin, one per line, an empty line ending a batch and an empty batch rebuilding everything; prints `snapfirec: rebuilt` or `snapfirec: failed` when the batch has been compiled. | `false` |
 
 ## Configuration
 

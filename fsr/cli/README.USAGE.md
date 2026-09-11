@@ -745,6 +745,8 @@ Once a shell is running somewhere, `fsr sites list <shell> --host <url>` puts th
 
 `serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app, or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.
 
+`dev` builds every site the shell's `[sites]` table mounts from a path as well as the shell, each through its own compiler held open for the session, so a change under a site recompiles that file in that site and reloads the host. A change elsewhere in the project, a build script's markdown for one, runs `cargo build` and restarts the binary it produced. Every rebuild prints the paths that caused it as `dev: changed ...`; a file rewritten with the bytes it already held is not a change, whoever wrote it. Three rebuilds in a row caused by nothing but the loop's own writes stop it until an edit arrives, naming the path, rather than letting a build that keeps producing different output spin.
+
 ```sh
 fsr build app
 snapfirec --root app --config tsconfig.build.json --source-map --public-path /static/js/app --import-map importmap.json
@@ -983,13 +985,21 @@ The library half runs the same build without the binary. A crate that serves the
 // build.rs
 fn main() {
   let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("app");
-  for watched in ["routes", "src", "schemas", "clients", "importmap.json", "types"] {
+  for watched in ["routes", "src", "schemas", "clients", "importmap.json"] {
     println!("cargo:rerun-if-changed={}", app.join(watched).display());
+  }
+  println!("cargo:rerun-if-env-changed={}", snapfire_fsr_cli::dev::OWNS_BUILD);
+  if snapfire_fsr_cli::dev::owns_build() {
+    return;
   }
   let options = snapfire_fsr_cli::DevOptions::beside(&app);
   snapfire_fsr_cli::emit(&app, options).unwrap_or_else(|e| panic!("fsr build app: {e}"));
 }
 ```
+
+Under `fsr dev` the loop has already generated and bundled every application before it runs `cargo build` and sets `FSR_DEV_OWNS_BUILD` in cargo's environment to say so. A build script that calls `emit` regardless builds each application a second time per change and writes over what the loop wrote, so check `dev::owns_build()` first and do only what the loop does not, such as turning markdown into a module. Declaring the variable with `rerun-if-env-changed` makes a plain `cargo build` after a `dev` session run the script again and emit.
+
+A build script never declares a directory it writes into. `types/` is left out of the list above because `emit` refreshes the declarations `fsr` carries there; a script that rewrites one of its own inputs is stale the moment it finishes, so cargo runs it on every build and a watcher of those inputs rebuilds on every run.
 
 `emit` is generation and then the bundle. `build` and `write` are the generation alone, and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract, and for `emit` otherwise.
 

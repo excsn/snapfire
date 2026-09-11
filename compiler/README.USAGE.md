@@ -31,6 +31,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * [Preloading the Module Graph](#preloading-the-module-graph)
 * [Keeping the Output Directory Clean](#keeping-the-output-directory-clean)
 * [Watching for Changes](#watching-for-changes)
+* [Being Driven by Another Process](#being-driven-by-another-process)
 * [Loading the Output in a Browser](#loading-the-output-in-a-browser)
 * [Wiring the Build into a SnapFire Site](#wiring-the-build-into-a-snapfire-site)
 * [Checking Types](#checking-types)
@@ -197,6 +198,7 @@ snapfirec
 | `--public-path <PREFIX>` | URL prefix for the preload manifest | paths, not URLs |
 | `--import-map <PATH>` | Fail the build if an external is not in this map | off |
 | `-w`, `--watch` | Rebuild whenever a source changes | off |
+| `--driven` | Rebuild the paths named on stdin, answering on stdout | off |
 
 These `tsconfig.json` keys are read; everything else in the file is ignored:
 
@@ -1172,6 +1174,23 @@ A compile error is reported and the watcher keeps running, so a mistyped line do
 ```
 
 Editors save in bursts, writing a file then renaming it then touching its mode. Events are batched until the filesystem has been quiet for 120ms, so one save is one rebuild.
+
+## Being Driven by Another Process
+
+A tool that already watches the filesystem, `fsr dev` for one, holds one compiler open and tells it what changed rather than watching the same tree twice or starting a process per change:
+
+```bash
+snapfirec --driven
+```
+
+The first build runs at once. After it, every line on stdin is a path, relative to the root or absolute, and an empty line ends a batch. A batch is compiled the way `--watch` compiles what its watcher reported: a path already in the selection recompiles that file alone, a new or deleted file, `tsconfig.json` or `.browserslistrc` rebuilds everything, and so does an empty batch. When the batch has been compiled one line is printed on stdout and flushed:
+
+```text
+snapfirec: rebuilt
+snapfirec: failed
+```
+
+Everything else the build prints stays on stdout ahead of it, so the driver forwards lines until it reads one of the two. A failed batch keeps the process running and the next batch is compiled in full, so a driver keeps naming what changed and reads `rebuilt` once it compiles. Closing stdin ends the process. The banner is not printed and `--driven` conflicts with `--watch`.
 
 ## Loading the Output in a Browser
 
