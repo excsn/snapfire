@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use snapfire_fsr_host::config::Config;
+use snapfire_fsr_host::trace::Traces;
 use snapfire_fsr_host::{Host, HostError};
 
 use crate::BuildError;
@@ -27,7 +28,8 @@ pub fn project_root(app: &Path) -> PathBuf {
 
 /// Builds the host for `app` and serves it until the process ends.
 pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
-  let host = Arc::new(host_for(app)?);
+  let (host, traces) = host_of(app, true)?;
+  let host = Arc::new(host);
   print!("{}", host.report());
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
   let scheme = match host.report().tls.is_some() {
@@ -35,6 +37,9 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
     false => "http",
   };
   println!("fsr server on {scheme}://{listen}/");
+  if traces.is_some() {
+    println!("fsr traces on {scheme}://{listen}/__fsr/traces");
+  }
   let root = project_root(app);
   let poll = Config::load(&root).ok().and_then(|config| snapfire_fsr_sites::poll_of(&config));
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(format!("runtime: {e}")))?;
@@ -60,6 +65,14 @@ pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)
 }
 
 pub fn host_for(app: &Path) -> Result<Host, BuildError> {
+  host_of(app, false).map(|(host, _)| host)
+}
+
+/// `host_for`, with the handle to the collector when one was installed.
+/// Only a development host collects. A span costs an atomic load and a branch
+/// while nothing keeps it; the endpoint that serves them back is not registered
+/// outside development.
+fn host_of(app: &Path, collect: bool) -> Result<(Host, Option<Traces>), BuildError> {
   let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let root = project_root(&given);
   let config = Config::load(&root).map_err(|e| BuildError::Serve(e.to_string()))?;
@@ -67,10 +80,16 @@ pub fn host_for(app: &Path) -> Result<Host, BuildError> {
   if configured != given {
     return Err(BuildError::Serve(format!("{} names {} as the app directory, not {}", root.display(), config.app.display(), given.display())));
   }
+  let traces = match collect && config.dev() {
+    true => snapfire_fsr_host::trace::install(),
+    false => None,
+  };
   let builder = Host::from_config(config).map_err(|e| BuildError::Serve(e.to_string()))?;
   let builder = snapfire_fsr_sites::mount_all(builder).map_err(|e| BuildError::Serve(e.to_string()))?;
-  builder
+  let host = builder
+    .traces(traces.clone())
     .reloader(move || snapfire_fsr_sites::mount_all(Host::from(&root)?).map_err(|e| HostError::Value("sites".to_owned(), e.to_string())))
     .build()
-    .map_err(|e| BuildError::Serve(e.to_string()))
+    .map_err(|e| BuildError::Serve(e.to_string()))?;
+  Ok((host, traces))
 }

@@ -757,6 +757,8 @@ fsr serve app --listen 127.0.0.1:8080
 fsr dev app
 ```
 
+Both print a second banner line, `fsr traces on <addr>/__fsr/traces`, when the host is a development one. `GET` it for the last fifty requests, each as a flat list of spans carrying their own depth: the `source` span per loader with `memo` when it is memoizable, a `call` span per service method under the loader that made it and a `render` span per node with `cache` when the render cache was consulted. No second line means nothing is collecting, which is what `server.dev = false` or a `RELEASE_ENV` other than `development` gives you. Nothing reaches the endpoint in production and an application that wants its traces there registers a listener through `snapfire_fsr_host::trace`.
+
 To serve with no backend at all, an overlay names a client's transport as `mock` and `clients/<name>.mock.json` holds the responses, an object of method name to value with `{"$fail": {"kind": "unavailable", "message": "..."}}` for a failure. `APP_ENV=mock fsr serve app` picks the overlay up through the configuration ladder and the report shows `mock` and the file beside the client.
 
 ```toml
