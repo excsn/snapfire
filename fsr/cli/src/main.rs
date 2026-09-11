@@ -15,9 +15,11 @@ use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor,
 #[command(
   name = "fsr",
   about = "SnapFire FSR: TypeScript routes, loaders and components, built and served by Rust.",
-  disable_version_flag = true,
+  version,
   arg_required_else_help = true,
   subcommand_required = true,
+  // `sites pack --version <version>` names a release rather than asking for
+  // this binary's, so the flag stays off the subcommands.
   propagate_version = false
 )]
 struct Cli {
@@ -446,7 +448,7 @@ fn main() -> ExitCode {
       }
       Err(e) => failed(e),
     },
-    Command::Doctor(args) => match doctor::run(&args.app_dir) {
+    Command::Doctor(args) => match doctor::run(&snapfire_fsr_cli::serve::project_root(&args.app_dir)) {
       Ok(report) => {
         print!("{report}");
         if report.is_clean() { ExitCode::SUCCESS } else { ExitCode::from(1) }

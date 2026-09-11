@@ -422,7 +422,13 @@ pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
     ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned()),
   ];
   paths.extend(alias_paths());
-  let mut include: Vec<String> = vec!["src/**/*".to_owned(), "ext/**/*".to_owned(), "routes/**/*".to_owned(), "schemas/**/*".to_owned(), "tests/**/*".to_owned(), "generated/**/*".to_owned()];
+  let mut include: Vec<String> = vec!["src/**/*".to_owned()];
+  // Only when it is there: the compiler warns once per build about an
+  // `include` pattern that matches nothing.
+  if app.join("ext").is_dir() {
+    include.push("ext/**/*".to_owned());
+  }
+  include.extend(["routes/**/*".to_owned(), "schemas/**/*".to_owned(), "tests/**/*".to_owned(), "generated/**/*".to_owned()]);
   for (name, typed) in present(app, &layout)? {
     if typed.ambient {
       include.push(format!("{types}/{name}/{}", typed.entry));
@@ -444,14 +450,15 @@ pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
 
 /// `tsconfig.build.json` for snapfirec: the browser modules only, so the
 /// server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
-pub fn tsconfig_build() -> String {
+pub fn tsconfig_build(app: &Path) -> String {
   let mut out = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
   let paths = alias_paths();
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
   }
-  out.push_str("    }\n  },\n  \"include\": [\"src/**/*\", \"ext/**/*\", \"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}\n");
+  let ext = if app.join("ext").is_dir() { "\"ext/**/*\", " } else { "" };
+  out.push_str(&format!("    }}\n  }},\n  \"include\": [\"src/**/*\", {ext}\"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}}\n"));
   out
 }
 

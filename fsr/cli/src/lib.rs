@@ -791,7 +791,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app)?),
-    ("tsconfig.build.json".to_owned(), types::tsconfig_build()),
+    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app)),
   ]);
   let mut report = report;
   report.types = types::status(app)?;
