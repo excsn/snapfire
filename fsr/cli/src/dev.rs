@@ -6,9 +6,10 @@
 //! the app rebuilds and restarts. A failed step keeps the running server, so
 //! a typo never takes the page down.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use fibre::RecvErrorTimeout;
 use fibre::mpsc::{UnboundedSyncReceiver, UnboundedSyncSender, unbounded};
 use std::time::Duration;
@@ -91,13 +92,19 @@ impl Project {
     Ok(built)
   }
 
-  fn bundle(&self) -> Result<(), BuildError> {
-    crate::install::ensure(&crate::install::COMPILER, &self.snapfirec)?;
+  /// The compiler invocation both the one-shot bundle and the driven child are built from.
+  fn compiler(&self) -> Command {
     let mut command = Command::new(&self.snapfirec);
     command
       .arg("--root")
       .arg(&self.app)
       .args(["--config", "tsconfig.build.json", "--source-map", "--public-path", &self.options.public_path, "--import-map", &self.layout.importmap]);
+    command
+  }
+
+  fn bundle(&self) -> Result<(), BuildError> {
+    crate::install::ensure(&crate::install::COMPILER, &self.snapfirec)?;
+    let mut command = self.compiler();
     if self.app.join(BUNDLE_OVERLAY).is_dir() {
       command.args(["--overlay", BUNDLE_OVERLAY]);
     }
@@ -148,20 +155,37 @@ impl Project {
   /// and so run at once. A checker that is not installed is not an error;
   /// its absence is reported by the caller.
   fn compile(&self) -> Result<Option<Checked>, BuildError> {
+    self.compile_with(|| self.bundle())
+  }
+
+  fn compile_with(&self, bundle: impl FnOnce() -> Result<(), BuildError>) -> Result<Option<Checked>, BuildError> {
     let checker = typecheck::spawn(&self.app, &self.options.typecheck)?;
-    let bundled = self.bundle();
+    let bundled = bundle();
     let checked = typecheck::finish(checker, &self.options.typecheck);
     bundled?;
     checked
   }
 
-  fn cargo_build(&self) -> Result<(), BuildError> {
-    let Some(cargo) = &self.cargo else { return Ok(()) };
-    let status = Command::new("cargo").arg("build").current_dir(cargo).status().map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
+  /// Builds the project and returns what its build scripts declared they read. Cargo renders the
+  /// diagnostics itself, so the JSON on stdout is the artifact messages alone.
+  fn cargo_build(&self) -> Result<Vec<PathBuf>, BuildError> {
+    let Some(cargo) = &self.cargo else { return Ok(Vec::new()) };
+    let mut child = Command::new("cargo")
+      .args(["build", "--message-format=json-render-diagnostics"])
+      .current_dir(cargo)
+      .stdout(Stdio::piped())
+      .spawn()
+      .map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
+    let stdout = child.stdout.take().expect("a piped stdout");
+    let mut declared = Vec::new();
+    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+      declared.extend(inputs_of(cargo, &line));
+    }
+    let status = child.wait().map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
     if !status.success() {
       return Err(BuildError::Dev(format!("cargo build exited with {status}")));
     }
-    Ok(())
+    Ok(declared)
   }
 
   /// The project's own binary when there is one, else this binary's `serve` over the app.
@@ -196,6 +220,7 @@ impl Project {
           continue;
         }
         change.app = true;
+        change.sources.push(path.clone());
       } else {
         change.project = true;
       }
@@ -213,6 +238,120 @@ enum Msg {
 struct Change {
   app: bool,
   project: bool,
+  /// The application's own sources that changed, which the compiler is told about by path.
+  sources: Vec<PathBuf>,
+}
+
+/// The two lines of snapfirec's `--driven` protocol: one of them ends every batch.
+const REBUILT: &str = "snapfirec: rebuilt";
+const FAILED: &str = "snapfirec: failed";
+
+/// The compiler held open for the life of `fsr dev`, told which paths changed and answering once it
+/// has compiled them. One process means one resolved configuration and one selection, so a change
+/// recompiles what changed instead of everything. Starting it is itself the first build.
+struct Driven {
+  child: Child,
+  /// Taken when the child is gone, which is what tells a failed batch from a lost compiler.
+  stdin: Option<ChildStdin>,
+  stdout: BufReader<ChildStdout>,
+}
+
+impl Driven {
+  fn start(project: &Project) -> Result<Self, BuildError> {
+    crate::install::ensure(&crate::install::COMPILER, &project.snapfirec)?;
+    let mut child = project
+      .compiler()
+      .args(["--driven", "--overlay", BUNDLE_OVERLAY])
+      .stdin(Stdio::piped())
+      .stdout(Stdio::piped())
+      .spawn()
+      .map_err(|e| BuildError::Dev(format!("{}: {e}; pass --snapfirec or put it on PATH", project.snapfirec.display())))?;
+    let stdin = child.stdin.take();
+    let stdout = BufReader::new(child.stdout.take().expect("a piped stdout"));
+    let mut driven = Self { child, stdin, stdout };
+    match driven.settled() {
+      Ok(()) => Ok(driven),
+      Err(e) if driven.alive() => Err(e),
+      Err(e) => match driven.child.wait().ok().filter(|status| !status.success()) {
+        Some(status) => Err(BuildError::Dev(format!(
+          "{} exited with {status} before its first build; `--driven` needs a newer snapfire_compiler than this one",
+          project.snapfirec.display()
+        ))),
+        None => Err(e),
+      },
+    }
+  }
+
+  fn alive(&self) -> bool {
+    self.stdin.is_some()
+  }
+
+  fn rebuild(&mut self, paths: &[PathBuf]) -> Result<(), BuildError> {
+    let mut batch: String = paths.iter().map(|path| format!("{}\n", path.display())).collect();
+    batch.push('\n');
+    let Some(stdin) = self.stdin.as_mut() else {
+      return Err(BuildError::Dev("snapfirec is gone".to_owned()));
+    };
+    if let Err(e) = stdin.write_all(batch.as_bytes()).and_then(|()| stdin.flush()) {
+      self.stdin = None;
+      return Err(BuildError::Dev(format!("snapfirec: {e}")));
+    }
+    self.settled()
+  }
+
+  /// Forwards the compiler's own output until it says the batch is compiled.
+  fn settled(&mut self) -> Result<(), BuildError> {
+    let mut line = String::new();
+    loop {
+      line.clear();
+      match self.stdout.read_line(&mut line) {
+        Ok(0) => {
+          self.stdin = None;
+          return Err(BuildError::Dev("snapfirec exited".to_owned()));
+        }
+        Ok(_) => match line.trim_end() {
+          REBUILT => return Ok(()),
+          FAILED => return Err(BuildError::Dev("snapfirec failed; see the errors above".to_owned())),
+          text => println!("{text}"),
+        },
+        Err(e) => {
+          self.stdin = None;
+          return Err(BuildError::Dev(format!("snapfirec: {e}")));
+        }
+      }
+    }
+  }
+}
+
+impl Drop for Driven {
+  fn drop(&mut self) {
+    drop(self.stdin.take());
+    let _ = self.child.kill();
+    let _ = self.child.wait();
+  }
+}
+
+/// The compiler, started on the first bundle so the overlay it reads is already written.
+#[derive(Default)]
+enum Bundler {
+  #[default]
+  Idle,
+  Running(Driven),
+}
+
+impl Bundler {
+  fn bundle(&mut self, project: &Project, paths: &[PathBuf]) -> Result<(), BuildError> {
+    if let Self::Running(driven) = self {
+      if driven.alive() {
+        let outcome = driven.rebuild(paths);
+        if driven.alive() {
+          return outcome;
+        }
+      }
+    }
+    *self = Self::Running(Driven::start(project)?);
+    Ok(())
+  }
 }
 
 struct Server {
@@ -304,10 +443,9 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   }, notify::Config::default())
   .map_err(|e| BuildError::Dev(format!("watcher: {e}")))?;
   watcher.watch(&project.app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("watch {}: {e}", project.app.display())))?;
+  let mut watching: HashSet<PathBuf> = HashSet::new();
   for path in project.watched() {
-    if path.exists() {
-      watcher.watch(&path, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("watch {}: {e}", path.display())))?;
-    }
+    watch(&mut watcher, &mut watching, &project, path)?;
   }
 
   let mut server = Server { child: None };
@@ -317,18 +455,24 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
     None => println!("dev: watching {} and its configuration, served by the stock host; press Ctrl-C to stop", project.app.display()),
   }
 
-  let mut want = Change { app: true, project: true };
+  let mut bundler = Bundler::default();
+  let mut pending: HashSet<PathBuf> = HashSet::new();
+  let mut want = Change { app: true, project: true, sources: Vec::new() };
   loop {
     if want.app || want.project {
       let mut restart = want.project || server.child.is_none();
       let mut reload = false;
       let mut failed = false;
       if want.app {
+        pending.extend(want.sources.drain(..));
         match project.generate() {
           Ok(built) => {
             let changed = files.as_ref() != Some(&built.files);
             if changed {
               print!("{}", built.report);
+            }
+            pending.extend(rewritten(&project.app, files.as_deref(), &built.files));
+            if changed {
               files = Some(built.files);
             }
             reload |= changed;
@@ -339,8 +483,12 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
           }
         }
         if !failed {
-          match project.compile() {
-            Ok(checked) => report_types(checked.as_ref()),
+          let batch: Vec<PathBuf> = pending.iter().cloned().collect();
+          match project.compile_with(|| bundler.bundle(&project, &batch)) {
+            Ok(checked) => {
+              pending.clear();
+              report_types(checked.as_ref());
+            }
             Err(e) => {
               eprintln!("{e}");
               failed = true;
@@ -359,7 +507,12 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       }
       if !failed && restart {
         match project.cargo_build() {
-          Ok(()) => server.restart(&project),
+          Ok(declared) => {
+            for path in declared {
+              watch(&mut watcher, &mut watching, &project, path)?;
+            }
+            server.restart(&project);
+          }
           Err(e) => {
             eprintln!("{e}");
             failed = true;
@@ -380,6 +533,61 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       }
     }
   }
+}
+
+/// Watches a path once. Anything under the application is already covered by the recursive watch on
+/// it, and a path that is not there yet is nothing to watch.
+fn watch(watcher: &mut RecommendedWatcher, watching: &mut HashSet<PathBuf>, project: &Project, path: PathBuf) -> Result<(), BuildError> {
+  if path.starts_with(&project.app) || !path.exists() || !watching.insert(path.clone()) {
+    return Ok(());
+  }
+  watcher
+    .watch(&path, RecursiveMode::Recursive)
+    .map_err(|e| BuildError::Dev(format!("watch {}: {e}", path.display())))
+}
+
+/// What one cargo message says a build script reads, when it is a build script of the project
+/// itself rather than of a dependency. Cargo writes the declarations beside the script's output
+/// directory, so the message's `out_dir` is what leads to them.
+fn inputs_of(cargo: &Path, message: &str) -> Vec<PathBuf> {
+  let Ok(json) = serde_json::from_str::<serde_json::Value>(message) else { return Vec::new() };
+  if json["reason"].as_str() != Some("build-script-executed") {
+    return Vec::new();
+  }
+  // A dependency's build script reads files under the registry, which no edit ever touches. Only a
+  // path source is the project's own.
+  if !json["package_id"].as_str().is_some_and(|id| id.starts_with("path+")) {
+    return Vec::new();
+  }
+  let Some(out_dir) = json["out_dir"].as_str() else { return Vec::new() };
+  let Some(declarations) = Path::new(out_dir).parent().map(|dir| dir.join("output")) else { return Vec::new() };
+  let Ok(text) = std::fs::read_to_string(declarations) else { return Vec::new() };
+  text
+    .lines()
+    .filter_map(|line| line.strip_prefix("cargo:rerun-if-changed=").or_else(|| line.strip_prefix("cargo::rerun-if-changed=")))
+    .map(|path| cargo.join(path))
+    .collect()
+}
+
+/// The sources whose rewritten copy under the overlay differs from the last build's, each named by
+/// the path the compiler knows it as. A build can rewrite a module no edit touched, so the overlay
+/// is what says which ones the compiler has to read again.
+fn rewritten(app: &Path, before: Option<&[(String, String)]>, after: &[(String, String)]) -> Vec<PathBuf> {
+  let after = overlay(after);
+  let before = before.map(overlay).unwrap_or_default();
+  let gone = before.keys().filter(|rel| !after.contains_key(*rel));
+  let differs = after.iter().filter(|(rel, body)| before.get(*rel) != Some(body)).map(|(rel, _)| rel);
+  differs.chain(gone).map(|rel| app.join(rel)).collect()
+}
+
+fn overlay(files: &[(String, String)]) -> HashMap<&str, &str> {
+  files
+    .iter()
+    .filter_map(|(rel, body)| {
+      let source = Path::new(rel).strip_prefix(BUNDLE_OVERLAY).ok()?;
+      Some((source.to_str()?, body.as_str()))
+    })
+    .collect()
 }
 
 /// A type error is printed and the server keeps running: the bundle carries
@@ -448,5 +656,59 @@ mod tests {
     assert!(!change.app && change.project);
     let change = p.classify(&[PathBuf::from("/p/app/.fsr-something"), PathBuf::from("/p/app/importmap.json")]);
     assert!(change.app);
+  }
+
+  #[test]
+  fn a_changed_source_is_named_for_the_compiler() {
+    let p = project(Path::new("/p/app"));
+    let change = p.classify(&[PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/app/dist/src/main.js")]);
+    assert_eq!(change.sources, vec![PathBuf::from("/p/app/routes/index/page.tsx")]);
+  }
+
+  fn overlay_file(rel: &str, body: &str) -> (String, String) {
+    (format!("{BUNDLE_OVERLAY}/{rel}"), body.to_owned())
+  }
+
+  #[test]
+  fn a_rewritten_module_is_named_by_its_source_path() {
+    let app = Path::new("/p/app");
+    let before = vec![overlay_file("src/a.ts", "one"), overlay_file("src/b.ts", "two"), overlay_file("src/c.ts", "three")];
+    let after = vec![overlay_file("src/a.ts", "one"), overlay_file("src/b.ts", "changed")];
+    let mut changed = rewritten(app, Some(&before), &after);
+    changed.sort();
+    assert_eq!(changed, vec![app.join("src/b.ts"), app.join("src/c.ts")]);
+  }
+
+  fn message(reason: &str, package: &str, out_dir: &Path) -> String {
+    format!(r#"{{"reason":"{reason}","package_id":"{package}","out_dir":"{}"}}"#, out_dir.display())
+  }
+
+  #[test]
+  fn a_build_script_declares_what_the_watcher_has_to_watch() {
+    let dir = std::env::temp_dir().join(format!("fsr-declared-{}", std::process::id()));
+    let out = dir.join("build/www-abc/out");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(
+      dir.join("build/www-abc/output"),
+      "cargo:rerun-if-changed=build.rs\ncargo::rerun-if-changed=/abs/sites/learn/content\ncargo:rustc-env=X=1\n",
+    )
+    .unwrap();
+
+    let cargo = Path::new("/p");
+    let declared = inputs_of(cargo, &message("build-script-executed", "path+file:///p#www@0.1.0", &out));
+    assert_eq!(declared, vec![PathBuf::from("/p/build.rs"), PathBuf::from("/abs/sites/learn/content")]);
+
+    assert!(inputs_of(cargo, &message("build-script-executed", "registry+https://x#serde@1.0.0", &out)).is_empty());
+    assert!(inputs_of(cargo, &message("compiler-artifact", "path+file:///p#www@0.1.0", &out)).is_empty());
+    assert!(inputs_of(cargo, "not json at all").is_empty());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+
+  #[test]
+  fn only_the_overlay_says_a_module_was_rewritten() {
+    let app = Path::new("/p/app");
+    let after = vec![("generated/plan.sexp".to_owned(), "(plan)".to_owned()), overlay_file("src/a.ts", "one")];
+    assert_eq!(rewritten(app, None, &after), vec![app.join("src/a.ts")]);
   }
 }
