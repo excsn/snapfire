@@ -2,6 +2,7 @@ mod build;
 mod compiler;
 mod config;
 mod declarations;
+mod driven;
 mod graph;
 mod importmap;
 mod sources;
@@ -24,6 +25,12 @@ struct Args {
   /// Rebuild whenever a source changes
   #[arg(short, long)]
   watch: bool,
+
+  /// Rebuild the paths named on stdin rather than watching: one path per line, an empty line ends
+  /// a batch, an empty batch rebuilds everything, and a line naming the batch is printed when it
+  /// has been compiled
+  #[arg(long, conflicts_with = "watch")]
+  driven: bool,
 
   /// Path to tsconfig.json (relative to root)
   #[arg(short, long, default_value = "tsconfig.json")]
@@ -126,6 +133,10 @@ fn main() -> Result<()> {
 
   if args.watch {
     return watch::run(&options, outcome);
+  }
+
+  if args.driven {
+    return driven::run(&options, outcome);
   }
 
   if outcome.emitted == 0 && !outcome.has_error {

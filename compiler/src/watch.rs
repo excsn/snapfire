@@ -99,7 +99,7 @@ fn absorb(event: notify::Result<notify::Event>, paths: &mut HashSet<PathBuf>) {
 
 /// Anything that changes the shape of the build rather than the contents of one known file: a new
 /// or deleted file, or a config the whole selection was derived from.
-fn structural(changed: &[PathBuf], build: &Build, config_path: &Path) -> bool {
+pub(crate) fn structural(changed: &[PathBuf], build: &Build, config_path: &Path) -> bool {
   changed.iter().any(|path| {
     if path == config_path || path.file_name().is_some_and(|n| n == ".browserslistrc") {
       return true;
