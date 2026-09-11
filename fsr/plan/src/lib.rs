@@ -565,7 +565,7 @@ fn prefix_str(value: &mut serde_json::Value, prefix: &str) {
 }
 
 /// Every reference a body can make outside itself: a service by name, an
-/// island or a component by module.
+/// island or a component by module, a module-level constant by name.
 fn namespace_body(value: &mut serde_json::Value, prefix: &str) {
   match value {
     serde_json::Value::Object(map) => {
@@ -573,6 +573,9 @@ fn namespace_body(value: &mut serde_json::Value, prefix: &str) {
         if let Some(service) = call.get_mut("service") {
           prefix_str(service, prefix);
         }
+      }
+      if let Some(name) = map.get_mut("const") {
+        prefix_str(name, prefix);
       }
       for key in ["island", "component"] {
         if let Some(placed) = map.get_mut(key) {
@@ -653,6 +656,17 @@ impl Manifest {
     if let Some(middleware) = json.get_mut("middleware") {
       namespace_body(middleware, &prefix);
     }
+    if let Some(consts) = json.get_mut("consts").and_then(|c| c.as_object_mut()) {
+      let taken = std::mem::take(consts);
+      *consts = taken
+        .into_iter()
+        .map(|(name, mut value)| {
+          namespace_body(&mut value, &prefix);
+          let name = if name.starts_with(&prefix) { name } else { format!("{prefix}{name}") };
+          (name, value)
+        })
+        .collect();
+    }
     serde_json::from_value(json).expect("a namespaced manifest deserializes")
   }
 }
@@ -671,9 +685,10 @@ mod namespace_tests {
             { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default", "source": "index", "deferred": true, "fallback": "routes/index/loading.tsx#default", "error": "routes/error.tsx#default" } } ] } } ] } }
       ],
       "sources": [ { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "call": { "service": "ledger", "method": "list", "args": [] } } } ] } ],
-      "actions": [ { "id": "index.add", "owner": "lowered", "module": "routes/index/actions.ts", "input": "Add", "body": [ { "return": "locale" } ] } ],
+      "actions": [ { "id": "index.add", "owner": "lowered", "module": "routes/index/actions.ts", "input": "Add", "body": [ { "return": { "const": "src/content.ts#CHAPTERS" } } ] } ],
       "handlers": [ { "id": "api.x.GET", "method": "GET", "pattern": "/api/x", "owner": "lowered", "module": "routes/api/x/route.ts", "body": [] } ],
       "components": [ { "module": "routes/index/page.tsx#default", "body": { "render": { "island": { "module": "src/ui/Tips.tsx#TipList", "when": "load", "props": [], "children": [] } } } } ],
+      "consts": { "src/content.ts#CHAPTERS": { "array": [] } },
       "middleware": [ { "return": { "call": { "service": "ledger", "method": "ping", "args": [] } } } ]
     }"#).unwrap();
     let json = manifest.namespaced("billing", "/billing", "shell#document").to_json();
@@ -692,6 +707,8 @@ mod namespace_tests {
       "\"pattern\": \"/billing/api/x\"",
       "\"id\": \"billing:api.x.GET\"",
       "\"module\": \"billing:src/ui/Tips.tsx#TipList\"",
+      "\"billing:src/content.ts#CHAPTERS\"",
+      "\"const\": \"billing:src/content.ts#CHAPTERS\"",
     ] {
       assert!(json.contains(expected), "missing {expected} in {json}");
     }
