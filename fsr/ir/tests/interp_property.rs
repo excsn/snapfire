@@ -72,7 +72,9 @@ fn builtins() -> BoxedStrategy<Builtin> {
     Just(Builtin::Round), Just(Builtin::Floor), Just(Builtin::Ceil), Just(Builtin::Abs),
     Just(Builtin::Min), Just(Builtin::Max), Just(Builtin::ToFixed), Just(Builtin::Repeat),
     Just(Builtin::Join), Just(Builtin::Trim), Just(Builtin::Upper), Just(Builtin::Lower),
-    Just(Builtin::Includes), Just(Builtin::EncodeUriComponent), Just(Builtin::LocaleNumber),
+    Just(Builtin::Includes), Just(Builtin::StartsWith), Just(Builtin::EndsWith),
+    Just(Builtin::Split), Just(Builtin::Replace),
+    Just(Builtin::EncodeUriComponent), Just(Builtin::LocaleNumber),
     Just(Builtin::Range), Just(Builtin::Omit)
   ]
   .boxed()

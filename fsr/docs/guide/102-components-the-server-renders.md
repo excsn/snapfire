@@ -16,7 +16,7 @@ Inside the JSX, the vocabulary is what JSX already is:
 - `xs.map((x) => <li />)`, a loop; the callback may be a block of `const`s ending in `return`.
 - `<Card product={p} />`, a component from this file or an import, rendered with the props given.
 
-The expressions in between are the same language a loader speaks, plus the pure functions a page reaches for: `Math.round`, `toFixed`, `repeat`, `join`, `trim`, `includes`, `encodeURIComponent`, `toLocaleString("en-US")` and `Array.from({ length })`. Every one returns what JavaScript returns, so `5 - Math.round(x)` types like JavaScript.
+The expressions in between are the same language a loader speaks, plus the pure functions a page reaches for: `Math.round`, `toFixed`, `repeat`, `join`, `split`, `trim`, `includes`, `startsWith`, `endsWith`, `replace`, `encodeURIComponent`, `toLocaleString("en-US")` and `Array.from({ length })`. Every one returns what JavaScript returns, so `5 - Math.round(x)` types like JavaScript; `"a a".replace(" ", "-")` is `"a-a"`, because `replace` takes the first occurrence only. Two edges are refused rather than approximated: `split("")`, since JavaScript splits one into UTF-16 code units, plus the second argument of `split`, `startsWith` and `endsWith`.
 
 ## Helpers and imports
 

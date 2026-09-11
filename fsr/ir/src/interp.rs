@@ -1148,6 +1148,9 @@ fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
 /// The most items `range` may build, for the same reason as [`MAX_REPEAT`].
 const MAX_RANGE: usize = 1_000_000;
 
+/// The most pieces `split` may build, for the same reason as [`MAX_REPEAT`].
+const MAX_SPLIT: usize = 1_000_000;
+
 /// The largest string `repeat` may build, so a count from data cannot ask for
 /// an allocation the process does not survive.
 const MAX_REPEAT: usize = 64 * 1024 * 1024;
@@ -1226,6 +1229,30 @@ fn number(what: Builtin, value: &Value) -> Result<f64, Fail> {
     Value::F64(f) => Ok(*f),
     other => Err(type_error(&format!("{what:?}"), "a number", other)),
   }
+}
+
+/// JavaScript's `GetSubstitution` for a string pattern, which carries no
+/// capture groups, so `$$`, `$&`, `` $` `` and `$'` are the whole vocabulary
+/// and a `$1` stays the two characters it is written as.
+fn substitute(out: &mut String, replacement: &str, before: &str, matched: &str, after: &str) {
+  let mut rest = replacement;
+  while let Some(at) = rest.find('$') {
+    out.push_str(&rest[..at]);
+    let tail = &rest[at + 1..];
+    match tail.as_bytes().first() {
+      Some(b'$') => out.push('$'),
+      Some(b'&') => out.push_str(matched),
+      Some(b'`') => out.push_str(before),
+      Some(b'\'') => out.push_str(after),
+      _ => {
+        out.push('$');
+        rest = tail;
+        continue;
+      }
+    }
+    rest = &tail[1..];
+  }
+  out.push_str(rest);
 }
 
 fn text<'a>(what: Builtin, value: &'a Value) -> Result<&'a str, Fail> {
@@ -1333,6 +1360,40 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Seq(items) => Value::Bool(items.contains(arg(1)?)),
       other => return Err(type_error(&format!("{name:?}"), "a string or an array", other)),
     },
+    Builtin::StartsWith => Value::Bool(text(name, arg(0)?)?.starts_with(text(name, arg(1)?)?)),
+    Builtin::EndsWith => Value::Bool(text(name, arg(0)?)?.ends_with(text(name, arg(1)?)?)),
+    Builtin::Split => {
+      let s = text(name, arg(0)?)?;
+      let sep = text(name, arg(1)?)?;
+      // JavaScript splits an empty separator into UTF-16 code units, so an
+      // astral character becomes two surrogate halves no Rust string can hold.
+      // The lowerer refuses a literal `""`; this catches one built at runtime.
+      if sep.is_empty() {
+        return Err(Fail::internal(format!("{name:?} takes a separator that is not empty")));
+      }
+      let pieces = s.matches(sep).count() + 1;
+      if pieces > MAX_SPLIT {
+        return Err(Fail::internal(format!("{name:?} would build {pieces} pieces")));
+      }
+      Value::Seq(s.split(sep).map(Value::str).collect())
+    }
+    Builtin::Replace => {
+      let s = text(name, arg(0)?)?;
+      let from = text(name, arg(1)?)?;
+      let to = text(name, arg(2)?)?;
+      match s.find(from) {
+        None => Value::str(s),
+        Some(at) => {
+          let (before, rest) = s.split_at(at);
+          let after = &rest[from.len()..];
+          let mut out = String::with_capacity(s.len() + to.len());
+          out.push_str(before);
+          substitute(&mut out, to, before, from, after);
+          out.push_str(after);
+          Value::str(out)
+        }
+      }
+    }
     Builtin::EncodeUriComponent => {
       let s = stringify(arg(0)?)?;
       let mut out = String::with_capacity(s.len());

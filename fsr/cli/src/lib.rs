@@ -96,6 +96,21 @@ pub enum BuildError {
   Sites(String),
 }
 
+/// A residue that took pages out of server rendering: where it sits, what it
+/// says, the rewrite that does the same thing in the IR, plus every page it
+/// de-lowered with the chain of placements reaching it. One cause per
+/// location, however many pages import their way to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cause {
+  /// `file:line:column`; the file alone when the module did not parse.
+  pub at: String,
+  pub message: String,
+  pub hint: Option<String>,
+  /// The de-lowered module and the placements from it down to `at`, empty
+  /// when the residue is in the module itself.
+  pub pages: Vec<(String, String)>,
+}
+
 /// What `build` found and emitted, in the order the report prints it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Report {
@@ -116,8 +131,11 @@ pub struct Report {
   pub slots: Vec<(String, String)>,
   /// `<pattern> into <slot>` and the `page.<slot>.tsx` a soft navigation renders there.
   pub intercepts: Vec<(String, String)>,
-  /// Module; `lowered` or `client`; for `client`, the line that decided it.
+  /// Module; `lowered` or `client`; for `client`, the location of the cause,
+  /// which `causes` states once however many modules point at it.
   pub components: Vec<(String, String, String)>,
+  /// Why each `client` module is one, each with the pages it took down.
+  pub causes: Vec<Cause>,
   /// Module, how many of its render-path calls and how many of its static subtrees the server computes for the browser.
   pub hoisted: Vec<(String, usize, usize)>,
   /// Components placed as islands in server mode and how many handlers each answers.
@@ -156,6 +174,18 @@ impl fmt::Display for Report {
     for (i, (module, owner, detail)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {owner:<11} {detail}")?;
+    }
+    for (i, cause) in self.causes.iter().enumerate() {
+      let label = if i == 0 { "client" } else { "" };
+      writeln!(f, "{label:<9} {:<34} {}", cause.at, cause.message)?;
+      if let Some(hint) = &cause.hint {
+        writeln!(f, "{:<9} {hint}", "")?;
+      }
+      let pages = cause.pages.len();
+      writeln!(f, "{:<9} {pages} page{} render{} in the browser for it", "", if pages == 1 { "" } else { "s" }, if pages == 1 { "s" } else { "" })?;
+      for (module, chain) in &cause.pages {
+        writeln!(f, "{:<11} {module:<32} {chain}", "")?;
+      }
     }
     for (i, (module, handlers)) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
@@ -700,6 +730,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     components.push(ComponentEntry { module, body: component });
   }
   report.components.sort();
+  report.causes.sort_by(|a, b| (&a.at, &a.message).cmp(&(&b.at, &b.message)));
+  for cause in &mut report.causes {
+    cause.pages.sort();
+  }
 
   let session_type = session_import.as_ref().map(|_| "Session");
   let prefix = options.prefix();
@@ -1262,14 +1296,27 @@ fn lower_into(set: &mut ComponentSet, module: &str, report: &mut Report) -> Resu
   match set.lower(module) {
     Ok(()) => Ok(()),
     Err(LowerError::Residue(residue)) => {
-      report.components.push((module.to_owned(), "client".to_owned(), format!("{}:{}: {}", residue.file, residue.line, residue.message)));
+      let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
+      let chain = residue.chain();
+      blame(report, module, at, residue.message, residue.hint, chain);
       Ok(())
     }
     Err(LowerError::Parse { file, message }) => {
-      report.components.push((module.to_owned(), "client".to_owned(), format!("{file}: {message}")));
+      blame(report, module, file, message, None, String::new());
       Ok(())
     }
     Err(e) => Err(e.into()),
+  }
+}
+
+/// Marks `module` client and files it under the cause at `at`, which several
+/// modules reach when they import their way to the same unlowerable line.
+fn blame(report: &mut Report, module: &str, at: String, message: String, hint: Option<String>, chain: String) {
+  report.components.push((module.to_owned(), "client".to_owned(), at.clone()));
+  let page = (module.to_owned(), chain);
+  match report.causes.iter_mut().find(|c| c.at == at && c.message == message) {
+    Some(cause) => cause.pages.push(page),
+    None => report.causes.push(Cause { at, message, hint, pages: vec![page] }),
   }
 }
 

@@ -307,8 +307,9 @@ impl<'a> Inferer<'a> {
       }
       Expr::Builtin { name, .. } => match name {
         Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max => Ts::Num,
-        Builtin::Includes => Ts::Bool,
+        Builtin::Includes | Builtin::StartsWith | Builtin::EndsWith => Ts::Bool,
         Builtin::Range => Ts::List(Box::new(Ts::Big)),
+        Builtin::Split => Ts::List(Box::new(Ts::Str)),
         _ => Ts::Str,
       },
       Expr::Ext { module, name, .. } => match (module.as_str(), name.as_str()) {

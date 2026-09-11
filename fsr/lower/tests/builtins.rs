@@ -96,3 +96,61 @@ fn a_small_constant_stays_inline() {
   expr.visit(&mut |e| named |= matches!(e, Expr::Const(_)));
   assert!(!named, "{expr:?}");
 }
+
+/// The four string builtins, each in a loader body so the assertion reads the
+/// `Expr` rather than a render tree.
+fn lowered(tag: &str, expr: &str) -> Result<Vec<Stmt>, String> {
+  let dir = app(tag, &[("routes/a/page.loader.ts", &format!("export async function load({{ params }}) {{\n  const out = {expr};\n  return {{ out }};\n}}\n"))]);
+  ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").map_err(|e| e.to_string())
+}
+
+fn builtin_of(body: &[Stmt]) -> snapfire_fsr_ir::ast::Builtin {
+  match &body[0] {
+    Stmt::Let { expr: Expr::Builtin { name, .. }, .. } => *name,
+    other => panic!("not a builtin: {other:?}"),
+  }
+}
+
+#[test]
+fn the_four_string_builtins_lower() {
+  use snapfire_fsr_ir::ast::Builtin;
+  assert_eq!(builtin_of(&lowered("split", "params.slug.split(\"-\")").unwrap()), Builtin::Split);
+  assert_eq!(builtin_of(&lowered("starts", "params.slug.startsWith(\"/fr\")").unwrap()), Builtin::StartsWith);
+  assert_eq!(builtin_of(&lowered("ends", "params.slug.endsWith(\".tsx\")").unwrap()), Builtin::EndsWith);
+  assert_eq!(builtin_of(&lowered("replace", "params.slug.replace(\" \", \"-\")").unwrap()), Builtin::Replace);
+}
+
+#[test]
+fn a_second_argument_is_residue_rather_than_one_the_interpreter_drops() {
+  for (tag, expr, takes) in [
+    ("split_limit", "params.slug.split(\",\", 2)", "`split` takes 1 argument, got 2"),
+    ("starts_at", "params.slug.startsWith(\"a\", 3)", "`startsWith` takes 1 argument, got 2"),
+    ("ends_at", "params.slug.endsWith(\"a\", 3)", "`endsWith` takes 1 argument, got 2"),
+    ("replace_one", "params.slug.replace(\" \")", "`replace` takes 2 arguments, got 1"),
+  ] {
+    let err = lowered(tag, expr).unwrap_err();
+    assert!(err.contains(takes), "{err}");
+  }
+}
+
+#[test]
+fn split_on_an_empty_separator_is_residue() {
+  let err = lowered("split_empty", "params.slug.split(\"\")").unwrap_err();
+  assert!(err.contains("`split` with an empty separator"), "{err}");
+  assert!(err.contains("UTF-16 code units"), "the hint says why: {err}");
+}
+
+#[test]
+fn replace_over_a_regular_expression_is_still_residue() {
+  let err = lowered("replace_regex", "params.slug.replace(/ /g, \"-\")").unwrap_err();
+  assert!(err.contains("a regular expression"), "{err}");
+}
+
+#[test]
+fn the_residue_hint_names_the_four() {
+  let err = lowered("hint_four", "params.slug.padStart(3, \"0\")").unwrap_err();
+  assert!(err.contains("`.padStart()`, which is not a builtin"), "{err}");
+  for name in ["`split`", "`startsWith`", "`endsWith`", "`replace`"] {
+    assert!(err.contains(name), "the hint names {name}: {err}");
+  }
+}

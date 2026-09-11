@@ -294,6 +294,9 @@ Message tables by locale, `catalog::Catalogs`, `Clone`, `Default`, `Eq`. `pub ty
 * `Entries` yields a `Seq` of two-element `Seq` pairs in insertion order; `Keys` and `Values` likewise; all three require a `Map`.
 * `Length` counts `Seq` items, `Str` characters or `Map` entries, as `F64`, since a TypeScript `number` is a float and a `bigint` is an `Int`.
 * `Builtin::Omit` takes a `Map` and string keys and yields the map without those keys, the rest of a destructuring; `Null` reads as an empty map and any other first argument is `Internal`.
+* `Builtin::StartsWith` and `Builtin::EndsWith` take two strings and yield a `Bool`. Every string starts with and ends with the empty one.
+* `Builtin::Split` takes a subject and a separator and yields a `Seq` of strings. A separator the subject does not hold gives one piece, a leading or trailing separator keeps its empty piece; an empty separator is `Internal`: JavaScript splits one into UTF-16 code units, which the value model holds no half of. It refuses to build more than a million pieces, for the same reason `Repeat` and `Range` have bounds.
+* `Builtin::Replace` takes a subject, a string pattern and a replacement, yielding the subject with the **first** occurrence replaced, as JavaScript's `String.prototype.replace` does with a string pattern. The replacement carries JavaScript's substitutions: `$$` is one dollar, `$&` the match, `` $` `` the text before it and `$'` the text after. A string pattern has no capture groups, so `$1` stays the two characters it is written as. A regular expression never reaches here, the lowerer refuses one.
 
 ### Calls
 

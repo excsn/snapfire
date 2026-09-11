@@ -14,9 +14,29 @@ use swc_core::common::{sync::Lrc, FileName, SourceMap, Span, Spanned};
 use swc_core::ecma::ast as js;
 use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 
+/// Where a component that does not lower was placed: the file holding the
+/// tag, the one-based line and column of the tag, plus the name as written.
+/// A residue collects one of these per level it is re-raised through, so the
+/// page that stops being server rendered can name the path down to the cause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+  pub file: String,
+  pub line: usize,
+  pub column: usize,
+  pub tag: String,
+}
+
+impl std::fmt::Display for Placement {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "<{}> {}:{}:{}", self.tag, self.file, self.line, self.column)
+  }
+}
+
 /// Why a body is not IR. `line` and `column` are one-based in the source file.
 /// `hint` names the rewrite that does the same thing in the IR, printed on a
-/// second indented line, per DX.md section 5.
+/// second indented line, per DX.md section 5. `via` is the chain of placements
+/// from the module the build asked for down to the file this residue is in,
+/// empty when they are the same file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Residue {
   pub file: String,
@@ -24,11 +44,29 @@ pub struct Residue {
   pub column: usize,
   pub message: String,
   pub hint: Option<String>,
+  pub via: Vec<Placement>,
+}
+
+impl Residue {
+  /// Records that a component holding this residue was placed at `at`, so the
+  /// chain reads from the outermost module inwards.
+  pub fn placed_at(mut self, at: Placement) -> Self {
+    self.via.insert(0, at);
+    self
+  }
+
+  /// The chain as one line, outermost placement first.
+  pub fn chain(&self) -> String {
+    self.via.iter().map(Placement::to_string).collect::<Vec<_>>().join(", ")
+  }
 }
 
 impl std::fmt::Display for Residue {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}:{}:{}: {}", self.file, self.line, self.column, self.message)?;
+    if !self.via.is_empty() {
+      write!(f, "\n  reached through {}", self.chain())?;
+    }
     match &self.hint {
       Some(hint) => write!(f, "\n  {hint}"),
       None => Ok(()),
@@ -344,7 +382,7 @@ impl Parsed {
 
   pub(crate) fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
     let loc = self.cm.lookup_char_pos(span.lo);
-    Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into(), hint: None }
+    Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into(), hint: None, via: Vec::new() }
   }
 
   /// The one-based line and column of a byte offset in the file's text.
@@ -1279,10 +1317,40 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Builtin { name, args })
       }
+      "split" | "startsWith" | "endsWith" | "replace" => {
+        let (name, arity) = match method.as_str() {
+          "split" => (Builtin::Split, 1),
+          "startsWith" => (Builtin::StartsWith, 1),
+          "endsWith" => (Builtin::EndsWith, 1),
+          _ => (Builtin::Replace, 2),
+        };
+        // The second argument each of these takes in JavaScript, `limit` for
+        // `split` and `position` for the other two, would otherwise lower to an
+        // argument the interpreter ignores.
+        if call.args.len() != arity {
+          let plural = if arity == 1 { "" } else { "s" };
+          return Err(self.residue(call.span, format!("`{method}` takes {arity} argument{plural}, got {}", call.args.len())));
+        }
+        if name == Builtin::Split {
+          let empty = call.args.first().is_some_and(|a| matches!(&*a.expr, js::Expr::Lit(js::Lit::Str(s)) if s.value.to_atom_lossy().as_ref().is_empty()));
+          if empty {
+            return Err(self.residue_with(
+              call.args[0].expr.span(),
+              "`split` with an empty separator".to_owned(),
+              "JavaScript splits one into UTF-16 code units, which the value model holds no half of; `Array.from(s)` and `[...s]` are residue for the same reason",
+            ));
+          }
+        }
+        let mut args = vec![*target];
+        for a in &call.args {
+          args.push(self.expr(&a.expr)?);
+        }
+        Ok(Expr::Builtin { name, args })
+      }
       other => Err(self.residue_with(
         member.span,
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase`, `split`, `startsWith`, `endsWith`, `replace` and `toLocaleString`; anything else goes in a module-level helper the build can read",
       )),
     }
   }

@@ -116,6 +116,14 @@ pub enum Builtin {
   Upper,
   Lower,
   Includes,
+  StartsWith,
+  EndsWith,
+  /// `s.split(sep)`. An empty separator is refused: JavaScript splits one into
+  /// UTF-16 code units, which a Rust `String` cannot hold a half of.
+  Split,
+  /// `s.replace(from, to)`, the first occurrence only, with `$` in `to`
+  /// carrying JavaScript's substitutions.
+  Replace,
   EncodeUriComponent,
   LocaleNumber,
   /// `Array.from({ length: n })`: the integers `0..n`.

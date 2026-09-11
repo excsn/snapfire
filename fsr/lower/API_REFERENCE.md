@@ -116,7 +116,9 @@ The cursor over one application: parsed files, lowered components and the resolu
 * `a.b` and `a["b"]` are field reads; `a[e]` is an index; `a.length` is `Expr::Length`.
 * `String(e)`, `Number(e)`, `BigInt(e)`; `Object.entries(e)`, `Object.keys(e)`, `Object.values(e)`.
 * `await services.<s>.<m>(args)` and `ctx.services.<s>.<m>(args)`, where `args` is absent or one object literal with shorthand or `key: value` entries. Argument values that lower to `null` are omitted at run time.
-* `e.map(f)`, `e.filter(f)`, `e.find(f)`, `e.some(f)`, `e.every(f)`, `e.reduce(f, init)`.
+* `e.map(f)`, `e.filter(f)`, `e.find(f)`, `e.findIndex(f)`, `e.some(f)`, `e.every(f)`, `e.reduce(f, init)`.
+* The pure builtins, each an `Expr::Builtin`: `Math.round`, `Math.floor`, `Math.ceil`, `Math.abs`, `Math.min`, `Math.max`, `Array.from({ length })`, `encodeURIComponent(e)`, `e.toFixed(n)`, `e.repeat(n)`, `e.join(sep)`, `e.trim()`, `e.toUpperCase()`, `e.toLowerCase()`, `e.includes(x)`, `e.startsWith(p)`, `e.endsWith(p)`, `e.split(sep)`, `e.replace(from, to)` and `e.toLocaleString("en-US")`. The receiver is the first argument and the call's own arguments follow it.
+* `split`, `startsWith` and `endsWith` take exactly one argument and `replace` exactly two; a second argument, JavaScript's `limit` and `position`, is residue rather than one the interpreter would ignore. `split("")` written as a literal is residue naming why. A `replace` over a regular expression is residue through the regular expression literal itself.
 * Any other call, `new`, an optional call, `this`, `++`, comma expressions, tagged templates, JSX, `yield` and assignment inside an expression are residue. A call to a name that is not a builtin names that name in the message.
 
 ### Extensions
@@ -162,6 +164,13 @@ The cursor over one application: parsed files, lowered components and the resolu
 
 ### Residue
 
-* `pub struct Residue { pub file: String, pub line: usize, pub column: usize, pub message: String }`
-* `Display` is `{file}:{line}:{column}: {message}`.
+* `pub struct Residue { pub file: String, pub line: usize, pub column: usize, pub message: String, pub hint: Option<String>, pub via: Vec<Placement> }`
+* `Display` is `{file}:{line}:{column}: {message}`, then an indented `reached through <chain>` when `via` is not empty, then the indented `hint` when there is one.
 * `line` and `column` are one-based and point at the construct, not at the statement that contains it.
+* `hint` names the rewrite that does the same thing in the IR.
+* `via` is how the module the build asked for reaches the file this residue is in, outermost placement first, empty when they are the same file. A component set re-raising a child's residue records the placement with `Residue::placed_at`, so one unlowerable leaf tells every page above it which tag to follow. `Residue::chain(&self) -> String` prints it as one line.
+
+### Placement
+
+* `pub struct Placement { pub file: String, pub line: usize, pub column: usize, pub tag: String }`, the file holding a `<Tag />`, the one-based position of the tag and the name as written.
+* `Display` is `<{tag}> {file}:{line}:{column}`.

@@ -20,7 +20,7 @@ use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
 use crate::hoist::{self, Candidates, Hook, Rewrite};
-use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
+use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
 use snapfire_fsr_ir::Body;
 
 /// The cursor over one application: parsed files, finished components and the
@@ -139,7 +139,7 @@ impl ComponentSet {
     for name in names {
       let expr = match self.global(file, &name)?.map(|(expr, _)| expr) {
         Some(expr) => expr,
-        None => return Err(LowerError::Extension(Residue { file: file.to_owned(), line: 1, column: 1, message: format!("`{name}` is not a value the build can follow"), hint: None })),
+        None => return Err(LowerError::Extension(Residue { file: file.to_owned(), line: 1, column: 1, message: format!("`{name}` is not a value the build can follow"), hint: None, via: Vec::new() })),
       };
       let kind = match &expr {
         Expr::Ext { module, name: member, args } if args.is_empty() => {
@@ -260,8 +260,11 @@ impl ComponentSet {
     let mut modules: HashMap<String, String> = HashMap::new();
     let mut islands: HashMap<String, IslandTiming> = HashMap::new();
     for (name, (line, column)) in refs {
-      let (module, island) = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None })?;
-      self.lower(&module)?;
+      let (module, island) = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None, via: Vec::new() })?;
+      self.lower(&module).map_err(|error| match error {
+        LowerError::Residue(residue) => LowerError::Residue(residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() })),
+        other => other,
+      })?;
       let placed = format!("{file}#{name}");
       if let Some(timing) = island {
         islands.insert(placed.clone(), timing);

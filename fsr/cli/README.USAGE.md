@@ -928,7 +928,20 @@ extensions ext/labels.ts#count      lowered
 
 ## Reading the Report
 
-Ten sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
+Eleven sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
+
+A `rendered` row says `lowered` or `client`; a `client` row carries the `file:line:column` of the residue that decided it, which is often in a component the page imports rather than in the page. The `client` section states each of those once, whatever the number of pages that reach it:
+
+```
+rendered  routes/page.tsx#default            client      src/ui/Stars.tsx:2:17
+client    src/ui/Stars.tsx:2:17              `.slice()`, which is not a builtin
+          the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
+          2 pages render in the browser for it
+            routes/other/page.tsx#default    <Header> routes/other/page.tsx:6:7, <Stars> src/ui/Header.tsx:6:7
+            routes/page.tsx#default          <Header> routes/page.tsx:6:7, <Stars> src/ui/Header.tsx:6:7
+```
+
+The second line is the rewrite that does the same thing in the IR. The indented rows are the pages that stopped being server rendered for it, each with the tags to follow from the page down to the cause, so a leaf three files below a page names the path rather than leaving it to be found. A page is never an error for this: it renders in the browser instead, which is why the report is the only place that says so.
 
 ## Reading the Plan File
 
