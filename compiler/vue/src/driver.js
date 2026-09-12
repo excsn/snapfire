@@ -1,5 +1,9 @@
 import * as sfc from "@vue/compiler-sfc";
 
+globalThis.__vue_version = function () {
+  return sfc.version;
+};
+
 /** Stable per component and per content: the attribute a scoped style selects on. */
 function scopeHash(filename, source) {
   let h = 0x811c9dc5;

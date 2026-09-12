@@ -482,7 +482,7 @@ fn render(diagnostic: &snapfire_plugin::Diagnostic, root: &Path) -> String {
 }
 
 /// The outputs one plugin source earns: the module, its minified twin when one
-/// is asked for, and a stylesheet when the component had styles.
+/// is asked for and a stylesheet when the component had styles.
 fn plugin_jobs(opts: &Options, build: &mut Build, path: &Path, check_collisions: bool) -> Option<Vec<Job>> {
   let compiled = build.compiled.get(path)?.clone();
   let relative = path.strip_prefix(&build.root_dir).unwrap_or(path).to_path_buf();
@@ -1036,6 +1036,7 @@ fn write_build_facts(opts: &Options, build: &mut Build) {
   push_list(&mut body, "entries", &entries);
   push_list(&mut body, "externals", &build.externals);
   push_list(&mut body, "outputs", &outputs(build));
+  push_list(&mut body, "styles", &plugin_styles(build));
 
   if opts.minify.is_some() {
     body.push_str(&format!("  \"minified\": \"{MIN_SUFFIX}\",\n"));
@@ -1079,6 +1080,25 @@ fn relative_all(paths: Vec<&Path>, out_dir: &Path) -> Vec<String> {
 
 /// Every file this build claims, which is what `prune_stale` records and what a packager should
 /// vendor. Sorted, so the file is stable between builds that produced the same thing.
+/// The stylesheets plugins produced, one per component that had styles, as a
+/// document serving this output would link them. Nothing in the emitted
+/// modules imports them, so a host has to be told they exist.
+fn plugin_styles(build: &Build) -> Vec<String> {
+  let mut listed: Vec<String> = build
+    .compiled
+    .iter()
+    .filter(|(_, compiled)| compiled.css.is_some())
+    .filter_map(|(path, _)| {
+      let relative = path.strip_prefix(&build.root_dir).unwrap_or(path);
+      let mut style = relative.to_path_buf();
+      style.set_file_name(format!("{}.css", relative.file_name()?.to_string_lossy()));
+      Some(style.to_string_lossy().replace('\\', "/"))
+    })
+    .collect();
+  listed.sort();
+  listed
+}
+
 fn outputs(build: &Build) -> Vec<String> {
   let mut listed: Vec<String> = build
     .claimed

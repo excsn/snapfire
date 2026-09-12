@@ -8,6 +8,9 @@
 //! object on the compile options rather than through a module, so the host
 //! answers those reads and the plugin never opens a file it was not asked to.
 
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::JoinHandle;
+
 use rquickjs::{Context, Function, Module, Runtime};
 use snapfire_plugin::{Compiled, Diagnostic, Lang, Options, Outcome, Severity};
 
@@ -20,25 +23,115 @@ const DRIVER: &str = include_str!("driver.js");
 /// The name the bundle is declared under, which is what a stack frame says.
 const MODULE: &str = "@vue/compiler-sfc";
 
+/// The parser inside the compiler recurses once per nesting level of the
+/// script it reads and QuickJS refuses at 256 KiB by default, which a
+/// `computed(() => props.items.map(...))` already exceeds. The engine runs on
+/// a thread with room to spare and is told how much of it to use.
+const THREAD_STACK: usize = 64 << 20;
+const ENGINE_STACK: usize = 48 << 20;
+
 #[derive(Debug, thiserror::Error)]
 pub enum VueError {
   #[error("the Vue compiler: {0}")]
   Js(String),
 }
 
+enum Ask {
+  Version(Sender<Result<String, VueError>>),
+  Compile { filename: String, source: String, options: Options, reply: Sender<Result<Outcome, VueError>> },
+}
+
+/// One QuickJS context holding the compiler, owned by the thread it runs on.
+/// Booting is the expensive step and compiling is cheap after it, which is
+/// the whole reason a plugin worker is long-lived.
 pub struct Compiler {
+  asks: Sender<Ask>,
+  thread: Option<JoinHandle<()>>,
+}
+
+impl Compiler {
+  pub fn new() -> Result<Self, VueError> {
+    let (asks, inbox) = channel::<Ask>();
+    let (booted, boot) = channel::<Result<(), VueError>>();
+    let thread = std::thread::Builder::new()
+      .name("snapfire-vue".to_owned())
+      .stack_size(THREAD_STACK)
+      .spawn(move || serve(inbox, booted))
+      .map_err(|e| VueError::Js(format!("the compiler thread would not start: {e}")))?;
+    boot.recv().map_err(|_| VueError::Js("the compiler thread died while booting".to_owned()))??;
+    Ok(Self { asks, thread: Some(thread) })
+  }
+
+  /// What the carried compiler reports itself as, which is half of a cache key
+  /// and the whole of what a bug report needs.
+  pub fn version(&self) -> Result<String, VueError> {
+    let (reply, answer) = channel();
+    self.asks.send(Ask::Version(reply)).map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
+  }
+
+  /// One component. `filename` is what a diagnostic names it, so it should be
+  /// relative to the project rather than absolute.
+  pub fn compile(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, VueError> {
+    let (reply, answer) = channel();
+    self
+      .asks
+      .send(Ask::Compile { filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), reply })
+      .map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
+  }
+}
+
+impl Drop for Compiler {
+  fn drop(&mut self) {
+    // Dropping the sender ends the thread's loop; joining it keeps a test's
+    // runtime from being torn down under a context still in use.
+    let (asks, _) = channel();
+    drop(std::mem::replace(&mut self.asks, asks));
+    if let Some(thread) = self.thread.take() {
+      let _ = thread.join();
+    }
+  }
+}
+
+fn gone() -> VueError {
+  VueError::Js("the compiler thread is gone".to_owned())
+}
+
+/// The thread's whole life: boot, report, then answer until the last
+/// `Compiler` handle is dropped.
+fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), VueError>>) {
+  let engine = match Engine::new() {
+    Ok(engine) => engine,
+    Err(e) => {
+      let _ = booted.send(Err(e));
+      return;
+    }
+  };
+  let _ = booted.send(Ok(()));
+  for ask in inbox {
+    match ask {
+      Ask::Version(reply) => {
+        let _ = reply.send(engine.version());
+      }
+      Ask::Compile { filename, source, options, reply } => {
+        let _ = reply.send(engine.compile(&filename, &source, &options));
+      }
+    }
+  }
+}
+
+struct Engine {
   context: Context,
   /// A `Context` keeps the runtime alive itself; naming it here keeps the
   /// ownership legible rather than implied.
   _runtime: Runtime,
 }
 
-impl Compiler {
-  /// Boots one QuickJS context with the compiler and the driver in it.
-  /// Expensive once and cheap per file afterwards, which is the whole reason
-  /// a plugin worker is long-lived.
-  pub fn new() -> Result<Self, VueError> {
+impl Engine {
+  fn new() -> Result<Self, VueError> {
     let runtime = Runtime::new().map_err(js)?;
+    runtime.set_max_stack_size(ENGINE_STACK);
     let context = Context::full(&runtime).map_err(js)?;
     context.with(|ctx| -> Result<(), VueError> {
       declare(&ctx, MODULE, COMPILER)?;
@@ -48,25 +141,18 @@ impl Compiler {
     Ok(Self { context, _runtime: runtime })
   }
 
-  /// What the carried compiler reports itself as, which is half of a cache key
-  /// and the whole of what a bug report needs.
-  pub fn version(&self) -> Result<String, VueError> {
+  fn version(&self) -> Result<String, VueError> {
     self.context.with(|ctx| {
-      let source = format!("import * as sfc from \"{MODULE}\";\nglobalThis.__version = sfc.version;\n");
-      declare(&ctx, "__version__", &source)?;
-      ctx.globals().get("__version").map_err(|e| threw(&ctx, e))
+      let version: Function = ctx.globals().get("__vue_version").map_err(|e| threw(&ctx, e))?;
+      version.call(()).map_err(|e| threw(&ctx, e))
     })
   }
 
-  /// One component. `filename` is what a diagnostic names it, so it should be
-  /// relative to the project rather than absolute.
-  pub fn compile(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, VueError> {
+  fn compile(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, VueError> {
     let answer = self.context.with(|ctx| -> Result<String, VueError> {
       let compile: Function = ctx.globals().get("__vue_compile").map_err(|e| threw(&ctx, e))?;
       let options = serde_json::to_string(options).map_err(|e| VueError::Js(e.to_string()))?;
-      let options = ctx
-        .json_parse(options)
-        .map_err(|e| threw(&ctx, e))?;
+      let options = ctx.json_parse(options).map_err(|e| threw(&ctx, e))?;
       compile.call((filename, source, options)).map_err(|e| threw(&ctx, e))
     })?;
     decode(&answer, filename)
@@ -116,9 +202,7 @@ pub fn fatal(diagnostics: &[Diagnostic]) -> bool {
 }
 
 fn declare(ctx: &rquickjs::Ctx<'_>, name: &str, source: &str) -> Result<(), VueError> {
-  let (_, promise) = Module::declare(ctx.clone(), name, source)
-    .and_then(|m| m.eval())
-    .map_err(|e| threw(ctx, e))?;
+  let (_, promise) = Module::declare(ctx.clone(), name, source).and_then(|m| m.eval()).map_err(|e| threw(ctx, e))?;
   promise.finish::<()>().map_err(|e| threw(ctx, e))
 }
 
