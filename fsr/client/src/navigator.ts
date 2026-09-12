@@ -183,7 +183,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
       const region = findRegion(key);
       if (region) patchProps(region, newNode);
     }
-  } else if (newSeg.c.length === 0 && (oldSeg.d !== undefined && newSeg.d !== undefined ? !same : force)) {
+  } else if (staticChanged(oldSeg, newSeg, same, force)) {
     return swap();
   }
   const keep = newSeg.keep ?? [];
@@ -226,6 +226,13 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
   }
   newSeg.c.push(...carried);
   return true;
+}
+
+/** Whether a segment nothing mounts has to be replaced, child segments included: its own markup changed. Nothing else can carry new markup into it. The root is never one: its own markup is the document, whose head `applyHead` already handles. */
+function staticChanged(oldSeg: Segment, newSeg: Segment, same: boolean, force: boolean): boolean {
+  const known = oldSeg.d !== undefined && newSeg.d !== undefined;
+  if (newSeg.c.length === 0) return known ? !same : force;
+  return oldSeg.n !== undefined && known && !same;
 }
 
 /** The slot an intercepted payload fills: the child, of the segment that keeps its page, that is not kept. */
@@ -578,8 +585,11 @@ export async function refresh(): Promise<void> {
 /** `applyEager` with a throw counted as a patch that failed. */
 function patch(eager: Eager, force: boolean): boolean {
   try {
-    return applyEager(eager, force);
-  } catch {
+    const applied = applyEager(eager, force);
+    if (!applied) console.warn("sf: the payload could not be patched in place; loading the document instead");
+    return applied;
+  } catch (err) {
+    console.warn("sf: patching the payload threw; loading the document instead", err);
     return false;
   }
 }

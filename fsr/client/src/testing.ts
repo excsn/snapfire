@@ -1,10 +1,10 @@
 import type { ReactElement } from "react";
-import { createRoot, hydrateRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 
 import { boot, registeredIslands } from "./boot.js";
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
-import { withHoisted, type Hoisted } from "./react.js";
+import type { Hoisted } from "./react.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
@@ -239,6 +239,9 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
   document.body.appendChild(container);
   const module = options.hydrate === false ? null : await moduleOf(element.type);
   const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props as SfValue)));
+  // React is reached only here, so a spec suite for an application with no
+  // React in its import map never asks for it.
+  const [{ createRoot, hydrateRoot }, { withHoisted }] = await Promise.all([import("react-dom/client"), import("./react.js")]);
   let root: Root;
   let hydrated: string | null = null;
   if (rendered !== null) {

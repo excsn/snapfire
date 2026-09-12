@@ -154,7 +154,7 @@ function diff(oldSeg, newSeg, newNode, force) {
             const region = findRegion(key);
             if (region) patchProps(region, newNode);
         }
-    } else if (newSeg.c.length === 0 && (oldSeg.d !== undefined && newSeg.d !== undefined ? !same : force)) {
+    } else if (staticChanged(oldSeg, newSeg, same, force)) {
         return swap();
     }
     const keep = newSeg.keep ?? [];
@@ -195,6 +195,11 @@ function diff(oldSeg, newSeg, newNode, force) {
     }
     newSeg.c.push(...carried);
     return true;
+}
+function staticChanged(oldSeg, newSeg, same, force) {
+    const known = oldSeg.d !== undefined && newSeg.d !== undefined;
+    if (newSeg.c.length === 0) return known ? !same : force;
+    return oldSeg.n !== undefined && known && !same;
 }
 function interceptSlot(seg) {
     if (seg.keep?.includes("content")) {
@@ -477,8 +482,11 @@ export async function refresh() {
 }
 function patch(eager, force) {
     try {
-        return applyEager(eager, force);
-    } catch  {
+        const applied = applyEager(eager, force);
+        if (!applied) console.warn("sf: the payload could not be patched in place; loading the document instead");
+        return applied;
+    } catch (err) {
+        console.warn("sf: patching the payload threw; loading the document instead", err);
         return false;
     }
 }

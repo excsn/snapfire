@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 export { f64 } from "./values.js";
 export type { DoubleValue } from "./values.js";
 type Method = (args: never) => unknown;

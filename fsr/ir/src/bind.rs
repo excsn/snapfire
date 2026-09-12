@@ -317,6 +317,13 @@ impl Evaluator for IrEvaluator {
       if !rendered.hoisted.is_empty() {
         props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
       }
+      // A component nothing mounts is its markup and nothing else: no island
+      // wrapper to claim, no props script to carry, no module for the browser
+      // to load. The islands inside it reach the document's own scan.
+      if !component.hydrate {
+        let mut nodes = rendered_nodes(&rendered);
+        return Ok(Chunk::Node(if nodes.len() == 1 { nodes.pop().unwrap() } else { Node::Seq(nodes) }));
+      }
       if rendered.islands.is_empty() && !rendered.html.contains(SLOT_MARK) {
         return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
       }

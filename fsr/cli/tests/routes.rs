@@ -88,7 +88,9 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
   assert_eq!(variant["fallback"], "routes/photo/[id]/loading.modal.tsx#default", "a variant streams behind its own loading module, not the page's");
   let route = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/photo/{id}").unwrap();
   assert_eq!(route["plan"]["children"][0]["node"]["children"][0]["node"]["fallback"], "routes/photo/[id]/loading.tsx#default");
-  assert!(built.files.iter().any(|(name, text)| name == "generated/islands.ts" && text.contains("routes/photo/[id]/page.modal.tsx#default") && text.contains("loading.modal")), "the variant and its loading module mount in the browser");
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(!islands.contains("page.modal") && !islands.contains("loading.modal"), "a variant with no state is static, so nothing registers it: {islands}");
+  assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/photo/[id]/page.modal.tsx#default" && owner == "lowered" && detail == "static"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -144,7 +146,7 @@ fn a_loaders_store_export_lowers_beside_its_meta() {
 fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),
-    ("routes/page.tsx", "import { TipList } from \"../src/Tips\";\nexport default function Page() {\n  return <div><TipList /></div>;\n}\n"),
+    ("routes/page.tsx", "import { useState } from \"react\";\nimport { TipList } from \"../src/Tips\";\nexport default function Page() {\n  const [open, setOpen] = useState(false);\n  return <section><button onClick={() => setOpen(!open)}>{open ? \"hide\" : \"show\"}</button><div><TipList /></div></section>;\n}\n"),
     ("routes/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load(ctx: Ctx<\"/\">) {\n  return { items: await ctx.services.ledger.list({}) };\n}\n"),
     ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Add } from \"../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
     ("schemas/inputs.ts", "export interface Add {\n  n: number;\n}\n"),

@@ -1,8 +1,6 @@
-import { createRoot, hydrateRoot } from "react-dom/client";
 import { boot, registeredIslands } from "./boot.js";
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
-import { withHoisted } from "./react.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 export { f64 } from "./values.js";
@@ -162,6 +160,10 @@ export async function render(element, options = {}) {
     document.body.appendChild(container);
     const module = options.hydrate === false ? null : await moduleOf(element.type);
     const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props)));
+    const [{ createRoot, hydrateRoot }, { withHoisted }] = await Promise.all([
+        import("react-dom/client"),
+        import("./react.js")
+    ]);
     let root;
     let hydrated = null;
     if (rendered !== null) {

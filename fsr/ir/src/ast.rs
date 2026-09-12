@@ -177,7 +177,10 @@ fn is_zero(n: &u32) -> bool {
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
 /// `state` names the `let`s the browser can change, `useState` and `useStore`
 /// bindings in order; `handlers` are its event handlers as bodies, for an
-/// island in server mode, each returning the state it sets.
+/// island in server mode, each returning the state it sets. `hydrate` is
+/// whether the browser mounts the component over the server's markup: false
+/// for a template with no state and no handlers, which then has no browser
+/// twin and pulls no framework into the page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Component {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -187,6 +190,16 @@ pub struct Component {
   pub state: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<Handler>,
+  #[serde(default = "yes", skip_serializing_if = "is_true")]
+  pub hydrate: bool,
+}
+
+fn yes() -> bool {
+  true
+}
+
+fn is_true(b: &bool) -> bool {
+  *b
 }
 
 /// One event handler of a component, lowered: runs with `$props`, `$state`
@@ -201,7 +214,7 @@ pub struct Handler {
 
 impl Component {
   pub fn new(body: Body, render: Tmpl) -> Self {
-    Self { body, render, state: Vec::new(), handlers: Vec::new() }
+    Self { body, render, state: Vec::new(), handlers: Vec::new(), hydrate: true }
   }
 }
 

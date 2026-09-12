@@ -74,6 +74,15 @@ pub struct TypesReport {
   pub delegated: Vec<String>,
 }
 
+/// Whether any `.tsx` file sits under `dir`.
+fn has_tsx_under(dir: &Path) -> bool {
+  let Ok(entries) = std::fs::read_dir(dir) else { return false };
+  entries.flatten().any(|entry| {
+    let path = entry.path();
+    (path.is_dir() && has_tsx_under(&path)) || path.extension().is_some_and(|x| x == "tsx")
+  })
+}
+
 /// `@scope/name` is published to DefinitelyTyped as `@types/scope__name`.
 pub fn definitely_typed(package: &str) -> String {
   match package.strip_prefix('@') {
@@ -91,7 +100,9 @@ fn from_definitely_typed(package: &str) -> String {
 }
 
 pub fn is_ambient(entry: &str) -> bool {
-  entry.contains("declare module \"") || entry.contains("declare module '")
+  // At the start of a line: React's own declarations mention `declare module
+  // "react"` inside a doc comment and a path-mapped package must stay mapped.
+  entry.lines().map(str::trim_start).any(|line| line.starts_with("declare module \"") || line.starts_with("declare module '"))
 }
 
 fn semver(v: &str) -> Option<(u64, u64, u64)> {
@@ -281,6 +292,16 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
 
   let mut queue: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
   queue.extend(import_map_packages(app, &layout)?);
+  // A route template is JSX and TypeScript types JSX through React's
+  // declarations, so an application with no React in its import map still
+  // reads them, as declarations only: nothing here is served.
+  if has_tsx_under(&app.join("routes")) {
+    for package in ["react", "react-dom"] {
+      if !queue.iter().any(|p| p == package) {
+        queue.push(package.to_owned());
+      }
+    }
+  }
   let mut seen: Vec<String> = Vec::new();
   while let Some(package) = queue.first().cloned() {
     queue.remove(0);
@@ -450,15 +471,23 @@ pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
 
 /// `tsconfig.build.json` for snapfirec: the browser modules only, so the
 /// server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
-pub fn tsconfig_build(app: &Path) -> String {
+/// `route_files` are the route modules the browser mounts; a template nothing
+/// mounts is not compiled, so it never asks the import map for a framework.
+pub fn tsconfig_build(app: &Path, route_files: &[String]) -> String {
   let mut out = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
   let paths = alias_paths();
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
   }
-  let ext = if app.join("ext").is_dir() { "\"ext/**/*\", " } else { "" };
-  out.push_str(&format!("    }}\n  }},\n  \"include\": [\"src/**/*\", {ext}\"routes/**/*.tsx\", \"generated/islands.ts\", \"generated/client.ts\"]\n}}\n"));
+  let mut include: Vec<String> = vec!["src/**/*".to_owned()];
+  if app.join("ext").is_dir() {
+    include.push("ext/**/*".to_owned());
+  }
+  include.extend(route_files.iter().cloned());
+  include.extend(["generated/islands.ts".to_owned(), "generated/client.ts".to_owned()]);
+  let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
+  out.push_str(&format!("    }}\n  }},\n  \"include\": [{}]\n}}\n", include.join(", ")));
   out
 }
 

@@ -540,9 +540,17 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       result?;
     }
     Tmpl::Island { module, props, children, when, mode, id } => {
-      let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
       let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
       let map = self::props(env, props)?;
+      // A component the server has no body for, a `.vue` file among them, is
+      // placed empty with its props: the browser mounts it rather than
+      // hydrating it and the page around it is whole either way.
+      let Some(component) = library.get(module) else {
+        let index = out.islands.len();
+        out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: String::new(), islands: Vec::new(), hoisted: ValueMap::default() } });
+        out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
+        return Ok(());
+      };
       let depth = env.scope.len();
       let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
       slots.push(Slot { children, scope: Rc::clone(&outer) });
@@ -615,7 +623,7 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
 /// when a component is put into a [`Components`] library and an element it
 /// cannot bake is left exactly as it was.
 pub fn prepare(component: &Component) -> Component {
-  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), handlers: component.handlers.clone() }
+  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), handlers: component.handlers.clone(), hydrate: component.hydrate }
 }
 
 fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
@@ -903,6 +911,7 @@ mod tests {
       },
       state: Vec::new(),
       handlers: Vec::new(),
+      hydrate: true,
     };
     let html = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html;
     assert_eq!(html, "<path marker-end=\"url(#a)\" stroke-width=\"2\" viewBox=\"0 0 8 8\"></path>");
@@ -915,6 +924,7 @@ mod tests {
       render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("md")), Entry::Field(RAW_ATTR.to_owned(), html)], children },
       state: Vec::new(),
       handlers: Vec::new(),
+      hydrate: true,
     };
     let render = |component: &Component, props: &ValueMap| Interpreter::default().render(component, props, &Components::new()).unwrap().html;
 
@@ -936,7 +946,7 @@ mod tests {
         tag: "p".to_owned(),
         attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("count")), Entry::Field("hidden".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("title".to_owned(), Expr::Lit(Lit::Null))],
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
-      }, state: Vec::new(), handlers: Vec::new()
+      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let html = (Interpreter::default().render(&component, &props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap().html;
     assert_eq!(html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
@@ -962,7 +972,7 @@ mod tests {
             }),
           }),
         }],
-      }, state: Vec::new(), handlers: Vec::new()
+      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let lines = Value::seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
     let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap().html;
@@ -980,12 +990,12 @@ mod tests {
           tag: "span".to_owned(),
           attrs: vec![Entry::Field("title".to_owned(), Expr::Template(vec![Expr::Builtin { name: Builtin::ToFixed, args: vec![p("rating"), Expr::Lit(Lit::Float(1.0))] }, Expr::lit_str(" out of 5")]))],
           children: vec![Tmpl::Expr(Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::Builtin { name: Builtin::Repeat, args: vec![Expr::lit_str("★"), Expr::var("full")] }), Box::new(Expr::Builtin { name: Builtin::Repeat, args: vec![Expr::lit_str("☆"), Expr::Arith(crate::ast::ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(5.0))), Box::new(Expr::var("full")))] })))],
-        }, state: Vec::new(), handlers: Vec::new()
+        }, state: Vec::new(), handlers: Vec::new(), hydrate: true
       }),
     );
     let page = Component {
       body: Vec::new(),
-      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0 }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new()
+      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0 }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
     let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap().html;
@@ -1003,12 +1013,12 @@ mod tests {
           tag: "main".to_owned(),
           attrs: vec![Entry::Field("class".to_owned(), p("className"))],
           children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())], id: 0 }],
-        }, state: Vec::new(), handlers: Vec::new()
+        }, state: Vec::new(), handlers: Vec::new(), hydrate: true
       }),
     );
     library.insert(
       "src/ui/Card.tsx#Card".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] }, state: Vec::new(), handlers: Vec::new() }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] }, state: Vec::new(), handlers: Vec::new(), hydrate: true }),
     );
     let page = Component {
       body: vec![Stmt::Let { name: "header".to_owned(), expr: Expr::Object(vec![Entry::Field("title".to_owned(), Expr::lit_str("Picks")), Entry::Field("className".to_owned(), Expr::lit_str("wrong"))]) }],
@@ -1021,7 +1031,7 @@ mod tests {
           body: Box::new(Tmpl::Element { tag: "p".to_owned(), attrs: vec![Entry::Spread(Expr::var("it").field("attrs")), Entry::Field("class".to_owned(), Expr::lit_str("item"))], children: vec![Tmpl::Expr(Expr::var("it").field("name")), Tmpl::Text(" for ".to_owned()), Tmpl::Expr(p("title"))] }),
         }],
         id: 0,
-      }, state: Vec::new(), handlers: Vec::new()
+      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let mut attrs = ValueMap::default();
     attrs.insert("className".to_owned(), Value::str("ignored"));
@@ -1042,7 +1052,7 @@ mod tests {
         Tmpl::Element { tag: "br".to_owned(), attrs: Vec::new(), children: Vec::new() },
         Tmpl::Expr(Expr::Lit(Lit::Bool(true))),
         Tmpl::Expr(Expr::Lit(Lit::Null)),
-      ]), state: Vec::new(), handlers: Vec::new()
+      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
     assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
@@ -1051,7 +1061,7 @@ mod tests {
   #[test]
   fn a_store_read_takes_the_seed_and_falls_back_without_one() {
     let read = Expr::Coalesce(Box::new(Expr::Store("cart/count".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0))));
-    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] }, state: Vec::new(), handlers: Vec::new() };
+    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] }, state: Vec::new(), handlers: Vec::new(), hydrate: true };
     let mut library = Components::new();
     library.insert("src/ui/Badge.tsx#Badge".to_owned(), Arc::new(inner));
     let outer = Component {
@@ -1059,7 +1069,7 @@ mod tests {
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(Expr::var("n")),
         Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), id: 0 },
-      ]), state: Vec::new(), handlers: Vec::new()
+      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
     assert_eq!(render(ValueMap::default()), "0<b>0</b>", "no seed leaves both reads on the fallback");
@@ -1075,7 +1085,7 @@ mod tests {
     let filled = Expr::Builtin { name: Builtin::Includes, args: vec![Expr::Coalesce(Box::new(Expr::Var("$props".to_owned()).field("$slots")), Box::new(Expr::Array(Vec::new()))), Expr::lit_str("modal")] };
     let component = Component {
       body: Vec::new(),
-      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), handlers: Vec::new()
+      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let render = |props: ValueMap| Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
     assert_eq!(render(ValueMap::default()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
@@ -1101,7 +1111,7 @@ mod tests {
       (Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(3.0))] }), Box::new(Expr::lambda(&["_", "i"], Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var("i")), Box::new(Expr::Lit(Lit::Float(1.0))))))), "1<!-- -->2<!-- -->3"),
     ];
     for (expr, expected) in cases {
-      let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), handlers: Vec::new() };
+      let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), handlers: Vec::new(), hydrate: true };
       let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
       assert_eq!(html, expected, "{expr:?}");
     }
@@ -1136,7 +1146,7 @@ mod hoist_tests {
             body: Box::new(Tmpl::Expr(hoist(1, fixed(Expr::Arith(crate::ast::ArithOp::Mul, Box::new(Expr::var("p")), Box::new(Expr::var("t"))))))),
           }),
         },
-      ]), state: Vec::new(), handlers: Vec::new()
+      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let mut props = ValueMap::default();
     props.insert("total".to_owned(), Value::F64(2.5));
@@ -1155,7 +1165,7 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Price.tsx#Price".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), handlers: Vec::new() }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
     );
     let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new(), id: 0 };
     let page = Component {
@@ -1164,7 +1174,7 @@ mod hoist_tests {
         price(Expr::Lit(Lit::Float(1.0))),
         Tmpl::For { over: Expr::var("$props").field("items"), params: vec!["it".to_owned()], body: Box::new(price(Expr::var("it"))) },
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(9.0))))),
-      ]), state: Vec::new(), handlers: Vec::new()
+      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(2.0), Value::F64(3.0)]));
@@ -1174,7 +1184,7 @@ mod hoist_tests {
     assert_eq!(keys, ["src/ui/Price.tsx#Price|0", "src/ui/Price.tsx#Price|0@0", "src/ui/Price.tsx#Price|0@1", "routes/index/page.tsx#default|0"]);
     assert_eq!(rendered.hoisted["src/ui/Price.tsx#Price|0@1"], Value::str("3.0"));
 
-    let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), handlers: Vec::new() };
+    let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), handlers: Vec::new(), hydrate: true };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &twice, &ValueMap::default(), &library).unwrap();
     assert!(rendered.hoisted.is_empty(), "Price placed three times outside a loop shares one key: 1.0 twice agrees, 2.0 drops it: {:?}", rendered.hoisted);
   }
@@ -1195,7 +1205,7 @@ mod hoist_tests {
             children: vec![Tmpl::Expr(hoist(1, fixed(Expr::var("it"))))],
           }),
         }],
-      }, state: Vec::new(), handlers: Vec::new()
+      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
@@ -1210,14 +1220,14 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), handlers: Vec::new() }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
     );
     let page = Component {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(1.0))))),
         Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9 },
-      ]), state: Vec::new(), handlers: Vec::new()
+      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
@@ -1247,6 +1257,7 @@ mod server_tests {
       render: Tmpl::Element { tag: "section".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("label")), button, list] },
       state: vec!["open".to_owned()],
       handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("open".to_owned(), Expr::Not(Box::new(Expr::var("open"))))]))] }],
+      hydrate: true,
     }
   }
 
@@ -1254,7 +1265,7 @@ mod server_tests {
   fn handler_markers_and_keys_print_only_in_server_mode() {
     let mut library = Components::new();
     library.insert("src/ui/Help.tsx#Help".to_owned(), Arc::new(help()));
-    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9 }, state: Vec::new(), handlers: Vec::new() };
+    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9 }, state: Vec::new(), handlers: Vec::new(), hydrate: true };
     let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::default(), &library).unwrap();
     assert_eq!(browser.islands[0].body.html, "<section>order 7<button>Show</button></section>");
     assert!(browser.islands[0].mode.is_none() && !browser.islands[0].mount_props().contains_key(STATE_PROP));
@@ -1299,7 +1310,7 @@ mod island_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Body.tsx#Body".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), handlers: Vec::new() }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
     );
     let page = Component {
       body: Vec::new(),
@@ -1310,6 +1321,7 @@ mod island_tests {
       },
       state: Vec::new(),
       handlers: Vec::new(),
+      hydrate: true,
     };
     let mut props = ValueMap::default();
     props.insert("blips".to_owned(), Value::seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
@@ -1330,7 +1342,7 @@ mod island_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] }, state: Vec::new(), handlers: Vec::new() }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] }, state: Vec::new(), handlers: Vec::new(), hydrate: true }),
     );
     let page = Component {
       body: Vec::new(),
@@ -1342,7 +1354,7 @@ mod island_tests {
           Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 9 },
           Tmpl::Text("after".to_owned()),
         ],
-      }, state: Vec::new(), handlers: Vec::new()
+      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::int(7i64));

@@ -999,6 +999,16 @@ impl Config {
           document.entry = Some(format!("{route}/src/main.js"));
           inferred.push("document.entry from dist/.snapfire-build.json".to_owned());
         }
+        if !facts.styles.is_empty() {
+          let sheets = document.styles.get_or_insert_with(Vec::new);
+          for style in &facts.styles {
+            let href = format!("{route}/{style}");
+            if !sheets.contains(&href) {
+              sheets.push(href);
+            }
+          }
+          inferred.push(format!("document.styles gains {} component stylesheet{} from dist/.snapfire-build.json", facts.styles.len(), if facts.styles.len() == 1 { "" } else { "s" }));
+        }
       }
     }
     if document.import_map.is_none() && app.join("importmap.json").is_file() {
@@ -1193,6 +1203,10 @@ struct BuildFacts {
   public_path: Option<String>,
   #[serde(default)]
   entries: Vec<String>,
+  /// Stylesheets the compiler's plugins produced beside their components,
+  /// which nothing in the bundle imports.
+  #[serde(default)]
+  styles: Vec<String>,
 }
 
 fn build_facts(app: &Path) -> Option<BuildFacts> {

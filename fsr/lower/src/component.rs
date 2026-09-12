@@ -55,11 +55,15 @@ pub struct ComponentSet {
   /// Per lowered module, the render-path calls the browser still makes:
   /// `file:line:column` of each candidate that was not hoisted.
   pub remaining: Vec<(String, String)>,
+  /// Components in a language the build does not read, a `.vue` file among
+  /// them, as `file#export`: placed as islands, mounted rather than hydrated,
+  /// compiled for the browser by whichever plugin claims the extension.
+  pub foreign: Vec<String>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new() }
   }
 
   /// A module the set resolves and reads from `source` rather than from disk.
@@ -259,19 +263,40 @@ impl ComponentSet {
     };
     let mut modules: HashMap<String, String> = HashMap::new();
     let mut islands: HashMap<String, IslandTiming> = HashMap::new();
+    let refs_positions: Vec<(String, (usize, usize))> = refs.clone();
     for (name, (line, column)) in refs {
       let (module, island) = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None, via: Vec::new() })?;
-      self.lower(&module).map_err(|error| match error {
-        LowerError::Residue(residue) => LowerError::Residue(residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() })),
-        other => other,
-      })?;
+      if is_foreign(&module) {
+        if !self.foreign.contains(&module) {
+          self.foreign.push(module.clone());
+        }
+      } else {
+        self.lower(&module).map_err(|error| match error {
+          LowerError::Residue(residue) => LowerError::Residue(residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() })),
+          other => other,
+        })?;
+      }
       let placed = format!("{file}#{name}");
       if let Some(timing) = island {
         islands.insert(placed.clone(), timing);
       }
       modules.insert(placed, module);
     }
-    let mut component = Component { body: component.body, render: rewrite_modules(component.render, &modules, &islands), state: component.state, handlers: component.handlers };
+    // A template with nothing for the browser to change is never mounted, so
+    // it has no browser twin and pulls no framework into the page.
+    let hydrate = !component.state.is_empty() || !component.handlers.is_empty();
+    let mut component = Component { body: component.body, render: rewrite_modules(component.render, &modules, &islands), state: component.state, handlers: component.handlers, hydrate };
+    if let Some(placed) = inline_foreign(&component.render) {
+      let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
+      return Err(LowerError::Residue(Residue {
+        file: file.to_owned(),
+        line,
+        column,
+        message: format!("`{name}` is a component the server cannot render, so it can only be an island; place it inside `<Island>`"),
+        hint: None,
+        via: Vec::new(),
+      }));
+    }
     if let Some((candidates, state, Some(hook))) = hoisting {
       let kept = hoist::decide(&mut component, &state);
       let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
@@ -307,6 +332,9 @@ impl ComponentSet {
     }
     if let Some((source, imported)) = find_import(&parsed, name) {
       let target = self.resolve_import(file, &source).ok_or_else(|| format!("`{name}` comes from `{source}`, which the build cannot follow"))?;
+      if is_foreign(&target) {
+        return Ok((format!("{target}#{imported}"), None));
+      }
       self.load(&target).map_err(|e| e.to_string())?;
       return self.exported_component(&target, &imported);
     }
@@ -430,6 +458,40 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
     Tmpl::Let { then, .. } => island_ids(then, out),
     Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
+}
+
+/// Whether a file, or a `file#export` module, is written in a language the
+/// build does not read. Such a component has no server body: a plugin
+/// compiles it for the browser and the page places it as an island.
+pub fn is_foreign(module: &str) -> bool {
+  let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
+  let ext = std::path::Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("");
+  !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs")
+}
+
+/// The first foreign component rendered inline rather than as an island.
+fn inline_foreign(tmpl: &Tmpl) -> Option<String> {
+  match tmpl {
+    Tmpl::Component { module, children, .. } => {
+      if is_foreign(module) {
+        return Some(module.clone());
+      }
+      children.iter().find_map(inline_foreign)
+    }
+    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().find_map(inline_foreign),
+    Tmpl::Baked { children, .. } => children.iter().find_map(inline_foreign),
+    Tmpl::If { then, r#else, .. } => inline_foreign(then).or_else(|| r#else.as_ref().and_then(|e| inline_foreign(e))),
+    Tmpl::For { body, .. } => inline_foreign(body),
+    Tmpl::Let { then, .. } => inline_foreign(then),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
+  }
+}
+
+/// The tag and position that placed `module`, for a message about it.
+fn refs_by_module(modules: &HashMap<String, String>, module: &str, refs: &[(String, (usize, usize))]) -> Option<(String, (usize, usize))> {
+  let (placed, _) = modules.iter().find(|(_, m)| m.as_str() == module)?;
+  let name = placed.split_once('#').map(|(_, n)| n).unwrap_or(placed);
+  refs.iter().find(|(n, _)| n == name).cloned()
 }
 
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
@@ -970,7 +1032,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers) }, std::mem::take(&mut self.refs)))
+    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers), hydrate: true }, std::mem::take(&mut self.refs)))
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {

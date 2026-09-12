@@ -53,6 +53,9 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
 /// between the head and these.
 pub fn component_sections(component: &Component) -> Vec<Sx> {
   let mut rest = Vec::new();
+  if !component.hydrate {
+    rest.push(form("static", Vec::new()));
+  }
   if !component.state.is_empty() {
     rest.push(form("state", component.state.iter().map(|s| Sx::Sym(s.clone())).collect()));
   }
@@ -136,11 +139,12 @@ pub fn component_from_sx(sx: &Sx) -> Res<Component> {
 }
 
 pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
-  let mut out = Component { body: Vec::new(), render: Tmpl::Fragment(Vec::new()), state: Vec::new(), handlers: Vec::new() };
+  let mut out = Component { body: Vec::new(), render: Tmpl::Fragment(Vec::new()), state: Vec::new(), handlers: Vec::new(), hydrate: true };
   let mut rendered = false;
   for section in items {
     let inner = section.as_list()?;
     match section.head() {
+      Some("static") => out.hydrate = false,
       Some("state") => out.state = inner[1..].iter().map(sym_of).collect::<Res<_>>()?,
       Some("body") => out.body = body_from_sx(&inner[1..])?,
       Some("render") => {

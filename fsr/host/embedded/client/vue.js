@@ -1,10 +1,20 @@
-import { createApp, createSSRApp, defineComponent, h, reactive } from "vue";
+import { createApp, createSSRApp, defineComponent, h, onScopeDispose, reactive } from "vue";
 import { get, set, subscribe } from "./store.js";
 const held = new WeakMap();
+const RUNTIME_PROPS = [
+    "$h",
+    "$k",
+    "$s"
+];
+function ownProps(props) {
+    const own = {};
+    for (const key of Object.keys(props)){
+        if (!RUNTIME_PROPS.includes(key)) own[key] = props[key];
+    }
+    return own;
+}
 function rootFor(component, props) {
-    const state = reactive({
-        ...props
-    });
+    const state = reactive(ownProps(props));
     const root = defineComponent({
         name: "SfIsland",
         setup () {
@@ -30,7 +40,7 @@ export const vueMounter = (module, props, el, hydrate)=>{
 export const vuePatcher = (handle, module, props, el)=>{
     const state = held.get(el);
     if (!state) return;
-    const next = props;
+    const next = ownProps(props);
     for (const key of Object.keys(state)){
         if (!(key in next)) delete state[key];
     }
@@ -41,10 +51,11 @@ export function useStore(key, initial) {
         value: get(key) ?? initial
     });
     let ours = false;
-    subscribe(key, (next)=>{
+    const off = subscribe(key, (next)=>{
         if (ours) return;
         state.value = next;
     });
+    onScopeDispose(off);
     return new Proxy(state, {
         get: (target, name)=>target[name],
         set: (target, name, value)=>{

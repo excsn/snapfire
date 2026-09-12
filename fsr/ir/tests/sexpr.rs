@@ -231,12 +231,13 @@ fn body() -> BoxedStrategy<Body> {
 
 fn component() -> BoxedStrategy<Component> {
   (body(), tmpl(), prop::collection::vec(text(), 0..3),
-   prop::collection::vec((text(), body()), 0..3))
-    .prop_map(|(body, render, state, handlers)| Component {
+   prop::collection::vec((text(), body()), 0..3), any::<bool>())
+    .prop_map(|(body, render, state, handlers, hydrate)| Component {
       body,
       render,
       state,
       handlers: handlers.into_iter().map(|(event, body)| Handler { event, body }).collect(),
+      hydrate,
     })
   .boxed()
 }

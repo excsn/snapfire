@@ -55,14 +55,14 @@ pub struct Prepared {
 }
 
 /// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
-pub fn prepare(app: &Path) -> Result<Prepared, BuildError> {
+pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
   let test_dir = app.join(TEST_DIR);
   std::fs::create_dir_all(&test_dir).map_err(|e| BuildError::Io(test_dir.clone(), e))?;
   let overrides = test_vendor(&app, &layout, &test_dir)?;
   let dom = overrides.get("linkedom").cloned().expect("linkedom is vendored");
-  write_config(&app, &layout, &test_dir)?;
+  write_config(&app, &layout, &test_dir, browser_routes)?;
   compile(&app, &test_dir)?;
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
@@ -129,7 +129,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     return Ok(());
   }
   crate::write_overlay(&app, built)?;
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app)?;
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes)?;
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let natives = native_names(&built.manifest);
@@ -432,13 +432,17 @@ fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, speci
 }
 
 /// `.fsr-test/tsconfig.json` and `.fsr-test/importmap.json`: the browser build plus the spec files and the testing module.
-fn write_config(app: &Path, layout: &Layout, test_dir: &Path) -> Result<(), BuildError> {
+fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[String]) -> Result<(), BuildError> {
   let mut tsconfig = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
   let aliases: Vec<(String, String)> = snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("../{dir}*"))).collect();
   for (i, (from, to)) in aliases.iter().enumerate() {
     tsconfig.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i + 1 == aliases.len() { "" } else { "," }));
   }
-  tsconfig.push_str("    }\n  },\n  \"include\": [\"../src/**/*\", \"../ext/**/*\", \"../routes/**/*.tsx\", \"../generated/islands.ts\", \"../generated/client.ts\", \"../tests/**/*.spec.tsx\", \"../tests/**/*.spec.ts\"]\n}\n");
+  let mut include: Vec<String> = vec!["../src/**/*".to_owned(), "../ext/**/*".to_owned()];
+  include.extend(browser_routes.iter().map(|file| format!("../{file}")));
+  include.extend(["../generated/islands.ts", "../generated/client.ts", "../tests/**/*.spec.tsx", "../tests/**/*.spec.ts"].map(str::to_owned));
+  let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
+  tsconfig.push_str(&format!("    }}\n  }},\n  \"include\": [{}]\n}}\n", include.join(", ")));
   let path = test_dir.join("tsconfig.json");
   std::fs::write(&path, tsconfig).map_err(|e| BuildError::Io(path, e))?;
   let mut map = vendor::read_import_map(app, layout)?;
