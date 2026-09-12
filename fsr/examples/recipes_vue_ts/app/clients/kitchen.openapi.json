@@ -77,8 +77,8 @@
           "title": { "type": "string" },
           "course": { "type": "string" },
           "cook": { "type": "string" },
-          "minutes": { "type": "number" },
-          "serves": { "type": "number" },
+          "minutes": { "type": "integer" },
+          "serves": { "type": "integer" },
           "ingredients": { "type": "array", "items": { "$ref": "#/components/schemas/Ingredient" } },
           "method": { "type": "string" }
         }

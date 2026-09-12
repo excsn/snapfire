@@ -352,7 +352,7 @@ async fn run_case(case: &TestCase, targets: &mut Targets, contract: &Arc<Contrac
       Step::Assert(Assertion::Equal(left, right)) => {
         let actual = run.eval(left).await.map_err(|f| at(f.message))?;
         let expected = run.eval(right).await.map_err(|f| at(f.message))?;
-        if actual != expected {
+        if !same(&actual, &expected) {
           return Err(at(format!("assert.equal\n    actual:   {}\n    expected: {}", show(&actual), show(&expected))));
         }
       }
@@ -396,6 +396,35 @@ fn truthy(value: &Value) -> bool {
 }
 
 /// A value as TypeScript would write it, so `1n` and `1` read as different.
+/// Equality as a test means it: an integer and a float holding the same whole
+/// number are the same value, since a test writes `35` for the `35n` an
+/// integer field reads back as, and the rest is structural.
+fn same(a: &Value, b: &Value) -> bool {
+  fn whole(v: &Value) -> Option<f64> {
+    match v {
+      Value::Int(n) => Some(*n as f64),
+      Value::UInt(n) => Some(*n as f64),
+      Value::F64(f) if f.fract() == 0.0 => Some(*f),
+      Value::F32(f) if f.fract() == 0.0 => Some(*f as f64),
+      _ => None,
+    }
+  }
+  match (a, b) {
+    (Value::Seq(x), Value::Seq(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same(p, q)),
+    (Value::Map(x), Value::Map(y)) => x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w))),
+    (Value::Variant { tag: t, payload: p }, Value::Variant { tag: u, payload: q }) => {
+      t == u
+        && match (p, q) {
+          (Some(p), Some(q)) => same(p, q),
+          (None, None) => true,
+          _ => false,
+        }
+    }
+    _ if a == b => true,
+    _ => matches!((whole(a), whole(b)), (Some(x), Some(y)) if x == y && (matches!(a, Value::Int(_) | Value::UInt(_)) != matches!(b, Value::Int(_) | Value::UInt(_)))),
+  }
+}
+
 pub fn show(value: &Value) -> String {
   let mut out = String::new();
   write_value(value, &mut out);

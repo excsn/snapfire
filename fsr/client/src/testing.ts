@@ -160,8 +160,15 @@ export function show(value: unknown, depth = 0): string {
   return `{ ${entries.join(", ")} }`;
 }
 
+/** Whether one side is a bigint and the other a whole number saying the same thing: an integer field reads back as a bigint, and a test writes the number it stands for. */
+function sameInteger(a: unknown, b: unknown): boolean {
+  const [big, num] = typeof a === "bigint" ? [a, b] : [b, a];
+  return typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big;
+}
+
 export function equal(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
+  if (sameInteger(a, b)) return true;
   if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => equal(x, b[i]));

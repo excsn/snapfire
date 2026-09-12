@@ -278,10 +278,17 @@ impl Contract {
 
   /// Rewrites `value` in place where JSON's one number type left a shape the
   /// contract names exactly: an integral number for an `F64` or `F32` field
-  /// becomes that float, since no JSON encoder can spell `320.0`. Nothing
-  /// else changes; `check_value` reports what remains.
+  /// becomes that float, since no JSON encoder can spell `320.0`, and a float
+  /// with nothing after the point for an integer field becomes that integer,
+  /// since a JavaScript number is a double whatever it holds. Nothing else
+  /// changes; `check_value` reports what remains.
   pub fn conform(&self, ty: &Type, value: &mut Value) {
     match ty {
+      Type::I32 | Type::I64 | Type::I128 | Type::U32 | Type::U64 | Type::U128 => {
+        if let Some(i) = whole(value) {
+          *value = Value::Int(i);
+        }
+      }
       Type::F64 => {
         if let Some(f) = integral(value) {
           *value = Value::F64(f);
@@ -340,6 +347,16 @@ impl Contract {
       self.conform(&signature.returns, value);
     }
   }
+}
+
+/// A float holding a whole number, as that integer; anything else is left alone.
+fn whole(value: &Value) -> Option<i128> {
+  let f = match value {
+    Value::F64(f) => *f,
+    Value::F32(f) => *f as f64,
+    _ => return None,
+  };
+  (f.fract() == 0.0 && f.is_finite() && f.abs() < 9007199254740992.0).then(|| f as i128)
 }
 
 fn integral(value: &Value) -> Option<f64> {

@@ -8,13 +8,13 @@ test("tonight is the box filtered by the session, with the minutes added up", as
   const c = ctx({ session: { planned: { "6": true, "1": true } }, services: { kitchen: { listRecipes: () => [soup, pears] } } });
   const { tonight, minutes } = await load(c);
   assert.equal(tonight, [soup, pears]);
-  assert.equal(minutes, 75);
+  assert.equal(minutes, 75n);
 });
 
 test("an empty session keeps the one call and plans nothing", async () => {
   const c = ctx({ services: { kitchen: { listRecipes: () => [soup, pears] } } });
   const { tonight, minutes } = await load(c);
   assert.equal(tonight, []);
-  assert.equal(minutes, 0);
+  assert.equal(minutes, 0n);
   assert.equal(c.trace.calls.length, 1);
 });

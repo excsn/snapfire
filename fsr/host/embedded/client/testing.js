@@ -98,8 +98,19 @@ export function show(value, depth = 0) {
     const entries = Object.entries(value).map(([k, v])=>`${JSON.stringify(k)}: ${show(v, depth + 1)}`);
     return `{ ${entries.join(", ")} }`;
 }
+function sameInteger(a, b) {
+    const [big, num] = typeof a === "bigint" ? [
+        a,
+        b
+    ] : [
+        b,
+        a
+    ];
+    return typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big;
+}
 export function equal(a, b) {
     if (Object.is(a, b)) return true;
+    if (sameInteger(a, b)) return true;
     if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
     if (Array.isArray(a) !== Array.isArray(b)) return false;
     if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i)=>equal(x, b[i]));
