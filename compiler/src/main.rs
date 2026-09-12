@@ -5,6 +5,7 @@ mod declarations;
 mod driven;
 mod graph;
 mod importmap;
+mod plugin;
 mod sources;
 mod transforms;
 mod typecheck;

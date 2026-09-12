@@ -116,6 +116,9 @@ pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
 
   match extension.as_deref() {
     Some(ext) if COMPILED_TO_JS.contains(&ext) => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
+    // A framework source becomes a module the same way a `.ts` does, so an
+    // import of one names the `.js` beside it rather than the source.
+    Some(ext) if crate::plugin::claimed(ext).is_some() => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
     Some(ext) if BROWSER_READY.contains(&ext) => specifier.to_string(),
     Some(_) => specifier.to_string(),
     None => {

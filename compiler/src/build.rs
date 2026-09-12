@@ -9,7 +9,7 @@ use base64::Engine;
 use browserslist::{Opts, execute};
 use lightningcss::targets::Browsers;
 use rayon::prelude::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -64,6 +64,12 @@ pub struct Build {
   surfaces: HashMap<PathBuf, Surface>,
   pub emitted: usize,
   pub has_error: bool,
+  /// The framework compilers this build spawned, kept alive for its whole
+  /// length and, under `--watch`, across every rebuild.
+  plugins: crate::plugin::Plugins,
+  /// What a plugin answered for each of its sources, by path.
+  compiled: HashMap<PathBuf, snapfire_plugin::Compiled>,
+
 }
 
 #[derive(Clone, Copy)]
@@ -74,6 +80,23 @@ enum Asset {
     out_ext: &'static str,
   },
   Style,
+  /// A source no front end here reads: a framework compiler answers it and the
+  /// module it hands back goes through the script path like any other.
+  Plugin {
+    ext: &'static str,
+  },
+}
+
+/// Where a job's text comes from. A plugin's answer never reaches disk, so the
+/// module it produced travels with the job rather than being read back.
+#[derive(Clone)]
+enum Supplied {
+  /// Read by the compiler from the path the job names.
+  File,
+  /// A module a plugin handed back, in the dialect it says it wrote.
+  Module { source: String, dialect: Dialect },
+  /// A plugin's stylesheet, already scoped by whoever produced it.
+  Style { source: String },
 }
 
 pub fn classify(path: &Path) -> bool {
@@ -111,7 +134,7 @@ fn asset(path: &Path) -> Option<Asset> {
       out_ext: "mjs",
     }),
     "css" => Some(Asset::Style),
-    _ => None,
+    other => crate::plugin::claimed(other).map(|ext| Asset::Plugin { ext }),
   }
 }
 
@@ -211,6 +234,8 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     surfaces: HashMap::new(),
     emitted: 0,
     has_error: false,
+    plugins: crate::plugin::Plugins::new(),
+    compiled: HashMap::new(),
   };
 
   // `select` matches every file, compilable or not, so an output directory is
@@ -231,6 +256,13 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   }
 
   fs::create_dir_all(&build.out_dir).with_context(|| format!("Failed to create {:?}", build.out_dir))?;
+
+  run_plugins(opts, &mut build);
+  if banner {
+    for line in build.plugins.report() {
+      println!("   Plugin:   {line}");
+    }
+  }
 
   let jobs = plan(opts, &mut build);
 
@@ -320,6 +352,7 @@ struct Job {
   asset: Asset,
   emit: Emit,
   source_name: String,
+  supplied: Supplied,
 }
 
 struct JobResult {
@@ -357,8 +390,178 @@ fn plan(opts: &Options, build: &mut Build) -> Vec<Job> {
   jobs
 }
 
+/// Hands every plugin source to its compiler, one batch per extension, before
+/// anything is planned. Batching is the point: a worker's startup is paid once
+/// and a pipe round trip is paid per batch rather than per file.
+fn run_plugins(opts: &Options, build: &mut Build) {
+  let mut by_ext: BTreeMap<&'static str, Vec<PathBuf>> = BTreeMap::new();
+  for path in &build.files {
+    if let Some(ext) = crate::plugin::plugin_ext(path) {
+      by_ext.entry(ext).or_default().push(path.clone());
+    }
+  }
+
+  for (ext, paths) in by_ext {
+    let mut units = Vec::with_capacity(paths.len());
+    for path in &paths {
+      let source = match build.compiler.read_source(path) {
+        Ok(source) => source,
+        Err(e) => {
+          eprintln!("❌ {}: {e}", display(path, &opts.root));
+          build.has_error = true;
+          continue;
+        }
+      };
+      units.push(snapfire_plugin::Unit {
+        filename: relative_from(&opts.root, path),
+        path: path.to_string_lossy().into_owned(),
+        source,
+        options: snapfire_plugin::Options {
+          production: opts.minify.is_some(),
+          source_map: build.map_options.mode != MapMode::Off,
+          minify: opts.minify.is_some(),
+        },
+      });
+    }
+    if units.is_empty() {
+      continue;
+    }
+
+    let asked: Vec<PathBuf> = paths.clone();
+    match build.plugins.compile(ext, units) {
+      Ok(results) => {
+        for (path, outcome) in asked.into_iter().zip(results) {
+          match outcome {
+            snapfire_plugin::Outcome::Ok(compiled) => {
+              for diagnostic in &compiled.diagnostics {
+                eprintln!("{}", render(diagnostic, &opts.root));
+              }
+              build.compiled.insert(path, compiled);
+            }
+            snapfire_plugin::Outcome::Failed { diagnostics } => {
+              for diagnostic in &diagnostics {
+                eprintln!("{}", render(diagnostic, &opts.root));
+              }
+              build.has_error = true;
+            }
+          }
+        }
+      }
+      Err(e) => {
+        // One message for the extension rather than one per file: a plugin that
+        // will not start fails every one of them for the same reason.
+        eprintln!("❌ {:#}", e);
+        for path in &paths {
+          eprintln!("   needed by {}", display(path, &opts.root));
+        }
+        build.has_error = true;
+      }
+    }
+  }
+}
+
+/// A plugin's diagnostic in the build's own voice, so output does not read like
+/// two tools stapled together.
+fn render(diagnostic: &snapfire_plugin::Diagnostic, root: &Path) -> String {
+  let _ = root;
+  let mark = match diagnostic.severity {
+    snapfire_plugin::Severity::Error => "❌",
+    snapfire_plugin::Severity::Warning => "⚠️ ",
+  };
+  let mut at = diagnostic.file.clone().unwrap_or_default();
+  if let Some(line) = diagnostic.line {
+    at.push_str(&format!(":{line}"));
+    if let Some(column) = diagnostic.column {
+      at.push_str(&format!(":{column}"));
+    }
+  }
+  match at.is_empty() {
+    true => format!("{mark} {}", diagnostic.message),
+    false => format!("{mark} {at}: {}", diagnostic.message),
+  }
+}
+
+/// The outputs one plugin source earns: the module, its minified twin when one
+/// is asked for, and a stylesheet when the component had styles.
+fn plugin_jobs(opts: &Options, build: &mut Build, path: &Path, check_collisions: bool) -> Option<Vec<Job>> {
+  let compiled = build.compiled.get(path)?.clone();
+  let relative = path.strip_prefix(&build.root_dir).unwrap_or(path).to_path_buf();
+
+  let dialect = match compiled.lang {
+    snapfire_plugin::Lang::Ts => Dialect::TypeScript,
+    snapfire_plugin::Lang::Js => Dialect::JavaScript,
+  };
+  let module = Asset::Script { dialect, markup: Markup::Allowed, out_ext: "js" };
+
+  let mut planned: Vec<(PathBuf, Emit, Asset, Supplied)> = Vec::new();
+  let mut dest = build.out_dir.join(&relative);
+  dest.set_extension("js");
+  let supplied = Supplied::Module { source: compiled.js.clone(), dialect };
+  planned.push((dest.clone(), Emit::Code(None), module, supplied.clone()));
+  if let Some(level) = opts.minify {
+    planned.push((with_min(&dest), Emit::Code(Some(level)), module, supplied));
+  }
+
+  // The stylesheet keeps the source's own extension before `.css`, so a
+  // component beside a stylesheet of the same stem cannot collide with it.
+  if let Some(css) = &compiled.css {
+    let mut style = build.out_dir.join(&relative);
+    let name = format!("{}.css", relative.file_name().unwrap_or_default().to_string_lossy());
+    style.set_file_name(name);
+    let supplied = Supplied::Style { source: css.clone() };
+    planned.push((style.clone(), Emit::Code(None), Asset::Style, supplied.clone()));
+    if let Some(level) = opts.minify {
+      planned.push((with_min(&style), Emit::Code(Some(level)), Asset::Style, supplied));
+    }
+  }
+
+  let mut jobs = Vec::new();
+  for (dest, emit, asset, supplied) in planned {
+    if check_collisions
+      && let Some(previous) = build.claimed.insert(dest.clone(), path.to_path_buf())
+      && previous != path
+    {
+      eprintln!(
+        "❌ Output collision on {}: {:?} and {:?} compile to the same file",
+        display(&dest, &opts.root),
+        previous,
+        path
+      );
+      build.has_error = true;
+      continue;
+    }
+    if build.map_options.mode == MapMode::External {
+      build.claimed.insert(with_suffix(&dest, ".map"), path.to_path_buf());
+    }
+    if let Some(parent) = dest.parent()
+      && let Err(e) = fs::create_dir_all(parent)
+    {
+      eprintln!("❌ Error creating output directory {}: {}", display(parent, &opts.root), e);
+      build.has_error = true;
+      continue;
+    }
+    let source_name = relative_from(dest.parent().unwrap_or(&build.out_dir), path);
+    jobs.push(Job {
+      source: path.to_path_buf(),
+      relative: relative.clone(),
+      dest,
+      asset,
+      emit,
+      source_name,
+      supplied,
+    });
+  }
+  Some(jobs)
+}
+
 fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bool) -> Option<Vec<Job>> {
   let asset = asset(path)?;
+
+  // A plugin source is two outputs at most and neither is read from disk, so it
+  // plans on its own terms rather than through the variant table below.
+  if let Asset::Plugin { .. } = asset {
+    return plugin_jobs(opts, build, path, check_collisions);
+  }
 
   let relative = path.strip_prefix(&build.root_dir).unwrap_or(path).to_path_buf();
   let mut dest = build.out_dir.join(&relative);
@@ -428,6 +631,7 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
       asset,
       emit,
       source_name,
+      supplied: Supplied::File,
     });
   }
 
@@ -448,6 +652,25 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
 
   let (label, compiled) = match (job.emit, job.asset) {
     (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source, compiler.aliases(), &compiler.read_source(&job.source)).map(Output::text)),
+    // A plugin's answer is compiled from memory. The path still names the
+    // original, so its imports resolve where the author wrote them.
+    (emit, _) if !matches!(job.supplied, Supplied::File) => match &job.supplied {
+      Supplied::Module { source, dialect } => (
+        "VUE",
+        compiler.compile_source(
+          &job.source,
+          source.clone(),
+          *dialect,
+          Markup::Allowed,
+          opts.strip_log,
+          opts.strip_debug,
+          emit.minify(),
+          map,
+        ),
+      ),
+      Supplied::Style { source } => ("CSS", compiler.compile_style(&job.source, source.clone(), emit.minify().is_some(), map)),
+      Supplied::File => unreachable!("guarded above"),
+    },
     (emit, Asset::Script { dialect, markup, .. }) => {
       let label = match dialect {
         Dialect::TypeScript => "TS",
@@ -467,6 +690,9 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       )
     }
     (emit, Asset::Style) => ("CSS", compiler.compile_css(&job.source, emit.minify().is_some(), map)),
+    // `plugin_jobs` rewrites a plugin source into the script and style jobs
+    // above, so the kind itself never reaches here.
+    (_, Asset::Plugin { ext }) => unreachable!("a .{ext} job kept its plugin asset kind"),
   };
 
   let log = format!("   Compiling {}{}: {:?}", label, suffix, job.relative);

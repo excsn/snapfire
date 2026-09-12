@@ -230,7 +230,25 @@ impl Compiler {
     map: MapRequest,
   ) -> Result<Output> {
     let content = self.read_source(path)?;
+    self.compile_source(path, content, dialect, markup, strip_log, strip_debug, minify, map)
+  }
 
+  /// `compile_script` over source the caller already holds, for a module no
+  /// file contains: what a framework compiler plugin handed back. `path` still
+  /// names the original, so an import resolves against the directory the
+  /// author wrote it in and a diagnostic names the file they would open.
+  #[allow(clippy::too_many_arguments)]
+  pub fn compile_source(
+    &self,
+    path: &Path,
+    content: String,
+    dialect: Dialect,
+    markup: Markup,
+    strip_log: bool,
+    strip_debug: bool,
+    minify: Option<Minify>,
+    map: MapRequest,
+  ) -> Result<Output> {
     let cm: Lrc<SourceMap> = Default::default();
     let globals = Globals::new();
     let referenced: Rc<RefCell<Vec<PathBuf>>> = Default::default();
@@ -391,6 +409,13 @@ impl Compiler {
 
   pub fn compile_css(&self, path: &Path, minify: bool, map: MapRequest) -> Result<Output> {
     let content = std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
+    self.compile_style(path, content, minify, map)
+  }
+
+  /// `compile_css` over text the caller already holds: a stylesheet a plugin
+  /// produced from a component, which no file on disk contains.
+  pub fn compile_style(&self, path: &Path, content: String, minify: bool, map: MapRequest) -> Result<Output> {
+    let _ = path;
 
     let parser_options = ParserOptions {
       filename: map.source_name.to_string(),

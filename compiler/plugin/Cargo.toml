@@ -6,7 +6,7 @@ description = "The wire contract between snapfirec and a framework compiler plug
 keywords = ["snapfire", "plugin", "protocol", "build-tools"]
 categories = ["development-tools::build-utils"]
 repository = "https://github.com/excsn/snapfire"
-homepage = "https://github.com/excsn/snapfire/tree/main/snapfire_plugin"
+homepage = "https://github.com/excsn/snapfire/tree/main/compiler/plugin"
 readme = "README.md"
 
 edition = { workspace = true }
