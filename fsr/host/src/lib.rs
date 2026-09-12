@@ -2428,6 +2428,7 @@ impl Host {
   }
 
   async fn set_cookie(&self, opened: &Opened, response: &mut Response<Body>) {
+    let changed = opened.cell.is_dirty() || opened.tokens.is_dirty();
     let written = if self.csrf_always {
       self.sessions.establish(opened).await
     } else {
@@ -2444,6 +2445,11 @@ impl Host {
     };
     if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+      }
+    }
+    if changed {
+      if let Ok(value) = HeaderValue::from_str(&self.sessions.state_cookie()) {
         response.headers_mut().append(header::SET_COOKIE, value);
       }
     }
@@ -2515,8 +2521,10 @@ impl Host {
           }
         };
         let mut response = see_other("/");
-        if let Ok(value) = HeaderValue::from_str(&expire) {
-          response.headers_mut().append(header::SET_COOKIE, value);
+        for cookie in [expire, self.sessions.state_cookie()] {
+          if let Ok(value) = HeaderValue::from_str(&cookie) {
+            response.headers_mut().append(header::SET_COOKIE, value);
+          }
         }
         Some(response)
       }

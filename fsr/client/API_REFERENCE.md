@@ -407,6 +407,7 @@ What the server writes and this package reads.
 | `<div data-sf-slot="N">` | HTML serialiser, `nodeToHtml` | the fill script, `refresh`, `navigate` |
 | `<template data-sf-fill="N">` | the streamed HTML response | the fill script |
 | `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script; `navigate` and `refresh`, once per `S` row they apply | `boot`, `enableNavigation` and whatever else wires markup it did not write |
+| `sf_state` cookie, a fresh generation whenever a written session is saved or destroyed | the host, through `Sessions::state_cookie` | `navigate` and `prefetch`, which hold a payload only under the generation it was fetched in |
 | `sf:navigate` `CustomEvent` on `document`, `detail` is `{ path }` | `navigate` and `refresh`, once the eager wave is applied and before its deferred segments arrive | whatever wires markup it did not write: a library with a `process` call, htmx for one |
 | `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment`, the fill of a streamed segment | `navigate`, `refresh` |
 | `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
@@ -457,7 +458,7 @@ A click is ignored when `defaultPrevented` is set, when `button` is not 0, when 
 
 * `prefetch(href: string, options?: NavigateOptions): Promise<void>`
 
-Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh feed for the origin, the options and `<pathname><search>`, still arriving or finished less than `cacheMs` ago, that feed is used; otherwise the payload form is fetched with the headers the options call for and held as a feed from its first row, its time being when the last row arrived. Resolves once the feed is whole. A non-ok response holds nothing.
+Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh feed for the origin, the options and `<pathname><search>`, still arriving or finished less than `cacheMs` ago and fetched under the session generation the `sf_state` cookie names now, that feed is used; a held feed from an earlier generation is dropped with every other feed of that generation; otherwise the payload form is fetched with the headers the options call for and held as a feed from its first row, its time being when the last row arrived. Resolves once the feed is whole. A non-ok response holds nothing.
 
 ### clearRouterCache
 

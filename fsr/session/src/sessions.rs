@@ -8,6 +8,9 @@ use crate::store::{SessionRecord, SessionStore, StoreError};
 use crate::tokens::TokenCell;
 use crate::SessionId;
 
+/// The cookie [`Sessions::state_cookie`] writes. Fixed rather than derived from the session cookie's name, since the page reads it blind.
+pub const STATE_COOKIE: &str = "sf_state";
+
 pub struct SessionConfig {
   pub cookie_name: String,
   pub ttl: Duration,
@@ -113,6 +116,20 @@ impl Sessions {
     let tokens = opened.tokens.snapshot();
     self.store.save(&opened.id, SessionRecord { data, identity, tokens }).await?;
     Ok(opened.fresh.then(|| self.set_cookie(&opened.id)))
+  }
+
+  /// The `Set-Cookie` that tells the page its session moved: `sf_state` with
+  /// a fresh generation, readable by script, set beside the session cookie
+  /// whenever a written session is saved and again when it is destroyed. A
+  /// browser cache keyed on it, the client's router cache for one, drops what
+  /// it fetched under the previous generation, whatever path did the writing.
+  pub fn state_cookie(&self) -> String {
+    let secure = if self.config.secure { "; Secure" } else { "" };
+    let generation = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|d| d.as_nanos())
+      .unwrap_or(0);
+    format!("{STATE_COOKIE}={generation:x}; Path=/; SameSite=Lax; Max-Age={}{}", self.config.ttl.as_secs(), secure)
   }
 
   /// Logout: deletes the record and returns the expiring cookie.

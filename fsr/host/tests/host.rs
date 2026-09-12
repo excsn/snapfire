@@ -3904,3 +3904,52 @@ async fn a_form_posted_from_a_fragment_is_sent_back_to_a_fragment() {
     .await;
   assert_eq!(location(&response), "/hello/norm", "a form posted from a document goes back to the document");
 }
+
+fn state_cookie_of(response: &http::Response<snapfire_fsr_host::Body>) -> Option<String> {
+  response
+    .headers()
+    .get_all(header::SET_COOKIE)
+    .iter()
+    .filter_map(|v| v.to_str().ok())
+    .find(|v| v.starts_with("sf_state="))
+    .map(|v| v.split(';').next().unwrap_or(v).to_owned())
+}
+
+#[tokio::test]
+async fn a_written_session_stamps_a_state_cookie_the_page_can_read() {
+  let host = formed();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  assert!(state_cookie_of(&response).is_none(), "a session nothing wrote to moves nothing");
+  let token = field(&body_of(response).await, "csrf_token").unwrap();
+
+  let response = host
+    .handle(Request::get("/hello/norm").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap())
+    .await;
+  assert!(state_cookie_of(&response).is_none(), "nor does a read");
+
+  let form = |body: String| {
+    Request::post("/_sf/action/remember")
+      .header(header::COOKIE, &cookie)
+      .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+      .header(header::REFERER, "http://localhost/hello/norm")
+      .body(Bytes::from(body))
+      .unwrap()
+  };
+  let response = host.handle(form(format!("word=hi&_csrf={token}"))).await;
+  let first = state_cookie_of(&response).expect("an action that wrote the session stamps the generation");
+  let header = response
+    .headers()
+    .get_all(header::SET_COOKIE)
+    .iter()
+    .filter_map(|v| v.to_str().ok())
+    .find(|v| v.starts_with("sf_state="))
+    .unwrap()
+    .to_owned();
+  assert!(!header.contains("HttpOnly"), "the page reads it: {header}");
+  assert!(header.contains("Path=/") && header.contains("SameSite=Lax") && header.contains("Max-Age="), "{header}");
+
+  let response = host.handle(form(format!("word=again&_csrf={token}"))).await;
+  let second = state_cookie_of(&response).unwrap();
+  assert_ne!(first, second, "every write is a new generation");
+}

@@ -377,6 +377,8 @@ A link decides for itself, whichever way the document leans. `none` is right for
 <a href="/checkout" data-sf-prefetch="viewport">Checkout</a>
 ```
 
+A held payload is valid only under the session generation it was fetched in. The host sets `sf_state`, a cookie the page reads, with a fresh value whenever it saves a written session, whoever wrote it: the client's own `action`, a form htmx posted straight to the action route, a request another tab made. A payload prefetched before the write is dropped at the next lookup rather than applied, which is what keeps a hovered link from showing the page as it was before the click that changed it.
+
 From code, `prefetch` warms a route ahead of time and `clearRouterCache` drops everything held. `refresh` drops it on its own, so an action that revalidates never leaves a payload from before the mutation behind:
 
 ```ts

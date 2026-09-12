@@ -189,7 +189,7 @@ What comes back from `bind` only calls, so handing it to application code hands 
 
 ## Persisting at the Response
 
-`persist` saves the record when either cell is dirty. It returns a `Set-Cookie` value only when the session is also fresh.
+A written session also moves `sf_state`, a cookie script can read, when the host appends `sessions.state_cookie()` beside the session cookie; the client's router cache keys what it holds on it, so a payload fetched before a write is never applied after one. `persist` saves the record when either cell is dirty. It returns a `Set-Cookie` value only when the session is also fresh.
 
 ```rust
 if let Some(set_cookie) = sessions.persist(&opened).await {

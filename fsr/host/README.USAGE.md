@@ -53,7 +53,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.
 * **Head** is what the stock shell puts in `<head>`: the title, a `<link>` per stylesheet, the inlined import map and the entry module from `[document]`.
 * **Static root** is a `[[static]]` entry, a route prefix served from a directory by `tower-http`'s `ServeDir`, checked before any route.
-* **Session** is opened from the cookie on every request and persisted into the response when it changed, through `snapfire_fsr_session`.
+* **Session** is opened from the cookie on every request and persisted into the response when it changed, through `snapfire_fsr_session`. A response that saved a written session also sets `sf_state`, a cookie the page reads, with a fresh generation, as does signing out; the client's router cache holds a payload only under the generation it was fetched in, so a form another library posted or a write from another tab invalidates it the same as the client's own `action` does.
 * **Edge** is `Host::handle`: one `http::Request<Bytes>` in, one streaming `http::Response` out, covering static roots, `/_sf/action/<id>` and pages in either mode.
 * **Service** is `Host::service`, the same edge as a `tower::Service`, so any tower stack drives it.
 

@@ -4,7 +4,7 @@ mod store;
 mod tokens;
 
 pub use codec::{CookieCodec, HmacCodec};
-pub use sessions::{Opened, SessionConfig, Sessions};
+pub use sessions::{Opened, STATE_COOKIE, SessionConfig, Sessions};
 pub use store::{MemorySessionStore, SessionRecord, SessionStore, StoreError};
 pub use tokens::TokenCell;
 

@@ -384,6 +384,7 @@ async function drain(rows, segments, gen) {
 class Feed {
     lines = [];
     done = false;
+    state = "";
     at = 0;
     ok;
     settle = ()=>{};
@@ -445,7 +446,16 @@ function fetchFeed(url, headers) {
 const cache = new Map();
 let cacheMs = 30_000;
 function fresh(feed) {
-    return !feed.done || performance.now() - feed.at < cacheMs;
+    return (!feed.done || performance.now() - feed.at < cacheMs) && feed.state === sessionState();
+}
+const STATE_COOKIE = "sf_state=";
+function sessionState() {
+    if (typeof document === "undefined" || typeof document.cookie !== "string") return "";
+    for (const part of document.cookie.split(";")){
+        const cookie = part.trim();
+        if (cookie.startsWith(STATE_COOKIE)) return cookie.slice(STATE_COOKIE.length);
+    }
+    return "";
 }
 function askFor(options) {
     if (options.full) return {
@@ -484,6 +494,7 @@ function cacheKey(url, ask) {
 function fetchPayload(url, ask) {
     const key = cacheKey(url, ask);
     const feed = fetchFeed(url, headersOf(ask));
+    feed.state = sessionState();
     cache.set(key, feed);
     void feed.ok.then((ok)=>{
         if (!ok && cache.get(key) === feed) cache.delete(key);
@@ -493,6 +504,9 @@ function fetchPayload(url, ask) {
 function payloadFor(url, ask) {
     const held = cache.get(cacheKey(url, ask));
     if (held && fresh(held)) return held;
+    if (held && held.state !== sessionState()) {
+        for (const [key, feed] of cache)if (feed.state === held.state) cache.delete(key);
+    }
     return fetchPayload(url, ask);
 }
 let fallbackPrefetch = "hover";

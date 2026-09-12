@@ -437,6 +437,8 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
 class Feed {
   readonly lines: string[] = [];
   done = false;
+  /** The session generation the page had when this was fetched; a later one means the session moved and this answers nothing. */
+  state = "";
   /** When the response finished, on the clock `performance.now` reads; 0 while it is still arriving. */
   at = 0;
   /** Whether the response was ok, known once its headers are. */
@@ -511,9 +513,21 @@ function fetchFeed(url: URL, headers: Record<string, string>): Feed {
 const cache = new Map<string, Feed>();
 let cacheMs = 30_000;
 
-/** A held feed answers while it is still arriving and for `cacheMs` after it finished. */
+/** A held feed answers while it is still arriving and for `cacheMs` after it finished, under the session generation it was fetched in. */
 function fresh(feed: Feed): boolean {
-  return !feed.done || performance.now() - feed.at < cacheMs;
+  return (!feed.done || performance.now() - feed.at < cacheMs) && feed.state === sessionState();
+}
+
+/** The cookie the host writes beside the session cookie whenever it saves a written session, a fresh value each time. Whatever posted the write, the client's own `action`, a form another library sent or a tab beside this one, the generation moves; every payload fetched under the old one is stale. Empty where there is no cookie or no document. */
+const STATE_COOKIE = "sf_state=";
+
+function sessionState(): string {
+  if (typeof document === "undefined" || typeof document.cookie !== "string") return "";
+  for (const part of document.cookie.split(";")) {
+    const cookie = part.trim();
+    if (cookie.startsWith(STATE_COOKIE)) return cookie.slice(STATE_COOKIE.length);
+  }
+  return "";
 }
 
 export type PrefetchTiming = "hover" | "viewport" | "none";
@@ -569,6 +583,7 @@ function cacheKey(url: URL, ask: Ask): string {
 function fetchPayload(url: URL, ask: Ask): Feed {
   const key = cacheKey(url, ask);
   const feed = fetchFeed(url, headersOf(ask));
+  feed.state = sessionState();
   cache.set(key, feed);
   void feed.ok.then((ok) => {
     if (!ok && cache.get(key) === feed) cache.delete(key);
@@ -576,10 +591,13 @@ function fetchPayload(url: URL, ask: Ask): Feed {
   return feed;
 }
 
-/** The route's payload from the cache while it is fresh, else fetched and cached. */
+/** The route's payload from the cache while it is fresh, else fetched and cached. A held feed from before the session moved is dropped on the way past, along with every other one fetched under that generation. */
 function payloadFor(url: URL, ask: Ask): Feed {
   const held = cache.get(cacheKey(url, ask));
   if (held && fresh(held)) return held;
+  if (held && held.state !== sessionState()) {
+    for (const [key, feed] of cache) if (feed.state === held.state) cache.delete(key);
+  }
   return fetchPayload(url, ask);
 }
 
