@@ -30,7 +30,7 @@ fsr dev app
 | `src/elements/shed-tally.ts` | the masthead count: a disclosure the element wires and a store key it follows |
 | `src/elements/loan-planner.ts` | a range input inside a declarative shadow root, form-associated so the loan length posts with the reservation |
 | `src/elements/time-ago.ts` | a due date rewritten as a distance from today, inside the polled panel |
-| `src/main.ts` | boots the client, enables navigation and tells htmx and the client about each other |
+| `src/main.ts` | boots the client, enables navigation and calls `bindHtmx`, which tells htmx and the client about each other |
 | `vendor/htmx/htmx.esm.js` | htmx 2.0.10, committed, since an application carries its vendor tree |
 
 ## A page that mounts nothing
@@ -51,7 +51,7 @@ A GET of any route with `__fragment` in the query answers the page segment alone
 
 The reserve form is `hx-post="/_sf/action/tool.$id.reserve?__fragment"`. A form-encoded action is answered with a redirect to the page that posted it. When the action's URL carried `__fragment` the redirect carries it too, so what htmx receives after the round trip is the tool page rendered from the session the action just wrote. The form also has a plain `action` and `method`, so it posts and lands back on the page with no JavaScript at all.
 
-A fragment ends with the same inert seed script a document carries. `main.ts` listens for `htmx:afterSettle` and calls `adopt()`, which reads every seed nothing has read yet, then `scan()`, which would mount any island the fragment placed. In the other direction it listens for `sf:navigate` and `sf:fill`, which the navigator dispatches after it applies a payload, then calls `htmx.process` so the forms and regions the navigator wrote are wired. Without that second listener a reserve form reached by clicking a tool name would post natively and reload the document.
+A fragment ends with the same inert seed script a document carries. `bindHtmx(htmx)` from `@snapfire/fsr-client/htmx` is the whole wiring: on `htmx:afterSettle` it calls `adopt()`, which reads every seed nothing has read yet, then `scan()`, which would mount any island the fragment placed; on `sf:navigate` and `sf:fill`, which the navigator dispatches after it applies a payload, it calls `htmx.process` so the forms and regions the navigator wrote are wired. Without that second direction a reserve form reached by clicking a tool name would post natively and reload the document.
 
 ## What each thing proves
 
@@ -86,6 +86,6 @@ Ask for a fragment by hand: `curl 'http://127.0.0.1:8170/?category=Party&__fragm
 
 Open a tool, open the network panel and click "Reserve it". One POST answered 303, one GET of `/tool/3?__fragment` answered with the fragment and the count in the masthead moved without the masthead being touched.
 
-Take the `sf:navigate` listener out of `main.ts`, rebuild, click a tool name from the shelves and reserve it. The document reloads: the form the navigator wrote was never processed by htmx, so the browser posted it natively. Put the listener back.
+Take the `bindHtmx(htmx)` call out of `main.ts`, rebuild, click a tool name from the shelves and reserve it. The document reloads: the form the navigator wrote was never processed by htmx, so the browser posted it natively. Put the call back.
 
 Give a page state. Add a `useState` to `routes/page.tsx` and read the report: the page stops being `static`, it appears in the registry with the React mounter and the bundle asks the import map for `react/jsx-runtime`, which this application does not have.

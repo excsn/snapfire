@@ -430,12 +430,21 @@ applyHead({ title: "Cart · Shopping" });
 
 ## Wiring Another Library to the Navigator
 
-A navigation writes markup this package did not read and another library may have to: htmx wires its `hx-` attributes when it processes a node; a node the navigator wrote has not been processed. The navigator dispatches `sf:navigate` on `document` once it has applied a payload's eager wave, with the path in `detail` and `sf:fill` for every deferred segment it fills afterwards, the same event the server's fill script dispatches for a streamed one. A library that wires markup listens to both:
+For htmx there is an entry that does it, `bindHtmx`, and the whole wiring is one line:
 
 ```ts
 import htmx from "htmx.org";
+import { bindHtmx } from "@snapfire/fsr-client/htmx";
 
-const rewire = () => htmx.process(document.body);
+bindHtmx(htmx);
+```
+
+htmx is passed in rather than imported, so the binding works with whatever version the import map names. The call returns the function that takes the listeners off again. What it does is worth knowing, since another library needs the same two directions written by hand.
+
+A navigation writes markup this package did not read and another library may have to: htmx wires its `hx-` attributes when it processes a node; a node the navigator wrote has not been processed. The navigator dispatches `sf:navigate` on `document` once it has applied a payload's eager wave, with the path in `detail` and `sf:fill` for every deferred segment it fills afterwards, the same event the server's fill script dispatches for a streamed one. A library that wires markup listens to both:
+
+```ts
+const rewire = () => library.process(document.body);
 document.addEventListener("sf:navigate", rewire);
 document.addEventListener("sf:fill", rewire);
 ```
@@ -445,7 +454,7 @@ The other direction is `adopt` and `scan`. A fragment the host renders, one segm
 ```ts
 import { adopt, scan } from "@snapfire/fsr-client";
 
-document.body.addEventListener("htmx:afterSettle", () => {
+document.body.addEventListener("library:settled", () => {
   adopt();
   scan(document);
 });

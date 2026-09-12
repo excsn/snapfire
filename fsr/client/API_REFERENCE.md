@@ -91,7 +91,10 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [vueMounter](#vuemounter)
   * [vuePatcher](#vuepatcher)
   * [useStore (Vue)](#usestore-vue)
-* [12. The Standard Library](#12-the-standard-library)
+* [12. Binding htmx](#12-binding-htmx)
+  * [HtmxProcessor](#htmxprocessor)
+  * [bindHtmx](#bindhtmx)
+* [13. The Standard Library](#13-the-standard-library)
   * [localeTag](#localetag)
   * [intl](#intl)
   * [text](#text)
@@ -100,20 +103,22 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [id](#id)
   * [t](#t)
   * [native](#native)
-* [13. Error Handling](#13-error-handling)
+* [14. Error Handling](#14-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
 
 ## 1. Entry Points
 
-Two ES module entry points, resolved through an import map. There is no package manifest and no default export.
+Five ES module entry points, resolved through an import map. There is no package manifest and no default export.
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
 | `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure` | none |
 | `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
+| `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
+| `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React.
 
@@ -755,7 +760,27 @@ Assigns the new props into the reactive object the mounter holds for `el`, delet
 
 A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
 
-## 12. The Standard Library
+## 12. Binding htmx
+
+`@snapfire/fsr-client/htmx`: its own entry point, importing nothing outside the package. htmx itself is the application's, passed in, so this module works with whatever version the import map names.
+
+### HtmxProcessor
+
+* `interface HtmxProcessor { process(element: Element): void }`
+
+The one method the binding calls. htmx's own default export satisfies it.
+
+### bindHtmx
+
+* `function bindHtmx(htmx: HtmxProcessor): () => void`
+
+Makes htmx and the client aware of each other's markup, in both directions. Returns the function that takes the listeners off again.
+
+On `htmx:afterSettle`, on `document.body`: `adopt()` reads every store seed nothing has read yet, since a fragment ends with the same inert seed script a document carries, then `scan(document)` mounts any island the swapped markup placed.
+
+On `sf:navigate` and `sf:fill`, on `document`: `htmx.process(document.body)`, so htmx wires the `hx-` attributes in markup the navigator wrote. Without this direction a form or an anchor reached by a soft navigation is markup htmx never processed, so the browser submits or follows it natively.
+
+## 13. The Standard Library
 
 `@snapfire/fsr-client/std`: the browser half of the standard library the server's interpreter carries under the same names. Every `render` member agrees with the server byte for byte under the same locale, which is `currentLocale()`; a member marked server only has no such promise and the build refuses it on a component's render path. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
 
@@ -802,7 +827,7 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 * `native<F extends (...args: never[]) => unknown>(name: string, f?: F): F`: declares the browser half of a native pair under `name`, `module.member`, whose Rust half the host registers under the same name. With `f`, the pair has `render` reach and `f` is returned and registered on `globalThis.__sf_natives` for the runner; without, it has `body` reach and the returned function throws `<name> runs on the server only`. `name` must be a string literal, since the build reads the declaration.
 
-## 13. Error Handling
+## 14. Error Handling
 
 ### ActionFailure
 

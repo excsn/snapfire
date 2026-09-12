@@ -131,26 +131,19 @@ htmx posts, follows the 303 to `/tool/3?__fragment` and swaps in the tool page r
 
 ## Two libraries, one document
 
-A fragment ends with the same inert seed script a document carries, so the store follows the server through htmx exactly as it does through a payload. Two listeners in the entry module make the two libraries aware of each other; both directions are needed:
+A fragment ends with the same inert seed script a document carries, so the store follows the server through htmx exactly as it does through a payload. Making the two libraries aware of each other is one line:
 
 ```ts
 import htmx from "htmx.org";
-import { adopt, boot, enableNavigation, scan } from "@snapfire/fsr-client";
+import { boot, enableNavigation } from "@snapfire/fsr-client";
+import { bindHtmx } from "@snapfire/fsr-client/htmx";
 
 boot();
 enableNavigation();
-
-document.body.addEventListener("htmx:afterSettle", () => {
-  adopt();
-  scan(document);
-});
-
-const rewire = () => htmx.process(document.body);
-document.addEventListener("sf:navigate", rewire);
-document.addEventListener("sf:fill", rewire);
+bindHtmx(htmx);
 ```
 
-After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` and `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave the second pair out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one failure this arrangement has and it is loud.
+htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed and that is what the one line holds. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one failure this arrangement has and it is loud.
 
 ## The lab
 
