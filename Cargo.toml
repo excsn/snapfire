@@ -4,7 +4,8 @@ members = [
   "compiler",
   "web",
   "web/examples/basic_site",
-  "typecheck"
+  "typecheck",
+  "snapfire_vue"
 ]
 exclude = [
   # Its own workspace: the published crates version and release together.
