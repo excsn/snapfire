@@ -3737,6 +3737,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "snapfire_plugin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "snapfire_typecheck"
 version = "0.1.0"
 dependencies = [
@@ -3758,6 +3766,7 @@ dependencies = [
  "rquickjs",
  "serde",
  "serde_json",
+ "snapfire_plugin",
  "thiserror 2.0.20",
 ]
 

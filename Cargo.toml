@@ -5,7 +5,8 @@ members = [
   "web",
   "web/examples/basic_site",
   "typecheck",
-  "snapfire_vue"
+  "snapfire_vue",
+  "snapfire_plugin"
 ]
 exclude = [
   # Its own workspace: the published crates version and release together.
