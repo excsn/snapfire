@@ -45,7 +45,9 @@ fsr's words are short and specific. Here is each one beside what other framework
 | residue | a body or component the build could not lower, named by line | "needs a runtime" |
 | contract | the typed description of every service and schema | OpenAPI, the API client's types |
 | plan file | the build's output: routes, bodies, actions and render trees | the route manifest |
+| template | a page, a layout or a component the build lowers and the server renders; not React, whatever it is written against | server component |
 | page | a route's component, mounted in the browser | page component |
+| static | a template with no state and no handlers, so it has no browser twin and nothing bundles it | none: every framework ships the component |
 | island | a component the browser mounts, with or without server markup over it | island, client component |
 | shell | the document around every page: head, import map, entry script | root layout, `_document` |
 | slot | where a child's content lands in its parent | outlet, `children` |
