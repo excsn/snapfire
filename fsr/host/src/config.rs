@@ -1081,6 +1081,9 @@ impl Config {
     };
 
     let mut document = document;
+    // Linked after the document's own sheets, whether written or inferred from
+    // `styles/`, so a component's rules come later in the cascade.
+    let mut component_sheets: Vec<String> = Vec::new();
     if let Some(facts) = build_facts(&app) {
       if let Some(public_path) = facts.public_path {
         let route = public_path.trim_end_matches('/').to_owned();
@@ -1098,16 +1101,7 @@ impl Config {
           document.entry = Some(format!("{route}/src/main.js"));
           inferred.push("document.entry from dist/.snapfire-build.json".to_owned());
         }
-        if !facts.styles.is_empty() {
-          let sheets = document.styles.get_or_insert_with(Vec::new);
-          for style in &facts.styles {
-            let href = format!("{route}/{style}");
-            if !sheets.contains(&href) {
-              sheets.push(href);
-            }
-          }
-          inferred.push(format!("document.styles gains {} component stylesheet{} from dist/.snapfire-build.json", facts.styles.len(), if facts.styles.len() == 1 { "" } else { "s" }));
-        }
+        component_sheets = facts.styles.iter().map(|style| format!("{route}/{style}")).collect();
       }
     }
     if document.import_map.is_none() && app.join("importmap.json").is_file() {
@@ -1192,6 +1186,15 @@ impl Config {
           inferred.push("document.styles from styles/*.css".to_owned());
         }
       }
+    }
+    if !component_sheets.is_empty() {
+      let sheets = document.styles.get_or_insert_with(Vec::new);
+      for href in component_sheets {
+        if !sheets.contains(&href) {
+          sheets.push(href);
+        }
+      }
+      inferred.push("document.styles gains the component stylesheets from dist/.snapfire-build.json".to_owned());
     }
     for (name, client) in clients.iter_mut() {
       if client.document.is_none() {
