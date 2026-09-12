@@ -125,6 +125,8 @@ pub enum HostError {
   Contract(PathBuf, String),
   #[error("no route matches `{0}`")]
   NotFound(String),
+  #[error("no slot named `{0}` on this route")]
+  NoSlot(String),
   #[error(transparent)]
   Assemble(#[from] AssembleError),
   #[error("server modules in the bundle: {0}")]
@@ -241,10 +243,34 @@ fn kind_of(value: &Value) -> &'static str {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a request for a route is answered with: the document, the navigator's
+/// payload or one segment of the route as bare markup. A fragment is chosen
+/// by `__fragment` in the query: alone it is the page, `__fragment=<slot>` a
+/// parallel slot by name, wherever it sits on the route.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderMode {
   Html,
   Payload,
+  Fragment(Option<String>),
+}
+
+/// The fragment `raw_query` asks for, when it asks for one.
+fn fragment_of(raw_query: &str) -> Option<Option<String>> {
+  raw_query.split('&').find_map(|pair| match pair.split_once('=') {
+    Some(("__fragment", slot)) => Some(Some(percent_decoded(slot))),
+    None if pair == "__fragment" => Some(None),
+    _ => None,
+  })
+}
+
+/// `location` with the fragment `slot` names asked for again, so a form posted
+/// from a fragment is answered with one.
+fn with_fragment(location: &str, slot: Option<&str>) -> String {
+  let joiner = if location.contains('?') { '&' } else { '?' };
+  match slot {
+    Some(name) => format!("{location}{joiner}__fragment={name}"),
+    None => format!("{location}{joiner}__fragment"),
+  }
 }
 
 /// What the host bound: the application's report plus the services it reaches
@@ -1190,6 +1216,7 @@ impl Host {
             payload_catalog = Some(json.to_string());
           }
         }
+        RenderMode::Fragment(_) => {}
       }
     }
     if extra.is_empty() && styles.is_empty() && payload_catalog.is_none() {
@@ -1246,6 +1273,12 @@ impl Host {
     Ok(match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
       RenderMode::Payload => Box::pin(wire_stream(assembly)),
+      RenderMode::Fragment(slot) => {
+        let html = snapfire_fsr_runtime::fragment_html(assembly, slot.as_deref())
+          .await
+          .ok_or_else(|| HostError::NoSlot(slot.clone().unwrap_or_default()))?;
+        Box::pin(futures_util::stream::once(async move { html }))
+      }
     })
   }
 
@@ -1425,7 +1458,7 @@ impl Host {
     let t = self.tables();
     let path = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
     let visit = t.locales.resolve(path, None, None);
-    self.prerendered_in(&t, &visit.path, mode, &visit.locale, true)
+    self.prerendered_in(&t, &visit.path, &mode, &visit.locale, true)
   }
 
   /// `anonymous` says the request carries no identity; a route prerendered
@@ -1434,7 +1467,7 @@ impl Host {
     &self,
     t: &Tables,
     path: &str,
-    mode: RenderMode,
+    mode: &RenderMode,
     locale: &Locale,
     anonymous: bool,
   ) -> Option<String> {
@@ -1456,6 +1489,7 @@ impl Host {
     let name = match mode {
       RenderMode::Html => "index.html",
       RenderMode::Payload => "index.payload",
+      RenderMode::Fragment(_) => return None,
     };
     std::fs::read_to_string(root.join(path.trim_matches('/')).join(name)).ok()
   }
@@ -2211,7 +2245,10 @@ impl Host {
               .and_then(|v| v.to_str().ok())
               .and_then(referer_path)
               .unwrap_or_else(|| "/".to_owned());
-            see_other(&back)
+            match fragment_of(raw_query) {
+              Some(slot) => see_other(&with_fragment(&back, slot.as_deref())),
+              None => see_other(&back),
+            }
           }
           Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
           Err(e) => json_response(
@@ -2266,6 +2303,8 @@ impl Host {
 
     let mode = if raw_query.split('&').any(|p| p == "__payload") {
       RenderMode::Payload
+    } else if let Some(slot) = fragment_of(raw_query) {
+      RenderMode::Fragment(slot)
     } else {
       RenderMode::Html
     };
@@ -2287,7 +2326,7 @@ impl Host {
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let (from, into) = match mode {
       RenderMode::Payload => (header("x-sf-from"), header("x-sf-into")),
-      RenderMode::Html => (None, None),
+      RenderMode::Html | RenderMode::Fragment(_) => (None, None),
     };
     let held_catalog = header("x-sf-catalog");
     let intercepted = (from.is_some() || into.is_some())
@@ -2301,9 +2340,9 @@ impl Host {
         .is_some();
 
     if req.method() == Method::GET && !intercepted {
-      if let Some(text) = self.prerendered_in(t, &path, mode, &visit.locale, opened.cell.identity().is_none()) {
+      if let Some(text) = self.prerendered_in(t, &path, &mode, &visit.locale, opened.cell.identity().is_none()) {
         let content_type = match mode {
-          RenderMode::Html => "text/html; charset=utf-8",
+          RenderMode::Html | RenderMode::Fragment(_) => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
         };
         let mut response = Response::builder()
@@ -2345,7 +2384,7 @@ impl Host {
           t,
           &target_visit,
           target_query,
-          mode,
+          mode.clone(),
           self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
         )
         .await
@@ -2357,7 +2396,7 @@ impl Host {
           t,
           &target_visit,
           target_query,
-          mode,
+          mode.clone(),
           self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
         )
         .await
@@ -2371,7 +2410,7 @@ impl Host {
     match rendered {
       Ok((status, chunks)) => {
         let content_type = match mode {
-          RenderMode::Html => "text/html; charset=utf-8",
+          RenderMode::Html | RenderMode::Fragment(_) => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
         };
         let body = StreamBody::new(chunks.map(|c| Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(c)))));
@@ -2383,6 +2422,7 @@ impl Host {
         self.set_cookie(opened, &mut response).await;
         response
       }
+      Err(HostError::NoSlot(name)) => text_response(StatusCode::NOT_FOUND, format!("no slot named `{name}` on this route")),
       Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
   }

@@ -146,12 +146,14 @@ interface SeedGlobal {
   __sfSeedApply?: (encoded: { [key: string]: unknown }) => void;
 }
 
-/** The document's seed, then any a streamed resolution left behind before this module loaded. From then on a resolution seeds the store as it arrives. Called on load and again by `boot`, since a document written after this module ran carries a seed nobody has read. */
-export function adopt(): void {
+/** Every seed script under `root`, the document by default, that nothing has read yet, each marked once it is; then any a streamed resolution left behind before this module loaded. From then on a resolution seeds the store as it arrives. Called on load and again by `boot`, since a document written after this module ran carries a seed nobody has read. Called again after a fragment is swapped in, since a fragment carries the route's seed too. */
+export function adopt(root?: ParentNode): void {
   if (typeof document !== "undefined") {
-    const script = document.querySelector("script[data-sf-store]");
-    if (script?.textContent) {
-      seed(decodeValue(JSON.parse(script.textContent)) as { [key: string]: SfValue });
+    for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))) {
+      if (script.textContent) {
+        seed(decodeValue(JSON.parse(script.textContent)) as { [key: string]: SfValue });
+      }
+      script.setAttribute("data-sf-adopted", "");
     }
   }
   if (typeof globalThis === "undefined") return;

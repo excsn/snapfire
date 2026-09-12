@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use futures_util::stream::{self, FuturesUnordered, Stream, StreamExt};
 use serde_json::{Value as Json, json};
 use snapfire_fsr_core::Node;
@@ -245,4 +247,104 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
 struct HtmlState {
   pending: PendingSet,
   session: HtmlSession,
+}
+
+/// The slot a layout's `children` fill, which is the chain from the shell down to the page.
+const CONTENT: &str = "content";
+
+/// One segment of a route as markup with nothing around it: the page when
+/// `slot` is `None`, otherwise the parallel slot it names, wherever that slot
+/// sits on the route. Every deferred segment inside it is resolved first, so
+/// nothing streams and no fallback is written; there are no segment
+/// delimiters and no sidecar. The store the route seeded follows the markup as
+/// the same inert script a document carries, so whatever swaps the fragment in
+/// can adopt it. `None` when the route has no slot by that name.
+pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<String> {
+  let Assembly { tree, pending, segments, mut store, .. } = assembly;
+  let mut fills: HashMap<u32, Node> = HashMap::new();
+  let mut set = PendingSet::new(pending);
+  while let Some(resolved) = set.set.next().await {
+    for p in resolved.pending {
+      set.set.push(p.future);
+    }
+    store.extend(resolved.store);
+    fills.insert(resolved.slot.0, resolved.node);
+  }
+  let target = match slot {
+    None => page_node(&tree, &segments, &fills)?,
+    Some(name) => slot_node(&tree, &segments, &fills, name)?,
+  };
+  let mut target = target.clone();
+  fill(&mut target, &fills);
+  let mut out = HtmlSession::new().serialize(&target);
+  if !store.is_empty() {
+    out.push_str(&format!(
+      "<script type=\"application/json\" data-sf-store>{}</script>",
+      seed_to_json(&store).to_string().replace('<', "\\u003c")
+    ));
+  }
+  Some(out)
+}
+
+/// Where a child segment's subtree is: at its sidecar path inside the parent's
+/// node or among the fills when it was deferred.
+fn segment_node<'a>(parent: &'a Node, info: &SegmentInfo, fills: &'a HashMap<u32, Node>) -> Option<&'a Node> {
+  match info.slot {
+    Some(id) => fills.get(&id),
+    None => node_at(parent, &info.path),
+  }
+}
+
+/// The same addressing `write_positioned` walks: an index steps into a `Seq`
+/// item or an island's child.
+fn node_at<'a>(node: &'a Node, path: &[u32]) -> Option<&'a Node> {
+  let Some((&first, rest)) = path.split_first() else { return Some(node) };
+  let items = match node {
+    Node::Seq(items) => items,
+    Node::Client { children, ssr: None, .. } => children,
+    _ => return None,
+  };
+  node_at(items.get(first as usize)?, rest)
+}
+
+/// The innermost segment reached through `content` slots.
+fn page_node<'a>(node: &'a Node, info: &SegmentInfo, fills: &'a HashMap<u32, Node>) -> Option<&'a Node> {
+  match info.children.iter().find(|c| c.name == CONTENT) {
+    Some(child) => page_node(segment_node(node, child, fills)?, child, fills),
+    None => Some(node),
+  }
+}
+
+/// The first segment named `name`, depth first in sidecar order.
+fn slot_node<'a>(node: &'a Node, info: &SegmentInfo, fills: &'a HashMap<u32, Node>, name: &str) -> Option<&'a Node> {
+  for child in &info.children {
+    let Some(child_node) = segment_node(node, child, fills) else { continue };
+    if child.name == name {
+      return Some(child_node);
+    }
+    if let Some(found) = slot_node(child_node, child, fills, name) {
+      return Some(found);
+    }
+  }
+  None
+}
+
+/// Replaces every `Pending` under `node` with what resolved for its slot, recursing into what it put there.
+fn fill(node: &mut Node, fills: &HashMap<u32, Node>) {
+  match node {
+    Node::Pending { slot, .. } => {
+      if let Some(resolved) = fills.get(&slot.0) {
+        *node = resolved.clone();
+        fill(node, fills);
+      }
+    }
+    Node::Seq(items) => items.iter_mut().for_each(|item| fill(item, fills)),
+    Node::Client { children, ssr, .. } => {
+      children.iter_mut().for_each(|child| fill(child, fills));
+      if let Some(ssr) = ssr {
+        fill(ssr, fills);
+      }
+    }
+    Node::Text(_) | Node::Raw(_) | Node::Slot(_) => {}
+  }
 }

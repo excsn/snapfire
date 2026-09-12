@@ -104,11 +104,13 @@ export function seed(values) {
         for (const [k, value] of Object.entries(values))write(k, value);
     });
 }
-export function adopt() {
+export function adopt(root) {
     if (typeof document !== "undefined") {
-        const script = document.querySelector("script[data-sf-store]");
-        if (script?.textContent) {
-            seed(decodeValue(JSON.parse(script.textContent)));
+        for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))){
+            if (script.textContent) {
+                seed(decodeValue(JSON.parse(script.textContent)));
+            }
+            script.setAttribute("data-sf-adopted", "");
         }
     }
     if (typeof globalThis === "undefined") return;

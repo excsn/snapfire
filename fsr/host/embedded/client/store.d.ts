@@ -33,5 +33,5 @@ export declare function optimistic<
 export declare function seed(values: {
 	[key: string]: SfValue;
 }): void;
-/** The document's seed, then any a streamed resolution left behind before this module loaded. From then on a resolution seeds the store as it arrives. Called on load and again by `boot`, since a document written after this module ran carries a seed nobody has read. */
-export declare function adopt(): void;
+/** Every seed script under `root`, the document by default, that nothing has read yet, each marked once it is; then any a streamed resolution left behind before this module loaded. From then on a resolution seeds the store as it arrives. Called on load and again by `boot`, since a document written after this module ran carries a seed nobody has read. Called again after a fragment is swapped in, since a fragment carries the route's seed too. */
+export declare function adopt(root?: ParentNode): void;

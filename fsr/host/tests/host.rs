@@ -3773,3 +3773,134 @@ async fn the_longest_static_route_answers_whatever_order_the_roots_were_written_
   let response = host.handle(Request::get("/static/app.js").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
 }
+
+const SHELF_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/shelf", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "source": "shelf.layout", "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/shelf/page.tsx#default", "source": "shelf.page" } },
+        { "slot": "side", "node": { "id": 3, "module": "routes/slots/side/page.tsx#default", "source": "shelf.side" } },
+        { "slot": "late", "node": { "id": 4, "module": "routes/slots/late/page.tsx#default", "source": "shelf.late", "deferred": true, "fallback": "routes/slots/late/loading.tsx#default" } } ] } } ] } }
+  ],
+  "sources": [
+    { "id": "shelf.layout", "owner": "lowered", "module": "routes/layout.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "name", { "lit": { "str": "The Shed" } } ] } ] } } ] },
+    { "id": "shelf.page", "owner": "lowered", "module": "routes/shelf/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "tools", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] },
+    { "id": "shelf.side", "owner": "lowered", "module": "routes/slots/side/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "who", { "lit": { "str": "Sam" } } ] } ] } } ] },
+    { "id": "shelf.late", "owner": "lowered", "module": "routes/slots/late/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "day", { "lit": { "str": "Monday" } } ] } ] } } ] }
+  ],
+  "actions": []
+}"#;
+
+fn shelved() -> Arc<Host> {
+  let dir = app_dir();
+  write_plan(&dir, SHELF_PLAN);
+  let transport =
+    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("drill"), Value::str("saw")])));
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .build()
+    .unwrap();
+  Arc::new(host)
+}
+
+#[tokio::test]
+async fn a_fragment_is_one_segment_as_markup_with_nothing_around_it() {
+  let host = shelved();
+  let page = host
+    .render_to_string("/shelf", RenderMode::Fragment(None), SessionCell::default())
+    .await
+    .unwrap();
+  assert!(page.contains("routes/shelf/page.tsx"), "the page's island is there: {page}");
+  assert!(page.contains("drill"), "with its data: {page}");
+  assert!(!page.contains("<!doctype html>") && !page.contains("<html"), "no shell: {page}");
+  assert!(!page.contains("routes/layout.tsx"), "no layout: {page}");
+  assert!(!page.contains("<!--sf-g:") && !page.contains("data-sf-segments"), "no delimiters and no sidecar: {page}");
+
+  let side = host
+    .render_to_string("/shelf", RenderMode::Fragment(Some("side".to_owned())), SessionCell::default())
+    .await
+    .unwrap();
+  assert!(side.contains("routes/slots/side/page.tsx") && side.contains("Sam"), "{side}");
+  assert!(!side.contains("routes/shelf/page.tsx"), "a slot fragment is the slot alone: {side}");
+
+  let late = host
+    .render_to_string("/shelf", RenderMode::Fragment(Some("late".to_owned())), SessionCell::default())
+    .await
+    .unwrap();
+  assert!(late.contains("routes/slots/late/page.tsx") && late.contains("Monday"), "a deferred slot is resolved, not streamed: {late}");
+  assert!(!late.contains("data-sf-slot") && !late.contains("loading.tsx"), "and no fallback is written: {late}");
+
+  let missing = host
+    .render_to_string("/shelf", RenderMode::Fragment(Some("nope".to_owned())), SessionCell::default())
+    .await;
+  assert!(matches!(&missing, Err(snapfire_fsr_host::HostError::NoSlot(name)) if name == "nope"), "{missing:?}");
+}
+
+#[tokio::test]
+async fn the_edge_answers_a_fragment_from_the_query_and_a_missing_slot_with_not_found() {
+  let host = shelved();
+  let response = host
+    .handle(Request::get("/shelf?__fragment=side").body(Bytes::new()).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(
+    response.headers().get(header::CONTENT_TYPE).unwrap(),
+    "text/html; charset=utf-8"
+  );
+  let body = body_of(response).await;
+  assert!(body.contains("Sam") && !body.contains("<!doctype html>"), "{body}");
+
+  let response = host
+    .handle(Request::get("/shelf?__fragment").body(Bytes::new()).unwrap())
+    .await;
+  let body = body_of(response).await;
+  assert!(body.contains("drill") && !body.contains("routes/layout.tsx"), "bare `__fragment` is the page: {body}");
+
+  let response = host
+    .handle(Request::get("/shelf?__fragment=nope").body(Bytes::new()).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND);
+  assert_eq!(body_of(response).await, "no slot named `nope` on this route");
+
+  let response = host
+    .handle(Request::get("/nowhere?__fragment").body(Bytes::new()).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "a fragment of no route is not found like a document of one");
+}
+
+#[tokio::test]
+async fn a_form_posted_from_a_fragment_is_sent_back_to_a_fragment() {
+  let host = formed();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let token = field(&body_of(response).await, "csrf_token").unwrap();
+  let form = |path: &str, referer: &str| {
+    Request::post(path)
+      .header(header::COOKIE, &cookie)
+      .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+      .header(header::REFERER, referer)
+      .body(Bytes::from(format!("word=hi&_csrf={token}")))
+      .unwrap()
+  };
+  let response = host
+    .handle(form("/_sf/action/remember?__fragment", "http://localhost/hello/norm?from=form"))
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/hello/norm?from=form&__fragment");
+
+  let response = host
+    .handle(form("/_sf/action/remember?__fragment=side", "http://localhost/hello/norm"))
+    .await;
+  assert_eq!(location(&response), "/hello/norm?__fragment=side");
+
+  let response = host
+    .handle(form("/_sf/action/remember", "http://localhost/hello/norm"))
+    .await;
+  assert_eq!(location(&response), "/hello/norm", "a form posted from a document goes back to the document");
+}

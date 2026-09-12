@@ -28,4 +28,4 @@ pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Natives, native_arg};
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use store::Seeds;
-pub use stream::{FILL_SCRIPT, html_stream, meta_to_json, seed_to_json, segments_to_json, wire_stream};
+pub use stream::{FILL_SCRIPT, fragment_html, html_stream, meta_to_json, seed_to_json, segments_to_json, wire_stream};

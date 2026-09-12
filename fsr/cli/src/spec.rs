@@ -931,7 +931,7 @@ impl FetchHooks {
     }
   }
 
-  /// A route rendered by the host under the current ctx: the document, or the wire payload when the query carries `__payload`, intercepted the way the host would when the navigator says where it comes from.
+  /// A route rendered by the host under the current ctx: the document; the wire payload when the query carries `__payload`; one segment as markup when it carries `__fragment`. A payload is intercepted the way the host would when the navigator says where it comes from.
   async fn page(&self, method: String, path: String, query: String, target: String, headers: Vec<(String, String)>) -> FetchResponse {
     let Some(host) = self.host.clone() else {
       let message = format!("fsr test answers POST /_sf/action/<id>, and GET of a route when config/app.toml is beside the app; not {method} {path}");
@@ -944,16 +944,28 @@ impl FetchHooks {
       return FetchResponse::new(500, "no current ctx");
     };
     let session = mock.ctx.session.clone();
-    let mode = if query.split('&').any(|p| p == "__payload") { RenderMode::Payload } else { RenderMode::Html };
+    let fragment = query.split('&').find_map(|pair| match pair.split_once('=') {
+      Some(("__fragment", slot)) => Some(Some(percent_decode(slot))),
+      None if pair == "__fragment" => Some(None),
+      _ => None,
+    });
+    let mode = if query.split('&').any(|p| p == "__payload") {
+      RenderMode::Payload
+    } else if let Some(slot) = fragment {
+      RenderMode::Fragment(slot)
+    } else {
+      RenderMode::Html
+    };
     let header = |name: &str| headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
     let (from, into) = (header("x-sf-from"), header("x-sf-into"));
     let rendered = if mode == RenderMode::Payload && (from.is_some() || into.is_some()) {
       host.render_navigation_to_string(&target, from, into, session.clone()).await
     } else {
-      host.render_to_string(&target, mode, session.clone()).await
+      host.render_to_string(&target, mode.clone(), session.clone()).await
     };
     match rendered {
       Ok(body) => FetchResponse::new(200, body),
+      Err(HostError::NoSlot(name)) => FetchResponse::new(404, format!("no slot named `{name}` on this route")),
       Err(HostError::NotFound(path)) => match host.render_not_found(&target, mode, session).await {
         Ok(Some(chunks)) => FetchResponse::new(404, chunks.collect::<Vec<String>>().await.concat()),
         Ok(None) => FetchResponse::new(404, format!("no route: {path}")),
