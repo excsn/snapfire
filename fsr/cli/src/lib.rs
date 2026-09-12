@@ -849,6 +849,23 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
   Ok(written)
 }
 
+/// Writes the `generated/` files of `built` and nothing else: what the browser
+/// half of a test compiles against, so a run sees the build it was given
+/// rather than whatever the last `fsr build` left on disk.
+pub fn write_generated(app: &Path, built: &Built) -> Result<(), BuildError> {
+  for (rel, content) in &built.files {
+    if !rel.starts_with("generated/") {
+      continue;
+    }
+    let path = app.join(rel);
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+    }
+    std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
+  }
+  Ok(())
+}
+
 /// Removes the bundle overlay, so a file no longer rewritten does not shadow its source.
 fn clear_overlay(app: &Path) -> Result<(), BuildError> {
   let overlay = app.join(dev::BUNDLE_OVERLAY);

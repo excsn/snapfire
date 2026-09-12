@@ -129,6 +129,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     return Ok(());
   }
   crate::write_overlay(&app, built)?;
+  crate::write_generated(&app, built)?;
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes)?;
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
