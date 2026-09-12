@@ -1,0 +1,11 @@
+# written by `fsr build app`, which build.rs runs; rebuilt from routes/, schemas/ and clients/
+app/generated/
+app/tsconfig.json
+app/tsconfig.build.json
+# fetched by `fsr types`; read by the editor and tsc, never served
+app/types/
+# written by snapfirec; rebuilt from the sources
+app/dist/
+# written by `fsr test`: compiled spec files and test-only vendor builds
+app/.fsr-test/
+app/.fsr-bundle/

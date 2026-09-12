@@ -1,0 +1,30 @@
+{
+  "packages": {
+    "react": {
+      "version": "18.3.1",
+      "externals": [
+        "react"
+      ],
+      "entries": {
+        "react": "react/react.bundle.mjs",
+        "react/jsx-runtime": "react/jsx-runtime.bundle.mjs"
+      }
+    },
+    "react-dom": {
+      "version": "18.3.1",
+      "externals": [
+        "react"
+      ],
+      "entries": {
+        "react-dom/client": "react-dom/client.bundle.mjs"
+      }
+    },
+    "sweetalert2": {
+      "version": "11.6.15",
+      "externals": [],
+      "entries": {
+        "sweetalert2": "sweetalert2/sweetalert2.bundle.mjs"
+      }
+    }
+  }
+}

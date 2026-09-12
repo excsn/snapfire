@@ -1,0 +1,84 @@
+{
+  "getConference": {
+    "name": "Everything At Once",
+    "day": "Thursday 18 September",
+    "venue": "The Old Exchange, Hall B",
+    "tracks": ["Runtime", "Data", "Practice"]
+  },
+  "listTalks": [
+    {
+      "id": "1",
+      "title": "A plan is not a program",
+      "track": "Runtime",
+      "room": "Hall B",
+      "starts": "09:30",
+      "ends": "10:10",
+      "speaker": "Ada Okonjo",
+      "level": "intro",
+      "abstract": "What you get back when the thing your server reads is data rather than code: one artifact you can diff, hash and explain before a request arrives."
+    },
+    {
+      "id": "2",
+      "title": "Loaders that refuse to waterfall",
+      "track": "Data",
+      "room": "Room 2",
+      "starts": "10:20",
+      "ends": "11:00",
+      "speaker": "Bea Lindqvist",
+      "level": "intermediate",
+      "abstract": "Two reads that do not depend on each other should leave together. Making that structural instead of a thing each author remembers to arrange."
+    },
+    {
+      "id": "3",
+      "title": "The backend is down and the page is fine",
+      "track": "Practice",
+      "room": "Room 3",
+      "starts": "11:10",
+      "ends": "11:50",
+      "speaker": "Cai Deng",
+      "level": "intermediate",
+      "abstract": "Degrading one segment rather than the document, and what has to be true of your boundaries for that to be the default rather than a heroic afternoon."
+    },
+    {
+      "id": "4",
+      "title": "Caching is a contract, not a middleware",
+      "track": "Data",
+      "room": "Room 2",
+      "starts": "13:30",
+      "ends": "14:10",
+      "speaker": "Dara Whelan",
+      "level": "advanced",
+      "abstract": "Putting the policy on the method that reads, beside the tags the writers drop, so a stale page is a spelling mistake somebody can grep for."
+    },
+    {
+      "id": "5",
+      "title": "Hydration you asked for",
+      "track": "Runtime",
+      "room": "Hall B",
+      "starts": "14:20",
+      "ends": "15:00",
+      "speaker": "Esen Yilmaz",
+      "level": "intro",
+      "abstract": "Per island rather than per page: what ships on load, what waits for the viewport and how to tell which of the two you actually wanted."
+    },
+    {
+      "id": "6",
+      "title": "Sessions without a database",
+      "track": "Practice",
+      "room": "Room 3",
+      "starts": "15:10",
+      "ends": "15:50",
+      "speaker": "Fen Marlowe",
+      "level": "intermediate",
+      "abstract": "Everything a signed cookie can hold, everything it must not, and the shape of a schema that makes the difference checkable."
+    }
+  ],
+  "listAnnouncements": [
+    { "at": "08:55", "text": "Registration has moved to the west door." },
+    { "at": "09:40", "text": "Room 3 is warm; the windows open." },
+    { "at": "11:05", "text": "Coffee is out on the mezzanine until half past." }
+  ],
+  "listSponsors": {
+    "$fail": { "kind": "unavailable", "message": "the sponsors service is not answering" }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Program", "version": "1.0.0" },
+  "paths": {
+    "/conference": {
+      "get": {
+        "operationId": "getConference",
+        "responses": {
+          "200": {
+            "description": "the day, the venue and the tracks",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Conference" } } }
+          }
+        },
+        "x-sf-cache": { "ttl": "5m", "tags": ["program"], "scope": "shared" }
+      }
+    },
+    "/talks": {
+      "get": {
+        "operationId": "listTalks",
+        "responses": {
+          "200": {
+            "description": "every talk on the day, in order",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Talk" } } } }
+          }
+        },
+        "x-sf-cache": { "ttl": "1m", "tags": ["program"], "scope": "shared" }
+      }
+    },
+    "/announcements": {
+      "get": {
+        "operationId": "listAnnouncements",
+        "responses": {
+          "200": {
+            "description": "what the desk has said this morning",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Announcement" } } } }
+          }
+        }
+      }
+    },
+    "/sponsors": {
+      "get": {
+        "operationId": "listSponsors",
+        "responses": {
+          "200": {
+            "description": "who paid for the coffee",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Sponsor" } } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Conference": {
+        "type": "object",
+        "required": ["name", "day", "venue", "tracks"],
+        "properties": {
+          "name": { "type": "string" },
+          "day": { "type": "string" },
+          "venue": { "type": "string" },
+          "tracks": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Talk": {
+        "type": "object",
+        "required": ["id", "title", "track", "room", "starts", "ends", "speaker", "level", "abstract"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "track": { "type": "string" },
+          "room": { "type": "string" },
+          "starts": { "type": "string" },
+          "ends": { "type": "string" },
+          "speaker": { "type": "string" },
+          "level": { "type": "string" },
+          "abstract": { "type": "string" }
+        }
+      },
+      "Announcement": {
+        "type": "object",
+        "required": ["at", "text"],
+        "properties": {
+          "at": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      },
+      "Sponsor": {
+        "type": "object",
+        "required": ["name", "tier"],
+        "properties": {
+          "name": { "type": "string" },
+          "tier": { "type": "string" }
+        }
+      }
+    }
+  }
+}
