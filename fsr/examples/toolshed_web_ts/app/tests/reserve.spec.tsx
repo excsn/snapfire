@@ -11,9 +11,9 @@ test("reserving through the action and asking for the page again as a fragment s
   await load("/tool/1", { ctx: c });
   assert.ok(document.querySelector(".reserve .btn")?.textContent?.includes("Reserve it"));
 
-  const posted = await fetch("/_sf/action/tool.$id.reserve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tool_id: "1" }) });
+  const posted = await fetch("/_sf/action/tool.$id.reserve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tool_id: "1", days: 2 }) });
   assert.equal(posted.status, 200);
-  assert.equal(c.session.reserved, { "1": true }, "the action wrote the session through the interpreter");
+  assert.equal(c.session.reserved, { "1": 2 }, "the action wrote the agreed length through the interpreter");
 
   const html = await (await fetch("/tool/1?__fragment")).text();
   assert.ok(html.includes("Let it go") && html.includes("Reserved for you"), "the fragment is rendered from the session the action wrote");
@@ -30,10 +30,11 @@ test("the loan slider moves until the tool is reserved, then it is settled", asy
 
   const free = await (await fetch("/tool/1?__fragment")).text();
   assert.ok(free.includes("Borrow for") && !free.includes('disabled=""'), "the slider moves while nobody has it");
+  assert.ok(free.includes('max="3"'), "and it stops at what the shed lends it for");
 
-  await fetch("/_sf/action/tool.$id.reserve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tool_id: "1" }) });
+  await fetch("/_sf/action/tool.$id.reserve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tool_id: "1", days: 2 }) });
 
   const held = await (await fetch("/tool/1?__fragment")).text();
   assert.ok(held.includes("Borrowed for") && held.includes('disabled=""'), "the length is settled once it is reserved");
-  assert.ok(held.includes('reserved=""'), "the host carries the state its shadow styles select on");
+  assert.ok(held.includes('value="2"'), "and it sits at the length that was asked for, not the shed's limit");
 });

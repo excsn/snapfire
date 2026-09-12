@@ -1,5 +1,8 @@
-/** A loan length picker inside a declarative shadow root the server wrote. The parser attaches the root on a full page; after a swap the element attaches it itself. */
+/** A loan length picker inside a declarative shadow root the server wrote. The parser attaches the root on a full page; after a swap the element attaches it itself. Form-associated, so the length inside the shadow root is posted with the reservation. */
 class LoanPlanner extends HTMLElement {
+  static formAssociated = true;
+  #internals = this.attachInternals();
+
   connectedCallback(): void {
     const root = this.shadowRoot ?? this.#attach();
     if (!root) return;
@@ -12,6 +15,7 @@ class LoanPlanner extends HTMLElement {
       out.textContent = `${days} ${days === 1 ? "day" : "days"}`;
       const date = new Date(Date.now() + days * 86_400_000);
       back.textContent = `by ${date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
+      this.#internals.setFormValue(range.value);
     };
     range.addEventListener("input", show);
     show();

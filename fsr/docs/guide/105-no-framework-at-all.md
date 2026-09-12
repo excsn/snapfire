@@ -57,13 +57,13 @@ customElements.define("shed-tally", ShedTally);
 An element that wants its own styles has a shadow root. The parser attaches one from a `<template shadowrootmode="open">` inside the element, before any script runs, so a template can write it and the server renders it:
 
 ```tsx
-<loan-planner deposit={tool.deposit}>
+<loan-planner name="days" deposit={tool.deposit} disabled={reserved}>
   <template shadowrootmode="open">
-    <style>{":host { display: block } output { font-weight: 600 }"}</style>
+    <style>{":host { display: block } :host([disabled]) { background: #f7f8fa } output { font-weight: 600 }"}</style>
     <label>
-      Borrow for
-      <input type="range" name="days" min="1" max="14" value={`${tool.days}`} />
-      <output>{tool.days} days</output>
+      {reserved ? "Borrowed for" : "Borrow for"}
+      <input type="range" name="days" min="1" max={`${tool.days}`} value={`${days}`} disabled={reserved} />
+      <output>{days} days</output>
     </label>
   </template>
 </loan-planner>
@@ -74,6 +74,25 @@ The planner is styled and laid out from the first paint, with no framework and n
 ```ts
 const root = this.shadowRoot ?? this.attachFromTemplate();
 ```
+
+The state is in the markup, not in a script that runs after paint. `reserved` comes from the loader, so the server writes `disabled` on the host and on the range, with the label reading "Borrowed for" from the first byte. A boolean attribute is written bare when it is true and left out when it is false, which is what `:host([disabled])` and a disabled control each want.
+
+## A value inside a shadow root that the form posts
+
+A control in a shadow root has no form owner, so the slider is not submitted by the form around it however it is nested. An element that wants to be a field says so and supplies its own value:
+
+```ts
+class LoanPlanner extends HTMLElement {
+  static formAssociated = true;
+  #internals = this.attachInternals();
+
+  #show(range: HTMLInputElement) {
+    this.#internals.setFormValue(range.value);
+  }
+}
+```
+
+With `name="days"` on the host, `days` is in the posted body under that name, natively and through htmx alike, since both build the form data from the form. The action reads it as it reads any other field, clamps it to what the shed lends that tool for and writes the agreed length into the session, so the page that comes back says what was actually agreed rather than what the tool's limit is.
 
 ## A region that asks the server for markup
 
@@ -103,6 +122,7 @@ An action posted as a form is answered with a redirect to the page that posted i
 <form method="post" action="/_sf/action/tool.$id.reserve" hx-post="/_sf/action/tool.$id.reserve?__fragment" hx-target="closest .page" hx-swap="outerHTML">
   <input type="hidden" name="_csrf" value={csrf_token ?? ""} />
   <input type="hidden" name="tool_id" value={tool.id} />
+  <loan-planner name="days" deposit={tool.deposit} disabled={reserved} />
   <button type="submit">Reserve it</button>
 </form>
 ```

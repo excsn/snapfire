@@ -22,7 +22,7 @@ test("the masthead is kept across a navigation and the page beneath it is replac
 });
 
 test("the tally is seeded by the layout loader and written into the store", async () => {
-  await load("/", { ctx: stocked({ reserved: { "1": true } }) });
+  await load("/", { ctx: stocked({ reserved: { "1": 3 } }) });
   assert.equal(screen.getByLabelText("reserved").textContent?.trim(), "1 reserved");
   const seed = document.querySelector("script[data-sf-store]");
   assert.ok(seed?.textContent?.includes("shed/reserved"), "the store seed names the key the element follows");

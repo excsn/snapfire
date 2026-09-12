@@ -7,7 +7,8 @@ export async function load({ params, session, services }: Ctx<"/tool/{id}">) {
   if (matches.length === 0) fail("not_found", "there is no tool with that id");
   const tool = matches[0];
   const sameCategory = tools.filter((t) => t.category === tool.category && t.id !== tool.id);
-  return { tool, sameCategory, reserved: session.reserved[params.id] ?? false };
+  const held = session.reserved[params.id] ?? 0;
+  return { tool, sameCategory, reserved: held > 0, days: held > 0 ? held : Number(tool.days) };
 }
 
 export const meta = ({ data }: { data: { tool: { name: string; keeper: string; days: number } } }) => ({

@@ -26,7 +26,7 @@ test("the two calls leave together", async () => {
 });
 
 test("what is reserved comes out of the session as ids", async () => {
-  const c = ctx({ session: { reserved: { "3": true } }, services: { shed: { listTools: () => [trimmer, drill], getShed: () => shed } } });
+  const c = ctx({ session: { reserved: { "3": 5 } }, services: { shed: { listTools: () => [trimmer, drill], getShed: () => shed } } });
   const { reserved } = await load(c);
   assert.equal(reserved, ["3"]);
 });

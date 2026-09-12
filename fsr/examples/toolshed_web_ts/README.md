@@ -28,7 +28,7 @@ fsr dev app
 | `routes/slots/loans/` | a parallel segment with its own loader and fallback, polled by htmx |
 | `routes/slots/weather/` | the same, behind a service that fails |
 | `src/elements/shed-tally.ts` | the masthead count: a disclosure the element wires and a store key it follows |
-| `src/elements/loan-planner.ts` | a range input inside a declarative shadow root, computing a return date |
+| `src/elements/loan-planner.ts` | a range input inside a declarative shadow root, form-associated so the loan length posts with the reservation |
 | `src/elements/time-ago.ts` | a due date rewritten as a distance from today, inside the polled panel |
 | `src/main.ts` | boots the client, enables navigation and tells htmx and the client about each other |
 | `vendor/htmx/htmx.esm.js` | htmx 2.0.10, committed, since an application carries its vendor tree |
@@ -41,7 +41,7 @@ Read `app/generated/islands.ts` after a build. It registers nothing. Every templ
 
 A template writes a custom element the way it writes any element, `<shed-tally count={reserved}>`, with its light DOM inside. The lowerer takes a hyphenated tag as markup and the dialect's declarations type it as one, so a typo in an ordinary tag is still caught and `hx-get` on an anchor is an attribute like any other. The server renders the element's children; the browser upgrades the element when its definition runs, which is the module `main.ts` imports. There is no island around it and no mounter behind it, since the browser is the mounter.
 
-`loan-planner` goes one further. Its template writes `<template shadowrootmode="open">` inside the element, so the parser attaches the shadow root before any script runs and the planner is styled and laid out from the first paint. A fragment swapped in later is parsed by `innerHTML`, which attaches no declarative shadow roots, so the element attaches its own from the template it finds; the same file handles both.
+`loan-planner` goes one further. Its template writes `<template shadowrootmode="open">` inside the element, so the parser attaches the shadow root before any script runs and the planner is styled and laid out from the first paint. A fragment swapped in later is parsed by `innerHTML`, which attaches no declarative shadow roots, so the element attaches its own from the template it finds; the same file handles both. Its slider is a form field too: a control inside a shadow root has no form owner, so the element declares `static formAssociated = true` and hands the length to the form through `ElementInternals.setFormValue`, under the `name` on its host. Once the tool is reserved the server writes the length back, disabled.
 
 `shed-tally` reads the store. `subscribe` from `@snapfire/fsr-client/store` is the whole adapter: no hook, no ref, a callback. The layout's loader seeds the key and every fragment reseeds it, so the count moves when a reservation is made from a page the layout was not re-rendered for.
 
