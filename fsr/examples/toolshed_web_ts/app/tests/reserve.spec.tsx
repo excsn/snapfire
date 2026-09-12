@@ -20,3 +20,20 @@ test("reserving through the action and asking for the page again as a fragment s
   assert.ok(html.includes("tool.$id.release"), "and posts the other action now");
   assert.ok(html.includes('"shed/reserved":1') || html.includes("shed/reserved"), "the seed carries the new count for the tally");
 });
+
+test("the loan slider moves until the tool is reserved, then it is settled", async () => {
+  const c = ctx({
+    session: { reserved: {} },
+    services: { shed: { getShed: () => shed, listTools: () => [trimmer], listLoans: () => [], getWeather: () => ({ day: "Saturday", summary: "dry" }) } },
+  });
+  await load("/tool/1", { ctx: c });
+
+  const free = await (await fetch("/tool/1?__fragment")).text();
+  assert.ok(free.includes("Borrow for") && !free.includes('disabled=""'), "the slider moves while nobody has it");
+
+  await fetch("/_sf/action/tool.$id.reserve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tool_id: "1" }) });
+
+  const held = await (await fetch("/tool/1?__fragment")).text();
+  assert.ok(held.includes("Borrowed for") && held.includes('disabled=""'), "the length is settled once it is reserved");
+  assert.ok(held.includes('reserved=""'), "the host carries the state its shadow styles select on");
+});
