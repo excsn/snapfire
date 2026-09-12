@@ -313,7 +313,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### RenderMode
 
-* `Html`, `Payload`.
+* `Html`, `Payload`, `Fragment(Option<String>)`. `Clone`, `PartialEq`, `Eq`; not `Copy`.
+* `Fragment(None)` renders the route's page segment alone; `Fragment(Some(slot))` the parallel slot of that name, wherever it sits on the route. Either is bare markup: no shell, no segment delimiters, no sidecar, every deferred segment resolved before anything is written, followed by the route's store seed as `<script type="application/json" data-sf-store>` when it has one. `handle` chooses it from `__fragment` in the query, bare for the page or `__fragment=<slot>` and answers `text/html`; `parse_query` drops the key, so no loader and no segment key sees it.
 
 ### HostReport
 
@@ -434,6 +435,7 @@ With no collector installed each is a relaxed atomic load and a branch.
 * `Transport(String, String)`, the client name and why its transport could not be built.
 * `Contract(PathBuf, String)`, a contract file that did not parse or defines a type or service an earlier file already defined.
 * `NotFound(String)`
+* `NoSlot(String)`: a `Fragment` named a slot the route does not have; `handle` answers it 404 with `no slot named \`<name>\` on this route`.
 * `Assemble(AssembleError)`, transparent.
 * `Mount(String, String)`: a site could not be mounted, the site's name and why.
 * `Leak(String)`: the bundle under `dist/` carries a server module. `build` reads `dist/.snapfire-build.json` when it exists, takes every module the plan's sources, actions and handlers name plus `middleware.ts` as server-only, maps each to its output by the `app/<path>.ts` to `dist/<path>.js` convention and refuses when an output is one of them or, by the manifest's `graph`, imports one; the message lists each with its reason.

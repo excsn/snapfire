@@ -21,6 +21,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Enabling Navigation](#enabling-navigation)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
+* [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
 * [Following the Server](#following-the-server)
 * [Sending as Fast as Someone Types](#sending-as-fast-as-someone-types)
 * [Calling an Action](#calling-an-action)
@@ -424,6 +425,31 @@ import { applyHead } from "@snapfire/fsr-client";
 
 applyHead({ title: "Cart · Shopping" });
 ```
+
+## Wiring Another Library to the Navigator
+
+A navigation writes markup this package did not read and another library may have to: htmx wires its `hx-` attributes when it processes a node; a node the navigator wrote has not been processed. The navigator dispatches `sf:navigate` on `document` once it has applied a payload's eager wave, with the path in `detail` and `sf:fill` for every deferred segment it fills afterwards, the same event the server's fill script dispatches for a streamed one. A library that wires markup listens to both:
+
+```ts
+import htmx from "htmx.org";
+
+const rewire = () => htmx.process(document.body);
+document.addEventListener("sf:navigate", rewire);
+document.addEventListener("sf:fill", rewire);
+```
+
+The other direction is `adopt` and `scan`. A fragment the host renders, one segment of a route with nothing around it, ends with the same inert seed script a document carries, so after a library swaps one in, `adopt()` reads the seeds nothing has read yet and `scan()` mounts any island the fragment placed:
+
+```ts
+import { adopt, scan } from "@snapfire/fsr-client";
+
+document.body.addEventListener("htmx:afterSettle", () => {
+  adopt();
+  scan(document);
+});
+```
+
+`adopt` takes a root to look under and marks every script it reads, so calling it for the whole document after each swap reads each seed once.
 
 ## Following the Server
 

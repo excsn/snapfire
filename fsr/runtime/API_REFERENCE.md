@@ -68,6 +68,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`meta_to_json`](#meta_to_json)
   * [`seed_to_json`](#seed_to_json)
   * [`html_stream`](#html_stream)
+  * [`fragment_html`](#fragment_html)
   * [`segments_to_json`](#segments_to_json)
   * [`FILL_SCRIPT`](#fill_script)
 * [13. Error handling](#13-error-handling)
@@ -599,6 +600,14 @@ When the resolution carries metadata the script also calls `__sfHead({meta json}
 * `<` in the sidecar JSON is escaped to `\u003c`, so it cannot terminate its own script tag.
 * One `HtmlSession` spans the whole response, so island ids (`sf-i0` upward) stay unique across chunks: a late slot continues the sequence rather than restarting it.
 * Slot-addressed child segments are not recursed into while serializing the first chunk. Their DOM region is the `data-sf-slot` element `Node::Pending` produces.
+
+### `fragment_html`
+
+```rust
+pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<String>
+```
+
+One segment of the assembled route as markup with nothing around it: the page when `slot` is `None`, found as the innermost segment reached through `content` slots; otherwise the first segment in sidecar order whose name is `slot`, wherever it sits. Every pending resolution is awaited first, nested ones included, then each resolved node is spliced over its `Node::Pending`, so nothing streams and no fallback is written. The subtree is serialized by a fresh `HtmlSession` with no segment delimiters and no sidecar. When the route seeded the store, the eager wave's seeds and every resolution's, the markup is followed by `<script type="application/json" data-sf-store>...</script>` with `<` escaped as `\u003c`. `None` when no segment carries that name.
 
 ### `segments_to_json`
 

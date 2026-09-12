@@ -19,6 +19,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Adding a Route in Rust](#adding-a-route-in-rust)
 * [Adding a Handler in Rust](#adding-a-handler-in-rust)
 * [Posting a Form to an Action](#posting-a-form-to-an-action)
+* [Answering a Fragment](#answering-a-fragment)
 * [Middleware in Rust](#middleware-in-rust)
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
 * [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
@@ -368,7 +369,7 @@ let answer = host.call_handler("GET", "/api/health", session, Value::Null).await
 
 ## Posting a Form to an Action
 
-The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields reach the action as strings; a success answers 303 back to the page that posted, by its `Referer`, and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified, or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
+The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields reach the action as strings; a success answers 303 back to the page that posted, by its `Referer`, with `__fragment` carried over when the action's URL had it, and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified, or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
 
 ```html
 <form method="post" action="/_sf/action/add_server">
@@ -379,6 +380,17 @@ The action route takes a form as well as a fetch. A `POST` with a form-encoded b
 ```
 
 A payload request may name the encoding it wants with `enc`; `json` is the one that exists and anything else is 406.
+
+## Answering a Fragment
+
+A `GET` of a route with `__fragment` in the query answers one segment of it as markup with nothing around it: the page when the key is bare, the parallel slot it names with `__fragment=loans`, wherever that slot sits on the route. The host renders the whole route, layouts and slots included, waits for every deferred segment rather than streaming a fallback, picks the segment out and writes it with no shell, no segment delimiters and no sidecar. The route's store seed follows the markup as the same inert script a document carries, so whatever swaps the fragment in can hand it to the client's `adopt`. A slot the route does not have is 404 with one line naming it.
+
+```sh
+curl 'http://127.0.0.1:8170/?category=Garden&__fragment'
+curl 'http://127.0.0.1:8170/tool/3?__fragment=loans'
+```
+
+This is what an htmx region asks for: `hx-get="/?category=Garden&__fragment"` swaps the page, `hx-get="?__fragment=loans"` on a timer polls a slot. A form posted with `hx-post="/_sf/action/tool.$id.reserve?__fragment"` is answered with a redirect that carries the same query, so what comes back is the page rendered from the session the action just wrote. `parse_query` drops every `__` key, so no loader and no segment key sees the request as anything but a request for the route. Loaders run as for a document, the render memo answers what it holds and a fragment of a prerendered route is rendered live, since only documents and payloads are written to disk.
 
 ## Middleware in Rust
 

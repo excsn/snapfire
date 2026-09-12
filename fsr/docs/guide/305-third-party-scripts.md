@@ -145,6 +145,10 @@ The empty string in development is the whole switch: `loadAnalytics` returns bef
 
 Every part of the arrangement is something the build reads. The head rows are data the report lists and a test asserts on. The vendor is a committed file with a recorded version. The id is a typed field, so a misspelt read is a build error and `fsr doctor` reports a loader reading a key no `[public]` declares. The consent decision is a function call in one module.
 
+## A script that reads the markup
+
+A tag reads events. A library that reads the markup, one that wires attributes it finds when it processes a node, has one more thing to know: the navigator writes markup after the document loaded. It dispatches `sf:navigate` on `document` once a payload's eager wave is applied and `sf:fill` for every deferred segment it fills, so such a library processes the document again on both. Chapter 105 does this for htmx, in both directions.
+
 ## The lab
 
 In the storefront, add `[public] analytics_id = ""` to `config/app.toml` and read it in `routes/layout.loader.ts` as above. Boot the host: the report gains a `public` row with the empty value and the page's store seed carries `"site/analytics": ""`. Set it in `config/local.toml` and boot again: the seed carries the value and nothing else changed. Now misspell the key in the loader, `config.analytic_id`, then run `fsr build`: the typecheck refuses it, since `Config` has no such field. Put the misspelling in the overlay instead and run `fsr doctor`: the `ctx.config` check names the key the loader reads that no `[public]` declares.
