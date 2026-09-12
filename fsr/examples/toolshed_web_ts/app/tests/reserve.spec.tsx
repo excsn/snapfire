@@ -37,4 +37,5 @@ test("the loan slider moves until the tool is reserved, then it is settled", asy
   const held = await (await fetch("/tool/1?__fragment")).text();
   assert.ok(held.includes("Borrowed for") && held.includes('disabled=""'), "the length is settled once it is reserved");
   assert.ok(held.includes('value="2"'), "and it sits at the length that was asked for, not the shed's limit");
+  assert.ok(!held.includes("<loan-planner name="), "with no name on the host, so the release post carries nothing from it");
 });

@@ -341,6 +341,63 @@ impl Contract {
     }
   }
 
+  /// `conform` for a value whose scalars are all text because the encoding
+  /// carries nothing else: a form body, a query string. A string that parses
+  /// as the declared type becomes it, an empty one against an optional
+  /// becomes null, and anything else is left for [`Contract::check_value`] to
+  /// refuse. Never call it on a value that arrived typed, since a string
+  /// where a number is declared is then a real mismatch.
+  pub fn conform_text(&self, ty: &Type, value: &mut Value) {
+    match ty {
+      Type::Optional(inner) => {
+        if matches!(value, Value::Str(s) if s.is_empty()) {
+          *value = Value::Null;
+          return;
+        }
+        if !matches!(value, Value::Null) {
+          self.conform_text(inner, value);
+        }
+      }
+      Type::Named(name) => {
+        if let (Some(TypeDef::Record { fields }), Value::Map(map)) = (self.types.get(name), &mut *value) {
+          for field in fields {
+            if let Some(item) = map.get_mut(&field.name) {
+              self.conform_text(&field.ty, item);
+            }
+          }
+        }
+      }
+      Type::Bool => {
+        if let Value::Str(text) = value {
+          match text.as_str() {
+            "on" | "true" | "1" | "yes" => *value = Value::Bool(true),
+            "off" | "false" | "0" | "no" => *value = Value::Bool(false),
+            _ => {}
+          }
+        }
+      }
+      Type::I32 | Type::I64 | Type::I128 | Type::U32 | Type::U64 | Type::U128 => {
+        if let Value::Str(text) = value {
+          if let Ok(n) = text.trim().parse::<i128>() {
+            *value = Value::Int(n);
+          }
+        }
+      }
+      Type::F32 | Type::F64 => {
+        if let Value::Str(text) = value {
+          if let Ok(f) = text.trim().parse::<f64>() {
+            *value = match ty {
+              Type::F32 => Value::F32(f as f32),
+              _ => Value::F64(f),
+            };
+          }
+        }
+      }
+      _ => {}
+    }
+    self.conform(ty, value);
+  }
+
   /// `conform` against a method's return type; an unknown method changes nothing.
   pub fn conform_return(&self, service: &str, method: &str, value: &mut Value) {
     if let Some(signature) = self.method(service, method) {

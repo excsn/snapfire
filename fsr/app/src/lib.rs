@@ -165,6 +165,10 @@ pub struct App {
   /// `ctx.native.<name>`.
   pub natives: Arc<snapfire_fsr_runtime::Natives>,
   pub actions: ActionRegistry,
+  /// The contract the plan's type names resolve through.
+  pub contract: Option<Arc<Contract>>,
+  /// Each lowered action's declared input type, by action id.
+  pub action_inputs: HashMap<String, String>,
   pub report: Report,
 }
 
@@ -279,6 +283,17 @@ pub struct AppBuilder {
 }
 
 impl App {
+  /// The input of the action `id` read against its declared type, for an edge
+  /// whose encoding carries strings only: a form body. A value that arrived
+  /// typed must not be passed through here, since a string where a number is
+  /// declared is a mismatch rather than a spelling.
+  pub fn conform_text_input(&self, id: &str, input: &mut snapfire_fsr_core::Value) {
+    let (Some(name), Some(contract)) = (self.action_inputs.get(id), self.contract.as_ref()) else {
+      return;
+    };
+    contract.conform_text(&Type::Named(name.clone()), input);
+  }
+
   /// Drops every cached subtree under the plan `cache_key` and says how many went.
   pub async fn invalidate(&self, plan_key: &str) -> usize {
     self.runtime.cache.invalidate(plan_key).await
@@ -683,6 +698,7 @@ impl AppBuilder {
         return Err(BindError::ActionOverridesNothing { id: id.clone() });
       }
     }
+    let mut action_inputs: HashMap<String, String> = HashMap::new();
     for (id, input, body) in std::mem::take(&mut self.lowered_actions) {
       match self.action_claims.iter().rev().find(|(claimed, _)| *claimed == id).map(|(_, o)| *o) {
         Some(Owner::RustOverride) => {}
@@ -695,6 +711,7 @@ impl AppBuilder {
               if !contract.types.contains_key(&input) {
                 return Err(BindError::UnknownInput { id: id.clone(), input });
               }
+              action_inputs.insert(id.clone(), input.clone());
               Arc::new(CheckedInput { input, contract, inner: IrAction::new(body).with_interpreter(interpreter.clone()) })
             }
           };
@@ -921,6 +938,8 @@ impl AppBuilder {
       services: self.services.unwrap_or_else(|| Services::builder().build()),
       natives: Arc::new(self.natives),
       actions: self.actions,
+      contract: self.contract,
+      action_inputs,
       report,
     })
   }

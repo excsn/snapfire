@@ -369,15 +369,18 @@ let answer = host.call_handler("GET", "/api/health", session, Value::Null).await
 
 ## Posting a Form to an Action
 
-The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields reach the action as strings; a success answers 303 back to the page that posted, by its `Referer`, with `__fragment` carried over when the action's URL had it, and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified, or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
+The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields are read against the action's declared input type, since a urlencoded body carries text and nothing else, so a field declared `number` reaches the body as one and a field that will not parse is the same `invalid` failure a JSON body of the wrong shape would be; a success answers 303 back to the page that posted, by its `Referer`, with `__fragment` carried over when the action's URL had it, and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified, or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
 
 ```html
 <form method="post" action="/_sf/action/add_server">
   <input name="name">
+  <input name="port" type="number">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   <button>add</button>
 </form>
 ```
+
+A field of a type the encoding cannot spell is the one thing to know: `port` above arrives as the number the action declares, an unchecked checkbox posts nothing at all rather than `false`, so declare such a field optional; an empty text input against an optional field is absent rather than an empty string.
 
 A payload request may name the encoding it wants with `enc`; `json` is the one that exists and anything else is 406.
 

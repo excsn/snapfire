@@ -297,3 +297,45 @@ fn a_route_argument_and_metadata_that_cannot_be_sent_are_refused() {
   let error = block_on(transport.call(call(args, metadata))).expect_err("a header is a string");
   assert!(error.message.contains("not a string"), "{}", error.message);
 }
+
+#[test]
+fn conform_text_reads_a_form_body_as_the_type_the_contract_declares() {
+  let contract = Contract::new().record(
+    "Reserve",
+    vec![
+      Field::new("tool_id", Type::Str),
+      Field::new("days", Type::optional(Type::F64)),
+      Field::new("count", Type::I64),
+      Field::new("keep", Type::Bool),
+    ],
+  );
+  let mut posted = Value::Map(ValueMap::from_iter([
+    ("tool_id".to_owned(), Value::str("3")),
+    ("days".to_owned(), Value::str("5")),
+    ("count".to_owned(), Value::str(" 12 ")),
+    ("keep".to_owned(), Value::str("on")),
+  ]));
+  assert!(contract.check_value(&Type::named("Reserve"), &posted, "input").is_err(), "text where the contract says a number is a mismatch before conforming");
+  contract.conform_text(&Type::named("Reserve"), &mut posted);
+  let Value::Map(fields) = &posted else { panic!("{posted:?}") };
+  assert_eq!(fields["tool_id"], Value::str("3"), "a declared string stays the string it was");
+  assert_eq!(fields["days"], Value::F64(5.0));
+  assert_eq!(fields["count"], Value::Int(12));
+  assert_eq!(fields["keep"], Value::Bool(true));
+  contract.check_value(&Type::named("Reserve"), &posted, "input").unwrap();
+}
+
+#[test]
+fn conform_text_leaves_what_it_cannot_read_for_the_check_to_refuse() {
+  let contract = Contract::new().record("Reserve", vec![Field::new("days", Type::optional(Type::F64)), Field::new("count", Type::I64)]);
+  let mut empty = Value::Map(ValueMap::from_iter([("days".to_owned(), Value::str("")), ("count".to_owned(), Value::str("2"))]));
+  contract.conform_text(&Type::named("Reserve"), &mut empty);
+  let Value::Map(fields) = &empty else { panic!("{empty:?}") };
+  assert_eq!(fields["days"], Value::Null, "an empty field of an optional is the absent one");
+  contract.check_value(&Type::named("Reserve"), &empty, "input").unwrap();
+
+  let mut nonsense = Value::Map(ValueMap::from_iter([("days".to_owned(), Value::str("soon")), ("count".to_owned(), Value::str("2"))]));
+  contract.conform_text(&Type::named("Reserve"), &mut nonsense);
+  let err = contract.check_value(&Type::named("Reserve"), &nonsense, "input").unwrap_err();
+  assert_eq!(err.to_string(), "input.days: expected f64, found str");
+}

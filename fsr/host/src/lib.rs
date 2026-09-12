@@ -2219,7 +2219,9 @@ impl Host {
           if !self.sessions.verify_csrf(&opened.id, &token) {
             return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
           }
-          Value::Map(fields)
+          let mut input = Value::Map(fields);
+          t.app.conform_text_input(id, &mut input);
+          input
         } else {
           match serde_json::from_slice::<serde_json::Value>(req.body())
             .map_err(|e| e.to_string())

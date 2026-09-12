@@ -3953,3 +3953,52 @@ async fn a_written_session_stamps_a_state_cookie_the_page_can_read() {
   let second = state_cookie_of(&response).unwrap();
   assert_ne!(first, second, "every write is a new generation");
 }
+
+#[tokio::test]
+async fn a_form_field_is_read_as_the_type_the_action_declares() {
+  let host = formed();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let html = body_of(response).await;
+  let token = field(&html, "csrf_token").expect("csrf = always mints a token");
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::REFERER, "http://localhost/hello/norm")
+        .body(Bytes::from(format!("by=2&_csrf={token}")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER, "the form post was accepted");
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"by": 3}"#))
+        .unwrap(),
+    )
+    .await;
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert_eq!(&body[..], b"5", "the form's `by` was added as the number 2, not appended as text");
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::REFERER, "http://localhost/hello/norm")
+        .body(Bytes::from(format!("by=two&_csrf={token}")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(
+    response.status(),
+    StatusCode::BAD_REQUEST,
+    "a field that is not the declared type is still refused"
+  );
+}
