@@ -32,6 +32,7 @@ pub const FILES: &[(&str, &str)] = &[
   ("store.js", include_str!("../embedded/client/store.js")),
   ("testing.js", include_str!("../embedded/client/testing.js")),
   ("values.js", include_str!("../embedded/client/values.js")),
+  ("vue.js", include_str!("../embedded/client/vue.js")),
 ];
 
 /// The declarations for every module, written into an application's `types/`
@@ -54,6 +55,7 @@ pub const TYPES: &[(&str, &str)] = &[
   ("store.d.ts", include_str!("../embedded/client/store.d.ts")),
   ("testing.d.ts", include_str!("../embedded/client/testing.d.ts")),
   ("values.d.ts", include_str!("../embedded/client/values.d.ts")),
+  ("vue.d.ts", include_str!("../embedded/client/vue.d.ts")),
 ];
 
 /// The module `name` names. `None` for anything the client does not carry.
