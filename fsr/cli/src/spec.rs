@@ -70,6 +70,13 @@ pub fn prepare(app: &Path) -> Result<Prepared, BuildError> {
   let dist = test_dir.join("dist");
   let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), ("/static/js/app".to_owned(), dist.clone())];
   roots.extend(static_roots(&app)?);
+  // The host answers this prefix out of the binary rather than off disk, so
+  // nothing in the application's configuration points at the client and the
+  // spec has to be given the same modules the host would have served. Last,
+  // so an application serving its own client still wins the prefix.
+  let client_dir = test_dir.join("client");
+  snapfire_fsr_host::client::write_to(&client_dir).map_err(|e| BuildError::Io(client_dir.clone(), e))?;
+  roots.push((snapfire_fsr_host::client::ROUTE.to_owned(), client_dir));
   let resolution = Resolution { import_map, roots, overrides: overrides.into_iter().filter(|(k, _)| k != "linkedom").collect() };
 
   let boot = test_dir.join("boot.js");
