@@ -142,6 +142,9 @@ pub struct RequestCtx {
   /// `None` when that key is unset, so nothing a client sends reaches a body
   /// unless the deployment listed it.
   pub host: Option<String>,
+  /// The deployment's `[public]` values, `ctx.config`. The same on every
+  /// request, so a body reading only these still prerenders.
+  pub config: ValueMap,
   pub csrf: Option<String>,
   pub services: ServiceHandle,
   /// The application's own Rust, `ctx.native`. No wire, so no contract and no
@@ -158,6 +161,7 @@ impl RequestCtx {
       session: SessionCell::default(),
       locale: Locale::default(),
       host: None,
+      config: ValueMap::default(),
       csrf: None,
       services: ServiceHandle::default(),
       natives: crate::natives::NativeHandle::default(),

@@ -34,6 +34,9 @@ const PLAN: &str = "(plan 2)\n(route / (node 0 shell#document))\n";
 /// A plan whose loader reads `ctx.host`.
 const HOST_PLAN: &str = "(plan 2)\n(route / (node 0 shell#document (source index)))\n(source index lowered (module routes/page.loader.ts) (body (ret (obj (h (host))))))\n";
 
+/// A plan whose loader reads `ctx.config.analytics_id`.
+const CONFIG_PLAN: &str = "(plan 2)\n(route / (node 0 shell#document (source index)))\n(source index lowered (module routes/page.loader.ts) (body (ret (obj (id (config analytics_id))))))\n";
+
 fn findings(dir: &Path) -> Vec<String> {
   doctor::run(dir).expect("doctor runs").findings.into_iter().map(|f| f.check.to_owned()).collect()
 }
@@ -47,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 13, "{out}");
+  assert_eq!(out.clean.len(), 14, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -59,6 +62,16 @@ fn an_origin_is_wanted_once_the_deployment_names_its_hosts() {
 
   let with = app("[server]\nhosts = [\"example.com\"]\n[document]\ntitle = \"t\"\norigin = \"https://example.com\"\n", &[]);
   assert!(doctor::run(&with).unwrap().is_clean());
+}
+
+#[test]
+fn a_body_reading_an_undeclared_public_key_is_reported() {
+  let dir = app("", &[("app/generated/plan.sexp", CONFIG_PLAN)]);
+  assert_eq!(findings(&dir), vec!["ctx.config"]);
+  assert!(report(&dir).contains("`[public]` does not declare `analytics_id`"), "{}", report(&dir));
+
+  let declared = app("[public]\nanalytics_id = \"\"\n", &[("app/generated/plan.sexp", CONFIG_PLAN)]);
+  assert!(doctor::run(&declared).unwrap().is_clean(), "{}", report(&declared));
 }
 
 #[test]
@@ -158,7 +171,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 13 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 14 checks"), "{out}");
   assert!(!out.is_clean());
 }
 

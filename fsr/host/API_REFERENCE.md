@@ -14,6 +14,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [TlsSection](#tlssection)
   * [socket](#socket)
   * [DocumentConfig](#documentconfig)
+  * [PublicValue](#publicvalue)
   * [SessionSection](#sessionsection)
   * [CacheSection](#cachesection)
   * [DataCacheSection](#datacachesection)
@@ -80,11 +81,11 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub inferred: Vec<String> }`
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub public: BTreeMap<String, PublicValue>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store.
 * `Config::load(path) -> Result<Config, HostError>`: `locate`, then `load_located`.
 * `Config::load_located(located: Located) -> Result<Config, HostError>`: `NoConfig` when `sources` is empty; otherwise c5store over the sources in that order with default options, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `from_store`.
 * `Config::from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Config, HostError>`: the same over a store the caller loaded and a root it names, for an application running the host inside itself: `Config::from_store_at(&store.branch("fsr"), root)`. Nothing here reads the filesystem for configuration.
-* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections, refuses a top-level key outside `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site` and `sites`, requires `session`, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
+* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site`, `sites` and `public`, leaving any other top-level key alone and naming it in `ignored`, requires `session`, refuses a `public` value that is not a scalar or a `public` key that is not an identifier, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
 * `Config::config_dir(&self) -> PathBuf`: the directory of the first file loaded, the project root when none; where `auth.users` resolves.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
@@ -117,7 +118,13 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### DocumentConfig
 
-* `title` (default empty), `entry: Option<String>`, `import_map: Option<String>` and `styles: Option<Vec<String>>`, stylesheet URLs linked in order, all three inferred when absent, `shell` (default `shell#document`).
+* `title` (default empty), `entry: Option<String>`, `import_map: Option<String>` and `styles: Option<Vec<String>>`, stylesheet URLs linked in order, all three inferred when absent, `shell` (default `shell#document`), `origin: Option<String>`.
+* `head: Vec<BTreeMap<String, String>>` is not a key: it holds what the host inferred from `icons/`, which a route's `meta` folds over. `head_meta(&self) -> Result<Meta, HostError>` is that as the outermost `Meta`.
+
+### PublicValue
+
+* `pub enum PublicValue { Str(String), Int(i64), Float(f64), Bool(bool) }`: one `[public]` value as written.
+* `ts(&self) -> &'static str`: the TypeScript type a body sees it as; `to_value(&self) -> Value`: what `ctx.config` carries; `Display` prints it the way the boot report does.
 
 ### SessionSection
 
@@ -310,7 +317,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### HostReport
 
-* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub extensions: Vec<String>, pub site: Option<(String, String)>, pub sites: Vec<SiteReport>, pub config: Vec<PathBuf>, pub inferred: Vec<String> }`
+* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub extensions: Vec<String>, pub site: Option<(String, String)>, pub sites: Vec<SiteReport>, pub config: Vec<PathBuf>, pub inferred: Vec<String>, pub public: Vec<(String, String)>, pub ignored: Vec<String> }`
 * `extensions: Vec<String>`: the native pairs registered beside the standard library, by name; `Display` prints them as `natives` rows labelled `rust`, after `bearer`.
 * `catalogs: Vec<(String, usize)>`: each locale with a file under `locales/` and how many keys it holds; `Display` prints one `catalogs` row, `en_US 5 keys, fr_FR 5 keys`.
 * `client: Option<(&'static str, usize, usize)>`: the prefix the embedded client answers, how many modules it holds and what they come to; `None` when a static root claims the prefix. `Display` prints one `client` row after the `static` rows.

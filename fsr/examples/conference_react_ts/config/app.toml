@@ -7,11 +7,6 @@ listen = "127.0.0.1:8150"
 [document]
 title = "Conference"
 
-[[document.head]]
-tag = "link"
-rel = "icon"
-href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🎤</text></svg>"
-
 [session]
 key = "conference-example-dev-key-not-a-secret"
 ttl = "12h"

@@ -517,15 +517,16 @@ Nothing found is exit 0, anything found is exit 1, so a deploy script stops on i
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 13 checks found something
+doctor       1 of 14 checks found something
 ```
 
-Thirteen checks, each answering from something the build already computed, so none of them needs a server or a network:
+Fourteen checks, each answering from something the build already computed, so none of them needs a server or a network:
 
 | Check | Fires when |
 | --- | --- |
 | `canonical` | `[document] origin` is unset while the deployment names hosts or prerenders, which leaves every canonical link relative |
 | `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty, so the read answers null for ever |
+| `ctx.config` | a body reads `ctx.config.<key>` while `[public]` does not declare it, so the read answers null for ever |
 | `locales` | `[locales] supported` names a locale with no catalog under `locales/` |
 | `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` |
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it |

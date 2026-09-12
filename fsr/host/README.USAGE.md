@@ -131,6 +131,9 @@ login = "/login"                  # the application's login page, the default
 version = "7.0.2"                 # the TypeScript a build checks with; fsr records the one it resolved
 enabled = true                    # the default; false builds without checking types
 
+[public]                          # optional: the deployment's own values, read by a body as ctx.config.<key>
+analytics_id = ""                 # a scalar under an identifier; an overlay sets the deployment's own
+
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
 bearer = true                     # send custody's access_token as a bearer; a string names another key
@@ -153,7 +156,7 @@ hash = "3a098783bbb3ebc5"         # optional: refuse an artifact whose content h
 allow_engine = false              # refuse an artifact with engine-owned rows, the default
 ```
 
-A key the host does not know is an error naming the key. So is a section it does not know, so a typo cannot silently do nothing.
+A key the host does not know inside a section it owns is an error naming the key. A section it does not own is left where it is and listed on the report's `ignored` row: an application that shares `config/` between its own store and the host's puts its keys on the same rungs. The host reads only the sections it names.
 
 ## What the Host Infers
 
@@ -815,6 +818,8 @@ dev       live refresh on /__fsr/events, told by POST /__fsr/changed
 config    /srv/shop/config
 inferred  static /static/js/app from dist/.snapfire-build.json
           document.entry from dist/.snapfire-build.json
+public    analytics_id           "G-1234"
+ignored   http, not the host's; left to the application's own store
 ```
 
 ## Error Handling

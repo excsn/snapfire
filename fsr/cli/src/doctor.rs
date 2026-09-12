@@ -82,6 +82,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
   for (check, findings) in [
     ("canonical", canonical(&config)),
     ("ctx.host", host_reads(&config, manifest.as_ref())),
+    ("ctx.config", config_reads(&config, manifest.as_ref())),
     ("locales", catalogs(&config)),
     ("stale", stale(&config)),
     ("vendor", vendor(&config)),
@@ -152,6 +153,40 @@ fn host_reads(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
     "a body reads `ctx.host` while `server.hosts` is empty, so it always answers null",
     "list the hosts this deployment answers on in `[server] hosts`, and make sure the server in front sets the header",
   )]
+}
+
+/// `ctx.config.<key>` answers null for a key `[public]` does not declare, and
+/// a deployment overlay that misspells one is exactly the case nothing else
+/// catches.
+fn config_reads(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
+  let Some(manifest) = manifest else { return Vec::new() };
+  let mut keys: Vec<String> = Vec::new();
+  let mut look = |expr: &Expr| {
+    if let Expr::Config(key) = expr {
+      if !config.public.contains_key(key) && !keys.contains(key) {
+        keys.push(key.clone());
+      }
+    }
+  };
+  for row in &manifest.sources {
+    for body in [&row.body, &row.meta, &row.store].into_iter().flatten() {
+      snapfire_fsr_ir::body_visit(body, &mut look);
+    }
+  }
+  for body in manifest.actions.iter().filter_map(|row| row.body.as_ref()) {
+    snapfire_fsr_ir::body_visit(body, &mut look);
+  }
+  keys.sort();
+  keys
+    .into_iter()
+    .map(|key| {
+      Finding::new(
+        "ctx.config",
+        format!("a body reads `ctx.config.{key}` while `[public]` does not declare `{key}`, so it always answers null"),
+        format!("declare `{key}` under `[public]` in app.toml and set it per deployment in an overlay"),
+      )
+    })
+    .collect()
 }
 
 /// Every locale the table names needs a catalog, or `t` falls back for a

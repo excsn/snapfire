@@ -14,19 +14,32 @@ pub struct HeadEl {
 }
 
 impl HeadEl {
+  /// The `link` rels that name a resource rather than a role: a document
+  /// carries one of these per href, so the href is part of what the element
+  /// is. Every other rel (`canonical`, `icon`, `manifest`, `alternate`) is a
+  /// role an inner segment overrides by naming it again.
+  const RESOURCE_RELS: [&'static str; 6] = ["stylesheet", "preconnect", "dns-prefetch", "preload", "modulepreload", "prefetch"];
+
   /// What makes two entries the same element, so an inner segment replaces an
   /// outer one rather than emitting both: the naming attribute a head element
   /// is identified by in practice, or every attribute when it has none.
-  /// `sizes` and `media` qualify it, since a document carries several icons
-  /// under one `rel` and several stylesheets under one `media`.
+  /// `sizes`, `media`, `type` and `hreflang` qualify it, since a document
+  /// carries several icons under one `rel`, several stylesheets under one
+  /// `media` and one `alternate` per language; a resource rel is qualified
+  /// by its href as well.
   pub fn identity(&self) -> (String, String) {
     let of = |name: &str| self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
     for name in ["rel", "name", "property", "http-equiv", "itemprop", "id"] {
       if let Some(value) = of(name) {
-        let qualifier: String = ["sizes", "media"]
+        let mut qualifier: String = ["sizes", "media", "type", "hreflang"]
           .iter()
           .filter_map(|q| of(q).map(|v| format!(" {q}={v}")))
           .collect();
+        if name == "rel" && self.tag == "link" && Self::RESOURCE_RELS.contains(&value) {
+          if let Some(href) = of("href") {
+            qualifier.push_str(&format!(" href={href}"));
+          }
+        }
         return (format!("{}[{name}]", self.tag), format!("{value}{qualifier}"));
       }
     }
@@ -118,8 +131,8 @@ pub struct Head {
   /// The message catalog for this response's locale as JSON, when the
   /// browser needs it; the payload carries it as a `D` row.
   pub catalog: Option<String>,
-  /// The head elements every document carries, from `[document.head]` and
-  /// what the host inferred. A segment's `meta` folds over these.
+  /// The head elements every document carries, the ones the host inferred
+  /// from `icons/`. A segment's `meta` folds over these.
   pub head: Vec<HeadEl>,
   /// `scheme://host` for this deployment, `[document] origin`. A crawler reads
   /// `rel=canonical` and `rel=alternate` as absolute URLs only, so a path on
@@ -240,4 +253,69 @@ fn escape(text: &str) -> String {
     .replace('<', "&lt;")
     .replace('>', "&gt;")
     .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn el(tag: &str, attrs: &[(&str, &str)]) -> HeadEl {
+    HeadEl {
+      tag: tag.to_owned(),
+      attrs: attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+      children: None,
+    }
+  }
+
+  fn merged(outer: Vec<HeadEl>, inner: Vec<HeadEl>) -> Vec<HeadEl> {
+    let mut meta = Meta { head: outer, ..Meta::default() };
+    meta.merge(Meta { head: inner, ..Meta::default() });
+    meta.head
+  }
+
+  #[test]
+  fn a_resource_rel_is_one_element_per_href() {
+    let outer = vec![el("link", &[("rel", "preconnect"), ("href", "https://fonts.example")])];
+    let inner = vec![
+      el("link", &[("rel", "preconnect"), ("href", "https://cdn.example")]),
+      el("link", &[("rel", "stylesheet"), ("href", "/a.css")]),
+      el("link", &[("rel", "stylesheet"), ("href", "/b.css")]),
+    ];
+    assert_eq!(merged(outer, inner).len(), 4);
+  }
+
+  #[test]
+  fn a_repeated_resource_href_replaces_in_place() {
+    let outer = vec![el("link", &[("rel", "stylesheet"), ("href", "/a.css")])];
+    let inner = vec![el("link", &[("rel", "stylesheet"), ("href", "/a.css"), ("media", "print")])];
+    let head = merged(outer.clone(), inner);
+    assert_eq!(head.len(), 2, "media still qualifies");
+    let head = merged(outer, vec![el("link", &[("rel", "stylesheet"), ("href", "/a.css")])]);
+    assert_eq!(head.len(), 1);
+  }
+
+  #[test]
+  fn a_role_rel_is_overridden_by_naming_it_again() {
+    let outer = vec![el("link", &[("rel", "canonical"), ("href", "/outer")])];
+    let inner = vec![el("link", &[("rel", "canonical"), ("href", "/inner")])];
+    let head = merged(outer, inner);
+    assert_eq!(head.len(), 1);
+    assert_eq!(head[0].attrs[1].1, "/inner");
+  }
+
+  #[test]
+  fn alternates_differ_by_hreflang_and_icons_by_type() {
+    let outer = vec![
+      el("link", &[("rel", "alternate"), ("hreflang", "fr"), ("href", "/fr")]),
+      el("link", &[("rel", "icon"), ("type", "image/svg+xml"), ("href", "/favicon.svg")]),
+    ];
+    let inner = vec![
+      el("link", &[("rel", "alternate"), ("hreflang", "de"), ("href", "/de")]),
+      el("link", &[("rel", "icon"), ("type", "image/x-icon"), ("href", "/favicon.ico")]),
+      el("link", &[("rel", "icon"), ("type", "image/svg+xml"), ("href", "/other.svg")]),
+    ];
+    let head = merged(outer, inner);
+    assert_eq!(head.len(), 4);
+    assert_eq!(head[1].attrs[2].1, "/other.svg", "the same rel and type replaces");
+  }
 }

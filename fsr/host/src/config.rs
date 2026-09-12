@@ -43,8 +43,58 @@ pub struct Config {
   pub site: Option<SiteSection>,
   /// The sites this application mounts as their shell; absent means none.
   pub sites: Option<SitesSection>,
+  /// `[public]`: the deployment's own values, which a body reads as
+  /// `ctx.config.<key>`. Scalars only, one level deep.
+  pub public: BTreeMap<String, PublicValue>,
   /// Which settings were inferred rather than written, for the report.
   pub inferred: Vec<String>,
+  /// Top-level keys the host does not own, left where they were for the
+  /// application's own store to read. A project that shares `config/`
+  /// between its store and the host's puts its keys on the same rungs.
+  pub ignored: Vec<String>,
+}
+
+/// One `[public]` value: a TOML scalar, kept as written so the build can type
+/// it and the host can hand it to a body.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PublicValue {
+  Str(String),
+  Int(i64),
+  Float(f64),
+  Bool(bool),
+}
+
+impl PublicValue {
+  /// The TypeScript type a body sees the value as.
+  pub fn ts(&self) -> &'static str {
+    match self {
+      PublicValue::Str(_) => "string",
+      PublicValue::Int(_) => "bigint",
+      PublicValue::Float(_) => "number",
+      PublicValue::Bool(_) => "boolean",
+    }
+  }
+
+  pub fn to_value(&self) -> snapfire_fsr_core::Value {
+    use snapfire_fsr_core::Value;
+    match self {
+      PublicValue::Str(s) => Value::str(s.clone()),
+      PublicValue::Int(i) => Value::int(*i),
+      PublicValue::Float(f) => Value::F64(*f),
+      PublicValue::Bool(b) => Value::Bool(*b),
+    }
+  }
+}
+
+impl std::fmt::Display for PublicValue {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      PublicValue::Str(s) => write!(f, "{s:?}"),
+      PublicValue::Int(i) => write!(f, "{i}"),
+      PublicValue::Float(x) => write!(f, "{x}"),
+      PublicValue::Bool(b) => write!(f, "{b}"),
+    }
+  }
 }
 
 /// `[sites]`: `root` is where `name@version` artifacts resolve, `poll` how
@@ -234,9 +284,10 @@ pub struct DocumentConfig {
   #[serde(default)]
   pub styles: Option<Vec<String>>,
   /// Head elements every document carries, which a segment's `meta`
-  /// overrides one identity at a time. Each table names a `tag` and its
-  /// attributes; `children` is the element's text when it takes any.
-  #[serde(default)]
+  /// overrides one identity at a time: what the host inferred from `icons/`.
+  /// Not a configuration key; the root layout's `meta` is where an
+  /// application writes its own.
+  #[serde(skip)]
   pub head: Vec<BTreeMap<String, String>>,
   #[serde(default = "default_shell")]
   pub shell: String,
@@ -463,6 +514,7 @@ const SECTIONS: &[&str] = &[
   "typecheck",
   "site",
   "sites",
+  "public",
 ];
 
 fn default_app_dir() -> String {
@@ -693,13 +745,60 @@ impl Config {
   fn sections<S: C5Store>(store: &S, root: &Path, at: PathBuf) -> Result<Self, HostError> {
     let fail = |e: ConfigError| HostError::Config(at.clone(), e.to_string());
 
+    let mut ignored: Vec<String> = Vec::new();
     for key in store.key_paths_with_prefix(None) {
       let head = key.split('.').next().unwrap_or(&key);
-      if !SECTIONS.contains(&head) {
-        return Err(HostError::Config(
-          at.clone(),
-          format!("unknown key `{key}`; sections are {}", SECTIONS.join(", ")),
-        ));
+      if !SECTIONS.contains(&head) && !ignored.iter().any(|h| h == head) {
+        ignored.push(head.to_owned());
+      }
+    }
+    ignored.sort();
+
+    let mut public: BTreeMap<String, PublicValue> = BTreeMap::new();
+    if store.path_exists("public") || !store.key_paths_with_prefix(Some("public")).is_empty() {
+      let mut keys: Vec<String> = store
+        .key_paths_with_prefix(Some("public"))
+        .into_iter()
+        .filter_map(|k| k.strip_prefix("public.").map(str::to_owned))
+        .collect();
+      if let Some(c5store::value::C5DataValue::Map(map)) = store.get("public") {
+        keys.extend(map.keys().cloned());
+      }
+      keys.sort();
+      keys.dedup();
+      for key in keys {
+        if let Some((head, _)) = key.split_once('.') {
+          return Err(HostError::Config(
+            at.clone(),
+            format!("public.{head}: a table; a value is a string, integer, float or boolean"),
+          ));
+        }
+        let valid = key.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+          && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+          return Err(HostError::Config(
+            at.clone(),
+            format!("public.{key}: a key is a TypeScript identifier, letters, digits and `_`"),
+          ));
+        }
+        use c5store::value::C5DataValue as V;
+        let value = match store.get(&format!("public.{key}")) {
+          Some(V::String(s)) => PublicValue::Str(s),
+          Some(V::Integer(i)) => PublicValue::Int(i),
+          Some(V::UInteger(u)) => match i64::try_from(u) {
+            Ok(i) => PublicValue::Int(i),
+            Err(_) => return Err(HostError::Config(at.clone(), format!("public.{key}: {u} does not fit an i64"))),
+          },
+          Some(V::Float(f)) => PublicValue::Float(f),
+          Some(V::Boolean(b)) => PublicValue::Bool(b),
+          _ => {
+            return Err(HostError::Config(
+              at.clone(),
+              format!("public.{key}: a value is a string, integer, float or boolean"),
+            ));
+          }
+        };
+        public.insert(key, value);
       }
     }
 
@@ -1035,16 +1134,10 @@ impl Config {
         inferred.push(format!("static {icons_route} from icons/"));
       }
       let held = |name: &str| app.join("icons").join(name).is_file();
-      // Only what the file did not already state: an entry the application
-      // wrote for the same rel and size wins over what the directory implies.
-      let written: Vec<(Option<String>, Option<String>)> = document
-        .head
-        .iter()
-        .map(|t| (t.get("rel").cloned(), t.get("sizes").cloned()))
-        .collect();
       let mut linked = Vec::new();
       for (file, mut attrs) in [
         ("favicon.svg", vec![("rel", "icon"), ("type", "image/svg+xml")]),
+        ("favicon.ico", vec![("rel", "icon"), ("type", "image/x-icon")]),
         (
           "favicon-32x32.png",
           vec![("rel", "icon"), ("type", "image/png"), ("sizes", "32x32")],
@@ -1059,12 +1152,7 @@ impl Config {
         ),
         ("site.webmanifest", vec![("rel", "manifest")]),
       ] {
-        let sizes = attrs.iter().find(|(k, _)| *k == "sizes").map(|(_, v)| (*v).to_owned());
-        if !held(file)
-          || written
-            .iter()
-            .any(|(rel, held_sizes)| rel.as_deref() == Some(attrs[0].1) && *held_sizes == sizes)
-        {
+        if !held(file) {
           continue;
         }
         attrs.push(("href", ""));
@@ -1133,7 +1221,9 @@ impl Config {
       typecheck,
       site,
       sites,
+      public,
       inferred,
+      ignored,
     })
   }
 

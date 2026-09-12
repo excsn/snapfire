@@ -42,6 +42,9 @@ pub enum Expr {
   /// Several configured hosts differ between requests, so this is dynamic
   /// where `Path` is not.
   Host,
+  /// One `[public]` value, `ctx.config.<key>`. Fixed for the deployment, so
+  /// it is constant the way `Path` is rather than per-request the way `Host` is.
+  Config(String),
   Input,
   Now,
   Var(String),
@@ -443,7 +446,7 @@ impl Expr {
           out.push(name.clone());
         }
       }
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Host | Expr::Input | Expr::Now | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Host | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Lit(_) => {}
       Expr::Object(entries) | Expr::Array(entries) => {
         for entry in entries {
           match entry {
@@ -492,7 +495,7 @@ impl Expr {
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     f(self);
     match self {
-      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Host | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
+      Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Host | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -533,7 +536,7 @@ impl Expr {
   pub fn reads_request(&self) -> bool {
     match self {
       Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host => true,
-      Expr::Locale | Expr::Path => false,
+      Expr::Locale | Expr::Path | Expr::Config(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
@@ -557,7 +560,7 @@ impl Expr {
   pub fn has_call(&self) -> bool {
     match self {
       Expr::Call { .. } | Expr::NativeCall { .. } => true,
-      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Host | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) => false,
+      Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Host | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Computed(k, v) => k.has_call() || v.has_call(),

@@ -38,6 +38,7 @@ Each check answers from something a build already computed, so none of it needs 
 | --- | --- | --- |
 | `canonical` | `[document] origin` is unset while the deployment names hosts or prerenders | Without an origin the canonical and alternate links are relative, which an audit reports and a crawler resolves against whatever host it arrived on |
 | `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty | The list is the whole opt-in, so an empty one means the read answers null for ever rather than the host the request carried |
+| `ctx.config` | a body reads `ctx.config.<key>` while `[public]` does not declare the key | The declaration is what types the read and what an overlay sets, so a key missing from it answers null on every deployment |
 | `locales` | a locale in `[locales] supported` with no catalog under `locales/` | The application says it serves that language and every message falls back |
 | `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` | The host reads the plan and never the sources, so an unbuilt change is invisible until the next build |
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it | The browser asks for the file the map names, so a missing one is a page that does not mount |
@@ -55,7 +56,7 @@ A report names the check, the fact and the remedy:
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 13 checks found something
+doctor       1 of 14 checks found something
 ```
 
 ### What the plan and the configuration say about each other

@@ -100,6 +100,25 @@ export const meta = ({ data }: MetaCtx<Data>) => ({
 
 A source reading it is never prerendered, since two configured hosts are two answers.
 
+## The loader can read the deployment's values
+
+`ctx.config` is `[public]` from the configuration: the values a deployment sets and a body needs, an analytics id, a feature switch, a support address. `app.toml` declares each key with the value development runs under and an overlay sets the deployment's own. The declaration types the read: a string is `string`, an integer `bigint`, a float `number`, a boolean `boolean`. A key the section does not declare is not a field of `ctx.config`, so a misspelling is a type error at build rather than a null at runtime. `fsr doctor` reports a plan reading a key the deployment's configuration lacks.
+
+```toml
+[public]
+analytics_id = ""
+```
+
+```ts
+export async function load({ config }: Ctx) {
+  return { analyticsId: config.analytics_id };
+}
+
+export const store = ({ data }: { data: { analyticsId: string } }) => ({ "site/analytics": data.analyticsId });
+```
+
+The values are the same on every request, so a source reading only them still prerenders. They are public in the plain sense: a loader returns them, a page renders them, a store seeds the browser with them, so a secret is not one of them. Chapter 200 covers the section and its overlays.
+
 ## The page receives what the loader returned
 
 The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `RootProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.

@@ -441,8 +441,8 @@ fn a_missing_session_key_or_an_unknown_key_refuses_to_start() {
   std::fs::write(dir.join("app.toml"), "[session]\nkey = \"k\"\n[nonsense]\nx = 1\n").unwrap();
   let err = Host::from(dir.join("app.toml")).unwrap_err();
   assert!(
-    err.to_string().contains("nonsense"),
-    "an unknown section names itself: {err}"
+    !err.to_string().contains("nonsense") && err.to_string().contains("plan"),
+    "a section the host does not own is not an error; the boot goes on to the plan: {err}"
   );
 }
 
@@ -3568,40 +3568,30 @@ async fn a_source_reading_the_host_is_neither_memoized_nor_prerendered() {
   assert_eq!(report.hosts, vec!["example.com".to_owned(), "other.example.com".to_owned()]);
 }
 
-/// An app whose document head carries a canonical and two alternates, with
-/// `document.origin` set to `origin` when it is given.
+/// An app whose index route's `meta` carries a canonical and two alternates,
+/// with `document.origin` set to `origin` when it is given.
 fn host_with_origin(origin: Option<&str>) -> Arc<Host> {
   let dir = app_dir();
-  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   if let Some(origin) = origin {
-    toml = toml.replace("title = \"Test <app>\"", &format!("title = \"Test <app>\"\norigin = \"{origin}\""));
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    let toml = toml.replace("title = \"Test <app>\"", &format!("title = \"Test <app>\"\norigin = \"{origin}\""));
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
   }
-  toml.push_str(
-    r#"
-[[document.head]]
-tag = "link"
-rel = "canonical"
-href = "/about"
-
-[[document.head]]
-tag = "link"
-rel = "alternate"
-hreflang = "fr"
-href = "/fr/about"
-
-[[document.head]]
-tag = "link"
-rel = "alternate"
-hreflang = "de"
-href = "https://de.example.org/about"
-
-[[document.head]]
-tag = "link"
-rel = "icon"
-href = "/icon.png"
-"#,
-  );
-  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+  let link = |attrs: &[(&str, &str)]| {
+    let mut fields = vec![serde_json::json!({ "field": ["tag", { "lit": { "str": "link" } }] })];
+    for (k, v) in attrs {
+      fields.push(serde_json::json!({ "field": [k, { "lit": { "str": v } }] }));
+    }
+    serde_json::json!({ "item": { "object": fields } })
+  };
+  json["sources"][0]["meta"] = serde_json::json!([{ "return": { "object": [{ "field": ["head", { "array": [
+    link(&[("rel", "canonical"), ("href", "/about")]),
+    link(&[("rel", "alternate"), ("hreflang", "fr"), ("href", "/fr/about")]),
+    link(&[("rel", "alternate"), ("hreflang", "de"), ("href", "https://de.example.org/about")]),
+    link(&[("rel", "icon"), ("href", "/icon.png")]),
+  ] }] }] } }]);
+  write_plan_value(&dir, json);
   let transport =
     Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
   Arc::new(
@@ -3622,19 +3612,19 @@ async fn an_origin_makes_canonical_and_alternate_hrefs_absolute() {
     .unwrap();
 
   assert!(
-    html.contains(r#"href="https://example.com/about" rel="canonical""#),
+    html.contains(r#"rel="canonical" href="https://example.com/about""#),
     "a path on rel=canonical is absolute, which is the only form a crawler reads: {html}"
   );
   assert!(
-    html.contains(r#"href="https://example.com/fr/about" hreflang="fr""#),
+    html.contains(r#"hreflang="fr" href="https://example.com/fr/about""#),
     "and so is one on rel=alternate: {html}"
   );
   assert!(
-    html.contains(r#"href="https://de.example.org/about" hreflang="de""#),
+    html.contains(r#"hreflang="de" href="https://de.example.org/about""#),
     "an href already absolute is left as written, wherever it points: {html}"
   );
   assert!(
-    html.contains(r#"href="/icon.png" rel="icon""#),
+    html.contains(r#"rel="icon" href="/icon.png""#),
     "every other rel keeps its path, since a crawler reads those relative: {html}"
   );
 }
@@ -3646,8 +3636,8 @@ async fn without_an_origin_every_href_is_written_as_the_application_wrote_it() {
     .render_to_string("/", RenderMode::Html, SessionCell::default())
     .await
     .unwrap();
-  assert!(html.contains(r#"href="/about" rel="canonical""#), "{html}");
-  assert!(html.contains(r#"href="/fr/about" hreflang="fr""#), "{html}");
+  assert!(html.contains(r#"rel="canonical" href="/about""#), "{html}");
+  assert!(html.contains(r#"hreflang="fr" href="/fr/about""#), "{html}");
 }
 
 #[test]
@@ -3697,4 +3687,89 @@ async fn the_locale_canonical_is_absolute_once_an_origin_is_configured() {
     html.contains("<link rel=\"canonical\" href=\"https://example.com/hello/norm\">"),
     "the host's own locale canonical carries the origin too: {html}"
   );
+}
+
+/// `app_dir()` with `extra` appended to its `app.toml`.
+fn app_dir_with(extra: &str) -> PathBuf {
+  let dir = app_dir();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  toml.push_str(extra);
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  dir
+}
+
+fn host_at(dir: &std::path::Path) -> Result<Host, snapfire_fsr_host::HostError> {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+  Host::from(dir.join("app.toml"))?.services_over(transport).build()
+}
+
+#[tokio::test]
+async fn a_public_value_reaches_a_body_as_ctx_config() {
+  let dir = app_dir_with("\n[public]\nanalytics_id = \"G-TEST-1\"\nrollout = 3\nbeta = true\n");
+  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+  json["sources"][1]["body"] = serde_json::json!([{ "return": { "object": [
+    { "field": ["greeting", { "template": [ { "config": "analytics_id" }, { "lit": { "str": " " } }, { "config": "rollout" }, { "lit": { "str": " " } }, { "config": "beta" }, { "lit": { "str": " " } }, { "config": "missing" } ] } ] }
+  ] } }]);
+  write_plan_value(&dir, json);
+  let host = host_at(&dir).unwrap();
+  let html = host.render_to_string("/hello/x", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("G-TEST-1 3 true "), "{html}");
+  let report = host.report().to_string();
+  assert!(report.contains("public    analytics_id"), "{report}");
+  assert!(report.contains("\"G-TEST-1\""), "{report}");
+  assert_eq!(host.public().get("rollout"), Some(&Value::int(3)));
+}
+
+#[test]
+fn a_public_value_is_a_scalar_under_an_identifier() {
+  let dir = app_dir_with("\n[public]\nnested = { a = 1 }\n");
+  let e = host_at(&dir).err().expect("a table is refused").to_string();
+  assert!(e.contains("public.nested: a table") && e.contains("string, integer, float or boolean"), "{e}");
+
+  let dir = app_dir_with("\n[public]\n\"not-a-name\" = 1\n");
+  let e = host_at(&dir).err().expect("a dashed key is refused").to_string();
+  assert!(e.contains("public.not-a-name") && e.contains("identifier"), "{e}");
+}
+
+#[test]
+fn a_document_head_table_is_refused() {
+  let dir = app_dir_with("\n[[document.head]]\ntag = \"meta\"\nname = \"robots\"\ncontent = \"index\"\n");
+  let e = host_at(&dir).err().expect("document.head is not a key").to_string();
+  assert!(e.contains("head"), "{e}");
+}
+
+#[test]
+fn a_key_the_host_does_not_own_is_left_alone_and_reported() {
+  let dir = app_dir_with("\n[http]\nworker_threads = 2\n\n[config]\ndomain = \"x\"\n");
+  let host = host_at(&dir).expect("foreign sections do not stop the boot");
+  let report = host.report().to_string();
+  assert!(report.contains("ignored   config, http, not the host's"), "{report}");
+}
+
+#[tokio::test]
+async fn a_favicon_ico_under_icons_is_linked() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("icons")).unwrap();
+  std::fs::write(dir.join("icons/favicon.ico"), b"ico").unwrap();
+  std::fs::write(dir.join("icons/favicon.svg"), b"<svg/>").unwrap();
+  let host = host_at(&dir).unwrap();
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"<link href="/static/icons/favicon.ico" rel="icon" type="image/x-icon">"#), "{html}");
+  assert!(html.contains(r#"<link href="/static/icons/favicon.svg" rel="icon" type="image/svg+xml">"#), "{html}");
+}
+
+#[tokio::test]
+async fn the_longest_static_route_answers_whatever_order_the_roots_were_written_in() {
+  let dir = app_dir_with("\n[[static]]\nroute = \"/static/deep\"\ndir = \"deep\"\n");
+  std::fs::create_dir_all(dir.join("deep")).unwrap();
+  std::fs::write(dir.join("deep/x.txt"), b"deep").unwrap();
+  std::fs::create_dir_all(dir.join("public/deep")).unwrap();
+  std::fs::write(dir.join("public/deep/x.txt"), b"shallow").unwrap();
+  let host = host_at(&dir).unwrap();
+  let response = host.handle(Request::get("/static/deep/x.txt").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert_eq!(&body[..], b"deep");
+  let response = host.handle(Request::get("/static/app.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
 }

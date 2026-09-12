@@ -27,6 +27,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::Locale => form("locale", vec![]),
     Expr::Path => form("path", vec![]),
     Expr::Host => form("host", vec![]),
+    Expr::Config(n) => form("config", vec![Sx::Sym(n.clone())]),
     Expr::Input => form("input", vec![]),
     Expr::Now => form("now", vec![]),
     Expr::Object(entries) => form("obj", entries.iter().map(entry_to_sx).collect()),
@@ -130,6 +131,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "session" => Expr::Session(sym_of(&args(items, head, 1)?[0])?),
     "store" => Expr::Store(sym_of(&args(items, head, 1)?[0])?),
     "const" => Expr::Const(sym_of(&args(items, head, 1)?[0])?),
+    "config" => Expr::Config(sym_of(&args(items, head, 1)?[0])?),
     "identity" => Expr::Identity(items[1..].iter().map(sym_of).collect::<Res<_>>()?),
     "locale" => {
       args(items, head, 0)?;

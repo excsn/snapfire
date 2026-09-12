@@ -502,6 +502,7 @@ enum Root {
   Locale,
   Path,
   Host,
+  Config,
   Input,
   Now,
   Ctx,
@@ -984,7 +985,7 @@ impl<'a> Lowerer<'a> {
       Some(Root::Locale) => Ok(Expr::Locale),
       Some(Root::Path) => Ok(Expr::Path),
       Some(Root::Host) => Ok(Expr::Host),
-      Some(Root::Params | Root::Query | Root::Session | Root::Identity) => Err(self.residue(id.span, format!("`{name}` as a whole; read one of its fields"))),
+      Some(Root::Params | Root::Query | Root::Session | Root::Identity | Root::Config) => Err(self.residue(id.span, format!("`{name}` as a whole; read one of its fields"))),
       Some(Root::Services) => Err(self.residue(id.span, "`services` as a value; call a method on it")),
       Some(Root::Native) => Err(self.residue(id.span, "`native` as a value; call a method on it")),
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
@@ -1054,6 +1055,10 @@ impl<'a> Lowerer<'a> {
             let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed identity field")) };
             return Ok(Expr::Identity(vec![name]));
           }
+          Some(Root::Config) => {
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed config key")) };
+            return Ok(Expr::Config(name));
+          }
           Some(Root::Ctx) => {
             let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed context field")) };
             return match name.as_str() {
@@ -1062,7 +1067,7 @@ impl<'a> Lowerer<'a> {
               "locale" => Ok(Expr::Locale),
               "path" => Ok(Expr::Path),
               "host" => Ok(Expr::Host),
-              "params" | "query" | "session" | "identity" => Err(self.residue(member.span, format!("`ctx.{name}` as a whole; read one of its fields"))),
+              "params" | "query" | "session" | "identity" | "config" => Err(self.residue(member.span, format!("`ctx.{name}` as a whole; read one of its fields"))),
               "services" => Err(self.residue(member.span, "`ctx.services` as a value; call a method on it")),
               "native" => Err(self.residue(member.span, "`ctx.native` as a value; call a method on it")),
               _ => Err(self.residue(member.span, format!("`{name}` is not a field of the context"))),
@@ -1481,6 +1486,7 @@ fn root_named(name: &str) -> Option<Root> {
     "locale" => Root::Locale,
     "path" => Root::Path,
     "host" => Root::Host,
+    "config" => Root::Config,
     "input" => Root::Input,
     "now" => Root::Now,
     _ => return None,

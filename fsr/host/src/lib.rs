@@ -299,6 +299,10 @@ pub struct HostReport {
   pub sites: Vec<SiteReport>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
+  /// `[public]` as key and value, what `ctx.config` answers.
+  pub public: Vec<(String, String)>,
+  /// Top-level configuration keys the host does not own and left alone.
+  pub ignored: Vec<String>,
 }
 
 /// The configured certificate, what the handshake offers and what re-reads it.
@@ -482,6 +486,13 @@ impl std::fmt::Display for HostReport {
       let label = if i == 0 { "inferred" } else { "" };
       writeln!(f, "{label:<9} {item}")?;
     }
+    for (i, (key, value)) in self.public.iter().enumerate() {
+      let label = if i == 0 { "public" } else { "" };
+      writeln!(f, "{label:<9} {key:<22} {value}")?;
+    }
+    if !self.ignored.is_empty() {
+      writeln!(f, "{:<9} {}, not the host's; left to the application's own store", "ignored", self.ignored.join(", "))?;
+    }
     Ok(())
   }
 }
@@ -606,6 +617,8 @@ pub type TopicRule = Arc<dyn Fn(&str, &SessionCell, Option<&Identity>) -> bool +
 struct Tables {
   app: App,
   head: Head,
+  /// `[public]` as values, cloned into every request's `ctx.config`.
+  public: ValueMap,
   /// The bundle's build facts file, read for its id when `dev` is on; the
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
@@ -893,6 +906,11 @@ impl Host {
   /// The locales the host serves and how it resolves a request's.
   pub fn locales(&self) -> Locales {
     self.tables().locales.clone()
+  }
+
+  /// `[public]` as every request's `ctx.config` sees it.
+  pub fn public(&self) -> ValueMap {
+    self.tables().public.clone()
   }
 
   /// The message catalogs loaded from `locales/`, when the application has any.
@@ -1695,6 +1713,7 @@ impl Host {
       session: incoming.session,
       locale,
       host: incoming.host,
+      config: t.public.clone(),
       csrf: incoming.csrf,
       services,
       natives: snapfire_fsr_runtime::NativeHandle::new(t.app.natives.clone()),
@@ -3790,6 +3809,16 @@ impl HostBuilder {
 
     let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
+    // Longest route first, so the most specific root answers a path whatever
+    // order the file, the inference and the mounts named them in.
+    statics.sort_by(|a, b| b.route.len().cmp(&a.route.len()));
+    let public: ValueMap = {
+      let mut fields = snapfire_fsr_core::Fields::default();
+      for (key, value) in &config.public {
+        fields.insert(key.clone(), value.to_value());
+      }
+      fields.into()
+    };
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
 
     let locale_rows = match &config.locales {
@@ -3916,11 +3945,14 @@ impl HostBuilder {
       sites: site_reports,
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
+      public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
+      ignored: config.ignored.clone(),
     };
     Ok((
       Tables {
         app,
         head,
+        public,
         dev_bundle,
         statics,
         client: serve_client,

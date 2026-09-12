@@ -34,7 +34,7 @@ For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, 
 
 `bundle.toml` is the last rung and a project does not write one. `fsr bundle` writes it into the deploy tree it produces, naming the paths that moved when the files were laid out; chapter 303 covers what it holds. It loads after every deployment overlay because those describe a deployment while it describes a directory and no deployment has an opinion about where in the tree its own plan file ended up.
 
-The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map and the stylesheets. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory.
+The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map and the stylesheets. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `[public]` holds the deployment's own values, the one section whose keys the application names.
 
 ## What the host infers
 
@@ -65,7 +65,7 @@ A crawler reads `rel=canonical` and `rel=alternate` as absolute URLs only. A pat
 origin = "https://example.com"
 ```
 
-The host then writes every path href on those two rels absolute, whichever of three places it came from. A `canonical()` a loader's `meta` returned. A `[[document.head]]` row. Its own locale canonical, the one pointing `/en_US/about` at `/about` so a prefixed request for the default locale is not a second page. An href that is already absolute is left exactly as written, which is how a cross-domain `alternate` still works. Every other `rel` keeps its path, since a crawler reads those relative to the document.
+The host then writes every path href on those two rels absolute, whichever of two places it came from. A `canonical()` or `alternate()` a route's `meta` returned. Its own locale canonical, the one pointing `/en_US/about` at `/about` so a prefixed request for the default locale is not a second page. An href that is already absolute is left exactly as written, which is how a cross-domain `alternate` still works. Every other `rel` keeps its path, since a crawler reads those relative to the document.
 
 It is the scheme and the host and nothing else. A trailing slash or a path is refused at boot rather than producing `https://example.com//about` on a live page. A value with no scheme is refused the same way, since the scheme is the part a host name cannot supply on its own.
 
@@ -91,6 +91,28 @@ hosts     example.com
 ```
 
 Leave the key out and the header is never read at all, which is the default and the right setting for an application that does not need it.
+
+## The deployment's own values
+
+`[public]` is the one section whose keys the application names. Each value is a scalar, a string, integer, float or boolean, under a key that is a TypeScript identifier. A body reads it as `ctx.config.<key>`:
+
+```toml
+[public]
+analytics_id = ""
+support = "help@example.com"
+```
+
+`app.toml` declares every key with the value development runs under, which is also what types the read. An overlay sets the deployment's own:
+
+```toml
+# config/app.sfo1.toml
+[public]
+analytics_id = "G-65TR8XV7YE"
+```
+
+The values are public in the plain sense: a loader returns them, a page renders them, a store seeds the browser with them. A secret is not a `[public]` value; it is a `[clients]` credential or something the application's own Rust reads. The boot report lists every key with its value on a `public` row. `fsr doctor` reports a body reading a key the section does not declare.
+
+**A section the host does not own is left alone.** An application that runs the host inside itself hands it one branch of its own store, `Config::from_store_at(&store.branch("fsr"), root)` and keeps the rest of `config/` for itself. Its rungs are named after the same deployment axes, so the application's `local.yaml` and the host's are one file. The host reads the sections it names and leaves every other top-level key where it is, listing them on the report's `ignored` row so a misspelt section is still visible; `fsr bundle` and `fsr doctor` read the directory the same way. A key it does not know inside a section it owns is still an error.
 
 ## The boot report
 
