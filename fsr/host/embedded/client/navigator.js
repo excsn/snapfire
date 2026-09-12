@@ -368,6 +368,9 @@ async function drain(rows, segments, gen) {
                 fillSlot(row.slot, row.node, keyOfSlot(segments, row.slot));
                 scan(document);
                 watchLinks(document);
+                document.dispatchEvent(new CustomEvent("sf:fill", {
+                    detail: row.slot
+                }));
             } else if (row.tag === "H") {
                 applyHead(row.head);
             } else if (row.tag === "T") {
@@ -543,7 +546,15 @@ export async function refresh() {
     if (eager) await applyStyles(eager.styles);
     if (gen !== generation) return;
     if (!eager || !patch(eager, true)) return bail();
+    announce();
     await drain(rows, eager.segments, gen);
+}
+function announce() {
+    document.dispatchEvent(new CustomEvent("sf:navigate", {
+        detail: {
+            path: currentPath
+        }
+    }));
 }
 function patch(eager, force) {
     try {
@@ -578,6 +589,7 @@ export async function navigate(href, push = true, options = {}) {
         documentPath = currentPath;
         window.scrollTo(0, 0);
     }
+    announce();
     await drain(rows, eager.segments, gen);
 }
 export function currentDocumentPath() {

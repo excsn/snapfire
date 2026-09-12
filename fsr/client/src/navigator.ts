@@ -411,7 +411,7 @@ function applyEager(eager: Eager, force: boolean): boolean {
 /** Counts navigations, so the rows still arriving for one stop applying once a later one has taken the document. */
 let generation = 0;
 
-/** Applies the rows after the sidecar as they arrive: each resolution into its slot, each head and seed as it comes. Stops at a row that cannot be read, leaving the fallbacks that stand. */
+/** Applies the rows after the sidecar as they arrive: each resolution into its slot, each head and seed as it comes, with `sf:fill` dispatched on `document` for each filled slot the way the fill script does for a streamed one. Stops at a row that cannot be read, leaving the fallbacks that stand. */
 async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: number): Promise<void> {
   try {
     for await (const line of rows) {
@@ -421,6 +421,7 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
         fillSlot(row.slot, row.node, keyOfSlot(segments, row.slot));
         scan(document);
         watchLinks(document);
+        document.dispatchEvent(new CustomEvent("sf:fill", { detail: row.slot }));
       } else if (row.tag === "H") {
         applyHead(row.head);
       } else if (row.tag === "T") {
@@ -646,7 +647,13 @@ export async function refresh(): Promise<void> {
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager || !patch(eager, true)) return bail();
+  announce();
   await drain(rows, eager.segments, gen);
+}
+
+/** Tells whatever else works on the document that the navigator has just applied a payload to it: the eager wave of a navigation or a refresh, before its deferred segments arrive. A library that wires the markup it finds, htmx for one, processes the document again on it. */
+function announce(): void {
+  document.dispatchEvent(new CustomEvent("sf:navigate", { detail: { path: currentPath } }));
 }
 
 /** `applyEager` with a throw counted as a patch that failed. */
@@ -685,6 +692,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
     documentPath = currentPath;
     window.scrollTo(0, 0);
   }
+  announce();
   await drain(rows, eager.segments, gen);
 }
 
