@@ -1,7 +1,6 @@
-import type { ReactNode } from "react";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link, type Children } from "@snapfire/fsr-authoring/template";
 
-export default function RecipeLayout({ children }: { children: ReactNode }) {
+export default function RecipeLayout({ children }: { children: Children }) {
   return (
     <section className="recipe-shell">
       <p className="crumbs">

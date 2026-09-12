@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { Island, Link } from "@snapfire/fsr-client/react";
+import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
 
 import Tonight from "@src/ui/Tonight.vue";
 import type { Box } from "@generated/services";
@@ -11,9 +10,9 @@ export default function BoxLayout({
   box,
   planned,
 }: {
-  children: ReactNode;
-  notes: ReactNode;
-  market: ReactNode;
+  children: Children;
+  notes: Children;
+  market: Children;
   box: Box;
   planned: number;
 }) {

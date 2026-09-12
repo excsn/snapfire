@@ -1,4 +1,4 @@
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr-authoring/template";
 
 import type { RootProps } from "@generated/client";
 

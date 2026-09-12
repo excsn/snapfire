@@ -23,7 +23,11 @@ const ALWAYS: &[&str] = &["@snapfire/fsr-authoring", "@snapfire/fsr-client"];
 /// registry since the binary is the same version as the runtime they describe.
 /// The client's are the host's, which is what serves the modules they declare.
 const FSR_CLIENT: &[(&str, &str)] = snapfire_fsr_host::client::TYPES;
-const FSR_AUTHORING: &[(&str, &str)] = &[("index.d.ts", include_str!("../embedded/authoring/index.d.ts"))];
+const FSR_AUTHORING: &[(&str, &str)] = &[
+  ("index.d.ts", include_str!("../embedded/authoring/index.d.ts")),
+  ("template.d.ts", include_str!("../embedded/authoring/template.d.ts")),
+  ("jsx-runtime.d.ts", include_str!("../embedded/authoring/jsx-runtime.d.ts")),
+];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TypedPackage {
@@ -72,15 +76,6 @@ pub struct TypesReport {
   pub missing: Vec<(String, String)>,
   /// The xwpm commands run instead of fetching, when the application is xwpm's.
   pub delegated: Vec<String>,
-}
-
-/// Whether any `.tsx` file sits under `dir`.
-fn has_tsx_under(dir: &Path) -> bool {
-  let Ok(entries) = std::fs::read_dir(dir) else { return false };
-  entries.flatten().any(|entry| {
-    let path = entry.path();
-    (path.is_dir() && has_tsx_under(&path)) || path.extension().is_some_and(|x| x == "tsx")
-  })
 }
 
 /// `@scope/name` is published to DefinitelyTyped as `@types/scope__name`.
@@ -292,16 +287,6 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
 
   let mut queue: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
   queue.extend(import_map_packages(app, &layout)?);
-  // A route template is JSX and TypeScript types JSX through React's
-  // declarations, so an application with no React in its import map still
-  // reads them, as declarations only: nothing here is served.
-  if has_tsx_under(&app.join("routes")) {
-    for package in ["react", "react-dom"] {
-      if !queue.iter().any(|p| p == package) {
-        queue.push(package.to_owned());
-      }
-    }
-  }
   let mut seen: Vec<String> = Vec::new();
   while let Some(package) = queue.first().cloned() {
     queue.remove(0);
@@ -458,7 +443,14 @@ pub fn tsconfig(app: &Path) -> Result<String, BuildError> {
     }
     paths.push((format!("{name}/*"), format!("./{types}/{name}/*")));
   }
-  let mut out = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"jsx\": \"react-jsx\",\n    \"strict\": true,\n    \"noEmit\": true,\n    \"skipLibCheck\": true,\n    \"paths\": {\n");
+  // Templates are JSX. An application with React reads them as React
+  // components, since its browser mounts the ones with state that way; one
+  // without React reads them through the dialect's own declarations.
+  let jsx_source = match import_map_packages(app, &layout)?.iter().any(|p| p == "react") {
+    true => String::new(),
+    false => "    \"jsxImportSource\": \"@snapfire/fsr-authoring\",\n".to_owned(),
+  };
+  let mut out = format!("{{\n  \"compilerOptions\": {{\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"jsx\": \"react-jsx\",\n{jsx_source}    \"strict\": true,\n    \"noEmit\": true,\n    \"skipLibCheck\": true,\n    \"paths\": {{\n");
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));

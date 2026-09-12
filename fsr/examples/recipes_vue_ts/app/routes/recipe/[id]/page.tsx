@@ -1,4 +1,4 @@
-import { Island, Link } from "@snapfire/fsr-client/react";
+import { Island, Link } from "@snapfire/fsr-authoring/template";
 
 import type { RecipeIdProps } from "@generated/client";
 import PlanRecipe from "@src/ui/PlanRecipe.vue";

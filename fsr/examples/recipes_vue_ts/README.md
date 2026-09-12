@@ -2,7 +2,7 @@
 
 A household recipe box: six recipes, a page per recipe, what is planned for tonight kept in the session and two panels beside them of which one is always down.
 
-What it shows is a second framework fitting the seam. The pages are TypeScript templates the build lowers and the host renders, the same as every other example. Every interactive piece is a Vue single-file component: a `.vue` file under `src/ui/`, compiled by `snapfirec-vue` out of process, placed by a page as an island and mounted by Vue in the browser. There is no React anywhere in the application: not in the import map, not in the vendor tree, not in the bundle.
+What it shows is a second framework fitting the seam. The pages are TypeScript templates the build lowers and the host renders, the same as every other example. Every interactive piece is a Vue single-file component: a `.vue` file under `src/ui/`, compiled by `snapfirec-vue` out of process, placed by a page as an island and mounted by Vue in the browser. There is no React anywhere in the application: not in the import map, not in the vendor tree, not in the bundle and not in the type declarations, since the templates import `Island`, `Link` and `Children` from `@snapfire/fsr-authoring/template` and the typecheck reads JSX through the dialect's own declarations.
 
 ## Running it
 

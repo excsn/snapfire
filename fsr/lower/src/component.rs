@@ -479,6 +479,16 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
   }
 }
 
+/// The modules `Island`, `island`, `Slot` and `Link` are read from: the
+/// client's React module, which a React application also mounts with, or the
+/// dialect's own declarations, which an application without React types
+/// against.
+pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-client/react", "@snapfire/fsr-authoring/template"];
+
+fn is_template_source(source: &str) -> bool {
+  TEMPLATE_SOURCES.contains(&source)
+}
+
 /// Whether a file, or a `file#export` module, is written in a language the
 /// build does not read. Such a component has no server body: a plugin
 /// compiles it for the browser and the page places it as an island.
@@ -549,7 +559,7 @@ fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (
   let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return Ok(None) };
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
   let js::Expr::Ident(callee) = &**callee else { return Ok(None) };
-  if callee.sym.as_ref() != "island" || !find_import(parsed, "island").is_some_and(|(source, _)| source == "@snapfire/fsr-client/react") {
+  if callee.sym.as_ref() != "island" || !find_import(parsed, "island").is_some_and(|(source, _)| is_template_source(&source)) {
     return Ok(None);
   }
   let Some(js::Expr::Ident(target)) = call.args.first().map(|a| &*a.expr) else {
@@ -1401,7 +1411,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// True when `name` is imported from the client library's React adapter.
   fn is_client_react_import(&self, name: &str) -> bool {
-    find_import(self.lowerer.parsed, name).is_some_and(|(source, _)| source == "@snapfire/fsr-client/react")
+    find_import(self.lowerer.parsed, name).is_some_and(|(source, _)| is_template_source(&source))
   }
 
   /// `<Island when="visible"><Chart … /></Island>`: the one component child
