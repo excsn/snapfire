@@ -48,6 +48,11 @@ impl HeadEl {
     (self.tag.clone(), all.join("&"))
   }
 
+  /// The HTML void elements, which take no end tag. Every other element is
+  /// closed whether or not it has children: a `script` with only a `src` left
+  /// open swallows the rest of the document as script text.
+  const VOID: [&'static str; 13] = ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"];
+
   pub fn render(&self, out: &mut String) {
     out.push('<');
     out.push_str(&self.tag);
@@ -61,6 +66,8 @@ impl HeadEl {
     out.push('>');
     if let Some(children) = &self.children {
       out.push_str(children);
+    }
+    if !Self::VOID.contains(&self.tag.as_str()) {
       out.push_str("</");
       out.push_str(&self.tag);
       out.push('>');
@@ -271,6 +278,25 @@ mod tests {
     let mut meta = Meta { head: outer, ..Meta::default() };
     meta.merge(Meta { head: inner, ..Meta::default() });
     meta.head
+  }
+
+  fn rendered(el: &HeadEl) -> String {
+    let mut out = String::new();
+    el.render(&mut out);
+    out
+  }
+
+  #[test]
+  fn a_script_with_only_a_src_is_closed() {
+    let script = el("script", &[("defer", ""), ("src", "/a.js")]);
+    assert_eq!(rendered(&script), r#"<script defer="" src="/a.js"></script>"#);
+  }
+
+  #[test]
+  fn a_void_element_takes_no_end_tag() {
+    assert_eq!(rendered(&el("meta", &[("name", "robots"), ("content", "index")])), r#"<meta name="robots" content="index">"#);
+    assert_eq!(rendered(&el("link", &[("rel", "icon"), ("href", "/i.png")])), r#"<link rel="icon" href="/i.png">"#);
+    assert_eq!(rendered(&el("base", &[("href", "/")])), r#"<base href="/">"#);
   }
 
   #[test]
