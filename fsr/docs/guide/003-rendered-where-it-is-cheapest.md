@@ -48,6 +48,12 @@ The key is what pairs a placement with the markup the server rendered for it. Wi
 
 Navigation between routes fetches the same tree in its wire form rather than as HTML. Each segment of the page carries a key naming which segment it is and a digest of what it rendered; the client walks the old and new trees together, keeping every region whose digest held and replacing the rest, so a layout's DOM and its island state survive a click, and so does a pane the click did not actually change. An action that succeeds re-fetches the current route by default, which is how the storefront's header badge follows the cart without anyone wiring it.
 
+## What nothing mounts
+
+A template with no state, no handlers and no component inline that has them has nothing for the browser to change. The build marks it `static` in the report, writes no browser twin for it and leaves it out of the island registry; the server writes its markup with no island marker around it. The islands inside it are mounted by the document's own scan, the way they would be under a hydrated root. The storefront's catalog page is one; its layout is not, because the header it renders inline has state. An application whose templates are all static loads no framework for them at all, which is what lets the recipes example ship Vue islands and no React; chapter 104 is that application.
+
+A static segment is still kept across navigation, since a segment's digest is of its own markup and a layout's does not move when the page beneath it changes. When it does move, after an action re-rendered the layout with a new count, the navigator replaces its markup but keeps every island inside it that the new markup also places, by region key, so an open panel in a static layout survives the mutation that changed the number beside it.
+
 ## What the browser does not compute twice
 
 Hydration is React running the page again to find out where its handlers go, and every helper on the render path runs with it: `money`, `percentOff`, `categoryLabel`, once in Rust for the markup and once in the browser for a tree React then discards. The two have to agree byte for byte, and the browser paid for an answer the server already had.

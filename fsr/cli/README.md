@@ -31,7 +31,8 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Give a fresh session its starting values | `export const defaults` beside `Session` |
 | Register the page islands in the browser | `generated/islands.ts`, called from `main.ts` |
 | Type a page's props or call an action from a page | `generated/client.ts` |
-| Mount pages with something other than React | `Options::mounter_module` and `Options::mounter` |
+| Mount pages with something other than React | `Options::mounter_module` and `Options::mounter`; a `.vue` island mounts through `@snapfire/fsr-client/vue` on its own |
+| Place a Vue component from a template | `import Card from "@src/ui/Card.vue"` inside `<Island>`, with `snapfirec-vue` on `PATH` |
 | Run an application with no Rust beside it | `fsr serve <app>` or `fsr dev <app>` with no `Cargo.toml` beside it |
 | Build one team's application as a site another mounts under a path | a `[site]` section beside the app; `fsr serve` on the shell mounts its `[sites]` table |
 | Hold a mounted site to the bytes you meant to ship | `fsr sites install` pins what it installed; `fsr sites pin <shell>` repins |

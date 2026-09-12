@@ -20,6 +20,11 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Stripping Console Calls](#stripping-console-calls)
 * [Compiling CSS](#compiling-css)
   * [Targeting Browsers](#targeting-browsers)
+* [Compiling Framework Components](#compiling-framework-components)
+  * [Installing a Plugin](#installing-a-plugin)
+  * [What a Component Becomes](#what-a-component-becomes)
+  * [Linking a Block to a Sibling File](#linking-a-block-to-a-sibling-file)
+  * [Caching Plugin Output](#caching-plugin-output)
 * [Emitting Source Maps](#emitting-source-maps)
 * [Emitting a Minified Graph](#emitting-a-minified-graph)
 * [Emitting Declarations](#emitting-declarations)
@@ -710,6 +715,93 @@ If nothing resolves, the build says so and continues with no downlevelling and n
 ⚠️  No browser targets resolved: CSS will be compiled without downlevelling or prefixing
 ```
 
+## Compiling Framework Components
+
+A single-file component, a `.vue` file today, is compiled by a plugin rather than by `snapfirec` itself: a separate executable found on `PATH` as `snapfirec-<ext>`, spawned once per build and kept for its length, spoken to over stdin and stdout with one JSON object per line. `snapfirec` gains no dependency and no engine for a framework it does not compile; a project that never writes such a file never learns the plugin exists.
+
+```text
+src/
+  main.ts          import Card from "./Card.vue";
+  Card.vue
+```
+
+```bash
+snapfirec --root . --import-map importmap.json
+```
+
+```text
+   Plugin:   snapfirec-vue 0.1.0 (@vue/compiler-sfc 3.5.13)
+   Plugin cache: 0 of 1 answered
+   Compiling VUE: "src/Card.vue"
+   Compiling CSS: "src/Card.vue"
+   Compiling TS: "src/main.ts"
+   Externals: 'vue'
+```
+
+Every file of one extension goes to its plugin in a single batch before anything is planned, so a project of hundreds of components pays one process start and one round trip.
+
+### Installing a Plugin
+
+A plugin is a crate, installed the way this compiler is:
+
+```bash
+cargo install snapfire_vue
+```
+
+Without it the build stops and says what to type and which files wanted it:
+
+```text
+❌ `snapfirec-vue` is not on PATH; `cargo install snapfire_vue` puts it there
+   needed by "src/Card.vue"
+```
+
+A plugin that speaks another protocol version is refused with both versions and which side to update.
+
+### What a Component Becomes
+
+One source, two outputs. The module lands where a `.ts` would, `dist/src/Card.js`, in the dialect the plugin says it wrote: a typed `<script setup lang="ts">` comes back as TypeScript and the build strips it here, so there is one TypeScript front end rather than two. Its imports are resolved like any other module's, `./util` to `./util.js`, `vue` left bare for the import map. The styles land beside it as `dist/src/Card.vue.css`, already scoped by the plugin when the source asked for it. The build facts list every such sheet under `styles` so a host can link them:
+
+```json
+"styles": ["src/Card.vue.css"]
+```
+
+An import of the component names the module it became. `import Card from "./Card.vue"` is rewritten to `./Card.js`, so a `.vue` specifier resolves the way a `.ts` one does.
+
+A diagnostic comes back structured and is printed in the build's own voice, with the file and the line:
+
+```text
+❌ src/Card.vue:3:5: Element is missing end tag.
+```
+
+One component that does not compile fails alone; the rest of the batch compiles and the build exits `1` once.
+
+### Linking a Block to a Sibling File
+
+A block may name its content by file:
+
+```vue
+<style src="./card.css" scoped></style>
+```
+
+The plugin never opens a file. It answers that it needs `./card.css`, the build reads the file relative to the component, sends the unit again with the content and records the file as a dependency of the component, so under `--watch` or `--driven` a save to `card.css` recompiles `Card.vue`. A plugin that asks a second time for the same unit has failed; a file that cannot be read is reported with both paths.
+
+### Caching Plugin Output
+
+A compile is cached under everything that went into it: the plugin's name, version and compiler string, the source, the options and every sibling file the component read. The cache lives in memory for the build and across every rebuild under `--watch` or `--driven`. It also lives on disk as `.snapfire-plugin-cache.json` in the output directory, so a cold build skips what has not changed:
+
+```bash
+snapfirec --root .
+snapfirec --root .
+```
+
+```text
+   Plugin cache: 0 of 3 answered
+   ...
+   Plugin cache: 3 of 3 answered
+```
+
+A structural rebuild, a new file or an edited `tsconfig.json`, keeps the running workers and their cache rather than booting the compiler again. The cache file is not an output: it is left out of the build facts and of `outputs`.
+
 ## Emitting Source Maps
 
 Off by default. The `tsconfig.json` keys are the ones `tsc` defines; the flags override them:
@@ -1307,6 +1399,8 @@ echo $?
 | :--- | :--- | :--- |
 | `❌` | A file failed to compile, write or copy; two sources collide | Yes |
 | `⚠️` | A pattern matched nothing, a path could not be read or no browser targets resolved | No |
+
+A component a plugin could not compile is reported the same way, from the plugin's own diagnostic with the file and the line; a plugin that is not on `PATH` is reported once for its extension, naming the binary, the command that installs it and every file that needed it; a plugin that crashed is reported with whatever it printed to stderr.
 
 A relative specifier naming something the build did not produce is reported with the same `❌` prefix, after every file has been compiled:
 

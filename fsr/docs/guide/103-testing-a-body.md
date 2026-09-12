@@ -32,13 +32,15 @@ test("held lines carry the catalog's rows and the held quantity", async () => {
 
 The mocked services sit behind the same registry the host uses, with the application's contract. A mock for a method the contract does not have fails with the method's name. A mock that answers a shape the contract rejects fails the same way, naming the field. A call to a method no mock answers fails too, naming the method: under a page spec the loader would otherwise degrade to the error component and the spec would pass by looking at the wrong page. That is what keeps a body test honest about the world it pretends to see: the first version of the storefront's checkout test returned order lines without a `name`; the test failed before the assertion was reached, which is the failure you want to have at your desk rather than in a page.
 
+The same allowance holds on the way in. A mock answering `minutes: 35` for an integer field is read as the integer the contract names, since a JavaScript number is a double whatever it holds; a mock answering `35.5` there still fails with the field. The generated mock types agree, taking `number` wherever a field is `bigint`.
+
 ## What a test can say
 
 The file is a small dialect and the runner refuses anything outside it with the line, so a test never silently does less than it reads. It holds imports, `const` fixtures the tests share and `test` blocks. Inside a block:
 
 - `const c = ctx({...})`, the context, bound to a name.
 - `await load(c)`, `const result = await addToCart(c)`, `const { lines } = await load(c)`: runs of the loader or an action, bound or not.
-- `assert.ok(x)`, `assert.equal(actual, expected)`, `await assert.rejects(checkout(c), "invalid")`: the three assertions. `equal` is deep and compares the way the value model does, so `1n` and `1` are different and a failed comparison prints both sides as TypeScript would write them.
+- `assert.ok(x)`, `assert.equal(actual, expected)`, `await assert.rejects(checkout(c), "invalid")`: the three assertions. `equal` is deep and compares the way the value model does, with one allowance: an integer field reads back as a bigint while a test may write the number it stands for, so `35` and `35n` are the same value where either side is whole. A failed comparison prints both sides as TypeScript would write them.
 
 After every run the context refreshes: `c.session` is the session as the body left it, `c.trace.calls` is every service call it made with its arguments and `c.trace.session.written` names the keys it wrote. Those are the assertions that say what a body did rather than only what it returned:
 
@@ -99,6 +101,8 @@ test("a click from the catalog to the cart swaps the page and keeps the document
 What hydrates in a page test is what would hydrate in a browser. `render` of a lowered page hands React the values and subtrees the server computed for it, the way the mounter does from the island's props, so a spec exercises the read path rather than the fallback, and a component the server rendered as a subtree is not rendered by React in the test either. An island in server mode is stepped the same way it is served: a click in a spec posts to the island route, the runner answers it through the function the host's route calls, and the spec sees the patched markup, as [`order/server.spec.tsx`](../../examples/shopping_react_ts/app/tests/order/server.spec.tsx) does when it clicks the order help twice.
 
 A route with a `loading.tsx` reaches a browser as a stream, and `load` reads it whole: each resolved template is moved into its slot before the islands mount, and what the fill script would have said about the title and the store is applied once the document's own seed is in, so a spec sees the resolved page, the retitled document and the seeded keys, never the skeleton. The store is emptied before every `load`, the way a full load empties it in a browser, so a key one test wrote cannot leak into the next test's hydration. What `load` does not do is run the application's entry module: `src/main.ts` and whatever it wires, a `derive`, a listener, a global, are the browser's, and a spec sees a derived key only as the server seeded it. A mock returns what the contract says, and one thing it cannot spell: an integral value for a `number` field, since `0` encodes as an integer and the contract refuses an integer where a double is declared, so a mock writes `0.5` where the backend would write `0.0`.
+
+A Vue island mounts under the harness the way it does in a browser: the recipes example's specs click a Vue button, plan a recipe and read the count the Vue masthead shows, with the same `load`, `fireEvent` and `screen`. The runner compiles the browser half of the app the way the bundle does, static templates left out and `.vue` files through the plugin. It writes the build's generated files first, so a spec always runs against the registry of the build it was given.
 
 ## Route tests are the other layer
 

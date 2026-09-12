@@ -19,9 +19,13 @@ Nothing under `generated/` is committed. It is rebuilt from `routes/`, `schemas/
 
 ## The bundle is a separate tool
 
-snapfirec compiles the browser side, `src/`, the pages under `routes/` and the two generated modules the browser needs, into `dist/`, following `tsconfig.build.json`. It is a general TypeScript compiler that knows nothing about fsr; the build writes the tsconfig it needs and `fsr dev` runs it. The bundle must follow the build, since it compiles the island registry the build writes, which is the one ordering mistake a fresh checkout can make and the reason `fsr dev` exists.
+snapfirec compiles the browser side, `src/`, the route modules the browser mounts and the two generated modules the browser needs, into `dist/`, following `tsconfig.build.json`. It is a general TypeScript compiler that knows nothing about fsr; the build writes the tsconfig it needs and `fsr dev` runs it. The bundle must follow the build, since it compiles the island registry the build writes, which is the one ordering mistake a fresh checkout can make and the reason `fsr dev` exists.
 
-The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path and the entry script, so the two tools meet through a file rather than through configuration.
+Not every route module is in it. A template the report marks `static`, one with no state and no handlers and nothing inline that has them, has no browser twin, so the build lists the route files that do hydrate in `tsconfig.build.json` rather than `routes/**/*.tsx`. An application whose templates are all static bundles `src/` and the two generated files and nothing else.
+
+A `.vue` file under `src/` is compiled by a plugin, `snapfirec-vue` on `PATH`, which snapfirec spawns once and keeps for the build; the file becomes a module and a scoped stylesheet beside it. The build's banner names the plugin and says how many of its files the plugin cache answered. Chapter 104 has the whole of it.
+
+The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path, the entry script and the component stylesheets to link, so the two tools meet through a file rather than through configuration.
 
 They meet through a second directory too. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr-bundle/` with those calls turned into reads of what the server delivered, and `fsr dev` passes `--overlay .fsr-bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy, and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
 
@@ -36,6 +40,7 @@ An application with a Rust project puts three lines in `build.rs`: build, write,
 | Changed | It does |
 | --- | --- |
 | a page, a component or CSS | rebundles; the open page refreshes itself |
+| a `.vue` file or a file a `<style src>` in one names | recompiles that component through the plugin, then rebundles |
 | a loader, an action, a schema or a client document | regenerates, rebundles, reloads the running server in place |
 | Rust under `src/`, `build.rs`, `Cargo.toml` or `config/` | rebuilds, restarts |
 | `config/` beside an app with no Cargo project | reloads the stock host in place, restarts when refused |

@@ -426,7 +426,7 @@ Every integer width is `bigint`, because a body runs over the value model where 
 
 ## Registering the Islands
 
-`generated/islands.ts` registers every page, error and loading module discovery named, so the browser mounts exactly what the plan refers to. `main.ts` calls it and registers only what the build cannot know, such as the component of a route added in Rust.
+`generated/islands.ts` registers every module the browser mounts, so the browser mounts exactly what the plan refers to: the pages, layouts and boundaries with state or handlers plus every component a template places as an island. A template with neither and nothing inline that has them is `static`: nothing mounts it, so it is not registered and not compiled. `main.ts` calls the registration and registers only what the build cannot know, such as the component of a route added in Rust.
 
 ```ts
 import { boot, enableNavigation } from "@snapfire/fsr-client";
@@ -437,7 +437,18 @@ boot();
 enableNavigation();
 ```
 
-The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`; the mounter defaults to `reactMounter` from `@snapfire/fsr-client/react` and is set with `Options`.
+The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`; the mounter defaults to `reactMounter` from `@snapfire/fsr-client/react` and is set with `Options`. A `.vue` module is registered with `vueMounter` from `@snapfire/fsr-client/vue` whatever the default. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
+
+```ts
+import { registerIsland } from "@snapfire/fsr-client";
+import { vueMounter, vuePatcher } from "@snapfire/fsr-client/vue";
+
+export function registerIslands(): void {
+  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher });
+}
+```
+
+A `.vue` file a template imports is a component the build does not read: it is placed as an island the server writes empty with its props and refused anywhere but inside `<Island>`. `generated/foreign.d.ts` declares `*.vue` for the typechecker. `snapfirec-vue` must be on `PATH` for the bundle, from `cargo install snapfire_vue`.
 
 ## Typing Pages and Calling Actions
 
@@ -501,6 +512,12 @@ types     csstype                      csstype 3.2.3
 ```
 
 A package with nothing to fetch is reported `missing` and the build goes on; its imports are `any` in the editor and errors under `strict`. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit`, never shipped, so a fresh checkout runs `fsr types` once rather than committing them.
+
+Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr-authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched.
+
+```tsx
+import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
+```
 
 ## Checking a Deployment
 
@@ -597,7 +614,7 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 
 ## Reading the Generated tsconfig
 
-`fsr build` writes `tsconfig.json` from the layout: `@snapfire/fsr` to the generated context module, every package under `types/` to its declaration entry, `<package>/*` to its directory so a subpath such as `react/jsx-runtime` resolves; an entry that is a script of `declare module` blocks is included rather than mapped. It is the whole editor configuration, so there is nothing to keep in step by hand.
+`fsr build` writes `tsconfig.json` from the layout: `@snapfire/fsr` to the generated context module, every package under `types/` to its declaration entry, `<package>/*` to its directory so a subpath such as `react/jsx-runtime` resolves; an entry that is a script of `declare module` blocks is included rather than mapped; `jsxImportSource` names `@snapfire/fsr-authoring` when the import map has no `react`. It is the whole editor configuration, so there is nothing to keep in step by hand.
 
 ```json
 "paths": {
@@ -609,7 +626,7 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 "include": ["src/**/*", "routes/**/*", "schemas/**/*", "generated/**/*", "types/sweetalert2/sweetalert2.d.ts"]
 ```
 
-`tsconfig.build.json` is the browser half for snapfirec: `src/`, the pages, the island registry and the client module, so the server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
+`tsconfig.build.json` is the browser half for snapfirec: `src/`, the route modules the browser mounts, listed one by one rather than as `routes/**/*.tsx` so a static template is never compiled, the island registry and the client module, so the server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
 
 ## Using xwpm Instead
 
@@ -668,7 +685,9 @@ fsr test app
 fsr test app cart
 ```
 
-Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone.
+Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, static templates left out.
+
+A mock may write an integer field as a number. `minutes: 35` reaches the loader as the `i64` the contract names, since a JavaScript number is a double whatever it holds; `assert.equal` reads `35` and `35n` as the same value where either side is whole; the generated mock types take `number` wherever a field is `bigint`.
 
 ```ts
 import { get, set } from "@snapfire/fsr-client";
@@ -938,7 +957,7 @@ extensions ext/labels.ts#count      lowered
 
 Eleven sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document and `grpc` for a `.proto`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
-A `rendered` row says `lowered` or `client`; a `client` row carries the `file:line:column` of the residue that decided it, which is often in a component the page imports rather than in the page. The `client` section states each of those once, whatever the number of pages that reach it:
+A `rendered` row says `lowered` or `client`; a lowered row says `static` in its detail column when nothing mounts the template: no state, no handlers and no component inline that has them. A `client` row carries the `file:line:column` of the residue that decided it, which is often in a component the page imports rather than in the page. The `client` section states each of those once, whatever the number of pages that reach it:
 
 ```
 rendered  routes/page.tsx#default            client      src/ui/Stars.tsx:2:17

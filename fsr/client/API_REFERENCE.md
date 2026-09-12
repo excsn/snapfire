@@ -87,7 +87,11 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [useLocale](#uselocale)
   * [Link](#link)
   * [reactPatcher](#reactpatcher)
-* [11. The Standard Library](#11-the-standard-library)
+* [11. The Vue Mounter](#11-the-vue-mounter)
+  * [vueMounter](#vuemounter)
+  * [vuePatcher](#vuepatcher)
+  * [useStore (Vue)](#usestore-vue)
+* [12. The Standard Library](#12-the-standard-library)
   * [localeTag](#localetag)
   * [intl](#intl)
   * [text](#text)
@@ -96,7 +100,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [id](#id)
   * [t](#t)
   * [native](#native)
-* [12. Error Handling](#12-error-handling)
+* [13. Error Handling](#13-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
@@ -727,7 +731,29 @@ Calls `render` on the root the mounter returned with `createElement(component, p
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 
-## 11. The Standard Library
+## 11. The Vue Mounter
+
+`@snapfire/fsr-client/vue`: its own entry point, so the core package never imports Vue and a page with no Vue island never loads it. Requires `vue` in the page's import map.
+
+### vueMounter
+
+* `const vueMounter: Mounter`
+
+Takes the module's default export (the module itself when it is the component) and mounts it with `createSSRApp` when `hydrate` is true and `createApp` when it is false. The props are held in a reactive object and the component is rendered through a one-element root that renders nothing of its own, since an app takes its root props once and a patch needs somewhere to write. The runtime's own keys, `$h`, `$k` and `$s`, are lifted off before the component sees its props. Returns the app.
+
+### vuePatcher
+
+* `const vuePatcher: Patcher`
+
+Assigns the new props into the reactive object the mounter holds for `el`, deleting keys the new props lack, so the component re-renders in place with its DOM and its state. Does nothing for an element nothing mounted.
+
+### useStore (Vue)
+
+* `function useStore<T>(key: StoreKey<T>, initial: T): { value: T }`
+
+A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
+
+## 12. The Standard Library
 
 `@snapfire/fsr-client/std`: the browser half of the standard library the server's interpreter carries under the same names. Every `render` member agrees with the server byte for byte under the same locale, which is `currentLocale()`; a member marked server only has no such promise and the build refuses it on a component's render path. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
 
@@ -774,7 +800,7 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 * `native<F extends (...args: never[]) => unknown>(name: string, f?: F): F`: declares the browser half of a native pair under `name`, `module.member`, whose Rust half the host registers under the same name. With `f`, the pair has `render` reach and `f` is returned and registered on `globalThis.__sf_natives` for the runner; without, it has `body` reach and the returned function throws `<name> runs on the server only`. `name` must be a string literal, since the build reads the declaration.
 
-## 12. Error Handling
+## 13. Error Handling
 
 ### ActionFailure
 

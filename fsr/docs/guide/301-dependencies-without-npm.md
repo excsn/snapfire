@@ -18,6 +18,8 @@ The editor needs declarations and the build's `tsc` step needs them too; they ar
 
 The step is best effort by design. Skip it and the application still builds and runs; the editor types every import as `any` until you run it. The report's `types` section says which package's declarations came from where; `missing` names the ones it could not find with the reason.
 
+Templates are JSX; what types their JSX follows the import map. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr-authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, with no `@types/react` fetched. `fsr add app vue@3.5.13` is how Vue itself gets there, the same way React does.
+
 ## Why the split
 
 Two directories because two audiences. `vendor/` is what ships and it is committed so that a checkout is complete and a deployment carries exactly what was reviewed. `types/` is what the editor reads and it is not committed because it is large, regenerable and never served. The manifests in each record the version so `fsr add` and `fsr types` know what is already there.

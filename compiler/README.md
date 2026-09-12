@@ -61,6 +61,8 @@ Then read `example/dist`, which is what a browser would be served.
 | Ship smaller files | `--minify`, which adds a `.min` graph beside the readable one |
 | Ship types with the library | `--declaration` or `declaration` in `tsconfig.json` |
 | Turn JSX into calls a browser runs | `"jsx": "react-jsx"` in `tsconfig.json` |
+| Compile a `.vue` component | `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`; nothing to pass |
+| Skip recompiling components nothing changed | Nothing to pass; the plugin cache answers them and the banner says how many |
 | Get fonts and images into `dist` | `--copy-assets` |
 | Know which packages the page must supply | The `Externals:` line the build prints |
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |

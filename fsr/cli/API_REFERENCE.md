@@ -154,14 +154,20 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Built
 
-* `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)> }`
-* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order.
+* `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String> }`
+* `browser_routes` are the route modules the browser mounts, as files relative to the app: every route module that is not `static`, which is all of `routes/` a bundle compiles.
+* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `generated/foreign.d.ts` when a template imports a component in a language the build does not read, declaring `*.<ext>` for the typechecker.
 * `generated/native.d.ts` is read off the Rust rather than the contract: `native::read` walks the crate's `src/`, the sibling of the app directory, with `syn` and takes every `#[native]` `impl` block's `pub` methods plus the structs they name. It reads rather than expands, so `build.rs` can run it before the crate compiles. A method the reader saw as `fn` is typed as its value and an `async fn` as a promise; a Rust type outside the value model reads as `unknown`.
 
 ### write
 
 * `pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError>`
 * Removes every `*.json` under `generated/contracts/` and the whole `.fsr-bundle/` directory, then writes every entry of `built.files` under `app`, creating directories as needed. Returns the paths written.
+
+### write_generated
+
+* `pub fn write_generated(app: &Path, built: &Built) -> Result<(), BuildError>`
+* Writes only the `generated/` entries of `built.files`, which is what the browser half of a test compiles against, so a run sees the build it was given rather than the last `fsr build`'s. `fsr test` calls it before compiling.
 
 ### write_overlay
 
@@ -183,6 +189,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `shell: Option<(String, usize, usize, Vec<String>)>`: for a site built against a shell contract, its path, its store key and import counts and the site's import map entries that differ; `Display` prints a `shell` row and a second naming the differences.
 
 * `pub struct Report { pub routes: Vec<(String, String)>, pub layouts: Vec<(String, String)>, pub slots: Vec<(String, String)>, pub intercepts: Vec<(String, String)>, pub sources: Vec<(String, String)>, pub actions: Vec<(String, String)>, pub handlers: Vec<(String, String)>, pub middleware: Option<String>, pub components: Vec<(String, String, String)>, pub hoisted: Vec<(String, usize)>, pub services: Vec<(String, String)>, pub schemas: Vec<(String, String)>, pub types: Vec<(String, String)> }`
+* `components` rows are module, owner and detail: owner `lowered` or `client`; for `client`, the detail is the residue's `file:line:column`; for `lowered`, the detail is `static` when the template has no state, no handlers and no component inline that has them, so nothing mounts it; otherwise it is empty.
 * `hoisted` gives a lowered component's module, prefixed for a site, how many of its render-path calls and how many of its static subtrees the server computes for the browser; `Display` prints them as `hoisted` rows after the components, `4 values, 8 subtrees`.
 * `islands: Vec<(String, usize)>` names each component placed as an island in server mode, prefixed for a site, with how many handlers it answers; `Display` prints them as `islands` rows labelled `server`, before `hoisted`.
 * `extensions: Vec<(String, String)>` pairs each export under `ext/`, `file#name`, with `lowered`, `native render` or `native body`; `browser: Vec<(String, String)>` pairs a lowered module, prefixed for a site, with `file:line:column` of each render-path call that stays in the browser after hoisting. `Display` prints `extensions` rows, then `browser` rows, before `hoisted`.
@@ -251,7 +258,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `generated/services.d.ts` is `snapfire_fsr_service::typescript::declarations` of it.
 * `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module, each with `mount` and `patch` from `Options::mounter_module`: the routes-level error module, the not-found module, each layout, then each page, its error and its loading module, then every component a lowered component places as an island, its loader picking the named export, each loading `../<path>.js` relative to `generated/`.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.
-* `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build`. Both include `ext/**/*` beside `src/**/*`.
+* `tsconfig.json` is `types::tsconfig`; `tsconfig.build.json` is `types::tsconfig_build(app, &built.browser_routes)`. Both include `ext/**/*` beside `src/**/*`.
 * `.fsr-bundle/<path>` is the browser copy of every lowered component module with a hoist: the source with `hoist::apply` over it, which snapfirec reads through `--overlay` in place of the original. Not for the editor and not for `fsr test`'s Rust side; the plan carries the same decisions as `Expr::Hoist`.
 * `generated/fsr.ts` is what the generated `tsconfig.json` maps `@snapfire/fsr` to; it imports the base package as `@snapfire/fsr-authoring`, re-exports `fail` and `Services`, imports `Session`, declares `Routes` with one key per pattern whose value has a `string` field per parameter, `Ctx<P extends keyof Routes = keyof Routes>` with `params`, `query`, `session`, `identity`, `locale`, `services` and `now`, `ActionCtx<Input, P>` and an `action<Input, Out>` wrapper over `@snapfire/fsr`'s.
 
@@ -335,8 +342,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### tsconfig
 
-* `pub fn types::tsconfig(app: &Path) -> Result<String, BuildError>`: `target` es2022, `module` esnext, `moduleResolution` bundler, `jsx` react-jsx, `strict`, `noEmit`, `skipLibCheck`; `paths` with `@snapfire/fsr` to `./generated/fsr`, then per present package `<name>` to `./<types>/<name>/<entry>` unless ambient and `<name>/*` to `./<types>/<name>/*`; `include` of `src/**/*`, `routes/**/*`, `schemas/**/*`, `generated/**/*` and each ambient entry.
-* `pub fn types::tsconfig_build() -> String`: `target` es2022, `outDir` dist, `rootDir` `.`, `sourceMap`, `jsx` react-jsx; `include` of `src/**/*`, `routes/**/*.tsx`, `generated/islands.ts` and `generated/client.ts`.
+* `pub fn types::tsconfig(app: &Path) -> Result<String, BuildError>`: `target` es2022, `module` esnext, `moduleResolution` bundler, `jsx` react-jsx, `jsxImportSource` `@snapfire/fsr-authoring` when the import map has no `react`, `strict`, `noEmit`, `skipLibCheck`; `paths` with `@snapfire/fsr` to `./generated/fsr`, then per present package `<name>` to `./<types>/<name>/<entry>` unless ambient and `<name>/*` to `./<types>/<name>/*`; `include` of `src/**/*`, `routes/**/*`, `schemas/**/*`, `generated/**/*` and each ambient entry.
+* `pub fn types::tsconfig_build(app: &Path, route_files: &[String]) -> String`: `target` es2022, `outDir` dist, `rootDir` `.`, `sourceMap`, `jsx` react-jsx; `include` of `src/**/*`, `ext/**/*` when present, each of `route_files`, `generated/islands.ts` and `generated/client.ts`. A static template is not among `route_files`, so it is never compiled and never asks the import map for a JSX runtime.
 
 ### Manifests
 

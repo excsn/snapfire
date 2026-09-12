@@ -15,6 +15,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
+* [Mounting Vue Components](#mounting-vue-components)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
@@ -49,7 +50,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Node**: one entry in the payload tree. Its five kinds are `text`, `raw`, `seq`, `client` and `pending`.
 * **Island**: a `client` node. The server renders it inside an `<sf-i>` marker with its props in a sibling JSON script tag; the browser mounts a component over that markup.
 * **Module id**: the string that names a component, source path plus export, for example `components/ServerChart.tsx#default`. It is the key `registerIsland` is called with and the value of the marker's `data-sf-module`.
-* **Mounter**: the function that turns a loaded module plus props into a mounted component in an element. React has one in the `/react` entry; every other framework plugs in the same way.
+* **Mounter**: the function that turns a loaded module plus props into a mounted component in an element. React has one in the `/react` entry and Vue one in the `/vue` entry; every other framework plugs in the same way.
 * **Hydration timing**: per island, `"load"`, `"visible"` or `"idle"`. It decides when the loader runs, not whether the island exists.
 * **Slot**: a hole a deferred segment fills later. It renders as `<div data-sf-slot="N">` holding a fallback until its content arrives.
 * **Segment**: a region of the page with a comparable key, delimited in the HTML by `<!--sf-g:key-->` and `<!--/sf-g-->` comments. Same key across two responses means the region survives navigation.
@@ -260,24 +261,51 @@ import { Link } from "@snapfire/fsr-client/react";
 
 `full` asks for the document's rendering of the target whatever the origin; `into` names the slot outright, for a link the server would not match. On any anchor the same is `data-sf-full` and `data-sf-into`. `refresh` re-renders an open intercept in its slot over the page it keeps.
 
+## Mounting Vue Components
+
+The `/vue` entry is the second mounter the package ships. Register a `.vue` module with it and Vue mounts the component in the marker, creating the app over the server's markup when there is any and fresh when there is none, which is the case for a component the server has no body for:
+
+```ts
+import { registerIsland } from "@snapfire/fsr-client";
+import { vueMounter, vuePatcher } from "@snapfire/fsr-client/vue";
+
+registerIsland("src/ui/Tonight.vue#default", {
+  loader: () => import("../src/ui/Tonight.vue").then((m) => m.default),
+  mount: vueMounter,
+  patch: vuePatcher,
+});
+```
+
+`fsr build` writes exactly that registration for every `.vue` island a template places, so an application never writes it by hand. The mounter holds the island's props in a reactive object and renders the component through a one-element wrapper, which is what lets `vuePatcher` hand a mounted island new props in place rather than tearing it down. The runtime's own keys on the props, the hoisted table and the region key, never reach the component.
+
+Inside the component the store is a ref:
+
+```ts
+import { useStore } from "@snapfire/fsr-client/vue";
+import { plannedCount } from "@src/store";
+
+const held = useStore(plannedCount, props.count);
+held.value += 1;
+```
+
+Call it in `setup`: the subscription ends with the component's scope. Writing `.value` writes the store, so every other island reading that key follows, React or Vue.
+
 ## Writing a Mounter for Another Framework
 
 A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller, so return whatever the framework needs for teardown:
 
 ```ts
 import { registerIsland, type Mounter, type Props } from "@snapfire/fsr-client";
-import { createApp, type Component } from "vue";
+import { mount, type Component } from "svelte";
 
-const vueMounter: Mounter = (module, props, el, hydrate) => {
-  const app = createApp(module as Component, props as Record<string, unknown>);
+const svelteMounter: Mounter = (module, props, el, hydrate) => {
   if (!hydrate) el.replaceChildren();
-  app.mount(el);
-  return app;
+  return mount(module as Component, { target: el, props: props as Record<string, unknown> });
 };
 
-registerIsland("components/Counter.vue#default", {
+registerIsland("components/Counter.svelte#default", {
   loader: () => import("./Counter.js").then((m) => m.default),
-  mount: vueMounter,
+  mount: svelteMounter,
 });
 ```
 

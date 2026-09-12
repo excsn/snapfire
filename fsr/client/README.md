@@ -35,6 +35,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | --- | --- | --- |
 | `@snapfire/fsr-client` | `dist/index.js` | none |
 | `@snapfire/fsr-client/react` | `dist/react.js` | `react`, `react-dom/client` |
+| `@snapfire/fsr-client/vue` | `dist/vue.js` | `vue` |
 
 `react/jsx-runtime` is not imported by this package. It is what `snapfirec` emits for a `.tsx` component compiled under `"jsx": "react-jsx"`, so an application with JSX components needs the entry even though its components carry no React import.
 
@@ -54,6 +55,8 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Re-render a mounted island with new props, keeping its DOM and state | `patchIsland`, `reactPatcher` |
 | Delay hydration until the island scrolls into view | `when: "visible"` |
 | Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
+| Mount Vue components | `vueMounter` from `@snapfire/fsr-client/vue` |
+| Read the store as a Vue ref | `useStore` from `@snapfire/fsr-client/vue` |
 | Mount anything else | your own `Mounter` |
 | Take over link clicks and history | `enableNavigation` |
 | Warm a route before its link is clicked | `prefetch`, on by default for hovered, focused and touched links |
