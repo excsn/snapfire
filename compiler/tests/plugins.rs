@@ -95,3 +95,32 @@ fn a_component_that_does_not_compile_is_reported_with_its_place_and_stops_the_bu
   assert!(complained.contains("src/Card.vue"), "the file is named: {complained}");
   assert!(complained.contains(':'), "with a location: {complained}");
 }
+
+#[test]
+fn a_block_with_src_compiles_the_sibling_the_plugin_asked_for() {
+  let fixture = Fixture::new("vue-plugin-src");
+  let mut cmd = get_snapfirec_cmd();
+  with_plugin_on_path(&mut cmd);
+  cmd.arg("--root").arg(fixture.root()).assert().success();
+
+  let css = fs::read_to_string(fixture.root().join("dist/src/Card.vue.css")).expect("the stylesheet");
+  assert!(css.contains("padding: 12px") && css.contains("[data-v-"), "the linked sheet, scoped: {css}");
+}
+
+#[test]
+fn a_second_build_answers_unchanged_components_from_the_cache() {
+  let fixture = Fixture::new("vue-plugin");
+  let mut cmd = get_snapfirec_cmd();
+  with_plugin_on_path(&mut cmd);
+  let first = cmd.arg("--root").arg(fixture.root()).output().expect("it runs");
+  assert!(first.status.success());
+  assert!(String::from_utf8_lossy(&first.stdout).contains("Plugin cache: 0 of 1"), "{}", String::from_utf8_lossy(&first.stdout));
+
+  let mut again = get_snapfirec_cmd();
+  with_plugin_on_path(&mut again);
+  let second = again.arg("--root").arg(fixture.root()).output().expect("it runs");
+  assert!(second.status.success());
+  let said = String::from_utf8_lossy(&second.stdout);
+  assert!(said.contains("Plugin cache: 1 of 1"), "nothing changed, so nothing was compiled again: {said}");
+  assert!(fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module").contains("_sfc_main"));
+}

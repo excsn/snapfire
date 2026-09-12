@@ -35,9 +35,22 @@ function unsupported(block, kind, filename) {
   return diagnostic({ message: kind + ' lang="' + lang + '" needs a compiler this plugin does not carry', loc: block.loc }, filename);
 }
 
-globalThis.__vue_compile = function (filename, source, options) {
+/** Gives a block with `src` the file's content, or names the file when the host has not sent it yet. */
+function external(block, files, deps, needs) {
+  if (!block || !block.src) return;
+  deps.push(block.src);
+  if (Object.prototype.hasOwnProperty.call(files, block.src)) {
+    block.content = files[block.src];
+  } else {
+    needs.push(block.src);
+  }
+}
+
+globalThis.__vue_compile = function (filename, source, options, files) {
   const diagnostics = [];
   const deps = [];
+  const needs = [];
+  files = files || {};
   let bindings;
   let lang = "js";
   try {
@@ -53,17 +66,20 @@ globalThis.__vue_compile = function (filename, source, options) {
     for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) {
       const refused = unsupported(block, "script", filename);
       if (refused) diagnostics.push(refused);
-      if (block.src) deps.push(block.src);
+      external(block, files, deps, needs);
       if (block.lang === "ts" || block.lang === "tsx") lang = "ts";
     }
     for (const style of descriptor.styles) {
       const refused = unsupported(style, "style", filename);
       if (refused) diagnostics.push(refused);
-      if (style.src) deps.push(style.src);
+      external(style, files, deps, needs);
     }
-    if (descriptor.template && descriptor.template.src) deps.push(descriptor.template.src);
+    external(descriptor.template, files, deps, needs);
     if (diagnostics.some((d) => d.severity === "error")) {
       return JSON.stringify({ status: "failed", diagnostics });
+    }
+    if (needs.length) {
+      return JSON.stringify({ status: "needs", files: needs });
     }
 
     const parts = [];

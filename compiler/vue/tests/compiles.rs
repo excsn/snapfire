@@ -21,13 +21,14 @@ const n = ref(props.count);
 
 fn compile(source: &str) -> Outcome {
   let compiler = Compiler::new().expect("the compiler boots");
-  compiler.compile("src/Card.vue", source, &Options::default()).expect("the driver answers")
+  compiler.compile("src/Card.vue", source, &Options::default(), &Default::default()).expect("the driver answers")
 }
 
 fn ok(outcome: Outcome) -> snapfire_plugin::Compiled {
   match outcome {
     Outcome::Ok(compiled) => compiled,
     Outcome::Failed { diagnostics } => panic!("refused: {diagnostics:?}"),
+    Outcome::Needs { files } => panic!("asked for {files:?}"),
   }
 }
 
@@ -91,7 +92,7 @@ fn one_context_compiles_many_components() {
   let compiler = Compiler::new().expect("the compiler boots");
   for i in 0..25 {
     let source = CARD.replace("padding: 12px", &format!("padding: {i}px"));
-    let outcome = compiler.compile(&format!("src/Card{i}.vue"), &source, &Options::default()).expect("answers");
+    let outcome = compiler.compile(&format!("src/Card{i}.vue"), &source, &Options::default(), &Default::default()).expect("answers");
     assert!(matches!(outcome, Outcome::Ok(_)), "component {i} compiled");
   }
 }
@@ -101,4 +102,29 @@ fn a_typed_script_block_is_handed_on_as_typescript_rather_than_stripped_here() {
   assert_eq!(ok(compile(CARD)).lang, Lang::Ts, "lang=\"ts\" means the build's own front end finishes it");
   let plain = "<script>\nexport default { name: \"Plain\" };\n</script>\n<template><p>x</p></template>\n";
   assert_eq!(ok(compile(plain)).lang, Lang::Js);
+}
+
+const LINKED: &str = r#"<script setup lang="ts">
+const props = defineProps<{ title: string }>();
+</script>
+
+<template>
+  <div class="card">{{ title }}</div>
+</template>
+
+<style src="./card.css" scoped></style>
+"#;
+
+#[test]
+fn a_block_with_src_names_the_file_it_needs_and_compiles_once_it_is_handed_over() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let first = compiler.compile("src/Card.vue", LINKED, &Options::default(), &Default::default()).expect("answers");
+  assert!(matches!(&first, Outcome::Needs { files } if files == &["./card.css".to_owned()]), "{first:?}");
+
+  let mut files = std::collections::BTreeMap::new();
+  files.insert("./card.css".to_owned(), ".card { padding: 12px; }\n".to_owned());
+  let compiled = ok(compiler.compile("src/Card.vue", LINKED, &Options::default(), &files).expect("answers"));
+  let css = compiled.css.expect("the linked sheet is the component's style");
+  assert!(css.contains("padding: 12px") && css.contains("[data-v-"), "scoped like an inline block: {css}");
+  assert_eq!(compiled.deps, ["./card.css"], "and the file is a dependency the build watches");
 }

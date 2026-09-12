@@ -66,11 +66,33 @@ pub struct Build {
   pub has_error: bool,
   /// The framework compilers this build spawned, kept alive for its whole
   /// length and, under `--watch`, across every rebuild.
-  plugins: crate::plugin::Plugins,
+  pub(crate) plugins: crate::plugin::Plugins,
   /// What a plugin answered for each of its sources, by path.
   compiled: HashMap<PathBuf, snapfire_plugin::Compiled>,
-
+  /// What each plugin source compiled to last time, keyed by what went into
+  /// it, so a rebuild sends the worker only what changed. Read from and
+  /// written to `.snapfire-plugin-cache.json` in the output directory, so a
+  /// cold build has it too.
+  pub(crate) plugin_cache: HashMap<PathBuf, PluginCached>,
+  /// Files a plugin read beside a source, a `<style src>` among them, and the
+  /// sources that read each, so a change to one recompiles the other.
+  plugin_deps: HashMap<PathBuf, Vec<PathBuf>>,
+  /// How many plugin sources this build answered from the cache, of how many it had.
+  plugin_hits: (usize, usize),
 }
+
+/// One cache entry: the key everything that went into the compile hashes to,
+/// the sibling files it read (by the specifier the source wrote and where it
+/// resolved) and what came out.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PluginCached {
+  key: u64,
+  #[serde(default)]
+  deps: Vec<(String, PathBuf)>,
+  compiled: snapfire_plugin::Compiled,
+}
+
+const PLUGIN_CACHE: &str = ".snapfire-plugin-cache.json";
 
 #[derive(Clone, Copy)]
 enum Asset {
@@ -236,6 +258,9 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     has_error: false,
     plugins: crate::plugin::Plugins::new(),
     compiled: HashMap::new(),
+    plugin_cache: HashMap::new(),
+    plugin_deps: HashMap::new(),
+    plugin_hits: (0, 0),
   };
 
   // `select` matches every file, compilable or not, so an output directory is
@@ -259,6 +284,9 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
 
   run_plugins(opts, &mut build);
   if banner {
+    if build.plugin_hits.1 > 0 {
+      println!("   Plugin cache: {} of {} answered", build.plugin_hits.0, build.plugin_hits.1);
+    }
     for line in build.plugins.report() {
       println!("   Plugin:   {line}");
     }
@@ -314,6 +342,21 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
 /// Recompiles one already-selected file in place. Nothing structural is re-checked, so this never
 /// prunes and never re-runs collision detection against entries the file already owns.
 pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
+  // A plugin source is compiled again before its jobs are planned, and a file
+  // a plugin read beside a source refreshes every source that read it.
+  let mut sources: Vec<PathBuf> = build.plugin_deps.get(path).cloned().unwrap_or_default();
+  if crate::plugin::plugin_ext(path).is_some() && !sources.iter().any(|s| s == path) {
+    sources.push(path.to_path_buf());
+  }
+  if !sources.is_empty() {
+    run_plugins_for(opts, build, &sources);
+    save_plugin_cache(opts, build);
+    for source in &sources {
+      if source != path {
+        refresh(opts, build, source);
+      }
+    }
+  }
   let Some(jobs) = jobs_for(opts, build, path, false) else {
     return;
   };
@@ -394,59 +437,39 @@ fn plan(opts: &Options, build: &mut Build) -> Vec<Job> {
 /// anything is planned. Batching is the point: a worker's startup is paid once
 /// and a pipe round trip is paid per batch rather than per file.
 fn run_plugins(opts: &Options, build: &mut Build) {
+  let paths: Vec<PathBuf> = build.files.iter().filter(|p| crate::plugin::plugin_ext(p).is_some()).cloned().collect();
+  build.plugin_hits = (0, 0);
+  if build.plugin_cache.is_empty() {
+    load_plugin_cache(build);
+  }
+  run_plugins_for(opts, build, &paths);
+  save_plugin_cache(opts, build);
+}
+
+/// One unit on its way to the plugin: what was hashed to look it up and what
+/// it read beside itself, so the answer can be cached under the same key.
+struct Pending {
+  path: PathBuf,
+  unit: snapfire_plugin::Unit,
+  key: u64,
+  deps: Vec<(String, PathBuf)>,
+}
+
+/// Compiles `paths` through their plugins, answering from the cache whatever
+/// hashes to what it did last time: the worker's own version, the source, the
+/// options and every sibling file the source read. A unit that names files
+/// it needs is sent again with them; one that asks twice has failed.
+fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
   let mut by_ext: BTreeMap<&'static str, Vec<PathBuf>> = BTreeMap::new();
-  for path in &build.files {
+  for path in paths {
     if let Some(ext) = crate::plugin::plugin_ext(path) {
       by_ext.entry(ext).or_default().push(path.clone());
     }
   }
 
   for (ext, paths) in by_ext {
-    let mut units = Vec::with_capacity(paths.len());
-    for path in &paths {
-      let source = match build.compiler.read_source(path) {
-        Ok(source) => source,
-        Err(e) => {
-          eprintln!("❌ {}: {e}", display(path, &opts.root));
-          build.has_error = true;
-          continue;
-        }
-      };
-      units.push(snapfire_plugin::Unit {
-        filename: relative_from(&opts.root, path),
-        path: path.to_string_lossy().into_owned(),
-        source,
-        options: snapfire_plugin::Options {
-          production: opts.minify.is_some(),
-          source_map: build.map_options.mode != MapMode::Off,
-          minify: opts.minify.is_some(),
-        },
-      });
-    }
-    if units.is_empty() {
-      continue;
-    }
-
-    let asked: Vec<PathBuf> = paths.clone();
-    match build.plugins.compile(ext, units) {
-      Ok(results) => {
-        for (path, outcome) in asked.into_iter().zip(results) {
-          match outcome {
-            snapfire_plugin::Outcome::Ok(compiled) => {
-              for diagnostic in &compiled.diagnostics {
-                eprintln!("{}", render(diagnostic, &opts.root));
-              }
-              build.compiled.insert(path, compiled);
-            }
-            snapfire_plugin::Outcome::Failed { diagnostics } => {
-              for diagnostic in &diagnostics {
-                eprintln!("{}", render(diagnostic, &opts.root));
-              }
-              build.has_error = true;
-            }
-          }
-        }
-      }
+    let stamp = match build.plugins.hello(ext) {
+      Ok(hello) => format!("{} {} {}", hello.name, hello.version, hello.compiler),
       Err(e) => {
         // One message for the extension rather than one per file: a plugin that
         // will not start fails every one of them for the same reason.
@@ -455,9 +478,180 @@ fn run_plugins(opts: &Options, build: &mut Build) {
           eprintln!("   needed by {}", display(path, &opts.root));
         }
         build.has_error = true;
+        continue;
       }
+    };
+    let options = snapfire_plugin::Options {
+      production: opts.minify.is_some(),
+      source_map: build.map_options.mode != MapMode::Off,
+      minify: opts.minify.is_some(),
+    };
+    let options_json = serde_json::to_string(&options).unwrap_or_default();
+
+    let mut pending: Vec<Pending> = Vec::new();
+    for path in &paths {
+      build.plugin_hits.1 += 1;
+      let source = match build.compiler.read_source(path) {
+        Ok(source) => source,
+        Err(e) => {
+          eprintln!("❌ {}: {e}", display(path, &opts.root));
+          build.has_error = true;
+          continue;
+        }
+      };
+      let (deps, files) = match build.plugin_cache.get(path) {
+        Some(cached) => sibling_files(&cached.deps),
+        None => (Vec::new(), BTreeMap::new()),
+      };
+      let key = plugin_key(&stamp, &source, &options_json, &files);
+      if let Some(cached) = build.plugin_cache.get(path).filter(|cached| cached.key == key).cloned() {
+        build.plugin_hits.0 += 1;
+        build.compiled.insert(path.clone(), cached.compiled);
+        record_deps(build, path, &cached.deps);
+        continue;
+      }
+      pending.push(Pending {
+        path: path.clone(),
+        unit: snapfire_plugin::Unit { filename: relative_from(&opts.root, path), path: path.to_string_lossy().into_owned(), source, options: options.clone(), files },
+        key,
+        deps,
+      });
+    }
+
+    // Two rounds at most: the first learns which siblings a unit reads, the
+    // second sends them. A unit still asking after that is refused.
+    for round in 0..2 {
+      if pending.is_empty() {
+        break;
+      }
+      let units: Vec<snapfire_plugin::Unit> = pending.iter().map(|p| p.unit.clone()).collect();
+      let results = match build.plugins.compile(ext, units) {
+        Ok(results) => results,
+        Err(e) => {
+          eprintln!("❌ {:#}", e);
+          for p in &pending {
+            eprintln!("   needed by {}", display(&p.path, &opts.root));
+          }
+          build.has_error = true;
+          break;
+        }
+      };
+      let mut again = Vec::new();
+      for (mut p, outcome) in pending.into_iter().zip(results) {
+        match outcome {
+          snapfire_plugin::Outcome::Ok(compiled) => {
+            for diagnostic in &compiled.diagnostics {
+              eprintln!("{}", render(diagnostic, &opts.root));
+            }
+            record_deps(build, &p.path, &p.deps);
+            build.plugin_cache.insert(p.path.clone(), PluginCached { key: p.key, deps: p.deps, compiled: compiled.clone() });
+            build.compiled.insert(p.path, compiled);
+          }
+          snapfire_plugin::Outcome::Failed { diagnostics } => {
+            for diagnostic in &diagnostics {
+              eprintln!("{}", render(diagnostic, &opts.root));
+            }
+            build.plugin_cache.remove(&p.path);
+            build.has_error = true;
+          }
+          snapfire_plugin::Outcome::Needs { files } => {
+            if round == 1 {
+              eprintln!("❌ {}: the plugin asked for {} again after being given it", display(&p.path, &opts.root), files.join(", "));
+              build.has_error = true;
+              continue;
+            }
+            let base = p.path.parent().unwrap_or(Path::new("."));
+            let mut failed = false;
+            for specifier in files {
+              let target = base.join(&specifier);
+              match fs::read_to_string(&target) {
+                Ok(content) => {
+                  p.unit.files.insert(specifier.clone(), content);
+                  p.deps.push((specifier, target));
+                }
+                Err(e) => {
+                  eprintln!("❌ {}: `{specifier}` names {}, which could not be read: {e}", display(&p.path, &opts.root), display(&target, &opts.root));
+                  failed = true;
+                }
+              }
+            }
+            if failed {
+              build.has_error = true;
+              continue;
+            }
+            p.key = plugin_key(&stamp, &p.unit.source, &options_json, &p.unit.files);
+            again.push(p);
+          }
+        }
+      }
+      pending = again;
     }
   }
+}
+
+/// The key a compile is cached under: the worker's identity, the source, the
+/// options and every sibling file read, in specifier order.
+fn plugin_key(stamp: &str, source: &str, options: &str, files: &BTreeMap<String, String>) -> u64 {
+  use std::hash::{Hash, Hasher};
+  let mut h = std::collections::hash_map::DefaultHasher::new();
+  stamp.hash(&mut h);
+  source.hash(&mut h);
+  options.hash(&mut h);
+  for (specifier, content) in files {
+    specifier.hash(&mut h);
+    content.hash(&mut h);
+  }
+  h.finish()
+}
+
+/// The sibling files a cached compile read, as they are now; a file gone
+/// missing reads as empty, which misses the cache and lets the plugin say so.
+fn sibling_files(deps: &[(String, PathBuf)]) -> (Vec<(String, PathBuf)>, BTreeMap<String, String>) {
+  let mut files = BTreeMap::new();
+  for (specifier, path) in deps {
+    files.insert(specifier.clone(), fs::read_to_string(path).unwrap_or_default());
+  }
+  (deps.to_vec(), files)
+}
+
+fn record_deps(build: &mut Build, source: &Path, deps: &[(String, PathBuf)]) {
+  for (_, dep) in deps {
+    let sources = build.plugin_deps.entry(dep.clone()).or_default();
+    if !sources.iter().any(|s| s == source) {
+      sources.push(source.to_path_buf());
+    }
+  }
+}
+
+fn load_plugin_cache(build: &mut Build) {
+  let path = build.out_dir.join(PLUGIN_CACHE);
+  let Ok(text) = fs::read_to_string(&path) else { return };
+  let Ok(entries) = serde_json::from_str::<BTreeMap<String, PluginCached>>(&text) else { return };
+  for (relative, cached) in entries {
+    build.plugin_cache.insert(build.root_dir.join(relative), cached);
+  }
+}
+
+fn save_plugin_cache(opts: &Options, build: &mut Build) {
+  if build.plugin_hits.1 == 0 {
+    return;
+  }
+  let entries: BTreeMap<String, &PluginCached> = build
+    .plugin_cache
+    .iter()
+    .filter_map(|(path, cached)| Some((path.strip_prefix(&build.root_dir).ok()?.to_string_lossy().replace('\\', "/"), cached)))
+    .collect();
+  let path = build.out_dir.join(PLUGIN_CACHE);
+  if let Some(parent) = path.parent() {
+    let _ = fs::create_dir_all(parent);
+  }
+  match serde_json::to_string(&entries).map_err(anyhow::Error::from).and_then(|text| fs::write(&path, text).map_err(anyhow::Error::from)) {
+    Ok(()) => build.claimed.insert(path, PathBuf::from(PLUGIN_CACHE)),
+    Err(e) => {
+      eprintln!("❌ Error writing {}: {e}", display(&path, &opts.root));
+      None
+    }
+  };
 }
 
 /// A plugin's diagnostic in the build's own voice, so output does not read like
@@ -1103,6 +1297,7 @@ fn outputs(build: &Build) -> Vec<String> {
   let mut listed: Vec<String> = build
     .claimed
     .keys()
+    .filter(|path| path.file_name().is_none_or(|n| n != PLUGIN_CACHE))
     .filter_map(|path| path.strip_prefix(&build.out_dir).ok())
     .map(|path| path.to_string_lossy().replace('\\', "/"))
     .collect();

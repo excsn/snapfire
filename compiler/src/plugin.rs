@@ -143,9 +143,9 @@ impl Plugins {
     Self::default()
   }
 
-  /// Compiles every unit of one extension in a single batch, which is what the
-  /// long-lived worker is for.
-  pub fn compile(&mut self, ext: &str, units: Vec<Unit>) -> Result<Vec<Outcome>> {
+  /// The worker for `ext`, started on first use. What it said of itself is
+  /// what a cache key needs before anything is sent.
+  pub fn hello(&mut self, ext: &str) -> Result<Hello> {
     if let Some(why) = self.refused.get(ext) {
       bail!("{why}");
     }
@@ -161,6 +161,13 @@ impl Plugins {
         }
       }
     }
+    Ok(self.workers[ext].hello.clone())
+  }
+
+  /// Compiles every unit of one extension in a single batch, which is what the
+  /// long-lived worker is for.
+  pub fn compile(&mut self, ext: &str, units: Vec<Unit>) -> Result<Vec<Outcome>> {
+    self.hello(ext)?;
     self.workers.get_mut(ext).expect("just started").compile(units)
   }
 

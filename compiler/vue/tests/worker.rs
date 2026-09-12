@@ -51,6 +51,7 @@ fn unit(name: &str, source: &str) -> Unit {
     path: format!("/nowhere/{name}"),
     source: source.to_owned(),
     options: Options::default(),
+    files: Default::default(),
   }
 }
 
@@ -100,6 +101,7 @@ fn a_batch_answers_one_result_per_unit_whether_or_not_each_compiled() {
     .map(|r| match r {
       snapfire_plugin::Outcome::Ok(_) => "ok",
       snapfire_plugin::Outcome::Failed { .. } => "failed",
+      snapfire_plugin::Outcome::Needs { .. } => "needs",
     })
     .collect();
   assert_eq!(statuses, ["ok", "failed", "ok"], "one bad component does not take its neighbours");

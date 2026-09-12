@@ -8,6 +8,7 @@
 //! object on the compile options rather than through a module, so the host
 //! answers those reads and the plugin never opens a file it was not asked to.
 
+use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
@@ -38,7 +39,7 @@ pub enum VueError {
 
 enum Ask {
   Version(Sender<Result<String, VueError>>),
-  Compile { filename: String, source: String, options: Options, reply: Sender<Result<Outcome, VueError>> },
+  Compile { filename: String, source: String, options: Options, files: BTreeMap<String, String>, reply: Sender<Result<Outcome, VueError>> },
 }
 
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
@@ -71,12 +72,14 @@ impl Compiler {
   }
 
   /// One component. `filename` is what a diagnostic names it, so it should be
-  /// relative to the project rather than absolute.
-  pub fn compile(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, VueError> {
+  /// relative to the project rather than absolute. A block with `src` reads
+  /// from `files` by the specifier it wrote; a specifier missing from it is
+  /// answered with [`Outcome::Needs`].
+  pub fn compile(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
     let (reply, answer) = channel();
     self
       .asks
-      .send(Ask::Compile { filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), reply })
+      .send(Ask::Compile { filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), files: files.clone(), reply })
       .map_err(|_| gone())?;
     answer.recv().map_err(|_| gone())?
   }
@@ -114,8 +117,8 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), VueError>>) {
       Ask::Version(reply) => {
         let _ = reply.send(engine.version());
       }
-      Ask::Compile { filename, source, options, reply } => {
-        let _ = reply.send(engine.compile(&filename, &source, &options));
+      Ask::Compile { filename, source, options, files, reply } => {
+        let _ = reply.send(engine.compile(&filename, &source, &options, &files));
       }
     }
   }
@@ -148,12 +151,14 @@ impl Engine {
     })
   }
 
-  fn compile(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, VueError> {
+  fn compile(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
     let answer = self.context.with(|ctx| -> Result<String, VueError> {
       let compile: Function = ctx.globals().get("__vue_compile").map_err(|e| threw(&ctx, e))?;
       let options = serde_json::to_string(options).map_err(|e| VueError::Js(e.to_string()))?;
       let options = ctx.json_parse(options).map_err(|e| threw(&ctx, e))?;
-      compile.call((filename, source, options)).map_err(|e| threw(&ctx, e))
+      let files = serde_json::to_string(files).map_err(|e| VueError::Js(e.to_string()))?;
+      let files = ctx.json_parse(files).map_err(|e| threw(&ctx, e))?;
+      compile.call((filename, source, options, files)).map_err(|e| threw(&ctx, e))
     })?;
     decode(&answer, filename)
   }
@@ -175,9 +180,12 @@ fn decode(answer: &str, filename: &str) -> Result<Outcome, VueError> {
     deps: Vec<String>,
     #[serde(default)]
     diagnostics: Vec<Diagnostic>,
+    #[serde(default)]
+    files: Vec<String>,
   }
   let answer: Answer = serde_json::from_str(answer).map_err(|e| VueError::Js(format!("{filename}: the driver answered {e}")))?;
   match answer.status.as_str() {
+    "needs" => Ok(Outcome::Needs { files: answer.files }),
     "ok" => Ok(Outcome::Ok(Compiled {
       js: answer.js,
       lang: answer.lang,

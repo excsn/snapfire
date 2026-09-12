@@ -85,7 +85,7 @@ fn serve() -> ExitCode {
     let results = request
       .units
       .iter()
-      .map(|unit| match compiler.compile(&unit.filename, &unit.source, &unit.options) {
+      .map(|unit| match compiler.compile(&unit.filename, &unit.source, &unit.options, &unit.files) {
         Ok(outcome) => outcome,
         // A thrown value is the plugin's fault rather than the component's, and
         // it stops this unit rather than the worker: the next file may be fine

@@ -30,7 +30,13 @@ pub fn run(opts: &Options, mut build: Build) -> Result<()> {
 
     if changed.is_empty() || watch::structural(&changed, &build, &config_path) {
       match build::full(opts, false) {
-        Ok(next) => build = next,
+        // The workers and what they answered outlive the build that spawned
+        // them: a structural change is not a reason to boot a compiler again.
+        Ok(mut next) => {
+          next.plugins = std::mem::take(&mut build.plugins);
+          next.plugin_cache = std::mem::take(&mut build.plugin_cache);
+          build = next;
+        }
         Err(e) => {
           eprintln!("❌ {:#}", e);
           build.has_error = true;

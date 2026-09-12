@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 /// The wire version. A plugin announcing another number is refused by name
 /// rather than failing later on a field that moved.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// The first line a plugin writes, unprompted, once it is ready for work.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +44,11 @@ pub struct Unit {
   pub path: String,
   pub source: String,
   pub options: Options,
+  /// Sibling files the plugin asked for with [`Outcome::Needs`], by the
+  /// specifier it asked with. The host reads them; a plugin never opens a
+  /// file itself.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub files: std::collections::BTreeMap<String, String>,
 }
 
 /// What the build asked for, in terms every plugin can honour.
@@ -73,6 +78,10 @@ pub enum Outcome {
   Ok(Compiled),
   /// The unit did not compile. `diagnostics` says why and is never empty.
   Failed { diagnostics: Vec<Diagnostic> },
+  /// The unit names files beside it, a `<style src>` among them, that the
+  /// plugin must read to compile. The host answers by sending the unit again
+  /// with them in `files`; a unit that asks twice is a failure.
+  Needs { files: Vec<String> },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
