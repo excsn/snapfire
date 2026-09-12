@@ -320,8 +320,21 @@ export interface SvgAttributes extends Attributes {
   [attribute: string]: unknown;
 }
 
-/** The elements a template may write. A tag not listed here is a typo the checker catches. */
+/** A custom element's attributes are its own; the dialect checks only the ones every element has. */
+export interface CustomElementAttributes extends Attributes {
+  [attribute: string]: unknown;
+}
+
+export interface TemplateAttributes extends Attributes {
+  shadowrootmode?: "open" | "closed";
+  shadowrootdelegatesfocus?: boolean;
+  shadowrootclonable?: boolean;
+  shadowrootserializable?: boolean;
+}
+
+/** The elements a template may write. A tag not listed here is a typo the checker catches, unless it carries a hyphen, which makes it a custom element the browser defines. */
 export interface Intrinsic {
+  [custom: `${string}-${string}`]: CustomElementAttributes;
   a: AnchorAttributes;
   abbr: Attributes;
   address: Attributes;
@@ -410,7 +423,7 @@ export interface Intrinsic {
   table: Attributes;
   tbody: Attributes;
   td: TableCellAttributes;
-  template: Attributes;
+  template: TemplateAttributes;
   textarea: TextAreaAttributes;
   tfoot: Attributes;
   th: TableCellAttributes;
