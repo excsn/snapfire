@@ -139,6 +139,18 @@ globalThis.IntersectionObserver = class IntersectionObserver {
   unobserve() {}
 };
 globalThis.requestIdleCallback = (fn) => setTimeout(fn, 0);
+// linkedom keeps the custom element registry on `document.defaultView`; a module reads it as a global and the document is replaced on every load.
+if (!("customElements" in globalThis)) {
+  Object.defineProperty(globalThis, "customElements", { configurable: true, get: () => globalThis.document.defaultView.customElements });
+}
+// linkedom has no XPath. A library that compiles an expression at import, htmx for one, gets one that matches nothing.
+if (typeof globalThis.XPathEvaluator !== "function") {
+  globalThis.XPathEvaluator = class XPathEvaluator {
+    createExpression() {
+      return { evaluate: () => ({ iterateNext: () => null }) };
+    }
+  };
+}
 const rect = () => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 });
 const layout = {
   getClientRects: { value: () => [] },
