@@ -110,10 +110,20 @@ function removeChild(old: Segment): boolean {
   return true;
 }
 
-/** The `<sf-s data-sf-name>` a kept layout region holds for `name`: the one under the layout's own island, not a nested one's. */
+/** The `<sf-s data-sf-name>` a kept layout region holds for `name`: the one under the layout's own island, not a nested one's, or, for a layout nothing mounts, the one directly in the region's markup. */
 function namedSlotOf(region: Region, name: string): Element | null {
   const island = islandOf(region);
-  if (!island) return null;
+  if (!island) {
+    for (let n: Node | null = region.start.nextSibling; n && n !== region.end; n = n.nextSibling) {
+      if (!(n instanceof Element)) continue;
+      const found = n.matches(`sf-s[data-sf-name="${name}"]`) ? [n] : Array.from(n.querySelectorAll(`sf-s[data-sf-name="${name}"]`));
+      for (const slot of found) {
+        const above = slot.parentElement?.closest("sf-i");
+        if (!above || !isBetween(above, region)) return slot;
+      }
+    }
+    return null;
+  }
   for (const slot of Array.from(island.el.querySelectorAll(`sf-s[data-sf-name="${name}"]`))) {
     if (slot.parentElement?.closest("sf-i") === island.el) return slot;
   }

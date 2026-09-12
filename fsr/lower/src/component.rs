@@ -283,9 +283,12 @@ impl ComponentSet {
       modules.insert(placed, module);
     }
     // A template with nothing for the browser to change is never mounted, so
-    // it has no browser twin and pulls no framework into the page.
-    let hydrate = !component.state.is_empty() || !component.handlers.is_empty();
-    let mut component = Component { body: component.body, render: rewrite_modules(component.render, &modules, &islands), state: component.state, handlers: component.handlers, hydrate };
+    // it has no browser twin and pulls no framework into the page. A component
+    // it renders inline is part of its markup, so that component's state and
+    // handlers are its own to hydrate; an island's are the island's.
+    let render = rewrite_modules(component.render, &modules, &islands);
+    let hydrate = !component.state.is_empty() || !component.handlers.is_empty() || self.inline_hydrates(&render);
+    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, hydrate };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
       return Err(LowerError::Residue(Residue {
@@ -314,6 +317,22 @@ impl ComponentSet {
       }
     }
     Ok(component)
+  }
+
+  /// Whether a component rendered inline, islands aside, is one the browser
+  /// mounts. Its children were lowered before it, so their verdicts are in.
+  fn inline_hydrates(&self, tmpl: &Tmpl) -> bool {
+    match tmpl {
+      Tmpl::Component { module, children, .. } => {
+        self.components.iter().any(|(m, c)| m == module && c.hydrate) || children.iter().any(|c| self.inline_hydrates(c))
+      }
+      Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
+      Tmpl::Baked { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),
+      Tmpl::If { then, r#else, .. } => self.inline_hydrates(then) || r#else.as_ref().is_some_and(|e| self.inline_hydrates(e)),
+      Tmpl::For { body, .. } => self.inline_hydrates(body),
+      Tmpl::Let { then, .. } => self.inline_hydrates(then),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => false,
+    }
   }
 
   /// The module id a capitalised JSX tag names: a function in this file or a

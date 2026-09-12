@@ -93,7 +93,19 @@ function removeChild(old) {
 }
 function namedSlotOf(region, name) {
     const island = islandOf(region);
-    if (!island) return null;
+    if (!island) {
+        for(let n = region.start.nextSibling; n && n !== region.end; n = n.nextSibling){
+            if (!(n instanceof Element)) continue;
+            const found = n.matches(`sf-s[data-sf-name="${name}"]`) ? [
+                n
+            ] : Array.from(n.querySelectorAll(`sf-s[data-sf-name="${name}"]`));
+            for (const slot of found){
+                const above = slot.parentElement?.closest("sf-i");
+                if (!above || !isBetween(above, region)) return slot;
+            }
+        }
+        return null;
+    }
     for (const slot of Array.from(island.el.querySelectorAll(`sf-s[data-sf-name="${name}"]`))){
         if (slot.parentElement?.closest("sf-i") === island.el) return slot;
     }
