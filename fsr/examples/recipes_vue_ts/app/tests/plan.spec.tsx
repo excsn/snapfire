@@ -9,7 +9,10 @@ test("planning a recipe writes the session and the count in the masthead moves w
     services: { kitchen: { getBox: () => box, listRecipes: () => [soup], listNotes: () => [], listMarket: () => [] } },
   });
   await load("/recipe/1", { ctx: c });
-  assert.equal(screen.getByLabelText("tonight").textContent, "0 for tonight");
+  const count = screen.getByLabelText("tonight");
+  assert.equal(count.textContent, "0 for tonight");
+  await fireEvent.click(count);
+  assert.ok(screen.getByText(/Kept in the session cookie/), "the panel is open");
 
   await fireEvent.click(screen.getByText("Cook this tonight"));
   await settle();
@@ -17,6 +20,8 @@ test("planning a recipe writes the session and the count in the masthead moves w
   assert.equal(c.session.planned, { "1": true }, "the action wrote the session through the interpreter");
   assert.equal(screen.getByLabelText("tonight").textContent, "1 for tonight", "and the masthead island followed the store");
   assert.ok(screen.getByText("Planned for tonight"));
+  assert.ok(screen.getByLabelText("tonight") === count, "the layout re-rendered around the island and kept its DOM");
+  assert.ok(screen.getByText(/Kept in the session cookie/), "and the panel is still open");
 });
 
 test("the scaler multiplies every quantity from the serves it was given", async () => {

@@ -184,7 +184,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
       if (region) patchProps(region, newNode);
     }
   } else if (staticChanged(oldSeg, newSeg, same, force)) {
-    return swap();
+    return morphStatic(key, newNode, newSeg) || swap();
   }
   const keep = newSeg.keep ?? [];
   const carried: Segment[] = [];
@@ -225,6 +225,63 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
     if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force)) return false;
   }
   newSeg.c.push(...carried);
+  return true;
+}
+
+/** The island regions a static segment's markup holds directly: every `<sf-s data-sf-island data-sf-region>` between the delimiters that is not inside another island's own markup, by region key. Islands nested in a root move with the root. */
+function islandRegionsIn(region: Region): Map<string, Element> {
+  const out = new Map<string, Element>();
+  for (let n: Node | null = region.start.nextSibling; n && n !== region.end; n = n.nextSibling) {
+    if (!(n instanceof Element)) continue;
+    const found = n.matches("sf-s[data-sf-island][data-sf-region]") ? [n] : [];
+    found.push(...Array.from(n.querySelectorAll("sf-s[data-sf-island][data-sf-region]")));
+    for (const slot of found) {
+      const above = slot.parentElement?.closest("sf-i");
+      if (above && isBetween(above, region)) continue;
+      const key = slot.getAttribute("data-sf-region");
+      if (key) out.set(key, slot);
+    }
+  }
+  return out;
+}
+
+/** Whether `el` sits between a region's delimiters. */
+function isBetween(el: Element, region: Region): boolean {
+  for (let n: Node | null = region.start.nextSibling; n && n !== region.end; n = n.nextSibling) {
+    if (n === el || (n instanceof Element && n.contains(el))) return true;
+  }
+  return false;
+}
+
+/** Replaces a static segment's markup while keeping every island inside it that the new payload also places: a region key both sides hold moves the old `<sf-s>`, its mounted root and its state into the new markup where the new one stood, then takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. False when the region is not in the document, which leaves the caller to swap. */
+function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
+  const region = findRegion(key);
+  if (!region) return false;
+  const parent = region.start.parentNode;
+  if (!(parent instanceof Element)) return false;
+  const template = document.createElement("template");
+  template.innerHTML = renderSegment(node, seg, ids);
+  const kept = islandRegionsIn(region);
+  if (kept.size > 0) {
+    const sources = regionSources(node, ids);
+    for (const fresh of Array.from(template.content.querySelectorAll("sf-s[data-sf-island][data-sf-region]"))) {
+      const regionKey = fresh.getAttribute("data-sf-region") ?? "";
+      const old = kept.get(regionKey);
+      const source = sources.get(regionKey);
+      if (!old || !source) continue;
+      const root = old.firstElementChild;
+      if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-mounted")) continue;
+      const script = old.querySelector(`script[data-sf-props="${root.id}"]`);
+      if (script) script.textContent = scriptSafeJson(source.props);
+      fresh.replaceWith(old);
+      void patchIsland(root, source.props, source.nested);
+    }
+  }
+  parent.insertBefore(template.content, region.start);
+  const range = document.createRange();
+  range.setStartBefore(region.start);
+  range.setEndAfter(region.end);
+  range.deleteContents();
   return true;
 }
 
