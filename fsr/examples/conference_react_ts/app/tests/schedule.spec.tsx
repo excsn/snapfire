@@ -30,7 +30,7 @@ test("the day is a row per talk under the masthead the layout loaded", async () 
   assert.equal(rows[1]?.querySelector(".room")?.textContent, "Room 2");
 });
 
-test("one slot answers and the other is down, and the page is whole either way", async () => {
+test("one slot answers while the other is down and the page is whole either way", async () => {
   await load("/", { ctx: day() });
   assert.ok(screen.getByText("Registration has moved to the west door."), "the announcements slot filled");
   assert.ok(document.querySelector(".sponsors.panel-down"), "the sponsors slot fell back to its own error boundary");

@@ -1,0 +1,107 @@
+{
+  "getBox": {
+    "name": "The Sunday Box",
+    "tagline": "Six recipes, one kitchen, whoever is cooking",
+    "courses": ["Starter", "Main", "Pudding"]
+  },
+  "listRecipes": [
+    {
+      "id": "1",
+      "title": "Leek and potato soup",
+      "course": "Starter",
+      "cook": "Ama",
+      "minutes": 35,
+      "serves": 4,
+      "ingredients": [
+        { "name": "leeks", "quantity": 3, "unit": "" },
+        { "name": "potatoes", "quantity": 500, "unit": "g" },
+        { "name": "butter", "quantity": 30, "unit": "g" },
+        { "name": "stock", "quantity": 1, "unit": "l" }
+      ],
+      "method": "Soften the leeks in the butter without colouring them. Add the potatoes and the stock, simmer until the potatoes give, then blend until smooth and season."
+    },
+    {
+      "id": "2",
+      "title": "Beetroot with goat's curd",
+      "course": "Starter",
+      "cook": "Tomas",
+      "minutes": 20,
+      "serves": 4,
+      "ingredients": [
+        { "name": "cooked beetroot", "quantity": 400, "unit": "g" },
+        { "name": "goat's curd", "quantity": 150, "unit": "g" },
+        { "name": "walnuts", "quantity": 50, "unit": "g" },
+        { "name": "sherry vinegar", "quantity": 1, "unit": "tbsp" }
+      ],
+      "method": "Slice the beetroot, dress it in the vinegar and some oil, then spoon the curd over and scatter the toasted walnuts."
+    },
+    {
+      "id": "3",
+      "title": "Roast chicken with bread sauce",
+      "course": "Main",
+      "cook": "Ama",
+      "minutes": 90,
+      "serves": 6,
+      "ingredients": [
+        { "name": "chicken", "quantity": 1.8, "unit": "kg" },
+        { "name": "milk", "quantity": 500, "unit": "ml" },
+        { "name": "white bread", "quantity": 120, "unit": "g" },
+        { "name": "onion", "quantity": 1, "unit": "" },
+        { "name": "cloves", "quantity": 6, "unit": "" }
+      ],
+      "method": "Roast the bird at 200 for twenty minutes a pound and twenty over. Warm the milk with the clove-studded onion, take the onion out, stir in the torn bread and let it thicken."
+    },
+    {
+      "id": "4",
+      "title": "Aubergine and chickpea stew",
+      "course": "Main",
+      "cook": "Priya",
+      "minutes": 50,
+      "serves": 4,
+      "ingredients": [
+        { "name": "aubergines", "quantity": 2, "unit": "" },
+        { "name": "chickpeas", "quantity": 400, "unit": "g" },
+        { "name": "tomatoes", "quantity": 400, "unit": "g" },
+        { "name": "cumin", "quantity": 2, "unit": "tsp" },
+        { "name": "garlic", "quantity": 3, "unit": "cloves" }
+      ],
+      "method": "Brown the aubergine in batches. Fry the garlic and cumin, add the tomatoes and chickpeas, return the aubergine and simmer until everything is soft."
+    },
+    {
+      "id": "5",
+      "title": "Rice pudding",
+      "course": "Pudding",
+      "cook": "Tomas",
+      "minutes": 120,
+      "serves": 6,
+      "ingredients": [
+        { "name": "pudding rice", "quantity": 100, "unit": "g" },
+        { "name": "whole milk", "quantity": 1, "unit": "l" },
+        { "name": "sugar", "quantity": 50, "unit": "g" },
+        { "name": "nutmeg", "quantity": 1, "unit": "pinch" }
+      ],
+      "method": "Everything in a buttered dish, nutmeg on top, then into a low oven for two hours. Do not stir it."
+    },
+    {
+      "id": "6",
+      "title": "Poached pears",
+      "course": "Pudding",
+      "cook": "Priya",
+      "minutes": 40,
+      "serves": 4,
+      "ingredients": [
+        { "name": "pears", "quantity": 4, "unit": "" },
+        { "name": "red wine", "quantity": 500, "unit": "ml" },
+        { "name": "sugar", "quantity": 100, "unit": "g" },
+        { "name": "cinnamon", "quantity": 1, "unit": "stick" }
+      ],
+      "method": "Peel the pears and leave the stalks on. Simmer them in the wine, sugar and cinnamon until a knife goes in without asking, then reduce the liquor to a syrup."
+    }
+  ],
+  "listNotes": [
+    { "day": "Monday", "text": "The oven runs hot. Take twenty off whatever the recipe says." },
+    { "day": "Wednesday", "text": "Priya is vegetarian this month, so the stew is on twice." },
+    { "day": "Friday", "text": "Bread sauce wants stale bread. Buy the loaf on Thursday." }
+  ],
+  "listMarket": { "$fail": { "kind": "unavailable", "message": "the market board is not answering" } }
+}

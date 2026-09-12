@@ -1,0 +1,104 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Kitchen", "version": "1.0.0" },
+  "paths": {
+    "/box": {
+      "get": {
+        "operationId": "getBox",
+        "responses": {
+          "200": {
+            "description": "the box, its strapline and the courses it is sorted into",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Box" } } }
+          }
+        },
+        "x-sf-cache": { "ttl": "5m", "tags": ["kitchen"], "scope": "shared" }
+      }
+    },
+    "/recipes": {
+      "get": {
+        "operationId": "listRecipes",
+        "responses": {
+          "200": {
+            "description": "every recipe in the box",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Recipe" } } } }
+          }
+        },
+        "x-sf-cache": { "ttl": "1m", "tags": ["kitchen"], "scope": "shared" }
+      }
+    },
+    "/notes": {
+      "get": {
+        "operationId": "listNotes",
+        "responses": {
+          "200": {
+            "description": "what was pinned to the fridge this week",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Note" } } } }
+          }
+        }
+      }
+    },
+    "/market": {
+      "get": {
+        "operationId": "listMarket",
+        "responses": {
+          "200": {
+            "description": "what the market has this week",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Stall" } } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Box": {
+        "type": "object",
+        "required": ["name", "tagline", "courses"],
+        "properties": {
+          "name": { "type": "string" },
+          "tagline": { "type": "string" },
+          "courses": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Ingredient": {
+        "type": "object",
+        "required": ["name", "quantity", "unit"],
+        "properties": {
+          "name": { "type": "string" },
+          "quantity": { "type": "number" },
+          "unit": { "type": "string" }
+        }
+      },
+      "Recipe": {
+        "type": "object",
+        "required": ["id", "title", "course", "cook", "minutes", "serves", "ingredients", "method"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "course": { "type": "string" },
+          "cook": { "type": "string" },
+          "minutes": { "type": "number" },
+          "serves": { "type": "number" },
+          "ingredients": { "type": "array", "items": { "$ref": "#/components/schemas/Ingredient" } },
+          "method": { "type": "string" }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "required": ["day", "text"],
+        "properties": {
+          "day": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      },
+      "Stall": {
+        "type": "object",
+        "required": ["name", "has"],
+        "properties": {
+          "name": { "type": "string" },
+          "has": { "type": "string" }
+        }
+      }
+    }
+  }
+}
