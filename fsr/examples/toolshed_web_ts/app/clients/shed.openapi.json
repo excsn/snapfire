@@ -1,0 +1,95 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Shed", "version": "1.0.0" },
+  "paths": {
+    "/shed": {
+      "get": {
+        "operationId": "getShed",
+        "responses": {
+          "200": {
+            "description": "the shed, its strapline and the shelves the tools are sorted onto",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Shed" } } }
+          }
+        },
+        "x-sf-cache": { "ttl": "5m", "tags": ["shed"], "scope": "shared" }
+      }
+    },
+    "/tools": {
+      "get": {
+        "operationId": "listTools",
+        "responses": {
+          "200": {
+            "description": "every tool the shed holds",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Tool" } } } }
+          }
+        },
+        "x-sf-cache": { "ttl": "1m", "tags": ["shed"], "scope": "shared" }
+      }
+    },
+    "/loans": {
+      "get": {
+        "operationId": "listLoans",
+        "responses": {
+          "200": {
+            "description": "what is out of the shed right now and when it is due back",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Loan" } } } }
+          }
+        }
+      }
+    },
+    "/weather": {
+      "get": {
+        "operationId": "getWeather",
+        "responses": {
+          "200": {
+            "description": "the forecast for the next workday",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Weather" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Shed": {
+        "type": "object",
+        "required": ["name", "strap", "categories"],
+        "properties": {
+          "name": { "type": "string" },
+          "strap": { "type": "string" },
+          "categories": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Tool": {
+        "type": "object",
+        "required": ["id", "name", "category", "keeper", "deposit", "days", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "category": { "type": "string" },
+          "keeper": { "type": "string" },
+          "deposit": { "type": "integer" },
+          "days": { "type": "integer" },
+          "note": { "type": "string" }
+        }
+      },
+      "Loan": {
+        "type": "object",
+        "required": ["tool", "who", "back"],
+        "properties": {
+          "tool": { "type": "string" },
+          "who": { "type": "string" },
+          "back": { "type": "string" }
+        }
+      },
+      "Weather": {
+        "type": "object",
+        "required": ["day", "summary"],
+        "properties": {
+          "day": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    }
+  }
+}

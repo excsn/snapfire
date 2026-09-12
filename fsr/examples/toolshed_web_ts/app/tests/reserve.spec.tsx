@@ -1,0 +1,22 @@
+import { assert, ctx, load, test } from "@snapfire/fsr-client/testing";
+
+const trimmer = { id: "1", name: "Hedge trimmer", category: "Garden", keeper: "Dev", deposit: 20, days: 3, note: "" };
+const shed = { name: "The Shed", strap: "A street's worth of tools", categories: ["Garden"] };
+
+test("reserving through the action and asking for the page again as a fragment shows the reservation", async () => {
+  const c = ctx({
+    session: { reserved: {} },
+    services: { shed: { getShed: () => shed, listTools: () => [trimmer], listLoans: () => [], getWeather: () => ({ day: "Saturday", summary: "dry" }) } },
+  });
+  await load("/tool/1", { ctx: c });
+  assert.ok(document.querySelector(".reserve .btn")?.textContent?.includes("Reserve it"));
+
+  const posted = await fetch("/_sf/action/tool.$id.reserve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tool_id: "1" }) });
+  assert.equal(posted.status, 200);
+  assert.equal(c.session.reserved, { "1": true }, "the action wrote the session through the interpreter");
+
+  const html = await (await fetch("/tool/1?__fragment")).text();
+  assert.ok(html.includes("Let it go") && html.includes("Reserved for you"), "the fragment is rendered from the session the action wrote");
+  assert.ok(html.includes("tool.$id.release"), "and posts the other action now");
+  assert.ok(html.includes('"shed/reserved":1') || html.includes("shed/reserved"), "the seed carries the new count for the tally");
+});
