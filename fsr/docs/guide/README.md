@@ -46,6 +46,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [302. Imports and aliases](302-imports-and-aliases.md), the five prefixes and where each of the three readers resolves them. Everyone.
 - [303. The deploy tree](303-the-deploy-tree.md), `fsr bundle`, why `serve/` is the only servable directory and how the routes a server answers stay the ones the host serves. Everyone.
 - [304. Checking a deployment](304-checking-a-deployment.md), `fsr doctor`, the six checks it runs and why each one is a thing the host will not refuse to start over. Everyone.
+- [305. Third-party scripts](305-third-party-scripts.md), the fixed head rows as layout meta, a library as a module the entry imports, a consent banner that loads a vendor from its callback and the deployment's own values under `[public]`. App developers.
 
 And one appendix:
 
