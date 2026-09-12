@@ -8,7 +8,7 @@ test("a click from the catalog to the cart swaps the page and keeps the document
   const app = document.getElementById("app");
   assert.ok(app, "the shell mounted the page under #app");
   assert.ok(screen.getByText("Today's picks"));
-  assert.ok(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"][data-sf-mounted]'), "the catalog hydrated");
+  assert.equal(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"]'), null, "the catalog has no state, so nothing mounts it");
 
   await fireEvent.click(screen.getByLabelText("Cart, 2 items"));
 

@@ -4,6 +4,6 @@ test("a path no route matches renders the not-found page with status 404", async
   const { status } = await load("/nowhere/at/all", { ctx: ctx({ services: { shopping: { listProducts: () => [] } } }) });
   assert.equal(status, 404);
   assert.ok(screen.getByText("No page at /nowhere/at/all"));
-  assert.ok(document.querySelector('sf-i[data-sf-module="routes/not-found.tsx#default"][data-sf-mounted]'), "the page hydrated");
+  assert.equal(document.querySelector('sf-i[data-sf-module="routes/not-found.tsx#default"]'), null, "the page has no state, so it is markup rather than an island");
   assert.ok(screen.getByText("Back to the catalog"));
 });

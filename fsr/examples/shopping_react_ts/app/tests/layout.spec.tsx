@@ -9,8 +9,8 @@ test("the layout hydrates over the page, keeps its state across a navigation and
 
   const layout = document.querySelector('sf-i[data-sf-module="routes/layout.tsx#default"][data-sf-mounted]');
   assert.ok(layout, "the layout is an island and hydrated");
-  assert.ok(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"][data-sf-mounted]'), "the page hydrated inside it");
-  assert.ok(layout!.querySelector("sf-s sf-i"), "the page sits in the layout's slot");
+  assert.equal(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"]'), null, "the page has no state, so it is markup rather than an island");
+  assert.ok(layout!.querySelector("sf-s:not([data-sf-name]):not([data-sf-island])")?.textContent?.includes("Today's picks"), "the page sits in the layout's slot");
   const header = document.querySelector("header.site-header");
   assert.ok(header);
 

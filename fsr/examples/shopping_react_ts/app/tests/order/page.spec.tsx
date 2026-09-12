@@ -3,9 +3,9 @@ import { assert, render, screen, test } from "@snapfire/fsr-client/testing";
 
 const order = { id: 5001n, total_cents: 7200n, lines: [{ product_id: 1n, name: "PLA filament", quantity: 2, line_cents: 4800n }, { product_id: 3n, name: "Nozzle", quantity: 1, line_cents: 2400n }] };
 
-test("the order page hydrates over the placed order", async () => {
+test("the order page renders the placed order, as markup nothing hydrates", async () => {
   const r = await render(<OrderPage order={order} />);
-  assert.equal(r.hydrated, "routes/order/[id]/page.tsx#default");
+  assert.equal(r.hydrated, null, "a page with no state of its own is static");
   assert.ok(screen.getByText("Order #5001 placed"));
   assert.ok(r.container.textContent?.includes("3 items, $72.00 charged."), "the count comes from the ext helper the server rendered");
   assert.equal(screen.getByText("PLA filament").getAttribute("href"), "/product/1");

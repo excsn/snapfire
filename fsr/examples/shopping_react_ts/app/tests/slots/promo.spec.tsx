@@ -6,15 +6,16 @@ const crackers = { id: 8n, name: "Sea salt crackers", brand: "Peter's Yard", cat
 test("the promo slot renders from its own loader beside the page and survives a navigation", async () => {
   const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: ({ tag }: { tag?: string }) => (tag === "snack" ? [crackers] : [filament]) } } });
   await load("/", { ctx: c });
-  const promo = document.querySelector('sf-s[data-sf-name="promo"] sf-i[data-sf-module="routes/slots/promo/page.tsx#default"][data-sf-mounted]');
-  assert.ok(promo, "the promo hydrated in its own root inside the layout's slot");
-  assert.ok(screen.getByText("Snacks at the counter"));
+  const promo = document.querySelector('sf-s[data-sf-name="promo"]');
+  assert.ok(promo?.textContent?.includes("Snacks at the counter"), "the promo rendered from its own loader inside the layout's slot");
+  assert.equal(promo!.querySelector("sf-i"), null, "as markup, since it has no state");
+  const heading = screen.getByText("Snacks at the counter");
   assert.ok(screen.getByText("Sea salt crackers"));
   assert.equal(screen.queryByText("Sea salt crackers", document.querySelector("main.catalog")!), null, "the catalog shows the catalog's answer, not the promo's");
 
   await fireEvent.click(screen.getByLabelText("Cart, 2 items"));
 
   assert.equal(location.pathname, "/cart");
-  assert.ok(document.querySelector('sf-s[data-sf-name="promo"] sf-i') === promo, "the promo kept its DOM across the navigation");
+  assert.ok(screen.getByText("Snacks at the counter") === heading, "the promo kept its DOM across the navigation");
   assert.ok(screen.getByText("Shopping cart"));
 });
