@@ -289,6 +289,39 @@ button:hover {
   filter: brightness(1.08);
 }
 
+/* The fleet card: an island a template renders */
+
+.fleet .quiet {
+  margin: 0 0 12px;
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+}
+
+.fleet .filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.fleet .filters button {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid #d7dae1;
+  background: #fff;
+  color: inherit;
+  font-weight: 400;
+}
+
+.fleet .filters button.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.fleet[data-sf-pending] {
+  opacity: 0.6;
+}
+
 /* Charts */
 
 .sf-chart {

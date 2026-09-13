@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod islands;
 pub mod loaders;
 pub mod routes;
 pub mod services;
@@ -28,6 +29,7 @@ fn templates() -> tera::Tera {
       ("error_section.tera", include_str!("../templates/error_section.tera")),
       ("login.tera", include_str!("../templates/login.tera")),
       ("index.tera", include_str!("../templates/index.tera")),
+      ("fleet.tera", include_str!("../templates/fleet.tera")),
       ("hydrate.tera", include_str!("../templates/hydrate.tera")),
     ])
     .expect("templates parse");
@@ -74,7 +76,7 @@ pub fn builder(chart_delay: Duration) -> Result<HostBuilder, HostError> {
       }
     });
   let builder = loaders::register(builder, chart_delay, renders);
-  Ok(actions::register(builder))
+  Ok(islands::register(actions::register(builder)))
 }
 
 pub fn build(chart_delay: Duration) -> Result<Host, HostError> {

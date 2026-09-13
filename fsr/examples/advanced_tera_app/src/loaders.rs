@@ -88,6 +88,12 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
       async move {
         let servers = fetch_servers(&ctx).await.map_err(|e| LoadError { source_id: "servers_loader".into(), message: e.message })?;
         let mut data = ValueMap::default();
+        // The fleet card is an island the server renders and steps: what the
+        // placement hands it is its whole state, since every step replaces it.
+        let mut fleet = ValueMap::default();
+        fleet.insert("filter".to_owned(), Value::str("all"));
+        fleet.insert("servers".to_owned(), servers.clone());
+        data.insert("fleet".to_owned(), Value::Map(fleet));
         data.insert("servers".to_owned(), servers);
         data.insert("chart".to_owned(), series(vec![12.0, 15.5, 9.25]));
         data.insert("renders".to_owned(), Value::int(renders.get() as i64));

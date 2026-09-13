@@ -1,0 +1,13 @@
+<article class="card fleet">
+  <h2>Fleet</h2>
+  <p class="quiet">Markup from a template, handler in Rust. No module is loaded for this card and nothing mounts inside it.</p>
+  <div class="filters">
+    <button value="all" class="{% if state.filter == "all" %}on{% endif %}" {{ on(click="filter") }}>all</button>
+    <button value="busy" class="{% if state.filter == "busy" %}on{% endif %}" {{ on(click="filter") }}>busy</button>
+    <button value="quiet" class="{% if state.filter == "quiet" %}on{% endif %}" {{ on(click="filter") }}>quiet</button>
+  </div>
+  <table><thead><tr><th>name</th><th>load</th></tr></thead><tbody>
+    {% for s in state.servers %}<tr><td>{{ s.name }}</td><td>{{ s.load }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% if state.servers | length == 0 %}<p class="quiet">Nothing at that load.</p>{% endif %}
+</article>
