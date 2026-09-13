@@ -561,8 +561,7 @@ pub(crate) struct IslandAlias {
 fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (Span, String)> {
   let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return Ok(None) };
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-  let js::Expr::Ident(callee) = &**callee else { return Ok(None) };
-  if callee.sym.as_ref() != "island" || !find_import(parsed, "island").is_some_and(|(source, _)| is_template_source(&source)) {
+  if imported_callee(parsed, callee).filter(|(source, _)| is_template_source(source)).map(|(_, name)| name).as_deref() != Some("island") {
     return Ok(None);
   }
   let Some(js::Expr::Ident(target)) = call.args.first().map(|a| &*a.expr) else {
@@ -629,8 +628,7 @@ fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<String> {
 fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
   let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Ident(callee) = &**callee else { return None };
-  if callee.sym.as_ref() != "action" || !find_import(parsed, "action").is_some_and(|(source, _)| source == CLIENT_SOURCE) {
+  if imported_callee(parsed, callee).filter(|(source, _)| source == CLIENT_SOURCE).map(|(_, name)| name).as_deref() != Some("action") {
     return None;
   }
   match call.args.first().map(|a| &*a.expr) {
@@ -667,11 +665,11 @@ fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
           return Some(Found::Declared(patterns(&f.function), &body.stmts, body.span));
         }
       }
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => {
-        if let js::Expr::Arrow(arrow) = &*e.expr {
-          return Some(Found::Arrow(arrow));
-        }
-      }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match &*e.expr {
+        js::Expr::Arrow(arrow) => return Some(Found::Arrow(arrow)),
+        js::Expr::Ident(id) => return find_function(parsed, id.sym.as_ref()),
+        _ => {}
+      },
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => {
         if let Some(found) = decl_function(&export_decl.decl, export) {
           return Some(found);
@@ -755,6 +753,29 @@ fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
     }
   }
   None
+}
+
+/// `(source, imported name)` for whatever `expr` names, whether it is a local
+/// binding of a named import or a member of a namespace import. The imported
+/// name is what the build recognises a call by, so `import { action as act }`
+/// and `import * as fsr` reach the same place as `import { action }`.
+pub(crate) fn imported_callee(parsed: &Parsed, expr: &js::Expr) -> Option<(String, String)> {
+  match expr {
+    js::Expr::Ident(id) => find_import(parsed, id.sym.as_ref()),
+    js::Expr::Member(member) => {
+      let js::Expr::Ident(ns) = &*member.obj else { return None };
+      let js::MemberProp::Ident(name) = &member.prop else { return None };
+      let source = find_namespace_import(parsed, ns.sym.as_ref())?;
+      Some((source, name.sym.to_string()))
+    }
+    _ => None,
+  }
+}
+
+/// The name `local` was imported under when its source satisfies `source_is`,
+/// which is how a call or a tag is recognised however it was spelled here.
+pub(crate) fn imported_as(parsed: &Parsed, local: &str, source_is: impl Fn(&str) -> bool) -> Option<String> {
+  find_import(parsed, local).filter(|(source, _)| source_is(source)).map(|(_, imported)| imported)
 }
 
 /// `native("module.member", f?)` from the standard library: the pair's
@@ -1456,8 +1477,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// True when `name` is imported from the client library's React adapter.
-  fn is_client_react_import(&self, name: &str) -> bool {
-    find_import(self.lowerer.parsed, name).is_some_and(|(source, _)| is_template_source(&source))
+  /// The dialect tag `name` stands for, whatever it was imported as.
+  fn template_tag(&self, name: &str) -> Option<String> {
+    imported_as(self.lowerer.parsed, name, is_template_source)
   }
 
   /// `<Island when="visible"><Chart … /></Island>`: the one component child
@@ -1782,14 +1804,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if name == "Fragment" || name == "React.Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
     }
-    if name == "Island" && self.is_client_react_import("Island") {
-      return self.island_element(el);
-    }
-    if name == "Slot" && self.is_client_react_import("Slot") {
-      return self.slot_element(el);
-    }
-    if name == "Link" && self.is_client_react_import("Link") {
-      return self.link_element(el);
+    match self.template_tag(name).as_deref() {
+      Some("Island") => return self.island_element(el),
+      Some("Slot") => return self.slot_element(el),
+      Some("Link") => return self.link_element(el),
+      _ => {}
     }
     if let Some((target, when, mode)) = self.island_alias(name)? {
       let lowered = self.component_ref(&target, el)?;

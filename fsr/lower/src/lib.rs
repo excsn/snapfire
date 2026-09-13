@@ -105,6 +105,9 @@ pub const ALIASES: &[(&str, &str)] = &[("@app/", ""), ("@routes/", "routes/"), (
 /// `Expr::Ext` and whose `native` declares an application's own pair.
 pub const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
 
+/// Where `key` comes from: the client library's store.
+pub const STORE_SPECIFIER: &str = "@snapfire/fsr-client/store";
+
 /// The directory under the app whose modules are extensions: every export
 /// lowers or the build fails, and a `native` declaration lives there.
 pub const EXT_DIR: &str = "ext";
@@ -207,13 +210,13 @@ pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resol
     .find_map(|(name, decl)| (name == "load").then_some(decl))
     .ok_or_else(|| (LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None))?;
   let (first, body) = match function {
-    Exported::Function(first, body) => (first, body),
+    Exported::Function(first, body) => (first, FunctionBody::Block(body)),
+    Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None)),
-    Exported::Expr(_, e) => return Err((parsed.residue(e.span(), "`load` must be a function with a block body").into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`load` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
-  let result = lowerer.bind_ctx(first).and_then(|()| lowerer.block(body));
+  let result = lower_function(&mut lowerer, first, body);
   result.map_err(|r| (r.into(), lowerer.unbound.take()))
 }
 
@@ -296,7 +299,7 @@ pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, res
     let (input, first, body) = match exported {
       Exported::Function(first, body) => (None, first, FunctionBody::Block(body)),
       Exported::Action { input, first, body } => (input, first, body),
-      Exported::Expr(_, e) => return Err((parsed.residue(e.span(), format!("`{name}` must be a function with a block body")).into(), None)),
+      Exported::Expr(first, e) => (None, first, FunctionBody::Expr(e)),
       Exported::BadAction(span) => return Err((parsed.residue(span, format!("`{name}` is an `action(...)` of something other than a function")).into(), None)),
       Exported::Other(span) => return Err((parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into(), None)),
     };
@@ -327,14 +330,14 @@ pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, r
     .find_map(|(name, decl)| (name == "middleware").then_some(decl))
     .ok_or_else(|| (LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }, None))?;
   let (first, body) = match function {
-    Exported::Function(first, body) => (first, body),
+    Exported::Function(first, body) => (first, FunctionBody::Block(body)),
+    Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }, None)),
-    Exported::Expr(_, e) => return Err((parsed.residue(e.span(), "`middleware` must be a function with a block body").into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`middleware` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
   lowerer.middleware = true;
-  let result = lowerer.bind_ctx(first).and_then(|()| lowerer.block(body));
+  let result = lower_function(&mut lowerer, first, body);
   result.map_err(|r| (r.into(), lowerer.unbound.take()))
 }
 
@@ -393,37 +396,97 @@ impl Parsed {
   }
 
   pub(crate) fn exports(&self) -> impl Iterator<Item = (&str, Exported<'_>)> {
-    self.module.body.iter().filter_map(|item| {
-      let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else {
-        return None;
-      };
-      match &export.decl {
-        js::Decl::Fn(f) => {
-          let first = f.function.params.first().map(|p| &p.pat);
-          let body = f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[]);
-          Some((f.ident.sym.as_ref(), Exported::Function(first, body)))
+    let mut out: Vec<(&str, Exported<'_>)> = Vec::new();
+    for item in &self.module.body {
+      match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => self.declared(&export.decl, &mut out),
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) if named.src.is_none() && !named.type_only => {
+          for spec in &named.specifiers {
+            let js::ExportSpecifier::Named(spec) = spec else { continue };
+            if spec.is_type_only {
+              continue;
+            }
+            let js::ModuleExportName::Ident(orig) = &spec.orig else { continue };
+            let name = match &spec.exported {
+              Some(js::ModuleExportName::Ident(id)) => id.sym.as_ref(),
+              Some(js::ModuleExportName::Str(_)) => continue,
+              None => orig.sym.as_ref(),
+            };
+            if let Some(exported) = self.local(orig.sym.as_ref()) {
+              out.push((name, exported));
+            }
+          }
         }
-        js::Decl::Var(var) => {
-          let decl = var.decls.first()?;
-          let js::Pat::Ident(name) = &decl.name else { return None };
-          let init = decl.init.as_deref()?;
-          Some((name.id.sym.as_ref(), classify(init)))
-        }
-        _ => None,
+        _ => {}
       }
-    })
+    }
+    out.into_iter()
+  }
+
+  /// Every name a declaration exports, in source order.
+  fn declared<'a>(&'a self, decl: &'a js::Decl, out: &mut Vec<(&'a str, Exported<'a>)>) {
+    match decl {
+      js::Decl::Fn(f) => {
+        let first = f.function.params.first().map(|p| &p.pat);
+        let body = f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[]);
+        out.push((f.ident.sym.as_ref(), Exported::Function(first, body)));
+      }
+      js::Decl::Var(var) => {
+        for d in &var.decls {
+          let js::Pat::Ident(name) = &d.name else { continue };
+          let Some(init) = d.init.as_deref() else { continue };
+          out.push((name.id.sym.as_ref(), self.classify(init)));
+        }
+      }
+      _ => {}
+    }
+  }
+
+  /// What a module-level declaration of `name` is, for an `export { name }`
+  /// that stands apart from it.
+  fn local(&self, name: &str) -> Option<Exported<'_>> {
+    let mut found = Vec::new();
+    for item in &self.module.body {
+      let decl = match item {
+        js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
+        _ => continue,
+      };
+      self.declared(decl, &mut found);
+    }
+    found.into_iter().find(|(n, _)| *n == name).map(|(_, e)| e)
   }
 }
 
-fn classify(init: &js::Expr) -> Exported<'_> {
+/// The source `action` and `fail` are written by an application's server tier.
+pub(crate) const SERVER_SOURCE: &str = "@snapfire/fsr";
+
+impl Parsed {
+  /// Whether `callee` names `want` from the server tier, however the module
+  /// spelled it: the bare name, an aliased import or a namespace member.
+  pub(crate) fn names_server(&self, callee: &js::Callee, want: &str) -> bool {
+    let js::Callee::Expr(expr) = callee else { return false };
+    if let js::Expr::Ident(id) = &**expr {
+      if id.sym.as_ref() == want {
+        return true;
+      }
+    }
+    crate::component::imported_callee(self, expr).is_some_and(|(source, name)| source == SERVER_SOURCE && name == want)
+  }
+
+  fn classify<'a>(&'a self, init: &'a js::Expr) -> Exported<'a> {
+    classify_in(self, init)
+  }
+}
+
+fn classify_in<'a>(parsed: &'a Parsed, init: &'a js::Expr) -> Exported<'a> {
   match init {
     js::Expr::Arrow(arrow) => match &*arrow.body {
       js::ArrowFunctionBody::FunctionBody(b) => Exported::Function(arrow.params.first(), &b.stmts),
       js::ArrowFunctionBody::Expr(e) => Exported::Expr(arrow.params.first(), e),
     },
     js::Expr::Call(call) => {
-      let is_action = matches!(&call.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(id) if id.sym.as_ref() == "action"));
-      if !is_action {
+      if !parsed.names_server(&call.callee, "action") {
         return Exported::Other(call.span);
       }
       match call.args.last().map(|a| &*a.expr) {
@@ -741,9 +804,7 @@ impl<'a> Lowerer<'a> {
     };
     let js::Stmt::Expr(e) = inner else { return None };
     let js::Expr::Call(call) = &*e.expr else { return None };
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Ident(id) = &**callee else { return None };
-    if id.sym.as_ref() != "fail" {
+    if !self.parsed.names_server(&call.callee, "fail") {
       return None;
     }
     let arg = |i: usize| -> Lowered<String> {
@@ -1018,9 +1079,10 @@ impl<'a> Lowerer<'a> {
       .map_err(|_| self.residue(b.span, "a bigint literal outside 128 bits"))
   }
 
-  /// True when `name` is imported from the client library's store.
-  pub(crate) fn is_store_import(&self, name: &str) -> bool {
-    crate::component::find_import(self.parsed, name).is_some_and(|(source, _)| source == "@snapfire/fsr-client/store")
+  /// True when `name` is the client library's store `key`, however this
+  /// module spelled it.
+  pub(crate) fn is_store_key(&self, name: &str) -> bool {
+    crate::component::imported_as(self.parsed, name, |source| source == STORE_SPECIFIER).as_deref() == Some("key")
   }
 
   /// A member read. Context roots become reads; anything else is a field.
@@ -1175,7 +1237,7 @@ impl<'a> Lowerer<'a> {
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
-          "key" if self.is_store_import(name) => Ok(*one(self)?),
+          _ if self.is_store_key(name) => Ok(*one(self)?),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           _ => {
             self.unbound = Some(name.to_owned());
