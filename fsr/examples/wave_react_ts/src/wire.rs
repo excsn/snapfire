@@ -109,9 +109,18 @@ impl Session<Op, Conn> for Wire {
     if rows.is_empty() {
       return Ok(());
     }
-    for conn in self.addressed(&target) {
-      let Some(topic) = self.topics.lock().get(&conn).cloned() else { continue };
-      self.sockets.push_to(&topic, conn, rows.clone());
+    let addressed = self.addressed(&target);
+    let mut by_topic: BTreeMap<String, Vec<Conn>> = BTreeMap::new();
+    {
+      let topics = self.topics.lock();
+      for conn in addressed {
+        if let Some(topic) = topics.get(&conn) {
+          by_topic.entry(topic.clone()).or_default().push(conn);
+        }
+      }
+    }
+    for (topic, conns) in by_topic {
+      self.sockets.push_to_each(&topic, &conns, rows.clone());
     }
     Ok(())
   }

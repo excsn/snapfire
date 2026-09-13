@@ -201,7 +201,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `On`: `Joined`, `Said(Row)`, `Left`, what happened on a topic.
 * `Who { topic, session, identity, connection }`: who it happened to. `connection` is unique per socket, which is what tells two windows of one session apart and what presence should be keyed by.
 * `Reply { everyone, others, sender }`, with `Reply::everyone(rows)`, `Reply::others(rows)` and `Reply::sender(rows)`: the rows to send and to whom. `everyone` includes the sender, which is what a transcript wants; `others` is what a typing indicator wants. `Reply::default()` sends nothing, which is what a key the application does not know deserves.
-* `Sockets`, from `Host::sockets()` or given to `HostBuilder::sockets`: `on(topic) -> usize`, how many sockets a topic holds, `connections(topic) -> Vec<u64>`, which ones, `push(topic, rows)`, rows to all of them from outside any connection and `push_to(topic, connection, rows)`, rows to one, which is what an application building a view per recipient needs.
+* `Sockets`, from `Host::sockets()` or given to `HostBuilder::sockets`: `on(topic) -> usize`, how many sockets a topic holds, `connections(topic) -> Vec<u64>`, which ones, `push(topic, rows)`, rows to all of them from outside any connection and `push_to(topic, connection, rows)`, rows to one, which is what an application building a view per recipient needs. `push_to_each(topic, connections, rows)` sends the same rows to several connections, for a view everyone on a topic shares. A send encodes its rows once, however many connections take them.
 * `SocketHandler`, the boxed `Fn(&Who, On) -> Reply`.
 
 ## 2. Building

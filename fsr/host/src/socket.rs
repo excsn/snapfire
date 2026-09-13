@@ -85,12 +85,31 @@ impl Reply {
 /// drops it, which is what an unrecognised key deserves.
 pub type SocketHandler = Arc<dyn Fn(&Who, On) -> Reply + Send + Sync>;
 
+/// Rows on their way to one or more connections. The first connection task
+/// to write them encodes them and every other one reuses the bytes, so a send
+/// to a whole topic is encoded once and the encoding never runs on the
+/// caller, which may be an application's single controller task.
+struct Frame {
+  rows: Vec<Row>,
+  text: std::sync::OnceLock<tokio_tungstenite::tungstenite::Utf8Bytes>,
+}
+
+impl Frame {
+  fn new(rows: Vec<Row>) -> Arc<Self> {
+    Arc::new(Self { rows, text: std::sync::OnceLock::new() })
+  }
+
+  fn text(&self) -> tokio_tungstenite::tungstenite::Utf8Bytes {
+    self.text.get_or_init(|| encode(&self.rows).into()).clone()
+  }
+}
+
 /// Every open socket, by topic. A connection is dropped from its topic when
 /// its writer half goes, which happens when the browser closes the socket or
 /// the connection breaks.
 #[derive(Default)]
 pub struct Sockets {
-  open: parking_lot::Mutex<HashMap<String, Vec<(u64, mpsc::UnboundedSyncSender<Vec<Row>>)>>>,
+  open: parking_lot::Mutex<HashMap<String, Vec<(u64, mpsc::UnboundedSyncSender<Arc<Frame>>)>>>,
   next: AtomicU64,
 }
 
@@ -99,9 +118,9 @@ impl Sockets {
     Self::default()
   }
 
-  /// The rows go out from `send` (synchronous) and are read by `serve`
-  /// (not), so the sync half is kept and the receiver is converted.
-  fn join(&self, topic: &str) -> (u64, mpsc::UnboundedAsyncReceiver<Vec<Row>>) {
+  /// Frames go out from `send` (synchronous) and are read by `serve` (not),
+  /// so the sync half is kept and the receiver is converted.
+  fn join(&self, topic: &str) -> (u64, mpsc::UnboundedAsyncReceiver<Arc<Frame>>) {
     let id = self.next.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::unbounded();
     self.open.lock().entry(topic.to_owned()).or_default().push((id, tx));
@@ -128,6 +147,7 @@ impl Sockets {
     if rows.is_empty() {
       return;
     }
+    let frame = Frame::new(rows.to_vec());
     let mut open = self.open.lock();
     let Some(peers) = open.get_mut(topic) else { return };
     for (id, tx) in peers.iter_mut() {
@@ -137,7 +157,7 @@ impl Sockets {
         Reach::Sender => *id == from,
       };
       if wanted {
-        let _ = tx.send(rows.to_vec());
+        let _ = tx.send(frame.clone());
       }
     }
   }
@@ -160,6 +180,23 @@ impl Sockets {
   pub fn push_to(&self, topic: &str, connection: u64, rows: impl IntoIterator<Item = Row>) {
     let rows: Vec<Row> = rows.into_iter().collect();
     self.send(topic, &rows, Reach::Sender, connection);
+  }
+
+  /// Sends the same rows to several connections on a topic, encoded once,
+  /// which is what a view shared by everyone on a topic needs.
+  pub fn push_to_each(&self, topic: &str, connections: &[u64], rows: impl IntoIterator<Item = Row>) {
+    let rows: Vec<Row> = rows.into_iter().collect();
+    if rows.is_empty() || connections.is_empty() {
+      return;
+    }
+    let frame = Frame::new(rows);
+    let mut open = self.open.lock();
+    let Some(peers) = open.get_mut(topic) else { return };
+    for (id, tx) in peers.iter_mut() {
+      if connections.contains(id) {
+        let _ = tx.send(frame.clone());
+      }
+    }
   }
 
   /// The connections a topic holds, in the order they arrived.
@@ -211,9 +248,9 @@ where
   let (mut writer, mut reader) = stream.split();
   loop {
     tokio::select! {
-      rows = inbox.recv() => match rows {
-        Ok(rows) => {
-          if writer.send(Message::Text(encode(&rows).into())).await.is_err() {
+      frame = inbox.recv() => match frame {
+        Ok(frame) => {
+          if writer.send(Message::Text(frame.text())).await.is_err() {
             break;
           }
         }
