@@ -52,7 +52,7 @@ impl Catalogs {
     self.own.iter().map(|(tag, n)| (tag.clone(), *n)).collect()
   }
 
-  /// The merged table for `tag`, or the default locale's when `tag` has none.
+  /// The merged table for `tag` or the default locale's when `tag` has none.
   pub fn table(&self, tag: &str) -> Option<&Arc<Table>> {
     self.merged.get(tag).or_else(|| self.merged.get(&self.default))
   }

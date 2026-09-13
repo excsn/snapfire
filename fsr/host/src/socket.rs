@@ -1,5 +1,5 @@
 //! `[ws]`: `/_sf/socket`, the direction `/_sf/live` does not go. A page opens
-//! one per topic, sends into it, and what the application makes of what it
+//! one per topic, sends into it and what the application makes of what it
 //! sent is broadcast to everyone else on that topic as store rows. Behind the
 //! `ws` feature.
 
@@ -49,7 +49,7 @@ pub struct Who {
   pub connection: u64,
 }
 
-/// The rows to send back, and to whom. `Everyone` includes the sender, which
+/// The rows to send back and to whom. `Everyone` includes the sender, which
 /// is what a transcript wants; `Others` is what a typing indicator wants.
 #[derive(Debug, Clone, Default)]
 pub struct Reply {
@@ -99,9 +99,8 @@ impl Sockets {
     Self::default()
   }
 
-  /// The rows go out from `send`, which is synchronous, and are read by
-  /// `serve`, which is not, so the sync half is kept and the receiver is
-  /// converted.
+  /// The rows go out from `send` (synchronous) and are read by `serve`
+  /// (not), so the sync half is kept and the receiver is converted.
   fn join(&self, topic: &str) -> (u64, mpsc::UnboundedAsyncReceiver<Vec<Row>>) {
     let id = self.next.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::unbounded();
@@ -197,7 +196,7 @@ fn decode(text: &str) -> Option<Row> {
 }
 
 /// Serves one upgraded connection: the application is told when it joined,
-/// once per row it sends and when it left, and whatever it answers goes out
+/// once per row it sends and once when it left. Whatever it answers goes out
 /// to the topic.
 pub async fn serve<S>(stream: S, sockets: Arc<Sockets>, handler: SocketHandler, who: Who)
 where

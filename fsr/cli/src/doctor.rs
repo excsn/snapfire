@@ -4,7 +4,7 @@
 //! carrying a server module and a route claimed twice, so none of that belongs
 //! here. What belongs here is the middle: a deployment that starts and serves,
 //! with a setting that cannot do what it was written for. Every check answers
-//! from what a build already computed, and every finding names its remedy.
+//! from what a build already computed and every finding names its remedy.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -104,7 +104,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
   Ok(report)
 }
 
-/// The plan as the host would read it, or `None` when there is none to read:
+/// The plan as the host would read it or `None` when there is none to read:
 /// an application that has not been built yet is a `stale` finding rather than
 /// a failure of every check that wanted a plan.
 fn read_plan(config: &Config) -> Result<Option<Manifest>, DoctorError> {
@@ -115,7 +115,7 @@ fn read_plan(config: &Config) -> Result<Option<Manifest>, DoctorError> {
     .map_err(|e| DoctorError::Plan(path, e.to_string()))
 }
 
-/// A canonical link is absolute only when the document names an origin, and a
+/// A canonical link is absolute only when the document names an origin and a
 /// relative one is what an audit reports.
 fn canonical(config: &Config) -> Vec<Finding> {
   if config.document.origin.is_some() {
@@ -189,7 +189,7 @@ fn config_reads(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
     .collect()
 }
 
-/// Every locale the table names needs a catalog, or `t` falls back for a
+/// Every locale the table names needs a catalog or `t` falls back for a
 /// language the application says it supports.
 fn catalogs(config: &Config) -> Vec<Finding> {
   let Some(locales) = &config.locales else { return Vec::new() };
@@ -716,7 +716,7 @@ fn sites(config: &Config) -> Vec<Finding> {
   findings
 }
 
-/// One artifact: what its own configuration says it ships, and whether its
+/// One artifact: what its own configuration says it ships and whether its
 /// plan is older than the sources beside it.
 fn site_artifact(site: &snapfire_fsr_sites::Resolved) -> Vec<Finding> {
   let Ok(config) = Config::load(&site.artifact) else { return Vec::new() };

@@ -19,7 +19,7 @@ fn script_safe_json(json: &Json) -> String {
   json.to_string().replace('<', "\\u003c")
 }
 
-/// Island ids must be unique per response, and a streamed response serializes
+/// Island ids must be unique per response and a streamed response serializes
 /// the initial tree and each late slot separately, so the counter lives in a
 /// session that spans them.
 #[derive(Default)]

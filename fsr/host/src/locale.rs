@@ -40,7 +40,7 @@ pub enum Source {
 }
 
 /// What the host holds once the section is checked. Without a section there
-/// is one locale, `en`, and no source is consulted.
+/// is one locale, `en` and no source is consulted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Locales {
   pub supported: Vec<String>,
@@ -199,7 +199,7 @@ impl Locales {
   }
 
   /// The locale a request's `Accept-Language` asks for, nearest first by
-  /// weight, or none the application supports.
+  /// weight or none the application supports.
   pub fn from_accept_language(&self, header: &str) -> Option<&str> {
     let mut asked: Vec<(f32, &str)> = header
       .split(',')

@@ -140,7 +140,7 @@ pub struct Report {
   pub hoisted: Vec<(String, usize, usize)>,
   /// Components placed as islands in server mode and how many handlers each answers.
   pub islands: Vec<(String, usize)>,
-  /// Each export under `ext/` as `file#name`, and whether it is `lowered`, `native render` or `native body`.
+  /// Each export under `ext/` as `file#name` and whether it is `lowered`, `native render` or `native body`.
   pub extensions: Vec<(String, String)>,
   /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`.
   pub browser: Vec<(String, String)>,
@@ -998,7 +998,7 @@ export function jsonLd(json: string): HeadEl {
 "##;
 
 /// `[public]` from the configuration beside `app`, each value typed the way
-/// a body reads it. A project with no configuration, or one the CLI cannot
+/// a body reads it. A project with no configuration or one the CLI cannot
 /// load, declares nothing and `ctx.config` is `{}`.
 fn public_of(app: &Path) -> Vec<(String, infer::Ts)> {
   use snapfire_fsr_host::config::PublicValue;

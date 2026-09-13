@@ -13,13 +13,13 @@ use wave_react_ts::wire::Wire;
 /// departure are all operations, applied one at a time.
 ///
 /// The transport is the socket the host already terminates. `Wire` turns a
-/// connection into an agent and a row into an operation, and turns the view
+/// connection into an agent and a row into an operation, then turns the view
 /// the controller builds for each recipient back into the two store rows the
 /// page reads, so the browser never learns that any of this changed.
 ///
 /// A blip is still durable and still arrives through a loader: the action
 /// submits an operation, waits for it to apply and publishes the wave's
-/// topic, and every open page revalidates. What the socket carries is what is
+/// topic and every open page revalidates. What the socket carries is what is
 /// not worth keeping.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

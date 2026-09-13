@@ -136,7 +136,7 @@ pub struct Inferer<'a> {
 }
 
 impl<'a> Inferer<'a> {
-  /// The type a body returns: the union of every `return`, or `null` when it
+  /// The type a body returns: the union of every `return` or `null` when it
   /// never returns a value.
   pub fn returns(&self, body: &Body) -> Ts {
     let mut env: Vec<(String, Ts)> = Vec::new();

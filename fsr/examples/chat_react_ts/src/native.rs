@@ -9,7 +9,7 @@ pub struct Summary {
 }
 
 /// The application's own Rust, reached from a body as `ctx.native.digest`.
-/// It holds no state and calls nothing, which is the point: a computation
+/// It holds no state and calls nothing, which is deliberate: a computation
 /// that belongs in Rust and never wanted a service around it.
 #[derive(Clone, Default)]
 pub struct Digest;
@@ -21,7 +21,7 @@ impl Digest {
     bodies.iter().map(|b| b.split_whitespace().count() as i64).sum()
   }
 
-  /// The longest message, or an empty string when there are none.
+  /// The longest message or an empty string when there are none.
   pub fn longest(&self, bodies: Vec<String>) -> String {
     bodies.into_iter().max_by_key(|b| b.chars().count()).unwrap_or_default()
   }

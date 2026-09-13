@@ -1,4 +1,4 @@
-//! Installing the trace collector, and serving what it kept.
+//! Installing the trace collector and serving what it kept.
 //!
 //! Every application wants the same three lines, so they live here rather than
 //! in each `main`. `install` is for a host that logs through `tracing`'s

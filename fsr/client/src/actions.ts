@@ -11,7 +11,7 @@ export class ActionFailure extends Error {
   }
 }
 
-/** The failure a response is: the `{ kind, message }` body a host answers with, or the status and the text for a body that is not one, such as a proxy's or a CSRF refusal in plain text. */
+/** The failure a response is: the `{ kind, message }` body a host answers with or the status and the text for a body that is not one, such as a proxy's or a CSRF refusal in plain text. */
 function failure(status: number, statusText: string, text: string): ActionFailure {
   try {
     const body = JSON.parse(text) as { kind?: unknown; message?: unknown };

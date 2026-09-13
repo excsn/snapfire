@@ -1,4 +1,4 @@
-//! The syntax tree the text parses to, and how a term is spelled.
+//! The syntax tree the text parses to and how a term is spelled.
 
 use super::{Res, SexprError};
 

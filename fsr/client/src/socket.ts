@@ -6,7 +6,7 @@ export interface SocketOptions {
   onRow?: (key: string, value: unknown) => void;
   /** Called when the socket opens and again after every reconnection. */
   onOpen?: () => void;
-  /** Called when the connection drops, before the wait to reconnect, and not when `close` was asked for. */
+  /** Called when the connection drops, before the wait to reconnect. Not called when `close` was asked for. */
   onClose?: () => void;
   /** The endpoint, for a host mounted under a prefix. Defaults to `/_sf/socket`. */
   path?: string;
@@ -15,7 +15,7 @@ export interface SocketOptions {
 }
 
 export interface Socket {
-  /** Sends one row. What the server makes of it is the application's, and what comes back arrives as rows. */
+  /** Sends one row. What the server makes of it is the application's and what comes back arrives as rows. */
   send(key: string, value: unknown): void;
   /** Whether a connection stands right now. */
   open(): boolean;

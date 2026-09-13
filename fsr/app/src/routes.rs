@@ -4,7 +4,7 @@ use snapfire_fsr_runtime::{EntryId, MatchitMatcher, TableResolver};
 
 use crate::{BindError, IntoPlan, Owner};
 
-/// Routes from the plan file, from Rust, or from both. A pattern claimed twice
+/// Routes from the plan file, from Rust or from both. A pattern claimed twice
 /// is refused rather than shadowed, so adding a route is additive by default
 /// and replacing one is deliberate.
 #[derive(Default)]

@@ -1,5 +1,5 @@
 //! `fsr doctor` over applications built to a temporary directory. Each check
-//! is exercised both ways: the condition it reports, and the shape that must
+//! is exercised both ways: the condition it reports and the shape that must
 //! stay quiet, since a check that fires on a healthy application is worse than
 //! no check at all.
 
@@ -198,7 +198,7 @@ fn a_directory_with_no_configuration_is_an_error_rather_than_a_finding() {
   assert!(doctor::run(&dir).is_err());
 }
 
-/// A shell with one mounted site, and the site's own artifact beside it.
+/// A shell with one mounted site and the site's own artifact beside it.
 fn shell(sites_toml: &str, site_toml: &str, site_files: &[(&str, &str)]) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -272,7 +272,7 @@ fn an_unmounted_artifact_under_the_root_is_reported() {
 }
 
 /// A shell whose mount points at nothing is a host that will not start, and
-/// saying so before the deploy is the point.
+/// the check exists to say so before the deploy.
 #[test]
 fn a_mount_pointing_at_nothing_is_reported_as_a_refusal_to_start() {
   let dir = shell("[sites.missing]\nartifact = \"missing@1.0.0\"\n", "", &[]);

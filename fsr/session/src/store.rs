@@ -14,7 +14,7 @@ pub struct SessionRecord {
 }
 
 /// Why a store could not write. A read has no error: a record that cannot be
-/// fetched is indistinguishable from one that was never there, and both mean
+/// fetched is indistinguishable from one that was never there and both mean
 /// the request carries on anonymous.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreError(pub String);

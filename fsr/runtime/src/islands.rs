@@ -3,7 +3,7 @@
 //! A lowered component carries its own state names and handler bodies, so the
 //! host runs a step entirely from the plan. A template declares neither: it is
 //! markup and nothing else. What stands in for them is this registry, one
-//! named handler per module, and the state the placement gave the island.
+//! named handler per module and the state the placement gave the island.
 
 use std::future::Future;
 use std::sync::Arc;

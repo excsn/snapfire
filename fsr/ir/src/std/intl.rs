@@ -27,7 +27,7 @@ fn locale_of(ambient: &Ambient) -> Locale {
   ambient.bcp47().parse().unwrap_or_else(|_| locale!("en"))
 }
 
-/// A value as a decimal, or the string JavaScript prints for a number no
+/// A value as a decimal or the string JavaScript prints for a number no
 /// decimal holds.
 fn decimal(what: &str, args: &[Value], i: usize) -> Result<Result<Decimal, &'static str>, Fail> {
   match args.get(i) {

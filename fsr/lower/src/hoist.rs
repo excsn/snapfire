@@ -1,4 +1,4 @@
-//! Hoisting: which render-path work the server does for the browser, and the
+//! Hoisting: which render-path work the server does for the browser and the
 //! source rewrite that makes the browser read it instead of doing it again.
 //!
 //! Values: the lowerer wraps every helper call and formatting builtin as a
@@ -8,10 +8,10 @@
 //! `chunks` keeps the outermost ones that are static, so the renderer records
 //! their inner markup and the browser hands it to React as the element's
 //! inner HTML. Both are keyed by the module, the id and the enclosing loop
-//! indices, and both fall back to the original code on a miss.
+//! indices and both fall back to the original code on a miss.
 //!
 //! Islands are keyed the same way and never decided away: each placement
-//! takes an id, and the rewrite gives `<Island>` the key the server wrote on
+//! takes an id and the rewrite gives `<Island>` the key the server wrote on
 //! the region, so a re-render pairs a placement with its region rather than
 //! with whatever sits at its position.
 
@@ -76,7 +76,7 @@ impl Candidates {
   }
 
   /// The call ranges of the value candidates that stay in the browser: not
-  /// kept, and not inside a kept one, whose read covers them.
+  /// kept and not inside a kept one, whose read covers them.
   pub fn remaining(&self, kept: &[u32]) -> Vec<Range<usize>> {
     let held: Vec<&Range<usize>> = self.sites.iter().filter(|(id, _, _)| kept.contains(id)).map(|(_, range, _)| range).collect();
     self
@@ -87,7 +87,7 @@ impl Candidates {
       .collect()
   }
 
-  /// The rewrite for the candidates in `values` and `chunks`, or `None` when none survived.
+  /// The rewrite for the candidates in `values` and `chunks`; `None` when none survived.
   pub fn rewrite(self, values: &[u32], chunks: &[u32], islands: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
     let mut sites = Vec::new();
     let mut chunk_sites = Vec::new();
@@ -125,7 +125,7 @@ impl Candidates {
   }
 }
 
-/// Where the reader hook goes: after the `{` of a block body, or around an
+/// Where the reader hook goes: after the `{` of a block body or around an
 /// arrow's expression body, which becomes a block returning it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Hook {

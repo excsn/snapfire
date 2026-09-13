@@ -32,7 +32,7 @@ pub struct NewOptions {
   pub site: Option<SiteScaffold>,
 }
 
-/// What `fsr new --site` writes beside the app, and the shell it links into.
+/// What `fsr new --site` writes beside the app and the shell it links into.
 pub struct SiteScaffold {
   /// The prefix the shell mounts the site under.
   pub at: String,

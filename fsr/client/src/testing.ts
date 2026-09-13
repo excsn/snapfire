@@ -160,7 +160,7 @@ export function show(value: unknown, depth = 0): string {
   return `{ ${entries.join(", ")} }`;
 }
 
-/** Whether one side is a bigint and the other a whole number saying the same thing: an integer field reads back as a bigint, and a test writes the number it stands for. */
+/** Whether one side is a bigint and the other a whole number saying the same thing: an integer field reads back as a bigint and a test writes the number it stands for. */
 function sameInteger(a: unknown, b: unknown): boolean {
   const [big, num] = typeof a === "bigint" ? [a, b] : [b, a];
   return typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big;
@@ -295,7 +295,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   return { status: res.status, path };
 }
 
-/** What a browser's script engine does with a streamed document: moves each resolved template into its slot, and returns what its fill script would have said about the head and the store, to run once the document's own seed is in. linkedom runs no scripts, so the runner does this by hand. */
+/** What a browser's script engine does with a streamed document: moves each resolved template into its slot and returns what its fill script would have said about the head and the store, to run once the document's own seed is in. linkedom runs no scripts, so the runner does this by hand. */
 function applyFills(): (() => void)[] {
   const late: (() => void)[] = [];
   for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))) {

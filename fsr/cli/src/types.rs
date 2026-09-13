@@ -1,5 +1,5 @@
 //! `fsr types`: the declarations for every package the import map names, into
-//! `types/`, and the `tsconfig.json` that points at them. Declarations are read
+//! `types/` and the `tsconfig.json` that points at them. Declarations are read
 //! by an editor and `tsc --noEmit`, never shipped, so `types/` is gitignored and
 //! a fetch that fails is a warning rather than a build error.
 

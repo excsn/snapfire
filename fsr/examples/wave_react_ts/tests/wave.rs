@@ -1,4 +1,4 @@
-//! Waves on one controller: the rules, the view each window is built, and the
+//! Waves on one controller: the rules, the view each window is built and the
 //! service the loaders and actions call.
 
 use std::path::Path;

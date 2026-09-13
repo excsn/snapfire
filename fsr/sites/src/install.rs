@@ -3,9 +3,9 @@
 //! Where the bytes come from is a [`Store`], which a deployment implements
 //! against whatever it already runs. What happens to them is not a seam: a
 //! fetch stages under a dot-prefixed directory beside its destination, the
-//! staged tree is verified against the manifest that came with it, and only
+//! staged tree is verified against the manifest that came with it and only
 //! then is it renamed into place. A fetch that dies leaves nothing a mount can
-//! see, and a fetch that arrives wrong leaves the running version serving.
+//! see and a fetch that arrives wrong leaves the running version serving.
 
 use std::path::{Path, PathBuf};
 

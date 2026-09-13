@@ -515,7 +515,7 @@ struct JsTransport {
 /// a mocked service method is. The key is marked `native:` so a module and a
 /// service of the same name never collide.
 struct JsNative {
-  /// The ctx whose mocks answer, or the current one when the host holds this
+  /// The ctx whose mocks answer or the current one when the host holds this
   /// rather than a single spec context.
   ctx: Option<u32>,
   current: Arc<AtomicU32>,

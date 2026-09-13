@@ -20,14 +20,14 @@ pub trait Native: Send + Sync {
 
   /// A method the build read as `fn` rather than `async fn`, answered without
   /// a future so it can run where nothing may suspend. `None` means the name
-  /// is async or unknown, and the caller must use `call`.
+  /// is async or unknown, so the caller must use `call`.
   fn call_sync(&self, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>> {
     let _ = (method, args);
     None
   }
 }
 
-/// `ctx.native`. Empty unless the host registered something, and an unbound
+/// `ctx.native`. Empty unless the host registered something and an unbound
 /// handle fails the call rather than pretending.
 #[derive(Clone, Default)]
 pub struct NativeHandle(Option<Arc<Natives>>);
@@ -273,7 +273,7 @@ impl<T: IntoNativeValue> IntoNativeValue for Vec<T> {
   }
 }
 
-/// A method that can fail answers with `Result`, and the failure reaches the
+/// A method that can fail answers with `Result` and the failure reaches the
 /// body as the error the service layer already speaks.
 impl<T: IntoNativeValue> IntoNativeValue for Result<T, ServiceError> {
   fn into_native_value(self) -> Value {

@@ -46,7 +46,7 @@ pub struct ComponentSet {
   /// The source rewrites the bundle needs, one per component with a hoist.
   pub rewrites: Vec<Rewrite>,
   /// Per lowered module, whether it is pure: no state, no handler, no island,
-  /// no slot, nothing ambient, and every component it renders pure too. A
+  /// no slot, nothing ambient and every component it renders pure too. A
   /// pure component inside a static subtree is rendered into the chunk.
   pub pure: HashMap<String, bool>,
   /// The native pairs declared under `ext/`, `module.member` and reach, as
@@ -132,7 +132,7 @@ impl ComponentSet {
   }
 
   /// Lowers every export of a module under `ext/`: each is an extension,
-  /// lowered or native, and one that does not lower fails the build. Returns
+  /// lowered or native; one that does not lower fails the build. Returns
   /// `(file#export, kind)` rows, the kind `lowered`, `native render` or
   /// `native body`.
   pub fn lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError> {
@@ -409,7 +409,7 @@ impl ComponentSet {
     }
   }
 
-  /// A constant the plan names once, or the expression itself when naming it
+  /// A constant the plan names once or the expression itself when naming it
   /// would cost more than copying it. `CONST_WEIGHT` is where a copy per
   /// reference starts to dominate the plan.
   fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
@@ -480,7 +480,7 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
 }
 
 /// The modules `Island`, `island`, `Slot` and `Link` are read from: the
-/// client's React module, which a React application also mounts with, or the
+/// client's React module, which a React application also mounts with or the
 /// dialect's own declarations, which an application without React types
 /// against.
 pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-client/react", "@snapfire/fsr-authoring/template"];
@@ -492,7 +492,7 @@ fn is_template_source(source: &str) -> bool {
   TEMPLATE_SOURCES.contains(&source)
 }
 
-/// Whether a file, or a `file#export` module, is written in a language the
+/// Whether a file or a `file#export` module, is written in a language the
 /// build does not read. Such a component has no server body: a plugin
 /// compiles it for the browser and the page places it as an island.
 pub fn is_foreign(module: &str) -> bool {
@@ -1282,7 +1282,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// `const [x, setX] = useStore(key, initial)` as `let x = <store key> ?? initial`,
-  /// with `setX` a handler. The key must lower to a string: a literal, or a
+  /// with `setX` a handler. The key must lower to a string: a literal or a
   /// `key()` from the client's store, wherever it is declared.
   fn store_stmt(&mut self, decl: &js::VarDeclarator, arr: &js::ArrayPat, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
     let Some(first) = call.args.first() else {
@@ -1550,7 +1550,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// An `on*` attribute's handler as a lowered body, or why it is not one.
+  /// An `on*` attribute's handler as a lowered body or why it is not one.
   /// A handler is `const`s, calls to state setters and calls to actions, `e.preventDefault()`
   /// aside; the body returns the state it set.
   fn handler_attr(&mut self, attr: &'p js::JSXAttr) -> Lowered<usize> {

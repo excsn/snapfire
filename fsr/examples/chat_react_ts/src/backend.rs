@@ -26,7 +26,7 @@ struct Said {
   at: String,
 }
 
-/// Every room's transcript, and the topics to tell an open page about. The
+/// Every room's transcript and the topics to tell an open page about. The
 /// state is a `Mutex` rather than a database because the point of the example
 /// is the seam, not the storage.
 pub struct Rooms {
@@ -109,7 +109,7 @@ fn now() -> String {
   format!("{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60)
 }
 
-/// The rooms service in process, and the handle the host publishes from.
+/// The rooms service in process and the handle the host publishes from.
 pub fn rooms() -> (Arc<dyn Transport>, Arc<Rooms>) {
   let state = Arc::new(Rooms::new());
   let (listing, reading, writing) = (state.clone(), state.clone(), state.clone());

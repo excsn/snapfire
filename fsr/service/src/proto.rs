@@ -1,5 +1,5 @@
 //! A `.proto` file as a contract: messages become records, services become
-//! services with unary methods, and the descriptors are kept so `GrpcTransport`
+//! services with unary methods and the descriptors are kept so `GrpcTransport`
 //! can encode a call without generated code. Compiled by protox, so no protoc.
 
 use std::path::Path;
@@ -214,7 +214,7 @@ fn describe(kind: &Kind) -> String {
   }
 }
 
-/// The Google well-known types the JSON mapping renders as scalars, and the
+/// The Google well-known types the JSON mapping renders as scalars and the
 /// ones the value model has no shape for.
 fn well_known(full_name: &str) -> Option<Result<Type, String>> {
   Some(match full_name {

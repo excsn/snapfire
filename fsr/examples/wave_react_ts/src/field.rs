@@ -86,7 +86,7 @@ impl Game {
   }
 
   /// Everything a move is: whose turn, whether the cell is free, whether that
-  /// finished it. Branches, which is the point: none of this is in a handler.
+  /// finished it. All of it branches, which is why none of it is in a handler.
   fn play(&mut self, who: &str, cell: usize) -> bool {
     if !self.won.is_empty() || cell >= 9 {
       return false;
@@ -136,9 +136,9 @@ pub struct Field {
   next: u64,
 }
 
-/// What one window is shown: who is here, and what everyone *else* is typing.
+/// What one window is shown: who is here and what everyone *else* is typing.
 /// Built per recipient, which is why a reader never sees a ghost of their own.
-/// A window with no name is on the wave and in nothing else: it reads, and the
+/// A window with no name is on the wave and in nothing else: it reads and the
 /// rules drop every op it sends, so nobody can write anonymously.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct View {
@@ -204,7 +204,7 @@ impl Field {
     self.waves.get(wave)?.blips.iter().find(|held| held.id.to_string() == blip).map(|held| held.body.clone())
   }
 
-  /// The rewrite, kept, and the hold released with it.
+  /// The rewrite kept, with the hold released alongside it.
   fn amend(&mut self, wave: &str, blip: &str, who: &str, body: &str, at: String) -> Option<Blip> {
     if let Some(edits) = self.edits.get_mut(wave) {
       edits.remove(blip);
@@ -231,7 +231,7 @@ impl Field {
     Some(blip)
   }
 
-  /// What `wave` looks like to `conn`: everyone here, and every draft and
+  /// What `wave` looks like to `conn`: everyone here and every draft and
   /// rewrite but this window's own.
   pub fn view(&self, wave: &str, conn: Option<Conn>) -> View {
     let mut here: Vec<String> = self.here.get(wave).map(|here| here.values().filter(|name| !name.is_empty()).cloned().collect()).unwrap_or_default();

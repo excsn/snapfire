@@ -37,7 +37,7 @@ pub trait ServiceCaller: Send + Sync {
   fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>;
 }
 
-/// `ctx.services`. Empty unless the edge bound a service layer, and an unbound
+/// `ctx.services`. Empty unless the edge bound a service layer and an unbound
 /// handle fails the call rather than pretending.
 #[derive(Clone, Default)]
 pub struct ServiceHandle(Option<Arc<dyn ServiceCaller>>);

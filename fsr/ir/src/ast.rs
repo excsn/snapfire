@@ -99,7 +99,7 @@ pub enum Expr {
   Num(Box<Expr>),
   BigInt(Box<Expr>),
   /// A render-path expression whose inputs are props only: the renderer
-  /// records its value under `id` and the enclosing loop indices, and the
+  /// records its value under `id` and the enclosing loop indices; the
   /// browser reads that record instead of computing it. `id` is unique
   /// within the component's module.
   Hoist { id: u32, expr: Box<Expr> },
@@ -240,7 +240,7 @@ impl Component {
     self.render.visit(f);
   }
 
-  /// True when the component reads `$props.<name>`, or uses `$props` whole,
+  /// True when the component reads `$props.<name>` or uses `$props` whole,
   /// which is how a spread or a rest carries every prop along.
   pub fn reads_prop(&self, name: &str) -> bool {
     let mut aliases = vec!["$props".to_owned()];
@@ -655,7 +655,7 @@ pub fn body_reads_request(body: &Body) -> bool {
 
 /// True when a body reads anything of the request other than its input: a
 /// parameter, the query, the session, the identity or the clock. A `meta`
-/// body's input is its loader's data, which is not the request, and the
+/// body's input is its loader's data, which is not the request and the
 /// locale is left out for the reason `reads_request` gives.
 pub fn body_reads_ambient(body: &Body) -> bool {
   let mut found = false;

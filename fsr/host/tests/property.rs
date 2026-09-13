@@ -33,7 +33,7 @@ fn locales() -> impl Strategy<Value = Locales> {
     })
 }
 
-/// Paths as they arrive: encoded, empty, unicode, and shaped like a prefix.
+/// Paths as they arrive: encoded, empty, unicode and shaped like a prefix.
 fn paths() -> impl Strategy<Value = String> {
   prop_oneof![
     3 => "/[a-zA-Z0-9/_.%-]{0,20}",

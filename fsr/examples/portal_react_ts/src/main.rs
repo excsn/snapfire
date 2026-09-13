@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use snapfire_fsr_host::Host;
 
-/// The portal: its own routes, and the sites its configuration mounts, all
+/// The portal: its own routes and the sites its configuration mounts, all
 /// served by one host. Everything under `app/` is TypeScript the build lowers.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

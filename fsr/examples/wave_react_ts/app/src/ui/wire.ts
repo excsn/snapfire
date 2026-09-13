@@ -14,7 +14,7 @@ function tell(open: boolean): void {
   for (const watcher of watching) watcher(open);
 }
 
-/** The one connection a wave needs, shared by every island on the page: the socket that carries drafts and presence, and the `live` stream that says when a blip was kept. Each island that joins holds a share; the last to leave closes it. */
+/** The one connection a wave needs, shared by every island on the page: the socket that carries drafts and presence, plus the `live` stream that says when a blip was kept. Each island that joins holds a share; the last to leave closes it. */
 export function join(topic: string, onOpen: (open: boolean) => void): () => void {
   watching.add(onOpen);
   if (!held || held.topic !== topic) {
@@ -41,7 +41,7 @@ export function join(topic: string, onOpen: (open: boolean) => void): () => void
   };
 }
 
-/** Says what this reader is part way through typing, or nothing when the field is empty. */
+/** Says what this reader is part way through typing or nothing when the field is empty. */
 export function typing(parent: string, body: string): void {
   held?.socket.send("typing", { parent, body });
 }
@@ -51,7 +51,7 @@ export function named(name: string): void {
   held?.socket.send("named", { name });
 }
 
-/** Reaches for a blip to rewrite it. The field decides: whoever gets there first holds it, and the other window learns so by being sent the holder's text. */
+/** Reaches for a blip to rewrite it. The field decides: whoever gets there first holds it and the other window learns so by being sent the holder's text. */
 export function hold(blip: string): void {
   held?.socket.send("open", { blip });
 }

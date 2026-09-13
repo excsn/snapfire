@@ -1,5 +1,5 @@
 //! The authoring forms a feature is recognised in. Each of these lowered to
-//! nothing, or to the wrong thing, because the build matched a local spelling
+//! nothing or to the wrong thing, because the build matched a local spelling
 //! or one declaration shape instead of what the module imported and exported.
 
 use std::sync::atomic::{AtomicU32, Ordering};

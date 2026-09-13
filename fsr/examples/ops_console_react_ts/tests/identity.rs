@@ -22,7 +22,7 @@ fn location(response: &http::Response<snapfire_fsr_host::Body>) -> String {
 
 /// The console over the real identity service on a port of its own, the fleet
 /// answering from its mock file: every session and every sign-in is a call
-/// out, and the host holds neither.
+/// out and the host holds neither.
 #[actix_web::test]
 async fn sessions_and_sign_in_are_calls_to_the_identity_service() {
   let service = Identity::seed();

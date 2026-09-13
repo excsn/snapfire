@@ -30,7 +30,7 @@ pub struct Bundled {
 
 /// Writes the deploy tree for `app` under `out`: configuration under
 /// `config/`, everything the application reads under `app/`, every static root
-/// under `serve/<route>/` for a web server to point at, and a generated
+/// under `serve/<route>/` for a web server to point at and a generated
 /// `config/bundle.toml` naming the paths that moved.
 ///
 /// Every destination is derived from what a file is rather than from where it

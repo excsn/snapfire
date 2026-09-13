@@ -6,7 +6,7 @@ import Gadget from "@src/ui/Gadget";
 import Presence from "@src/ui/Presence";
 import Under from "@src/ui/Under";
 
-/** The wave itself is rendered here, on the server: every blip, in reading order, at the depth the service gave it. A blip's text is an island because a blip is a document: anyone on the wave may rewrite it, and everyone else watches while they do. */
+/** The wave itself is rendered here, on the server: every blip, in reading order, at the depth the service gave it. A blip's text is an island because a blip is a document: anyone on the wave may rewrite it and everyone else watches while they do. */
 export default function WavePage({ wave, me }: WaveIdProps) {
   return (
     <article className="wave">

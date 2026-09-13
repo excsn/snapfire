@@ -13,7 +13,7 @@ export type MountTiming = "load" | "visible" | "idle";
 export interface IslandEntry {
   loader: () => Promise<unknown>;
   mount: Mounter;
-  /** When hydration happens: immediately, when scrolled into view, or when the main thread is idle. Defaults to "load". Per island, not per page. */
+  /** When hydration happens: immediately, when scrolled into view or when the main thread is idle. Defaults to "load". Per island, not per page. */
   when?: MountTiming;
   patch?: Patcher;
 }
@@ -59,7 +59,7 @@ export function serverRendered(el: Element): boolean {
   return Array.from(el.childNodes).some((node) => !(node instanceof Element && node.tagName === "SF-S"));
 }
 
-/** An island the nearest island above it has not rendered. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded, and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead. */
+/** An island the nearest island above it has not rendered. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead. */
 function awaitingAnAncestor(el: Element): boolean {
   const above = el.parentElement?.closest("sf-i");
   return above !== null && above !== undefined && !serverRendered(above);
@@ -224,7 +224,7 @@ export function boot(): void {
 /** The mark a stylesheet the client owns carries, written by the server on a document and by `applyStyles` on a navigation. A link without it belongs to the document and is never taken away. */
 const CSS_MARK = "data-sf-css";
 
-/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go, and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded, or after `timeout` so a href that never answers cannot hold a navigation open. */
+/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded or after `timeout` so a href that never answers cannot hold a navigation open. */
 export function applyStyles(hrefs: string[], timeout = 2000): Promise<void> {
   const head = document.head;
   const wanted = new Set(hrefs.map((href) => new URL(href, location.href).href));

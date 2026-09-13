@@ -1,5 +1,5 @@
 //! `fsr add`: vendors a package's runtime modules from esm.sh into `vendor/`,
-//! self-contained except for the externals named, and points the import map at
+//! self-contained except for the externals named and points the import map at
 //! them. No npm and no conversion of our own: esm.sh rewrites the package to
 //! ES modules and bundles its dependencies; what comes back is committed.
 

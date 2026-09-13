@@ -38,7 +38,7 @@ impl Tls {
   }
 
   /// Re-reads both files and swaps what the next handshake presents.
-  /// Connections already up keep the certificate they started on, and a file
+  /// Connections already up keep the certificate they started on and a file
   /// that will not read leaves the running one in place.
   pub fn reload(&self) -> Result<(), HostError> {
     let config = read(&self.cert, &self.key, &self.alpn)?;

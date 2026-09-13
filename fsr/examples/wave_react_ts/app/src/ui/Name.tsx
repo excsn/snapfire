@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { actions } from "@generated/client";
 import { named } from "@src/ui/wire";
 
-/** Names the reader. Everything else about a wave is durable; this is only who you are while you are here. Naming is what unlocks writing, and `me` reaches the composers through the page, so the document is asked for again rather than revalidated. */
+/** Names the reader. Everything else about a wave is durable; this is only who you are while you are here. Naming is what unlocks writing and `me` reaches the composers through the page, so the document is asked for again rather than revalidated. */
 export default function Name({ name }: { name: string }) {
   const [saved, setSaved] = useState(name);
   async function keep(event: FormEvent<HTMLFormElement>): Promise<void> {

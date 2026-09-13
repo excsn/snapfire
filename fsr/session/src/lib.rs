@@ -34,7 +34,7 @@ pub(crate) fn to_hex(bytes: &[u8]) -> String {
 
 pub(crate) fn from_hex(s: &str) -> Option<Vec<u8>> {
   // Over bytes rather than `&s[i..i + 2]`: the value is whatever a browser
-  // sent, and slicing a string by byte index panics when the index lands
+  // sent and slicing a string by byte index panics when the index lands
   // inside a character.
   let bytes = s.as_bytes();
   if bytes.len() % 2 != 0 {

@@ -378,7 +378,7 @@ fn list_against(shell: &Path, hosts: &[String], headers: &[(String, String)]) ->
   }
 }
 
-/// The typecheck rows of a report, and the exit code the diagnostics call for.
+/// The typecheck rows of a report and the exit code the diagnostics call for.
 fn types_row(checked: Option<&typecheck::Checked>) -> ExitCode {
   let Some(checked) = checked else { return ExitCode::SUCCESS };
   for diagnostic in &checked.diagnostics {

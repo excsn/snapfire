@@ -2,7 +2,7 @@ import { useStore } from "@snapfire/fsr-client/react";
 
 import { watchedKey } from "./Watch.js";
 
-/** The day's move, and a click that makes this the watched symbol. */
+/** The day's move and a click that makes this the watched symbol. */
 export default function Chip({ symbol, change }: { symbol: string; change: number }) {
   const [held, setHeld] = useStore(watchedKey, "");
   const mine = held === symbol;

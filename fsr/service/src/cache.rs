@@ -118,7 +118,7 @@ pub fn canonical(value: &Value, out: &mut String) {
   }
 }
 
-/// What a load left: the answer, or the failure the entry is dropped for.
+/// What a load left: the answer or the failure the entry is dropped for.
 pub struct Loaded(pub Result<Value, ServiceError>);
 
 /// A cache is built on its first use rather than with the registry, since

@@ -29,7 +29,7 @@ impl Reach {
 }
 
 /// What a call runs under: the request's locale in the application's
-/// spelling, empty when nothing set one, and the clock.
+/// spelling, empty when nothing set one and the clock.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ambient {
   pub locale: String,
@@ -82,7 +82,7 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("i18n", "t", Reach::Render),
 ];
 
-/// The reach of a standard member, or `None` when no such member exists.
+/// The reach of a standard member or `None` when no such member exists.
 pub fn standard_reach(module: &str, name: &str) -> Option<Reach> {
   STANDARD.iter().find(|(m, n, _)| *m == module && *n == name).map(|(_, _, reach)| *reach)
 }

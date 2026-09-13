@@ -13,9 +13,9 @@
 //! layout that is no longer the one inference was written for.
 //!
 //! Applying the layout to a tree yields the tree: its configuration already
-//! names tree paths, so every destination equals its source. That is what
-//! lets one function serve a project about to be bundled and an artifact
-//! being verified.
+//! names tree paths, so every destination equals its source. One function can
+//! therefore serve both a project about to be bundled and an artifact being
+//! verified.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -313,7 +313,7 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   // client. Nothing here is written then.
   //
   // A site is skipped because the shell answers the prefix on its behalf: a
-  // root outside the site's own prefix is dropped at mount, and these rows
+  // root outside the site's own prefix is dropped at mount and these rows
   // would otherwise move the hash every pin is checked against.
   use snapfire_fsr_host::client;
   let serves_client = config.site.is_none()

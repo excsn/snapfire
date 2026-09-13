@@ -256,7 +256,7 @@ fn call_native(ctx: &Ctx<'_>, name: &str, args: &str) -> Result<String, String> 
 pub fn native(name: &str, args: &str) -> Result<String, String> {
   if let Some(scoped) = NATIVE_SCOPE.with(|slot| slot.get()) {
     // SAFETY: the pointer was taken from a reference that outlives the
-    // `with_native_scope` call installing it, and the slot is reset when
+    // `with_native_scope` call installing it and the slot is reset when
     // that call returns, on unwind included.
     let scoped: &NativeFn<'_> = unsafe { &*scoped };
     return scoped(name, args);

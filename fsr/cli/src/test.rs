@@ -428,7 +428,7 @@ fn truthy(value: &Value) -> bool {
 /// A value as TypeScript would write it, so `1n` and `1` read as different.
 /// Equality as a test means it: an integer and a float holding the same whole
 /// number are the same value, since a test writes `35` for the `35n` an
-/// integer field reads back as, and the rest is structural.
+/// integer field reads back as and the rest is structural.
 fn same(a: &Value, b: &Value) -> bool {
   fn whole(v: &Value) -> Option<f64> {
     match v {

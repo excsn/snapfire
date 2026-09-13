@@ -6,7 +6,7 @@ use snapfire_fsr_session::TokenCell;
 
 /// One outbound call as it travels the chain. Interceptors read the identity
 /// and write metadata; `credentials` is reachable here and nowhere in
-/// application code, which is the whole custody claim.
+/// application code, which is what the custody claim rests on.
 pub struct Call {
   pub service: String,
   pub method: String,

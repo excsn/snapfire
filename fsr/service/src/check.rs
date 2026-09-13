@@ -278,7 +278,7 @@ impl Contract {
 
   /// Rewrites `value` in place where JSON's one number type left a shape the
   /// contract names exactly: an integral number for an `F64` or `F32` field
-  /// becomes that float, since no JSON encoder can spell `320.0`, and a float
+  /// becomes that float, since no JSON encoder can spell `320.0` and a float
   /// with nothing after the point for an integer field becomes that integer,
   /// since a JavaScript number is a double whatever it holds. Nothing else
   /// changes; `check_value` reports what remains.
@@ -344,7 +344,7 @@ impl Contract {
   /// `conform` for a value whose scalars are all text because the encoding
   /// carries nothing else: a form body, a query string. A string that parses
   /// as the declared type becomes it, an empty one against an optional
-  /// becomes null, and anything else is left for [`Contract::check_value`] to
+  /// becomes null and anything else is left for [`Contract::check_value`] to
   /// refuse. Never call it on a value that arrived typed, since a string
   /// where a number is declared is then a real mismatch.
   pub fn conform_text(&self, ty: &Type, value: &mut Value) {

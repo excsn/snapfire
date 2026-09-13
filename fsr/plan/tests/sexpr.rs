@@ -511,7 +511,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
 proptest! {
   #![proptest_config(ProptestConfig { cases: 384, ..ProptestConfig::default() })]
 
-  /// A generated manifest survives the text, and printing it twice is stable.
+  /// A generated manifest survives the text and printing it twice is stable.
   #[test]
   fn a_manifest_survives_the_text(m in manifest()) {
     let text = m.to_sexpr();
@@ -597,7 +597,7 @@ fn a_lowered_row_without_a_body_is_refused() {
 }
 
 /// The manifest layer's own term errors: a head that is not a symbol, a name
-/// that is not one, and a section with nothing after its name.
+/// that is not one and a section with nothing after its name.
 #[test]
 fn malformed_plan_terms_are_refused() {
   let cases: &[(&str, &str)] = &[

@@ -1,11 +1,11 @@
 //! What a site artifact is: the files a mounted site ships, listed with a
-//! digest each, and the hash of that listing.
+//! digest each and the hash of that listing.
 //!
 //! The set is derived from the site's own configuration rather than named a
 //! second time, so the hash of a working tree equals the hash of what a
-//! release copied out of it, and a pin written during development still holds
+//! release copied out of it and a pin written during development still holds
 //! against the deployed directory. Nothing here knows about a registry: an
-//! artifact is a directory or a gzipped tar of one, and where either came from
+//! artifact is a directory or a gzipped tar of one, plus where either came from
 //! is the caller's business.
 
 use std::io::Read;
@@ -279,7 +279,7 @@ impl Manifest {
 }
 
 /// Writes the artifact at `dir` as a gzipped tar at `out`, its manifest at the
-/// archive root, and returns the manifest. Entries carry no timestamp and no
+/// archive root and returns the manifest. Entries carry no timestamp and no
 /// owner, so packing the same tree twice produces the same bytes.
 pub fn pack(dir: &Path, version: &str, out: &Path) -> Result<Manifest, ArtifactError> {
   let config = Config::load(dir)?;

@@ -1,5 +1,5 @@
 //! The value model under generated input: the copy-on-write map that every
-//! render clones, and the parsers a configuration goes through.
+//! render clones and the parsers a configuration goes through.
 
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;

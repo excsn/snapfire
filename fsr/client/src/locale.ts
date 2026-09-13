@@ -5,7 +5,7 @@ type LocaleListener = (tag: string) => void;
 let current = "";
 const listeners = new Set<LocaleListener>();
 
-/** The locale the document is in, or an empty string before any document says. */
+/** The locale the document is in or an empty string before any document says. */
 export function currentLocale(): string {
   return current;
 }
@@ -18,7 +18,7 @@ export function subscribeLocale(listener: LocaleListener): () => void {
   };
 }
 
-/** Makes `tag` the document's locale: `<html lang>` in its BCP 47 spelling, `data-sf-locale` in the application's, and every listener told. Same tag, nothing happens. */
+/** Makes `tag` the document's locale: `<html lang>` in its BCP 47 spelling, `data-sf-locale` in the application's and every listener told. Same tag, nothing happens. */
 export function setLocale(tag: string): void {
   if (tag === current) return;
   current = tag;
@@ -41,7 +41,7 @@ export type Catalog = { readonly [key: string]: string };
 
 const catalogs = new Map<string, Catalog>();
 
-/** The message table held for `tag`, or null when the server has sent none. */
+/** The message table held for `tag` or null when the server has sent none. */
 export function catalog(tag: string): Catalog | null {
   return catalogs.get(tag) ?? null;
 }

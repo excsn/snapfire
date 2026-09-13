@@ -19,7 +19,7 @@ function ownProps(props: Props): Record<string, unknown> {
 }
 
 /**
- * Vue mounts a component through an app, and an app takes its root props once.
+ * Vue mounts a component through an app and an app takes its root props once.
  * A one-element wrapper holding them reactively is what makes a patch possible:
  * it renders nothing of its own, so the markup Vue hydrates is the component's
  * and nothing else.
@@ -35,7 +35,7 @@ function rootFor(component: Component, props: Props): { root: Component; props: 
   return { root, props: state };
 }
 
-/** The default export of a module, or the module when it is the component itself. */
+/** The default export of a module or the module when it is the component itself. */
 function componentOf(module: unknown): Component {
   const holder = module as { default?: Component };
   return (holder && holder.default) || (module as Component);
@@ -85,7 +85,7 @@ export function useStore<T>(key: StoreKey<T>, initial: T): { value: T } {
 /** Ids for the markers this module writes, which no server rendered. */
 let placed = 0;
 
-/** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, and the timing that schedules it. */
+/** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, plus the timing that schedules it. */
 export interface MountProps {
   module: string;
   props?: Props;

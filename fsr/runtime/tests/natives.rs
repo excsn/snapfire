@@ -40,7 +40,7 @@ impl Rooms {
     }
   }
 
-  #[allow(dead_code)] // Reached only through the dispatcher, which is the point: it must not be there.
+  #[allow(dead_code)] // Reached only through the dispatcher, which is what this checks: it must not be there.
   fn private(&self) -> u64 {
     99
   }

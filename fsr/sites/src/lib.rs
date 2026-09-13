@@ -1,7 +1,7 @@
 //! The `[sites]` table of a shell's configuration turned into mounts on the
 //! stock host: each artifact resolved under the root or at its path, hashed
 //! and refused when the table pins another hash, then the table watched so a
-//! deploy is a pointer moved and a signal sent, or a poll noticing.
+//! deploy is a pointer moved and a signal sent, with a poll noticing otherwise.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -130,7 +130,7 @@ fn table_shape(root: &Path) -> Option<String> {
 }
 
 /// Watches the table for `host`, read from `root`: `SIGHUP` reloads at
-/// once, and with `sites.poll` set the table is reread on that interval and
+/// once and with `sites.poll` set the table is reread on that interval and
 /// the host reloaded when a row moved. Runs until the runtime stops.
 pub fn watch(host: Arc<Host>, root: PathBuf, poll: Option<Duration>) {
   let sighup = host.clone();

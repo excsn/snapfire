@@ -139,7 +139,7 @@ impl<'a> Parser<'a> {
               out.push('\t');
               self.pos += 1;
             }
-            // Any other escape is the character itself, and a character is not
+            // Any other escape is the character itself and a character is not
             // a byte: `\é` must carry all of `é` through, not its first byte.
             Some(&b) => {
               let end = (self.pos + utf8_len(b)).min(self.src.len());

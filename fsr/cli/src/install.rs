@@ -44,7 +44,7 @@ pub const CHECKER: Tool =
 pub enum Ready {
   /// The tool is there, either already or because it was just installed.
   Yes,
-  /// It is not, and the command goes on without it.
+  /// It is not and the command goes on without it.
   Skipped,
 }
 

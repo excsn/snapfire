@@ -98,7 +98,7 @@ impl std::fmt::Display for PublicValue {
 }
 
 /// `[sites]`: `root` is where `name@version` artifacts resolve, `poll` how
-/// often the table is reread, and one `[sites.<name>]` per mounted site.
+/// often the table is reread and one `[sites.<name>]` per mounted site.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SitesSection {
   pub root: Option<String>,
@@ -119,7 +119,7 @@ pub struct MountConfig {
   pub allow_engine: bool,
 }
 
-/// `[site]`: `name` prefixes every id the build emits, `<name>:`, and `at` is
+/// `[site]`: `name` prefixes every id the build emits, `<name>:` and `at` is
 /// the path every route and link is written under.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -200,7 +200,7 @@ pub struct ServerConfig {
   pub render: String,
   /// Whether `serve` negotiates HTTP/2 on the connection as well as HTTP/1.1.
   /// Without `[server.tls]` this is h2c: a client that opens with the HTTP/2
-  /// preface is served, and a browser, which wants ALPN over TLS, is not.
+  /// preface is served and a browser, which wants ALPN over TLS, is not.
   #[serde(default)]
   pub http2: bool,
   /// `[server.tls]`: absent, the listener is plain TCP. Present, the host
@@ -339,7 +339,7 @@ impl DocumentConfig {
 pub struct SessionSection {
   /// The cookie signing key. Required, so a deployment never runs on a default.
   pub key: String,
-  /// `memory`, or `service` with `client` naming the `[clients.<name>]`
+  /// `memory` or `service` with `client` naming the `[clients.<name>]`
   /// entry whose contract declares `getSession`, `putSession` and
   /// `deleteSession`.
   #[serde(default = "default_store")]
@@ -353,7 +353,7 @@ pub struct SessionSection {
   #[serde(default)]
   pub secure: bool,
   /// When the host mints the session's CSRF token into requests: `identified`,
-  /// once the session has an identity, or `always`. A token joins the render
+  /// once the session has an identity or `always`. A token joins the render
   /// memo key, so `always` memoises every page per session.
   #[serde(default = "default_csrf")]
   pub csrf: String,
@@ -474,7 +474,7 @@ pub const PROVIDERS: &[&str] = &["file", "service"];
 
 /// The `[typecheck]` section, read by `fsr` rather than by the host: the
 /// TypeScript a build checks with, the integrity of a version the checker
-/// pins no hash for, and a compiler to use as given on a machine that cannot
+/// pins no hash for and a compiler to use as given on a machine that cannot
 /// fetch one.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
@@ -643,7 +643,7 @@ pub fn locate(path: &Path) -> Result<Located, HostError> {
   locate_with(path, &Deployment::from_env())
 }
 
-/// `path` is a project root holding `config/`, a `config/` directory, a directory holding `app.toml` or `app.yaml`, or one configuration file. A directory contributes the files `config_paths` names; a file is loaded alone. A file's project root is its directory, or the parent when that directory is named `config`.
+/// `path` is one of four things: a project root holding `config/`; a `config/` directory; a directory holding `app.toml` or `app.yaml`; a single configuration file. A directory contributes the files `config_paths` names; a file is loaded alone. A file's project root is its directory or the parent when that directory is named `config`.
 pub fn locate_with(path: &Path, deployment: &Deployment) -> Result<Located, HostError> {
   if path.is_file() {
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -1336,7 +1336,7 @@ fn to_json(value: &c5store::value::C5DataValue) -> serde_json::Value {
   }
 }
 
-/// `30s`, `15m`, `8h`, `2d`, or a bare number of seconds.
+/// `30s`, `15m`, `8h`, `2d` or a bare number of seconds.
 pub fn parse_duration(raw: &str) -> Option<Duration> {
   snapfire_fsr_core::parse_duration(raw)
 }

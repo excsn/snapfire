@@ -1,4 +1,4 @@
-//! The board over a field whose clock a test holds still, and over services
+//! The board over a field whose clock a test holds still and over services
 //! that stall on purpose: what the reader sees before they answer, in what
 //! order the rest arrives and what the board says at a given minute.
 

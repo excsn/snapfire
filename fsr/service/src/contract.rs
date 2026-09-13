@@ -35,7 +35,7 @@ impl ScalarKind {
 }
 
 /// The contract type vocabulary. Every variant projects onto exactly one shape
-/// of the value model, and the integer widths are the reason a `u64` field
+/// of the value model and the integer widths are the reason a `u64` field
 /// cannot be silently truncated at 2^53 on the way to TypeScript.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -255,7 +255,7 @@ impl Service {
 }
 
 /// The neutral artifact: what a TS subset extraction, a Rust derive export and
-/// a proto or OpenAPI import all produce, and what the TS stubs, the optional
+/// a proto or OpenAPI import all produce, plus what the TS stubs, the optional
 /// Rust traits, the plan-file validation and the runtime marshalling all read.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Contract {

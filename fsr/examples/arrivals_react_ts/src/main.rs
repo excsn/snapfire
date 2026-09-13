@@ -7,7 +7,7 @@ use snapfire_fsr_host::Host;
 /// The arrivals board over three services, one of which takes a second and
 /// one of which takes two, on a field whose clock runs fast. The document
 /// goes out with the board rendered and a skeleton where each panel will be,
-/// each panel fills as its service answers, and from then on the page follows
+/// each panel fills as its service answers and from then on the page follows
 /// the field: a tick publishes `board`, every open `/_sf/live` stream hears
 /// it and the client revalidates the route in place.
 #[tokio::main]

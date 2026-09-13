@@ -79,7 +79,7 @@ pub struct Runtime {
   pub load_keyer: Arc<dyn LoadKeyer>,
   pub loads: Arc<dyn LoadCache>,
   /// Plan nodes whose markup was seen to place the head slot. Such a subtree
-  /// is never written to the cache, and whether it places the head is a
+  /// is never written to the cache and whether it places the head is a
   /// property of its module rather than of the request, so once one build has
   /// seen it the lookup is known to be dead and is skipped.
   head_users: parking_lot::Mutex<std::collections::HashSet<u32>>,
@@ -433,7 +433,7 @@ impl Session {
   }
 
   /// The degraded rendering of a segment whose loader failed: the plan's error
-  /// module with params plus the message, or the built-in error node.
+  /// module with params plus the message or the built-in error node.
   async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
     let Some(module) = &node.error else {
       return Ok(error_node(&failure.to_string()));

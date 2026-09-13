@@ -1,5 +1,5 @@
 //! `fsr serve`: the stock host over an application, for the project with no
-//! Rust beside it. `Host::from` on the project root is the whole of it.
+//! Rust beside it. `Host::from` on the project root is all of it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

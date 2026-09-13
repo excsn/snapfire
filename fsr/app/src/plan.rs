@@ -83,7 +83,7 @@ fn parse(module: &str) -> Result<ModuleId, BindError> {
   module.parse().map_err(|_| BindError::Module { module: module.to_owned() })
 }
 
-/// What a route accepts: the builder, or a `PlanNode` built by hand.
+/// What a route accepts: the builder or a `PlanNode` built by hand.
 pub trait IntoPlan {
   fn into_plan(self) -> Result<PlanNode, BindError>;
 }

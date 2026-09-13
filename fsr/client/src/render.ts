@@ -84,7 +84,7 @@ function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segme
 /** The props key an island's region key rides under, written by the renderer. */
 export const REGION_KEY = "$k";
 
-/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet, and the regions inside it. */
+/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet and the regions inside it. */
 export interface RegionSource {
   props: { [key: string]: SfValue };
   html: string;

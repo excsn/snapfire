@@ -52,7 +52,7 @@ function write(k: string, value: unknown): void {
   notify(k);
 }
 
-/** What the key holds, or undefined when nothing has set it. */
+/** What the key holds or undefined when nothing has set it. */
 export function get<T>(k: StoreKey<T>): T | undefined {
   return values.get(k) as T | undefined;
 }
@@ -69,7 +69,7 @@ export function clear<T>(k: StoreKey<T>): void {
   notify(k);
 }
 
-/** Forgets every key without telling anyone, which is what a new document calls for: the listeners of the old one are gone with its roots, and the derived keys stay registered for the next seed to feed. */
+/** Forgets every key without telling anyone, which is what a new document calls for: the listeners of the old one are gone with its roots and the derived keys stay registered for the next seed to feed. */
 export function reset(): void {
   values.clear();
 }
@@ -117,7 +117,7 @@ export function derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[] | string[
   recompute(k);
 }
 
-/** Shows `guess` at once, runs `remote`, and puts the key back as it was if it fails. What the server settles on arrives with the next payload, so a success leaves the guess in place for revalidation to replace. */
+/** Shows `guess` at once, runs `remote` and puts the key back as it was if it fails. What the server settles on arrives with the next payload, so a success leaves the guess in place for revalidation to replace. */
 export async function optimistic<T, R>(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R> {
   const had = values.has(k);
   const before = values.get(k) as T;

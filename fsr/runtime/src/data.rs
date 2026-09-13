@@ -60,7 +60,7 @@ impl DataSources {
 /// How much of the request a source reads, so a load may be answered from a
 /// memo shared across requests that agree on exactly that much. `None` is
 /// "never memoize": the source reads params, the query, the session or the
-/// clock, and no two requests can be assumed to agree.
+/// clock and no two requests can be assumed to agree.
 ///
 /// The key must be complete. A source keyed without something it reads
 /// serves one request's data to another, so a keyer widens to `None` rather

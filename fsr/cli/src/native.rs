@@ -1,6 +1,6 @@
 //! The application's own Rust, read the way a body is read: syntactically,
 //! without compiling it. A `#[native]` `impl` block names the methods a body
-//! may reach as `ctx.native.<module>.<method>()`, and the types they mention
+//! may reach as `ctx.native.<module>.<method>()` and the types they mention
 //! come from the structs beside them.
 //!
 //! Reading rather than expanding is what keeps the ordering honest. `build.rs`
@@ -150,7 +150,7 @@ fn type_name(ty: &syn::Type) -> Option<String> {
 }
 
 /// The TypeScript a Rust type reads as. A type outside the value model is
-/// `unknown` rather than a guess, and a named struct is recorded so its own
+/// `unknown` rather than a guess and a named struct is recorded so its own
 /// declaration is written beside it.
 fn ts_type(ty: &syn::Type, wanted: &mut Vec<String>) -> String {
   match ty {

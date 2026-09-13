@@ -88,7 +88,7 @@ pub enum LowerError {
   /// downgrade: the browser would run the component too.
   #[error("{0}; it runs on the server only, and a component's render path runs in the browser too")]
   Reach(Residue),
-  /// An export under `ext/` that does not lower, or a `native` declaration
+  /// An export under `ext/` that does not lower or a `native` declaration
   /// the build cannot read.
   #[error("{0}; every export under ext/ is an extension and must lower")]
   Extension(Residue),
@@ -109,7 +109,7 @@ pub const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
 pub const STORE_SPECIFIER: &str = "@snapfire/fsr-client/store";
 
 /// The directory under the app whose modules are extensions: every export
-/// lowers or the build fails, and a `native` declaration lives there.
+/// lowers or the build fails, where a `native` declaration also lives.
 pub const EXT_DIR: &str = "ext";
 
 /// What a body lowerer resolves through the component set: module-level
@@ -128,7 +128,7 @@ pub(crate) type Unresolved = (LowerError, Option<String>);
 pub const GENERATED: &[(&str, &str)] = &[("@snapfire/fsr/head", "generated/head")];
 
 /// The one module under `generated/` a body may call into. Everything else
-/// there is types, or the `action` and `fail` the lowerer answers by name
+/// there is types or the `action` and `fail` the lowerer answers by name
 /// rather than by reading; this file holds nothing but lowerable helpers.
 pub const HEAD_MODULE: &str = "generated/head.ts";
 
@@ -855,7 +855,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A statement that is an expression: a session write, a delete, a bare
-  /// `fail`, or an awaited call for its effect.
+  /// `fail` or an awaited call for its effect.
   fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
     match expr {
       js::Expr::Assign(assign) => {
@@ -894,7 +894,7 @@ impl<'a> Lowerer<'a> {
     matches!(&call.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(id) if id.sym.as_ref() == name))
   }
 
-  /// `session.key`, `session.key.sub`, `session.key[expr]`, or the same
+  /// `session.key`, `session.key.sub`, `session.key[expr]` or the same
   /// through `ctx.session`. Returns the key and the path beneath it.
   fn session_target(&mut self, member: &js::MemberExpr) -> Lowered<(String, Vec<Expr>)> {
     let mut chain = Vec::new();
@@ -1497,7 +1497,7 @@ impl<'a> Lowerer<'a> {
     self.rooted_at(obj, Root::Services, "services")
   }
 
-  /// `<root>.<name>` bare, or `ctx.<field>.<name>`; the bool says which.
+  /// `<root>.<name>` bare or `ctx.<field>.<name>`; the bool says which.
   fn rooted_at(&self, obj: &js::Expr, root: Root, field: &str) -> Option<(String, bool)> {
     let js::Expr::Member(m) = obj else { return None };
     let name = self.member_name(m)?;
@@ -1520,7 +1520,7 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// An arrow function applied by a builtin. Its body is one expression, or a
+  /// An arrow function applied by a builtin. Its body is one expression or a
   /// block that only returns one. Destructured parameters read as fields and
   /// indexes of the positional parameter.
   pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
@@ -1600,7 +1600,7 @@ fn prop_name(name: &js::PropName) -> Option<String> {
   }
 }
 
-/// What the construct is, and the rewrite that does the same thing in the IR.
+/// What the construct is and the rewrite that does the same thing in the IR.
 fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
   match stmt {
     js::Stmt::Try(_) => ("`try`, and a body has no exceptions", "a service call that fails fails the body; `fail(kind, message)` is how a body stops on purpose"),
@@ -1620,7 +1620,7 @@ fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
   }
 }
 
-/// What the construct is, and the rewrite that does the same thing in the IR.
+/// What the construct is and the rewrite that does the same thing in the IR.
 fn describe_expr(expr: &js::Expr) -> (&'static str, &'static str) {
   match expr {
     js::Expr::This(_) => ("`this`, and a body has no receiver", "read what the body needs from `ctx`"),

@@ -22,7 +22,7 @@ impl HeadEl {
 
   /// What makes two entries the same element, so an inner segment replaces an
   /// outer one rather than emitting both: the naming attribute a head element
-  /// is identified by in practice, or every attribute when it has none.
+  /// is identified by in practice or every attribute when it has none.
   /// `sizes`, `media`, `type` and `hreflang` qualify it, since a document
   /// carries several icons under one `rel`, several stylesheets under one
   /// `media` and one `alternate` per language; a resource rel is qualified
@@ -91,8 +91,8 @@ impl Meta {
   }
 
   /// Folds an inner segment over this one: a title or description it sets
-  /// wins, and each of its head elements replaces the one of the same
-  /// identity, in place, or is appended when nothing matches. Outermost is
+  /// wins and each of its head elements replaces the one of the same
+  /// identity in place. An element matching nothing is appended. Outermost is
   /// folded first, so the innermost segment has the last word.
   pub fn merge(&mut self, inner: Meta) {
     if inner.title.is_some() {
@@ -147,7 +147,7 @@ pub struct Head {
   pub origin: Option<String>,
 }
 
-/// How a response's own stylesheets are written into a document, and the mark
+/// How a response's own stylesheets are written into a document and the mark
 /// the browser reconciles them by: a link the client did not put there is one
 /// it must not take away on a navigation.
 pub const STYLE_OPEN: &str = "<link rel=\"stylesheet\" data-sf-css=\"\" href=\"";

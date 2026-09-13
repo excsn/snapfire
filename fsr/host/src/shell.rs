@@ -5,7 +5,7 @@ use snapfire_fsr_runtime::{Chunk, Evaluator, Head, NodeChunks};
 /// The document around a client-rendered route: doctype, the head slot, the
 /// mount point, the content slot. It emits no application markup. The
 /// `locale` prop the assembler injects becomes `lang`, in its BCP 47
-/// spelling, and `data-sf-locale`, in the application's.
+/// spelling and `data-sf-locale`, in the application's.
 pub struct DocumentShell;
 
 impl Evaluator for DocumentShell {
@@ -64,7 +64,7 @@ pub fn site_entry(entry: &str) -> String {
 /// id the document was rendered against. Every event names the bundle the
 /// server sees now: a different one reloads, since the page's modules
 /// changed; the same one re-links the stylesheets and asks the client
-/// library to refresh the route in place, or reloads when no client library
+/// library to refresh the route in place or reloads when no client library
 /// is on the page. The first event after a connect is the greeting and does
 /// nothing on its own, so a reconnect after a restart refreshes and a fresh
 /// load does not.

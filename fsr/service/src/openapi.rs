@@ -21,7 +21,7 @@ fn unsupported(at: impl Into<String>, what: impl Into<String>) -> ImportError {
 }
 
 /// What one document lowers to: the neutral contract, the transport shape the
-/// contract deliberately does not carry, and the server the document names.
+/// contract deliberately does not carry and the server the document names.
 #[derive(Debug, Clone)]
 pub struct Imported {
   pub contract: Contract,
@@ -92,7 +92,7 @@ impl<'d> Import<'d> {
   }
 
   /// `allOf` is flattened: every branch must be an object or a reference to
-  /// one, and their fields merge with later branches winning.
+  /// one and their fields merge with later branches winning.
   fn all_of(&mut self, branches: &[Json], at: &str, hint: &str) -> Result<Vec<Field>, ImportError> {
     let mut merged: IndexMap<String, Field> = IndexMap::new();
     for (i, branch) in branches.iter().enumerate() {

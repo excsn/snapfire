@@ -215,7 +215,7 @@ impl Fingerprint for Node {
 
 /// A plan's shape and what it names, not how its nodes happen to be
 /// numbered: renumbering a structurally identical plan must not change its
-/// digest, or a rebuild that shifts one id invalidates every entry below it.
+/// digest or a rebuild that shifts one id invalidates every entry below it.
 impl Fingerprint for PlanNode {
   fn write_canonical(&self, h: &mut Xxh3) {
     write_str(h, &self.module.path);

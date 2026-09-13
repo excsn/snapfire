@@ -15,7 +15,7 @@ mod session;
 pub mod state;
 
 /// The plan `build.rs` writes: no routes, since every route here is registered
-/// in Rust, and one lowered component, the server-mode island the host renders
+/// in Rust and one lowered component, the server-mode island the host renders
 /// itself. The two tiers meet in this file.
 const PLAN: &str = include_str!(concat!(env!("OUT_DIR"), "/plan.sexp"));
 

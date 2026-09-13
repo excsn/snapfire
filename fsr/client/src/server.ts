@@ -2,7 +2,7 @@ import type { Props } from "./boot.js";
 import { refresh } from "./navigator.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
-/** An island in server mode: the browser holds its props and state, every event round-trips to the server, and the markup that comes back is patched into place. No component code runs here. `state` is kept encoded, exactly as the server wrote it, since decoding a double and encoding it again would hand back an integer: JavaScript has one number type and the tag is the only thing that says which this was. */
+/** An island in server mode: the browser holds its props and state, every event round-trips to the server and the markup that comes back is patched into place. No component code runs here. `state` is kept encoded, exactly as the server wrote it, since decoding a double and encoding it again would hand back an integer: JavaScript has one number type and the tag is the only thing that says which this was. */
 interface ServerIsland {
   module: string;
   props: { [key: string]: unknown };
@@ -25,7 +25,7 @@ export function isServerIsland(el: Element): boolean {
  * Mounts `el` as a server island with `encoded`, the props script as the
  * server wrote it, whose `$s` is the state it rendered from. Both are kept
  * encoded and handed back untouched: this browser is a courier for a
- * component that runs on the server, and decoding a double here would hand
+ * component that runs on the server and decoding a double here would hand
  * back an integer, since JavaScript has one number type and the tag is the
  * only thing that says which this was. Listens for every event its markup
  * binds.
@@ -45,7 +45,7 @@ export function mountServer(el: Element, module: string, encoded: unknown): void
   listen(el, island);
 }
 
-/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, and the markup is patched in. */
+/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. */
 export async function patchServer(el: Element, props: Props): Promise<boolean> {
   const island = islands.get(el);
   if (!island) return false;

@@ -37,7 +37,7 @@ async fn main() -> std::io::Result<()> {
   Ok(())
 }
 
-/// Every file under `from`, into `to`, and how many. A static root the
+/// Every file under `from`, into `to` and how many. A static root the
 /// configuration names but nothing wrote is nothing to copy.
 fn copy_into(from: &Path, to: &Path) -> std::io::Result<usize> {
   if !from.is_dir() {

@@ -31,7 +31,7 @@ fn tree(u: &mut Unstructured, depth: usize) -> arbitrary::Result<Sx> {
   })
 }
 
-/// Any text at all: the reader answers or errors, and never aborts.
+/// Any text at all: the reader answers or errors and never aborts.
 #[test]
 fn fuzz_text_is_answered_or_refused() {
   check!().with_type::<String>().for_each(|src| {

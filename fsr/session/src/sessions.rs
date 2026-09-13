@@ -39,7 +39,7 @@ pub struct Sessions {
   store: Arc<dyn SessionStore>,
   codec: Arc<dyn CookieCodec>,
   /// CSRF tokens are signed with the layer's key rather than through the
-  /// codec: a token is not a cookie, and an alternative codec may carry the
+  /// codec: a token is not a cookie and an alternative codec may carry the
   /// session id any way it likes without being asked to sign anything else.
   signer: HmacCodec,
   config: SessionConfig,
@@ -62,7 +62,7 @@ impl Sessions {
   }
 
   /// The cookie's value, unquoted and percent-decoded. RFC 6265 splits pairs
-  /// on `;`, and a name must match whole rather than by prefix, or a cookie
+  /// on `;` and a name must match whole rather than by prefix; a cookie
   /// named `sf_session_old` would answer for `sf_session`.
   fn cookie_value(&self, cookie_header: &str) -> Option<String> {
     cookie_header.split(';').find_map(|pair| {

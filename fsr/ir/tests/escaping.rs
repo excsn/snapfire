@@ -1,5 +1,5 @@
 //! What reaches the markup. Attribute values and text are escaped; an
-//! attribute *name* is written as it stands, and a `{...spread}` takes its
+//! attribute *name* is written as it stands and a `{...spread}` takes its
 //! names from a runtime value, so a name from data is the question here.
 
 use proptest::prelude::*;

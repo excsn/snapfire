@@ -1,5 +1,5 @@
 //! The cookie under generated input. Its value is whatever a browser sends,
-//! so a decoder that panics is a request that kills the worker, and one that
+//! so a decoder that panics is a request that kills the worker and one that
 //! accepts a forged value is a session anyone can take.
 
 use proptest::prelude::*;

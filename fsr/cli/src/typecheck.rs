@@ -191,7 +191,7 @@ pub fn record(path: &Path, version: &str, sha512: Option<&str>) -> Result<bool, 
   Ok(true)
 }
 
-/// The file's text with the version in its `[typecheck]` section, or `None` when it already names one.
+/// The file's text with the version in its `[typecheck]` section or `None` when it already names one.
 fn with_version(text: &str, version: &str, sha512: Option<&str>) -> Option<String> {
   let mut keys = vec![format!("version = \"{version}\"")];
   if let Some(sha512) = sha512 {

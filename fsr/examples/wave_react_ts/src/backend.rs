@@ -81,7 +81,7 @@ fn people(field: &Field) -> Value {
 }
 
 /// Which waves a view names. `active` is whoever is connected now, `mine` is
-/// every wave the reader has written in, and anything else is all of them.
+/// every wave the reader has written in and anything else is all of them.
 fn under(field: &Field, view: &str, who: &str) -> Value {
   let listed = field.waves.values().filter(|wave| match view {
     "active" => field.here.get(&wave.id).is_some_and(|here| !here.is_empty()),
@@ -163,7 +163,7 @@ fn gone(method: &'static str) -> ServiceError {
 
 /// The service the application's loaders and actions call, over the one
 /// controller that owns the state. A read is a closure the controller runs on
-/// its own task; a write is an op, and the query after it returns only once
+/// its own task; a write is an op and the query after it returns only once
 /// that op has been applied, since the controller does one thing at a time.
 pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsyncReceiver<String>) {
   let (told, hear) = fibre::mpsc::unbounded();

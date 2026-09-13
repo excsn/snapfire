@@ -301,7 +301,7 @@ fn reloading_reports_what_the_instance_serves_now() {
   assert!(seen.recv().unwrap().starts_with("POST /__fsr/sites/reload "));
 }
 
-/// A 409 carries the reason, which is the whole value of the route over a signal.
+/// A 409 carries the reason, which a signal cannot carry.
 #[test]
 fn a_refusal_carries_the_reason() {
   let (addr, _seen) = serving(vec![(409, r#"{"reloaded":false,"error":"sites.billing: hash bbbb, pinned aaaa"}"#.to_owned())]);

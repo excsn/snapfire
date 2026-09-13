@@ -153,7 +153,7 @@ impl Metadata for IrMeta {
 }
 
 /// One entry of `meta.head`: an object whose `tag` names the element, whose
-/// `children` is its text when it takes any, and whose every other key is an
+/// `children` is its text when it takes any and whose every other key is an
 /// attribute. A key whose value is null is left out, the way an absent
 /// optional argument is.
 fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {

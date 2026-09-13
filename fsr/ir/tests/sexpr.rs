@@ -699,7 +699,7 @@ proptest! {
 }
 
 /// Nesting is bounded. `form` recurses, so without a limit a file of nothing
-/// but `(` overflows the stack, and a stack overflow aborts the process: a
+/// but `(` overflows the stack and a stack overflow aborts the process: a
 /// corrupt plan file would take the host down at boot with no error to report.
 /// The deepest tree any real plan has reached is 23.
 #[test]

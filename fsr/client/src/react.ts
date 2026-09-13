@@ -56,7 +56,7 @@ function slotPropsFor(el: Element): { [name: string]: ReactElement } {
   return props;
 }
 
-/** The island regions of one mounted root: the ones the server rendered, by the key it wrote on each, and what the last payload said about them. Created once per root, so a re-render never reclaims a region another placement already owns. */
+/** The island regions of one mounted root: the ones the server rendered, keyed by what it wrote on each, plus what the last payload said about them. Created once per root, so a re-render never reclaims a region another placement already owns. */
 interface Regions {
   root: Element;
   byKey: Map<string, Element>;
@@ -91,7 +91,7 @@ function regionsOf(el: Element): Regions {
 /** The prop the build splices onto an island placement, carrying the region key the server wrote. */
 const KEY_PROP = "__sfKey";
 
-/** The props key an island's hoisted values arrive under, and the region key's own; neither reaches the component. */
+/** The props key an island's hoisted values arrive under and the region key's own; neither reaches the component. */
 const REGION_KEY = "$k";
 
 function keyOf(children: ReactNode): string | null {
@@ -123,9 +123,9 @@ export interface IslandProps {
   children?: ReactNode;
 }
 
-/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
+/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, while the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
  *
- * The region is claimed once, by the key the build splices in, and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it, or renders its child inline when no payload describes one. */
+ * The region is claimed once, by the key the build splices in and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it or renders its child inline when no payload describes one. */
 export function Island({ when, mode, children }: IslandProps): ReactElement {
   const regions = useContext(RegionsContext);
   const key = keyOf(children);
@@ -229,13 +229,13 @@ export function island<P extends object>(component: ComponentType<P>, options: {
 }
 
 export interface SlotProps {
-  /** The slot's name: a `slots/<name>` directory beside the layout, or the slot a `page.<name>.tsx` under it renders into. */
+  /** The slot's name: a `slots/<name>` directory beside the layout or the slot a `page.<name>.tsx` under it renders into. */
   name: string;
   /** What the slot shows while nothing fills it. Rendered by the server, lowered by the build; never rendered here. */
   children?: ReactNode;
 }
 
-/** A named slot of a layout: the region a parallel route renders into, or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment, or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands, and navigation fills and empties it without React reconciling it. */
+/** A named slot of a layout: the region a parallel route renders into or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands and navigation fills and empties it without React reconciling it. */
 export function Slot({ name }: SlotProps): ReactElement {
   const regions = useContext(RegionsContext);
   const [html] = useState(() => {
@@ -246,7 +246,7 @@ export function Slot({ name }: SlotProps): ReactElement {
   return createElement("sf-s", { "data-sf-name": name, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
 }
 
-/** A store key as state: the value the store holds, or `initial` while nothing does, and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
+/** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
 export function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void] {
   const [fallback] = useState(initial);
   const read = () => {
@@ -293,13 +293,13 @@ const HOISTED_PROP = "$h";
 
 /** The reader the build binds at the top of a component it rewrote: `r` in place of a render-path call whose inputs are props only, so hydration reads what the server rendered instead of computing it again; `l` around each JSX `.map` callback, so a read inside it knows its iteration. */
 export interface HoistReader {
-  /** The server's value for hoist `id` at the current loop indices, or `compute()` when it recorded none. */
+  /** The server's value for hoist `id` at the current loop indices or `compute()` when it recorded none. */
   r<T>(id: number, compute: () => T): T;
   /** `f` with its index argument pushed onto the loop path while it runs. */
   l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R;
   /** The element for a static subtree: `hit` with the server's inner markup for chunk `id` when the table holds it, else `miss`, the original JSX. */
   c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement;
-  /** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists, and marked `i`. */
+  /** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists and marked `i`. */
   k(id: number): string;
 }
 
@@ -355,7 +355,7 @@ export function withHoisted(table: Hoisted | null, element: ReactElement): React
   return createElement(HoistContext.Provider, { value: table }, element);
 }
 
-/** `props` without the hoisted table or the region key, and the table itself. */
+/** `props` with the hoisted table and the region key removed, plus the table itself. */
 function splitHoisted(props: object): [object, Hoisted | null] {
   const { [HOISTED_PROP]: hoisted, [REGION_KEY]: _key, ...rest } = props as { [HOISTED_PROP]?: Hoisted; [REGION_KEY]?: unknown };
   return [rest, hoisted ?? null];
@@ -377,7 +377,7 @@ function islandElement(component: unknown, props: object, el: Element, patched: 
   return createElement(Mounting, { el }, withRegions(el, withHoisted(hoisted, element), patched));
 }
 
-/** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached, and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */
+/** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */
 function Mounting({ el, children }: { el: Element; children: ReactNode }): ReactElement {
   useEffect(() => {
     scan(el);

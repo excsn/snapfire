@@ -97,7 +97,7 @@ test("the contacts pane shows presence across every wave", async () => {
   assert.equal(names, ["contact on", "contact"], "alice is here and bob is not");
 });
 
-/// DEFECTS 5.3: the client action path, and the revalidation it triggers.
+/// DEFECTS 5.3: the client action path and the revalidation it triggers.
 test("keeping a blip calls the action and the transcript follows without a reload", async () => {
   const blips = [{ id: "1", parent: "", who: "alice", body: "Starting a wave.", at: "09:10", edited: "", editors: [], depth: 0 }];
   const live = ctx({

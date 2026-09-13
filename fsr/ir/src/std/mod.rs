@@ -1,6 +1,6 @@
 //! The standard library's Rust half: `intl`, `text`, `time`, `crypto` and
 //! `id`, one function per row of `ext::STANDARD`. The browser half is the
-//! client library's `std` module, and the two agree byte for byte on every
+//! client library's `std` module and the two agree byte for byte on every
 //! `render` member; `fsr/ir/tests/conformance.rs` diffs them.
 
 pub mod crypto;

@@ -1,5 +1,5 @@
 //! Binds a plan file to the implementations that answer it. An application
-//! supplies as much or as little as it wants: nothing, and the file decides
+//! supplies as much or as little as it wants: nothing and the file decides
 //! everything; or a registration per name it wants to own in Rust.
 
 pub mod plan;
@@ -637,7 +637,7 @@ impl AppBuilder {
   }
 
   /// Refuses rather than serving a plan nothing can answer: every data source
-  /// the plan names must be bound, and every override must name something.
+  /// the plan names must be bound and every override must name something.
   pub fn build(mut self) -> Result<App, BindError> {
     let declared: Vec<String> = self.routes.plans().flat_map(declared_sources).collect();
 
@@ -1017,7 +1017,7 @@ impl ActionHandler for CheckedInput {
 
 /// A body reading `Expr::Path`. A prerendered route has one path, so the
 /// classification calls that fixed; a memo is keyed by the source rather than
-/// the route, and one layout source answers every path beneath it, so a
+/// the route and one layout source answers every path beneath it, so a
 /// source reading the path is never memoized.
 fn reads_path(body: &snapfire_fsr_ir::Body) -> bool {
   let mut found = false;
@@ -1084,7 +1084,7 @@ impl snapfire_fsr_runtime::SegmentKeyer for ReadsKeyer {
 /// `csrf_token` prop the assembler injects, which a render for nobody cannot
 /// supply.
 /// How much of the request a body or a plan depends on: nothing, the
-/// identity alone, or more.
+/// identity alone or more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Static {
   Fixed,

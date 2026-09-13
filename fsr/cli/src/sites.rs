@@ -94,7 +94,7 @@ pub fn list(shell: &Path) -> Result<Vec<Row>, BuildError> {
 
 /// Writes `[site]` beside `site` and `[sites.<name>]` beside `shell`. Refuses
 /// a shell that is itself a site, a site that mounts sites, a name the table
-/// already holds, and a site whose `[site]` names something else.
+/// already holds and a site whose `[site]` names something else.
 pub fn link(shell: &Path, site: &Path, at: &str, name: Option<&str>) -> Result<Linked, BuildError> {
   let shell_config = load(shell)?;
   let site_config = load(site)?;
@@ -273,8 +273,8 @@ fn relative(from: &Path, to: &Path) -> Result<String, BuildError> {
   Ok(parts.join("/"))
 }
 
-/// The deepest ancestor of `path` that exists, canonicalized, and the segments
-/// below it that do not.
+/// The deepest ancestor of `path` that exists, canonicalized, plus the
+/// segments below it that do not.
 fn anchor(path: &Path) -> Result<(PathBuf, Vec<String>), BuildError> {
   let mut tail = Vec::new();
   let mut here = path;
@@ -402,7 +402,7 @@ pub fn pack(site: &Path, version: &str, out: Option<&Path>) -> Result<Packed, Bu
 /// `[sites] root`, under `name` when given and the artifact's own name
 /// otherwise. Verifies before anything is renamed into place, so a shell
 /// running the previous version keeps running it when the archive is wrong.
-/// What an install did, and the pin it wrote.
+/// What an install did and the pin it wrote.
 pub struct Installation {
   pub installed: snapfire_fsr_sites::Installed,
   /// The mount that now names this version, when the table has one. An
@@ -448,7 +448,7 @@ pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<us
 /// meant rather than whatever is at the path.
 ///
 /// Only a `name@version` artifact is pinned. A mount naming a path is a linked
-/// working tree that changes on every build, and a pin there would be stale by
+/// working tree that changes on every build and a pin there would be stale by
 /// the next one.
 pub fn pin(shell: &Path, only: Option<&str>) -> Result<Vec<Pinned>, BuildError> {
   let config = load(shell)?;
@@ -556,7 +556,7 @@ pub struct Instance {
 #[derive(Debug, Clone)]
 pub struct Compared {
   pub row: Row,
-  /// Host, what it serves, and whether that is what the table says.
+  /// Host, what it serves and whether that is what the table says.
   pub against: Vec<(String, Option<Mounted>)>,
 }
 
@@ -577,7 +577,7 @@ pub struct Reloaded {
   /// The sites it serves now, when it reloaded.
   pub sites: Option<Vec<Mounted>>,
   /// Why it refused, when it did. The host answers 409 with the reason, which
-  /// is the whole value of the route over a signal.
+  /// a signal cannot carry.
   pub refused: Option<String>,
 }
 

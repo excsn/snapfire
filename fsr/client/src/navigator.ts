@@ -85,7 +85,7 @@ function pendingOf(node: SfNode, slot: number): SfNode | null {
   return null;
 }
 
-/** What a named slot held before navigation first filled it: its fallback, or nothing. Emptying the slot puts it back. */
+/** What a named slot held before navigation first filled it: its fallback or nothing. Emptying the slot puts it back. */
 const fallbacks = new WeakMap<Element, string>();
 
 /** Empties what an old child segment occupies: its delimited region, delimiters included, or, while it is still streaming, its slot element. The `<sf-s>` around it stays for the next fill, holding its fallback again. */
@@ -155,7 +155,7 @@ function islandOf(region: Region): { el: Element; script: Element | null } | nul
   return null;
 }
 
-/** Hands a kept island the props the new payload carries, so it re-renders in place with its DOM and its state, and the regions the payload describes inside it, so the islands nested under it follow. Its props script is rewritten for the next mount. */
+/** Hands a kept island the props the new payload carries, so it re-renders in place with its DOM and its state, plus the regions the payload describes inside it, so the islands nested under it follow. Its props script is rewritten for the next mount. */
 function patchProps(region: Region, node: SfNode): void {
   if (node.kind !== "client") return;
   const island = islandOf(region);
@@ -166,7 +166,7 @@ function patchProps(region: Region, node: SfNode): void {
   void patchIsland(island.el, node.props, regionSources(node, ids));
 }
 
-/** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied, and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
+/** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
 function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean): boolean {
   const swap = () => replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
   const paired = moduleOf(oldSeg.k) === moduleOf(newSeg.k);
@@ -348,7 +348,7 @@ interface Eager {
   styles: string[];
 }
 
-/** Reads rows up to and including the sidecar, stepping the generator by hand so it stays open for the rows after. Null when the rows end first, or when a resolution arrives before it. */
+/** Reads rows up to and including the sidecar, stepping the generator by hand so it stays open for the rows after. Null when the rows end first or when a resolution arrives before it. */
 async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
   let tree: SfNode | null = null;
   const eager: Omit<Eager, "tree" | "segments"> = { heads: [], seeds: [], locale: null, catalog: null, entry: null, styles: [] };
@@ -565,7 +565,7 @@ function headersOf(ask: Ask): Record<string, string> {
 }
 
 export interface NavigationOptions {
-  /** When a link's payload is fetched ahead of its click: on hover, focus or touch, as the link enters the viewport, or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
+  /** When a link's payload is fetched ahead of its click: on hover, focus or touch; as the link enters the viewport; or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
   prefetch?: PrefetchTiming;
   /** How long a fetched payload answers a navigation before it is fetched again. Defaults to 30 seconds. */
   cacheMs?: number;
@@ -661,7 +661,7 @@ export async function refresh(): Promise<void> {
   const eager = await eagerOf(rows).catch(() => null);
   if (gen !== generation) return;
   // Before the swap, so the response's own stylesheets are in the document by
-  // the time its markup is, and the browser never paints it unstyled.
+  // the time its markup is and the browser never paints it unstyled.
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager || !patch(eager, true)) return bail();
@@ -686,7 +686,7 @@ function patch(eager: Eager, force: boolean): boolean {
   }
 }
 
-/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands, and the promise resolves once the payload has been applied whole. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
   const gen = ++generation;
@@ -719,7 +719,7 @@ export function currentDocumentPath(): string {
   return documentPath;
 }
 
-/** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten, and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
+/** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
 export function localePath(to: string, from?: string): string {
   const path = from ?? documentPath ?? "";
   const at = path || (typeof window === "undefined" ? "/" : `${window.location.pathname}${window.location.search}`);
@@ -741,7 +741,7 @@ function linkOf(target: EventTarget | null): Element | null {
   return anchor;
 }
 
-/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links as they are hovered, focused or touched, or as they enter the viewport where one asks for that, and owns history from then on. */
+/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. */
 export function enableNavigation(options: NavigationOptions = {}): void {
   const g = globalThis as { __sf?: Record<string, unknown> };
   g.__sf = Object.assign(g.__sf ?? {}, { refresh });

@@ -78,7 +78,7 @@ fn warm_to_json(warmed: &HashMap<String, Data>) -> String {
   serde_json::to_string(&serde_json::Value::Object(obj)).expect("a value map serializes")
 }
 
-/// What a build warmed, or nothing when the file is absent or unreadable: a
+/// What a build warmed or nothing when the file is absent or unreadable: a
 /// warm pass is an optimization, so a bad file costs loads rather than a boot.
 fn warm_from_file(path: &Path) -> HashMap<String, Data> {
   let Ok(text) = std::fs::read_to_string(path) else {
@@ -571,7 +571,7 @@ pub struct Host {
   /// Who may follow which topic. Absent, any topic may be followed by
   /// anyone, which is right for a board on a wall and wrong for a room.
   topic_rule: Option<TopicRule>,
-  /// Every open socket by topic, and what the application makes of what one
+  /// Every open socket by topic and what the application makes of what one
   /// sends. Without a handler `/_sf/socket` is a 404, since a socket nobody
   /// answers is a socket that does nothing.
   #[cfg(feature = "ws")]
@@ -666,8 +666,8 @@ struct Tables {
 }
 
 /// What a request under a site's prefix reads beyond the merged tables: the
-/// site's middleware, run after the shell's, and what its documents add to
-/// the head.
+/// site's middleware, run after the shell's, plus what its documents add
+/// to the head.
 struct SiteTables {
   name: String,
   at: String,
@@ -1144,7 +1144,7 @@ impl Host {
     }
   }
 
-  /// The application's not-found tree for a path no route matches, or `None`
+  /// The application's not-found tree for a path no route matches or `None`
   /// when it has none. `params.path` carries the path the tree is answering,
   /// its locale prefix stripped.
   pub async fn render_not_found(
@@ -1322,7 +1322,7 @@ impl Host {
   }
 
   /// Drops every cached subtree of the plan node keyed `plan_key`, a module
-  /// name for a lowered page or layout, and says how many went. Zero when
+  /// name for a lowered page or layout, then says how many went. Zero when
   /// nothing was cached under it or no cache is configured.
   pub async fn invalidate(&self, plan_key: &str) -> usize {
     self.tables().app.invalidate(plan_key).await
@@ -1889,7 +1889,7 @@ impl Host {
   }
 
   /// Every open socket, by topic: what a backend pushes into a wave nobody
-  /// typed into, and what a presence count is read from.
+  /// typed into and what a presence count is read from.
   #[cfg(feature = "ws")]
   pub fn sockets(&self) -> Arc<socket::Sockets> {
     self.sockets.clone()
@@ -1966,7 +1966,7 @@ impl Host {
   /// Tells every `/_sf/live` stream watching `topic` that it changed. What a
   /// listener does with it is the client's: the stock one revalidates the
   /// route it is showing, so a loader runs again and the page follows.
-  /// Nothing is sent to a stream that did not ask for the topic, and a
+  /// Nothing is sent to a stream that did not ask for the topic and a
   /// publish with no listeners costs a send into an empty channel.
   pub fn publish(&self, topic: impl Into<String>) {
     let _ = self.topics.tx.send(topic.into(), ());
@@ -2572,7 +2572,7 @@ impl Host {
     let set_cookie = match written {
       Ok(set_cookie) => set_cookie,
       Err(error) => {
-        // The response still goes out: the reader is served, and the cookie
+        // The response still goes out: the reader is served and the cookie
         // is withheld rather than naming a session the store does not hold.
         tracing::error!(target: "fsr::session", error = %error, "the session was not saved");
         return;
@@ -2713,7 +2713,7 @@ impl Host {
   /// Re-reads the certificate and its key and swaps what the next handshake
   /// presents; connections already up are untouched and a file that will not
   /// read leaves the running certificate in place. Nothing without
-  /// `[server.tls]`. The configured signal calls this, and so may a caller.
+  /// `[server.tls]`. The configured signal calls this and so may a caller.
   #[cfg(feature = "tls")]
   pub fn reload_tls(&self) -> Result<(), HostError> {
     match &self.tls {
@@ -2772,7 +2772,7 @@ fn default_alpn(http2: bool) -> Vec<String> {
 
 /// One connection, whatever it is carried over: the same edge, with HTTP/2
 /// negotiated beside HTTP/1.1 when `server.http2` is on. The error is the
-/// connection's, already formatted, or `None` when it closed cleanly.
+/// connection's, already formatted or `None` when it closed cleanly.
 async fn serve_io<I>(host: Arc<Host>, io: I) -> Option<String>
 where
   I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
@@ -2847,7 +2847,7 @@ fn with_headers(response: &mut Response<Body>, headers: &[(String, String)]) {
 }
 
 /// A `mock` client's transport from its responses file: an object of method
-/// name to the response in the payload's JSON encoding, or to
+/// name to the response in the payload's JSON encoding or to
 /// `{"$fail": {"kind": "<failure kind>", "message": "..."}}` for a failure.
 fn mock_transport(
   config: &Config,
@@ -2921,7 +2921,7 @@ struct StaticRootResolved {
 }
 
 /// The clients of one configuration: their contracts merged in, one
-/// transport each unless the caller overrides transports, and the report
+/// transport each unless the caller overrides transports and the report
 /// rows. Names carry the configuration's site prefix, the build's spelling.
 fn clients_of(
   config: &Config,
@@ -3425,7 +3425,7 @@ impl HostBuilder {
 
   /// What the application makes of what a page sends over `/_sf/socket`:
   /// called when a connection joins a topic, once per row it sends and when
-  /// it leaves, and whatever it answers goes out to that topic as store rows.
+  /// it leaves and whatever it answers goes out to that topic as store rows.
   /// Without one the endpoint is a 404. `HostBuilder::topics` still decides
   /// who may open the socket at all.
   #[cfg(feature = "ws")]
@@ -3453,7 +3453,7 @@ impl HostBuilder {
   }
 
   /// The Rust half of a native pair: `name` is `module.member`, the name its
-  /// `native(..)` declaration under `ext/` gives, and `reach` what that
+  /// `native(..)` declaration under `ext/` gives and `reach` what that
   /// declaration says. A plan calling a name nothing registers refuses to build.
   pub fn extension<F>(mut self, name: impl Into<String>, reach: snapfire_fsr_ir::Reach, f: F) -> Self
   where
@@ -3757,7 +3757,7 @@ impl HostBuilder {
   }
 
   /// Everything but the sessions: the tables a request reads, checked the
-  /// way a boot checks them, and the configuration they came from.
+  /// way a boot checks them and the configuration they came from.
   fn assemble(mut self) -> Result<(Tables, Config), HostError> {
     if let Some(e) = self.pending.take() {
       return Err(e);
@@ -4216,7 +4216,7 @@ fn session_shape(config: &Config) -> String {
 /// Refuses a bundle that carries a server module. The plan's sources,
 /// actions and handlers name their modules, `middleware.ts` is implicit,
 /// and `app/<path>.ts` bundles to `dist/<path>.js`; any such output in the
-/// build facts, or any output importing one, is a leak. No facts file means
+/// build facts or any output importing one, is a leak. No facts file means
 /// no bundle to check.
 fn leaks(config: &Config, plan: &str) -> Result<(), HostError> {
   let facts = config.app.join("dist/.snapfire-build.json");
@@ -4244,7 +4244,7 @@ fn server_output(module: &str) -> String {
   format!("{stem}.js")
 }
 
-/// Every bundle output that is a server module, or imports one, each with
+/// Every bundle output that is a server module or imports one, each with
 /// the reason.
 fn leaked_outputs(plan: &serde_json::Value, facts: &serde_json::Value) -> Vec<String> {
   let mut server: std::collections::BTreeMap<String, String> = Default::default();

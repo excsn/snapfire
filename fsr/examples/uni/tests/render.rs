@@ -24,7 +24,7 @@ async fn one_page_carries_a_react_island_a_vue_island_and_a_region_that_is_neith
 
   assert!(html.contains(r#"data-sf-module="js/src/ui/Lot.tsx#default""#), "the server-mode island is there too");
   assert!(html.contains(r#"data-sf-mode="server""#), "declared in the markup, which is where the browser reads it");
-  // The marker is empty: a Tera template places the module, and nothing fills
+  // The marker is empty: a Tera template places the module and nothing fills
   // a client node another evaluator would have to render. The browser asks
   // the host for the first render when it mounts, which is what the step
   // below answers.
