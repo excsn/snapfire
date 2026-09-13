@@ -784,8 +784,7 @@ pub(crate) fn imported_as(parsed: &Parsed, local: &str, source_is: impl Fn(&str)
 fn native_declaration(parsed: &Parsed, init: &js::Expr) -> Result<Option<(String, String, Reach)>, LowerError> {
   let js::Expr::Call(call) = init else { return Ok(None) };
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-  let js::Expr::Ident(id) = &**callee else { return Ok(None) };
-  let Some((source, imported)) = find_import(parsed, id.sym.as_ref()) else { return Ok(None) };
+  let Some((source, imported)) = imported_callee(parsed, callee) else { return Ok(None) };
   if source != STD_SPECIFIER || imported != "native" {
     return Ok(None);
   }

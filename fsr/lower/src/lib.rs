@@ -213,6 +213,7 @@ pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resol
     Exported::Function(first, body) => (first, FunctionBody::Block(body)),
     Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None)),
+    Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`load` is {what}")).into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`load` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -247,6 +248,7 @@ pub(crate) fn lower_of_data_in(parsed: &Parsed, defaults: &SessionDefaults, reso
   let result = match exported {
     Exported::Function(first, body) => lowerer.bind_ctx(first).and_then(|()| lowerer.block(body)),
     Exported::Expr(first, expr) => lowerer.bind_ctx(first).and_then(|()| lowerer.expr(expr)).map(|e| vec![Stmt::Return(e)]),
+    Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`{export}` is {what}")).into(), None)),
     Exported::Action { .. } | Exported::BadAction(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of `{{ data }}`")).into(), None)),
   };
   result.map(Some).map_err(|r| (r.into(), lowerer.unbound.take()))
@@ -268,6 +270,10 @@ pub(crate) fn lower_actions_in(parsed: &Parsed, defaults: &SessionDefaults, reso
     let (input, first, body) = match exported {
       Exported::Action { input, first, body } => (input, first, body),
       Exported::BadAction(span) => return Err((parsed.residue(span, format!("`{name}` is an `action(...)` of something other than a function")).into(), None)),
+      Exported::Unreadable(span, what) => {
+        let hint = "every export of an actions module is an `action(...)`; the build passes over a type or a plain value and refuses what it cannot read";
+        return Err((Residue { hint: Some(hint.to_owned()), ..parsed.residue(span, format!("`{name}` is {what}")) }.into(), None));
+      }
       _ => continue,
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -301,6 +307,7 @@ pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, res
       Exported::Action { input, first, body } => (input, first, body),
       Exported::Expr(first, e) => (None, first, FunctionBody::Expr(e)),
       Exported::BadAction(span) => return Err((parsed.residue(span, format!("`{name}` is an `action(...)` of something other than a function")).into(), None)),
+      Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`{name}` is {what}")).into(), None)),
       Exported::Other(span) => return Err((parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into(), None)),
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -333,6 +340,7 @@ pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, r
     Exported::Function(first, body) => (first, FunctionBody::Block(body)),
     Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }, None)),
+    Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`middleware` is {what}")).into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`middleware` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -355,7 +363,32 @@ pub(crate) enum Exported<'a> {
   Action { input: Option<String>, first: Option<&'a js::Pat>, body: FunctionBody<'a> },
   /// `action(<something that is not a function>)`, which no lowering accepts.
   BadAction(Span),
+  /// An export the build tried to read and could not classify, as against one
+  /// it classified as something else. Never skipped in silence.
+  Unreadable(Span, &'static str),
   Other(Span),
+}
+
+
+/// Every name a pattern binds, for a declaration shape the build does not
+/// otherwise read: the names are reported so nothing is skipped unseen.
+fn bound_names<'a>(pat: &'a js::Pat, out: &mut impl FnMut(&'a str, Span)) {
+  match pat {
+    js::Pat::Ident(id) => out(id.id.sym.as_ref(), id.id.span),
+    js::Pat::Array(arr) => arr.elems.iter().flatten().for_each(|p| bound_names(p, out)),
+    js::Pat::Rest(rest) => bound_names(&rest.arg, out),
+    js::Pat::Assign(assign) => bound_names(&assign.left, out),
+    js::Pat::Object(obj) => {
+      for prop in &obj.props {
+        match prop {
+          js::ObjectPatProp::KeyValue(kv) => bound_names(&kv.value, out),
+          js::ObjectPatProp::Assign(a) => out(a.key.id.sym.as_ref(), a.key.id.span),
+          js::ObjectPatProp::Rest(rest) => bound_names(&rest.arg, out),
+        }
+      }
+    }
+    js::Pat::Invalid(_) | js::Pat::Expr(_) => {}
+  }
 }
 
 pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
@@ -400,7 +433,7 @@ impl Parsed {
     for item in &self.module.body {
       match item {
         js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => self.declared(&export.decl, &mut out),
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) if named.src.is_none() && !named.type_only => {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) if !named.type_only => {
           for spec in &named.specifiers {
             let js::ExportSpecifier::Named(spec) = spec else { continue };
             if spec.is_type_only {
@@ -412,8 +445,9 @@ impl Parsed {
               Some(js::ModuleExportName::Str(_)) => continue,
               None => orig.sym.as_ref(),
             };
-            if let Some(exported) = self.local(orig.sym.as_ref()) {
-              out.push((name, exported));
+            match self.local(orig.sym.as_ref()).filter(|_| named.src.is_none()) {
+              Some(exported) => out.push((name, exported)),
+              None => out.push((name, Exported::Unreadable(spec.span, "exported from a name this module does not declare"))),
             }
           }
         }
@@ -433,7 +467,10 @@ impl Parsed {
       }
       js::Decl::Var(var) => {
         for d in &var.decls {
-          let js::Pat::Ident(name) = &d.name else { continue };
+          let js::Pat::Ident(name) = &d.name else {
+            bound_names(&d.name, &mut |name, span| out.push((name, Exported::Unreadable(span, "bound by a destructuring the build does not read"))));
+            continue;
+          };
           let Some(init) = d.init.as_deref() else { continue };
           out.push((name.id.sym.as_ref(), self.classify(init)));
         }
@@ -487,7 +524,7 @@ fn classify_in<'a>(parsed: &'a Parsed, init: &'a js::Expr) -> Exported<'a> {
     },
     js::Expr::Call(call) => {
       if !parsed.names_server(&call.callee, "action") {
-        return Exported::Other(call.span);
+        return Exported::Unreadable(call.span, "a call the build does not recognise");
       }
       match call.args.last().map(|a| &*a.expr) {
         Some(js::Expr::Arrow(arrow)) => {

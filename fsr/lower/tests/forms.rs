@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use snapfire_fsr_ir::ast::{Entry, Expr, Lit, Stmt};
 use snapfire_fsr_ir::Tmpl;
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_lower::{lower_actions, lower_handlers, lower_loader, lower_middleware};
+use snapfire_fsr_lower::{lower_actions, lower_handlers, lower_loader, lower_middleware, read_session_defaults};
 
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
@@ -210,4 +210,40 @@ fn a_method_call_on_a_local_object_is_not_mistaken_for_a_hook() {
   let mut set = ComponentSet::new(&app(&[("routes/a/page.tsx", "const box = { useThing: () => 1 };\nexport default function P() {\n  const n = box.useThing();\n  return <p>{n}</p>;\n}\n")]));
   let err = set.lower("routes/a/page.tsx#default").unwrap_err().to_string();
   assert!(!err.contains("`useThing`"), "the hook rule only follows a namespace import, so this is an ordinary unfollowable call: {err}");
+}
+
+#[test]
+fn an_actions_module_export_the_build_cannot_read_is_an_error() {
+  let unknown = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nexport const add = action({BODY});\nexport const drop = wrap(async () => 1);\n")).unwrap_err().to_string();
+  assert!(unknown.contains("`drop`") && unknown.contains("does not recognise"), "an unrecognised call is refused rather than skipped: {unknown}");
+
+  let foreign = lower_actions("a.ts", "import { pay } from \"./shared\";\nexport { pay };\n").unwrap_err().to_string();
+  assert!(foreign.contains("`pay`") && foreign.contains("does not declare"), "a name this module does not declare is refused: {foreign}");
+
+  let reexport = lower_actions("a.ts", "export { pay } from \"./shared\";\n").unwrap_err().to_string();
+  assert!(reexport.contains("`pay`") && reexport.contains("does not declare"), "so is a re-export: {reexport}");
+
+  let destructured = lower_actions("a.ts", "const bundle = { pay: 1, refund: 2 };\nexport const { pay, refund } = bundle;\n").unwrap_err().to_string();
+  assert!(destructured.contains("`pay`") && destructured.contains("destructuring"), "so is a destructuring export: {destructured}");
+}
+
+#[test]
+fn an_actions_module_still_passes_over_what_is_plainly_not_an_action() {
+  let lowered = lower_actions(
+    "a.ts",
+    &format!("import {{ action }} from \"@snapfire/fsr\";\nexport type Pair = {{ a: number }};\nexport interface Row {{ b: string }}\nexport const LIMIT = 10;\nexport const TAGS = [\"a\"];\nexport function helper(n: number) {{ return n; }}\nexport const add = action({BODY});\n"),
+  )
+  .unwrap();
+  assert_eq!(lowered.iter().map(|a| a.export.as_str()).collect::<Vec<_>>(), ["add"], "a type, a literal, an array and a plain function are skipped on what they are: {lowered:?}");
+}
+#[test]
+fn a_session_module_refuses_a_defaults_export_the_build_cannot_read() {
+  let read = read_session_defaults("session.ts", "export const defaults = { cart: {}, tip: 0 };\n").unwrap();
+  assert_eq!(read.len(), 2, "the shape the build reads still reads: {read:?}");
+
+  let apart = read_session_defaults("session.ts", "const defaults = { tip: 0 };\nexport { defaults };\n").unwrap_err().to_string();
+  assert!(apart.contains("apart from its declaration"), "an export specifier is refused rather than leaving the session silently empty: {apart}");
+
+  let destructured = read_session_defaults("session.ts", "const both = { defaults: {} };\nexport const { defaults } = both;\n").unwrap_err().to_string();
+  assert!(destructured.contains("destructuring"), "so is a destructuring export: {destructured}");
 }

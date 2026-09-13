@@ -142,12 +142,27 @@ pub fn read_session_defaults(file: &str, source: &str) -> Result<SessionDefaults
   let parsed = parse(file, source)?;
   let empty = SessionDefaults::new();
   for item in &parsed.module.body {
+    if let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) = item {
+      for spec in &named.specifiers {
+        let js::ExportSpecifier::Named(spec) = spec else { continue };
+        let exported = match spec.exported.as_ref().unwrap_or(&spec.orig) {
+          js::ModuleExportName::Ident(id) => id.sym.to_string(),
+          js::ModuleExportName::Str(str) => str.value.to_atom_lossy().to_string(),
+        };
+        if exported == "defaults" {
+          return Err(parsed.residue(spec.span, "`defaults` exported apart from its declaration; the build reads `export const defaults = { … }`").into());
+        }
+      }
+      continue;
+    }
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else {
       continue;
     };
     let js::Decl::Var(var) = &export.decl else { continue };
     for decl in &var.decls {
-      let js::Pat::Ident(name) = &decl.name else { continue };
+      let js::Pat::Ident(name) = &decl.name else {
+        return Err(parsed.residue(decl.span, "a destructuring export in a session module; `defaults` is an object literal bound to its own name").into());
+      };
       if name.id.sym.as_ref() != "defaults" {
         continue;
       }
