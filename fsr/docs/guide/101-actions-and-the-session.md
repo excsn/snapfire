@@ -51,7 +51,7 @@ A guard that reads nothing a call has to produce runs before any call is made, s
 
 ## Calling an action from the browser
 
-The build writes one typed callable per action into `generated/client.ts`, nested by route: `actions.cart.addToCart({ product_id, quantity })` returns the body's result, typed. The client holds action ids, never URLs; the host answers them at one path and checks the input before dispatch. A failure comes back as an `ActionFailure` carrying the kind and the message the guard gave, which is what the storefront's toast shows.
+The build writes one typed callable per action into `generated/client.ts`, nested by route: `actions.cart.addToCart({ product_id, quantity })` returns the body's result, typed. The nesting follows the route's own directories, so an action in the root `routes/actions.ts` is reached as `actions.$root.play(...)`: the root has no directory to nest under and `$root` stands in for it, exactly as chapter 100 names it. The `$` is ordinary TypeScript, a property of the generated object like any other. The client holds action ids, never URLs; the host answers them at one path and checks the input before dispatch. A failure comes back as an `ActionFailure` carrying the kind and the message the guard gave, which is what the storefront's toast shows.
 
 A successful call re-fetches the current route by default and patches the segments that changed, so the header's badge follows the cart without a page reload and without the page asking. A call that should not revalidate says so when it is created.
 
