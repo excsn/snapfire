@@ -154,3 +154,71 @@ The settings, one run each. The default was taken again in the same stretch as t
 At 64 windows typing 10 keystrokes a second, the default applies 305 a second, sees 54.7% and has a p50 of 778 ms. Uniform views apply 589 with nothing dropped and a p50 of 44 ms. A 20 Hz tick sends each window 10 views a second at every size with a p50 of 25 to 46 ms, so the work no longer depends on how fast anyone types: flat out at 16 windows, 897k keystrokes a second arrive and views stay at 321 a second. With the tick on, uniform views change nothing measurable. A 4096-deep queue drops nothing at 64 windows but its p50 is 2,560 ms, because it holds the backlog without raising the ceiling.
 
 On a tick the queue still drops the newest op when it is full, so under load the other windows can be left showing a draft without its last keystroke.
+
+### 2026-09-13, `78dccde`, MacBook M4 Pro
+
+The host's socket frame is shared by every connection it goes to and encoded once. Two versions were run. The first encoded on the caller (for the wave, the controller's task) and was never committed. The second, in the code, leaves the encoding to the first connection task that writes the frame.
+
+**Encoded on the controller's task, a view per window**
+
+| Windows | sent/s | applied/s | views/s | seen | gaps | p50 ms | p99 ms | max ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 | 20 | 20 | 41 | 100.0% | 0 | 0.43 | 2.78 | 3.87 |
+| 4 | 41 | 41 | 163 | 100.0% | 0 | 0.80 | 2.19 | 2.65 |
+| 8 | 82 | 81 | 651 | 100.0% | 0 | 1.84 | 7.50 | 8.52 |
+| 16 | 163 | 162 | 2599 | 100.0% | 0 | 6.00 | 17.05 | 19.05 |
+| 32 | 326 | 323 | 10344 | 100.0% | 0 | 23.55 | 47.31 | 54.84 |
+| 64 | 653 | 183 | 11681 | 36.0% | 120456 | 1365.66 | 1458.71 | 1473.82 |
+| flat 2 | 164539 | 99388 | 198776 | 61.6% | 316033 | 121.63 | 408.23 | 458.68 |
+| flat 4 | 449556 | 27937 | 111747 | 6.2% | 6323463 | 10.37 | 12.86 | 26.93 |
+| flat 8 | 715925 | 8339 | 66713 | 1.2% | 24759315 | 30.83 | 54.07 | 91.69 |
+| flat 16 | 854882 | 2160 | 34553 | 0.3% | 63816420 | 116.45 | 183.46 | 194.14 |
+
+**Encoded on the controller's task, uniform views**
+
+| Windows | sent/s | applied/s | views/s | seen | gaps | p50 ms | p99 ms | max ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 | 20 | 20 | 41 | 100.0% | 0 | 0.54 | 1.76 | 2.00 |
+| 4 | 41 | 41 | 163 | 100.0% | 0 | 0.55 | 1.26 | 1.63 |
+| 8 | 82 | 82 | 652 | 100.0% | 0 | 1.17 | 4.25 | 5.75 |
+| 16 | 163 | 163 | 2608 | 100.0% | 0 | 2.52 | 10.01 | 12.23 |
+| 32 | 326 | 325 | 10407 | 100.0% | 0 | 8.06 | 13.23 | 103.94 |
+| 64 | 653 | 590 | 37784 | 100.0% | 0 | 22.61 | 35.57 | 39.15 |
+| flat 2 | 152676 | 130162 | 260325 | 94.6% | 41299 | 40.02 | 224.17 | 233.48 |
+| flat 4 | 303408 | 89049 | 356196 | 33.6% | 3020403 | 22.00 | 466.88 | 603.75 |
+| flat 8 | 392424 | 52934 | 423474 | 15.6% | 11591685 | 255.38 | 1571.91 | 2258.78 |
+| flat 16 | 403465 | 22569 | 361103 | 9.3% | 27448110 | 1540.07 | 6937.98 | 7201.96 |
+
+**Encoded by the first writer, a view per window**
+
+| Windows | sent/s | applied/s | views/s | seen | gaps | p50 ms | p99 ms | max ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 | 20 | 20 | 41 | 100.0% | 0 | 0.79 | 3.50 | 5.06 |
+| 4 | 41 | 41 | 163 | 100.0% | 0 | 1.31 | 3.01 | 3.29 |
+| 8 | 82 | 81 | 652 | 100.0% | 0 | 1.33 | 8.06 | 9.34 |
+| 16 | 163 | 163 | 2605 | 100.0% | 0 | 6.42 | 9.88 | 11.23 |
+| 32 | 326 | 324 | 10378 | 100.0% | 0 | 17.25 | 31.58 | 34.14 |
+| 64 | 653 | 363 | 23251 | 63.7% | 60417 | 640.67 | 715.60 | 728.82 |
+| flat 2 | 145785 | 75141 | 150282 | 97.4% | 19238 | 2696.19 | 3954.74 | 3986.69 |
+| flat 4 | 211021 | 49847 | 199388 | 50.2% | 1575990 | 2765.66 | 7358.00 | 7418.43 |
+| flat 8 | 460422 | 29562 | 236494 | 6.9% | 14995239 | 261.54 | 886.89 | 1112.39 |
+| flat 16 | 581736 | 7582 | 121312 | 1.4% | 42967230 | 43.21 | 2488.89 | 2957.88 |
+
+**Encoded by the first writer, uniform views**
+
+| Windows | sent/s | applied/s | views/s | seen | gaps | p50 ms | p99 ms | max ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 | 20 | 20 | 41 | 100.0% | 0 | 0.77 | 1.80 | 2.45 |
+| 4 | 41 | 41 | 163 | 100.0% | 0 | 1.18 | 4.05 | 4.91 |
+| 8 | 82 | 82 | 652 | 100.0% | 0 | 1.32 | 5.83 | 6.76 |
+| 16 | 163 | 149 | 2377 | 100.0% | 0 | 1.31 | 5.03 | 6.51 |
+| 32 | 326 | 325 | 10408 | 100.0% | 0 | 6.01 | 15.58 | 17.85 |
+| 64 | 653 | 648 | 41467 | 100.0% | 0 | 23.51 | 39.74 | 50.97 |
+| flat 2 | 186970 | 91852 | 183704 | 98.1% | 17706 | 2775.03 | 4937.63 | 4996.39 |
+| flat 4 | 269173 | 64907 | 259630 | 88.5% | 462948 | 6891.50 | 13264.30 | 13357.65 |
+| flat 8 | 331508 | 43809 | 350474 | 66.1% | 3937983 | 10276.27 | 19957.58 | 24300.61 |
+| flat 16 | 369657 | 21904 | 350463 | 31.3% | 17385474 | 11133.47 | 20876.64 | 23381.00 |
+
+Encoding on the controller's task drops the default at 64 windows from 305 keystrokes a second applied to 183, since the controller is the one task every keystroke waits on. Encoding in the connection task leaves the default where it was (363 applied with a p50 of 641 ms) and lets uniform views keep up with 64 windows: 648 of 653 keystrokes a second applied with a p50 of 24 ms, against 589 and 44 ms before the change.
+
+Flat out, uniform views now take in more keystrokes than the sockets write out. Fewer are dropped at the queue (88.5% seen at 4 windows against 73.9%) and the backlog on the way out takes the p50 to seconds.
