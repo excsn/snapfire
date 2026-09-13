@@ -346,6 +346,9 @@ impl ComponentSet {
       self.load(&target).map_err(|e| e.to_string())?;
       return self.exported_component(&target, member);
     }
+    if default_function_name(&parsed) == Some(name) {
+      return Ok((format!("{file}#default"), None));
+    }
     if find_function(&parsed, name).is_some() {
       return Ok((format!("{file}#{name}"), None));
     }
@@ -691,6 +694,18 @@ enum Found<'a> {
   Arrow(&'a js::ArrowExpr),
 }
 
+/// The name an `export default function Name` declaration gives itself, which
+/// is how the rest of its own file refers to it.
+fn default_function_name(parsed: &Parsed) -> Option<&str> {
+  parsed.module.body.iter().find_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) => match &d.decl {
+      js::DefaultDecl::Fn(f) => f.ident.as_ref().map(|id| id.sym.as_ref()),
+      _ => None,
+    },
+    _ => None,
+  })
+}
+
 fn decl_function<'a>(decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
   match decl {
     js::Decl::Fn(f) if f.ident.sym.as_ref() == name => {
@@ -714,6 +729,15 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
     let decl = match item {
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => &export_decl.decl,
       js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) => {
+        if let js::DefaultDecl::Fn(f) = &d.decl {
+          if f.ident.as_ref().is_some_and(|id| id.sym.as_ref() == name) {
+            let body = f.function.body.as_ref()?;
+            return Some(Global::Function(patterns(&f.function), FunctionBody::Block(&body.stmts)));
+          }
+        }
+        continue;
+      }
       _ => continue,
     };
     match decl {

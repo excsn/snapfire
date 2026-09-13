@@ -58,6 +58,31 @@ fn two_components_that_render_each_other_are_refused_rather_than_unrolled() {
   assert!(err.contains("cannot unroll"), "{err}");
 }
 
+#[test]
+fn a_default_exported_function_is_a_component_under_its_own_name() {
+  let set = lower(
+    &[("routes/page.tsx", "export default function Card({ title }: { title: string }) {\n  return <h2>{title}</h2>;\n}\nexport function Deck() {\n  return <section><Card title=\"a\" /></section>;\n}\n")],
+    "routes/page.tsx#Deck",
+  );
+  let modules: Vec<&str> = set.components.iter().map(|(m, _)| m.as_str()).collect();
+  assert!(modules.contains(&"routes/page.tsx#default"), "Card is the default export, lowered once under that id: {modules:?}");
+  assert!(!modules.contains(&"routes/page.tsx#Card"), "and not a second time under its name: {modules:?}");
+}
+
+#[test]
+fn a_default_exported_function_is_a_value_under_its_own_name() {
+  let dir = app(&[("routes/page.tsx", "export default function double(n: number) {\n  return n * 2;\n}\nexport function Page() {\n  return <p>{double(2)}</p>;\n}\n")]);
+  let lowered = ComponentSet::new(&dir).lower("routes/page.tsx#Page");
+  assert!(lowered.is_ok(), "{:?}", lowered.err().map(|e| e.to_string()));
+}
+
+#[test]
+fn a_default_exported_component_that_renders_itself_is_refused() {
+  let dir = app(&[("routes/page.tsx", "export default function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")]);
+  let err = ComponentSet::new(&dir).lower("routes/page.tsx#default").unwrap_err().to_string();
+  assert!(err.contains("renders itself"), "{err}");
+}
+
 const BODY: &str = "async ({ input }: ActionCtx<AddInput>) => ({ n: input.n })";
 
 #[test]
