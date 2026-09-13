@@ -877,7 +877,7 @@ impl FetchHooks {
     let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
     let Some(id) = action.filter(|_| method == "POST") else {
       if let Some(found) = self.handlers.1.match_request(&method, &path) {
-        return self.handler(found.id, found.params, query, body).await;
+        return self.handler(found.id, found.params, query, body, is_form(&headers)).await;
       }
       return self.page(method, path, query, target, headers).await;
     };
@@ -947,25 +947,40 @@ impl FetchHooks {
     response
   }
 
-  /// A lowered handler run under the current ctx with the matched params, the URL's query and the request body as its input.
-  async fn handler(&self, id: String, params: Params, query: String, body: Option<String>) -> FetchResponse {
+  /// A lowered handler run under the current ctx with the matched params, the
+  /// URL's query and the request body as its input. `form` says the body was
+  /// urlencoded, whose values are all text.
+  async fn handler(&self, id: String, params: Params, query: String, body: Option<String>, form: bool) -> FetchResponse {
     let Some((input_type, body_ir)) = self.handlers.0.get(&id).cloned() else {
       return json_response(501, serde_json::json!({ "kind": "internal", "message": format!("`{id}` is not a lowered handler") }));
     };
     let Some(mock) = self.current_ctx.clone() else {
       return json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" }));
     };
-    let mut input = match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
-      Some(Ok(json)) => match json_to_value(&json) {
-        Ok(value) => value,
-        Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
-      },
-      Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
-      None => Value::Null,
+    let mut input = if form {
+      let mut fields = ValueMap::default();
+      for (key, value) in parse_query(body.as_deref().unwrap_or("")) {
+        if key != "_csrf" {
+          fields.insert(key, Value::str(value));
+        }
+      }
+      Value::Map(fields)
+    } else {
+      match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
+        Some(Ok(json)) => match json_to_value(&json) {
+          Ok(value) => value,
+          Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
+        },
+        Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
+        None => Value::Null,
+      }
     };
     if let Some(name) = input_type {
       let ty = Type::Named(name);
-      self.contract.conform(&ty, &mut input);
+      match form {
+        true => self.contract.conform_text(&ty, &mut input),
+        false => self.contract.conform(&ty, &mut input),
+      }
       if let Err(e) = self.contract.check_value(&ty, &input, "input") {
         return json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() }));
       }

@@ -382,6 +382,8 @@ The action route takes a form as well as a fetch. A `POST` with a form-encoded b
 
 A field of a type the encoding cannot spell is the one thing to know: `port` above arrives as the number the action declares, an unchecked checkbox posts nothing at all rather than `false`, so declare such a field optional; an empty text input against an optional field is absent rather than an empty string.
 
+A route handler takes a form on the same terms: a urlencoded body has its `_csrf` verified the same way and its fields read against the handler's declared input type, since the encoding carries text and nothing else. What comes back is the handler's value as JSON rather than a redirect, because that is what a handler answers.
+
 A payload request may name the encoding it wants with `enc`; `json` is the one that exists and anything else is 406.
 
 ## Answering a Fragment

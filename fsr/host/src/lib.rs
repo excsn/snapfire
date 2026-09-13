@@ -1616,10 +1616,13 @@ impl Host {
         Incoming::anonymous(session),
         &visit.locale,
         input,
+        false,
       )
       .await
   }
 
+  /// `text` says the body was a form, whose values are all strings, so the
+  /// input is read against the handler's declared type before it is checked.
   async fn call_handler_in(
     &self,
     t: &Tables,
@@ -1628,7 +1631,8 @@ impl Host {
     raw_query: &str,
     incoming: Incoming,
     locale: &Locale,
-    input: Value,
+    mut input: Value,
+    text: bool,
   ) -> Result<Value, ActionError> {
     let Some(found) = t.app.handlers.match_request(method, path) else {
       return Err(ActionError::new(
@@ -1636,6 +1640,9 @@ impl Host {
         format!("no handler for {} {path}", method.to_ascii_uppercase()),
       ));
     };
+    if text {
+      t.app.conform_text_input(&found.id, &mut input);
+    }
     let ctx = self.ctx(t, incoming, found.params, parse_query(raw_query), path, locale.clone());
     t.app.handlers.dispatch(&found.id, ctx, input).await
   }
@@ -2264,8 +2271,23 @@ impl Host {
     }
 
     if t.app.handlers.match_request(req.method().as_str(), &path).is_some() {
+      let form = req
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
       let input = if req.body().is_empty() {
         Value::Null
+      } else if form {
+        let mut fields = form_params(req.body());
+        let token = match fields.shift_remove("_csrf") {
+          Some(Value::Str(token)) => token.to_string(),
+          _ => String::new(),
+        };
+        if !self.sessions.verify_csrf(&opened.id, &token) {
+          return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
+        }
+        Value::Map(fields)
       } else {
         match serde_json::from_slice::<serde_json::Value>(req.body())
           .map_err(|e| e.to_string())
@@ -2290,6 +2312,7 @@ impl Host {
           self.incoming(opened, self.matched_host(req.headers())),
           &visit.locale,
           input,
+          form,
         )
         .await
       {

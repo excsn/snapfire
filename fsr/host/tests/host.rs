@@ -84,6 +84,10 @@ const PLAN: &str = r#"{
     { "id": "console.page", "owner": "lowered", "module": "routes/console/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "rows", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
   ],
+  "handlers": [
+    { "id": "index.POST", "method": "POST", "pattern": "/bump", "owner": "lowered", "module": "routes/index/route.ts", "input": "Bump",
+      "body": [ { "return": { "object": [ { "field": [ "by", { "field": [ "input", "by" ] } ] } ] } } ] }
+  ],
   "actions": [
     { "id": "index.where", "owner": "lowered", "module": "routes/index/actions.ts",
       "body": [ { "return": "locale" } ] },
@@ -4001,4 +4005,45 @@ async fn a_form_field_is_read_as_the_type_the_action_declares() {
     StatusCode::BAD_REQUEST,
     "a field that is not the declared type is still refused"
   );
+}
+
+#[tokio::test]
+async fn a_route_handler_takes_a_form_the_way_an_action_does() {
+  let host = formed();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let token = field(&body_of(response).await, "csrf_token").expect("csrf = always mints a token");
+
+  let response = host
+    .handle(
+      Request::post("/bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"by": 4}"#))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(body_of(response).await, r#"{"by":4}"#, "a handler answers its value as JSON");
+
+  let response = host
+    .handle(
+      Request::post("/bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from(format!("by=4&_csrf={token}")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(body_of(response).await, r#"{"by":4}"#, "a form field is read as the declared type, answered the same way");
+
+  let response = host
+    .handle(
+      Request::post("/bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from("by=4&_csrf=nope"))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::FORBIDDEN, "a form body carries the same csrf rule an action's does");
 }
