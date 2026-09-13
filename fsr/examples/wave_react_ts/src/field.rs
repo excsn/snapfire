@@ -213,6 +213,7 @@ impl Field {
       edits.remove(blip);
     }
     let held = self.waves.get_mut(wave)?;
+    admit(held, who);
     let amended = held.blips.iter_mut().find(|held| held.id.to_string() == blip)?;
     amended.body = body.to_owned();
     amended.edited = at;
@@ -226,9 +227,7 @@ impl Field {
     let id = self.next;
     let held = self.waves.get_mut(wave)?;
     let blip = Blip { id, parent: parent.to_owned(), who: who.to_owned(), body: body.to_owned(), at, edited: String::new(), editors: Vec::new() };
-    if !who.is_empty() && !held.participants.iter().any(|there| there == who) {
-      held.participants.push(who.to_owned());
-    }
+    admit(held, who);
     held.blips.push(blip.clone());
     self.next += 1;
     Some(blip)
@@ -404,6 +403,13 @@ impl StateLogic<Op, Conn, Field> for Rules {
 
 /// Everyone on the wave that changed is sent a view: one each or one shared
 /// when `uniform`. A change to no wave sends nothing.
+/// Whoever keeps or rewrites a blip is on the wave from then on, as they were in Wave.
+fn admit(wave: &mut Wave, who: &str) {
+  if !who.is_empty() && !wave.participants.iter().any(|there| there == who) {
+    wave.participants.push(who.to_owned());
+  }
+}
+
 fn views(out: LogicOutput<Op, Conn>, field: &Field, wave: Option<String>, uniform: bool) -> LogicOutput<Op, Conn> {
   let Some(wave) = wave else { return out };
   let audience = field.audience(&wave);

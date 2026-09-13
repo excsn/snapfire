@@ -122,6 +122,11 @@ async fn an_amend_keeps_the_rewrite_and_a_departure_lets_the_blip_go() {
   assert_eq!(field.waves["kickoff"].blips[1].editors, ["alice", "bob"], "each of them once, in the order they first came to it");
   assert!(view(&field, 2).await.edits.is_empty(), "keeping it releases the hold");
 
+  apply(&rules, &mut field, 3, vec![watch("kickoff", "carol")]).await;
+  apply(&rules, &mut field, 3, vec![Op::Open { blip: "2".to_owned() }]).await;
+  apply(&rules, &mut field, 3, vec![Op::Amend { wave: "kickoff".to_owned(), blip: "2".to_owned(), who: "carol".to_owned(), body: "the lot".to_owned() }]).await;
+  assert_eq!(field.waves["kickoff"].participants, ["alice", "bob", "carol"], "a rewrite puts its author on the wave, as keeping a blip does");
+
   apply(&rules, &mut field, 2, vec![Op::Open { blip: "1".to_owned() }]).await;
   assert_eq!(view(&field, 1).await.edits.len(), 1);
   rules.process_input(&mut field, LogicInput::AgentLeft { agent_id: 2 }).await.unwrap();
