@@ -1,5 +1,6 @@
+import { patchIsland } from "./boot.js";
 import { refresh } from "./navigator.js";
-import { encodeValue } from "./values.js";
+import { decodeValue, encodeValue } from "./values.js";
 const STATE_PROP = "$s";
 const islands = new WeakMap();
 export function isServerIsland(el) {
@@ -155,9 +156,34 @@ function morphNode(current, next) {
         return;
     }
     if (!(current instanceof Element) || !(next instanceof Element)) return;
+    if (isPropsScript(current)) return;
+    if (current.tagName === "SF-I") {
+        morphNested(current, next);
+        return;
+    }
     morphAttributes(current, next);
-    if (current.tagName === "SF-I") return;
     morphChildren(current, next);
+}
+function isPropsScript(el) {
+    return el.tagName === "SCRIPT" && el.hasAttribute("data-sf-props");
+}
+function morphNested(current, next) {
+    const held = current.nextSibling;
+    const wanted = next.nextSibling;
+    if (!(held instanceof Element) || !(wanted instanceof Element) || !isPropsScript(held) || !isPropsScript(wanted)) return;
+    const text = wanted.textContent ?? "";
+    if (held.textContent === text) return;
+    held.textContent = text;
+    const raw = JSON.parse(text);
+    const island = islands.get(current);
+    if (island) {
+        const { [STATE_PROP]: state, ...props } = raw;
+        island.props = props;
+        if (state !== undefined) island.state = state;
+        void step(current, island, null, null);
+        return;
+    }
+    void patchIsland(current, decodeValue(raw));
 }
 function morphAttributes(current, next) {
     for (const attr of Array.from(current.attributes)){

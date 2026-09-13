@@ -1,4 +1,4 @@
-import type { Props } from "./boot.js";
+import { patchIsland, type Props } from "./boot.js";
 import { refresh } from "./navigator.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
@@ -130,7 +130,7 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
   }
 }
 
-/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by `data-sf-key`, attributes by name. A focused form control keeps its value. A nested island is left as it stands. */
+/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by `data-sf-key`, attributes by name. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
 export function morph(el: Element, html: string): void {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -180,9 +180,37 @@ function morphNode(current: Node, next: Node): void {
     return;
   }
   if (!(current instanceof Element) || !(next instanceof Element)) return;
+  if (isPropsScript(current)) return;
+  if (current.tagName === "SF-I") {
+    morphNested(current, next);
+    return;
+  }
   morphAttributes(current, next);
-  if (current.tagName === "SF-I") return;
   morphChildren(current, next);
+}
+
+function isPropsScript(el: Element): boolean {
+  return el.tagName === "SCRIPT" && el.hasAttribute("data-sf-props");
+}
+
+/** The marker's id and the client's own marks on it are kept, since the answer numbers its islands from zero and knows nothing of what mounted. Its props script, the sibling after it, takes the answer's text when that changed and the island mounted there takes the props: a server island by a step of its own, any other through `patchIsland`. */
+function morphNested(current: Element, next: Element): void {
+  const held = current.nextSibling;
+  const wanted = next.nextSibling;
+  if (!(held instanceof Element) || !(wanted instanceof Element) || !isPropsScript(held) || !isPropsScript(wanted)) return;
+  const text = wanted.textContent ?? "";
+  if (held.textContent === text) return;
+  held.textContent = text;
+  const raw = JSON.parse(text) as { [key: string]: unknown };
+  const island = islands.get(current);
+  if (island) {
+    const { [STATE_PROP]: state, ...props } = raw;
+    island.props = props;
+    if (state !== undefined) island.state = state;
+    void step(current, island, null, null);
+    return;
+  }
+  void patchIsland(current, decodeValue(raw as SfValue) as Props);
 }
 
 function morphAttributes(current: Element, next: Element): void {

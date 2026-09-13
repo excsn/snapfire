@@ -11,9 +11,9 @@ export interface IslandProps {
 	define?: string;
 	children?: ReactNode;
 }
-/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
+/** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, while the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
 *
-* The region is claimed once, by the key the build splices in, and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it, or renders its child inline when no payload describes one. */
+* The region is claimed once, by the key the build splices in and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it or renders its child inline when no payload describes one. */
 export declare function Island({ when, mode, children }: IslandProps): ReactElement;
 export interface MountProps {
 	/** The module id the registry knows the island under, `src/ui/Chart.vue#default` for one. */
@@ -37,14 +37,14 @@ export declare function island<P extends object>(component: ComponentType<P>, op
 	mode?: "server";
 }): (props: P) => ReactElement;
 export interface SlotProps {
-	/** The slot's name: a `slots/<name>` directory beside the layout, or the slot a `page.<name>.tsx` under it renders into. */
+	/** The slot's name: a `slots/<name>` directory beside the layout or the slot a `page.<name>.tsx` under it renders into. */
 	name: string;
 	/** What the slot shows while nothing fills it. Rendered by the server, lowered by the build; never rendered here. */
 	children?: ReactNode;
 }
-/** A named slot of a layout: the region a parallel route renders into, or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment, or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands, and navigation fills and empties it without React reconciling it. */
+/** A named slot of a layout: the region a parallel route renders into or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands and navigation fills and empties it without React reconciling it. */
 export declare function Slot({ name }: SlotProps): ReactElement;
-/** A store key as state: the value the store holds, or `initial` while nothing does, and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
+/** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
 export declare function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void];
 /** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */
 export declare function useLocale(): string;
@@ -66,7 +66,7 @@ export type Hoisted = {
 };
 /** The reader the build binds at the top of a component it rewrote: `r` in place of a render-path call whose inputs are props only, so hydration reads what the server rendered instead of computing it again; `l` around each JSX `.map` callback, so a read inside it knows its iteration. */
 export interface HoistReader {
-	/** The server's value for hoist `id` at the current loop indices, or `compute()` when it recorded none. */
+	/** The server's value for hoist `id` at the current loop indices or `compute()` when it recorded none. */
 	r<T>(id: number, compute: () => T): T;
 	/** `f` with its index argument pushed onto the loop path while it runs. */
 	l<
@@ -77,7 +77,7 @@ export interface HoistReader {
 	c(id: number, hit: (html: {
 		__html: string;
 	}) => ReactElement, miss: () => ReactElement): ReactElement;
-	/** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists, and marked `i`. */
+	/** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists and marked `i`. */
 	k(id: number): string;
 }
 /** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops, the callers' loops first. */

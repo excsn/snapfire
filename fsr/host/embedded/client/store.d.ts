@@ -6,13 +6,13 @@ export type StoreKey<T> = string & {
 /** `key<number>("cart/count")`: a typed name for a store key. The build reads it through an import, so a key declared in one module and used in another still lowers. */
 export declare function key<T>(id: string): StoreKey<T>;
 export type StoreListener = (value: unknown, key: string) => void;
-/** What the key holds, or undefined when nothing has set it. */
+/** What the key holds or undefined when nothing has set it. */
 export declare function get<T>(k: StoreKey<T>): T | undefined;
 /** Writes the key and notifies its listeners, unless the value is the one already held. */
 export declare function set<T>(k: StoreKey<T>, value: T): void;
 /** Forgets the key, as though nothing had ever set it. */
 export declare function clear<T>(k: StoreKey<T>): void;
-/** Forgets every key without telling anyone, which is what a new document calls for: the listeners of the old one are gone with its roots, and the derived keys stay registered for the next seed to feed. */
+/** Forgets every key without telling anyone, which is what a new document calls for: the listeners of the old one are gone with its roots and the derived keys stay registered for the next seed to feed. */
 export declare function reset(): void;
 /** Every key the store holds, for a test or a debugger. */
 export declare function snapshot(): {
@@ -24,7 +24,7 @@ export declare function subscribe(k: StoreKey<unknown> | string, listener: Store
 export declare function transaction(work: () => void): void;
 /** A key computed from others, recomputed whenever one of them changes. */
 export declare function derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[] | string[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void;
-/** Shows `guess` at once, runs `remote`, and puts the key back as it was if it fails. What the server settles on arrives with the next payload, so a success leaves the guess in place for revalidation to replace. */
+/** Shows `guess` at once, runs `remote` and puts the key back as it was if it fails. What the server settles on arrives with the next payload, so a success leaves the guess in place for revalidation to replace. */
 export declare function optimistic<
 	T,
 	R

@@ -711,6 +711,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       if let Some(nested) = nested_components(&inner.render).into_iter().find(|m| !set.pure.get(m).copied().unwrap_or(false)) {
         return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but `{nested}` inside it has state or handlers of its own, which only the island's own component may hold") });
       }
+      if let Some(slot) = first_slot(&inner.render) {
+        let what = if slot == "content" { "`children`".to_owned() } else { format!("the slot `{slot}`") };
+        return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but it renders {what}, which a step would drop: a server island's markup is its own component's and nothing else fills a part of it") });
+      }
       let row = (format!("{}{placed}", options.prefix()), inner.handlers.len());
       if !report.islands.contains(&row) {
         report.islands.push(row);
@@ -1541,6 +1545,24 @@ fn nested_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   let mut out = Vec::new();
   walk(tmpl, &mut out);
   out
+}
+
+/// The first slot a template renders, `content` included. A step renders the
+/// island with no slot stack, so whatever filled it at first paint is gone
+/// from the answer and the patch removes it from the document.
+fn first_slot(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
+  use snapfire_fsr_ir::Tmpl;
+  fn walk(tmpl: &Tmpl) -> Option<String> {
+    match tmpl {
+      Tmpl::Slot(name) => Some(name.clone()),
+      Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().find_map(walk),
+      Tmpl::If { then, r#else, .. } => walk(then).or_else(|| r#else.as_ref().and_then(|e| walk(e))),
+      Tmpl::For { body, .. } => walk(body),
+      Tmpl::Let { then, .. } => walk(then),
+      Tmpl::Text(_) | Tmpl::Expr(_) => None,
+    }
+  }
+  walk(tmpl)
 }
 
 /// The named slots a template places, `content` aside, in tree order.

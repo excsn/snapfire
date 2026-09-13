@@ -7,7 +7,7 @@ export declare const vuePatcher: Patcher;
 export declare function useStore<T>(key: StoreKey<T>, initial: T): {
 	value: T;
 };
-/** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, and the timing that schedules it. */
+/** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, plus the timing that schedules it. */
 export interface MountProps {
 	module: string;
 	props?: Props;

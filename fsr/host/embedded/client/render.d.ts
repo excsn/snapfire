@@ -12,7 +12,7 @@ declare function subtreeAt(node: SfNode, path: number[]): SfNode;
 export declare function renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string;
 /** The props key an island's region key rides under, written by the renderer. */
 export declare const REGION_KEY = "$k";
-/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet, and the regions inside it. */
+/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet and the regions inside it. */
 export interface RegionSource {
 	props: {
 		[key: string]: SfValue;

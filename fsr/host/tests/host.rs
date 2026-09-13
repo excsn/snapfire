@@ -4047,3 +4047,24 @@ async fn a_route_handler_takes_a_form_the_way_an_action_does() {
     .await;
   assert_eq!(response.status(), StatusCode::FORBIDDEN, "a form body carries the same csrf rule an action's does");
 }
+
+/// A step renders with nothing on the slot stack, so a slot in the markup
+/// would come back as nothing and the patch would take its content out of
+/// the document.
+#[test]
+fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
+  use snapfire_fsr_ir::{Component, IrEvaluator, Tmpl};
+  let frame = Component {
+    body: Vec::new(),
+    render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] },
+    state: Vec::new(),
+    handlers: Vec::new(),
+    hydrate: true,
+  };
+  let evaluator = IrEvaluator::new([("src/Frame.tsx#Frame".to_owned(), frame)]);
+  let Err((status, json)) = snapfire_fsr_host::island_step(Some(&evaluator), "src/Frame.tsx#Frame", br#"{"props":{},"state":{},"handler":null,"event":null}"#, "en") else {
+    panic!("stepped");
+  };
+  assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+  assert!(json["message"].as_str().unwrap_or("").contains("renders the slot `content`"), "{json}");
+}

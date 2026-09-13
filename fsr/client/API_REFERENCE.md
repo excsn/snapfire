@@ -452,7 +452,7 @@ True when `mountServer` mounted `el`. `patchIsland` on such an element gives it 
 
 * `function morph(el: Element, html: string): void`
 
-Patches `el`'s children to match `html`: a text or comment node by content, an element by tag and position or by `data-sf-key`, attributes by name, with the nodes it can keep kept. A form control that has focus keeps its value; one that does not takes the server's. An `sf-i` inside is matched but never entered.
+Patches `el`'s children to match `html`: a text or comment node by content, an element by tag and position or by `data-sf-key`, attributes by name, with the nodes it can keep kept. A form control that has focus keeps its value; one that does not takes the server's. An `sf-i` inside is matched and left as it is, marker and children both, since the answer numbers its islands from zero and carries none of the marks mounting left; when the props script after it changed, the script takes the new text and the island mounted there takes the props, a server island by a step of its own and any other through `patchIsland`.
 
 ## 6. Navigation
 

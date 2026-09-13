@@ -3252,13 +3252,31 @@ pub fn island_step(
     .island_step(module, &component, &posted.props, &state, handler, &posted.event, &components)
   {
     Ok(stepped) => {
-      let html = snapfire_fsr_payload::html_serialize(&Node::Seq(snapfire_fsr_ir::rendered_nodes(&stepped.rendered)));
+      let nodes = Node::Seq(snapfire_fsr_ir::rendered_nodes(&stepped.rendered));
+      if let Some(slot) = slot_in(&nodes) {
+        let message = format!("`{module}` renders the slot `{slot}`, which a step has no child to fill");
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({ "kind": "internal", "message": message })));
+      }
+      let html = snapfire_fsr_payload::html_serialize(&nodes);
       Ok(IslandStep { state: stepped.state, html, acts: stepped.acts })
     }
     Err(fail) => Err((
       StatusCode::from_u16(fail.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
       serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message }),
     )),
+  }
+}
+
+/// The first slot anywhere under `node`. The serializer writes nothing for
+/// one, which in a step's answer would take the slot's content out of the
+/// document.
+fn slot_in(node: &Node) -> Option<&str> {
+  match node {
+    Node::Slot(name) => Some(&name.0),
+    Node::Seq(items) => items.iter().find_map(slot_in),
+    Node::Client { children, ssr, .. } => ssr.as_deref().and_then(slot_in).or_else(|| children.iter().find_map(slot_in)),
+    Node::Pending { fallback, .. } => slot_in(fallback),
+    Node::Text(_) | Node::Raw(_) => None,
   }
 }
 

@@ -9,7 +9,7 @@ export type MountTiming = "load" | "visible" | "idle";
 export interface IslandEntry {
 	loader: () => Promise<unknown>;
 	mount: Mounter;
-	/** When hydration happens: immediately, when scrolled into view, or when the main thread is idle. Defaults to "load". Per island, not per page. */
+	/** When hydration happens: immediately, when scrolled into view or when the main thread is idle. Defaults to "load". Per island, not per page. */
 	when?: MountTiming;
 	patch?: Patcher;
 }
@@ -33,5 +33,5 @@ export declare function scan(root: ParentNode): void;
 export declare function loadEntry(src: string): void;
 /** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export declare function boot(): void;
-/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go, and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded, or after `timeout` so a href that never answers cannot hold a navigation open. */
+/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded or after `timeout` so a href that never answers cannot hold a navigation open. */
 export declare function applyStyles(hrefs: string[], timeout?: number): Promise<void>;

@@ -337,6 +337,24 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
   std::fs::remove_dir_all(&fine).unwrap();
 }
 
+/// A step renders the island with nothing on the slot stack, so a slot in its
+/// markup comes back empty and the patch removes whatever filled it.
+#[test]
+fn an_island_in_server_mode_is_refused_over_a_slot_it_renders() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget><b>held</b></Widget></Island>;\n}\n";
+  let slotted = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nexport function Widget({ children }: { children: unknown }) {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(n + 1)}>{n}</button>{children}</div>;\n}\n"),
+  ]);
+  let err = match build(&slotted, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(err.contains("`src/Widget.tsx#Widget` cannot be an island in server mode") && err.contains("renders `children`, which a step would drop"), "{err}");
+  std::fs::remove_dir_all(&slotted).unwrap();
+}
+
 #[test]
 fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlowerable_export_fails_the_build() {
   let page = "import { intl } from \"@snapfire/fsr-client/std\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{intl.number(n * grams)}</p>;\n}\n";
