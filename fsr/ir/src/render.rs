@@ -316,6 +316,24 @@ fn in_module<T>(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> T) -> T
   result
 }
 
+/// How deep components may nest in one render. Past it a component that
+/// renders itself without a case that stops would overflow the thread's
+/// stack, which takes the host down rather than failing the request. A small
+/// recursive component takes about 14 KB of stack per level in a debug build
+/// and about 2.6 KB in a release build. The limit follows the build profile
+/// rather than the host's dev setting, since the frames are the profile's.
+pub const MAX_CALLS: usize = if cfg!(debug_assertions) { 96 } else { 512 };
+
+fn call(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> Result<(), Fail>) -> Result<(), Fail> {
+  if env.calls == MAX_CALLS {
+    return Err(Fail::internal(format!("`{module}` is nested {MAX_CALLS} components deep, which a render refuses: a component that renders itself needs a case that renders no further")));
+  }
+  env.calls += 1;
+  let result = f(env);
+  env.calls -= 1;
+  result
+}
+
 fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let depth = env.scope.len();
   let overrides = env.state.take();
@@ -413,6 +431,9 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
   Ok(out)
 }
 
+/// The larger arms are functions of their own. This recurses once per level
+/// of the tree and a debug build gives every arm's locals a slot in its one
+/// frame, so an arm inline here costs its stack at every level.
 fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   match tmpl {
     Tmpl::Text(text) => out.text(text),
@@ -420,75 +441,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       let value = env.eval_sync(expr)?;
       interpolate(&value, out)?;
     }
-    Tmpl::Element { tag, attrs, children } => {
-      let mut open = String::with_capacity(tag.len() + 32);
-      open.push('<');
-      open.push_str(tag);
-      let mut bound = Vec::new();
-      let mut raw: Option<String> = None;
-      for (name, value) in entries(env, attrs, true)? {
-        if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
-          if env.server_mode {
-            bound.push(format!("{event}:{}", stringify(&value)?));
-          }
-          continue;
-        }
-        if name == KEY_ATTR {
-          if env.server_mode {
-            attribute("data-sf-key", &value, &mut open)?;
-          }
-          continue;
-        }
-        if name == RAW_ATTR {
-          raw = Some(match value {
-            Value::Null => String::new(),
-            value => stringify(&value)?,
-          });
-          continue;
-        }
-        if skipped_attr(&name) {
-          continue;
-        }
-        attribute(&name, &value, &mut open)?;
-      }
-      if !bound.is_empty() {
-        attribute("data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
-      }
-      if VOID.contains(&tag.as_str()) {
-        open.push_str("/>");
-        out.markup(&open);
-        return Ok(());
-      }
-      open.push('>');
-      out.markup(&open);
-      match chunk_id(attrs) {
-        Some(id) => {
-          let mut inner = Out::default();
-          match &raw {
-            Some(html) => inner.markup(html),
-            None => {
-              for child in children {
-                render(env, child, library, slots, &mut inner)?;
-              }
-            }
-          }
-          out.islands.extend(std::mem::take(&mut inner.islands));
-          out.markup(&inner.html);
-          if let Some(hoists) = &mut env.hoists {
-            hoists.record(id, Value::str(inner.html));
-          }
-        }
-        None => match &raw {
-          Some(html) => out.markup(html),
-          None => {
-            for child in children {
-              render(env, child, library, slots, out)?;
-            }
-          }
-        },
-      }
-      out.close_tag(tag);
-    }
+    Tmpl::Element { tag, attrs, children } => render_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
       out.markup(open);
       if let Some(tag) = tag {
@@ -511,21 +464,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
         render(env, other, library, slots, out)?;
       }
     }
-    Tmpl::For { over, params, body } => {
-      let items = match env.eval_sync(over)? {
-        Value::Seq(items) => items,
-        other => return Err(crate::interp::type_error("map", "an array", &other)),
-      };
-      let depth = env.scope.len();
-      for i in 0..items.len() {
-        env.scope.truncate(depth);
-        for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
-          env.scope.push((param.clone(), value));
-        }
-        in_iteration(env, i, |env| render(env, body, library, slots, out))?;
-      }
-      env.scope.truncate(depth);
-    }
+    Tmpl::For { over, params, body } => render_for(env, over, params, body, library, slots, out)?,
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
       let depth = env.scope.len();
@@ -533,77 +472,173 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       render(env, then, library, slots, out)?;
       env.scope.truncate(depth);
     }
-    Tmpl::Component { module, props, children, .. } => {
-      let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
-      let map = self::props(env, props)?;
-      let depth = env.scope.len();
-      let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
-      slots.push(Slot { children, scope: Rc::clone(&outer) });
-      let result = in_module(env, module, |env| render_component(env, component, library, slots, out));
-      slots.pop();
-      env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
-      env.scope.truncate(depth);
-      result?;
-    }
-    Tmpl::Island { module, props, children, when, mode, id, define } => {
-      let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
-      let map = self::props(env, props)?;
-      if *define {
-        let mut inner = Out::default();
-        for child in children {
-          render(env, child, library, slots, &mut inner)?;
-        }
-        let index = out.islands.len();
-        let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() };
-        out.islands.push(RenderedIsland { module: module.clone(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), key, body });
-        out.markup(&format!("{ISLAND_MARK}{index}\0"));
-        return Ok(());
-      }
-      // A component the server has no body for, a `.vue` file among them, is
-      // placed empty with its props: the browser mounts it rather than
-      // hydrating it and the page around it is whole either way.
-      let Some(component) = library.get(module) else {
-        let index = out.islands.len();
-        out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: String::new(), islands: Vec::new(), hoisted: ValueMap::default() } });
-        out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
-        return Ok(());
-      };
-      let depth = env.scope.len();
-      let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
-      slots.push(Slot { children, scope: Rc::clone(&outer) });
-      let mut inner = Out::default();
-      let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
-      let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
-      let result = render_component(env, component, library, slots, &mut inner);
-      env.server_mode = outer_mode;
-      let hoisted = std::mem::replace(&mut env.hoists, outer_hoists).map(|h| h.table).unwrap_or_default();
-      slots.pop();
-      env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
-      env.scope.truncate(depth);
-      result?;
-      let index = out.islands.len();
-      out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
-      out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
-    }
-    Tmpl::Slot(name) => {
-      let Some(slot) = slots.pop() else {
-        out.html.push_str(&slot_mark(name));
-        return Ok(());
-      };
-      let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
-      let mut result = Ok(());
-      for child in slot.children {
-        result = render(env, child, library, slots, out);
-        if result.is_err() {
-          break;
-        }
-      }
-      env.scope = inner;
-      slots.push(slot);
-      result?;
-    }
+    Tmpl::Component { module, props, children, .. } => render_call(env, module, props, children, library, slots, out)?,
+    Tmpl::Island { .. } => render_island(env, tmpl, library, slots, out)?,
+    Tmpl::Slot(name) => render_slot(env, name, library, slots, out)?,
   }
   Ok(())
+}
+
+fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let mut open = String::with_capacity(tag.len() + 32);
+  open.push('<');
+  open.push_str(tag);
+  let mut bound = Vec::new();
+  let mut raw: Option<String> = None;
+  for (name, value) in entries(env, attrs, true)? {
+    if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
+      if env.server_mode {
+        bound.push(format!("{event}:{}", stringify(&value)?));
+      }
+      continue;
+    }
+    if name == KEY_ATTR {
+      if env.server_mode {
+        attribute("data-sf-key", &value, &mut open)?;
+      }
+      continue;
+    }
+    if name == RAW_ATTR {
+      raw = Some(match value {
+        Value::Null => String::new(),
+        value => stringify(&value)?,
+      });
+      continue;
+    }
+    if skipped_attr(&name) {
+      continue;
+    }
+    attribute(&name, &value, &mut open)?;
+  }
+  if !bound.is_empty() {
+    attribute("data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
+  }
+  if VOID.contains(&tag) {
+    open.push_str("/>");
+    out.markup(&open);
+    return Ok(());
+  }
+  open.push('>');
+  out.markup(&open);
+  match chunk_id(attrs) {
+    Some(id) => {
+      let mut inner = Out::default();
+      match &raw {
+        Some(html) => inner.markup(html),
+        None => {
+          for child in children {
+            render(env, child, library, slots, &mut inner)?;
+          }
+        }
+      }
+      out.islands.extend(std::mem::take(&mut inner.islands));
+      out.markup(&inner.html);
+      if let Some(hoists) = &mut env.hoists {
+        hoists.record(id, Value::str(inner.html));
+      }
+    }
+    None => match &raw {
+      Some(html) => out.markup(html),
+      None => {
+        for child in children {
+          render(env, child, library, slots, out)?;
+        }
+      }
+    },
+  }
+  out.close_tag(tag);
+  Ok(())
+}
+
+fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], body: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let items = match env.eval_sync(over)? {
+    Value::Seq(items) => items,
+    other => return Err(crate::interp::type_error("map", "an array", &other)),
+  };
+  let depth = env.scope.len();
+  for i in 0..items.len() {
+    env.scope.truncate(depth);
+    for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
+      env.scope.push((param.clone(), value));
+    }
+    in_iteration(env, i, |env| render(env, body, library, slots, out))?;
+  }
+  env.scope.truncate(depth);
+  Ok(())
+}
+
+fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+  let map = self::props(env, props)?;
+  let depth = env.scope.len();
+  let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
+  slots.push(Slot { children, scope: Rc::clone(&outer) });
+  let result = in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
+  slots.pop();
+  env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
+  env.scope.truncate(depth);
+  result
+}
+
+fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let Tmpl::Island { module, props, children, when, mode, id, define } = tmpl else { unreachable!("render_island is handed an island") };
+  let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
+  let map = self::props(env, props)?;
+  if *define {
+    let mut inner = Out::default();
+    for child in children {
+      render(env, child, library, slots, &mut inner)?;
+    }
+    let index = out.islands.len();
+    let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() };
+    out.islands.push(RenderedIsland { module: module.clone(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), key, body });
+    out.markup(&format!("{ISLAND_MARK}{index}\0"));
+    return Ok(());
+  }
+  // A component the server has no body for, a `.vue` file among them, is
+  // placed empty with its props: the browser mounts it rather than
+  // hydrating it and the page around it is whole either way.
+  let Some(component) = library.get(module) else {
+    let index = out.islands.len();
+    out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: String::new(), islands: Vec::new(), hoisted: ValueMap::default() } });
+    out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
+    return Ok(());
+  };
+  let depth = env.scope.len();
+  let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
+  slots.push(Slot { children, scope: Rc::clone(&outer) });
+  let mut inner = Out::default();
+  let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
+  let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
+  let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
+  env.server_mode = outer_mode;
+  let hoisted = std::mem::replace(&mut env.hoists, outer_hoists).map(|h| h.table).unwrap_or_default();
+  slots.pop();
+  env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
+  env.scope.truncate(depth);
+  result?;
+  let index = out.islands.len();
+  out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
+  out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
+  Ok(())
+}
+
+fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let Some(slot) = slots.pop() else {
+    out.html.push_str(&slot_mark(name));
+    return Ok(());
+  };
+  let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
+  let mut result = Ok(());
+  for child in slot.children {
+    result = render(env, child, library, slots, out);
+    if result.is_err() {
+      break;
+    }
+  }
+  env.scope = inner;
+  slots.push(slot);
+  result
 }
 
 /// CSS properties React leaves unitless; every other number gets `px`.

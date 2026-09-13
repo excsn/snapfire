@@ -3,9 +3,12 @@
 //! or one declaration shape instead of what the module imported and exported.
 
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
+use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::ast::{Entry, Expr, Lit, Stmt};
-use snapfire_fsr_ir::Tmpl;
+use snapfire_fsr_ir::render::{prepare, Components, MAX_CALLS};
+use snapfire_fsr_ir::{Interpreter, Tmpl};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::{lower_actions, lower_handlers, lower_loader, lower_middleware, read_session_defaults};
 
@@ -33,6 +36,19 @@ fn render_of<'a>(set: &'a ComponentSet, module: &str) -> &'a Tmpl {
   &set.components.iter().find(|(m, _)| m == module).unwrap_or_else(|| panic!("{module} did not lower")).1.render
 }
 
+fn library(set: &ComponentSet) -> Components {
+  set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect()
+}
+
+fn render(library: &Components, module: &str, props: &[(&str, Value)]) -> Result<String, String> {
+  let props: ValueMap = props.iter().map(|(name, value)| ((*name).to_owned(), value.clone())).collect();
+  Interpreter::default().render_module(module, &library[module], &props, library).map(|rendered| rendered.html).map_err(|fail| fail.message)
+}
+
+fn verdicts<'a>(set: &'a ComponentSet, module: &str) -> (bool, Option<&'a bool>) {
+  (set.components.iter().find(|(m, _)| m == module).unwrap_or_else(|| panic!("{module} did not lower")).1.hydrate, set.pure.get(module))
+}
+
 fn island_in(tmpl: &Tmpl) -> Option<(&str, Option<&str>, Option<&str>)> {
   match tmpl {
     Tmpl::Island { module, when, mode, .. } => Some((module, when.as_deref(), mode.as_deref())),
@@ -42,20 +58,66 @@ fn island_in(tmpl: &Tmpl) -> Option<(&str, Option<&str>, Option<&str>)> {
 }
 
 #[test]
-fn a_component_that_renders_itself_is_refused_rather_than_unrolled() {
-  let dir = app(&[("routes/page.tsx", "export function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")]);
-  let err = ComponentSet::new(&dir).lower("routes/page.tsx#Tree").unwrap_err().to_string();
-  assert!(err.contains("cannot unroll"), "{err}");
+fn a_component_that_renders_itself_is_a_call_the_renderer_makes() {
+  let set = lower(&[("routes/page.tsx", "export function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")], "routes/page.tsx#Tree");
+  assert_eq!(set.components.len(), 1, "lowered once");
+  assert_eq!(render(&library(&set), "routes/page.tsx#Tree", &[("depth", Value::F64(2.0))]).unwrap(), "<ul><ul><ul></ul></ul></ul>");
+  assert_eq!(verdicts(&set, "routes/page.tsx#Tree"), (false, Some(&true)), "a call to itself neither hydrates it nor makes it impure");
 }
 
 #[test]
-fn two_components_that_render_each_other_are_refused_rather_than_unrolled() {
-  let dir = app(&[
-    ("routes/page.tsx", "import Odd from \"./odd\";\nexport default function Even({ n }: { n: number }) {\n  return <div>{n > 0 ? <Odd n={n - 1} /> : null}</div>;\n}\n"),
-    ("routes/odd.tsx", "import Even from \"./page\";\nexport default function Odd({ n }: { n: number }) {\n  return <span>{n > 0 ? <Even n={n - 1} /> : null}</span>;\n}\n"),
-  ]);
-  let err = ComponentSet::new(&dir).lower("routes/page.tsx#default").unwrap_err().to_string();
-  assert!(err.contains("cannot unroll"), "{err}");
+fn two_components_that_render_each_other_are_calls_the_renderer_makes() {
+  let set = lower(
+    &[
+      ("routes/page.tsx", "import Odd from \"./odd\";\nexport default function Even({ n }: { n: number }) {\n  return <div>{n > 0 ? <Odd n={n - 1} /> : null}</div>;\n}\n"),
+      ("routes/odd.tsx", "import Even from \"./page\";\nexport default function Odd({ n }: { n: number }) {\n  return <span>{n > 0 ? <Even n={n - 1} /> : null}</span>;\n}\n"),
+    ],
+    "routes/page.tsx#default",
+  );
+  assert_eq!(render(&library(&set), "routes/page.tsx#default", &[("n", Value::F64(3.0))]).unwrap(), "<div><span><div><span></span></div></span></div>");
+  assert_eq!(verdicts(&set, "routes/page.tsx#default"), (false, Some(&true)), "Even read Odd while Odd was provisional");
+  assert_eq!(verdicts(&set, "routes/odd.tsx#default"), (false, Some(&true)), "and Odd read Even while Even was still being lowered");
+}
+
+#[test]
+fn state_on_a_cycle_hydrates_every_component_that_renders_it() {
+  let set = lower(
+    &[
+      ("routes/page.tsx", "import { useState } from \"react\";\nimport Odd from \"./odd\";\nexport default function Even({ n }: { n: number }) {\n  const [open, setOpen] = useState(false);\n  return <div onClick={() => setOpen(!open)}>{n > 0 ? <Odd n={n - 1} /> : null}</div>;\n}\n"),
+      ("routes/odd.tsx", "import Even from \"./page\";\nexport default function Odd({ n }: { n: number }) {\n  return <span>{n > 0 ? <Even n={n - 1} /> : null}</span>;\n}\n"),
+    ],
+    "routes/page.tsx#default",
+  );
+  assert_eq!(verdicts(&set, "routes/odd.tsx#default"), (true, Some(&false)), "Odd renders Even inline and Even has state, though Even was not done when Odd was lowered");
+}
+
+/// 2 MiB is a tokio worker's stack, which is where a host renders. This is a
+/// debug build, which is what `fsr dev` serves from.
+#[test]
+fn a_render_nested_past_the_limit_fails_rather_than_overflowing_the_stack() {
+  let set = lower(
+    &[("routes/page.tsx", "export function Node({ node }: { node: { text: string; children: unknown[] } }) {\n  return <div>{node.text}{node.children.map((child, i) => <Node key={i} node={child} />)}</div>;\n}\n")],
+    "routes/page.tsx#Node",
+  );
+  let library = library(&set);
+  let nested = |levels: usize| {
+    let mut node = Value::seq(Vec::new());
+    for _ in 0..levels {
+      let map: ValueMap = [("text".to_owned(), Value::str("x")), ("children".to_owned(), node)].into_iter().collect();
+      node = Value::seq(vec![Value::Map(map)]);
+    }
+    let Value::Seq(mut top) = node else { unreachable!() };
+    top.pop().unwrap()
+  };
+  let (within, past) = (nested(MAX_CALLS + 1), nested(MAX_CALLS + 2));
+  let (within, past) = std::thread::Builder::new()
+    .stack_size(2 << 20)
+    .spawn(move || (render(&library, "routes/page.tsx#Node", &[("node", within)]), render(&library, "routes/page.tsx#Node", &[("node", past)])))
+    .unwrap()
+    .join()
+    .unwrap();
+  assert_eq!(within.map(|html| html.matches("<div>").count()), Ok(MAX_CALLS + 1), "the root and {MAX_CALLS} nested below it render");
+  assert!(past.as_ref().is_err_and(|message| message.contains(&format!("nested {MAX_CALLS} components deep"))), "{past:?}");
 }
 
 #[test]
@@ -77,10 +139,9 @@ fn a_default_exported_function_is_a_value_under_its_own_name() {
 }
 
 #[test]
-fn a_default_exported_component_that_renders_itself_is_refused() {
-  let dir = app(&[("routes/page.tsx", "export default function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")]);
-  let err = ComponentSet::new(&dir).lower("routes/page.tsx#default").unwrap_err().to_string();
-  assert!(err.contains("renders itself"), "{err}");
+fn a_default_exported_component_that_renders_itself_calls_itself_by_its_default_id() {
+  let set = lower(&[("routes/page.tsx", "export default function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")], "routes/page.tsx#default");
+  assert_eq!(render(&library(&set), "routes/page.tsx#default", &[("depth", Value::F64(1.0))]).unwrap(), "<ul><ul></ul></ul>");
 }
 
 const BODY: &str = "async ({ input }: ActionCtx<AddInput>) => ({ n: input.n })";

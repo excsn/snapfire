@@ -59,11 +59,18 @@ pub struct ComponentSet {
   /// them, as `file#export`: placed as islands, mounted rather than hydrated,
   /// compiled for the browser by whichever plugin claims the extension.
   pub foreign: Vec<String>,
+  /// Set when a component was met while it was still being lowered. Every
+  /// hydrate and purity verdict read across that cycle is provisional until
+  /// [`Self::settle`].
+  cyclic: bool,
+  /// Per module with a purity verdict, whether it holds no browser state: the
+  /// half of the verdict that does not depend on the components it renders.
+  stateless: HashMap<String, bool>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new() }
   }
 
   /// A module the set resolves and reads from `source` rather than from disk.
@@ -178,14 +185,17 @@ impl ComponentSet {
   }
 
   /// Lowers `module` (a `path#export` under the app) and everything it
-  /// renders. A module already lowered is not read again.
+  /// renders. A module already lowered is not read again. A module still
+  /// being lowered is a component that renders itself, directly or through
+  /// others: the call is the renderer's, which looks the module up by name.
   pub fn lower(&mut self, module: &str) -> Result<(), LowerError> {
     let (file, export) = module.split_once('#').ok_or_else(|| LowerError::MissingExport { file: module.to_owned(), export: String::new() })?;
     if self.components.iter().any(|(m, _)| m == module) {
       return Ok(());
     }
     if self.resolving.iter().any(|m| m == module) {
-      return Err(LowerError::Parse { file: file.to_owned(), message: format!("`{export}` renders itself, which the build cannot unroll") });
+      self.cyclic = true;
+      return Ok(());
     }
     self.load(file)?;
     self.resolving.push(module.to_owned());
@@ -193,7 +203,44 @@ impl ComponentSet {
     self.resolving.pop();
     let component = result?;
     self.components.push((module.to_owned(), component));
+    if self.cyclic && self.resolving.is_empty() {
+      self.settle();
+    }
     Ok(())
+  }
+
+  /// Brings every hydrate and purity verdict to what the whole graph says.
+  /// Lowering read a component still in progress as neither hydrating nor
+  /// pure, which is low for anything on a cycle: hydrate rises to the least
+  /// verdict that holds, purity falls from `stateless` to the greatest. The
+  /// chunks hoisting chose with the provisional verdicts stay, since a
+  /// component read as impure only keeps a subtree out of a chunk.
+  fn settle(&mut self) {
+    loop {
+      let rising: Vec<usize> = (0..self.components.len()).filter(|&i| !self.components[i].1.hydrate && self.inline_hydrates(&self.components[i].1.render)).collect();
+      if rising.is_empty() {
+        break;
+      }
+      for i in rising {
+        self.components[i].1.hydrate = true;
+      }
+    }
+    let mut pure = self.stateless.clone();
+    loop {
+      let falling: Vec<String> = pure
+        .iter()
+        .filter(|(module, held)| **held && self.components.iter().find(|(m, _)| m == *module).is_some_and(|(_, c)| !hoist::static_tree(&c.render, &pure)))
+        .map(|(module, _)| module.clone())
+        .collect();
+      if falling.is_empty() {
+        break;
+      }
+      for module in falling {
+        pure.insert(module, false);
+      }
+    }
+    self.pure = pure;
+    self.cyclic = false;
   }
 
   fn load(&mut self, file: &str) -> Result<(), LowerError> {
@@ -305,6 +352,7 @@ impl ComponentSet {
       let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
       let chunks = hoist::chunks(&mut component, &state, &self.pure);
       self.pure.insert(module.clone(), pure);
+      self.stateless.insert(module.clone(), state.is_empty());
       let parsed = self.parsed[file].clone();
       for range in candidates.remaining(&kept) {
         let (line, column) = parsed.position(range.start);

@@ -123,6 +123,7 @@ impl Interpreter {
       state: None,
       server_mode: false,
       acts: Vec::new(),
+      calls: 0,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -201,6 +202,8 @@ pub(crate) struct Env {
   /// The actions a handler asked for, in order, with their inputs evaluated.
   /// The host dispatches them once the step is done.
   pub(crate) acts: Vec<(String, Value)>,
+  /// Components entered and not yet left, which bounds a render that recurses.
+  pub(crate) calls: usize,
 }
 
 /// The hoisted values of one island: keyed by the module, the hoist id and
@@ -290,6 +293,7 @@ impl Env {
       state: None,
       server_mode: false,
       acts: Vec::new(),
+      calls: 0,
     }
   }
 
@@ -406,6 +410,7 @@ impl Env {
       state: None,
       server_mode: false,
       acts: Vec::new(),
+      calls: self.calls,
     }
   }
 
