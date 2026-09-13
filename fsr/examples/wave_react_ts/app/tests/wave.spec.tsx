@@ -1,9 +1,12 @@
 import { assert, ctx, fireEvent, load, test } from "@snapfire/fsr-client/testing";
 
+const board = { cells: Array.from({ length: 9 }, (_, at) => ({ at, mark: "" })), turn: "x", won: "" };
+
 const wave = {
   id: "kickoff",
   title: "Snapfire kickoff",
   participants: ["alice", "bob"],
+  game: board,
   blips: [
     { id: "1", parent: "", who: "alice", body: "Starting **a** wave.", html: "<p>Starting <strong>a</strong> wave.</p>\n", at: "09:10", edited: "", editors: [], depth: 0 },
     { id: "2", parent: "1", who: "bob", body: "Under the first.", html: "<p>Under the first.</p>\n", at: "09:12", edited: "09:20", editors: ["alice", "carol"], depth: 1 },
@@ -68,8 +71,8 @@ test("every island region names itself, so a re-render pairs a placement with it
   const keys = Array.from(document.querySelectorAll("sf-s[data-sf-island]")).map((s) => s.getAttribute("data-sf-region"));
   assert.equal(keys.length, new Set(keys).size, `a region key is unique in a document, got ${keys.join(" ")}`);
   const page = keys.filter((k) => k?.startsWith("routes/wave/[id]/page.tsx#default|"));
-  assert.equal(page.length, 6, "the wave places six islands: presence, the wave composer, and a body and an under for each blip");
-  assert.ok(page.includes("routes/wave/[id]/page.tsx#default|i1@1"), `a placement in a loop keys under its iteration, got ${page.join(" ")}`);
+  assert.equal(page.length, 7, "the wave places seven islands: presence, the gadget, the wave composer, a body for each blip and an under for each blip");
+  assert.ok(page.includes("routes/wave/[id]/page.tsx#default|i2@1"), `a placement in a loop keys under its iteration, got ${page.join(" ")}`);
 });
 
 test("the inbox lists every wave beside the open one", async () => {
@@ -110,7 +113,7 @@ test("keeping a blip calls the action and the transcript follows without a reloa
     session: { name: "dora", waves: {} },
     services: {
       waves: {
-        getWave: () => ({ id: "kickoff", title: "Snapfire kickoff", participants: ["alice"], blips }),
+        getWave: () => ({ id: "kickoff", title: "Snapfire kickoff", participants: ["alice"], game: board, blips }),
         addBlip: (input: { body: string }) => {
           const kept = { id: String(blips.length + 1), parent: "", who: "dora", body: input.body, html: `<p>${input.body}</p>\n`, at: "09:30", edited: "", editors: [], depth: 0 };
           blips.push(kept);
@@ -129,7 +132,7 @@ test("keeping a blip calls the action and the transcript follows without a reloa
   await fireEvent.change(composer, "written through the action client");
   await fireEvent.submit(composer);
 
-  const bodies = Array.from(document.querySelectorAll(".blips .body")).map((b) => b.textContent);
+  const bodies = Array.from(document.querySelectorAll(".blips .body")).map((b) => b.textContent?.trim());
   assert.equal(bodies, ["Starting a wave.", "written through the action client"], `the action ran and the page revalidated in place, got ${bodies.join(" | ")}`);
   assert.equal(document.querySelectorAll(".blips > li").length, 2, "and the new blip is one item, in its own region");
 });
