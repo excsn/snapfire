@@ -51,7 +51,7 @@ htmx belongs in this chapter because it is not a third runtime. It has no build 
 bindHtmx(htmx);
 ```
 
-So one page here holds three interaction models: a component the browser hydrates, a component the browser mounts fresh, a region nothing mounts at all.
+So one page here holds three interaction models: a component the browser hydrates, a component the browser mounts fresh, a region nothing mounts at all. The lot stepper in the masthead is a fourth, from chapter 102: a React component the host renders and steps itself, placed in server mode, whose buttons call an action the host dispatches inside the round trip.
 
 ## What it costs
 
@@ -85,5 +85,7 @@ Open `/board` and click a row in the table. The masthead symbol changes; the tab
 Click News. The page segment is React now, the masthead is the same element it was, the feed's filter already reading the symbol you picked in the Vue table. Click Board again: the table comes back with your row still held.
 
 Watch the tape on the right for ten seconds. It swaps itself, having asked the host for one slot of the route. Nothing in it mounted.
+
+Press the lot's `+`. Nothing mounted for that either: the click posts to the host, Rust runs the lowered handler, the handler calls `desk.lot`, the host runs the action and answers the stepper's new markup, then the page refreshes its data and the masthead's buy button, a React island, reads the size the action wrote. Reload: the lot is still what you set, since the action wrote the session. [`Lot.tsx`](../../examples/uni/js/src/ui/Lot.tsx) is a component with two buttons calling an action and nothing else; the mode on its placement in `layout.tera` is what decides that the handler runs in Rust.
 
 Take `bindHtmx(htmx)` out of `js/src/main.ts`, rebuild and navigate to News and back: the tape stops polling on the page the navigator wrote, because htmx never saw that markup.

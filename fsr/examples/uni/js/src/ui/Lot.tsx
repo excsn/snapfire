@@ -1,23 +1,25 @@
-import { useState } from "react";
+import { action } from "@snapfire/fsr-client";
+
+const lot = action("desk.lot");
 
 /**
- * The lot size a click changes. Placed in server mode, so no root is mounted
- * for it: each click posts to the host, Rust runs the handler, renders this
- * component again and the browser patches the markup it gets back.
+ * The lot size a click changes. Written as any React component with a button
+ * that calls an action; placed in server mode, so nothing mounts for it: the
+ * click posts to the host, Rust runs the handler, dispatches `desk.lot` and
+ * renders this again; the page then refreshes the way it does after a
+ * browser-mode call.
  */
-export default function Lot({ size }: { size: number }) {
-  const [lot, setLot] = useState(size);
+export default function Lot({ size }: { size: bigint }) {
   return (
     <div className="lot">
       <span className="label">lot</span>
-      <button type="button" onClick={() => setLot(lot - 10)}>
+      <button type="button" onClick={() => void lot({ by: -10 })}>
         &minus;
       </button>
-      <output>{lot}</output>
-      <button type="button" onClick={() => setLot(lot + 10)}>
+      <output>{`${size}`}</output>
+      <button type="button" onClick={() => void lot({ by: 10 })}>
         +
       </button>
-      <span className="quiet">server mode: every click is a round trip, and nothing here mounted</span>
     </div>
   );
 }

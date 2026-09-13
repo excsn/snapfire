@@ -31,7 +31,7 @@ That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one co
 | `js/src/ui/Holdings.vue` | Vue, on the board: a table whose rows each hold a React chip |
 | `js/src/ui/Chip.tsx` | React, inside each Vue row: the day's move, with a click that changes the watched symbol |
 | `js/src/ui/Feed.tsx` | React, on the news page: filters the headlines by the watched symbol |
-| `js/src/ui/Lot.tsx` | the one component the server renders itself: lowered by `build.rs` into the plan, placed in server mode, mounting nothing |
+| `js/src/ui/Lot.tsx` | the one component the server renders itself: lowered by `build.rs` into the plan, placed in server mode, mounting nothing; its buttons call an action, which the host dispatches when the handler runs |
 | `js/src/main.ts` | five `registerIsland` calls, two mounters, one `bindHtmx`, one `live` |
 | `src/routes.rs` | the plans: a document over a layout over a page, with `tape` as a second child |
 | `src/loaders.rs` | four sources in Rust, one per segment |
@@ -54,7 +54,7 @@ React reads it with `useStore` from `@snapfire/fsr-client/react`, Vue with `useS
 | --- | --- |
 | the masthead, the chips, the feed | React hydrates or mounts them, `reactMounter` |
 | the table, the sparkline | Vue mounts them fresh, `vueMounter` |
-| the lot stepper | nothing mounts: every click posts to the host, Rust runs the handler, renders the component again and the browser patches the markup |
+| the lot stepper | nothing mounts: every click posts to the host, Rust runs the handler, dispatches the `desk.lot` action it calls, renders the component again and the browser patches the markup, then refreshes the page's data the way it does after any action |
 | the tape | nothing mounts: htmx swaps a fragment the host rendered |
 
 Two of those ship a framework and two do not.

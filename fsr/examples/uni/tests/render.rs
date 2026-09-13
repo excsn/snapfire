@@ -35,19 +35,99 @@ async fn one_page_carries_a_react_island_a_vue_island_and_a_region_that_is_neith
 }
 
 #[tokio::test]
-async fn the_server_mode_island_is_rendered_again_by_the_host_when_it_is_stepped() {
+async fn a_step_of_the_server_mode_island_dispatches_the_action_its_handler_calls() {
   let host = host();
   let stepped = host
     .handle(
       http::Request::post("/_sf/island/js%2Fsrc%2Fui%2FLot.tsx%23default")
         .header(http::header::CONTENT_TYPE, "application/json")
-        .body(Bytes::from(r#"{"props":{"size":{"$":"f","v":10.0}},"state":{"lot":{"$":"f","v":10.0}},"handler":1}"#))
+        .body(Bytes::from(r#"{"props":{"size":10},"handler":1}"#))
         .unwrap(),
     )
     .await;
+  let cookie = stepped
+    .headers()
+    .get(http::header::SET_COOKIE)
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.split(';').next())
+    .map(str::to_owned)
+    .expect("the step carries the session it wrote");
   let answer = body(stepped).await;
-  assert!(answer.contains("<output>20</output>"), "the handler ran in Rust and the component was rendered again: {answer}");
-  assert!(!answer.contains("\"kind\""), "with no failure, which a bare `10` in place of a double would be: {answer}");
+  assert!(answer.contains(r#""revalidate":true"#), "the handler called `desk.lot`, so the page's data is stale: {answer}");
+  assert!(answer.contains("<output>10</output>"), "the island itself renders from the props it was given: {answer}");
+  assert!(!answer.contains("\"kind\""), "{answer}");
+
+  let html = body(host.handle(Request::get("/board").header(http::header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains(r#""lot":20"#), "the action wrote the session the masthead is rendered from: {html}");
+  assert!(html.contains(r#""size":20"#), "and the stepper's own props follow: {html}");
+}
+
+#[tokio::test]
+async fn the_lot_is_what_a_buy_takes() {
+  let host = host();
+  let step = |by: i64| {
+    http::Request::post("/_sf/action/desk.lot")
+      .header(http::header::CONTENT_TYPE, "application/json")
+      .body(Bytes::from(format!(r#"{{"by":{by}}}"#)))
+      .unwrap()
+  };
+  let first = host.handle(step(10)).await;
+  let cookie = first
+    .headers()
+    .get(http::header::SET_COOKIE)
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.split(';').next())
+    .map(str::to_owned)
+    .expect("the action carries the session");
+  assert_eq!(body(first).await, r#"{"lot":20}"#);
+  let mut request = step(1000);
+  request.headers_mut().insert(http::header::COOKIE, cookie.parse().unwrap());
+  assert_eq!(body(host.handle(request).await).await, r#"{"lot":100}"#, "clamped: the value is input");
+
+  let bought = host
+    .handle(
+      http::Request::post("/_sf/action/desk.buy")
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .header(http::header::COOKIE, &cookie)
+        .body(Bytes::from(r#"{"symbol":"KLNS"}"#))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(body(bought).await, r#"{"symbol":"KLNS","shares":100}"#);
+}
+
+#[tokio::test]
+async fn watching_a_symbol_is_kept_by_the_session() {
+  let host = host();
+  let watched = host
+    .handle(
+      http::Request::post("/_sf/action/desk.watch")
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"symbol":"MRSH"}"#))
+        .unwrap(),
+    )
+    .await;
+  let cookie = watched
+    .headers()
+    .get(http::header::SET_COOKIE)
+    .and_then(|v| v.to_str().ok())
+    .and_then(|v| v.split(';').next())
+    .map(str::to_owned)
+    .expect("the action carries the session");
+  assert_eq!(body(watched).await, r#"{"symbol":"MRSH"}"#);
+  let html = body(host.handle(Request::get("/board").header(http::header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains(r#""symbol":"MRSH""#), "the masthead is rendered from it: {html}");
+  assert!(html.contains(r#""watched":"MRSH""#), "and so is the table: {html}");
+
+  let refused = host
+    .handle(
+      http::Request::post("/_sf/action/desk.watch")
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"symbol":"NOPE"}"#))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(refused.status(), 404);
 }
 
 #[tokio::test]

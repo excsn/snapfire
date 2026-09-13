@@ -11,6 +11,7 @@ use snapfire_fsr_tera::TeraEvaluator;
 mod actions;
 mod loaders;
 mod routes;
+mod session;
 pub mod state;
 
 /// The plan `build.rs` writes: no routes, since every route here is registered

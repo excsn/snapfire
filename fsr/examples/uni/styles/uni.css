@@ -36,6 +36,7 @@ body {
 .watch .symbol { font-variant-numeric: tabular-nums; }
 .watch .price { font-variant-numeric: tabular-nums; color: #374151; }
 .watch button { border: 0; background: #eef0f4; border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.watch .turn { padding: 0 8px; font-size: 16px; line-height: 1.2; }
 
 .columns { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; padding: 22px; align-items: start; }
 

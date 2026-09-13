@@ -1,6 +1,7 @@
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::HostBuilder;
 
+use crate::session::{bought, lot, watched};
 use crate::state::{self, Tape, Ticks};
 
 /// What the masthead island is rendered with: the symbol the session is
@@ -21,24 +22,6 @@ fn watch_props(symbol: &str, tick: usize) -> Value {
   Value::Map(map)
 }
 
-/// The shares this session has bought on top of what the desk holds.
-fn bought(ctx: &snapfire_fsr_runtime::RequestCtx, symbol: &str) -> i64 {
-  match ctx.session.get("bought") {
-    Some(Value::Map(map)) => match map.get(symbol) {
-      Some(Value::Int(n)) => *n as i64,
-      _ => 0,
-    },
-    _ => 0,
-  }
-}
-
-fn watched(ctx: &snapfire_fsr_runtime::RequestCtx) -> String {
-  match ctx.session.get("watched") {
-    Some(Value::Str(symbol)) => symbol.to_string(),
-    _ => state::HOLDINGS[0].symbol.to_owned(),
-  }
-}
-
 pub fn register(builder: HostBuilder, tape: Tape, ticks: Ticks) -> HostBuilder {
   builder
     .source("layout_loader", {
@@ -47,16 +30,15 @@ pub fn register(builder: HostBuilder, tape: Tape, ticks: Ticks) -> HostBuilder {
         let ticks = ticks.clone();
         async move {
       let symbol = watched(&ctx);
+      let size = lot(&ctx);
       let Value::Map(mut watch) = watch_props(&symbol, ticks.now()) else { unreachable!("watch props are a map") };
       watch.insert("owned".to_owned(), Value::Int(bought(&ctx, &symbol) as i128));
-      let mut lot = ValueMap::default();
-      // A double rather than an integer: the component is lowered TypeScript,
-      // where every number is one, and nothing conforms a Rust loader's value
-      // to a lowered component the way a contract conforms a service's.
-      lot.insert("size".to_owned(), Value::F64(10.0));
+      watch.insert("lot".to_owned(), Value::Int(size as i128));
+      let mut stepper = ValueMap::default();
+      stepper.insert("size".to_owned(), Value::Int(size as i128));
       let mut data = ValueMap::default();
       data.insert("watch".to_owned(), Value::Map(watch));
-      data.insert("lot".to_owned(), Value::Map(lot));
+      data.insert("lot".to_owned(), Value::Map(stepper));
       Ok(data)
         }
       }
