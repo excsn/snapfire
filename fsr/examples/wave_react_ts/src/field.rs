@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use plaza::error::{SnapshotError, StateLogicError};
@@ -133,6 +133,9 @@ pub struct Field {
   pub edits: BTreeMap<String, BTreeMap<String, (Conn, Editing)>>,
   /// Which wave a connection is looking at.
   pub watching: BTreeMap<Conn, String>,
+  /// Waves whose drafts or rewrites changed since the last tick, when views
+  /// wait for one.
+  pub unsent: BTreeSet<String>,
   next: u64,
 }
 
@@ -255,11 +258,29 @@ impl Field {
 pub struct Rules {
   /// What a kept blip is stamped with, so a test can hold the clock still.
   pub clock: Box<dyn Fn() -> String + Send + Sync>,
+  /// A keystroke (`Typing` or `Rewriting`) waits for the next `TimeStep` to
+  /// be sent, so a wave sends views at the tick rate however fast anyone
+  /// types. Every other change is sent at once. Needs a `TickDriver`.
+  pub on_tick: bool,
+  /// One view for everyone on the wave, carrying every draft including the
+  /// recipient's own, instead of one per window without it.
+  pub uniform: bool,
 }
 
 impl Rules {
   pub fn new() -> Self {
-    Self { clock: Box::new(now) }
+    Self { clock: Box::new(now), on_tick: false, uniform: false }
+  }
+
+  /// Where a keystroke's wave goes: out with this input or into `unsent` for
+  /// the next tick.
+  fn keystroke(&self, field: &mut Field, touched: &mut Option<String>, wave: String) {
+    match self.on_tick {
+      true => {
+        field.unsent.insert(wave);
+      }
+      false => *touched = Some(wave),
+    }
   }
 }
 
@@ -303,7 +324,7 @@ impl StateLogic<Op, Conn, Field> for Rules {
                   drafts.insert(conn, Draft { who, parent, body });
                 }
               }
-              touched = Some(wave);
+              self.keystroke(field, &mut touched, wave);
             }
             Op::Keep { wave, parent, who, body } => {
               field.keep(&wave, &parent, &who, &body, (self.clock)());
@@ -335,7 +356,7 @@ impl StateLogic<Op, Conn, Field> for Rules {
               if let Some((_, edit)) = field.edits.get_mut(&wave).and_then(|edits| edits.get_mut(&blip)) {
                 edit.body = body;
               }
-              touched = Some(wave);
+              self.keystroke(field, &mut touched, wave);
             }
             Op::Close { blip } => {
               let Some(conn) = conn else { continue };
@@ -366,33 +387,37 @@ impl StateLogic<Op, Conn, Field> for Rules {
             Op::View(_) => {}
           }
         }
-        Ok(snapshot(field, touched))
+        Ok(views(LogicOutput::none(), field, touched, self.uniform))
       }
       LogicInput::AgentLeft { agent_id } => {
         let wave = field.forget(agent_id);
-        Ok(snapshot(field, wave))
+        Ok(views(LogicOutput::none(), field, wave, self.uniform))
       }
-      LogicInput::AgentJoined { .. } | LogicInput::TimeStep { .. } => Ok(LogicOutput::none()),
+      LogicInput::TimeStep { .. } => {
+        let unsent = std::mem::take(&mut field.unsent);
+        Ok(unsent.into_iter().fold(LogicOutput::none(), |out, wave| views(out, field, Some(wave), self.uniform)))
+      }
+      LogicInput::AgentJoined { .. } => Ok(LogicOutput::none()),
     }
   }
 }
 
-/// Everyone on the wave that changed is sent a view of their own; a change to
-/// no wave sends nothing.
-fn snapshot(field: &Field, wave: Option<String>) -> LogicOutput<Op, Conn> {
-  match wave {
-    Some(wave) => {
-      let audience = field.audience(&wave);
-      match audience.is_empty() {
-        true => LogicOutput::none(),
-        false => LogicOutput::none().and_snapshot(SnapshotRequest::to(audience)),
-      }
-    }
-    None => LogicOutput::none(),
+/// Everyone on the wave that changed is sent a view: one each or one shared
+/// when `uniform`. A change to no wave sends nothing.
+fn views(out: LogicOutput<Op, Conn>, field: &Field, wave: Option<String>, uniform: bool) -> LogicOutput<Op, Conn> {
+  let Some(wave) = wave else { return out };
+  let audience = field.audience(&wave);
+  if audience.is_empty() {
+    return out;
   }
+  out.and_snapshot(match uniform {
+    true => SnapshotRequest::uniform_with_context(audience, SnapshotContext::ForPerspective(wave)),
+    false => SnapshotRequest::to(audience),
+  })
 }
 
-/// The view of a wave, built once per recipient.
+/// The view of a wave: built once per recipient or once for a uniform request
+/// from the wave it names.
 pub struct Views;
 
 #[async_trait]
@@ -401,11 +426,16 @@ impl SnapshotProvider<Conn, Field, Op> for Views {
     &self,
     field: &Field,
     target: Option<&Agent<Conn>>,
-    _context: Option<SnapshotContext>,
+    context: Option<SnapshotContext>,
   ) -> Result<Option<Op>, SnapshotError<Conn>> {
-    let Some(conn) = target.and_then(|agent| agent.id_cloned()) else { return Ok(None) };
-    let Some(wave) = field.watching.get(&conn) else { return Ok(None) };
-    Ok(Some(Op::View(Box::new(field.view(wave, Some(conn))))))
+    match (target.and_then(|agent| agent.id_cloned()), context) {
+      (Some(conn), _) => {
+        let Some(wave) = field.watching.get(&conn) else { return Ok(None) };
+        Ok(Some(Op::View(Box::new(field.view(wave, Some(conn))))))
+      }
+      (None, Some(SnapshotContext::ForPerspective(wave))) => Ok(Some(Op::View(Box::new(field.view(&wave, None))))),
+      (None, _) => Ok(None),
+    }
   }
 }
 

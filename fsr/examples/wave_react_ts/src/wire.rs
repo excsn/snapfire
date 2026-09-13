@@ -24,7 +24,12 @@ pub struct Wire {
 
 impl Wire {
   pub fn new(sockets: Arc<Sockets>) -> Arc<Self> {
-    let (incoming, inbox) = session_channel(256);
+    Self::with_depth(sockets, 256)
+  }
+
+  /// How many ops may wait for the controller before a new one is dropped.
+  pub fn with_depth(sockets: Arc<Sockets>, depth: usize) -> Arc<Self> {
+    let (incoming, inbox) = session_channel(depth);
     let (presence, comings) = session_channel(256);
     Arc::new(Self { sockets, topics: Mutex::new(BTreeMap::new()), incoming, presence, taken: Mutex::new((Some(inbox), Some(comings))) })
   }

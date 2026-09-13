@@ -16,7 +16,7 @@ use wave_react_ts::backend;
 use wave_react_ts::field::{Conn, Field, Op, Rules, View, Views};
 
 fn rules() -> Rules {
-  Rules { clock: Box::new(|| "10:00".to_owned()) }
+  Rules { clock: Box::new(|| "10:00".to_owned()), ..Rules::new() }
 }
 
 async fn apply(rules: &Rules, field: &mut Field, conn: Conn, ops: Vec<Op>) -> LogicOutput<Op, Conn> {
@@ -402,4 +402,38 @@ async fn the_wave_page_writes_a_blip_as_the_markup_the_service_made() {
   let html = host.render_to_string("/wave/kickoff", RenderMode::Html, session).await.unwrap();
   assert!(html.contains("<strong>its own subject</strong>"), "the seed's markdown is markup in the page: {html}");
   assert!(html.contains("<a href=\"https://commonmark.org\">markdown</a>"), "and its link is kept: {html}");
+}
+
+#[tokio::test]
+async fn on_a_tick_keystrokes_wait_for_it_and_the_wave_goes_out_once() {
+  let rules = Rules { on_tick: true, ..rules() };
+  let mut field = Field::new(backend::seed());
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+
+  let typed = apply(&rules, &mut field, 1, vec![typing("", "h")]).await;
+  assert!(typed.snapshots.is_empty(), "a keystroke sends nothing on its own");
+  apply(&rules, &mut field, 1, vec![typing("", "he")]).await;
+  let tick = LogicInput::TimeStep { delta_time: std::time::Duration::from_millis(50) };
+  let ticked = rules.process_input(&mut field, tick).await.unwrap();
+  assert_eq!(ticked.snapshots.len(), 1, "the tick sends the wave once for both keystrokes");
+  let quiet = rules.process_input(&mut field, LogicInput::TimeStep { delta_time: std::time::Duration::from_millis(50) }).await.unwrap();
+  assert!(quiet.snapshots.is_empty(), "a tick with nothing new sends nothing");
+}
+
+#[tokio::test]
+async fn a_uniform_view_is_one_request_and_carries_every_draft() {
+  let rules = Rules { uniform: true, ..rules() };
+  let mut field = Field::new(backend::seed());
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+
+  let typed = apply(&rules, &mut field, 1, vec![typing("", "hello")]).await;
+  assert_eq!(typed.snapshots.len(), 1, "one request for the wave");
+  assert!(typed.snapshots[0].uniform, "and it is a shared one");
+  let context = Some(plaza::snapshot::SnapshotContext::ForPerspective("kickoff".to_owned()));
+  match Views.create_snapshot(&field, None, context).await.unwrap() {
+    Some(Op::View(view)) => assert_eq!(view.drafts.len(), 1, "alice's draft is in the one view everyone gets, alice included"),
+    other => panic!("no shared view: {other:?}"),
+  }
 }

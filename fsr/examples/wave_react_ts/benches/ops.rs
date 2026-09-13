@@ -4,7 +4,13 @@
 //!
 //! Two sweeps. Paced: every window types at `OPS_RATE` keystrokes a second
 //! (default 10). Flat out: every window sends as fast as its socket takes
-//! frames. Each row runs for `OPS_SECONDS` (default 5).
+//! frames. Each row runs for `OPS_SECONDS` (default 5). `OPS_SWEEP` picks
+//! `paced`, `flat` or both (default).
+//!
+//! The field's settings: `OPS_TICK_HZ` sends keystroke views on a tick at that
+//! rate (default 0, after every keystroke), `OPS_UNIFORM=1` builds one view
+//! for everyone instead of one per window and `OPS_DEPTH` is how many ops may
+//! wait for the controller before one is dropped (default 256).
 //!
 //! A body carries its sender, its sequence number and when it was sent, so a
 //! receiver measures keystroke to screen and counts the keystrokes it never
@@ -20,7 +26,7 @@ use bytes::Bytes;
 use futures::{SinkExt, Stream, StreamExt};
 use http::Request;
 use http::header::{COOKIE, SET_COOKIE};
-use plaza::StateControllerBuilder;
+use plaza::{StateControllerBuilder, TickDriver};
 use snapfire_fsr_core::Value;
 use snapfire_fsr_host::Host;
 use snapfire_fsr_host::socket::Sockets;
@@ -40,6 +46,13 @@ const WAVE: &str = "kickoff";
 /// it counts the room as drained.
 const QUIET: Duration = Duration::from_millis(500);
 
+#[derive(Clone, Copy)]
+struct Settings {
+  tick_hz: u32,
+  uniform: bool,
+  depth: usize,
+}
+
 struct Served {
   url: String,
   cookie: String,
@@ -48,13 +61,20 @@ struct Served {
 
 /// The wave's host as `main` builds it, on a port of its own, with a session
 /// that has opened the wave.
-async fn serve() -> Served {
+async fn serve(settings: Settings) -> Served {
   let sockets = Arc::new(Sockets::new());
-  let wire = Wire::new(sockets.clone());
-  let (field, controller) = StateControllerBuilder::new(Arc::new(Rules::new()), wire.clone(), Arc::new(Views), Field::new(backend::seed())).build();
+  let wire = Wire::with_depth(sockets.clone(), settings.depth);
+  let rules = Rules { on_tick: settings.tick_hz > 0, uniform: settings.uniform, ..Rules::new() };
+  let (field, controller) = StateControllerBuilder::new(Arc::new(rules), wire.clone(), Arc::new(Views), Field::new(backend::seed())).build();
   let mut tasks = vec![tokio::spawn(async move {
     let _ = controller.run().await;
   })];
+  if settings.tick_hz > 0 {
+    let ticking = field.clone();
+    tasks.push(tokio::spawn(async move {
+      let _ = TickDriver::from_hz(settings.tick_hz).run(ticking).await;
+    }));
+  }
   let (service, kept) = backend::service(field);
   let listening = wire.clone();
   let host = Host::from(env!("CARGO_MANIFEST_DIR"))
@@ -122,7 +142,7 @@ async fn window(me: usize, room: usize, url: String, cookie: String, start: Inst
   ready.wait().await;
 
   let stop = Arc::new(AtomicBool::new(false));
-  let reader = tokio::spawn(read(rx, room, start, stop.clone()));
+  let reader = tokio::spawn(read(rx, me, room, start, stop.clone()));
   let began = Instant::now();
   let mut ticks = pace.map(|every| {
     let mut ticks = tokio::time::interval(every);
@@ -149,8 +169,9 @@ async fn window(me: usize, room: usize, url: String, cookie: String, start: Inst
 }
 
 /// Every view this window is sent: each keystroke of another window it has
-/// not seen yet, how long it took and how many were skipped to reach it.
-async fn read<S>(mut rx: S, room: usize, start: Instant, stop: Arc<AtomicBool>) -> Tally
+/// not seen yet, how long it took and how many were skipped to reach it. A
+/// uniform view carries this window's own draft too, which is not counted.
+async fn read<S>(mut rx: S, me: usize, room: usize, start: Instant, stop: Arc<AtomicBool>) -> Tally
 where
   S: Stream<Item = Result<Message, Error>> + Unpin,
 {
@@ -168,7 +189,7 @@ where
         tally.last_frame = Some(Instant::now());
         let now = start.elapsed().as_micros() as u64;
         for (sender, seq, at) in drafts(body.as_str()) {
-          if sender < room && seq > last[sender] {
+          if sender < room && sender != me && seq > last[sender] {
             tally.gaps += seq - last[sender] - 1;
             last[sender] = seq;
             tally.seen += 1;
@@ -206,8 +227,8 @@ fn drafts(body: &str) -> Vec<(usize, u64, u64)> {
     .collect()
 }
 
-async fn row(room: usize, pace: Option<Duration>, length: Duration) {
-  let served = serve().await;
+async fn row(room: usize, pace: Option<Duration>, length: Duration, settings: Settings) {
+  let served = serve(settings).await;
   let start = Instant::now();
   let ready = Arc::new(Barrier::new(room));
   let windows: Vec<_> = (0..room)
@@ -254,14 +275,26 @@ const HEADER: &str = "windows     sent/s  applied/s    views/s    seen     gaps 
 async fn main() {
   let length = Duration::from_secs(setting("OPS_SECONDS", 5));
   let rate = setting("OPS_RATE", 10);
+  let sweep = std::env::var("OPS_SWEEP").unwrap_or_default();
+  let settings = Settings { tick_hz: setting("OPS_TICK_HZ", 0) as u32, uniform: setting("OPS_UNIFORM", 0) == 1, depth: setting("OPS_DEPTH", 256) as usize };
+  println!(
+    "views {}, {}, queue {}",
+    if settings.uniform { "uniform" } else { "per window" },
+    if settings.tick_hz > 0 { format!("on a {} Hz tick", settings.tick_hz) } else { "after every keystroke".to_owned() },
+    settings.depth
+  );
   let rows = |label: String, rooms: &'static [usize], pace: Option<Duration>| async move {
     println!("\n{label}\n{HEADER}");
     for &room in rooms {
-      if tokio::time::timeout(length + Duration::from_secs(60), row(room, pace, length)).await.is_err() {
+      if tokio::time::timeout(length + Duration::from_secs(60), row(room, pace, length, settings)).await.is_err() {
         println!("{room:>7}  timed out");
       }
     }
   };
-  rows(format!("paced, {rate} keystrokes a second per window, {}s a row", length.as_secs()), PACED, Some(Duration::from_secs(1) / rate as u32)).await;
-  rows(format!("flat out, {}s a row", length.as_secs()), FLAT_OUT, None).await;
+  if sweep != "flat" {
+    rows(format!("paced, {rate} keystrokes a second per window, {}s a row", length.as_secs()), PACED, Some(Duration::from_secs(1) / rate as u32)).await;
+  }
+  if sweep != "paced" {
+    rows(format!("flat out, {}s a row", length.as_secs()), FLAT_OUT, None).await;
+  }
 }
