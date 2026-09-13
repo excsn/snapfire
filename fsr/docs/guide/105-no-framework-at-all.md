@@ -112,7 +112,7 @@ Everything above is defined when the entry module runs, which is what a masthead
 
 The child is an element, not a component. The server writes its markup inside the island marker, so the list is readable with no script at all: `back 2026-09-14` until the definition lands, `back in 2 days` after it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports it when the panel scrolls into view and every element inside upgrades itself. The module needs an `export` to be imported dynamically; the class is the obvious one.
 
-That is the whole of islands in this application: one marker, no props script, no mounter, no framework.
+Islands in this application need nothing more than that: one marker, no props script, no mounter and no framework.
 
 ## A region that asks the server for markup
 
@@ -163,7 +163,7 @@ enableNavigation();
 bindHtmx(htmx);
 ```
 
-htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed and that is what the one line holds. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one failure this arrangement has and it is loud.
+htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed, which is what that one line wires up. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one way this arrangement fails. It fails visibly.
 
 ## The lab
 

@@ -53,7 +53,7 @@ bindHtmx(htmx);
 
 So one page here holds three interaction models: a component the browser hydrates, a component the browser mounts fresh, a region nothing mounts at all. The lot stepper in the masthead is a fourth, from chapter 102: a React component the host renders and steps itself, placed in server mode, whose buttons call an action the host dispatches inside the round trip.
 
-The fifth is the cheapest and it is the page's most valuable content. The book under the masthead, value against cost with the profit between them, is arithmetic the layout's loader did, printed straight into the markup: no island, no mounter, no props script, nothing to hydrate, no module loaded. It is current because the desk's clock pushes `prices` and `live(["prices"])` revalidates the route, so the server computes the numbers again and the navigator swaps the segment. Reach for an island when the browser owns something; when the server owns it, markup is the whole answer.
+The fifth is the cheapest to serve and it holds the page's most valuable content. The book under the masthead, value against cost with the profit between them, is arithmetic the layout's loader did, printed straight into the markup: no island, no mounter, no props script, nothing to hydrate, no module loaded. It is current because the desk's clock pushes `prices` and `live(["prices"])` revalidates the route, so the server computes the numbers again and the navigator swaps the segment. Reach for an island when the browser owns something. When the server owns it, plain markup is enough.
 
 ## What it costs
 

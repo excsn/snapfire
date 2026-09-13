@@ -1,6 +1,6 @@
 # 900. The parts bin
 
-Every block in every crate, one line each, sorted by the itch it scratches. The chapters tell the story; this is the inventory for the day you already know the story and want the name.
+Every block in every crate, one line each, sorted by what you would be looking for. The chapters explain how the pieces fit; this is the index for when you already know that and want a name.
 
 **For:** everyone, platform developers most.
 

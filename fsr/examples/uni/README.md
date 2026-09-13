@@ -75,7 +75,7 @@ The React masthead holds that Vue sparkline; every Vue table row holds a React c
 
 `desk.buy` is a Rust action the React masthead posts to. It writes the session; the revalidation that follows re-renders the layout and the board, with the navigator patching each island in place from the payload rather than remounting it: the same `<div class="watch">` element, the same `<table>`, new numbers in both.
 
-That is what a keyed placement buys. `key=` on a Tera `island(...)` writes `data-sf-region` into the markup and `$k` into the props, which is what the navigator matches on. Without a key an island is either kept exactly as it stands or replaced wholesale, which loses most of the point.
+That patching is what a keyed placement is for. `key=` on a Tera `island(...)` writes `data-sf-region` into the markup and `$k` into the props, which is what the navigator matches on. Without a key an island is either kept exactly as it stands or replaced wholesale.
 
 ## One push, both frameworks
 
@@ -85,9 +85,9 @@ The desk's clock moves every four seconds, publishes `prices`, and `live(["price
 
 The tape asks for itself: `hx-get="?__fragment=tape"` on a ten second trigger. The host renders the whole route, picks that slot out and writes it with no shell, no layout and no sidecar. Nothing in it mounts, so the region costs no framework at all. `bindHtmx` is what keeps the two libraries aware of each other after a swap or a navigation.
 
-## The honest cost
+## What it costs
 
-Two runtimes on one page pay for both, and this page pays for three things that mount differently. Measured from the files this page loads, gzip at level 9:
+Two runtimes on one page cost what both cost. This page also mounts three things in different ways. Measured from the files this page loads, gzip at level 9:
 
 | | raw | gzip |
 | --- | --- | --- |

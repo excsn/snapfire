@@ -95,9 +95,9 @@ A pin the artifact no longer matches is reported with what to do about it. The c
 
 **It never fixes anything.** Every finding here has a remedy that is a judgement: whether a locale should gain a catalog or leave the table, whether an island is missing or the render mode is wrong. A flag that picked one would be wrong half the time and silent about it.
 
-**It never softens a boot error.** A condition the host refuses to start over stays a condition the host refuses to start over. Doctor exists to surface what has nowhere else to go, not to move failures somewhere quieter.
+**It never softens a boot error.** Anything the host refuses to start over still fails at boot. Doctor reports what has nowhere else to be reported; it does not downgrade failures.
 
-**It has no opinions.** Every check is a fact the application already stated and then contradicted, never a matter of taste. "The locale table names `fr` and there is no `fr` catalog" is a fact. How long a title should be is not. There is no configuration file for turning checks off either, because there is nothing here worth turning off.
+**It has no opinions.** Every check covers a fact the application stated and then contradicted, never a matter of taste. "The locale table names `fr` and there is no `fr` catalog" is a fact. How long a title should be is not. There is no configuration file for turning checks off either, because there is nothing here worth turning off.
 
 ## Where it belongs
 

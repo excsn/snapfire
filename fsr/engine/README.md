@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_engine/badge.svg)](https://docs.rs/snapfire_fsr_engine)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-QuickJS in process, for `fsr test` and nothing else. One engine holds one context: a DOM from linkedom, timers on a virtual clock, a `fetch` the host answers and the application's compiled modules resolved through its import map. That is what lets a page spec render a real React tree, click a real button and see a real action answer, without a browser and without a network.
+QuickJS in process, for `fsr test` and nothing else. One engine holds one context: a DOM from linkedom, timers on a virtual clock, a `fetch` the host answers and the application's compiled modules resolved through its import map. That is what lets a page spec render a React tree, click a button and see an action answer, with no browser and no network.
 
 Nothing here runs at request time. A page renders in Rust through the IR, so the serving path holds no JavaScript engine; this crate exists because a component test needs a DOM and the interpreter cannot supply one.
 

@@ -457,7 +457,7 @@ Compare fingerprints when the question is "same content", which is what caching 
 
 ## Why the Model Is Shaped This Way
 
-The model is sovereign and encodings are ranked projections of it. Admitting a type is a decision about what can exist. An encoding then either carries it losslessly or degrades in a way it declares. That is why `Value` holds `i128`, `u128`, `f32` beside `f64`, raw bytes and typed arrays: JSON pays the price of tagging what it cannot spell, rather than the model shrinking to what JSON spells natively.
+The model decides what can exist and encodings are projections of it, ranked by how much they preserve. Admitting a type to the model is a decision about what can exist. An encoding then either carries it losslessly or degrades in a way it declares. That is why `Value` holds `i128`, `u128`, `f32` beside `f64`, raw bytes and typed arrays: JSON pays the price of tagging what it cannot spell, rather than the model shrinking to what JSON spells natively.
 
 Typed arrays are a variant rather than a `Seq` of numbers because the element type is information the browser needs and because a ten-thousand-point series should be one `Vec`, not ten thousand `Value`s. Variants are a model type rather than a map-shaped convention so that codegen, every encoding and the fingerprint agree on one representation. `undefined` does not exist; an absent key is the only absence.
 

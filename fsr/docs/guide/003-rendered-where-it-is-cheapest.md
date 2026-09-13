@@ -8,19 +8,19 @@ The question this chapter answers: how does a React page arrive as HTML from a s
 
 Client-side rendering ships a blank document and a script; the browser builds the page. Server-side rendering runs the components on the server and ships HTML, then the browser downloads the same components and runs them again over the existing DOM to attach handlers, which is hydration. Islands narrow that: only the interactive components ship JavaScript, everything around them is inert HTML. Server components go further, running some components only on the server and sending the browser a tree rather than HTML.
 
-Every one of those is a shape of one thing: a tree the server produces, with some nodes that are finished markup and some that name a module the browser must mount, carrying the props to mount it with. fsr owns that tree. A page is not "SSR" or "islands" per route; it is whatever mix of nodes the plan and the evaluators produce, and the browser's client reads any mix the same way. One setting moves the whole application to one end of that range, which is the last section of this chapter; everything between the ends is decided per component by what the build could lower.
+All four are variations of the same thing: a tree the server produces, with some nodes that are finished markup and some that name a module the browser must mount, carrying the props to mount it with. fsr owns that tree. A route is not labelled "SSR" or "islands". It is whatever mix of nodes the plan and the evaluators produce. The browser's client reads any mix the same way. One setting moves the whole application to one end of that range, which is the last section of this chapter; everything between the ends is decided per component by what the build could lower.
 
 ## Where the markup comes from
 
 A page in the storefront is a React component. React cannot run in Rust, so the obvious answer is a JavaScript engine on the server; fsr's answer is to not need one for the common case.
 
-The build reads the page the way it reads a loader. JSX is a tree of elements, text and expressions; a `.map` over an array is a loop; a ternary with markup in a branch is a condition; a component the page imports is another tree applied to props. The build lowers all of it into a render tree in the plan file; the helper functions the page calls, `money`, `categoryLabel`, `percentOff`, are inlined as lambdas beside it. At request time the host evaluates that tree with the props the loader produced and writes HTML. No engine anywhere.
+The build reads the page the way it reads a loader. JSX is a tree of elements, text and expressions; a `.map` over an array is a loop; a ternary with markup in a branch is a condition; a component the page imports is another tree applied to props. The build lowers all of it into a render tree in the plan file; the helper functions the page calls, `money`, `categoryLabel`, `percentOff`, are inlined as lambdas beside it. At request time the host evaluates that tree with the props the loader produced and writes HTML. There is no engine involved.
 
 The output follows React's own server renderer in the places hydration can tell: adjacent text nodes are separated by an empty comment, empty strings write nothing, a controlled `<select>` marks its option selected. Follow those and React's hydration accepts the markup as its own and attaches its handlers without touching the DOM. Miss one and React throws the markup away and renders from scratch, which the browser console reports as a hydration mismatch. The storefront's three pages hydrate clean.
 
-That fidelity is measured rather than asserted. A bench renders each of those pages twice, once through the interpreter and once through React's own `renderToString` in the QuickJS the test runner already embeds, and fails on any byte of difference before it reports a number. The numbers are the second reason to keep the interpreter: it is currently 1.8x ahead of React in QuickJS on the catalog and about 3.7x on the two small pages, and a fresh QuickJS context costs around 20 ms to bring up before it renders anything, which is what an isolate-per-request design would pay. [docs/benches/render.md](../benches/render.md) has the method, what it does not measure and every run kept.
+That fidelity is measured. A bench renders each of those pages twice, once through the interpreter and once through React's own `renderToString` in the QuickJS the test runner already embeds, and fails on any byte of difference before it reports a number. The numbers are the second reason to keep the interpreter: it is currently 1.8x ahead of React in QuickJS on the catalog and about 3.7x on the two small pages, and a fresh QuickJS context costs around 20 ms to bring up before it renders anything, which is what an isolate-per-request design would pay. [docs/benches/render.md](../benches/render.md) has the method, what it does not measure and every run kept.
 
-**A component that runs on the server without an engine is a component the build could read.** The report says which ones it could:
+A component runs on the server when the build could read it. The report says which ones it could:
 
 ```
 rendered  routes/page.tsx#default            lowered
@@ -28,7 +28,7 @@ rendered  routes/page.tsx#default            lowered
           src/ui/Stars.tsx#Stars             lowered
 ```
 
-A page it could not read is marked `client`, pointing at the residue that decided it, which may sit in a component the page imports, since a page cannot be rendered around a hole. A `client` section below states each such residue once, with the rewrite that does the same thing in the IR and the tags to follow from the page down to it, so a cause three files below a page names the path rather than leaving it to be found:
+A page it could not read is marked `client`, pointing at the residue that decided it, which may sit in a component the page imports, since the page cannot render without that component. A `client` section below states each such residue once, with the rewrite that does the same thing in the IR and the tags to follow from the page down to it, so a cause three files below a page names the path rather than leaving it to be found:
 
 ```
 rendered  routes/page.tsx#default            client      src/ui/Stars.tsx:12:19
@@ -38,7 +38,7 @@ client    src/ui/Stars.tsx:12:19             `.slice()`, which is not a builtin
             routes/page.tsx#default          <Header> routes/page.tsx:22:7, <Stars> src/ui/Header.tsx:8:5
 ```
 
-That page arrives as a module reference with its props, exactly as every page did before rendering existed. It mounts in the browser and works. What it lacks is first paint.
+That page arrives as a module reference with its props, exactly as every page did before rendering existed. It mounts in the browser and works. It has no first paint.
 
 ## What the browser receives
 
@@ -56,7 +56,7 @@ A static segment is still kept across navigation, since a segment's digest is of
 
 ## What the browser does not compute twice
 
-Hydration is React running the page again to find out where its handlers go, and every helper on the render path runs with it: `money`, `percentOff`, `categoryLabel`, once in Rust for the markup and once in the browser for a tree React then discards. The two have to agree byte for byte, and the browser paid for an answer the server already had.
+Hydration is React running the page again to find out where its handlers go, and every helper on the render path runs with it: `money`, `percentOff`, `categoryLabel`, once in Rust for the markup and once in the browser for a tree React then discards. The two have to agree byte for byte, so the browser computes an answer the server already had.
 
 So the server ships the answers. A call whose inputs are props only, nothing that reaches a `useState`, a store key or the request, is computed once in Rust and delivered beside the props under `$h`, keyed by the module, the call and the loop it sits in. The build writes a copy of the component for the bundle in which that call reads the delivered value and keeps the original as its fallback, and snapfirec compiles the copy in place of the source. A whole subtree goes the same way when nothing in it can change in the browser, no handler, no state, no island: the server records its markup and the browser hands it to React as the element's inner HTML, so React renders nothing inside it and hydrates nothing inside it. The catalog's product cards are such subtrees. What is left for React to compute at hydration is what can actually change in the browser, and the report counts the rest:
 
@@ -84,13 +84,13 @@ The server still does most of its work. Loaders and actions run in Rust, because
 
 What you gain is that no component has to render twice and agree. Residue stops mattering, because everything is residue: a component may reach for anything, and there is no Rust rendering of it to disagree with. What you lose is the first paint. The document has no page content until the bundle has loaded and run, which is what every client-rendered application costs, and prerendering a route means prerendering a document with no page in it.
 
-That is why it is not the default rather than why it is wrong. It is the right setting for an application behind a login where nothing is indexed and the first paint is a spinner either way, and it is the honest way to run one component library that will never lower. For everything else the default gives you the markup on the wire and the browser reads what the server already computed.
+That cost is why it is not the default. The setting is still the right one in two cases: an application behind a login where nothing is indexed and the first paint is a spinner either way, and a component library that will never lower. For everything else the default gives you the markup on the wire and the browser reads what the server already computed.
 
 ## Where this leaves an engine
 
 Components that read state the server cannot see, that suspend, that reach into libraries the build cannot follow, are residue. Today they render in the browser only. An engine that runs residue components on the server is the remaining piece and it is a deliberate open question, because the cost of an engine is paid per component per request and most of a storefront never needs it: the eight modules in the example lower after one helper was rewritten to avoid `new URLSearchParams`. When one arrives, a residue component will render on the server through it and the report will say so.
 
-The invariant this design keeps, whatever the engine decision, is that data resolves before render. A loader owns every await; a component is a function of its props. That is what lets Rust cache a subtree and skip evaluating it. It is also the line an engine must not be allowed to blur by letting a component fetch mid-render.
+One invariant holds whatever is decided about an engine: data resolves before render. A loader owns every await and a component is a function of its props. That is what lets Rust cache a subtree and skip evaluating it. An engine would have to keep the same rule rather than letting a component fetch mid-render.
 
 ## The lab
 
@@ -98,6 +98,6 @@ Load the catalog and view the source. The product cards are there in the HTML, i
 
 Look at the props script that follows the catalog's island. Beside the products it carries `"$h"`, a table whose keys name `ProductCard` and `Stars` with an id and a loop index, and whose values are the prices and the star strings the cards show, plus the inner markup of each card. That is what React read at hydration instead of calling `money` and `Math.round` for every card.
 
-Now put `render = "islands"` under `[server]` in `config/app.toml` and restart. View the source: the shell, the head, the store seed and three elements naming `routes/layout.tsx#default`, `routes/cart/page.tsx#default` and the promo slot, each followed by its props, and not one product card. The page still works, and the console is still clean: click a card, the modal opens over the catalog; add to cart, the badge moves. Everything you can see the browser drew, and everything it drew from the server sent it the data for. Take the line back out.
+Now put `render = "islands"` under `[server]` in `config/app.toml` and restart. View the source: the shell, the head, the store seed and three elements naming `routes/layout.tsx#default`, `routes/cart/page.tsx#default` and the promo slot, each followed by its props, and not one product card. The page still works and the console is still clean: click a card, the modal opens over the catalog; add to cart, the badge moves. The browser drew everything you can see, from data the server sent it. Take the line back out.
 
 Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. Every page that imports `Stars` is now marked `client`; the `client` section names that one line in `Stars.tsx` once, with all of those pages under it and the tags to follow to reach each. The pages still load and still work; view the source again and the cards are gone from the HTML, present only as props. Put `Math.round` back.

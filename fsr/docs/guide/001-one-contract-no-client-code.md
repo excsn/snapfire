@@ -4,13 +4,13 @@ The question this chapter answers: how does a loader call a service it has never
 
 **For:** everyone.
 
-## The document is the integration
+## The service's own document
 
-A service the application talks to already describes itself. An HTTP service publishes an OpenAPI document; a gRPC service publishes a `.proto`. fsr treats that document as the whole of the integration: drop it under `app/clients/` and the build imports it into the contract. The storefront has two, [`shopping.openapi.json`](../../examples/shopping_react_ts/app/clients/shopping.openapi.json) for the catalog and orders and [`inventory.proto`](../../examples/shopping_react_ts/app/clients/inventory.proto) for stock levels. Nothing under `app/` mentions HTTP or gRPC anywhere.
+A service the application talks to already describes itself. An HTTP service publishes an OpenAPI document; a gRPC service publishes a `.proto`. fsr uses that document as the integration: drop it under `app/clients/` and the build imports it into the contract. The storefront has two, [`shopping.openapi.json`](../../examples/shopping_react_ts/app/clients/shopping.openapi.json) for the catalog and orders and [`inventory.proto`](../../examples/shopping_react_ts/app/clients/inventory.proto) for stock levels. Nothing under `app/` mentions HTTP or gRPC anywhere.
 
 The name of the file is the name of the service. `shopping.openapi.json` is `services.shopping`; each operation's `operationId` is a method; each schema is a type. For a proto, the one service in the file takes the file's name, the messages become records and `int64` stays a 64-bit integer rather than becoming a JavaScript number, which is why the value model has a `bigint` and the generated types say so.
 
-**A backend that keeps its document honest is integrated.** That is the promise to the backend developer: publish what you serve and the frontend team is done. The storefront's HTTP backend goes further and includes its document from `app/clients/` at compile time, so the document the build imports and the document the server publishes are the same bytes and cannot disagree.
+A backend is integrated as soon as its document matches what it serves. For a backend developer that is the whole job: publish an accurate document and the frontend team has what it needs. The storefront's HTTP backend goes further and includes its document from `app/clients/` at compile time, so the document the build imports and the document the server publishes are the same bytes and cannot disagree.
 
 ## What the build makes of it
 
@@ -23,7 +23,7 @@ services.shopping.listProducts(args: { q?: string; category?: string; tag?: stri
 services.inventory.getStock(args: { product_id: bigint }): Promise<StockLevel>;
 ```
 
-A loader calls a service through `ctx.services` with exactly that shape. The call is a row in the plan file: service, method, arguments. There is no client module because there is nothing a client module would add. The transport is chosen by the host from the document's extension and the base URL in configuration, which is [chapter 202](202-services-and-transports.md).
+A loader calls a service through `ctx.services` with exactly that shape. The call is a row in the plan file: service, method, arguments. There is no client module. A client module would have nothing to add. The transport is chosen by the host from the document's extension and the base URL in configuration, which is [chapter 202](202-services-and-transports.md).
 
 ## The runtime checks both directions
 
@@ -33,7 +33,7 @@ This is the reason the registry exists as a block rather than as generated code.
 
 ## Why this is the enterprise argument
 
-A team with forty services has forty documents already. What it usually lacks is one place where a frontend's use of them is typed, checked and visible. fsr makes the contract that place: the editor types against it, the build refuses an unknown method, the runtime refuses a bad shape, the boot report lists every service and its transport. The cost of adding a service is copying its document. The cost of a service changing is a build that says where.
+A team with forty services has forty documents already. What it usually lacks is one place where a frontend's use of them is typed, checked and visible. fsr makes the contract that place: the editor types against it, the build refuses an unknown method, the runtime refuses a bad shape, the boot report lists every service and its transport. Adding a service costs one copied document. Changing a service costs one build, which tells you where the change lands.
 
 ## The lab
 

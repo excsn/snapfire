@@ -63,7 +63,7 @@ And one appendix:
 
 **A frontend developer who would rather have no framework:** read 000, then 100 and 101, then 105. Your pages are templates, your interactive pieces are elements the browser defines and your regions are fragments; 003 says why the server can render all of it.
 
-**A backend developer who owns the services:** read 000, then 001 and 202. Your service's document is the whole of your integration; the rest of the guide is what happens on the other side of it.
+**A backend developer who owns the services:** read 000, then 001 and 202. Your service's document is the entire integration. The rest of the guide is what happens on the other side of it.
 
 **A full-stack developer working in TypeScript:** read in order through the 100s, then 300, 301, 302, 303 and 304. Skip the 200s until you need to run something that is not the stock host.
 
@@ -71,7 +71,7 @@ And one appendix:
 
 **A team that owns one part of a larger product:** read 205, then the 100s; the shell is someone else's, and your site runs alone until it is mounted.
 
-**Someone evaluating fsr for a team:** read 000, 001 and 002. They are the argument. If they hold, the rest is detail.
+**Someone evaluating fsr for a team:** read 000, 001 and 002. Those three cover the claims the rest of the guide depends on.
 
 ## A note on words
 

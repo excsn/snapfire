@@ -83,7 +83,7 @@ export function registerIslands(): void {
 }
 ```
 
-A mounter is imported only when a registered module wants it. That is the line that keeps React off a page with no React component on it.
+A mounter is imported only when a registered module wants it, which is what keeps React off a page that has no React component on it.
 
 The stylesheets reach the head before the first island mounts. The compiler lists them in `dist/.snapfire-build.json` under `styles`; the host reads that file at boot and links each one after the application's own `styles/*.css`, so a component's rules come later in the cascade than the document's.
 

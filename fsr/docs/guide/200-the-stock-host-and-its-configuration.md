@@ -54,7 +54,7 @@ client    /static/js/fsr         17 modules, 95 KiB from the binary
 
 A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client it built itself.
 
-**Nothing the host decided is invisible.** That is the contract the report keeps with the person reading the log at three in the morning.
+Everything the host decided shows up in the report, so nothing it inferred has to be guessed at from the log later.
 
 ## The origin a canonical link points at
 

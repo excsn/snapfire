@@ -26,7 +26,7 @@ A chain is tower-style: a list of functions, not a workflow engine. A cache or a
 
 A session carries two things: the cell a body reads and writes plus the tokens the platform holds for it. The cell flows into the request context. The tokens never do. A body has no field through which to reach a bearer token, a refresh token or an API key; no service call it can make takes one as an argument. The credential interceptor reads from custody at the moment of the call and writes a refreshed token back the same way; neither end of that is application code.
 
-**The boundary is not that tokens are hidden. It is that there is no path.** That is the property an auditor wants and it is the reason the registry, the interceptors and the session are one design rather than three.
+The boundary is stronger than hiding the tokens: there is no path from application code to one at all. That is what an auditor is looking for. It is also why the registry, the interceptors and the session are one design rather than three.
 
 ## Failure has seven names
 

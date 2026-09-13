@@ -10,7 +10,7 @@ What it shows is what is absent. There is no `Cargo.toml`, no `src/*.rs`, no `bu
 fsr dev app
 ```
 
-That is the whole of it: no `cargo run`, no `npm install`. `fsr serve app` serves what is already built; `fsr test app` runs the suite.
+That is all of it: no `cargo run`, no `npm install`. `fsr serve app` serves what is already built and `fsr test app` runs the suite.
 
 The programme is on <http://127.0.0.1:8150/>.
 
@@ -33,7 +33,7 @@ The programme is on <http://127.0.0.1:8150/>.
 | `src/ui/SaveTalk.tsx` | the action call, optimistic against the store |
 | `src/ui/Feedback.tsx` | placed with `island(Feedback, { when: "visible" })` |
 
-## The plan is the application
+## Everything is lowered
 
 `fsr build app` prints what answers each name and every row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in.
 

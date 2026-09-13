@@ -22,9 +22,9 @@ The transport is the socket the host already terminates. `src/wire.rs` implement
 
 Reads and writes both go through the controller. `waves.getWave` is a closure plaza runs on the controller's task; `waves.addBlip` submits an operation and then queries, which returns only once that operation has been applied, because the controller does one thing at a time. The action then publishes the wave's topic and every open page revalidates.
 
-## A blip is a document
+## Blips stay editable
 
-Every blip stays editable after it is kept, by anyone on the wave. That is the line between this and a chat log: the conversation is the artifact rather than a record of one.
+Every blip stays editable after it is kept, by anyone on the wave. That is the difference from a chat log, where a message is fixed once it is sent.
 
 One window holds a blip at a time, and the lock is the state rather than a lock primitive: `Field.edits` holds at most one entry per blip, so the second window to reach for it changes nothing, and the view is what tells both which of them won. While someone holds a blip everyone else watches the words change and cannot take it. Nobody is ever shown their own rewrite, so the textarea a reader is typing in is never written over by the server.
 
@@ -68,7 +68,7 @@ A rail link is this page under another view, `${path}?view=active`, which is wha
 
 A click on the rail changes one pane at a time. Every segment carries a digest of what it rendered, so a navigation that only moves `?view=` replaces the rail and the wave list, which read the view, and keeps the contacts pane, the transcript and the composer with whatever is half typed in it. The layout around them is an island and survives too. What this does not do yet is keep a draft inside a pane that genuinely changed, since replacing a region tears down the islands in it.
 
-## Naming yourself is what unlocks writing
+## Naming yourself
 
 A reader with no name may open a wave and read it and nothing else: no composer, no blip offers itself for rewriting, the rules drop every op the window sends and both actions refuse it. Presence leaves it out too, so nobody is listed as `someone`.
 
