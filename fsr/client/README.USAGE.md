@@ -13,6 +13,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Registering an Island](#registering-an-island)
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
 * [Defining an Element When It Is Needed](#defining-an-element-when-it-is-needed)
+* [Placing an Island of Another Framework](#placing-an-island-of-another-framework)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
@@ -221,6 +222,24 @@ A custom element has no mount: the browser upgrades it the moment `customElement
 The child is an element rather than a component, its markup is the server's, with nothing mounted over it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports the module at the timing asked for, at which point the elements inside upgrade themselves. A definition module must be a module: give it an `export` so it can be imported dynamically.
 
 Without this the definition runs when the entry module does, which is right for an element the first paint needs, such as a masthead's, but wasteful for one below the fold.
+
+## Placing an Island of Another Framework
+
+`Island` places a React child. A React tree holding an island **another** framework mounts needs the module id instead, since React cannot render a Vue component and should not try:
+
+```tsx
+import { Mount } from "@snapfire/fsr-client/react";
+
+<Mount module="src/ui/Sparkline.vue#default" props={{ points, up }} when="visible" />;
+```
+
+It writes the marker the boot runtime reads, with the props beside it, mounting nothing itself: the registry entry for that module decides the mounter. When the props change the nested island is patched in place rather than torn down. The Vue entry exports the same component for the other direction, so a Vue table row can hold a React chip:
+
+```vue
+<Mount module="src/ui/Chip.tsx#default" :props="{ symbol: row.symbol }" />
+```
+
+Nothing rendered these on the server, so both are mounted fresh. `Island` stays the one to use for a child of your own framework, since it adopts the region the server rendered.
 
 ## Placing a Component as an Island
 

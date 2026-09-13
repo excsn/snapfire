@@ -1,13 +1,13 @@
-<!doctype html>
-<html lang="en"><head>{{ head() }}</head><body>
+<div class="shed">
 <header class="masthead">
   <a class="brand" href="/board">Uni desk</a>
   <nav><a href="/board">Board</a><a href="/news">News</a></nav>
-  {{ island(module="js/src/ui/Watch.tsx#default", props=watch) }}
+  {{ island(module="js/src/ui/Watch.tsx#default", props=watch, key="watch") }}
+  {{ island(module="js/src/ui/Lot.tsx#default", props=lot, key="lot", mode="server") }}
 </header>
 <div class="columns">
   <main>{{ slot(name="content") }}</main>
   <aside>{{ slot(name="tape") }}</aside>
 </div>
 <footer class="colophon">One Tera layout. A React island in the masthead, a Vue island on the board, an htmx region on the right, one store between them.</footer>
-</body></html>
+</div>

@@ -87,10 +87,12 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [useStore](#usestore)
   * [useLocale](#uselocale)
   * [Link](#link)
+  * [Mount](#mount)
   * [reactPatcher](#reactpatcher)
 * [11. The Vue Mounter](#11-the-vue-mounter)
   * [vueMounter](#vuemounter)
   * [vuePatcher](#vuepatcher)
+  * [Mount (Vue)](#mount-vue)
   * [useStore (Vue)](#usestore-vue)
 * [12. Binding htmx](#12-binding-htmx)
   * [HtmxProcessor](#htmxprocessor)
@@ -738,6 +740,13 @@ The document's locale, re-rendering the island when a navigation changes it. The
 
 An `<a>` with the rest of its props, carrying `data-sf-full="true"` when `full`, `data-sf-into` when `into`, `data-sf-prefetch` when `prefetch` and `data-sf-native="true"` when `native`, which is what the navigator reads off a clicked or hovered anchor. The build lowers the use to the same `<a>`.
 
+### Mount
+
+* `function Mount({ module, props, when }: MountProps): ReactElement`
+* `interface MountProps { module: string; props?: Props; when?: MountTiming }`
+
+Places an island by module id rather than by component, for a tree holding an island another framework mounts. Renders `<sf-s data-sf-island>` with a marker and a props script inside it, then scans that region, so the registry entry for `module` decides the mounter and this component renders none of it. A later render with different `props` patches the island in place. The Vue entry exports the same component for the other direction.
+
 ### reactPatcher
 
 * `const reactPatcher: Patcher`
@@ -761,6 +770,12 @@ Takes the module's default export (the module itself when it is the component) a
 * `const vuePatcher: Patcher`
 
 Assigns the new props into the reactive object the mounter holds for `el`, deleting keys the new props lack, so the component re-renders in place with its DOM and its state. Does nothing for an element nothing mounted.
+
+### Mount (Vue)
+
+* `const Mount: Component`, taking `module`, `props` and `when`
+
+The counterpart of the React `Mount` in a Vue tree: it writes the island marker and its props, scans the region and patches the island when its props change. A Vue component holding a React island uses it.
 
 ### useStore (Vue)
 

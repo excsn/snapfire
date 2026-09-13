@@ -8,19 +8,22 @@ use snapfire_fsr_core::ModuleId;
 use snapfire_fsr_host::{Config, Host, HostBuilder, HostError};
 use snapfire_fsr_tera::TeraEvaluator;
 
+mod actions;
 mod loaders;
 mod routes;
 pub mod state;
 
-/// A plan file the host reads as empty: every route here is registered in
-/// Rust, which is what the Tera tier is.
-const EMPTY_PLAN: &str = r#"{ "version": 2, "routes": [], "sources": [], "actions": [] }"#;
+/// The plan `build.rs` writes: no routes, since every route here is registered
+/// in Rust, and one lowered component, the server-mode island the host renders
+/// itself. The two tiers meet in this file.
+const PLAN: &str = include_str!(concat!(env!("OUT_DIR"), "/plan.sexp"));
 
 fn templates() -> tera::Tera {
   let mut tera = tera::Tera::new();
   snapfire_fsr_tera::register_markers(&mut tera);
   tera
     .add_raw_templates(vec![
+      ("document.tera", include_str!("../templates/document.tera")),
       ("layout.tera", include_str!("../templates/layout.tera")),
       ("board.tera", include_str!("../templates/board.tera")),
       ("news.tera", include_str!("../templates/news.tera")),
@@ -30,16 +33,16 @@ fn templates() -> tera::Tera {
   tera
 }
 
-pub fn builder() -> Result<HostBuilder, HostError> {
+pub fn builder(ticks: state::Ticks) -> Result<HostBuilder, HostError> {
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
-  let builder = Host::from_config_with(config, EMPTY_PLAN.to_owned(), None)?
+  let builder = Host::from_config_with(config, PLAN.to_owned(), None)?
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/board", routes::board_plan())
     .route("/news", routes::news_plan())
     .route("/", routes::board_plan());
-  Ok(loaders::register(builder, state::Tape::default()))
+  Ok(actions::register(loaders::register(builder, state::Tape::default(), ticks)))
 }
 
 pub fn build() -> Result<Host, HostError> {
-  builder()?.build()
+  builder(state::Ticks::default())?.build()
 }

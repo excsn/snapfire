@@ -1,25 +1,31 @@
-import { decodeValue, encodeValue } from "./values.js";
+import { encodeValue } from "./values.js";
 const STATE_PROP = "$s";
 const islands = new WeakMap();
 export function isServerIsland(el) {
     return islands.has(el);
 }
-export function mountServer(el, module, props) {
-    const { [STATE_PROP]: state, ...own } = props;
+export function mountServer(el, module, encoded) {
+    const carried = encoded ?? {};
+    const { [STATE_PROP]: state, ...props } = carried;
     const island = {
         module,
-        props: own,
+        props,
         state: state ?? {},
         pending: false,
         listening: new Set()
     };
     islands.set(el, island);
+    if (!el.firstElementChild) {
+        void step(el, island, null, null);
+        return;
+    }
     listen(el, island);
 }
 export async function patchServer(el, props) {
     const island = islands.get(el);
     if (!island) return false;
-    const { [STATE_PROP]: state, ...own } = props;
+    const encoded = encodeValue(props);
+    const { [STATE_PROP]: state, ...own } = encoded;
     island.props = own;
     if (state !== undefined) island.state = state;
     await step(el, island, null, null);
@@ -76,12 +82,12 @@ async function step(el, island, handler, event) {
             "content-type": "application/json"
         };
         if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
-        const body = JSON.stringify(encodeValue({
+        const body = JSON.stringify({
             props: island.props,
             state: island.state,
             handler,
-            event
-        }));
+            event: encodeValue(event)
+        });
         const res = await fetch(`/_sf/island/${encodeURIComponent(island.module)}`, {
             method: "POST",
             headers,
@@ -92,7 +98,7 @@ async function step(el, island, handler, event) {
             console.warn(`sf: island ${island.module} step failed with ${res.status}: ${text}`);
             return;
         }
-        const answer = decodeValue(JSON.parse(text));
+        const answer = JSON.parse(text);
         island.state = answer.state;
         morph(el, answer.html);
         listen(el, island);

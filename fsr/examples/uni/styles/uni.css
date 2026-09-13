@@ -53,3 +53,39 @@ body {
 
 .quiet { color: #6b7280; font-size: 13px; margin: 10px 0 0; }
 .colophon { padding: 8px 22px 24px; color: #6b7280; font-size: 13px; }
+
+.chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  background: #eef0f4;
+  color: #374151;
+}
+
+.chip.up { color: #15803d; }
+.chip.down { color: #b91c1c; }
+.chip.mine { outline: 2px solid #c7d7ff; }
+.watch .spark { margin: 0 2px; }
+
+.watch .owned { color: #15803d; font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.lot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 14px;
+  padding: 6px 10px;
+  border: 1px solid #e3e5ea;
+  border-radius: 999px;
+  background: #fbfbfd;
+}
+
+.lot .label { color: #6b7280; font-size: 13px; }
+.lot output { min-width: 2.5em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.lot button { border: 0; background: #eef0f4; border-radius: 999px; width: 24px; height: 24px; cursor: pointer; font-size: 15px; line-height: 1; }
+.lot .quiet { margin: 0; }
+.masthead { flex-wrap: wrap; }

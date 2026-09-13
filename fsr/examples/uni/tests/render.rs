@@ -22,8 +22,32 @@ async fn one_page_carries_a_react_island_a_vue_island_and_a_region_that_is_neith
   assert!(html.contains(r#"hx-get="?__fragment=tape""#), "the tape asks the host for itself");
   assert!(!html.contains("data-sf-module=\"tape"), "and mounts nothing");
 
+  assert!(html.contains(r#"data-sf-module="js/src/ui/Lot.tsx#default""#), "the server-mode island is there too");
+  assert!(html.contains(r#"data-sf-mode="server""#), "declared in the markup, which is where the browser reads it");
+  // The marker is empty: a Tera template places the module, and nothing fills
+  // a client node another evaluator would have to render. The browser asks
+  // the host for the first render when it mounts, which is what the step
+  // below answers.
+  assert!(html.contains(r#"data-sf-module="js/src/ui/Lot.tsx#default"></sf-i>"#), "placed empty: {html}");
+
   let markers = html.matches("<sf-i").count();
-  assert_eq!(markers, 2, "two islands on the page, no more: {html}");
+  assert_eq!(markers, 3, "three placements, each a different mounting model: {html}");
+}
+
+#[tokio::test]
+async fn the_server_mode_island_is_rendered_again_by_the_host_when_it_is_stepped() {
+  let host = host();
+  let stepped = host
+    .handle(
+      http::Request::post("/_sf/island/js%2Fsrc%2Fui%2FLot.tsx%23default")
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"props":{"size":{"$":"f","v":10.0}},"state":{"lot":{"$":"f","v":10.0}},"handler":1}"#))
+        .unwrap(),
+    )
+    .await;
+  let answer = body(stepped).await;
+  assert!(answer.contains("<output>20</output>"), "the handler ran in Rust and the component was rendered again: {answer}");
+  assert!(!answer.contains("\"kind\""), "with no failure, which a bare `10` in place of a double would be: {answer}");
 }
 
 #[tokio::test]

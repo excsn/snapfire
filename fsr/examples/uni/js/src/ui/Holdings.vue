@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useStore } from "@snapfire/fsr-client/vue";
+import { Mount, useStore } from "@snapfire/fsr-client/vue";
 
 import { watchedKey } from "./Watch.js";
 
@@ -26,7 +26,7 @@ const held = useStore(watchedKey, props.watched);
         <td>{{ row.name }}</td>
         <td class="n">{{ row.shares }}</td>
         <td class="n">{{ row.price.toFixed(2) }}</td>
-        <td class="n" :class="row.change < 0 ? 'down' : 'up'">{{ row.change.toFixed(1) }}%</td>
+        <td class="n"><Mount module="js/src/ui/Chip.tsx#default" :props="{ symbol: row.symbol, change: row.change }" /></td>
       </tr>
     </tbody>
   </table>

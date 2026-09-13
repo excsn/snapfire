@@ -16,6 +16,10 @@ parking_lot = "0.12"
 tera = { version = "2", features = ["fast"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
+[build-dependencies]
+snapfire_fsr_lower = { path = "../../lower" }
+snapfire_fsr_plan = { path = "../../plan" }
+
 [dev-dependencies]
 bytes = "1"
 futures = "0.3"

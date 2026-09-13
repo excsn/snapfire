@@ -23,8 +23,38 @@ pub const HEADLINES: &[(&str, &str)] = &[
   ("KLNS", "Kiln & Sons pauses the third furnace"),
 ];
 
+/// How far the tape has ticked, which is what moves a price. A desk with a
+/// backend would read the backend; this one wants a number that changes while
+/// the page is open, so a push has something to carry.
+#[derive(Clone, Default)]
+pub struct Ticks(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Ticks {
+  pub fn now(&self) -> usize {
+    self.0.load(std::sync::atomic::Ordering::Relaxed)
+  }
+
+  pub fn advance(&self) -> usize {
+    self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+  }
+}
+
+/// A holding's price at `tick`: the same walk for everyone, so two browsers
+/// watching the same symbol see the same number.
+pub fn price_at(h: &Holding, tick: usize) -> f64 {
+  let step = ((tick as f64) * 0.7 + h.symbol.len() as f64).sin();
+  ((h.price + step * h.price * 0.004) * 100.0).round() / 100.0
+}
+
 pub fn holding(symbol: &str) -> Option<&'static Holding> {
   HOLDINGS.iter().find(|h| h.symbol == symbol)
+}
+
+/// A short price trail per holding, so the sparkline inside the masthead has
+/// something to draw. Deterministic: a desk with a backend would read one.
+pub fn trail(h: &Holding) -> Vec<f64> {
+  let steps = [-0.9, 0.4, -0.2, 0.8, 0.1, 0.6];
+  steps.iter().enumerate().map(|(i, step)| h.price + step * h.change * (i as f64 + 1.0) / 6.0).collect()
 }
 
 pub fn as_value(h: &Holding) -> Value {

@@ -1,6 +1,7 @@
 import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { islandState, patchIsland, scan } from "./boot.js";
+import { encodeValue } from "./values.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe } from "./store.js";
 function slotOf(el) {
@@ -143,6 +144,36 @@ export function Island({ when, mode, children }) {
     if (when) props["data-sf-when"] = when;
     if (mode) props["data-sf-mode"] = mode;
     return createElement("sf-s", props);
+}
+let placed = 0;
+export function Mount({ module, props = {}, when }) {
+    const region = useRef(null);
+    const [id] = useState(()=>`sf-m${++placed}`);
+    useEffect(()=>{
+        const host = region.current;
+        if (!host) return;
+        const mounted = host.querySelector("sf-i");
+        if (mounted) {
+            void patchIsland(mounted, props);
+            return;
+        }
+        const marker = document.createElement("sf-i");
+        marker.id = id;
+        marker.setAttribute("data-sf-module", module);
+        const script = document.createElement("script");
+        script.type = "application/json";
+        script.setAttribute("data-sf-props", id);
+        script.textContent = JSON.stringify(encodeValue(props));
+        host.append(marker, script);
+        scan(host);
+    });
+    const attrs = {
+        ref: region,
+        "data-sf-island": "",
+        suppressHydrationWarning: true
+    };
+    if (when) attrs["data-sf-when"] = when;
+    return createElement("sf-s", attrs);
 }
 export function island(component, options = {}) {
     return function IslandOf(props) {

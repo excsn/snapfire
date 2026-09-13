@@ -154,3 +154,44 @@ fn a_module_no_template_answers_to_names_itself() {
   let err = one(&ev, "absent.tera").expect_err("nothing was added under that name");
   assert_eq!(err.module, "absent.tera#default");
 }
+
+#[test]
+fn a_timing_or_a_mode_wraps_the_placement_in_the_region_the_browser_reads() {
+  let ev = evaluator(&[(
+    "timed.tera",
+    r#"{{ island(module="ui/Chart.tsx#default", props={}, when="visible") }}{{ island(module="ui/Help.tsx#default", props={}, mode="server") }}{{ island(module="ui/Now.tsx#default", props={}, when="idle", mode="browser") }}"#,
+  )]);
+
+  let chunks = one(&ev, "timed.tera").expect("renders");
+  assert_eq!(chunks.len(), 9, "three placements, each wrapped: {chunks:#?}");
+  assert_eq!(raw(&chunks[0]), "<sf-s data-sf-island data-sf-when=\"visible\">");
+  assert_eq!(island(&chunks[1]).0.to_string(), "ui/Chart.tsx#default");
+  assert_eq!(raw(&chunks[2]), "</sf-s>");
+  assert_eq!(raw(&chunks[3]), "<sf-s data-sf-island data-sf-mode=\"server\">");
+  assert_eq!(raw(&chunks[6]), "<sf-s data-sf-island data-sf-when=\"idle\">", "`browser` is the default, so it writes no mode");
+}
+
+#[test]
+fn a_placement_with_neither_is_the_client_node_alone() {
+  let ev = evaluator(&[("plain.tera", r#"{{ island(module="ui/Chart.tsx#default", props={}) }}"#)]);
+  let chunks = one(&ev, "plain.tera").expect("renders");
+  assert_eq!(chunks.len(), 1, "no region around it: {chunks:#?}");
+}
+
+#[test]
+fn a_timing_the_runtime_does_not_know_is_refused_where_it_is_written() {
+  let ev = evaluator(&[("bad.tera", r#"{{ island(module="ui/Chart.tsx#default", props={}, when="soon") }}"#)]);
+  let message = one(&ev, "bad.tera").expect_err("refused").to_string();
+  assert!(message.contains("soon"), "{message}");
+}
+
+#[test]
+fn a_keyed_placement_is_a_region_the_browser_can_patch() {
+  let ev = evaluator(&[("keyed.tera", r#"{{ island(module="ui/Chart.tsx#default", props={"n": 1}, key="chart") }}"#)]);
+  let chunks = one(&ev, "keyed.tera").expect("renders");
+  assert_eq!(chunks.len(), 3, "{chunks:#?}");
+  assert_eq!(raw(&chunks[0]), "<sf-s data-sf-island data-sf-region=\"chart\">");
+  let (_, props) = island(&chunks[1]);
+  assert_eq!(props.get("$k"), Some(&Value::str("chart".to_owned())), "the key rides the props too, which is what a revalidation matches on");
+  assert_eq!(props.get("n"), Some(&Value::Int(1)));
+}

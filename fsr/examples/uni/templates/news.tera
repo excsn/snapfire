@@ -1,5 +1,5 @@
 <section class="page news">
   <h1>News</h1>
   <p class="lede">This segment is React, where the board's is Vue. One router replaces one for the other and keeps the layout, the masthead island included.</p>
-  {{ island(module="js/src/ui/Feed.tsx#default", props=feed) }}
+  {{ island(module="js/src/ui/Feed.tsx#default", props=feed, key="feed", when="visible") }}
 </section>

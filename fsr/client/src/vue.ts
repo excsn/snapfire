@@ -1,6 +1,7 @@
-import { createApp, createSSRApp, defineComponent, h, onScopeDispose, reactive, type App, type Component } from "vue";
+import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, type App, type Component } from "vue";
 
-import type { Mounter, Patcher, Props } from "./boot.js";
+import { patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props } from "./boot.js";
+import { encodeValue } from "./values.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 
 /** The reactive props an island was mounted with, so a patch re-renders it in place instead of tearing it down. */
@@ -80,3 +81,54 @@ export function useStore<T>(key: StoreKey<T>, initial: T): { value: T } {
     },
   });
 }
+
+/** Ids for the markers this module writes, which no server rendered. */
+let placed = 0;
+
+/** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, and the timing that schedules it. */
+export interface MountProps {
+  module: string;
+  props?: Props;
+  when?: MountTiming;
+}
+
+/**
+ * Places an island by module id inside a Vue tree, for a component holding
+ * one another framework mounts: the registry entry decides the mounter, so
+ * this writes the marker the boot runtime reads and never renders the child
+ * itself. Nothing rendered it on the server, so it is mounted fresh and
+ * patched from here whenever its props change.
+ */
+export const Mount: Component = defineComponent({
+  name: "SfMount",
+  props: {
+    module: { type: String, required: true },
+    props: { type: Object, default: () => ({}) },
+    when: { type: String as () => MountTiming, default: undefined },
+  },
+  setup(props) {
+    const region = ref<Element | null>(null);
+    const id = `sf-m${++placed}`;
+    const apply = () => {
+      const host = region.value;
+      if (!host) return;
+      const mounted = host.querySelector("sf-i");
+      if (mounted) {
+        void patchIsland(mounted, props.props as Props);
+        return;
+      }
+      const marker = document.createElement("sf-i");
+      marker.id = id;
+      marker.setAttribute("data-sf-module", props.module);
+      const script = document.createElement("script");
+      script.type = "application/json";
+      script.setAttribute("data-sf-props", id);
+      script.textContent = JSON.stringify(encodeValue(props.props as never));
+      host.append(marker, script);
+      scan(host);
+    };
+    onMounted(apply);
+    onUpdated(apply);
+    return () => h("sf-s", { ref: region, "data-sf-island": "", "data-sf-when": props.when });
+  },
+});

@@ -10,10 +10,13 @@ export function registerIsland(moduleId, entry) {
 export function registeredIslands() {
     return islands;
 }
-function propsFor(root, id) {
+function rawPropsFor(root, id) {
     const script = root.querySelector(`script[data-sf-props="${id}"]`) ?? document.querySelector(`script[data-sf-props="${id}"]`);
     if (!script || !script.textContent) return {};
-    return decodeValue(JSON.parse(script.textContent));
+    return JSON.parse(script.textContent);
+}
+function propsFor(root, id) {
+    return decodeValue(rawPropsFor(root, id));
 }
 export const defineMounter = ()=>undefined;
 export function serverRendered(el) {
@@ -97,7 +100,7 @@ export function scan(root) {
         if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
             el.setAttribute(SCHEDULED, "");
             el.setAttribute(MOUNTED, "");
-            mountServer(el, moduleId, propsFor(root, el.id));
+            mountServer(el, moduleId, rawPropsFor(root, el.id));
             continue;
         }
         const entry = islands.get(moduleId);

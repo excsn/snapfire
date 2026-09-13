@@ -1,4 +1,6 @@
-import { createApp, createSSRApp, defineComponent, h, onScopeDispose, reactive } from "vue";
+import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref } from "vue";
+import { patchIsland, scan } from "./boot.js";
+import { encodeValue } from "./values.js";
 import { get, set, subscribe } from "./store.js";
 const held = new WeakMap();
 const RUNTIME_PROPS = [
@@ -69,4 +71,51 @@ export function useStore(key, initial) {
         }
     });
 }
+let placed = 0;
+export const Mount = defineComponent({
+    name: "SfMount",
+    props: {
+        module: {
+            type: String,
+            required: true
+        },
+        props: {
+            type: Object,
+            default: ()=>({})
+        },
+        when: {
+            type: String,
+            default: undefined
+        }
+    },
+    setup (props) {
+        const region = ref(null);
+        const id = `sf-m${++placed}`;
+        const apply = ()=>{
+            const host = region.value;
+            if (!host) return;
+            const mounted = host.querySelector("sf-i");
+            if (mounted) {
+                void patchIsland(mounted, props.props);
+                return;
+            }
+            const marker = document.createElement("sf-i");
+            marker.id = id;
+            marker.setAttribute("data-sf-module", props.module);
+            const script = document.createElement("script");
+            script.type = "application/json";
+            script.setAttribute("data-sf-props", id);
+            script.textContent = JSON.stringify(encodeValue(props.props));
+            host.append(marker, script);
+            scan(host);
+        };
+        onMounted(apply);
+        onUpdated(apply);
+        return ()=>h("sf-s", {
+                ref: region,
+                "data-sf-island": "",
+                "data-sf-when": props.when
+            });
+    }
+});
 //# sourceMappingURL=vue.js.map

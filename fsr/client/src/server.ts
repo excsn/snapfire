@@ -1,11 +1,11 @@
 import type { Props } from "./boot.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
-/** An island in server mode: the browser holds its props and state, every event round-trips to the server, and the markup that comes back is patched into place. No component code runs here. */
+/** An island in server mode: the browser holds its props and state, every event round-trips to the server, and the markup that comes back is patched into place. No component code runs here. `state` is kept encoded, exactly as the server wrote it, since decoding a double and encoding it again would hand back an integer: JavaScript has one number type and the tag is the only thing that says which this was. */
 interface ServerIsland {
   module: string;
-  props: Props;
-  state: SfValue;
+  props: { [key: string]: unknown };
+  state: unknown;
   pending: boolean;
   listening: Set<string>;
 }
@@ -20,11 +20,27 @@ export function isServerIsland(el: Element): boolean {
   return islands.has(el);
 }
 
-/** Mounts `el` as a server island with `props`, whose `$s` is the state the server rendered from. Listens for every event its markup binds. */
-export function mountServer(el: Element, module: string, props: Props): void {
-  const { [STATE_PROP]: state, ...own } = props;
-  const island: ServerIsland = { module, props: own as Props, state: (state ?? {}) as SfValue, pending: false, listening: new Set() };
+/**
+ * Mounts `el` as a server island with `encoded`, the props script as the
+ * server wrote it, whose `$s` is the state it rendered from. Both are kept
+ * encoded and handed back untouched: this browser is a courier for a
+ * component that runs on the server, and decoding a double here would hand
+ * back an integer, since JavaScript has one number type and the tag is the
+ * only thing that says which this was. Listens for every event its markup
+ * binds.
+ */
+export function mountServer(el: Element, module: string, encoded: unknown): void {
+  const carried = (encoded ?? {}) as { [key: string]: unknown };
+  const { [STATE_PROP]: state, ...props } = carried;
+  const island: ServerIsland = { module, props, state: state ?? {}, pending: false, listening: new Set() };
   islands.set(el, island);
+  // A marker the renderer left empty: the component was placed by something
+  // that cannot render it, a template of another tier for one, so the first
+  // render is a step of its own. A marker the server filled is left alone.
+  if (!el.firstElementChild) {
+    void step(el, island, null, null);
+    return;
+  }
   listen(el, island);
 }
 
@@ -32,8 +48,9 @@ export function mountServer(el: Element, module: string, props: Props): void {
 export async function patchServer(el: Element, props: Props): Promise<boolean> {
   const island = islands.get(el);
   if (!island) return false;
-  const { [STATE_PROP]: state, ...own } = props;
-  island.props = own as Props;
+  const encoded = encodeValue(props as SfValue) as { [key: string]: unknown };
+  const { [STATE_PROP]: state, ...own } = encoded;
+  island.props = own;
   if (state !== undefined) island.state = state;
   await step(el, island, null, null);
   return true;
@@ -88,14 +105,16 @@ async function step(el: Element, island: ServerIsland, handler: number | null, e
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
-    const body = JSON.stringify(encodeValue({ props: island.props, state: island.state, handler, event } as SfValue));
+    // Everything but the state is encoded here; the state is already the
+    // server's own encoding, carried back untouched so a double stays one.
+    const body = JSON.stringify({ props: island.props, state: island.state, handler, event: encodeValue(event as SfValue) });
     const res = await fetch(`/_sf/island/${encodeURIComponent(island.module)}`, { method: "POST", headers, body });
     const text = await res.text();
     if (!res.ok) {
       console.warn(`sf: island ${island.module} step failed with ${res.status}: ${text}`);
       return;
     }
-    const answer = decodeValue(JSON.parse(text)) as { state: SfValue; html: string };
+    const answer = JSON.parse(text) as { state: unknown; html: string };
     island.state = answer.state;
     morph(el, answer.html);
     listen(el, island);

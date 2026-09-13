@@ -10,6 +10,9 @@ use tera::{Kwargs, State, Tera};
 /// cannot collide with template content and survives HTML escaping untouched.
 pub const MARKER: char = '\u{F8FF}';
 
+/// The prop the browser reads a placement's region key from, as the IR writes it.
+const REGION_KEY: &str = "$k";
+
 fn marker(token: &str) -> String {
   format!("{MARKER}{token}{MARKER}")
 }
@@ -28,7 +31,21 @@ pub fn register_markers(tera: &mut Tera) {
         .map_err(|e| tera::Error::message(format!("island props are not serializable: {e}")))?,
       None => serde_json::Value::Object(serde_json::Map::new()),
     };
-    let payload = serde_json::json!({ "m": module, "p": props });
+    let when = match kwargs.get::<String>("when")? {
+      Some(when) if !matches!(when.as_str(), "load" | "visible" | "idle") => {
+        return Err(tera::Error::message(format!("`when` is \"load\", \"visible\" or \"idle\", not `{when}`")));
+      }
+      other => other,
+    };
+    let mode = match kwargs.get::<String>("mode")? {
+      Some(mode) if !matches!(mode.as_str(), "browser" | "server") => {
+        return Err(tera::Error::message(format!("`mode` is \"browser\" or \"server\", not `{mode}`")));
+      }
+      Some(mode) if mode == "browser" => None,
+      other => other,
+    };
+    let key = kwargs.get::<String>("key")?;
+    let payload = serde_json::json!({ "m": module, "p": props, "w": when, "d": mode, "k": key });
     Ok(marker(&format!("island:{}", B64.encode(payload.to_string()))))
   });
 
@@ -64,7 +81,10 @@ fn eval_err(module: &ModuleId, message: impl Into<String>) -> EvalError {
   EvalError { module: module.to_string(), message: message.into() }
 }
 
-fn parse_island(module: &ModuleId, token: &str) -> Result<Chunk, EvalError> {
+/// The chunks one `island(...)` becomes: the `<sf-s data-sf-island>` region
+/// around it when the placement asked for a timing or for server mode, which
+/// is where the browser reads both, else the client node alone.
+fn parse_island(module: &ModuleId, token: &str) -> Result<Vec<Chunk>, EvalError> {
   let raw = B64
     .decode(token)
     .map_err(|_| eval_err(module, "island marker holds invalid base64"))?;
@@ -83,12 +103,37 @@ fn parse_island(module: &ModuleId, token: &str) -> Result<Chunk, EvalError> {
     Value::Null => Default::default(),
     _ => return Err(eval_err(module, "island props must be a map")),
   };
-  Ok(Chunk::Node(Node::Client {
+  let when = payload.get("w").and_then(serde_json::Value::as_str);
+  let mode = payload.get("d").and_then(serde_json::Value::as_str);
+  let key = payload.get("k").and_then(serde_json::Value::as_str);
+  let mut props = props;
+  // The region a revalidation patches rather than replaces: the browser reads
+  // it from the markup to find the region and from the props to find what to
+  // patch it with, so a keyed placement carries both.
+  if let Some(key) = key {
+    props.insert(REGION_KEY.to_owned(), Value::str(key));
+  }
+  let client = Chunk::Node(Node::Client {
     module: island_module,
     props,
     children: Vec::new(),
     ssr: None,
-  }))
+  });
+  if when.is_none() && mode.is_none() && key.is_none() {
+    return Ok(vec![client]);
+  }
+  let mut open = String::from("<sf-s data-sf-island");
+  if let Some(key) = key {
+    open.push_str(&format!(" data-sf-region=\"{key}\""));
+  }
+  if let Some(when) = when {
+    open.push_str(&format!(" data-sf-when=\"{when}\""));
+  }
+  if let Some(mode) = mode {
+    open.push_str(&format!(" data-sf-mode=\"{mode}\""));
+  }
+  open.push('>');
+  Ok(vec![Chunk::Node(Node::raw(open)), client, Chunk::Node(Node::raw("</sf-s>"))])
 }
 
 fn split_output(module: &ModuleId, rendered: &str) -> Result<Vec<Chunk>, EvalError> {
@@ -103,7 +148,7 @@ fn split_output(module: &ModuleId, rendered: &str) -> Result<Vec<Chunk>, EvalErr
         chunks.push(Chunk::Node(Node::raw(*part)));
       }
     } else if let Some(token) = part.strip_prefix("island:") {
-      chunks.push(parse_island(module, token)?);
+      chunks.extend(parse_island(module, token)?);
     } else if let Some(name) = part.strip_prefix("slot:") {
       chunks.push(Chunk::Slot(SlotName(name.to_owned())));
     } else {

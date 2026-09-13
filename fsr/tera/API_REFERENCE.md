@@ -38,11 +38,14 @@ The three functions `register_markers` installs. Each returns a string, so a tem
 
 Emits a client node at this position.
 
-* `island(module: String, props: any = {}) -> String`
+* `island(module: String, props: any = {}, key: String?, when: String?, mode: String?) -> String`
 * `module` is required, a module id in `path#export` form. Absence or a non-string is a render error.
 * `props` is optional and defaults to an empty object. It must serialise to JSON and must decode to a map or null; anything else fails the split.
-* Emits the token `island:<base64 of {"m": module, "p": props}>`.
-* Produces `Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: None })`. Islands emitted here always have empty `children` and no `ssr` subtree.
+* `key` names the region a revalidation patches rather than replaces. It is written into the markup as `data-sf-region` and into the props as `$k`, which is what the browser matches on; without it an island is kept exactly as it stands or replaced whole.
+* `when` is `"load"`, `"visible"` or `"idle"`, the timing that schedules the mount; anything else is a render error naming what was written.
+* `mode` is `"browser"`, the default, or `"server"`, whose events round-trip to the host; anything else is a render error. Server mode needs the module to be a lowered component the plan carries, since the host runs it.
+* Emits the token `island:<base64 of {"m": module, "p": props, "w": when, "d": mode, "k": key}>`.
+* Produces `Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: None })`, wrapped in raw `<sf-s data-sf-island …>` and `</sf-s>` chunks when any of `key`, `when` or `mode` is given. Islands emitted here always have empty `children` and no `ssr` subtree: the server renders no body for one, so a server-mode placement is filled by the first step the browser asks for.
 
 ### slot
 
@@ -97,7 +100,7 @@ Rendered output splits on `MARKER` into alternating segments. Even-indexed segme
 
 An even number of segments means an odd count of `MARKER` in the output, which is rejected as unbalanced before any token is interpreted.
 
-The island payload is JSON with two keys: `m` is the module id string and `p` is the props. `p` decodes through `snapfire_fsr_payload::json_to_value`; a `Value::Map` becomes the props, `Value::Null` becomes an empty map, any other kind is an error.
+The island payload is JSON with five keys: `m` is the module id string, `p` is the props, `k` the region key, `w` the timing and `d` the mode, the last three null unless the placement asked for them. `p` decodes through `snapfire_fsr_payload::json_to_value`; a `Value::Map` becomes the props, `Value::Null` becomes an empty map, any other kind is an error.
 
 ## 6. Template Context
 

@@ -1,5 +1,5 @@
 import { type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
-import { MountTiming, Mounter, Patcher } from "./boot.js";
+import { MountTiming, Mounter, Patcher, type Props } from "./boot.js";
 import type { PrefetchTiming } from "./navigator.js";
 import { type StoreKey } from "./store.js";
 export interface IslandProps {
@@ -15,6 +15,22 @@ export interface IslandProps {
 *
 * The region is claimed once, by the key the build splices in, and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it, or renders its child inline when no payload describes one. */
 export declare function Island({ when, mode, children }: IslandProps): ReactElement;
+export interface MountProps {
+	/** The module id the registry knows the island under, `src/ui/Chart.vue#default` for one. */
+	module: string;
+	/** What the island is mounted with, re-applied as a patch when they change. */
+	props?: Props;
+	when?: MountTiming;
+}
+/**
+* Places an island by module id rather than by component, for a React tree
+* holding an island another framework mounts: the registry entry decides the
+* mounter, so this writes the marker the boot runtime reads and never renders
+* the child itself. `<Island>` is the one to use for a React child, since it
+* adopts the region the server rendered; nothing rendered this one, so it is
+* mounted fresh and patched from here whenever `props` change.
+*/
+export declare function Mount({ module, props, when }: MountProps): ReactElement;
 /** `component` as a component that places it as an island with `options.when` and `options.mode` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
 export declare function island<P extends object>(component: ComponentType<P>, options?: {
 	when?: MountTiming;
