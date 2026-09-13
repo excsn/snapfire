@@ -116,6 +116,8 @@ The assembler injects three before calling the evaluator; they are present in fa
 
 Error modules additionally receive `error`, the failure message as a string. Fallback and error modules receive no data source output.
 
+A map's keys keep the order they were inserted in, through the template and out the other side into an island's props, which is why a placement may hand a component a record and a list of its keys that agree. This crate takes Tera with `preserve_order` for it; without that feature Tera's own map is a hash map and the order is arbitrary per run.
+
 `value_to_json` is lossless, not idiomatic: any value whose JSON form would be ambiguous becomes a tagged object carrying a `$` key naming the tag. A float lands in the tagged form more often than expected, since an integral `F64` such as `12.0` is tagged to keep it distinct from an integer.
 
 | Value | Seen by the template |
@@ -133,7 +135,7 @@ Error modules additionally receive `error`, the failure message as a string. Fal
 | `Ref` | `{"$": "ref", "k": "action" or "module", "id": "<id>"}` |
 | a `Map` that already holds a `$` key | `{"$": "m", "v": [[key, value], ...]}` |
 
-A tagged value is opaque to template syntax but survives a round trip: passing one as `props` to `island` decodes it back to the original `Value`.
+A tagged value is opaque to template syntax but survives a round trip: passing one as `props` to `island` decodes it back to the original `Value`, map order included.
 
 ## 7. Constraints
 

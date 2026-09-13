@@ -172,6 +172,37 @@ fn a_timing_or_a_mode_wraps_the_placement_in_the_region_the_browser_reads() {
 }
 
 #[test]
+fn a_map_keeps_its_key_order_across_a_placement() {
+  // Sixteen keys in an order that is neither sorted nor reversed, with eight
+  // fields below each: a hash order matching this by chance is one in 16!,
+  // so the test is a guard rather than a coin toss.
+  const SYMBOLS: [&str; 16] = ["VLDT", "ARBR", "MRSH", "KLNS", "TQOP", "BHNE", "ZRAX", "GDLU", "PWIC", "NFKS", "YBRT", "EJHM", "SOVD", "CXQA", "LMPF", "RUGE"];
+  const FIELDS: [&str; 8] = ["price", "change", "trail", "bid", "ask", "volume", "high", "low"];
+
+  let ev = evaluator(&[("watch.tera", r#"{{ island(module="ui/Watch.tsx#default", props=watch) }}"#)]);
+  let mut quotes = snapfire_fsr_core::ValueMap::default();
+  for symbol in SYMBOLS {
+    let mut quote = snapfire_fsr_core::ValueMap::default();
+    for (i, field) in FIELDS.iter().enumerate() {
+      quote.insert((*field).to_owned(), Value::Int(i as i128));
+    }
+    quotes.insert(symbol.to_owned(), Value::Map(quote));
+  }
+  let mut watch = snapfire_fsr_core::ValueMap::default();
+  watch.insert("quotes".to_owned(), Value::Map(quotes));
+  let mut props = Data::default();
+  props.insert("watch".to_owned(), Value::Map(watch));
+
+  let chunks = render(&ev, "watch.tera", props).expect("renders");
+  let Some(Value::Map(quotes)) = island(&chunks[0]).1.get("quotes") else { panic!("the quotes map is there: {chunks:#?}") };
+  assert_eq!(quotes.keys().cloned().collect::<Vec<_>>(), SYMBOLS, "the order the loader wrote, not the hash's");
+  for symbol in SYMBOLS {
+    let Some(Value::Map(quote)) = quotes.get(symbol) else { panic!("`{symbol}` is a map") };
+    assert_eq!(quote.keys().cloned().collect::<Vec<_>>(), FIELDS, "and every map below it");
+  }
+}
+
+#[test]
 fn a_placement_with_neither_is_the_client_node_alone() {
   let ev = evaluator(&[("plain.tera", r#"{{ island(module="ui/Chart.tsx#default", props={}) }}"#)]);
   let chunks = one(&ev, "plain.tera").expect("renders");
