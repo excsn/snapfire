@@ -197,6 +197,74 @@ async fn the_service_reads_and_writes_through_the_controller() {
 }
 
 #[tokio::test]
+async fn the_gadget_is_one_board_the_wave_shares_and_every_rule_is_the_field_s() {
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, mut told) = backend::service(field);
+
+  let play = |who: &str, cell: i128| {
+    ValueMap::from_iter([
+      ("id".to_owned(), Value::str("kickoff")),
+      ("who".to_owned(), Value::str(who)),
+      ("cell".to_owned(), Value::Int(cell)),
+    ])
+  };
+  let marks = |board: &Value| match board {
+    Value::Map(map) => match map.get("cells") {
+      Some(Value::Seq(cells)) => cells
+        .iter()
+        .map(|cell| match cell {
+          Value::Map(cell) => match cell.get("mark") {
+            Some(Value::Str(mark)) => mark.to_string(),
+            _ => String::new(),
+          },
+          _ => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join(""),
+      _ => String::new(),
+    },
+    _ => String::new(),
+  };
+  let turn = |board: &Value| match board {
+    Value::Map(map) => format!("{:?}", map.get("turn")),
+    _ => String::new(),
+  };
+
+  let board = call(&service, "play", play("alice", 4)).await;
+  assert_eq!(marks(&board), "x", "the first to move takes x");
+  assert!(turn(&board).contains("o"));
+  assert_eq!(told.try_recv().unwrap(), "wave/kickoff", "a move is a change to the wave, so the topic goes out");
+
+  let board = call(&service, "play", play("alice", 0)).await;
+  assert_eq!(marks(&board), "x", "alice holds x, so she cannot answer herself");
+
+  let board = call(&service, "play", play("bob", 4)).await;
+  assert_eq!(marks(&board), "x", "a cell that is taken stays taken");
+
+  let board = call(&service, "play", play("bob", 0)).await;
+  assert_eq!(marks(&board), "ox", "bob takes o and the corner");
+
+  call(&service, "play", play("alice", 1)).await;
+  call(&service, "play", play("bob", 3)).await;
+  let board = call(&service, "play", play("alice", 7)).await;
+  assert_eq!(marks(&board), "oxoxx", "the middle column is x's");
+  assert!(format!("{board:?}").contains("\"won\""), "{board:?}");
+  match &board {
+    Value::Map(map) => assert_eq!(map.get("won"), Some(&Value::str("x")), "three in a column is the game"),
+    other => panic!("{other:?}"),
+  }
+
+  let board = call(&service, "play", play("bob", 2)).await;
+  assert_eq!(marks(&board), "oxoxx", "and nothing moves after it is won");
+
+  let cleared = call(&service, "play", ValueMap::from_iter([("id".to_owned(), Value::str("kickoff")), ("who".to_owned(), Value::str("bob"))])).await;
+  assert_eq!(marks(&cleared), "", "a move with no cell is a new board");
+  assert!(turn(&cleared).contains("x"), "which starts at x again");
+}
+
+#[tokio::test]
 async fn a_view_names_which_waves_the_inbox_lists() {
   let (field, controller) =
     StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();

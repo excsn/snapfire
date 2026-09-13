@@ -6,7 +6,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use snapfire_fsr_service::{LocalTransport, Transport};
 
-use crate::field::{Blip, Conn, Field, Op, Wave};
+use crate::field::{Blip, Conn, Field, Op, Wave, Game};
 
 pub type Waves = CommandSender<Op, Conn, Field>;
 
@@ -33,12 +33,14 @@ pub fn seed() -> Vec<Wave> {
         blip(3, "2", "alice", "Then I have the client. Watch this line while I type in the other window.", "09:13"),
         blip(4, "", "alice", "Anything that is its own subject goes at the top level.", "09:14"),
       ],
+      game: Game::default(),
     },
     Wave {
       id: "board".to_owned(),
       title: "Arrivals board review".to_owned(),
       participants: vec!["alice".to_owned()],
       blips: vec![blip(5, "", "alice", "The panels stream. The clock is the part I want a second opinion on.", "08:02")],
+      game: Game::default(),
     },
   ]
 }
@@ -123,7 +125,29 @@ fn wave_value(field: &Field, id: &str) -> Option<Value> {
   map.insert("title".to_owned(), Value::str(wave.title.clone()));
   map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::str(who.clone())).collect()));
   map.insert("blips".to_owned(), Value::seq(threaded(&wave.blips)));
+  map.insert("game".to_owned(), game_value(&wave.game));
   Some(Value::Map(map))
+}
+
+/// The gadget as the page reads it: the nine cells as their own rows, so the
+/// markup is a loop rather than nine copies.
+fn game_value(game: &Game) -> Value {
+  let cells = game
+    .cells
+    .chars()
+    .enumerate()
+    .map(|(i, mark)| {
+      let mut cell = ValueMap::default();
+      cell.insert("at".to_owned(), Value::Int(i as i128));
+      cell.insert("mark".to_owned(), Value::str(if mark == '.' { String::new() } else { mark.to_string() }));
+      Value::Map(cell)
+    })
+    .collect::<Vec<_>>();
+  let mut map = ValueMap::default();
+  map.insert("cells".to_owned(), Value::seq(cells));
+  map.insert("turn".to_owned(), Value::str(game.turn.clone()));
+  map.insert("won".to_owned(), Value::str(game.won.clone()));
+  Some(Value::Map(map)).unwrap()
 }
 
 fn string(args: &ValueMap, key: &str) -> String {
@@ -143,8 +167,9 @@ fn gone(method: &'static str) -> ServiceError {
 /// that op has been applied, since the controller does one thing at a time.
 pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsyncReceiver<String>) {
   let (told, hear) = fibre::mpsc::unbounded();
-  let (amended, kept) = (told.clone(), told);
-  let (listing, counting, reading, writing, amending) = (field.clone(), field.clone(), field.clone(), field.clone(), field);
+  let (amended, kept, played) = (told.clone(), told.clone(), told);
+  let (listing, counting, reading, writing, amending, playing) =
+    (field.clone(), field.clone(), field.clone(), field.clone(), field.clone(), field);
   let transport: Arc<dyn Transport> = Arc::new(
     LocalTransport::new()
       .method("waves.listWaves", move |call| {
@@ -182,6 +207,27 @@ pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsync
           .map_err(|_| gone("editBlip"))?;
           let _ = told.send(topic);
           amended.ok_or_else(|| ServiceError::new(FailureKind::NotFound, "waves", "editBlip", "no such blip"))
+        }
+      })
+      .method("waves.play", move |call| {
+        let field = playing.clone();
+        let mut told = played.clone();
+        let (id, who) = (string(&call.args, "id"), string(&call.args, "who"));
+        let cell = match call.args.get("cell") {
+          Some(Value::Int(at)) if *at >= 0 => Some(*at as usize),
+          Some(Value::F64(at)) if *at >= 0.0 => Some(*at as usize),
+          _ => None,
+        };
+        async move {
+          let topic = format!("wave/{id}");
+          let op = Op::Play { wave: id.clone(), who, cell };
+          field
+            .send(ControllerCommand::SubmitSystemOps { source_description: "an action".to_owned(), ops: vec![op] })
+            .await
+            .map_err(|_| gone("play"))?;
+          let played = query_with(&field, move |field| field.waves.get(&id).map(|wave| game_value(&wave.game))).await.map_err(|_| gone("play"))?;
+          let _ = told.send(topic);
+          played.ok_or_else(|| ServiceError::new(FailureKind::NotFound, "waves", "play", "no such wave"))
         }
       })
       .method("waves.addBlip", move |call| {

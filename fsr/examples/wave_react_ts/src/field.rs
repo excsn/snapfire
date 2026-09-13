@@ -48,6 +48,75 @@ pub struct Wave {
   pub title: String,
   pub participants: Vec<String>,
   pub blips: Vec<Blip>,
+  /// The wave's gadget. Wave's gadgets were shared state inside the
+  /// conversation rather than one person's widget, which is what makes this
+  /// worth having: two windows play one board.
+  pub game: Game,
+}
+
+/// Noughts and crosses, the gadget every Wave demo had. `cells` is nine of
+/// `.`, `x` or `o`; `turn` is the mark to play next and `won` the mark that
+/// has three, empty while nobody does.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Game {
+  pub cells: String,
+  pub turn: String,
+  pub won: String,
+  /// Who plays which mark, in the order they first moved.
+  pub players: BTreeMap<String, String>,
+}
+
+impl Default for Game {
+  fn default() -> Self {
+    Self { cells: ".........".to_owned(), turn: "x".to_owned(), won: String::new(), players: BTreeMap::new() }
+  }
+}
+
+const LINES: [[usize; 3]; 8] = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+
+impl Game {
+  /// The mark `who` plays: theirs if they have one, else the mark whose turn
+  /// it is when nobody holds it. A third person watches.
+  fn mark_for(&self, who: &str) -> Option<String> {
+    if let Some(mark) = self.players.get(who) {
+      return Some(mark.clone());
+    }
+    let taken = self.players.values().any(|mark| mark == &self.turn);
+    (!taken).then(|| self.turn.clone())
+  }
+
+  /// Everything a move is: whose turn, whether the cell is free, whether that
+  /// finished it. Branches, which is the point: none of this is in a handler.
+  fn play(&mut self, who: &str, cell: usize) -> bool {
+    if !self.won.is_empty() || cell >= 9 {
+      return false;
+    }
+    let Some(mark) = self.mark_for(who) else { return false };
+    if mark != self.turn {
+      return false;
+    }
+    let mut cells: Vec<char> = self.cells.chars().collect();
+    if cells.get(cell) != Some(&'.') {
+      return false;
+    }
+    cells[cell] = mark.chars().next().unwrap_or('x');
+    self.cells = cells.iter().collect();
+    self.players.insert(who.to_owned(), mark.clone());
+    self.won = LINES
+      .iter()
+      .find(|line| line.iter().all(|i| cells[*i] == cells[line[0]] && cells[*i] != '.'))
+      .map(|line| cells[line[0]].to_string())
+      .unwrap_or_default();
+    self.turn = match mark.as_str() {
+      "x" => "o".to_owned(),
+      _ => "x".to_owned(),
+    };
+    true
+  }
+
+  fn clear(&mut self) {
+    *self = Game::default();
+  }
 }
 
 /// Everything about every wave, live and durable, owned by one controller and
@@ -94,6 +163,8 @@ pub enum Op {
   /// The rewrite, kept. An action submits this, never a socket, because a
   /// blip is durable.
   Amend { wave: String, blip: String, who: String, body: String },
+  /// A move in the wave's gadget; a fresh board when `cell` is absent.
+  Play { wave: String, who: String, cell: Option<usize> },
   View(Box<View>),
 }
 
@@ -279,6 +350,17 @@ impl StateLogic<Op, Conn, Field> for Rules {
             }
             Op::Amend { wave, blip, who, body } => {
               field.amend(&wave, &blip, &who, &body, (self.clock)());
+              touched = Some(wave);
+            }
+            Op::Play { wave, who, cell } => {
+              if let Some(held) = field.waves.get_mut(&wave) {
+                match cell {
+                  Some(cell) => {
+                    held.game.play(&who, cell);
+                  }
+                  None => held.game.clear(),
+                }
+              }
               touched = Some(wave);
             }
             Op::View(_) => {}

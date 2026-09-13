@@ -2,6 +2,7 @@ import { Island } from "@snapfire/fsr-client/react";
 
 import type { WaveIdProps } from "@generated/client";
 import Body from "@src/ui/Body";
+import Gadget from "@src/ui/Gadget";
 import Presence from "@src/ui/Presence";
 import Under from "@src/ui/Under";
 
@@ -15,6 +16,10 @@ export default function WavePage({ wave, me }: WaveIdProps) {
           <Presence wave={wave.id} participants={wave.participants} />
         </Island>
       </header>
+
+      <Island mode="server">
+        <Gadget wave={wave.id} cells={wave.game.cells} turn={wave.game.turn} won={wave.game.won} />
+      </Island>
 
       <ol className="blips">
         {wave.blips.map((blip) => (

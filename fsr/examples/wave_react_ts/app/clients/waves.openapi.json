@@ -1,18 +1,42 @@
 {
   "openapi": "3.0.3",
-  "info": { "title": "Waves", "version": "1.0.0" },
+  "info": {
+    "title": "Waves",
+    "version": "1.0.0"
+  },
   "paths": {
     "/waves": {
       "get": {
         "operationId": "listWaves",
         "parameters": [
-          { "name": "view", "in": "query", "schema": { "type": "string" } },
-          { "name": "who", "in": "query", "schema": { "type": "string" } }
+          {
+            "name": "view",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "who",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "the inbox, under one view",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Summary" } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Summary"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -23,7 +47,16 @@
         "responses": {
           "200": {
             "description": "everyone on any wave, and whether they are here now",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Person" } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Person"
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -31,11 +64,26 @@
     "/waves/{id}": {
       "get": {
         "operationId": "getWave",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "one wave and every blip in it",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Wave" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Wave"
+                }
+              }
+            }
           }
         }
       }
@@ -44,17 +92,43 @@
       "patch": {
         "operationId": "editBlip",
         "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "blip", "in": "path", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "blip",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Rewritten" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Rewritten"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "the blip as it now stands",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Blip" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Blip"
+                }
+              }
+            }
           }
         }
       }
@@ -62,15 +136,73 @@
     "/waves/{id}/blips": {
       "post": {
         "operationId": "addBlip",
-        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Written" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Written"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "the blip as it was kept",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Blip" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Blip"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/waves/{id}/game": {
+      "post": {
+        "operationId": "play",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Move"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the board after the move",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Game"
+                }
+              }
+            }
           }
         }
       }
@@ -80,63 +212,216 @@
     "schemas": {
       "Summary": {
         "type": "object",
-        "required": ["id", "title", "participants", "blips", "last"],
+        "required": [
+          "id",
+          "title",
+          "participants",
+          "blips",
+          "last"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "participants": { "type": "array", "items": { "type": "string" } },
-          "blips": { "type": "number", "format": "double" },
-          "last": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blips": {
+            "type": "number",
+            "format": "double"
+          },
+          "last": {
+            "type": "string"
+          }
         }
       },
       "Person": {
         "type": "object",
-        "required": ["name", "here", "waves"],
+        "required": [
+          "name",
+          "here",
+          "waves"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "here": { "type": "boolean" },
-          "waves": { "type": "number", "format": "double" }
+          "name": {
+            "type": "string"
+          },
+          "here": {
+            "type": "boolean"
+          },
+          "waves": {
+            "type": "number",
+            "format": "double"
+          }
         }
       },
       "Wave": {
         "type": "object",
-        "required": ["id", "title", "participants", "blips"],
+        "required": [
+          "id",
+          "title",
+          "participants",
+          "blips",
+          "game"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "participants": { "type": "array", "items": { "type": "string" } },
-          "blips": { "type": "array", "items": { "$ref": "#/components/schemas/Blip" } }
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blips": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Blip"
+            }
+          },
+          "game": {
+            "$ref": "#/components/schemas/Game"
+          }
         }
       },
       "Blip": {
         "type": "object",
-        "required": ["id", "parent", "who", "body", "at", "edited", "editors", "depth"],
+        "required": [
+          "id",
+          "parent",
+          "who",
+          "body",
+          "at",
+          "edited",
+          "editors",
+          "depth"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "parent": { "type": "string" },
-          "who": { "type": "string" },
-          "body": { "type": "string" },
-          "at": { "type": "string" },
-          "edited": { "type": "string" },
-          "editors": { "type": "array", "items": { "type": "string" } },
-          "depth": { "type": "number", "format": "double" }
+          "id": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "who": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "edited": {
+            "type": "string"
+          },
+          "editors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "depth": {
+            "type": "number",
+            "format": "double"
+          }
         }
       },
       "Rewritten": {
         "type": "object",
-        "required": ["who", "body"],
+        "required": [
+          "who",
+          "body"
+        ],
         "properties": {
-          "who": { "type": "string" },
-          "body": { "type": "string" }
+          "who": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
         }
       },
       "Written": {
         "type": "object",
-        "required": ["who", "parent", "body"],
+        "required": [
+          "who",
+          "parent",
+          "body"
+        ],
         "properties": {
-          "who": { "type": "string" },
-          "parent": { "type": "string" },
-          "body": { "type": "string" }
+          "who": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "Move": {
+        "type": "object",
+        "required": [
+          "who"
+        ],
+        "properties": {
+          "who": {
+            "type": "string"
+          },
+          "cell": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Cell": {
+        "type": "object",
+        "required": [
+          "at",
+          "mark"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "mark": {
+            "type": "string"
+          }
+        }
+      },
+      "Game": {
+        "type": "object",
+        "required": [
+          "cells",
+          "turn",
+          "won"
+        ],
+        "properties": {
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Cell"
+            }
+          },
+          "turn": {
+            "type": "string"
+          },
+          "won": {
+            "type": "string"
+          }
         }
       }
     }
