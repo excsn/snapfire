@@ -1,4 +1,4 @@
-use snapfire_plugin::{Lang, Options, Outcome, Severity};
+use snapfire_compiler_wire::{Lang, Options, Outcome, Severity};
 use snapfire_vue::Compiler;
 
 const CARD: &str = r#"<script setup lang="ts">
@@ -24,7 +24,7 @@ fn compile(source: &str) -> Outcome {
   compiler.compile("src/Card.vue", source, &Options::default(), &Default::default()).expect("the driver answers")
 }
 
-fn ok(outcome: Outcome) -> snapfire_plugin::Compiled {
+fn ok(outcome: Outcome) -> snapfire_compiler_wire::Compiled {
   match outcome {
     Outcome::Ok(compiled) => compiled,
     Outcome::Failed { diagnostics } => panic!("refused: {diagnostics:?}"),

@@ -68,7 +68,7 @@ pub struct Build {
   /// length and, under `--watch`, across every rebuild.
   pub(crate) plugins: crate::plugin::Plugins,
   /// What a plugin answered for each of its sources, by path.
-  compiled: HashMap<PathBuf, snapfire_plugin::Compiled>,
+  compiled: HashMap<PathBuf, snapfire_compiler_wire::Compiled>,
   /// What each plugin source compiled to last time, keyed by what went into
   /// it, so a rebuild sends the worker only what changed. Read from and
   /// written to `.snapfire-plugin-cache.json` in the output directory, so a
@@ -89,7 +89,7 @@ pub(crate) struct PluginCached {
   key: u64,
   #[serde(default)]
   deps: Vec<(String, PathBuf)>,
-  compiled: snapfire_plugin::Compiled,
+  compiled: snapfire_compiler_wire::Compiled,
 }
 
 const PLUGIN_CACHE: &str = ".snapfire-plugin-cache.json";
@@ -450,7 +450,7 @@ fn run_plugins(opts: &Options, build: &mut Build) {
 /// it read beside itself, so the answer can be cached under the same key.
 struct Pending {
   path: PathBuf,
-  unit: snapfire_plugin::Unit,
+  unit: snapfire_compiler_wire::Unit,
   key: u64,
   deps: Vec<(String, PathBuf)>,
 }
@@ -481,7 +481,7 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
         continue;
       }
     };
-    let options = snapfire_plugin::Options {
+    let options = snapfire_compiler_wire::Options {
       production: opts.minify.is_some(),
       source_map: build.map_options.mode != MapMode::Off,
       minify: opts.minify.is_some(),
@@ -512,7 +512,7 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
       }
       pending.push(Pending {
         path: path.clone(),
-        unit: snapfire_plugin::Unit { filename: relative_from(&opts.root, path), path: path.to_string_lossy().into_owned(), source, options: options.clone(), files },
+        unit: snapfire_compiler_wire::Unit { filename: relative_from(&opts.root, path), path: path.to_string_lossy().into_owned(), source, options: options.clone(), files },
         key,
         deps,
       });
@@ -524,7 +524,7 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
       if pending.is_empty() {
         break;
       }
-      let units: Vec<snapfire_plugin::Unit> = pending.iter().map(|p| p.unit.clone()).collect();
+      let units: Vec<snapfire_compiler_wire::Unit> = pending.iter().map(|p| p.unit.clone()).collect();
       let results = match build.plugins.compile(ext, units) {
         Ok(results) => results,
         Err(e) => {
@@ -539,7 +539,7 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
       let mut again = Vec::new();
       for (mut p, outcome) in pending.into_iter().zip(results) {
         match outcome {
-          snapfire_plugin::Outcome::Ok(compiled) => {
+          snapfire_compiler_wire::Outcome::Ok(compiled) => {
             for diagnostic in &compiled.diagnostics {
               eprintln!("{}", render(diagnostic, &opts.root));
             }
@@ -547,14 +547,14 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
             build.plugin_cache.insert(p.path.clone(), PluginCached { key: p.key, deps: p.deps, compiled: compiled.clone() });
             build.compiled.insert(p.path, compiled);
           }
-          snapfire_plugin::Outcome::Failed { diagnostics } => {
+          snapfire_compiler_wire::Outcome::Failed { diagnostics } => {
             for diagnostic in &diagnostics {
               eprintln!("{}", render(diagnostic, &opts.root));
             }
             build.plugin_cache.remove(&p.path);
             build.has_error = true;
           }
-          snapfire_plugin::Outcome::Needs { files } => {
+          snapfire_compiler_wire::Outcome::Needs { files } => {
             if round == 1 {
               eprintln!("❌ {}: the plugin asked for {} again after being given it", display(&p.path, &opts.root), files.join(", "));
               build.has_error = true;
@@ -656,11 +656,11 @@ fn save_plugin_cache(opts: &Options, build: &mut Build) {
 
 /// A plugin's diagnostic in the build's own voice, so output does not read like
 /// two tools stapled together.
-fn render(diagnostic: &snapfire_plugin::Diagnostic, root: &Path) -> String {
+fn render(diagnostic: &snapfire_compiler_wire::Diagnostic, root: &Path) -> String {
   let _ = root;
   let mark = match diagnostic.severity {
-    snapfire_plugin::Severity::Error => "❌",
-    snapfire_plugin::Severity::Warning => "⚠️ ",
+    snapfire_compiler_wire::Severity::Error => "❌",
+    snapfire_compiler_wire::Severity::Warning => "⚠️ ",
   };
   let mut at = diagnostic.file.clone().unwrap_or_default();
   if let Some(line) = diagnostic.line {
@@ -682,8 +682,8 @@ fn plugin_jobs(opts: &Options, build: &mut Build, path: &Path, check_collisions:
   let relative = path.strip_prefix(&build.root_dir).unwrap_or(path).to_path_buf();
 
   let dialect = match compiled.lang {
-    snapfire_plugin::Lang::Ts => Dialect::TypeScript,
-    snapfire_plugin::Lang::Js => Dialect::JavaScript,
+    snapfire_compiler_wire::Lang::Ts => Dialect::TypeScript,
+    snapfire_compiler_wire::Lang::Js => Dialect::JavaScript,
   };
   let module = Asset::Script { dialect, markup: Markup::Allowed, out_ext: "js" };
 

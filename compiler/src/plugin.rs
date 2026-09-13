@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::{anyhow, bail, Context, Result};
-use snapfire_plugin::{Hello, Outcome, Request, Response, Unit, PROTOCOL};
+use snapfire_compiler_wire::{Hello, Outcome, Request, Response, Unit, PROTOCOL};
 
 /// The extensions snapfirec hands to a plugin, and the binary each asks for.
 /// A name is the convention rather than a lookup: `<ext>` is compiled by

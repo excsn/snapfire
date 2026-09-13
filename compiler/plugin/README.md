@@ -1,4 +1,4 @@
-# snapfire_plugin
+# snapfire_compiler_wire
 
 License: same as the workspace. Status: active, protocol 2.
 
@@ -8,7 +8,7 @@ The wire contract between `snapfirec` and a framework compiler plugin: the types
 
 ```toml
 [dependencies]
-snapfire_plugin = "0.1"
+snapfire_compiler_wire = "0.1"
 ```
 
 No features.

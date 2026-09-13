@@ -41,7 +41,7 @@ snapfirec --root . --import-map importmap.json
 In process:
 
 ```rust
-use snapfire_plugin::{Options, Outcome};
+use snapfire_compiler_wire::{Options, Outcome};
 use snapfire_vue::Compiler;
 
 let compiler = Compiler::new()?;

@@ -3732,7 +3732,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "snapfire_plugin",
+ "snapfire_compiler_wire",
  "snapfire_vue",
  "swc_core",
  "tempfile",
@@ -3740,7 +3740,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "snapfire_plugin"
+name = "snapfire_compiler_wire"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -3769,7 +3769,7 @@ dependencies = [
  "rquickjs",
  "serde",
  "serde_json",
- "snapfire_plugin",
+ "snapfire_compiler_wire",
  "thiserror 2.0.20",
 ]
 

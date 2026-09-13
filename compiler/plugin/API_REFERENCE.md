@@ -1,4 +1,4 @@
-# API Reference: snapfire_plugin
+# API Reference: snapfire_compiler_wire
 
 The wire contract between `snapfirec` and a framework compiler plugin, one JSON object per line over stdin and stdout.
 

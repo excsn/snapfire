@@ -1,5 +1,5 @@
 [package]
-name = "snapfire_plugin"
+name = "snapfire_compiler_wire"
 version = "0.1.0"
 description = "The wire contract between snapfirec and a framework compiler plugin."
 

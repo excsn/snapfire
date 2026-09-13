@@ -1,14 +1,14 @@
 //! `snapfirec-vue`, spoken to over stdin and stdout.
 //!
 //! One JSON object per line in, one per line out, per
-//! [`snapfire_plugin`]. The process is spawned once per build and lives across
+//! [`snapfire_compiler_wire`]. The process is spawned once per build and lives across
 //! rebuilds, so the second and later components pay a pipe write rather than
 //! the cost of booting a compiler.
 
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
 
-use snapfire_plugin::{Diagnostic, Hello, Outcome, Request, Response, PROTOCOL};
+use snapfire_compiler_wire::{Diagnostic, Hello, Outcome, Request, Response, PROTOCOL};
 use snapfire_vue::Compiler;
 
 const NAME: &str = "vue";

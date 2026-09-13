@@ -13,7 +13,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
 use rquickjs::{Context, Function, Module, Runtime};
-use snapfire_plugin::{Compiled, Diagnostic, Lang, Options, Outcome, Severity};
+use snapfire_compiler_wire::{Compiled, Diagnostic, Lang, Options, Outcome, Severity};
 
 /// Vue's browser build, as published. Never edited here.
 const COMPILER: &str = include_str!("../vendor/compiler-sfc.esm-browser.js");

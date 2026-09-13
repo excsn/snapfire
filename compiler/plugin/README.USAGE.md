@@ -1,4 +1,4 @@
-# Usage Guide: snapfire_plugin
+# Usage Guide: snapfire_compiler_wire
 
 How a framework compiler plugin speaks to `snapfirec` and what `snapfirec` promises it.
 
@@ -32,7 +32,7 @@ A worker in full: boot, announce, then answer until stdin closes.
 
 ```rust
 use std::io::{BufRead, Write};
-use snapfire_plugin::{Compiled, Diagnostic, Hello, Lang, Outcome, Request, Response, PROTOCOL};
+use snapfire_compiler_wire::{Compiled, Diagnostic, Hello, Lang, Outcome, Request, Response, PROTOCOL};
 
 fn main() {
   let stdout = std::io::stdout();
@@ -55,7 +55,7 @@ fn main() {
   }
 }
 
-fn compile(unit: &snapfire_plugin::Unit) -> Outcome {
+fn compile(unit: &snapfire_compiler_wire::Unit) -> Outcome {
   Outcome::Ok(Compiled { js: format!("export default {:?};", unit.source), lang: Lang::Js, ..Compiled::default() })
 }
 ```
@@ -91,7 +91,7 @@ A unit that fails does not fail the batch. The host prints its diagnostics, mark
 A diagnostic is structured. The host prints it with the build's own prefix, so three plugins' errors read as one tool's.
 
 ```rust
-use snapfire_plugin::Diagnostic;
+use snapfire_compiler_wire::Diagnostic;
 
 let refused = Diagnostic::error("Element is missing end tag.").at("src/Card.vue", Some(3), Some(5));
 let tip = Diagnostic::warning("v-for on a component without a key").at("src/Card.vue", Some(7), None);

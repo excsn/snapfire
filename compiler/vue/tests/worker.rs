@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use snapfire_plugin::{Hello, Options, Request, Response, Unit, PROTOCOL};
+use snapfire_compiler_wire::{Hello, Options, Request, Response, Unit, PROTOCOL};
 
 struct Worker {
   child: Child,
@@ -99,14 +99,14 @@ fn a_batch_answers_one_result_per_unit_whether_or_not_each_compiled() {
     .results
     .iter()
     .map(|r| match r {
-      snapfire_plugin::Outcome::Ok(_) => "ok",
-      snapfire_plugin::Outcome::Failed { .. } => "failed",
-      snapfire_plugin::Outcome::Needs { .. } => "needs",
+      snapfire_compiler_wire::Outcome::Ok(_) => "ok",
+      snapfire_compiler_wire::Outcome::Failed { .. } => "failed",
+      snapfire_compiler_wire::Outcome::Needs { .. } => "needs",
     })
     .collect();
   assert_eq!(statuses, ["ok", "failed", "ok"], "one bad component does not take its neighbours");
 
-  let snapfire_plugin::Outcome::Failed { diagnostics } = &response.results[1] else { panic!("the middle one failed") };
+  let snapfire_compiler_wire::Outcome::Failed { diagnostics } = &response.results[1] else { panic!("the middle one failed") };
   assert_eq!(diagnostics[0].file.as_deref(), Some("bad.vue"), "the diagnostic names the file the host asked about");
 }
 
