@@ -702,6 +702,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       if let Some(reason) = unlowered_handler(&inner.render) {
         return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but a handler did not lower: {reason}") });
       }
+      if let Some((name, index)) = captured_by_handler(inner) {
+        let reason = format!(
+          "{module} places it there, but handler {index} reads `{name}`, which the markup around it bound: a handler runs with the props, the state and the event, so put the value on the element and read it from `e.target`"
+        );
+        return Err(BuildError::ServerIsland { module: placed.clone(), reason });
+      }
       if let Some(nested) = nested_components(&inner.render).into_iter().find(|m| !set.pure.get(m).copied().unwrap_or(false)) {
         return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but `{nested}` inside it has state or handlers of its own, which only the island's own component may hold") });
       }
@@ -1433,6 +1439,26 @@ fn blame(report: &mut Report, module: &str, at: String, message: String, hint: O
     Some(cause) => cause.pages.push(page),
     None => report.causes.push(Cause { at, message, hint, pages: vec![page] }),
   }
+}
+
+/// The first handler of `component` reading a name that will not exist when
+/// the host runs it, with the handler's index. A step binds `$props`, `$state`
+/// and `$event` and re-runs the component's own `let`s; anything else a
+/// handler reads was bound by the markup it sits in, a loop's variable for
+/// one, which is gone by then.
+fn captured_by_handler(component: &snapfire_fsr_ir::Component) -> Option<(String, usize)> {
+  let mut bound: Vec<&str> = vec!["$props", "$state", "$event"];
+  for stmt in &component.body {
+    if let snapfire_fsr_ir::Stmt::Let { name, .. } = stmt {
+      bound.push(name);
+    }
+  }
+  component.handlers.iter().enumerate().find_map(|(index, handler)| {
+    snapfire_fsr_ir::body_free_vars(&handler.body)
+      .into_iter()
+      .find(|name| !bound.contains(&name.as_str()))
+      .map(|name| (name, index))
+  })
 }
 
 /// The modules a template places as islands in server mode.

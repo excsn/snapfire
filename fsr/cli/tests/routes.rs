@@ -292,6 +292,26 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
   assert!(err.contains("`src/Widget.tsx#Widget` cannot be an island in server mode") && err.contains("a handler did not lower") && err.contains("a call to `alert`"), "{err}");
   std::fs::remove_dir_all(&shouting).unwrap();
 
+  // A handler that closes over what the markup bound: the browser would keep
+  // it in the closure, the host has no such name when the step runs.
+  let captured = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    (
+      "src/Widget.tsx",
+      "import { useState } from \"react\";\nexport function Widget({ rows }: { rows: number[] }) {\n  const [n, setN] = useState(0);\n  return <ul>{rows.map((row) => <li key={row}><button onClick={() => setN(row)}>{n}</button></li>)}</ul>;\n}\n",
+    ),
+  ]);
+  let err = match build(&captured, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(
+    err.contains("`src/Widget.tsx#Widget` cannot be an island in server mode") && err.contains("handler 0 reads `row`") && err.contains("read it from `e.target`"),
+    "{err}"
+  );
+  std::fs::remove_dir_all(&captured).unwrap();
+
   let nested = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", page),

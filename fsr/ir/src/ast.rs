@@ -593,6 +593,54 @@ impl Expr {
   }
 }
 
+/// The names a body reads that it does not bind itself, in first-read order.
+/// A `let` binds for the statements after it and a `for-of` for its own body,
+/// the way the interpreter scopes them.
+pub fn body_free_vars(body: &Body) -> Vec<String> {
+  fn walk(body: &Body, bound: &mut Vec<String>, out: &mut Vec<String>) {
+    let depth = bound.len();
+    for stmt in body {
+      let mut exprs: Vec<&Expr> = Vec::new();
+      match stmt {
+        Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) | Stmt::Guard { cond: expr, .. } => exprs.push(expr),
+        Stmt::Act { input, .. } => exprs.push(input),
+        Stmt::SessionSet { path, value, .. } => {
+          exprs.extend(path.iter());
+          exprs.push(value);
+        }
+        Stmt::SessionDelete { path, .. } => exprs.extend(path.iter()),
+        Stmt::If { cond, .. } | Stmt::ForOf { over: cond, .. } => exprs.push(cond),
+      }
+      for expr in exprs {
+        let mut free = Vec::new();
+        expr.free_vars(&mut free);
+        for name in free {
+          if !bound.contains(&name) && !out.contains(&name) {
+            out.push(name);
+          }
+        }
+      }
+      match stmt {
+        Stmt::Let { name, .. } => bound.push(name.clone()),
+        Stmt::If { then, r#else, .. } => {
+          walk(then, bound, out);
+          walk(r#else, bound, out);
+        }
+        Stmt::ForOf { name, body, .. } => {
+          bound.push(name.clone());
+          walk(body, bound, out);
+          bound.truncate(bound.len() - 1);
+        }
+        _ => {}
+      }
+    }
+    bound.truncate(depth);
+  }
+  let mut out = Vec::new();
+  walk(body, &mut Vec::new(), &mut out);
+  out
+}
+
 /// True when any statement of the body reads the request or writes the
 /// session, so the body's result is not the same for every request.
 pub fn body_reads_request(body: &Body) -> bool {

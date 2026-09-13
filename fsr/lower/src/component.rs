@@ -596,6 +596,34 @@ fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (
   Ok(Some(IslandAlias { target: target.sym.to_string(), when, mode }))
 }
 
+/// The action id of `actions.<path>(input)`, when `actions` is the object the
+/// build generates: the property path is the id, `$root.blip` for
+/// `actions.$root.blip`. The generated module re-exports the client library's
+/// `action` under another name, so there is nothing here to follow by import.
+fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<String> {
+  let mut path: Vec<String> = Vec::new();
+  let mut cursor = callee;
+  loop {
+    match cursor {
+      js::Expr::Member(member) => {
+        let js::MemberProp::Ident(name) = &member.prop else { return None };
+        path.push(name.sym.to_string());
+        cursor = &member.obj;
+      }
+      js::Expr::Ident(root) => {
+        let source = find_import(parsed, root.sym.as_ref())?.0;
+        let file = source.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(&source);
+        if !file.ends_with("generated/client") {
+          return None;
+        }
+        path.reverse();
+        return (!path.is_empty()).then(|| path.join("."));
+      }
+      _ => return None,
+    }
+  }
+}
+
 /// `const save = action("desk.save")` at module scope, `action` imported from
 /// the client library, when `name` is such a `save`: the action's id.
 fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
@@ -1649,6 +1677,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if method == "preventDefault" || method == "stopPropagation" {
               return Ok(());
             }
+            if let Some(action) = generated_action_of(self.lowerer.parsed, callee) {
+              let input = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::Object(Vec::new()),
+              };
+              out.push(Stmt::Act { action, input });
+              return Ok(());
+            }
             Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, calls to state setters and calls to actions")))
           }
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
@@ -2172,16 +2208,21 @@ export default function Page() {
         r#"
 import { useState } from "react";
 import { action } from "@snapfire/fsr-client";
+import { actions } from "@generated/client";
 const step = action("desk.lot");
 const save = action("desk.save");
 function shout() {}
 export function Lot({ size }: { size: number }) {
   const [open, setOpen] = useState(false);
+  async function keep() {
+    await actions.$root.keep({ size });
+  }
   return (
     <div>
       <button onClick={() => void step({ by: 10 })}>+</button>
       <button onClick={() => { setOpen(!open); void save({ size, open: !open }); }}>save</button>
       <button onClick={() => void save()}>bare</button>
+      <button onClick={() => void keep()}>generated</button>
       <button onClick={() => void shout()}>shout</button>
     </div>
   );
@@ -2191,7 +2232,7 @@ export function Lot({ size }: { size: number }) {
     ];
     let set = set(&files, "routes/index/page.tsx#default");
     let lot = &set.components.iter().find(|(m, _)| m == "src/Lot.tsx#Lot").unwrap().1;
-    assert_eq!(lot.handlers.len(), 3, "{:?}", lot.handlers);
+    assert_eq!(lot.handlers.len(), 4, "{:?}", lot.handlers);
     assert_eq!(lot.handlers[0].body, vec![Stmt::Act { action: "desk.lot".to_owned(), input: Expr::Object(vec![Entry::Field("by".to_owned(), Expr::Lit(Lit::Float(10.0)))]) }, Stmt::Return(Expr::Object(Vec::new()))], "a handler that only calls an action sets no state and is still a handler");
     let flipped = Expr::Not(Box::new(Expr::var("open")));
     assert_eq!(
@@ -2203,8 +2244,13 @@ export function Lot({ size }: { size: number }) {
       "the input reads props and state; the patch follows"
     );
     assert_eq!(lot.handlers[2].body, vec![Stmt::Act { action: "desk.save".to_owned(), input: Expr::Object(Vec::new()) }, Stmt::Return(Expr::Object(Vec::new()))], "no argument is an empty input");
+    assert_eq!(
+      lot.handlers[3].body,
+      vec![Stmt::Act { action: "$root.keep".to_owned(), input: Expr::Object(vec![Entry::Field("size".to_owned(), Expr::var("$props").field("size"))]) }, Stmt::Return(Expr::Object(Vec::new()))],
+      "the generated client's own call is an act too, its id the property path"
+    );
     let Tmpl::Element { children, .. } = &lot.render else { panic!() };
-    let Tmpl::Element { attrs, .. } = &children[3] else { panic!() };
+    let Tmpl::Element { attrs, .. } = &children[4] else { panic!() };
     let unlowered = attrs.iter().find_map(|e| match e {
       Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == UNLOWERED_ATTR => Some(why.clone()),
       _ => None,
