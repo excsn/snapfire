@@ -13,7 +13,10 @@
 //! Islands are keyed the same way and never decided away: each placement
 //! takes an id and the rewrite gives `<Island>` the key the server wrote on
 //! the region, so a re-render pairs a placement with its region rather than
-//! with whatever sits at its position.
+//! with whatever sits at its position. A placement of a component that keys
+//! anything is keyed as well: the path under it names the placement, so two
+//! placements of one component key what they hold apart. A component that
+//! renders itself is such a pair.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -41,9 +44,10 @@ pub struct Candidates {
   /// byte range, whether it sits among JSX children and the callbacks it sits in.
   pub chunk_sites: Vec<(u32, Range<usize>, Range<usize>, bool, Vec<Range<usize>>)>,
   /// Each component placement's id, the offset just after its opening tag's
-  /// name and the callbacks it sits in; the placements that became islands
-  /// are the ones `rewrite` keeps.
-  pub island_sites: Vec<(u32, usize, Vec<Range<usize>>)>,
+  /// name, the element's byte range, whether it sits among JSX children and
+  /// the callbacks it sits in. `rewrite` keeps the placements that became
+  /// islands and the keyed ones.
+  pub island_sites: Vec<(u32, usize, Range<usize>, bool, Vec<Range<usize>>)>,
   /// The `.map` callbacks being lowered, outermost first.
   pub open_loops: Vec<Range<usize>>,
 }
@@ -67,11 +71,12 @@ impl Candidates {
 
   /// The id of a component placement, which is its region key's id when the
   /// placement turns out to be an island. `at` is the end of the opening
-  /// tag's name, where the key prop is spliced in.
-  pub(crate) fn island(&mut self, at: usize) -> u32 {
+  /// tag's name, where the key prop is spliced in; `range` is the element and
+  /// `as_child` says it sits among JSX children, for a keyed placement's wrap.
+  pub(crate) fn island(&mut self, at: usize, range: Range<usize>, as_child: bool) -> u32 {
     let id = self.next_island;
     self.next_island += 1;
-    self.island_sites.push((id, at, self.open_loops.clone()));
+    self.island_sites.push((id, at, range, as_child, self.open_loops.clone()));
     id
   }
 
@@ -87,8 +92,11 @@ impl Candidates {
       .collect()
   }
 
-  /// The rewrite for the candidates in `values` and `chunks`; `None` when none survived.
-  pub fn rewrite(self, values: &[u32], chunks: &[u32], islands: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
+  /// The rewrite for the candidates in `values` and `chunks`, the island
+  /// placements in `islands` and the keyed placements in `keyed`; `None`
+  /// when there is none of them.
+  #[allow(clippy::too_many_arguments)]
+  pub fn rewrite(self, values: &[u32], chunks: &[u32], islands: &[u32], keyed: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
     let mut sites = Vec::new();
     let mut chunk_sites = Vec::new();
     let mut loops: Vec<Range<usize>> = Vec::new();
@@ -112,16 +120,20 @@ impl Candidates {
       }
     }
     let mut island_sites = Vec::new();
-    for (id, at, enclosing) in self.island_sites {
+    let mut placements = Vec::new();
+    for (id, at, range, as_child, enclosing) in self.island_sites {
       if islands.contains(&id) {
         island_sites.push((id, at));
         remember(enclosing);
+      } else if keyed.contains(&id) {
+        placements.push((id, range, as_child));
+        remember(enclosing);
       }
     }
-    if sites.is_empty() && chunk_sites.is_empty() && island_sites.is_empty() {
+    if sites.is_empty() && chunk_sites.is_empty() && island_sites.is_empty() && placements.is_empty() {
       return None;
     }
-    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, loops })
+    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, loops })
   }
 }
 
@@ -146,6 +158,10 @@ pub struct Rewrite {
   pub chunks: Vec<(u32, Range<usize>, Range<usize>, bool)>,
   /// The island placements: id and the offset the reader call is spliced at.
   pub islands: Vec<(u32, usize)>,
+  /// The keyed placements: id, element range and whether the element sits
+  /// among JSX children. Each is wrapped so what the component it places
+  /// keys sits below the placement.
+  pub placements: Vec<(u32, Range<usize>, bool)>,
   /// The `.map` callbacks whose bodies the survivors sit in, as arrow ranges.
   pub loops: Vec<Range<usize>>,
 }
@@ -471,6 +487,11 @@ pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
     }
     for (id, at) in &rewrite.islands {
       insert(&mut edits, *at, 0, format!(" {KEY_PROP}={{{READER}.k({id})}}"));
+    }
+    for (id, range, as_child) in &rewrite.placements {
+      let (before, after) = if *as_child { ("{", ")}") } else { ("", ")") };
+      insert(&mut edits, range.start, 0, format!("{before}{READER}.p({id}, "));
+      insert(&mut edits, range.end, 1, after.to_owned());
     }
   }
   edits.sort_by(|a, b| b.start.cmp(&a.start).then(b.end.cmp(&a.end)).then(a.rank.cmp(&b.rank)));

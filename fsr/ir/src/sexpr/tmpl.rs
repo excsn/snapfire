@@ -42,14 +42,14 @@ pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx {
     Tmpl::Let { name, expr, then } => {
       form("let", vec![Sx::Sym(name.clone()), expr_to_sx(expr), tmpl_to_sx(then)])
     }
-    Tmpl::Component { module, props, children, id } => {
+    Tmpl::Component { module, props, children, id, keyed } => {
       let mut rest = vec![
         Sx::Sym(module.clone()),
         Sx::Sym(id.to_string()),
         Sx::list(props.iter().map(entry_to_sx).collect()),
       ];
       rest.extend(children.iter().map(tmpl_to_sx));
-      form("comp", rest)
+      form(if *keyed { "keyed-comp" } else { "comp" }, rest)
     }
     Tmpl::Island { module, props, children, when, mode, id, define } => {
       if *define {
@@ -123,13 +123,14 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
         then: Box::new(tmpl_from_sx(&a[2])?),
       }
     }
-    "comp" => {
+    "comp" | "keyed-comp" => {
       let a = at_least(items, head, 3)?;
       Tmpl::Component {
         module: sym_of(&a[0])?,
         id: u32_of(&a[1])?,
         props: a[2].as_list()?.iter().map(entry_from_sx).collect::<Res<_>>()?,
         children: a[3..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        keyed: head == "keyed-comp",
       }
     }
     "island" => {

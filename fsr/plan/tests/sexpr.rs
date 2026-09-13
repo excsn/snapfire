@@ -178,8 +178,9 @@ fn every_tmpl() -> Vec<Tmpl> {
       props: vec![Entry::Field("title".to_owned(), s("hi"))],
       children: vec![Tmpl::Text("child".to_owned())],
       id: 3,
+      keyed: false,
     },
-    Tmpl::Component { module: "src/Card.tsx#Card".to_owned(), props: Vec::new(), children: Vec::new(), id: 0 },
+    Tmpl::Component { module: "src/Card.tsx#Card".to_owned(), props: Vec::new(), children: Vec::new(), id: 0, keyed: false },
     Tmpl::Island {
       module: "src/Cart.tsx#Cart".to_owned(),
       props: vec![Entry::Field("open".to_owned(), Expr::Lit(Lit::Bool(true)))],

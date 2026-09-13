@@ -79,8 +79,10 @@ export interface HoistReader {
 	}) => ReactElement, miss: () => ReactElement): ReactElement;
 	/** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists and marked `i`. */
 	k(id: number): string;
+	/** `element`, a keyed placement `id` of a component, under a provider whose path is the current one plus `c<id>`, so what that component keys sits below this placement and two placements of it key apart. */
+	p(id: number, element: ReactElement): ReactElement;
 }
-/** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops, the callers' loops first. */
+/** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops and keyed placements, the callers' first. */
 export declare function useHoisted(module: string): HoistReader;
 /** `element` under the hoisted table `table`, the way the mounter places an island under the table its props carried. */
 export declare function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement;

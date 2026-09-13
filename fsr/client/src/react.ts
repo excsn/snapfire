@@ -301,17 +301,19 @@ export interface HoistReader {
   c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement;
   /** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists and marked `i`. */
   k(id: number): string;
+  /** `element`, a keyed placement `id` of a component, under a provider whose path is the current one plus `c<id>`, so what that component keys sits below this placement and two placements of it key apart. */
+  p(id: number, element: ReactElement): ReactElement;
 }
 
-/** The loop indices a component was rendered under by its callers, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
-const PathContext = createContext<readonly number[]>([]);
+/** The path a component was rendered under by its callers: loop indices and `c<id>` for each keyed placement, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
+const PathContext = createContext<readonly (number | string)[]>([]);
 
-/** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops, the callers' loops first. */
+/** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops and keyed placements, the callers' first. */
 export function useHoisted(module: string): HoistReader {
   const table = useContext(HoistContext);
   const base = useContext(PathContext);
   return useMemo(() => {
-    const path: number[] = [...base];
+    const path: (number | string)[] = [...base];
     const key = (id: number | string): string => (path.length === 0 ? `${module}|${id}` : `${module}|${id}@${path.join(".")}`);
     return {
       r<T>(id: number, compute: () => T): T {
@@ -327,6 +329,9 @@ export function useHoisted(module: string): HoistReader {
       },
       k(id: number): string {
         return key(`i${id}`);
+      },
+      p(id: number, element: ReactElement): ReactElement {
+        return createElement(PathContext.Provider, { key: element.key, value: [...path, `c${id}`] }, element);
       },
       l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R {
         return (...args: A): R => {

@@ -66,11 +66,16 @@ pub struct ComponentSet {
   /// Per module with a purity verdict, whether it holds no browser state: the
   /// half of the verdict that does not depend on the components it renders.
   stateless: HashMap<String, bool>,
+  /// Per lowered module, whether it keys a hoist, a chunk or a region
+  /// anywhere below it, which makes a placement of it keyed. A module met in
+  /// a cycle before its verdict is in counts as keyed, which both halves
+  /// agree on since the flag is decided once.
+  keys: HashMap<String, bool>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new() }
   }
 
   /// A module the set resolves and reads from `source` rather than from disk.
@@ -360,9 +365,16 @@ impl ComponentSet {
       }
       let mut islands = Vec::new();
       island_ids(&component.render, &mut islands);
-      if let Some(rewrite) = candidates.rewrite(&kept, &chunks, &islands, file, &module, hook) {
+      let placed: Vec<u32> = candidates.island_sites.iter().map(|(id, ..)| *id).collect();
+      let mut keyed = Vec::new();
+      mark_keyed(&mut component.render, &placed, &|callee| self.keys.get(callee).copied().unwrap_or(true), &mut keyed);
+      let rewrite = candidates.rewrite(&kept, &chunks, &islands, &keyed, file, &module, hook);
+      self.keys.insert(module.clone(), rewrite.is_some());
+      if let Some(rewrite) = rewrite {
         self.rewrites.push(rewrite);
       }
+    } else {
+      self.keys.insert(module.clone(), false);
     }
     Ok(component)
   }
@@ -530,6 +542,34 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
   }
 }
 
+/// Marks each placement in `placed` whose component `keys` as keyed and
+/// collects its id. A placement with no site stays unkeyed, since the
+/// rewrite could not wrap it to match. So does one inside a kept chunk: the
+/// browser takes the chunk's markup whole and a chunk holds no island.
+fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, out: &mut Vec<u32>) {
+  match tmpl {
+    Tmpl::Baked { .. } => {}
+    Tmpl::Element { attrs, .. } if attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == hoist::CHUNK_ATTR)) => {}
+    Tmpl::Component { module, children, id, keyed, .. } => {
+      if placed.contains(id) && keys(module) {
+        *keyed = true;
+        out.push(*id);
+      }
+      children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, out));
+    }
+    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, out)),
+    Tmpl::If { then, r#else, .. } => {
+      mark_keyed(then, placed, keys, out);
+      if let Some(other) = r#else {
+        mark_keyed(other, placed, keys, out);
+      }
+    }
+    Tmpl::For { body, .. } => mark_keyed(body, placed, keys, out),
+    Tmpl::Let { then, .. } => mark_keyed(then, placed, keys, out),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+  }
+}
+
 /// The modules `Island`, `island`, `Slot` and `Link` are read from: the
 /// client's React module, which a React application also mounts with or the
 /// dialect's own declarations, which an application without React types
@@ -580,9 +620,9 @@ fn refs_by_module(modules: &HashMap<String, String>, module: &str, refs: &[(Stri
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
   let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_modules(c, modules, islands)).collect();
   match tmpl {
-    Tmpl::Component { module, props, children, id } => match islands.get(&module) {
+    Tmpl::Component { module, props, children, id, keyed } => match islands.get(&module) {
       Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone(), id, define: false },
-      None => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), id },
+      None => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), id, keyed },
     },
     Tmpl::Island { module, props, children, when, mode, id, define } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode, id, define },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
@@ -1482,7 +1522,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let is_component = member || name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
     if is_component {
-      return self.component_ref(&name, el);
+      return self.component_ref(&name, el, as_child);
     }
     let mut attrs = Vec::new();
     let mut select_value = None;
@@ -1604,8 +1644,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         return Err(self.lowerer.residue(child.span, "`<Island define>` wraps an element, since its module defines one"));
       };
       let at = self.lowerer.parsed.range(el.opening.name.span()).end;
+      let range = self.lowerer.parsed.range(el.span);
       let id = match &mut self.lowerer.hoisting {
-        Some(candidates) => candidates.island(at),
+        Some(candidates) => candidates.island(at, range, false),
         None => 0,
       };
       return Ok(Tmpl::Island { module, props: Vec::new(), children: vec![lowered], when, mode: None, id, define: true });
@@ -1868,12 +1909,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// the bundle's copy of this component carries the same region key.
   fn island_of(&self, lowered: Tmpl, when: Option<String>, mode: Option<String>, span: Span) -> Lowered<Tmpl> {
     match lowered {
-      Tmpl::Component { module, props, children, id } => Ok(Tmpl::Island { module, props, children, when, mode, id, define: false }),
+      Tmpl::Component { module, props, children, id, .. } => Ok(Tmpl::Island { module, props, children, when, mode, id, define: false }),
       _ => Err(self.lowerer.residue(span, "an island must be a component, not an element")),
     }
   }
 
-  fn component_ref(&mut self, name: &str, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+  /// `as_child` says the element sits among JSX children, where a keyed
+  /// placement's wrap must be braced.
+  fn component_ref(&mut self, name: &str, el: &'p js::JSXElement, as_child: bool) -> Lowered<Tmpl> {
     if name == "Fragment" || name == "React.Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
     }
@@ -1884,7 +1927,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       _ => {}
     }
     if let Some((target, when, mode)) = self.island_alias(name)? {
-      let lowered = self.component_ref(&target, el)?;
+      let lowered = self.component_ref(&target, el, false)?;
       return self.island_of(lowered, when, mode, el.span);
     }
     let mut props = Vec::new();
@@ -1910,11 +1953,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
     self.refs.push((name.to_owned(), (loc.line, loc.col_display + 1)));
     let at = self.lowerer.parsed.range(el.opening.name.span()).end;
+    let range = self.lowerer.parsed.range(el.span);
     let id = match &mut self.lowerer.hoisting {
-      Some(candidates) => candidates.island(at),
+      Some(candidates) => candidates.island(at, range, as_child),
       None => 0,
     };
-    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children, id })
+    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children, id, keyed: false })
   }
 
   fn attr_value(&mut self, attr: &'p js::JSXAttr) -> Lowered<Expr> {
@@ -2196,6 +2240,83 @@ mod tests {
     let mut set = ComponentSet::new(&app(files));
     set.lower(module).unwrap();
     set
+  }
+
+  fn placements(tmpl: &Tmpl, out: &mut Vec<(String, bool)>) {
+    match tmpl {
+      Tmpl::Component { module, children, keyed, .. } => {
+        out.push((module.clone(), *keyed));
+        children.iter().for_each(|c| placements(c, out));
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } => children.iter().for_each(|c| placements(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        placements(then, out);
+        if let Some(e) = r#else {
+          placements(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => placements(body, out),
+      Tmpl::Let { then, .. } => placements(then, out),
+      _ => {}
+    }
+  }
+
+  #[test]
+  fn a_placement_of_a_component_that_keys_anything_is_keyed_and_wrapped() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import Card from "@src/ui/Card";
+import Plain from "@src/ui/Plain";
+import Tree from "@src/ui/Tree";
+export default function Index({ items, tree }: { items: string[]; tree: { label: string; kids: any[] } }) {
+  return (
+    <div>
+      {items.map((item) => <Card label={item} />)}
+      <Card label="last" />
+      <Plain />
+      <Tree node={tree} />
+    </div>
+  );
+}
+"#,
+      ),
+      (
+        "src/ui/Card.tsx",
+        r#"
+import { Island } from "@snapfire/fsr-client/react";
+import Body from "@src/ui/Body";
+export default function Card({ label }: { label: string }) {
+  return <Island when="load"><Body label={label} /></Island>;
+}
+"#,
+      ),
+      ("src/ui/Body.tsx", "import { useState } from \"react\";\nexport default function Body({ label }: { label: string }) {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{label}{n}</button>;\n}\n"),
+      ("src/ui/Plain.tsx", "export default function Plain() {\n  return <i>plain</i>;\n}\n"),
+      ("src/ui/Tree.tsx", "export default function Tree({ node }: { node: { label: string; kids: any[] } }) {\n  return <ul><li>{node.label}</li>{node.kids.map((kid) => <Tree node={kid} />)}</ul>;\n}\n"),
+    ];
+    let set = set(&files, "routes/index/page.tsx#default");
+    let page = &set.components.iter().find(|(m, _)| m == "routes/index/page.tsx#default").unwrap().1;
+    let mut placed = Vec::new();
+    placements(&page.render, &mut placed);
+    assert_eq!(
+      placed,
+      [("src/ui/Card.tsx#default".to_owned(), true), ("src/ui/Card.tsx#default".to_owned(), true), ("src/ui/Plain.tsx#default".to_owned(), false), ("src/ui/Tree.tsx#default".to_owned(), true)],
+      "Card keys a region and Tree renders itself; Plain keys nothing"
+    );
+    let tree = &set.components.iter().find(|(m, _)| m == "src/ui/Tree.tsx#default").unwrap().1;
+    let mut placed = Vec::new();
+    placements(&tree.render, &mut placed);
+    assert_eq!(placed, [("src/ui/Tree.tsx#default".to_owned(), true)], "a component met in its own cycle counts as keyed");
+    let rewritten: HashMap<String, String> = set.rewritten().into_iter().collect();
+    let source = &rewritten["routes/index/page.tsx"];
+    assert!(source.contains("{items.map(__sfh.l((item) => __sfh.p(0, <Card label={item} />)))}"), "{source}");
+    assert!(source.contains("{__sfh.p(1, <Card label=\"last\" />)}"), "{source}");
+    assert!(source.contains("      <Plain />\n"), "an unkeyed placement is left as written: {source}");
+    assert!(source.contains("{__sfh.p(3, <Tree node={tree} />)}"), "{source}");
+    assert!(rewritten["src/ui/Tree.tsx"].contains("{node.kids.map(__sfh.l((kid) => __sfh.p(0, <Tree node={kid} />)))}"), "{}", rewritten["src/ui/Tree.tsx"]);
+    assert!(!rewritten.contains_key("src/ui/Plain.tsx"), "a component that keys nothing is not rewritten");
   }
 
   #[test]

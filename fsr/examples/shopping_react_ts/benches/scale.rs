@@ -98,6 +98,7 @@ fn nested(depth: usize) -> (Components, Arc<Component>) {
           props: vec![Entry::Field("label".to_owned(), Expr::var("$props").field("label"))],
           children: Vec::new(),
           id: 0,
+          keyed: false,
         }],
       },
       state: Vec::new(),

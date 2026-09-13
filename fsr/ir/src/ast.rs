@@ -157,7 +157,10 @@ pub enum Tmpl {
   /// Props are `Entry::Field` or `Entry::Spread`; `children` render in the caller's scope wherever the callee places its `Slot`.
   /// `id` is the placement's index among the enclosing component's hoist
   /// candidates, kept so a placement that turns out to be an island carries it.
-  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "is_zero")] id: u32 },
+  /// `keyed` says the placed component keys a hoist or a region somewhere
+  /// below it, so the placement extends the key path by `id` on both halves:
+  /// two placements of one component then key what it holds apart.
+  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "is_zero")] id: u32, #[serde(default, skip_serializing_if = "is_false")] keyed: bool },
   /// A component placed as its own island: rendered like `Component`, then
   /// wrapped as a nested client node the browser mounts in its own root,
   /// `when` its hydration timing. `id` is the placement's index among the

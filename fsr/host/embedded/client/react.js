@@ -253,6 +253,15 @@ export function useHoisted(module) {
             k (id) {
                 return key(`i${id}`);
             },
+            p (id, element) {
+                return createElement(PathContext.Provider, {
+                    key: element.key,
+                    value: [
+                        ...path,
+                        `c${id}`
+                    ]
+                }, element);
+            },
             l (f) {
                 return (...args)=>{
                     path.push(typeof args[1] === "number" ? args[1] : -1);

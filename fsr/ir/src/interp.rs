@@ -206,13 +206,23 @@ pub(crate) struct Env {
   pub(crate) calls: usize,
 }
 
+/// One step of the path a key is taken under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+  /// The index of an enclosing loop's iteration, printed as the number.
+  Iteration(usize),
+  /// A keyed placement of a component, printed `c` and the placement id.
+  Placement(u32),
+}
+
 /// The hoisted values of one island: keyed by the module, the hoist id and
-/// the indices of the loops enclosing it, `module|id@i.j`. A key recorded
-/// twice with different values is dead: the browser computes it instead.
+/// the path enclosing it, `module|id@i.j` with `c<id>` for a keyed placement.
+/// A key recorded twice with different values is dead: the browser computes
+/// it instead.
 #[derive(Debug, Default, Clone)]
 pub struct Hoists {
   pub module: String,
-  pub path: Vec<usize>,
+  pub path: Vec<Step>,
   pub table: ValueMap,
   dead: Vec<String>,
 }
@@ -244,12 +254,18 @@ impl Hoists {
     key.push_str(id);
     if !self.path.is_empty() {
       key.push('@');
-      for (i, index) in self.path.iter().enumerate() {
+      for (i, step) in self.path.iter().enumerate() {
         if i > 0 {
           key.push('.');
         }
         let mut digits = itoa::Buffer::new();
-        key.push_str(digits.format(*index));
+        match step {
+          Step::Iteration(index) => key.push_str(digits.format(*index)),
+          Step::Placement(id) => {
+            key.push('c');
+            key.push_str(digits.format(*id));
+          }
+        }
       }
     }
     key

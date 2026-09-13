@@ -13,7 +13,7 @@ use std::sync::Arc;
 use snapfire_fsr_core::{Value, ValueMap};
 
 use crate::ast::{Component, Entry, Stmt, Tmpl};
-use crate::interp::{Env, Fail, Hoists, Interpreter, stringify, truthy};
+use crate::interp::{Env, Fail, Hoists, Interpreter, Step, stringify, truthy};
 
 /// Every lowered component by module id, so one may render another.
 pub type Components = HashMap<String, Arc<Component>>;
@@ -185,6 +185,9 @@ pub fn slot_mark(name: &str) -> String {
 struct Slot<'a> {
   children: &'a [Tmpl],
   scope: Rc<Vec<(String, Value)>>,
+  /// The hoist module and path of the caller, which its children key under:
+  /// the browser builds them in the caller's render. `None` for an island's.
+  keys: Option<(String, Vec<Step>)>,
 }
 
 impl Interpreter {
@@ -292,11 +295,12 @@ fn eval_body_sync(env: &mut Env, body: &[Stmt]) -> Result<Value, Fail> {
   Ok(Value::Null)
 }
 
-/// Runs `f` with the hoist path extended by `index`, the position of the
-/// iteration whose values are recorded inside.
-fn in_iteration<T>(env: &mut Env, index: usize, f: impl FnOnce(&mut Env) -> T) -> T {
+/// Runs `f` with the hoist path extended by `step`: the position of the
+/// iteration whose values are recorded inside or the keyed placement that
+/// rendered the component.
+fn in_step<T>(env: &mut Env, step: Step, f: impl FnOnce(&mut Env) -> T) -> T {
   if let Some(h) = &mut env.hoists {
-    h.path.push(index);
+    h.path.push(step);
   }
   let result = f(env);
   if let Some(h) = &mut env.hoists {
@@ -472,7 +476,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       render(env, then, library, slots, out)?;
       env.scope.truncate(depth);
     }
-    Tmpl::Component { module, props, children, .. } => render_call(env, module, props, children, library, slots, out)?,
+    Tmpl::Component { module, props, children, id, keyed } => render_call(env, module, props, children, *id, *keyed, library, slots, out)?,
     Tmpl::Island { .. } => render_island(env, tmpl, library, slots, out)?,
     Tmpl::Slot(name) => render_slot(env, name, library, slots, out)?,
   }
@@ -561,19 +565,22 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
     for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
       env.scope.push((param.clone(), value));
     }
-    in_iteration(env, i, |env| render(env, body, library, slots, out))?;
+    in_step(env, Step::Iteration(i), |env| render(env, body, library, slots, out))?;
   }
   env.scope.truncate(depth);
   Ok(())
 }
 
-fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+#[allow(clippy::too_many_arguments)]
+fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], id: u32, keyed: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
   let map = self::props(env, props)?;
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
-  slots.push(Slot { children, scope: Rc::clone(&outer) });
-  let result = in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
+  let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys });
+  let mut body = |env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
+  let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   slots.pop();
   env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
   env.scope.truncate(depth);
@@ -606,7 +613,7 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
   };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
-  slots.push(Slot { children, scope: Rc::clone(&outer) });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys: None });
   let mut inner = Out::default();
   let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
@@ -629,12 +636,20 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
     return Ok(());
   };
   let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
+  let callee_keys = match (&slot.keys, &mut env.hoists) {
+    (Some((module, path)), Some(h)) => Some((std::mem::replace(&mut h.module, module.clone()), std::mem::replace(&mut h.path, path.clone()))),
+    _ => None,
+  };
   let mut result = Ok(());
   for child in slot.children {
     result = render(env, child, library, slots, out);
     if result.is_err() {
       break;
     }
+  }
+  if let (Some((module, path)), Some(h)) = (callee_keys, &mut env.hoists) {
+    h.module = module;
+    h.path = path;
   }
   env.scope = inner;
   slots.push(slot);
@@ -692,7 +707,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond: cond.clone(), then: Box::new(prepare_tmpl(then)), r#else: r#else.as_ref().map(|other| Box::new(prepare_tmpl(other))) },
     Tmpl::For { over, params, body } => Tmpl::For { over: over.clone(), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
     Tmpl::Let { name, expr, then } => Tmpl::Let { name: name.clone(), expr: expr.clone(), then: Box::new(prepare_tmpl(then)) },
-    Tmpl::Component { module, props, children, id } => Tmpl::Component { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), id: *id },
+    Tmpl::Component { module, props, children, id, keyed } => Tmpl::Component { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), id: *id, keyed: *keyed },
     Tmpl::Island { module, props, children, when, mode, id, define } => {
       Tmpl::Island { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
     }
@@ -1047,7 +1062,7 @@ mod tests {
     );
     let page = Component {
       body: Vec::new(),
-      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0 }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0, keyed: false }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
     let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap().html;
@@ -1064,7 +1079,7 @@ mod tests {
         render: Tmpl::Element {
           tag: "main".to_owned(),
           attrs: vec![Entry::Field("class".to_owned(), p("className"))],
-          children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())], id: 0 }],
+          children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())], id: 0, keyed: false }],
         }, state: Vec::new(), handlers: Vec::new(), hydrate: true
       }),
     );
@@ -1083,6 +1098,7 @@ mod tests {
           body: Box::new(Tmpl::Element { tag: "p".to_owned(), attrs: vec![Entry::Spread(Expr::var("it").field("attrs")), Entry::Field("class".to_owned(), Expr::lit_str("item"))], children: vec![Tmpl::Expr(Expr::var("it").field("name")), Tmpl::Text(" for ".to_owned()), Tmpl::Expr(p("title"))] }),
         }],
         id: 0,
+        keyed: false,
       }, state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let mut attrs = ValueMap::default();
@@ -1120,7 +1136,7 @@ mod tests {
       body: vec![Stmt::Let { name: "n".to_owned(), expr: read }],
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(Expr::var("n")),
-        Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), id: 0 },
+        Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), id: 0, keyed: false },
       ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
@@ -1219,7 +1235,7 @@ mod hoist_tests {
       "src/ui/Price.tsx#Price".to_owned(),
       Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
     );
-    let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new(), id: 0 };
+    let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new(), id: 0, keyed: false };
     let page = Component {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
@@ -1409,6 +1425,80 @@ mod island_tests {
       _ => None,
     }).collect();
     assert_eq!(marked, ["<sf-s data-sf-island data-sf-region=\"routes/w/page.tsx#default|i1@0\">", "<sf-s data-sf-island data-sf-region=\"routes/w/page.tsx#default|i1@1\">", "<sf-s data-sf-island data-sf-region=\"routes/w/page.tsx#default|i1@2\">"]);
+  }
+
+  fn island_at(module: &str, id: u32) -> Tmpl {
+    Tmpl::Island { module: module.to_owned(), props: Vec::new(), children: Vec::new(), when: None, mode: None, id, define: false }
+  }
+
+  fn keys_of(rendered: &Rendered) -> Vec<&str> {
+    rendered.islands.iter().map(|i| i.key.as_str()).collect()
+  }
+
+  #[test]
+  fn two_placements_of_one_component_key_what_it_holds_apart() {
+    let mut library = Components::new();
+    library.insert("src/ui/Body.tsx#Body".to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Text("body".to_owned()))));
+    library.insert("src/ui/Card.tsx#Card".to_owned(), Arc::new(Component::new(Vec::new(), island_at("src/ui/Body.tsx#Body", 0))));
+    let card = |id: u32| Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: Vec::new(), id, keyed: true };
+    let page = Component::new(Vec::new(), Tmpl::Fragment(vec![card(1), card(2)]));
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    assert_eq!(keys_of(&rendered), ["src/ui/Card.tsx#Card|i0@c1", "src/ui/Card.tsx#Card|i0@c2"], "each keyed placement names itself on the path");
+  }
+
+  #[test]
+  fn a_component_that_renders_itself_from_two_loops_keys_every_level_apart() {
+    const THREAD: &str = "src/ui/Thread.tsx#Thread";
+    let under = |field: &str, id: u32| Tmpl::For {
+      over: Expr::var("$props").field(field),
+      params: vec!["each".to_owned()],
+      body: Box::new(Tmpl::Component { module: THREAD.to_owned(), props: vec![Entry::Spread(Expr::var("each"))], children: Vec::new(), id, keyed: true }),
+    };
+    let mut library = Components::new();
+    library.insert("src/ui/Body.tsx#Body".to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Text("body".to_owned()))));
+    library.insert(THREAD.to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Fragment(vec![island_at("src/ui/Body.tsx#Body", 0), under("replies", 1), under("asides", 2)]))));
+    fn node(replies: Vec<Value>, asides: Vec<Value>) -> Value {
+      let mut map = ValueMap::default();
+      map.insert("replies".to_owned(), Value::seq(replies));
+      map.insert("asides".to_owned(), Value::seq(asides));
+      Value::Map(map)
+    }
+    let Value::Map(props) = node(vec![node(vec![node(vec![], vec![])], vec![])], vec![node(vec![node(vec![], vec![])], vec![])]) else { unreachable!() };
+    let rendered = Interpreter::default().render_module(THREAD, &library[THREAD], &props, &library).unwrap();
+    assert_eq!(
+      keys_of(&rendered),
+      [
+        "src/ui/Thread.tsx#Thread|i0",
+        "src/ui/Thread.tsx#Thread|i0@0.c1",
+        "src/ui/Thread.tsx#Thread|i0@0.c1.0.c1",
+        "src/ui/Thread.tsx#Thread|i0@0.c2",
+        "src/ui/Thread.tsx#Thread|i0@0.c2.0.c1",
+      ],
+      "a reply and an aside at the same index are different placements"
+    );
+  }
+
+  #[test]
+  fn a_callers_children_key_under_the_caller_rather_than_the_component_placing_them() {
+    let mut library = Components::new();
+    library.insert("src/ui/Body.tsx#Body".to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Text("body".to_owned()))));
+    library.insert("src/ui/Wrap.tsx#Wrap".to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Fragment(vec![island_at("src/ui/Body.tsx#Body", 0), Tmpl::Slot("content".to_owned())]))));
+    let page = Component::new(
+      Vec::new(),
+      Tmpl::For {
+        over: Expr::var("$props").field("rows"),
+        params: vec!["row".to_owned()],
+        body: Box::new(Tmpl::Component { module: "src/ui/Wrap.tsx#Wrap".to_owned(), props: Vec::new(), children: vec![island_at("src/ui/Body.tsx#Body", 2)], id: 1, keyed: true }),
+      },
+    );
+    let mut props = ValueMap::default();
+    props.insert("rows".to_owned(), Value::seq(vec![Value::str("one"), Value::str("two")]));
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &props, &library).unwrap();
+    assert_eq!(
+      keys_of(&rendered),
+      ["src/ui/Wrap.tsx#Wrap|i0@0.c1", "routes/w/page.tsx#default|i2@0", "src/ui/Wrap.tsx#Wrap|i0@1.c1", "routes/w/page.tsx#default|i2@1"],
+      "the children were built by the page, which is where the browser computes their keys"
+    );
   }
 
   #[test]
