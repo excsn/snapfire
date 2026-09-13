@@ -255,7 +255,7 @@ pub enum RenderMode {
 }
 
 /// The fragment `raw_query` asks for, when it asks for one.
-fn fragment_of(raw_query: &str) -> Option<Option<String>> {
+pub fn fragment_of(raw_query: &str) -> Option<Option<String>> {
   raw_query.split('&').find_map(|pair| match pair.split_once('=') {
     Some(("__fragment", slot)) => Some(Some(percent_decoded(slot))),
     None if pair == "__fragment" => Some(None),
@@ -265,7 +265,7 @@ fn fragment_of(raw_query: &str) -> Option<Option<String>> {
 
 /// `location` with the fragment `slot` names asked for again, so a form posted
 /// from a fragment is answered with one.
-fn with_fragment(location: &str, slot: Option<&str>) -> String {
+pub fn with_fragment(location: &str, slot: Option<&str>) -> String {
   let joiner = if location.contains('?') { '&' } else { '?' };
   match slot {
     Some(name) => format!("{location}{joiner}__fragment={name}"),
@@ -3140,7 +3140,9 @@ fn same_origin_path(candidate: &str) -> Option<String> {
 }
 
 /// The path and query of a `Referer`, whether it came absolute or bare.
-fn referer_path(referer: &str) -> Option<String> {
+/// The path of a `Referer` on this origin, which is where a form post lands
+/// again. `None` for another origin.
+pub fn referer_path(referer: &str) -> Option<String> {
   if referer.starts_with('/') {
     return same_origin_path(referer);
   }

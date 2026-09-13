@@ -134,7 +134,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
 
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let natives = native_names(&built.manifest);
-  let actions: HashMap<String, Arc<Body>> = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), Arc::new(b)))).collect();
+  let actions: Actions = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), (a.input.clone(), Arc::new(b))))).collect();
   let mut handlers: HashMap<String, (Option<String>, Arc<Body>)> = HashMap::new();
   let mut handler_matcher = HandlerMatcher::new();
   for row in built.manifest.lowered_handlers() {
@@ -599,11 +599,14 @@ struct IdentitySpec {
   claims: serde_json::Value,
 }
 
+/// Each lowered action by id, with the input type it declares.
+type Actions = HashMap<String, (Option<String>, Arc<Body>)>;
+
 type Handlers = Arc<(HashMap<String, (Option<String>, Arc<Body>)>, HandlerMatcher, Option<Arc<Body>>)>;
 
 struct SpecHooks {
   contract: Arc<Contract>,
-  actions: HashMap<String, Arc<Body>>,
+  actions: Actions,
   handlers: Handlers,
   components: Arc<Components>,
   calls: JsCalls,
@@ -615,7 +618,7 @@ struct SpecHooks {
 }
 
 impl SpecHooks {
-  fn new(contract: Arc<Contract>, actions: HashMap<String, Arc<Body>>, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>, natives: &[String]) -> Self {
+  fn new(contract: Arc<Contract>, actions: Actions, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>, natives: &[String]) -> Self {
     let mut extensions = snapfire_fsr_ir::Extensions::standard();
     for name in natives {
       extensions.register(name.clone(), snapfire_fsr_ir::Reach::Render, browser_half(name.clone()));
@@ -697,6 +700,29 @@ impl SpecHooks {
 
 fn json_response(status: u16, json: serde_json::Value) -> FetchResponse {
   FetchResponse { headers: Vec::new(), status, body: json.to_string() }
+}
+
+/// The `303` a form post is answered with, as the host answers it.
+fn see_other(location: &str) -> FetchResponse {
+  FetchResponse { headers: vec![("location".to_owned(), location.to_owned())], status: 303, body: String::new() }
+}
+
+fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+  headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.as_str())
+}
+
+fn is_form(headers: &[(String, String)]) -> bool {
+  header_of(headers, "content-type").is_some_and(|value| value.starts_with("application/x-www-form-urlencoded"))
+}
+
+/// Where a form post lands again: the `Referer`'s path on this origin, else
+/// `/`, carrying the fragment the action's own query asked for.
+fn back_to(headers: &[(String, String)], query: &str) -> String {
+  let back = header_of(headers, "referer").and_then(snapfire_fsr_host::referer_path).unwrap_or_else(|| "/".to_owned());
+  match snapfire_fsr_host::fragment_of(query) {
+    Some(slot) => snapfire_fsr_host::with_fragment(&back, slot.as_deref()),
+    None => back,
+  }
 }
 
 impl Hooks for SpecHooks {
@@ -824,7 +850,7 @@ impl SpecHooks {
 }
 
 struct FetchHooks {
-  actions: HashMap<String, Arc<Body>>,
+  actions: Actions,
   handlers: Handlers,
   contract: Arc<Contract>,
   interpreter: Interpreter,
@@ -855,22 +881,44 @@ impl FetchHooks {
       }
       return self.page(method, path, query, target, headers).await;
     };
-    let Some(body_ir) = self.actions.get(&id).cloned() else {
+    let Some((input_type, body_ir)) = self.actions.get(&id).cloned() else {
       let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
       return json_response(501, serde_json::json!({ "kind": "internal", "message": message }));
     };
     let Some(mock) = self.current_ctx.clone() else {
       return json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" }));
     };
-    let input = match body.as_deref().map(serde_json::from_str::<serde_json::Value>) {
-      Some(Ok(json)) => match json_to_value(&json) {
-        Ok(value) => value,
-        Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
-      },
-      Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
-      None => mock.input.clone().unwrap_or(Value::Null),
+    let form = is_form(&headers);
+    let mut input = if form {
+      let mut fields = ValueMap::default();
+      for (key, value) in parse_query(body.as_deref().unwrap_or("")) {
+        if key != "_csrf" {
+          fields.insert(key, Value::str(value));
+        }
+      }
+      Value::Map(fields)
+    } else {
+      match body.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+        Some(Ok(json)) => match json_to_value(&json) {
+          Ok(value) => value,
+          Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+        },
+        Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid action input: {e}") })),
+        None => mock.input.clone().unwrap_or(Value::Null),
+      }
     };
+    if let Some(name) = input_type {
+      let ty = Type::Named(name);
+      match form {
+        true => self.contract.conform_text(&ty, &mut input),
+        false => self.contract.conform(&ty, &mut input),
+      }
+      if let Err(e) = self.contract.check_value(&ty, &input, "input") {
+        return json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() }));
+      }
+    }
     match self.interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
+      Ok(_) if form => see_other(&back_to(&headers, &query)),
       Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
       Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
     }

@@ -704,6 +704,19 @@ test("the entry module's derive is registered", () => {
 
 A `fetch` inside a spec is answered by the runner: `/_sf/action/<id>` runs the lowered action under the spec's `ctx`, a path matching a lowered handler runs it with the matched params and the body checked against its input type, and anything else renders the route through the stock host when a configuration is beside the app. `load(path, { ctx })` is that fetch plus the document it produces.
 
+An action takes a form the way the host takes one. With `content-type: application/x-www-form-urlencoded` the body is fields rather than JSON, read against the action's declared input type since a form carries text and nothing else; a success is the `303` back to the `Referer`'s path carrying whatever `__fragment` the action's own query asked for:
+
+```ts
+const posted = await fetch("/_sf/action/tool.$id.reserve?__fragment", {
+  method: "POST",
+  headers: { "content-type": "application/x-www-form-urlencoded", referer: "/tool/1" },
+  body: "_csrf=t&tool_id=1&days=2",
+});
+assert.equal(posted.headers.get("location"), "/tool/1?__fragment");
+```
+
+One difference from the edge: a spec's context carries no CSRF token, so the runner takes `_csrf` out of the fields without verifying it. The verification itself is the host's, with the host's own tests.
+
 The `/auth/` routes are answered too, against the spec's own session, so a spec signs in the way a browser does and every render after it is that user's. A journey starts at `/auth/login`, since that is what starts the flow; a callback with none in progress is a 400.
 
 ```ts

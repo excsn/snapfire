@@ -39,3 +39,27 @@ test("the loan slider moves until the tool is reserved, then it is settled", asy
   assert.ok(held.includes('value="2"'), "and it sits at the length that was asked for, not the shed's limit");
   assert.ok(!held.includes("<loan-planner name="), "with no name on the host, so the release post carries nothing from it");
 });
+
+test("a form post carries the slider's length as a field and lands back on the page", async () => {
+  const c = ctx({
+    session: { reserved: {} },
+    services: { shed: { getShed: () => shed, listTools: () => [trimmer], listLoans: () => [], getWeather: () => ({ day: "Saturday", summary: "dry" }) } },
+  });
+  await load("/tool/1", { ctx: c });
+
+  const posted = await fetch("/_sf/action/tool.$id.reserve?__fragment", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", referer: "/tool/1" },
+    body: "_csrf=t&tool_id=1&days=2",
+  });
+  assert.equal(posted.status, 303, "a form post is answered with the redirect back");
+  assert.equal(posted.headers.get("location"), "/tool/1?__fragment", "carrying the fragment the action was asked for");
+  assert.equal(c.session.reserved, { "1": 2 }, "and `days` arrived as a number the action could clamp");
+
+  const refused = await fetch("/_sf/action/tool.$id.reserve", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "_csrf=t&tool_id=1&days=soon",
+  });
+  assert.equal(refused.status, 400, "a field that is not the declared type is refused");
+});
