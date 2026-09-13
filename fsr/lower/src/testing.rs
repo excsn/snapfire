@@ -16,6 +16,8 @@ use crate::{Lowered, LowerError, Lowerer, Parsed, SessionDefaults, parse, prop_n
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
   Loader { file: String },
+  /// The `meta` of a loader module, run over the data rather than a ctx.
+  Meta { file: String },
   Action { file: String, export: String },
   Handler { file: String, export: String },
   Middleware { file: String },
@@ -49,13 +51,14 @@ pub enum Assertion {
   Ok(Expr),
   Equal(Expr, Expr),
   /// The run must fail, with this kind when one is named.
-  Rejects { target: Target, ctx: String, kind: Option<String> },
+  Rejects { target: Target, ctx: String, input: Option<Expr>, kind: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
   Mock { name: String, mock: Mock },
-  Run { binding: Option<Binding>, target: Target, ctx: String },
+  /// `input` is what a `meta({ data })` names, run in place of the ctx's own.
+  Run { binding: Option<Binding>, target: Target, ctx: String, input: Option<Expr> },
   Assert(Assertion),
 }
 
@@ -108,10 +111,11 @@ pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError> {
       let stem = source.rsplit('/').next().unwrap_or(&source);
       let target = match (stem, imported.as_str()) {
         ("page.loader" | "layout.loader", "load") => Target::Loader { file: target_file },
+        ("page.loader" | "layout.loader", "meta") => Target::Meta { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
         ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
         ("middleware", "middleware") => Target::Middleware { file: target_file },
-        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` from a `page.loader` or a `layout.loader`, an action from its `actions` or a method from its `route`")).into()),
+        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` or `meta` from a `page.loader` or a `layout.loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
     }
@@ -204,7 +208,7 @@ impl<'a> TestLowerer<'a> {
             self.mocks.push(name.clone());
             return Ok(Step::Mock { name, mock });
           }
-          if let Some((target, ctx)) = self.run_target(call)? {
+          if let Some((target, ctx, input)) = self.run_target(call)? {
             let binding = match &decl.name {
               js::Pat::Ident(name) => {
                 let name = name.id.sym.to_string();
@@ -232,7 +236,7 @@ impl<'a> TestLowerer<'a> {
               }
               other => return Err(self.lowerer.residue(other.span(), "a pattern the runner does not bind")),
             };
-            return Ok(Step::Run { binding: Some(binding), target, ctx });
+            return Ok(Step::Run { binding: Some(binding), target, ctx, input });
           }
         }
         Err(self.lowerer.residue(init.span(), "a `const` other than `ctx(...)` or a run of the loader or an action"))
@@ -241,8 +245,8 @@ impl<'a> TestLowerer<'a> {
         let js::Expr::Call(call) = unwrap_await(&expr_stmt.expr) else {
           return Err(self.lowerer.residue(expr_stmt.span, "an expression statement other than a run or an assertion"));
         };
-        if let Some((target, ctx)) = self.run_target(call)? {
-          return Ok(Step::Run { binding: None, target, ctx });
+        if let Some((target, ctx, input)) = self.run_target(call)? {
+          return Ok(Step::Run { binding: None, target, ctx, input });
         }
         self.assertion(call).map(Step::Assert)
       }
@@ -250,13 +254,40 @@ impl<'a> TestLowerer<'a> {
     }
   }
 
-  /// `load(c)` or `addToCart(c)` for an imported name, else `None`.
-  fn run_target(&mut self, call: &js::CallExpr) -> Lowered<Option<(Target, String)>> {
+  /// `load(c)` or `addToCart(c)` for an imported name, else `None`. A
+  /// `meta({ data })` takes its data where the others take their ctx, so it
+  /// carries the ctx bound above it instead: a meta body may read the locale
+  /// or the identity the way a loader does.
+  fn run_target(&mut self, call: &js::CallExpr) -> Lowered<Option<(Target, String, Option<Expr>)>> {
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(id) = &**callee else { return Ok(None) };
     let Some((_, target)) = self.imports.iter().find(|(local, _)| *local == id.sym.as_ref()) else { return Ok(None) };
+    if let Target::Meta { .. } = target {
+      let data = self.data_arg(call)?;
+      let ctx = self.mocks.last().cloned().ok_or_else(|| self.lowerer.residue(call.span, "a `meta(...)` runs against the `ctx(...)` bound above it; this test binds none"))?;
+      return Ok(Some((target.clone(), ctx, Some(data))));
+    }
     let ctx = self.ctx_arg(call)?;
-    Ok(Some((target.clone(), ctx)))
+    Ok(Some((target.clone(), ctx, None)))
+  }
+
+  /// The `data` of a `meta({ data })`, as the expression the runner evaluates.
+  fn data_arg(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    let Some(first) = call.args.first() else {
+      return Err(self.lowerer.residue(call.span, "a `meta(...)` takes `{ data }`"));
+    };
+    let js::Expr::Object(obj) = &*first.expr else {
+      return Err(self.lowerer.residue(first.expr.span(), "a `meta(...)` takes an object literal `{ data }`"));
+    };
+    for prop in &obj.props {
+      let js::PropOrSpread::Prop(prop) = prop else { continue };
+      match &**prop {
+        js::Prop::Shorthand(id) if id.sym.as_ref() == "data" => return self.lowerer.expr(&js::Expr::Ident(id.clone())),
+        js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("data") => return self.lowerer.expr(&kv.value),
+        _ => {}
+      }
+    }
+    Err(self.lowerer.residue(obj.span, "a `meta(...)` takes `{ data }` and this literal has no `data`"))
   }
 
   fn ctx_arg(&mut self, call: &js::CallExpr) -> Lowered<String> {
@@ -308,7 +339,7 @@ impl<'a> TestLowerer<'a> {
         let js::Expr::Call(run) = run else {
           return Err(self.lowerer.residue(first.expr.span(), "`assert.rejects` takes `load(c)` or `() => load(c)`"));
         };
-        let Some((target, ctx)) = self.run_target(run)? else {
+        let Some((target, ctx, input)) = self.run_target(run)? else {
           return Err(self.lowerer.residue(run.span, "`assert.rejects` takes a run of the loader or an action"));
         };
         let kind = match call.args.get(1) {
@@ -318,7 +349,7 @@ impl<'a> TestLowerer<'a> {
           },
           None => None,
         };
-        Ok(Assertion::Rejects { target, ctx, kind })
+        Ok(Assertion::Rejects { target, ctx, input, kind })
       }
       other => Err(self.lowerer.residue(member.span, format!("`assert.{other}`; the assertions are `ok`, `equal` and `rejects`"))),
     }
@@ -441,14 +472,14 @@ test("an empty cart cannot check out", async () => {
     assert_eq!(name, "c");
     assert_eq!(mock.session.len(), 1);
     assert!(matches!(&mock.services[0], (s, m, Expr::Lambda { params, .. }) if s == "shopping" && m == "listProducts" && params.is_empty()));
-    assert_eq!(first.steps[1].1, Step::Run { binding: Some(Binding::Fields(vec![("lines".to_owned(), "lines".to_owned())])), target: Target::Loader { file: "routes/cart/page.loader.ts".to_owned() }, ctx: "c".to_owned() });
+    assert_eq!(first.steps[1].1, Step::Run { binding: Some(Binding::Fields(vec![("lines".to_owned(), "lines".to_owned())])), target: Target::Loader { file: "routes/cart/page.loader.ts".to_owned() }, ctx: "c".to_owned(), input: None });
     assert!(matches!(&first.steps[2].1, Step::Assert(Assertion::Equal(Expr::Var(v), Expr::Array(_))) if v == "lines"));
     assert!(matches!(&first.steps[3].1, Step::Assert(Assertion::Ok(_))));
     let second = &file.tests[1];
     let Step::Mock { mock, .. } = &second.steps[0].1 else { panic!() };
     assert!(matches!(&mock.input, Some(Expr::Object(_))));
-    assert_eq!(second.steps[1].1, Step::Run { binding: None, target: Target::Action { file: "routes/cart/actions.ts".to_owned(), export: "addToCart".to_owned() }, ctx: "c".to_owned() });
-    assert_eq!(second.steps[2].1, Step::Assert(Assertion::Rejects { target: Target::Action { file: "routes/cart/actions.ts".to_owned(), export: "addToCart".to_owned() }, ctx: "c".to_owned(), kind: Some("invalid".to_owned()) }));
+    assert_eq!(second.steps[1].1, Step::Run { binding: None, target: Target::Action { file: "routes/cart/actions.ts".to_owned(), export: "addToCart".to_owned() }, ctx: "c".to_owned(), input: None });
+    assert_eq!(second.steps[2].1, Step::Assert(Assertion::Rejects { target: Target::Action { file: "routes/cart/actions.ts".to_owned(), export: "addToCart".to_owned() }, ctx: "c".to_owned(), input: None, kind: Some("invalid".to_owned()) }));
     let _ = Lit::Null;
   }
 

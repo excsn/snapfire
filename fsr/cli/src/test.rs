@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
 use snapfire_fsr_ir::{Body, Expr, Fail, Interpreter};
 use snapfire_fsr_lower::testing::{Assertion, Binding, Mock, Step, Target, TestCase, lower_tests};
-use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_handlers_with, lower_loader_with, lower_middleware_with};
+use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with};
 use snapfire_fsr_runtime::{Identity, RequestCtx, ServiceError, SessionCell};
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
@@ -106,6 +106,17 @@ impl Targets {
         let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
         let body = Arc::new(lower_loader_with(file, &source, &self.defaults).map_err(|e| e.to_string())?);
         self.loaders.insert(file.clone(), body.clone());
+        Ok(body)
+      }
+      Target::Meta { file } => {
+        let key = format!("{file}#meta");
+        if let Some(body) = self.loaders.get(&key) {
+          return Ok(body.clone());
+        }
+        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
+        let lowered = lower_meta_with(file, &source, &self.defaults).map_err(|e| e.to_string())?;
+        let body = Arc::new(lowered.ok_or_else(|| format!("{file} exports no `meta`"))?);
+        self.loaders.insert(key, body.clone());
         Ok(body)
       }
       Target::Middleware { file } => {
@@ -304,9 +315,10 @@ impl Run<'_> {
     Ok(out)
   }
 
-  async fn run(&mut self, body: &Body, ctx_name: &str) -> Result<Result<Value, Fail>, String> {
+  async fn run(&mut self, body: &Body, ctx_name: &str, input: Option<Value>) -> Result<Result<Value, Fail>, String> {
     let mock = self.mocks.get_mut(ctx_name).ok_or_else(|| format!("`{ctx_name}` is not a ctx"))?;
-    let outcome = self.interpreter.run(body, &mock.ctx, mock.input.clone()).await;
+    let input = input.or_else(|| mock.input.clone());
+    let outcome = self.interpreter.run(body, &mock.ctx, input).await;
     let result = match outcome {
       Ok(outcome) => {
         mock.written = outcome.written;
@@ -326,9 +338,13 @@ async fn run_case(case: &TestCase, targets: &mut Targets, contract: &Arc<Contrac
     let at = |message: String| format!("  line {line}: {message}");
     match step {
       Step::Mock { name, mock } => run.mock(name, mock).await.map_err(at)?,
-      Step::Run { binding, target, ctx } => {
+      Step::Run { binding, target, ctx, input } => {
         let body = targets.body(target).map_err(at)?;
-        let value = match run.run(&body, ctx).await.map_err(at)? {
+        let input = match input {
+          Some(expr) => Some(run.eval(expr).await.map_err(|f| at(f.message))?),
+          None => None,
+        };
+        let value = match run.run(&body, ctx, input).await.map_err(at)? {
           Ok(value) => value,
           Err(fail) => return Err(at(format!("{} failed: {}: {}", describe(target), fail.kind.as_str(), fail.message))),
         };
@@ -356,9 +372,13 @@ async fn run_case(case: &TestCase, targets: &mut Targets, contract: &Arc<Contrac
           return Err(at(format!("assert.equal\n    actual:   {}\n    expected: {}", show(&actual), show(&expected))));
         }
       }
-      Step::Assert(Assertion::Rejects { target, ctx, kind }) => {
+      Step::Assert(Assertion::Rejects { target, ctx, input, kind }) => {
         let body = targets.body(target).map_err(at)?;
-        match run.run(&body, ctx).await.map_err(at)? {
+        let input = match input {
+          Some(expr) => Some(run.eval(expr).await.map_err(|f| at(f.message))?),
+          None => None,
+        };
+        match run.run(&body, ctx, input).await.map_err(at)? {
           Ok(value) => return Err(at(format!("assert.rejects: {} returned {}", describe(target), show(&value)))),
           Err(fail) => {
             if let Some(kind) = kind {
@@ -377,6 +397,7 @@ async fn run_case(case: &TestCase, targets: &mut Targets, contract: &Arc<Contrac
 fn describe(target: &Target) -> String {
   match target {
     Target::Loader { .. } => "`load`".to_owned(),
+    Target::Meta { .. } => "`meta`".to_owned(),
     Target::Middleware { .. } => "`middleware`".to_owned(),
     Target::Action { export, .. } | Target::Handler { export, .. } => format!("`{export}`"),
   }

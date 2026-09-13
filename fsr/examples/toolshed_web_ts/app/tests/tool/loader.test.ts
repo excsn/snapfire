@@ -1,4 +1,4 @@
-import { load } from "@routes/tool/[id]/page.loader";
+import { load, meta } from "@routes/tool/[id]/page.loader";
 import { assert, ctx, test } from "@snapfire/fsr/testing";
 
 const trimmer = { id: "1", name: "Hedge trimmer", category: "Garden", keeper: "Dev", deposit: 20, days: 3, note: "" };
@@ -24,4 +24,12 @@ test("a reservation in the session shows on the tool", async () => {
 test("an id the shed does not hold is not found", async () => {
   const c = ctx<void, "/tool/{id}">({ params: { id: "9" }, services: { shed: { listTools: () => [trimmer] } } });
   await assert.rejects(load(c), "not_found");
+});
+
+test("the document is titled from the tool the loader found", async () => {
+  const c = ctx<void, "/tool/{id}">({ params: { id: "3" }, services: { shed: { listTools: () => [trimmer, drill] } } });
+  const data = await load(c);
+  const head = meta({ data });
+  assert.equal(head.title, "Cordless drill · The Shed");
+  assert.equal(head.description, "Priya's, 7 days at a time");
 });

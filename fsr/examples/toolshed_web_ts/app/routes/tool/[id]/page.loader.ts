@@ -1,5 +1,5 @@
 import { fail } from "@snapfire/fsr";
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr";
 
 export async function load({ params, session, services }: Ctx<"/tool/{id}">) {
   const tools = await services.shed.listTools();
@@ -11,7 +11,7 @@ export async function load({ params, session, services }: Ctx<"/tool/{id}">) {
   return { tool, sameCategory, reserved: held > 0, days: held > 0 ? held : Number(tool.days) };
 }
 
-export const meta = ({ data }: { data: { tool: { name: string; keeper: string; days: number } } }) => ({
+export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({
   title: `${data.tool.name} · The Shed`,
   description: `${data.tool.keeper}'s, ${data.tool.days} days at a time`,
 });

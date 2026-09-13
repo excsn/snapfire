@@ -155,6 +155,8 @@ A loader module may export `meta` beside `load`, a function of the data `load` r
 export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({ title: `${data.product.name} · Shopping` });
 ```
 
+A body test imports it beside `load` and runs it over data, usually the data the run above it returned: `const head = meta({ data })`. It replays through the interpreter like any other body, against the `ctx` bound above it, since a `meta` may read the locale or the identity.
+
 ### Seeding the Store
 
 A loader module may also export `store`, the same shape, returning the store keys this route seeds. The build lowers it beside `load`, the host runs it after the data arrives, and the keys reach the browser in the document, in a navigation's payload and with a streamed segment when it resolves. Components render on the server from the same values, so a seeded key hydrates without a flash.
