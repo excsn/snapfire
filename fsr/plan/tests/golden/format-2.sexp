@@ -38,6 +38,7 @@
   (session-set cart () next)
   (session-del cart ("items"))
   (session-del cart ())
+  (act "desk.save" next)
   (do side))
 (source index
   lowered
@@ -56,6 +57,7 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side))
   (meta
     (let n $props)
@@ -69,6 +71,7 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side))
   (store
     (let n $props)
@@ -82,6 +85,7 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side)))
 (source declared rust)
 (action cart.add
@@ -101,6 +105,7 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side)))
 (action cart.clear rust)
 (handler route.GET
@@ -120,6 +125,7 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side)))
 (handler route.POST POST /api rust)
 (const src/x.ts#c0 (param id))
@@ -215,6 +221,7 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side))
   (render
     (<> "plain"
@@ -250,5 +257,6 @@
     (session-set cart () next)
     (session-del cart ("items"))
     (session-del cart ())
+    (act "desk.save" next)
     (do side))
   (on submit))

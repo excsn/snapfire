@@ -135,11 +135,12 @@ impl RenderedIsland {
 /// The island mode whose events round-trip to the server.
 pub const SERVER_MODE: &str = "server";
 
-/// What `island_step` answers: the state after the handler and the island rendered from it.
+/// What `island_step` answers: the state after the handler, the island rendered from it and the actions the handler asked for, in order, for the host to dispatch.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stepped {
   pub state: ValueMap,
   pub rendered: Rendered,
+  pub acts: Vec<(String, Value)>,
 }
 
 /// The start of an island's place in the markup: `ISLAND_MARK`, the island's
@@ -254,7 +255,8 @@ impl Interpreter {
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
-    Ok(Stepped { state, rendered: Rendered { html: out.html, islands: out.islands, hoisted } })
+    let acts = std::mem::take(&mut env.acts);
+    Ok(Stepped { state, rendered: Rendered { html: out.html, islands: out.islands, hoisted }, acts })
   }
 }
 
@@ -270,6 +272,10 @@ fn eval_body_sync(env: &mut Env, body: &[Stmt]) -> Result<Value, Fail> {
       Stmt::Return(expr) => return env.eval_sync(expr),
       Stmt::Expr(expr) => {
         env.eval_sync(expr)?;
+      }
+      Stmt::Act { action, input } => {
+        let input = env.eval_sync(input)?;
+        env.acts.push((action.clone(), input));
       }
       Stmt::If { cond, then, r#else } => {
         let branch = if truthy(&env.eval_sync(cond)?) { then } else { r#else };
@@ -1306,6 +1312,28 @@ mod server_tests {
     assert!(as_is.rendered.html.contains("<ul>mail</ul>"));
     let missing = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(3), &Value::Null, &library).unwrap_err();
     assert!(missing.message.contains("no handler 3"), "{}", missing.message);
+    assert!(stepped.acts.is_empty() && as_is.acts.is_empty());
+  }
+
+  #[test]
+  fn a_step_collects_the_actions_a_handler_calls_with_their_inputs_evaluated() {
+    let library = Components::new();
+    let mut component = help();
+    component.handlers.push(Handler {
+      event: "click".to_owned(),
+      body: vec![
+        Stmt::Act { action: "desk.save".to_owned(), input: Expr::Object(vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id")), Entry::Field("open".to_owned(), Expr::var("open"))]) },
+        Stmt::Return(Expr::Object(vec![Entry::Field("open".to_owned(), Expr::Lit(Lit::Bool(true)))])),
+      ],
+    });
+    let mut props = ValueMap::default();
+    props.insert("id".to_owned(), Value::Int(7));
+    let state = ValueMap::from_iter([("open".to_owned(), Value::Bool(false))]);
+    let stepped = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(1), &Value::Null, &library).unwrap();
+    let input = ValueMap::from_iter([("id".to_owned(), Value::Int(7)), ("open".to_owned(), Value::Bool(false))]);
+    assert_eq!(stepped.acts, vec![("desk.save".to_owned(), Value::Map(input))], "the input reads the props and the state as they were when the handler ran");
+    assert_eq!(stepped.state["open"], Value::Bool(true), "and the patch still applies");
+    assert!(stepped.rendered.html.contains("<ul>mail</ul>"));
   }
 }
 

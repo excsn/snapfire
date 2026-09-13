@@ -143,6 +143,7 @@ fn every_stmt() -> Vec<Stmt> {
     Stmt::SessionSet { key: "cart".to_owned(), path: Vec::new(), value: *v("next") },
     Stmt::SessionDelete { key: "cart".to_owned(), path: vec![s("items")] },
     Stmt::SessionDelete { key: "cart".to_owned(), path: Vec::new() },
+    Stmt::Act { action: "desk.save".to_owned(), input: *v("next") },
     Stmt::Expr(*v("side")),
   ]
 }

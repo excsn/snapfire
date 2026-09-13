@@ -485,6 +485,9 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
 /// against.
 pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-client/react", "@snapfire/fsr-authoring/template"];
 
+/// The client library's root, where `action` comes from.
+pub const CLIENT_SOURCE: &str = "@snapfire/fsr-client";
+
 fn is_template_source(source: &str) -> bool {
   TEMPLATE_SOURCES.contains(&source)
 }
@@ -591,6 +594,21 @@ fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (
     }
   }
   Ok(Some(IslandAlias { target: target.sym.to_string(), when, mode }))
+}
+
+/// `const save = action("desk.save")` at module scope, `action` imported from
+/// the client library, when `name` is such a `save`: the action's id.
+fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
+  let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Ident(callee) = &**callee else { return None };
+  if callee.sym.as_ref() != "action" || !find_import(parsed, "action").is_some_and(|(source, _)| source == CLIENT_SOURCE) {
+    return None;
+  }
+  match call.args.first().map(|a| &*a.expr) {
+    Some(js::Expr::Lit(js::Lit::Str(id))) => Some(id.value.to_atom_lossy().to_string()),
+    _ => None,
+  }
 }
 
 #[derive(Clone)]
@@ -1482,7 +1500,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// An `on*` attribute's handler as a lowered body, or why it is not one.
-  /// A handler is `const`s and calls to state setters, `e.preventDefault()`
+  /// A handler is `const`s, calls to state setters and calls to actions, `e.preventDefault()`
   /// aside; the body returns the state it set.
   fn handler_attr(&mut self, attr: &'p js::JSXAttr) -> Lowered<usize> {
     let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return Err(self.lowerer.residue(attr.span, "a handler that is not an expression")) };
@@ -1546,7 +1564,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 }
               }
               js::Stmt::Return(r) if r.arg.is_none() => break,
-              other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s and calls to state setters")),
+              other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, calls to state setters and calls to actions")),
             }
           }
         }
@@ -1555,8 +1573,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     })();
     self.lowerer.scope.truncate(depth);
     result?;
-    if patch.is_empty() {
-      return Err(self.lowerer.residue(span, "a handler that sets no state"));
+    if patch.is_empty() && !out.iter().any(|stmt| matches!(stmt, Stmt::Act { .. })) {
+      return Err(self.lowerer.residue(span, "a handler that sets no state and calls no action"));
     }
     out.push(Stmt::Return(Expr::Object(patch)));
     Ok(out)
@@ -1613,7 +1631,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               }
               return Ok(());
             }
-            Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter or a handler this component declares")))
+            if let Some(action) = action_alias_of(self.lowerer.parsed, &name) {
+              let input = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::Object(Vec::new()),
+              };
+              out.push(Stmt::Act { action, input });
+              return Ok(());
+            }
+            Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter, an action or a handler this component declares")))
           }
           js::Expr::Member(m) => {
             let method = match &m.prop {
@@ -1623,12 +1649,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if method == "preventDefault" || method == "stopPropagation" {
               return Ok(());
             }
-            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s and calls to state setters")))
+            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, calls to state setters and calls to actions")))
           }
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
         }
       }
-      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s and calls to state setters")),
+      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, calls to state setters and calls to actions")),
     }
   }
 
@@ -2126,6 +2152,64 @@ export default function Cart({ lines, total }: { lines: { price: number }[]; tot
     assert!(source.contains("<i>{money(total * qty)}</i>"), "a state read stays a call: {source}");
     assert!(source.contains("<ul>{lines.map(__sfh.l((l) => <li key={l.price}>{__sfh.r(6, () => (money(l.price)))}{money(l.price * qty)}</li>))}</ul>"), "{source}");
     assert!(source.contains("{__sfh.r(10, () => (money(1)))}</button>"), "{source}");
+  }
+
+  #[test]
+  fn a_handler_calls_an_action_and_the_call_lowers_to_act() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { Island } from "@snapfire/fsr-client/react";
+import { Lot } from "@src/Lot";
+export default function Page() {
+  return <Island mode="server"><Lot size={10} /></Island>;
+}
+"#,
+      ),
+      (
+        "src/Lot.tsx",
+        r#"
+import { useState } from "react";
+import { action } from "@snapfire/fsr-client";
+const step = action("desk.lot");
+const save = action("desk.save");
+function shout() {}
+export function Lot({ size }: { size: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => void step({ by: 10 })}>+</button>
+      <button onClick={() => { setOpen(!open); void save({ size, open: !open }); }}>save</button>
+      <button onClick={() => void save()}>bare</button>
+      <button onClick={() => void shout()}>shout</button>
+    </div>
+  );
+}
+"#,
+      ),
+    ];
+    let set = set(&files, "routes/index/page.tsx#default");
+    let lot = &set.components.iter().find(|(m, _)| m == "src/Lot.tsx#Lot").unwrap().1;
+    assert_eq!(lot.handlers.len(), 3, "{:?}", lot.handlers);
+    assert_eq!(lot.handlers[0].body, vec![Stmt::Act { action: "desk.lot".to_owned(), input: Expr::Object(vec![Entry::Field("by".to_owned(), Expr::Lit(Lit::Float(10.0)))]) }, Stmt::Return(Expr::Object(Vec::new()))], "a handler that only calls an action sets no state and is still a handler");
+    let flipped = Expr::Not(Box::new(Expr::var("open")));
+    assert_eq!(
+      lot.handlers[1].body,
+      vec![
+        Stmt::Act { action: "desk.save".to_owned(), input: Expr::Object(vec![Entry::Field("size".to_owned(), Expr::var("$props").field("size")), Entry::Field("open".to_owned(), flipped.clone())]) },
+        Stmt::Return(Expr::Object(vec![Entry::Field("open".to_owned(), flipped)])),
+      ],
+      "the input reads props and state; the patch follows"
+    );
+    assert_eq!(lot.handlers[2].body, vec![Stmt::Act { action: "desk.save".to_owned(), input: Expr::Object(Vec::new()) }, Stmt::Return(Expr::Object(Vec::new()))], "no argument is an empty input");
+    let Tmpl::Element { children, .. } = &lot.render else { panic!() };
+    let Tmpl::Element { attrs, .. } = &children[3] else { panic!() };
+    let unlowered = attrs.iter().find_map(|e| match e {
+      Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == UNLOWERED_ATTR => Some(why.clone()),
+      _ => None,
+    });
+    assert!(unlowered.is_some_and(|why| why.contains("not a state setter, an action or a handler")), "a call to something else is still residue: {attrs:?}");
   }
 
   #[test]

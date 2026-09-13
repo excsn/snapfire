@@ -2205,8 +2205,26 @@ impl Host {
   ) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(module) = path.strip_prefix("/_sf/island/").map(percent_decoded) {
-        let (status, json) = island_step(t.app.lowered.as_deref(), &module, req.body(), &visit.locale.tag);
-        let mut response = json_response(status, &json);
+        let mut response = match island_step(t.app.lowered.as_deref(), &module, req.body(), &visit.locale.tag) {
+          Ok(step) => {
+            let mut failed = None;
+            for (id, input) in &step.acts {
+              let incoming = self.incoming(opened, self.matched_host(req.headers()));
+              if let Err(e) = self.dispatch_action(t, id, incoming, &visit.path, visit.locale.clone(), input.clone()).await {
+                failed = Some(e);
+                break;
+              }
+            }
+            match failed {
+              None => json_response(StatusCode::OK, &step.json()),
+              Some(e) => json_response(
+                StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
+              ),
+            }
+          }
+          Err((status, json)) => json_response(status, &json),
+        };
         self.set_cookie(opened, &mut response).await;
         return response;
       }
@@ -3007,28 +3025,47 @@ fn shares_layouts(intercept: &PlanNode, from: &PlanNode) -> bool {
   }
 }
 
+/// What one step of an island in server mode produced: the state after the
+/// handler, the island's markup rendered from it with handler markers, and
+/// the actions the handler called, in order, for the caller to dispatch.
+pub struct IslandStep {
+  pub state: ValueMap,
+  pub html: String,
+  pub acts: Vec<(String, Value)>,
+}
+
+impl IslandStep {
+  /// The JSON a step answers with: `{ state, html, revalidate }`, the last
+  /// true when an action ran, so the browser refreshes the page's data.
+  pub fn json(&self) -> serde_json::Value {
+    serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(self.state.clone())), "html": self.html, "revalidate": !self.acts.is_empty() })
+  }
+}
+
 /// One round trip of an island in server mode: the body is `{ props, state,
 /// handler, event }`; `handler` is the index of the handler that fired or
-/// null to render as is. Answers `{ state, html }`: the state after the
-/// handler and the island's markup rendered from it, with handler markers.
+/// null to render as is. Answers the state after the handler, the island's
+/// markup rendered from it and the actions the handler called, which the
+/// caller dispatches before answering; a failure is the status and JSON body
+/// to answer with.
 pub fn island_step(
   lowered: Option<&snapfire_fsr_ir::IrEvaluator>,
   module: &str,
   body: &[u8],
   locale: &str,
-) -> (StatusCode, serde_json::Value) {
+) -> Result<IslandStep, (StatusCode, serde_json::Value)> {
   let Some(evaluator) = lowered else {
-    return (
+    return Err((
       StatusCode::NOT_FOUND,
       serde_json::json!({ "kind": "not_found", "message": "no lowered component" }),
-    );
+    ));
   };
   let components = evaluator.components();
   let Some(component) = components.get(module).cloned() else {
-    return (
+    return Err((
       StatusCode::NOT_FOUND,
       serde_json::json!({ "kind": "not_found", "message": format!("`{module}` is not a lowered component") }),
-    );
+    ));
   };
   let input = match serde_json::from_slice::<serde_json::Value>(body)
     .map_err(|e| e.to_string())
@@ -3036,60 +3073,60 @@ pub fn island_step(
   {
     Ok(Value::Map(map)) => map,
     Ok(_) => {
-      return (
+      return Err((
         StatusCode::BAD_REQUEST,
         serde_json::json!({ "kind": "invalid", "message": "an island step is an object" }),
-      );
+      ));
     }
     Err(e) => {
-      return (
+      return Err((
         StatusCode::BAD_REQUEST,
         serde_json::json!({ "kind": "invalid", "message": format!("invalid island step: {e}") }),
-      );
+      ));
     }
   };
   let mut props = match input.get("props") {
     Some(Value::Map(map)) => map.clone(),
     None | Some(Value::Null) => ValueMap::default(),
     Some(_) => {
-      return (
+      return Err((
         StatusCode::BAD_REQUEST,
         serde_json::json!({ "kind": "invalid", "message": "props must be an object" }),
-      );
+      ));
     }
   };
   let state = match input.get("state") {
     Some(Value::Map(map)) => map.clone(),
     None | Some(Value::Null) => ValueMap::default(),
     Some(_) => {
-      return (
+      return Err((
         StatusCode::BAD_REQUEST,
         serde_json::json!({ "kind": "invalid", "message": "state must be an object" }),
-      );
+      ));
     }
   };
   if let Some(unknown) = state.keys().find(|k| !component.state.contains(k)) {
-    return (
+    return Err((
       StatusCode::BAD_REQUEST,
       serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }),
-    );
+    ));
   }
   let handler = match input.get("handler") {
     None | Some(Value::Null) => None,
     Some(Value::Int(i)) if *i >= 0 => Some(*i as usize),
     Some(Value::F64(f)) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
     Some(_) => {
-      return (
+      return Err((
         StatusCode::BAD_REQUEST,
         serde_json::json!({ "kind": "invalid", "message": "handler must be an index" }),
-      );
+      ));
     }
   };
   if handler.is_some_and(|h| h >= component.handlers.len()) {
-    return (
+    return Err((
       StatusCode::NOT_FOUND,
       serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", handler.unwrap_or(0)) }),
-    );
+    ));
   }
   let event = input.get("event").cloned().unwrap_or(Value::Null);
   if !locale.is_empty() {
@@ -3103,15 +3140,12 @@ pub fn island_step(
   {
     Ok(stepped) => {
       let html = snapfire_fsr_payload::html_serialize(&Node::Seq(snapfire_fsr_ir::rendered_nodes(&stepped.rendered)));
-      (
-        StatusCode::OK,
-        serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(stepped.state)), "html": html }),
-      )
+      Ok(IslandStep { state: stepped.state, html, acts: stepped.acts })
     }
-    Err(fail) => (
+    Err(fail) => Err((
       StatusCode::from_u16(fail.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
       serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message }),
-    ),
+    )),
   }
 }
 

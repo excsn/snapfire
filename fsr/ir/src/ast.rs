@@ -19,6 +19,10 @@ pub enum Stmt {
   Guard { cond: Expr, kind: String, message: String },
   SessionSet { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr>, value: Expr },
   SessionDelete { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr> },
+  /// `void save(input)` in a handler, `save` an `action("id")`: the host
+  /// dispatches the action when the handler runs in server mode. Only a
+  /// handler holds one; a body cannot dispatch an action.
+  Act { action: String, input: Expr },
   Expr(Expr),
 }
 
@@ -285,6 +289,7 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
         value.visit(f);
       }
       Stmt::SessionDelete { path, .. } => path.iter().for_each(|p| p.visit(f)),
+      Stmt::Act { input, .. } => input.visit(f),
     }
   }
 }
@@ -596,7 +601,7 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
     Stmt::Guard { cond, .. } => cond.reads_request(),
-    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } => true,
+    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Act { .. } => true,
   })
 }
 
@@ -637,6 +642,7 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
           into.push(value);
         }
         Stmt::SessionDelete { path, .. } => into.extend(path.iter()),
+        Stmt::Act { input, .. } => into.push(input),
       }
     }
   }

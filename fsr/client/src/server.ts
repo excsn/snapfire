@@ -1,4 +1,5 @@
 import type { Props } from "./boot.js";
+import { refresh } from "./navigator.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
 /** An island in server mode: the browser holds its props and state, every event round-trips to the server, and the markup that comes back is patched into place. No component code runs here. `state` is kept encoded, exactly as the server wrote it, since decoding a double and encoding it again would hand back an integer: JavaScript has one number type and the tag is the only thing that says which this was. */
@@ -114,10 +115,13 @@ async function step(el: Element, island: ServerIsland, handler: number | null, e
       console.warn(`sf: island ${island.module} step failed with ${res.status}: ${text}`);
       return;
     }
-    const answer = JSON.parse(text) as { state: unknown; html: string };
+    const answer = JSON.parse(text) as { state: unknown; html: string; revalidate?: boolean };
     island.state = answer.state;
     morph(el, answer.html);
     listen(el, island);
+    // The handler called an action and the host ran it before answering, so
+    // the page's data may have moved: refresh the way a browser-mode call does.
+    if (answer.revalidate) await refresh();
   } finally {
     island.pending = false;
     el.removeAttribute("data-sf-pending");

@@ -213,6 +213,7 @@ fn stmt() -> BoxedStrategy<Stmt> {
     (text(), prop::collection::vec(expr(), 0..2), expr())
       .prop_map(|(key, path, value)| Stmt::SessionSet { key, path, value }),
     (text(), prop::collection::vec(expr(), 0..2)).prop_map(|(key, path)| Stmt::SessionDelete { key, path }),
+    (text(), expr()).prop_map(|(action, input)| Stmt::Act { action, input }),
   ];
   leaf.prop_recursive(3, 24, 3, |inner| {
     prop_oneof![
@@ -411,6 +412,7 @@ fn malformed_templates_and_statements_are_refused() {
     ("(guard a b)", "`guard` takes 3 terms"),
     ("(if a (b) (c) (d))", "at most one else"),
     ("(session-set k v)", "`session-set` takes 3"),
+    ("(act \"desk.save\")", "`act` takes 2"),
   ];
   for (src, want) in bad_stmt {
     let form = &parse(src).expect("lexes")[0];

@@ -440,7 +440,7 @@ What the server writes and this package reads.
 
 * `function mountServer(el: Element, module: string, props: Props): void`
 
-Mounts `el` as an island in server mode: keeps `props` less `$s`, which is the state, and listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
+Mounts `el` as an island in server mode: keeps `props` less `$s`, which is the state, and listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`; when the answer carries `revalidate`, the handler called an action the host has already run and the island calls `refresh` the way a browser-mode action call does once the patch is in. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
 
 ### isServerIsland
 

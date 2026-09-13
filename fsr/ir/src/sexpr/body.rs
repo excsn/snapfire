@@ -44,6 +44,7 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
       "session-del",
       vec![Sx::Sym(key.clone()), Sx::list(path.iter().map(expr_to_sx).collect())],
     ),
+    Stmt::Act { action, input } => form("act", vec![Sx::Str(action.clone()), expr_to_sx(input)]),
     Stmt::Expr(expr) => form("do", vec![expr_to_sx(expr)]),
   }
 }
@@ -124,6 +125,10 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
         key: sym_of(&a[0])?,
         path: a[1].as_list()?.iter().map(expr_from_sx).collect::<Res<_>>()?,
       }
+    }
+    "act" => {
+      let a = args(items, head, 2)?;
+      Stmt::Act { action: str_of(&a[0])?, input: expr_from_sx(&a[1])? }
     }
     "do" => Stmt::Expr(expr_from_sx(&args(items, head, 1)?[0])?),
     other => return Err(SexprError::shape(format!("`{other}` is not a statement form"))),

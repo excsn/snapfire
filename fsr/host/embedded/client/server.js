@@ -1,3 +1,4 @@
+import { refresh } from "./navigator.js";
 import { encodeValue } from "./values.js";
 const STATE_PROP = "$s";
 const islands = new WeakMap();
@@ -102,6 +103,7 @@ async function step(el, island, handler, event) {
         island.state = answer.state;
         morph(el, answer.html);
         listen(el, island);
+        if (answer.revalidate) await refresh();
     } finally{
         island.pending = false;
         el.removeAttribute("data-sf-pending");

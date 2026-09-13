@@ -867,8 +867,16 @@ impl FetchHooks {
         };
         let locale = self.current_ctx.as_ref().map(|c| c.ctx.locale.tag.clone()).unwrap_or_default();
         let lowered = host.lowered();
-        let (status, json) = snapfire_fsr_host::island_step(lowered.as_deref(), &module, body.as_deref().unwrap_or("").as_bytes(), &locale);
-        return json_response(status.as_u16(), json);
+        let step = match snapfire_fsr_host::island_step(lowered.as_deref(), &module, body.as_deref().unwrap_or("").as_bytes(), &locale) {
+          Ok(step) => step,
+          Err((status, json)) => return json_response(status.as_u16(), json),
+        };
+        for (id, input) in &step.acts {
+          if let Err(response) = self.run_action(id, input.clone(), false).await {
+            return response;
+          }
+        }
+        return json_response(200, step.json());
       }
     }
     if path.starts_with("/auth/") {
@@ -881,15 +889,11 @@ impl FetchHooks {
       }
       return self.page(method, path, query, target, headers).await;
     };
-    let Some((input_type, body_ir)) = self.actions.get(&id).cloned() else {
-      let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
-      return json_response(501, serde_json::json!({ "kind": "internal", "message": message }));
-    };
     let Some(mock) = self.current_ctx.clone() else {
       return json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" }));
     };
     let form = is_form(&headers);
-    let mut input = if form {
+    let input = if form {
       let mut fields = ValueMap::default();
       for (key, value) in parse_query(body.as_deref().unwrap_or("")) {
         if key != "_csrf" {
@@ -907,6 +911,24 @@ impl FetchHooks {
         None => mock.input.clone().unwrap_or(Value::Null),
       }
     };
+    match self.run_action(&id, input, form).await {
+      Ok(_) if form => see_other(&back_to(&headers, &query)),
+      Ok(value) => json_response(200, value_to_json(&value)),
+      Err(response) => response,
+    }
+  }
+
+  /// A lowered action run under the current ctx: the input read against the
+  /// action's declared type, as text when `form`, then the body. A failure
+  /// is the response to answer with.
+  async fn run_action(&self, id: &str, mut input: Value, form: bool) -> Result<Value, FetchResponse> {
+    let Some((input_type, body_ir)) = self.actions.get(id).cloned() else {
+      let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
+      return Err(json_response(501, serde_json::json!({ "kind": "internal", "message": message })));
+    };
+    let Some(mock) = self.current_ctx.clone() else {
+      return Err(json_response(500, serde_json::json!({ "kind": "internal", "message": "no current ctx" })));
+    };
     if let Some(name) = input_type {
       let ty = Type::Named(name);
       match form {
@@ -914,13 +936,12 @@ impl FetchHooks {
         false => self.contract.conform(&ty, &mut input),
       }
       if let Err(e) = self.contract.check_value(&ty, &input, "input") {
-        return json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() }));
+        return Err(json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() })));
       }
     }
     match self.interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
-      Ok(_) if form => see_other(&back_to(&headers, &query)),
-      Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
-      Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
+      Ok(outcome) => Ok(outcome.value),
+      Err(fail) => Err(json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message }))),
     }
   }
 

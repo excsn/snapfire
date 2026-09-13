@@ -122,6 +122,7 @@ impl Interpreter {
       hoists: None,
       state: None,
       server_mode: false,
+      acts: Vec::new(),
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -148,7 +149,7 @@ impl Interpreter {
           }
         }
         Stmt::Let { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
-        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } => break,
+        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Act { .. } => break,
       }
     }
 
@@ -197,6 +198,9 @@ pub(crate) struct Env {
   /// Rendering an island in server mode: handler markers print as attributes
   /// the browser binds, which a browser-mode render must never show React.
   pub(crate) server_mode: bool,
+  /// The actions a handler asked for, in order, with their inputs evaluated.
+  /// The host dispatches them once the step is done.
+  pub(crate) acts: Vec<(String, Value)>,
 }
 
 /// The hoisted values of one island: keyed by the module, the hoist id and
@@ -285,6 +289,7 @@ impl Env {
       hoists: None,
       state: None,
       server_mode: false,
+      acts: Vec::new(),
     }
   }
 
@@ -400,6 +405,7 @@ impl Env {
       hoists: None,
       state: None,
       server_mode: false,
+      acts: Vec::new(),
     }
   }
 
@@ -457,6 +463,7 @@ impl Env {
         }
         self.touch(key);
       }
+      Stmt::Act { action, .. } => return Err(Fail::internal(format!("a body cannot dispatch `{action}`; an action is dispatched from a handler"))),
       Stmt::Expr(expr) => {
         self.eval(expr).await?;
       }

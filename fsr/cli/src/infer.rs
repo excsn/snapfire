@@ -164,7 +164,7 @@ impl<'a> Inferer<'a> {
           env.pop();
         }
         Stmt::Return(e) => returns.push(self.expr(e, env)),
-        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Expr(_) => {}
+        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }
     }
     env.truncate(depth);
