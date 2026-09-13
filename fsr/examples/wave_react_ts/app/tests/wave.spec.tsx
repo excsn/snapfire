@@ -5,8 +5,8 @@ const wave = {
   title: "Snapfire kickoff",
   participants: ["alice", "bob"],
   blips: [
-    { id: "1", parent: "", who: "alice", body: "Starting a wave.", at: "09:10", edited: "", editors: [], depth: 0 },
-    { id: "2", parent: "1", who: "bob", body: "Under the first.", at: "09:12", edited: "09:20", editors: ["alice", "carol"], depth: 1 },
+    { id: "1", parent: "", who: "alice", body: "Starting **a** wave.", html: "<p>Starting <strong>a</strong> wave.</p>\n", at: "09:10", edited: "", editors: [], depth: 0 },
+    { id: "2", parent: "1", who: "bob", body: "Under the first.", html: "<p>Under the first.</p>\n", at: "09:12", edited: "09:20", editors: ["alice", "carol"], depth: 1 },
   ],
 };
 
@@ -97,16 +97,22 @@ test("the contacts pane shows presence across every wave", async () => {
   assert.equal(names, ["contact on", "contact"], "alice is here and bob is not");
 });
 
+test("a blip's body is the markup the service rendered", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  const first = document.querySelector(".blips .body.md");
+  assert.equal(first?.querySelector("strong")?.textContent, "a", "the markdown arrived as markup rather than as asterisks");
+});
+
 /// DEFECTS 5.3: the client action path and the revalidation it triggers.
 test("keeping a blip calls the action and the transcript follows without a reload", async () => {
-  const blips = [{ id: "1", parent: "", who: "alice", body: "Starting a wave.", at: "09:10", edited: "", editors: [], depth: 0 }];
+  const blips = [{ id: "1", parent: "", who: "alice", body: "Starting a wave.", html: "<p>Starting a wave.</p>\n", at: "09:10", edited: "", editors: [], depth: 0 }];
   const live = ctx({
     session: { name: "dora", waves: {} },
     services: {
       waves: {
         getWave: () => ({ id: "kickoff", title: "Snapfire kickoff", participants: ["alice"], blips }),
         addBlip: (input: { body: string }) => {
-          const kept = { id: String(blips.length + 1), parent: "", who: "dora", body: input.body, at: "09:30", edited: "", editors: [], depth: 0 };
+          const kept = { id: String(blips.length + 1), parent: "", who: "dora", body: input.body, html: `<p>${input.body}</p>\n`, at: "09:30", edited: "", editors: [], depth: 0 };
           blips.push(kept);
           return kept;
         },

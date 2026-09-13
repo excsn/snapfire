@@ -74,6 +74,9 @@ button:hover { border-color: var(--accent); }
 .blip.mine .who { color: var(--mine); }
 .blip .at { color: var(--dim); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .blip .body { margin: 0.2rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.blip .body.md { white-space: normal; }
+.body.md > * { margin: 0 0 0.4rem; }
+.body.md > :last-child { margin-bottom: 0; }
 
 .body-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.25rem; min-height: 1.2rem; }
 .edited { color: var(--dim); font-size: 0.74rem; letter-spacing: 0.04em; }

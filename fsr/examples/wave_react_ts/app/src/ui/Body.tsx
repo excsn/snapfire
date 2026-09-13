@@ -13,7 +13,7 @@ interface Edit {
 }
 
 /** One blip's text and the rewrite of it. A blip is a document rather than a message: anyone on the wave may take it and while they hold it every other window watches the words change. The field holds it for exactly one window, so this never has to decide who wins. */
-export default function Body({ wave, blip, text, edited, editors, me }: { wave: string; blip: string; text: string; edited: string; editors: string[]; me: string }) {
+export default function Body({ wave, blip, text, html, edited, editors, me }: { wave: string; blip: string; text: string; html: string; edited: string; editors: string[]; me: string }) {
   const [edits] = useStore(key<Edit[]>("wave/edits"), []);
   const [mine, setMine] = useState(false);
   const theirs = edits.filter((edit) => edit.blip === blip);
@@ -61,7 +61,7 @@ export default function Body({ wave, blip, text, edited, editors, me }: { wave: 
     </form>
   ) : (
     <div className="body-read">
-      <p className="body">{text}</p>
+      <div className="body md" dangerouslySetInnerHTML={{ __html: html }} />
       <div className="body-foot">
         {editors.length > 0 ? (
           <ul className="editors" title="everyone who has rewritten this blip">

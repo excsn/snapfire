@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use plaza::{query_with, CommandSender, ControllerCommand};
+use pulldown_cmark::{html, CowStr, Event, Parser, Tag};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use snapfire_fsr_service::{LocalTransport, Transport};
@@ -31,7 +32,7 @@ pub fn seed() -> Vec<Wave> {
         blip(1, "", "alice", "Starting a wave for the launch. Reply under a blip and it nests.", "09:10"),
         blip(2, "1", "bob", "Good. I will take the runtime half.", "09:12"),
         blip(3, "2", "alice", "Then I have the client. Watch this line while I type in the other window.", "09:13"),
-        blip(4, "", "alice", "Anything that is its own subject goes at the top level.", "09:14"),
+        blip(4, "", "alice", "Anything that is **its own subject** goes at the top level. A blip is [markdown](https://commonmark.org).", "09:14"),
       ],
       game: Game::default(),
     },
@@ -91,12 +92,36 @@ fn under(field: &Field, view: &str, who: &str) -> Value {
   Value::Seq(listed.map(summary).collect())
 }
 
+/// A blip's body as markup, rendered here so the browser never parses
+/// markdown. Raw HTML in the source is shown as text and a link or image keeps
+/// its target only when that is http, https, mailto or has no scheme.
+fn markdown(body: &str) -> String {
+  let events = Parser::new(body).map(|event| match event {
+    Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+    Event::Start(Tag::Link { link_type, dest_url, title, id }) => Event::Start(Tag::Link { link_type, dest_url: safe_url(dest_url), title, id }),
+    Event::Start(Tag::Image { link_type, dest_url, title, id }) => Event::Start(Tag::Image { link_type, dest_url: safe_url(dest_url), title, id }),
+    event => event,
+  });
+  let mut out = String::new();
+  html::push_html(&mut out, events);
+  out
+}
+
+fn safe_url(url: CowStr<'_>) -> CowStr<'_> {
+  let scheme = url.split_once(':').map(|(scheme, _)| scheme).filter(|scheme| !scheme.contains(['/', '?', '#'])).map(str::to_ascii_lowercase);
+  match scheme.as_deref() {
+    None | Some("http" | "https" | "mailto") => url,
+    Some(_) => CowStr::Borrowed("#"),
+  }
+}
+
 fn blip_value(blip: &Blip, depth: f64) -> Value {
   let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::str(blip.id.to_string()));
   map.insert("parent".to_owned(), Value::str(blip.parent.clone()));
   map.insert("who".to_owned(), Value::str(blip.who.clone()));
   map.insert("body".to_owned(), Value::str(blip.body.clone()));
+  map.insert("html".to_owned(), Value::str(markdown(&blip.body)));
   map.insert("at".to_owned(), Value::str(blip.at.clone()));
   map.insert("edited".to_owned(), Value::str(blip.edited.clone()));
   map.insert("editors".to_owned(), Value::Seq(blip.editors.iter().map(|who| Value::str(who.clone())).collect()));

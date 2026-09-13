@@ -28,7 +28,7 @@ export default function WavePage({ wave, me }: WaveIdProps) {
               <span className="who">{blip.who}</span>
               <span className="at">{blip.at}</span>
               <Island when="load">
-                <Body wave={wave.id} blip={blip.id} text={blip.body} edited={blip.edited} editors={blip.editors} me={me} />
+                <Body wave={wave.id} blip={blip.id} text={blip.body} html={blip.html} edited={blip.edited} editors={blip.editors} me={me} />
               </Island>
             </div>
             <Island when="load">

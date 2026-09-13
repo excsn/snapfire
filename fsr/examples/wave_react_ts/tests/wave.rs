@@ -354,3 +354,52 @@ async fn a_wave_is_followed_only_by_a_session_that_opened_it() {
     other => panic!("the session holds no waves: {other:?}"),
   }
 }
+
+#[tokio::test]
+async fn a_blip_body_is_markdown_the_service_renders_with_raw_html_as_text() {
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, _kept) = backend::service(field);
+
+  assert_eq!(kept_html(&service, "carol, **arriving** late").await, "<p>carol, <strong>arriving</strong> late</p>\n");
+  let block = kept_html(&service, "<script>alert(1)</script>").await;
+  assert!(block.contains("&lt;script&gt;") && !block.contains("<script"), "a raw HTML block is text: {block}");
+  let inline = kept_html(&service, "a <b>bold</b> claim").await;
+  assert!(inline.contains("&lt;b&gt;") && !inline.contains("<b>"), "raw inline HTML is text: {inline}");
+  let link = kept_html(&service, "[run](javascript:alert(1)) or [read](https://example.com/a)").await;
+  assert!(link.contains("href=\"#\"") && !link.contains("javascript"), "a script link points nowhere: {link}");
+  assert!(link.contains("href=\"https://example.com/a\""), "an https link is kept: {link}");
+}
+
+async fn kept_html(service: &Arc<dyn Transport>, body: &str) -> String {
+  let args = ValueMap::from_iter([
+    ("id".to_owned(), Value::str("kickoff")),
+    ("parent".to_owned(), Value::str("")),
+    ("who".to_owned(), Value::str("carol")),
+    ("body".to_owned(), Value::str(body)),
+  ]);
+  match call(service, "addBlip", args).await {
+    Value::Map(blip) => match blip.get("html") {
+      Some(Value::Str(html)) => html.to_string(),
+      other => panic!("the kept blip carries no html: {other:?}"),
+    },
+    other => panic!("addBlip answered something other than a blip: {other:?}"),
+  }
+}
+
+#[tokio::test]
+async fn the_wave_page_writes_a_blip_as_the_markup_the_service_made() {
+  let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, _kept) = backend::service(field);
+  let host = Host::from_config(config).unwrap().services_over(service).build().unwrap();
+
+  let session = SessionCell::default();
+  session.insert("name", Value::str("alice"));
+  let html = host.render_to_string("/wave/kickoff", RenderMode::Html, session).await.unwrap();
+  assert!(html.contains("<strong>its own subject</strong>"), "the seed's markdown is markup in the page: {html}");
+  assert!(html.contains("<a href=\"https://commonmark.org\">markdown</a>"), "and its link is kept: {html}");
+}

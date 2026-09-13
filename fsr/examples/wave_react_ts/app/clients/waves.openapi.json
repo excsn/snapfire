@@ -301,6 +301,7 @@
           "parent",
           "who",
           "body",
+          "html",
           "at",
           "edited",
           "editors",
@@ -318,6 +319,10 @@
           },
           "body": {
             "type": "string"
+          },
+          "html": {
+            "type": "string",
+            "description": "the body rendered from markdown on the server, with raw HTML shown as text"
           },
           "at": {
             "type": "string"
