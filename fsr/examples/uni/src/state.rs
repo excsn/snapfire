@@ -84,13 +84,20 @@ pub fn headlines_value(tick: usize) -> Value {
   Value::seq(rows.collect::<Vec<_>>())
 }
 
-/// How many times the tape has been asked for, so a polled fragment comes
-/// back rotated. A desk with a backend would read the backend instead.
+/// Where the headline rotation stands. A desk with a backend would read the
+/// backend instead.
 #[derive(Clone, Default)]
 pub struct Tape(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 impl Tape {
-  pub fn next(&self) -> usize {
-    self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+  /// Where the tape stands. Reading it never moves it: the rotation belongs
+  /// to the desk's clock, so a page loading twice sees the same tape and a
+  /// revalidation from anywhere else leaves it alone.
+  pub fn at(&self) -> usize {
+    self.0.load(std::sync::atomic::Ordering::Relaxed)
+  }
+
+  pub fn advance(&self) {
+    self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   }
 }

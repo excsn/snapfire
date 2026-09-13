@@ -12,16 +12,14 @@ interface Quote {
 }
 
 const buy = action("desk.buy");
-const watch = action("desk.watch");
+// No revalidation: the store has already moved every island on the page, and
+// this is only telling the server what a reload should render.
+const watch = action("desk.watch", { revalidate: false });
 
-export default function Watch({ symbol, quotes, owned, lot }: { symbol: string; quotes: Record<string, Quote>; owned: bigint; lot: bigint }) {
+export default function Watch({ symbol, symbols, quotes, owned, lot }: { symbol: string; symbols: string[]; quotes: Record<string, Quote>; owned: bigint; lot: bigint }) {
   const [held, setHeld] = useStore(watchedKey, symbol);
-  const symbols = Object.keys(quotes);
   const at = symbols.indexOf(held);
   const turn = (by: number) => setHeld(symbols[(at + by + symbols.length) % symbols.length] ?? symbol);
-  // The store is the page's; the session is the server's. Whoever moved the
-  // store, this island tells the server; the refresh hands the symbol back
-  // as `symbol`, which is what a reload renders from.
   useEffect(() => {
     if (held !== symbol) void watch({ symbol: held });
   }, [held, symbol]);

@@ -34,16 +34,16 @@ fn templates() -> tera::Tera {
   tera
 }
 
-pub fn builder(ticks: state::Ticks) -> Result<HostBuilder, HostError> {
+pub fn builder(ticks: state::Ticks, tape: state::Tape) -> Result<HostBuilder, HostError> {
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
   let builder = Host::from_config_with(config, PLAN.to_owned(), None)?
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/board", routes::board_plan())
     .route("/news", routes::news_plan())
     .route("/", routes::board_plan());
-  Ok(actions::register(loaders::register(builder, state::Tape::default(), ticks)))
+  Ok(actions::register(loaders::register(builder, tape, ticks)))
 }
 
 pub fn build() -> Result<Host, HostError> {
-  builder(state::Ticks::default())?.build()
+  builder(state::Ticks::default(), state::Tape::default())?.build()
 }

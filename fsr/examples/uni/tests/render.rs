@@ -163,9 +163,25 @@ async fn the_tape_is_a_fragment_of_its_own_with_no_shell_around_it() {
 }
 
 #[tokio::test]
-async fn the_tape_moves_between_polls_so_a_swap_is_visible() {
+async fn the_tape_moves_on_its_own_clock_and_not_on_a_load() {
+  let tape = uni::state::Tape::default();
+  let host = uni::builder(uni::state::Ticks::default(), tape.clone()).unwrap().build().unwrap();
+  let poll = || host.handle(Request::get("/board?__fragment=tape").body(Bytes::new()).unwrap());
+
+  let first = body(poll().await).await;
+  let again = body(poll().await).await;
+  assert_eq!(first, again, "reading the tape does not move it, so a revalidation from anywhere else leaves it alone");
+
+  tape.advance();
+  let moved = body(poll().await).await;
+  assert_ne!(first, moved, "the rotation is what makes a poll worth watching");
+}
+
+#[tokio::test]
+async fn the_masthead_is_given_the_desk_symbols_in_order() {
   let host = host();
-  let first = body(host.handle(Request::get("/board?__fragment=tape").body(Bytes::new()).unwrap()).await).await;
-  let second = body(host.handle(Request::get("/board?__fragment=tape").body(Bytes::new()).unwrap()).await).await;
-  assert_ne!(first, second, "the rotation is what makes a poll worth watching");
+  let html = body(host.handle(Request::get("/board").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains(r#""symbols":["ARBR","KLNS","MRSH","VLDT"]"#), "the order the arrows step through, which a map has none of: {html}");
+  let quotes = html.find(r#""quotes":{"#).expect("the quotes map is there");
+  assert!(html[quotes..].starts_with(r#""quotes":{"ARBR""#), "and the map keeps the order the loader wrote: {}", &html[quotes..quotes + 80]);
 }

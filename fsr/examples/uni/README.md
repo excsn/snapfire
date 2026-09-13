@@ -54,6 +54,7 @@ React reads it with `useStore` from `@snapfire/fsr-client/react`, Vue with `useS
 | --- | --- |
 | the masthead, the chips, the feed | React hydrates or mounts them, `reactMounter` |
 | the table, the sparkline | Vue mounts them fresh, `vueMounter` |
+| the masthead arrows | a store write the Vue table follows, plus one quiet `desk.watch` the page does not revalidate for: the session remembers the symbol for the next load |
 | the lot stepper | nothing mounts: every click posts to the host, Rust runs the handler, dispatches the `desk.lot` action it calls, renders the component again and the browser patches the markup, then refreshes the page's data the way it does after any action |
 | the tape | nothing mounts: htmx swaps a fragment the host rendered |
 

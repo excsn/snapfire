@@ -4,9 +4,10 @@ use snapfire_fsr_host::HostBuilder;
 use crate::session::{bought, lot, watched};
 use crate::state::{self, Tape, Ticks};
 
-/// What the masthead island is rendered with: the symbol the session is
-/// watching and every price, so it can show the one the store moves to
-/// without asking the server again.
+/// What the masthead island is rendered with. Every price rides along, so the
+/// masthead shows whichever symbol the store moves to without asking the
+/// server again; `symbols` carries the desk's own order for the arrows to
+/// step, which a map has none of.
 fn watch_props(symbol: &str, tick: usize) -> Value {
   let mut quotes = ValueMap::default();
   for holding in state::HOLDINGS {
@@ -18,6 +19,7 @@ fn watch_props(symbol: &str, tick: usize) -> Value {
   }
   let mut map = ValueMap::default();
   map.insert("symbol".to_owned(), Value::str(symbol));
+  map.insert("symbols".to_owned(), Value::seq(state::HOLDINGS.iter().map(|h| Value::str(h.symbol)).collect::<Vec<_>>()));
   map.insert("quotes".to_owned(), Value::Map(quotes));
   Value::Map(map)
 }
@@ -81,7 +83,7 @@ pub fn register(builder: HostBuilder, tape: Tape, ticks: Ticks) -> HostBuilder {
       let tape = tape.clone();
       async move {
         let mut data = ValueMap::default();
-        data.insert("headlines".to_owned(), state::headlines_value(tape.next()));
+        data.insert("headlines".to_owned(), state::headlines_value(tape.at()));
         Ok(data)
       }
     })
