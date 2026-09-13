@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@snapfire/fsr-client": ["./types/@snapfire/fsr-client/index.d.ts"],
+      "@snapfire/fsr-client/*": ["./types/@snapfire/fsr-client/*"],
+      "csstype": ["./types/csstype/index.d.ts"],
+      "csstype/*": ["./types/csstype/*"],
+      "htmx.org": ["./types/htmx.org/index.d.ts"],
+      "react": ["./types/react/index.d.ts"],
+      "react/*": ["./types/react/*"],
+      "react-dom": ["./types/react-dom/index.d.ts"],
+      "react-dom/*": ["./types/react-dom/*"],
+      "vue": ["./types/vue/index.d.ts"],
+      "vue/*": ["./types/vue/*"]
+    }
+  },
+  "include": ["src/**/*"]
+}

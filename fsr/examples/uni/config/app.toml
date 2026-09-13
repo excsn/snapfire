@@ -1,0 +1,26 @@
+[app]
+dir = "."
+
+[server]
+listen = "127.0.0.1:8180"
+
+[document]
+title = "Uni desk"
+import_map = "js/importmap.json"
+entry = "/static/js/app/main.js"
+
+[session]
+key = "uni-dev-signing-key-not-a-secret"
+ttl = "4h"
+
+[[static]]
+route = "/static/js/app"
+dir = "js/dist"
+
+[[static]]
+route = "/static/css"
+dir = "styles"
+
+[[static]]
+route = "/static/js/vendor"
+dir = "js/vendor"

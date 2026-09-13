@@ -1,0 +1,5 @@
+<section class="page board">
+  <h1>Holdings</h1>
+  <p class="lede">The table is Vue. The masthead is React. Clicking a row writes one store key; the masthead follows it.</p>
+  {{ island(module="js/src/ui/Holdings.vue#default", props=desk) }}
+</section>

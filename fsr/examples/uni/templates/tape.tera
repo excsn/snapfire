@@ -1,0 +1,5 @@
+<div class="panel tape" hx-get="?__fragment=tape" hx-trigger="every 10s" hx-swap="outerHTML">
+  <h2>Tape</h2>
+  <ol>{% for row in headlines %}<li><span class="sym">{{ row.symbol }}</span>{{ row.text }}</li>{% endfor %}</ol>
+  <p class="quiet">htmx asks the host for this slot alone every ten seconds. Nothing here hydrates: no island, no mounter, no framework.</p>
+</div>
