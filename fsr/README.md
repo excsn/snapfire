@@ -67,7 +67,7 @@ cargo build
 fsr dev app
 ```
 
-[examples/](examples/README.md) is the index: twelve applications in reading order, what each one shows and the ports they take.
+[examples/](examples/README.md) is the index: thirteen applications in reading order, what each one shows and the ports they take.
 
 
 ## Education

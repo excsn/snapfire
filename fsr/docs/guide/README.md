@@ -30,6 +30,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [103. Testing a body and a page](103-testing-a-body.md), mocks the contract checks, the trace, page tests over a DOM with hydration, loading a route and clicking through it, and `fsr test`. App developers.
 - [104. Islands in another framework](104-islands-in-another-framework.md), a `.vue` file placed by a template, the plugin that compiles it with no Node, scoped styles reaching the head, why a template with no state loads no framework and the application with no React in it. App developers.
 - [105. No framework at all](105-no-framework-at-all.md), custom elements a template writes and the browser upgrades, a shadow root the server renders, the store read with no adapter, htmx regions over fragments the host renders and the two events that let a library and the navigator share a document. App developers.
+- [106. Two frameworks on one page](106-two-frameworks-on-one-page.md), module-id dispatch as the whole seam, one store under two adapters, one router over segments that differ, htmx as a third shape and what the three of them weigh. App developers, plus anyone weighing a migration.
 
 **The host**, or what runs it:
 
@@ -58,7 +59,7 @@ And one appendix:
 
 **A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103. Chapter 003 will read like the rendering model you already have, minus the engine.
 
-**A frontend developer who writes Vue:** read 000, then 100 and 101 for the templates and bodies, then 104. Your components are islands and the pages around them are templates; 102 is the React reading of the same seam.
+**A frontend developer who writes Vue:** read 000, then 100 and 101 for the templates and bodies, then 104. Your components are islands and the pages around them are templates; 102 is the React reading of the same seam; 106 is what it costs to run both at once.
 
 **A frontend developer who would rather have no framework:** read 000, then 100 and 101, then 105. Your pages are templates, your interactive pieces are elements the browser defines and your regions are fragments; 003 says why the server can render all of it.
 

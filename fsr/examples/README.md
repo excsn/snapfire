@@ -1,6 +1,6 @@
 # FSR examples
 
-Twelve applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Thirteen applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Read them in this order. Each has a `README.md` saying what it shows and where.
 
@@ -18,6 +18,7 @@ Read them in this order. Each has a `README.md` saying what it shows and where.
 | [recipes_vue_ts](recipes_vue_ts/README.md) | A household recipe box | A second framework on the same seam: every interactive piece a `.vue` file compiled by `snapfirec-vue` and mounted by Vue, the pages static templates that load no framework, no React anywhere in the application |
 | [toolshed_web_ts](toolshed_web_ts/README.md) | A street's tool library | No framework at all: custom elements the browser upgrades where the server wrote their markup, one inside a shadow root the server wrote, plus htmx regions swapping fragments the host renders, one segment of a route at a time |
 | [advanced_tera_app](advanced_tera_app/) | A Rust application rendering Tera templates on the stock host | The framework with no TypeScript at all: routes, loaders and actions bound in Rust, form-encoded actions for a page with no JavaScript, rendering through the `Evaluator` seam |
+| [uni](uni/README.md) | A desk board under a Tera layout | Three interaction models on one page: a React island, a Vue island and an htmx region, one store between the two runtimes, one router replacing a Vue segment with a React one, plus the measured weight of all three |
 
 ## Running one
 
@@ -28,7 +29,7 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `recipes_vue_ts` and `toolshed_web_ts` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `recipes_vue_ts` and `toolshed_web_ts` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
 
 ```sh
 cd shopping_react_ts && fsr dev app
@@ -54,6 +55,7 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8150 | `conference_react_ts`, which has no binary of its own |
 | 8160 | `recipes_vue_ts`, which has no binary of its own |
 | 8170 | `toolshed_web_ts`, which has no binary of its own |
+| 8180 | `uni` |
 
 ## The portal and the site together
 
