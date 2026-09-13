@@ -4,7 +4,7 @@ One file per bench series. Each file says what the series measures, how to run i
 
 | Series | Question | File |
 | --- | --- | --- |
-| Render | How fast does the IR renderer produce a page against React's `renderToString` in QuickJS, and what does a QuickJS context cost to bring up? The number JS_ENGINE.md waits for before request-time rendering is decided. | [render.md](render.md) |
+| Render | How fast does the IR renderer produce a page against React's `renderToString` in QuickJS, plus what a QuickJS context costs to bring up? The measurement behind rendering in Rust rather than in an engine. | [render.md](render.md) |
 
 ## Before a run
 

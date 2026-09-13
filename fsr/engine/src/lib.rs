@@ -1,7 +1,7 @@
 //! QuickJS in process, for `fsr test` only. One engine holds one context: a
 //! DOM from linkedom, timers on a virtual clock, a `fetch` the host answers
 //! and the application's compiled modules resolved through its import map.
-//! Nothing here runs at request time; JS_ENGINE.md keeps that open.
+//! Nothing here runs at request time.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
