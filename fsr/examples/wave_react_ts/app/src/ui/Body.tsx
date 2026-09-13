@@ -16,7 +16,7 @@ interface Edit {
 export default function Body({ wave, blip, text, html, edited, editors, me }: { wave: string; blip: string; text: string; html: string; edited: string; editors: string[]; me: string }) {
   const [edits] = useStore(key<Edit[]>("wave/edits"), []);
   const [mine, setMine] = useState(false);
-  const theirs = edits.filter((edit) => edit.blip === blip);
+  const theirs = edits.filter((edit) => edit.blip === blip && edit.who !== me);
 
   useEffect(() => {
     if (theirs.length > 0 && mine) setMine(false);

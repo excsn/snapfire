@@ -1,4 +1,5 @@
-import { assert, ctx, fireEvent, load, test } from "@snapfire/fsr-client/testing";
+import { key, set } from "@snapfire/fsr-client/store";
+import { assert, ctx, fireEvent, load, settle, test } from "@snapfire/fsr-client/testing";
 
 const board = { cells: Array.from({ length: 9 }, (_, at) => ({ at, mark: "" })), turn: "x", won: "" };
 
@@ -104,6 +105,17 @@ test("a blip's body is the markup the service rendered", async () => {
   await load("/wave/kickoff", { ctx: open("alice") });
   const first = document.querySelector(".blips .body.md");
   assert.equal(first?.querySelector("strong")?.textContent, "a", "the markdown arrived as markup rather than as asterisks");
+});
+
+test("a window's own rewrite never takes its blip away from it", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  const edits = key<{ blip: string; who: string; body: string }[]>("wave/edits");
+  set(edits, [{ blip: "1", who: "alice", body: "mine" }]);
+  await settle();
+  assert.equal(document.querySelectorAll(".blips .body-held").length, 0, "alice's own rewrite, which a uniform view carries, is not shown to her as someone else's");
+  set(edits, [{ blip: "1", who: "bob", body: "his" }]);
+  await settle();
+  assert.equal(document.querySelectorAll(".blips .body-held").length, 1, "bob's rewrite still holds the blip in alice's window");
 });
 
 /// DEFECTS 5.3: the client action path and the revalidation it triggers.
