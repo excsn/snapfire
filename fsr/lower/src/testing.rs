@@ -18,6 +18,8 @@ pub enum Target {
   Loader { file: String },
   /// The `meta` of a loader module, run over the data rather than a ctx.
   Meta { file: String },
+  /// The `store` of a loader module, run over the data the same way.
+  Store { file: String },
   Action { file: String, export: String },
   Handler { file: String, export: String },
   Middleware { file: String },
@@ -112,10 +114,11 @@ pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError> {
       let target = match (stem, imported.as_str()) {
         ("page.loader" | "layout.loader", "load") => Target::Loader { file: target_file },
         ("page.loader" | "layout.loader", "meta") => Target::Meta { file: target_file },
+        ("page.loader" | "layout.loader", "store") => Target::Store { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
         ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
         ("middleware", "middleware") => Target::Middleware { file: target_file },
-        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load` or `meta` from a `page.loader` or a `layout.loader`, an action from its `actions` or a method from its `route`")).into()),
+        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load`, `meta` or `store` from a `page.loader` or a `layout.loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
     }
@@ -262,22 +265,26 @@ impl<'a> TestLowerer<'a> {
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(id) = &**callee else { return Ok(None) };
     let Some((_, target)) = self.imports.iter().find(|(local, _)| *local == id.sym.as_ref()) else { return Ok(None) };
-    if let Target::Meta { .. } = target {
-      let data = self.data_arg(call)?;
-      let ctx = self.mocks.last().cloned().ok_or_else(|| self.lowerer.residue(call.span, "a `meta(...)` runs against the `ctx(...)` bound above it; this test binds none"))?;
+    if let Target::Meta { .. } | Target::Store { .. } = target {
+      let export = match target {
+        Target::Store { .. } => "store",
+        _ => "meta",
+      };
+      let data = self.data_arg(call, export)?;
+      let ctx = self.mocks.last().cloned().ok_or_else(|| self.lowerer.residue(call.span, format!("a `{export}(...)` runs against the `ctx(...)` bound above it; this test binds none")))?;
       return Ok(Some((target.clone(), ctx, Some(data))));
     }
     let ctx = self.ctx_arg(call)?;
     Ok(Some((target.clone(), ctx, None)))
   }
 
-  /// The `data` of a `meta({ data })`, as the expression the runner evaluates.
-  fn data_arg(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+  /// The `data` of a `meta({ data })` or a `store({ data })`, as the expression the runner evaluates.
+  fn data_arg(&mut self, call: &js::CallExpr, export: &str) -> Lowered<Expr> {
     let Some(first) = call.args.first() else {
-      return Err(self.lowerer.residue(call.span, "a `meta(...)` takes `{ data }`"));
+      return Err(self.lowerer.residue(call.span, format!("a `{export}(...)` takes `{{ data }}`")));
     };
     let js::Expr::Object(obj) = &*first.expr else {
-      return Err(self.lowerer.residue(first.expr.span(), "a `meta(...)` takes an object literal `{ data }`"));
+      return Err(self.lowerer.residue(first.expr.span(), format!("a `{export}(...)` takes an object literal `{{ data }}`")));
     };
     for prop in &obj.props {
       let js::PropOrSpread::Prop(prop) = prop else { continue };
@@ -287,7 +294,7 @@ impl<'a> TestLowerer<'a> {
         _ => {}
       }
     }
-    Err(self.lowerer.residue(obj.span, "a `meta(...)` takes `{ data }` and this literal has no `data`"))
+    Err(self.lowerer.residue(obj.span, format!("a `{export}(...)` takes `{{ data }}`; this literal has no `data`")))
   }
 
   fn ctx_arg(&mut self, call: &js::CallExpr) -> Lowered<String> {

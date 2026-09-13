@@ -156,7 +156,7 @@ A loader module may export `meta` beside `load`, a function of the data `load` r
 export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({ title: `${data.product.name} · Shopping` });
 ```
 
-A body test imports it beside `load` and runs it over data, usually the data the run above it returned: `const head = meta({ data })`. It replays through the interpreter like any other body, against the `ctx` bound above it, since a `meta` may read the locale or the identity.
+A body test imports it beside `load` and runs it over data, usually the data the run above it returned: `const head = meta({ data })`. It replays through the interpreter like any other body, against the `ctx` bound above it, since a `meta` may read the locale or the identity. `store` is imported and run the same way.
 
 ### Seeding the Store
 
@@ -165,6 +165,8 @@ A loader module may also export `store`, the same shape, returning the store key
 ```ts
 export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/count": Number(data.cartCount) });
 ```
+
+A body test runs it the way it runs `meta`: `const seeded = store({ data })`, then an assertion on the key.
 
 Every segment on the route may export one, merged outermost first, so a page wins a key its layout also sets. The keys are literal strings here, since a `store` body runs before any component and follows no imports. `useStore` in a component is how the browser reads and writes them, and the client package's guide has the rest.
 

@@ -40,7 +40,7 @@ The file is a small dialect and the runner refuses anything outside it with the 
 
 - `const c = ctx({...})`, the context, bound to a name.
 - `await load(c)`, `const result = await addToCart(c)`, `const { lines } = await load(c)`: runs of the loader or an action, bound or not.
-- `const head = meta({ data })`: the loader module's `meta` over data, usually the data the run above it returned. It is lowered and replayed like everything else, so a title built from what a loader found is checkable without rendering the page. It runs against the `ctx` bound above it, since a `meta` may read the locale or the identity.
+- `const head = meta({ data })`, `const seeded = store({ data })`: the loader module's other two exports over data, usually the data the run above it returned. Both are lowered and replayed like everything else, so a title built from what a loader found is checkable without rendering the page, as are the store keys a route seeds. Each runs against the `ctx` bound above it, since either may read the locale or the identity.
 - `assert.ok(x)`, `assert.equal(actual, expected)`, `await assert.rejects(checkout(c), "invalid")`: the three assertions. `equal` is deep and compares the way the value model does, with one allowance: an integer field reads back as a bigint while a test may write the number it stands for, so `35` and `35n` are the same value where either side is whole. A failed comparison prints both sides as TypeScript would write them.
 
 After every run the context refreshes: `c.session` is the session as the body left it, `c.trace.calls` is every service call it made with its arguments and `c.trace.session.written` names the keys it wrote. Those are the assertions that say what a body did rather than only what it returned:

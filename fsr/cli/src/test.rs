@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
 use snapfire_fsr_ir::{Body, Expr, Fail, Interpreter};
 use snapfire_fsr_lower::testing::{Assertion, Binding, Mock, Step, Target, TestCase, lower_tests};
-use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with};
+use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with, lower_store_with};
 use snapfire_fsr_runtime::{Identity, RequestCtx, ServiceError, SessionCell};
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
@@ -108,14 +108,22 @@ impl Targets {
         self.loaders.insert(file.clone(), body.clone());
         Ok(body)
       }
-      Target::Meta { file } => {
-        let key = format!("{file}#meta");
+      Target::Meta { file } | Target::Store { file } => {
+        let export = match target {
+          Target::Store { .. } => "store",
+          _ => "meta",
+        };
+        let key = format!("{file}#{export}");
         if let Some(body) = self.loaders.get(&key) {
           return Ok(body.clone());
         }
         let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        let lowered = lower_meta_with(file, &source, &self.defaults).map_err(|e| e.to_string())?;
-        let body = Arc::new(lowered.ok_or_else(|| format!("{file} exports no `meta`"))?);
+        let lowered = match export {
+          "store" => lower_store_with(file, &source, &self.defaults),
+          _ => lower_meta_with(file, &source, &self.defaults),
+        }
+        .map_err(|e| e.to_string())?;
+        let body = Arc::new(lowered.ok_or_else(|| format!("{file} exports no `{export}`"))?);
         self.loaders.insert(key, body.clone());
         Ok(body)
       }
@@ -398,6 +406,7 @@ fn describe(target: &Target) -> String {
   match target {
     Target::Loader { .. } => "`load`".to_owned(),
     Target::Meta { .. } => "`meta`".to_owned(),
+    Target::Store { .. } => "`store`".to_owned(),
     Target::Middleware { .. } => "`middleware`".to_owned(),
     Target::Action { export, .. } | Target::Handler { export, .. } => format!("`{export}`"),
   }
