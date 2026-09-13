@@ -41,6 +41,23 @@ fn island_in(tmpl: &Tmpl) -> Option<(&str, Option<&str>, Option<&str>)> {
   }
 }
 
+#[test]
+fn a_component_that_renders_itself_is_refused_rather_than_unrolled() {
+  let dir = app(&[("routes/page.tsx", "export function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")]);
+  let err = ComponentSet::new(&dir).lower("routes/page.tsx#Tree").unwrap_err().to_string();
+  assert!(err.contains("cannot unroll"), "{err}");
+}
+
+#[test]
+fn two_components_that_render_each_other_are_refused_rather_than_unrolled() {
+  let dir = app(&[
+    ("routes/page.tsx", "import Odd from \"./odd\";\nexport default function Even({ n }: { n: number }) {\n  return <div>{n > 0 ? <Odd n={n - 1} /> : null}</div>;\n}\n"),
+    ("routes/odd.tsx", "import Even from \"./page\";\nexport default function Odd({ n }: { n: number }) {\n  return <span>{n > 0 ? <Even n={n - 1} /> : null}</span>;\n}\n"),
+  ]);
+  let err = ComponentSet::new(&dir).lower("routes/page.tsx#default").unwrap_err().to_string();
+  assert!(err.contains("cannot unroll"), "{err}");
+}
+
 const BODY: &str = "async ({ input }: ActionCtx<AddInput>) => ({ n: input.n })";
 
 #[test]
