@@ -117,6 +117,8 @@ export interface IslandProps {
   when?: MountTiming;
   /** `server`: the island's events round-trip to the server, which re-renders it; no React root is mounted. */
   mode?: "server";
+  /** The module that defines the custom element inside, imported at the island's timing rather than at load. The child is then an element, its markup written by the server, with nothing mounted over it. Not combinable with `mode`. */
+  define?: string;
   children?: ReactNode;
 }
 

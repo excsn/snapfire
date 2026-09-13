@@ -185,15 +185,22 @@ fn every_tmpl() -> Vec<Tmpl> {
       children: vec![Tmpl::Text("fallback".to_owned())],
       when: Some("idle".to_owned()),
       mode: Some("server".to_owned()),
-      id: 4,
-    },
+      id: 4, define: false },
     Tmpl::Island {
       module: "src/Cart.tsx#Cart".to_owned(),
       props: Vec::new(),
       children: Vec::new(),
       when: None,
       mode: None,
-      id: 0,
+      id: 0, define: false },
+    Tmpl::Island {
+      module: "src/elements/time-ago.ts#default".to_owned(),
+      props: Vec::new(),
+      children: vec![Tmpl::Text("back Monday".to_owned())],
+      when: Some("visible".to_owned()),
+      mode: None,
+      id: 5,
+      define: true,
     },
     Tmpl::Slot("content".to_owned()),
     Tmpl::Baked {
@@ -217,6 +224,7 @@ fn every_manifest() -> Manifest {
       Handler { event: "click".to_owned(), body: body.clone() },
       Handler { event: "submit".to_owned(), body: Vec::new() },
     ],
+    hydrate: true,
   };
   let node = Node {
     id: 0,

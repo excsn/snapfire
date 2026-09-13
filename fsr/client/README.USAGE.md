@@ -12,6 +12,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Building and Serving the Package](#building-and-serving-the-package)
 * [Registering an Island](#registering-an-island)
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
+* [Defining an Element When It Is Needed](#defining-an-element-when-it-is-needed)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
@@ -200,6 +201,26 @@ registerIsland("components/Preferences.tsx#default", {
 ```
 
 Pick `"load"` for anything above the fold or interactive immediately, `"visible"` for content the reader has to scroll to, `"idle"` for work that can wait for a quiet main thread. `"visible"` observes the element with an `IntersectionObserver` and disconnects on the first intersection; `"idle"` uses `requestIdleCallback` where the browser has it and a 1ms `setTimeout` where it does not.
+
+## Defining an Element When It Is Needed
+
+A custom element has no mount: the browser upgrades it the moment `customElements.define` runs, wherever its markup already is. So the thing worth deferring is the definition, which is what the island timing schedules when a template writes `<Island define>`:
+
+```tsx
+<Island when="visible" define="@src/elements/time-ago.ts">
+  <ul>
+    {loans.map((loan) => (
+      <li key={loan.tool}>
+        <time-ago datetime={loan.back}>back {loan.back}</time-ago>
+      </li>
+    ))}
+  </ul>
+</Island>
+```
+
+The child is an element rather than a component, its markup is the server's, with nothing mounted over it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports the module at the timing asked for, at which point the elements inside upgrade themselves. A definition module must be a module: give it an `export` so it can be imported dynamically.
+
+Without this the definition runs when the entry module does, which is right for an element the first paint needs, such as a masthead's, but wasteful for one below the fold.
 
 ## Placing a Component as an Island
 

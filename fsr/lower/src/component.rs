@@ -527,10 +527,10 @@ fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &Hash
   let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_modules(c, modules, islands)).collect();
   match tmpl {
     Tmpl::Component { module, props, children, id } => match islands.get(&module) {
-      Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone(), id },
+      Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone(), id, define: false },
       None => Tmpl::Component { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), id },
     },
-    Tmpl::Island { module, props, children, when, mode, id } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode, id },
+    Tmpl::Island { module, props, children, when, mode, id, define } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode, id, define },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
     Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules, islands))) },
@@ -1419,6 +1419,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn island_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     let mut when = None;
     let mut mode = None;
+    let mut define = None;
     for attr in &el.opening.attrs {
       let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { return Err(self.lowerer.residue(el.span, "a spread on `<Island>`")) };
       match attr_name(&attr.name).as_str() {
@@ -1430,7 +1431,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           let value = self.attr_value(attr)?;
           mode = self.island_mode(value, attr.span)?;
         }
-        _ => return Err(self.lowerer.residue(attr.span, "`<Island>` takes `when` and `mode` and nothing else")),
+        "define" => {
+          let value = self.attr_value(attr)?;
+          let Expr::Lit(Lit::Str(specifier)) = value else {
+            return Err(self.lowerer.residue(attr.span, "`define` is the module the definition lives in, written out"));
+          };
+          let resolved = crate::resolve_specifier(self.file, &specifier)
+            .ok_or_else(|| self.lowerer.residue(attr.span, format!("`{specifier}`, which the build cannot follow")))?;
+          let has_extension = matches!(resolved.rsplit_once('.'), Some((_, ext)) if matches!(ext, "ts" | "tsx" | "js" | "mjs"));
+          define = Some(match has_extension {
+            true => format!("{resolved}#default"),
+            false => format!("{resolved}.ts#default"),
+          });
+        }
+        _ => return Err(self.lowerer.residue(attr.span, "`<Island>` takes `when`, `mode` and `define` and nothing else")),
       }
     }
     let mut elements = el.children.iter().filter(|c| match c {
@@ -1441,6 +1455,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       return Err(self.lowerer.residue(el.span, "`<Island>` wraps exactly one component"));
     };
     let lowered = self.element(child, false)?;
+    if let Some(module) = define {
+      if mode.is_some() {
+        return Err(self.lowerer.residue(el.span, "`mode` on an `<Island define>`, which mounts nothing to round-trip"));
+      }
+      let Tmpl::Element { .. } = &lowered else {
+        return Err(self.lowerer.residue(child.span, "`<Island define>` wraps an element, since its module defines one"));
+      };
+      let at = self.lowerer.parsed.range(el.opening.name.span()).end;
+      let id = match &mut self.lowerer.hoisting {
+        Some(candidates) => candidates.island(at),
+        None => 0,
+      };
+      return Ok(Tmpl::Island { module, props: Vec::new(), children: vec![lowered], when, mode: None, id, define: true });
+    }
     self.island_of(lowered, when, mode, child.span)
   }
 
@@ -1683,7 +1711,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// the bundle's copy of this component carries the same region key.
   fn island_of(&self, lowered: Tmpl, when: Option<String>, mode: Option<String>, span: Span) -> Lowered<Tmpl> {
     match lowered {
-      Tmpl::Component { module, props, children, id } => Ok(Tmpl::Island { module, props, children, when, mode, id }),
+      Tmpl::Component { module, props, children, id } => Ok(Tmpl::Island { module, props, children, when, mode, id, define: false }),
       _ => Err(self.lowerer.residue(span, "an island must be a component, not an element")),
     }
   }

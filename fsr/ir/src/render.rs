@@ -539,9 +539,20 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       env.scope.truncate(depth);
       result?;
     }
-    Tmpl::Island { module, props, children, when, mode, id } => {
+    Tmpl::Island { module, props, children, when, mode, id, define } => {
       let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
       let map = self::props(env, props)?;
+      if *define {
+        let mut inner = Out::default();
+        for child in children {
+          render(env, child, library, slots, &mut inner)?;
+        }
+        let index = out.islands.len();
+        let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() };
+        out.islands.push(RenderedIsland { module: module.clone(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), key, body });
+        out.markup(&format!("{ISLAND_MARK}{index}\0"));
+        return Ok(());
+      }
       // A component the server has no body for, a `.vue` file among them, is
       // placed empty with its props: the browser mounts it rather than
       // hydrating it and the page around it is whole either way.
@@ -641,8 +652,8 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
     Tmpl::For { over, params, body } => Tmpl::For { over: over.clone(), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
     Tmpl::Let { name, expr, then } => Tmpl::Let { name: name.clone(), expr: expr.clone(), then: Box::new(prepare_tmpl(then)) },
     Tmpl::Component { module, props, children, id } => Tmpl::Component { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), id: *id },
-    Tmpl::Island { module, props, children, when, mode, id } => {
-      Tmpl::Island { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id }
+    Tmpl::Island { module, props, children, when, mode, id, define } => {
+      Tmpl::Island { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
     }
     other => other.clone(),
   }
@@ -1226,7 +1237,7 @@ mod hoist_tests {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(1.0))))),
-        Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9 },
+        Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9, define: false },
       ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
@@ -1265,7 +1276,7 @@ mod server_tests {
   fn handler_markers_and_keys_print_only_in_server_mode() {
     let mut library = Components::new();
     library.insert("src/ui/Help.tsx#Help".to_owned(), Arc::new(help()));
-    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9 }, state: Vec::new(), handlers: Vec::new(), hydrate: true };
+    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9, define: false }, state: Vec::new(), handlers: Vec::new(), hydrate: true };
     let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::default(), &library).unwrap();
     assert_eq!(browser.islands[0].body.html, "<section>order 7<button>Show</button></section>");
     assert!(browser.islands[0].mode.is_none() && !browser.islands[0].mount_props().contains_key(STATE_PROP));
@@ -1317,7 +1328,7 @@ mod island_tests {
       render: Tmpl::For {
         over: Expr::var("$props").field("blips"),
         params: vec!["blip".to_owned()],
-        body: Box::new(Tmpl::Island { module: "src/ui/Body.tsx#Body".to_owned(), props: vec![Entry::Field("text".to_owned(), Expr::var("blip"))], children: Vec::new(), when: None, mode: None, id: 1 }),
+        body: Box::new(Tmpl::Island { module: "src/ui/Body.tsx#Body".to_owned(), props: vec![Entry::Field("text".to_owned(), Expr::var("blip"))], children: Vec::new(), when: None, mode: None, id: 1, define: false }),
       },
       state: Vec::new(),
       handlers: Vec::new(),
@@ -1351,7 +1362,7 @@ mod island_tests {
         attrs: Vec::new(),
         children: vec![
           Tmpl::Text("before".to_owned()),
-          Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 9 },
+          Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 9, define: false },
           Tmpl::Text("after".to_owned()),
         ],
       }, state: Vec::new(), handlers: Vec::new(), hydrate: true

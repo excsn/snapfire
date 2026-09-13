@@ -15,6 +15,7 @@ function propsFor(root, id) {
     if (!script || !script.textContent) return {};
     return decodeValue(JSON.parse(script.textContent));
 }
+export const defineMounter = ()=>undefined;
 export function serverRendered(el) {
     return Array.from(el.childNodes).some((node)=>!(node instanceof Element && node.tagName === "SF-S"));
 }

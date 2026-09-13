@@ -32,6 +32,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Props](#props)
   * [Mounter](#mounter)
   * [MountTiming](#mounttiming)
+  * [defineMounter](#definemounter)
   * [IslandEntry](#islandentry)
   * [registerIsland](#registerisland)
   * [scan](#scan)
@@ -345,6 +346,12 @@ Registration, timing and the scan that mounts markers.
 * `type MountTiming = "load" | "visible" | "idle"`
 
 `"load"` mounts as soon as the marker is scanned. `"visible"` observes the element with an `IntersectionObserver` and mounts on the first intersection, disconnecting immediately. `"idle"` mounts in `requestIdleCallback` where the browser provides it and in a 1ms `setTimeout` where it does not.
+
+### defineMounter
+
+* `const defineMounter: Mounter`
+
+The mounter for an island whose module defines a custom element rather than exporting a component: it does nothing. Importing the module is the whole mount, since the element the server already wrote upgrades itself the moment its definition runs, so what the island's timing schedules is the import. `fsr build` registers a module an `<Island define>` names with it, carrying no `patch`, since nothing is mounted to re-render.
 
 ### IslandEntry
 

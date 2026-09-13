@@ -8,7 +8,7 @@ The question this chapter answers: what does an fsr application look like with n
 
 Chapter 104 put a Vue component where a React one had been and the seam held: a template places it, the server writes its marker, a mounter takes it in the browser. The cheapest case on that spectrum has no mounter. A custom element is defined once by a module the browser runs and upgraded wherever the parser finds its tag. The server can write that tag and everything inside it, because it is markup like any other; the browser does the rest when the definition arrives.
 
-The tool library, [`toolshed_web_ts`](../../examples/toolshed_web_ts/README.md), is built that way. Every route is a template, every interactive piece is a `.ts` file under `src/elements/` calling `customElements.define`; the regions that reach the server are htmx attributes. Nothing mounts, nothing hydrates and `generated/islands.ts` registers nothing. The bundle is `src/**/*` and two generated files; the import map is the client, its store and htmx.
+The tool library, [`toolshed_web_ts`](../../examples/toolshed_web_ts/README.md), is built that way. Every route is a template, every interactive piece is a `.ts` file under `src/elements/` calling `customElements.define`; the regions that reach the server are htmx attributes. Nothing mounts, nothing hydrates and the one line in `generated/islands.ts` registers an element definition rather than a component. The bundle is `src/**/*` and two generated files; the import map is the client, its store and htmx.
 
 ## Writing a custom element in a template
 
@@ -94,6 +94,26 @@ class LoanPlanner extends HTMLElement {
 
 With `name="days"` on the host, `days` is in the posted body under that name, natively and through htmx alike, since both build the form data from the form. The action reads it as it reads any other field, clamps it to what the shed lends that tool for and writes the agreed length into the session, so the page that comes back says what was actually agreed rather than what the tool's limit is.
 
+## A definition that waits until its element is in view
+
+Everything above is defined when the entry module runs, which is what a masthead wants and not what a panel at the bottom of the page wants. An element has no mount, so what a timing can defer is its definition. That is what a template asks for:
+
+```tsx
+<Island when="visible" define="@src/elements/time-ago.ts">
+  <ul>
+    {loans.map((loan) => (
+      <li key={loan.tool}>
+        <time-ago datetime={loan.back}>back {loan.back}</time-ago>
+      </li>
+    ))}
+  </ul>
+</Island>
+```
+
+The child is an element, not a component. The server writes its markup inside the island marker, so the list is readable with no script at all: `back 2026-09-14` until the definition lands, `back in 2 days` after it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports it when the panel scrolls into view and every element inside upgrades itself. The module needs an `export` to be imported dynamically; the class is the obvious one.
+
+That is the whole of islands in this application: one marker, no props script, no mounter, no framework.
+
 ## A region that asks the server for markup
 
 An island round trip carries a payload the client applies. htmx carries none: an attribute names a URL, the response is markup and it is swapped into a target. What it needs from the host is one segment of a route as HTML with nothing around it. That is what `__fragment` in the query asks for:
@@ -147,7 +167,7 @@ htmx is passed in rather than imported by the client, so the binding takes whate
 
 ## The lab
 
-Run `fsr build app` in the tool library and read `app/generated/islands.ts`: it registers nothing. Read the report: every route module is `static`. View the source of `/tool/3` before the scripts run: the planner's shadow root is there inside its `<template>`, the form carries the token and there is no `<sf-i>` anywhere.
+Run `fsr build app` in the tool library and read `app/generated/islands.ts`: one registration, an element definition with `defineMounter`, no mounter imported from any framework. Read the report: every route module is `static`. View the source of `/tool/3` before the scripts run: the planner's shadow root is there inside its `<template>`, the form carries the token and the only `<sf-i>` on the page is the loans list, holding the markup its definition will upgrade.
 
 Ask for fragments with `curl`, as above. The page fragment starts at `<section` and ends with the seed script; the weather slot is its error boundary alone; the unknown slot is one line.
 

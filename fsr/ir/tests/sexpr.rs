@@ -196,7 +196,7 @@ fn tmpl() -> BoxedStrategy<Tmpl> {
         .prop_map(|(module, props, children, id)| Tmpl::Component { module, props, children, id }),
       (text(), prop::collection::vec(entry_of(expr()), 0..2), prop::collection::vec(inner.clone(), 0..2),
        prop::option::of(text()), prop::option::of(text()), any::<u32>())
-        .prop_map(|(module, props, children, when, mode, id)| Tmpl::Island { module, props, children, when, mode, id }),
+        .prop_map(|(module, props, children, when, mode, id)| Tmpl::Island { module, props, children, when, mode, id, define: false }),
       (text(), prop::option::of(text()), prop::collection::vec(inner, 0..2))
         .prop_map(|(open, tag, children)| Tmpl::Baked { open, tag, children }),
     ]

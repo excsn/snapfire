@@ -47,6 +47,9 @@ function propsFor(root: ParentNode, id: string): Props {
   return decodeValue(JSON.parse(script.textContent)) as Props;
 }
 
+/** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
+export const defineMounter: Mounter = () => undefined;
+
 /** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
 export function serverRendered(el: Element): boolean {
   return Array.from(el.childNodes).some((node) => !(node instanceof Element && node.tagName === "SF-S"));

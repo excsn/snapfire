@@ -4,7 +4,6 @@ import { bindHtmx } from "@snapfire/fsr-client/htmx";
 
 import "./elements/shed-tally.js";
 import "./elements/loan-planner.js";
-import "./elements/time-ago.js";
 
 boot();
 enableNavigation();

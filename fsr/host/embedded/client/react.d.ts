@@ -7,6 +7,8 @@ export interface IslandProps {
 	when?: MountTiming;
 	/** `server`: the island's events round-trip to the server, which re-renders it; no React root is mounted. */
 	mode?: "server";
+	/** The module that defines the custom element inside, imported at the island's timing rather than at load. The child is then an element, its markup written by the server, with nothing mounted over it. Not combinable with `mode`. */
+	define?: string;
 	children?: ReactNode;
 }
 /** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, and the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.

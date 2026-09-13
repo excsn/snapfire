@@ -6,7 +6,7 @@ const shed = { name: "The Shed", strap: "A street's worth of tools", categories:
 const stocked = (session = {}) =>
   ctx({
     session,
-    services: { shed: { getShed: () => shed, listTools: () => [trimmer], listLoans: () => [], getWeather: () => ({ day: "Saturday", summary: "dry" }) } },
+    services: { shed: { getShed: () => shed, listTools: () => [trimmer], listLoans: () => [{ tool: "Gazebo", who: "the Okafors", back: "2026-09-14" }], getWeather: () => ({ day: "Saturday", summary: "dry" }) } },
   });
 
 test("the masthead is kept across a navigation and the page beneath it is replaced", async () => {
@@ -28,9 +28,13 @@ test("the tally is seeded by the layout loader and written into the store", asyn
   assert.ok(seed?.textContent?.includes("shed/reserved"), "the store seed names the key the element follows");
 });
 
-test("nothing on the page mounts: no island, no framework", async () => {
+test("the one island is an element definition; no framework mounts", async () => {
   await load("/tool/1", { ctx: stocked() });
-  assert.equal(document.querySelectorAll("sf-i").length, 0);
+  const markers = Array.from(document.querySelectorAll("sf-i"));
+  assert.equal(markers.length, 1, "the loans list, whose definition is imported when it scrolls into view");
+  assert.equal(markers[0].getAttribute("data-sf-module"), "src/elements/time-ago.ts#default");
+  assert.ok(markers[0].innerHTML.includes("<time-ago"), "the element markup the server wrote sits inside the marker, waiting for its definition");
+  assert.equal(markers[0].querySelector("script[data-sf-props]"), null, "a definition takes no props");
   assert.ok(document.querySelector("loan-planner template[shadowrootmode=open]"), "the planner's shadow root is written by the server");
   assert.ok(document.querySelector("form.reserve input[name=_csrf]"), "the form carries the token");
 });

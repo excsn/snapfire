@@ -159,7 +159,11 @@ pub enum Tmpl {
   /// `when` its hydration timing. `id` is the placement's index among the
   /// enclosing component's hoist candidates, which with the module and the
   /// loop path names the region the browser mounts it in.
-  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] mode: Option<String>, #[serde(default, skip_serializing_if = "is_zero")] id: u32 },
+  /// `define` marks an island whose module is an element definition rather
+  /// than a component: the server renders `children` inside the marker as
+  /// ordinary markup, the browser imports the module at the island's timing
+  /// and the element upgrades itself.
+  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] mode: Option<String>, #[serde(default, skip_serializing_if = "is_zero")] id: u32, #[serde(default, skip_serializing_if = "is_false")] define: bool },
   /// The caller's children where the callee places `{children}`, named
   /// `content`; at a layout's root, the plan child of that name, so a
   /// `<Slot name="modal" />` names a second segment beside the page.
@@ -171,6 +175,10 @@ pub enum Tmpl {
   /// void element, whose `open` already closes itself and which has no
   /// children.
   Baked { open: String, tag: Option<String>, children: Vec<Tmpl> },
+}
+
+fn is_false(b: &bool) -> bool {
+  !*b
 }
 
 fn is_zero(n: &u32) -> bool {

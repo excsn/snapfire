@@ -234,6 +234,7 @@
       (comp src/Card.tsx#Card 0 ())
       (island src/Cart.tsx#Cart 4 "idle" "server" ((open #t)) "fallback")
       (island src/Cart.tsx#Cart 0 nil nil ())
+      (define-island src/elements/time-ago.ts#default 5 "visible" "back Monday")
       (slot content)
       (baked "<p class=\"x\">" "p" "in")
       (baked "<br/>" nil)))

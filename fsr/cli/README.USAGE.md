@@ -36,6 +36,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Serving Locales](#serving-locales)
 * [Prerendering](#prerendering)
 * [Hoisting Render-Path Calls](#hoisting-render-path-calls)
+* [Deferring an Element's Definition](#deferring-an-elements-definition)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Calling the Standard Library](#calling-the-standard-library)
 * [Writing an Extension](#writing-an-extension)
@@ -870,6 +871,30 @@ Only the outermost static subtree is taken, and only one that does something: a 
 hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees
           src/ui/Stars.tsx#Stars             1 value, 1 subtree
 ```
+
+## Deferring an Element's Definition
+
+A custom element has no mount: the browser upgrades it wherever its markup is, the moment `customElements.define` runs. So an element's island timing is about its definition, which is what `<Island define>` schedules:
+
+```tsx
+<Island when="visible" define="@src/elements/time-ago.ts">
+  <ul>
+    {loans.map((loan) => (
+      <li key={loan.tool}>
+        <time-ago datetime={loan.back}>back {loan.back}</time-ago>
+      </li>
+    ))}
+  </ul>
+</Island>
+```
+
+The child is an element rather than a component and the server writes its markup inside the marker, so the page is whole before any script runs. The build registers the module `define` names with `defineMounter`, whose mount does nothing; the plan carries a `define-island` form:
+
+```text
+(define-island src/elements/time-ago.ts#default 5 "visible" ...)
+```
+
+Two rules: `mode` is refused, since nothing is mounted to round-trip; and the module must be a module, so give a definition file an `export` or the dynamic import has nothing to resolve. Without `define` an element's definition runs when the entry module does, which is what a masthead's wants.
 
 ## Placing an Island in Server Mode
 

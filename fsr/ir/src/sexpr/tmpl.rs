@@ -51,7 +51,12 @@ pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx {
       rest.extend(children.iter().map(tmpl_to_sx));
       form("comp", rest)
     }
-    Tmpl::Island { module, props, children, when, mode, id } => {
+    Tmpl::Island { module, props, children, when, mode, id, define } => {
+      if *define {
+        let mut rest = vec![Sx::Sym(module.clone()), Sx::Sym(id.to_string()), opt_sx(when)];
+        rest.extend(children.iter().map(tmpl_to_sx));
+        return form("define-island", rest);
+      }
       let mut rest = vec![
         Sx::Sym(module.clone()),
         Sx::Sym(id.to_string()),
@@ -136,6 +141,19 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
         mode: opt_of(&a[3])?,
         props: a[4].as_list()?.iter().map(entry_from_sx).collect::<Res<_>>()?,
         children: a[5..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        define: false,
+      }
+    }
+    "define-island" => {
+      let a = at_least(items, head, 3)?;
+      Tmpl::Island {
+        module: sym_of(&a[0])?,
+        id: u32_of(&a[1])?,
+        when: opt_of(&a[2])?,
+        mode: None,
+        props: Vec::new(),
+        children: a[3..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        define: true,
       }
     }
     "slot" => Tmpl::Slot(sym_of(&args(items, head, 1)?[0])?),

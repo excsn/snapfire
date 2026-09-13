@@ -12,3 +12,5 @@ class TimeAgo extends HTMLElement {
 }
 
 customElements.define("time-ago", TimeAgo);
+
+export default TimeAgo;

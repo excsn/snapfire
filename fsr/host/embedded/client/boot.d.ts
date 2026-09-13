@@ -16,6 +16,8 @@ export interface IslandEntry {
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
 /** Every island registered so far, by module id. */
 export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
+/** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
+export declare const defineMounter: Mounter;
 /** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
 export declare function serverRendered(el: Element): boolean;
 /** The props an island last took and the regions the last payload described inside it, for an adapter placing its nested islands. Null when nothing is mounted at `el`. */

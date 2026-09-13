@@ -7,6 +7,6 @@ export { nodeToHtml, renderSegment } from "./render.js";
 export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, localePath, navigate, prefetch, refresh } from "./navigator.js";
 export { live } from "./live.js";
 export { socket } from "./socket.js";
-export { applyStyles, boot, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
+export { applyStyles, boot, defineMounter, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
 //# sourceMappingURL=index.js.map

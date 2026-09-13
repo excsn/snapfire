@@ -2,7 +2,7 @@
 
 A street's tool library: eight tools on four shelves, a page per tool, what the visitor has reserved kept in the session and two panels beside them of which one is always down.
 
-What it shows is FSR with no framework in it at all. The pages are TypeScript templates the build lowers and the host renders, the same as every other example. The interactive pieces are custom elements: three `.ts` files under `src/elements/` that the browser upgrades where the server already wrote their markup, one of them inside a shadow root the server wrote too. The regions that talk to the server are htmx: an attribute asks the host for one segment of the route as a fragment and swaps it in; a form posts an action and gets the re-rendered fragment back. Nothing mounts, nothing hydrates and the island registry the build writes is empty.
+What it shows is FSR with no framework in it at all. The pages are TypeScript templates the build lowers and the host renders, the same as every other example. The interactive pieces are custom elements: three `.ts` files under `src/elements/` that the browser upgrades where the server already wrote their markup, one of them inside a shadow root the server wrote too. The regions that talk to the server are htmx: an attribute asks the host for one segment of the route as a fragment and swaps it in; a form posts an action and gets the re-rendered fragment back. Nothing mounts, nothing hydrates; the one entry in the island registry is an element definition the browser imports when its panel scrolls into view.
 
 ## Running it
 
@@ -29,13 +29,13 @@ fsr dev app
 | `routes/slots/weather/` | the same, behind a service that fails |
 | `src/elements/shed-tally.ts` | the masthead count: a disclosure the element wires and a store key it follows |
 | `src/elements/loan-planner.ts` | a range input inside a declarative shadow root, form-associated so the loan length posts with the reservation |
-| `src/elements/time-ago.ts` | a due date rewritten as a distance from today, inside the polled panel |
+| `src/elements/time-ago.ts` | a due date as a distance from today; its definition is imported when the panel is in view, not at load |
 | `src/main.ts` | boots the client, enables navigation and calls `bindHtmx`, which tells htmx and the client about each other |
 | `vendor/htmx/htmx.esm.js` | htmx 2.0.10, committed, since an application carries its vendor tree |
 
 ## A page that mounts nothing
 
-Read `app/generated/islands.ts` after a build. It registers nothing. Every template is marked `static` in the report, since none has state or handlers, so no route module is bundled and no mounter is imported. The bundle is `src/**/*` and the two generated files. The import map has three entries: the client, its store and htmx.
+Read `app/generated/islands.ts` after a build: one `registerIsland`, an element definition with `defineMounter`, no mounter imported from any framework. Every template is marked `static` in the report, since none has state or handlers, so no route module is bundled. The bundle is `src/**/*` and the two generated files. The import map has three entries: the client, its store and htmx.
 
 ## Custom elements
 
@@ -60,7 +60,7 @@ A fragment ends with the same inert seed script a document carries. `bindHtmx(ht
 | Nested layout plus dynamic segment | `routes/layout.tsx` over `routes/tool/layout.tsx` over `/tool/{id}` |
 | Two loaders resolving in parallel | the two independent calls in `routes/page.loader.ts`, plus the two slots beside the page |
 | An action mutating and revalidating | `reserve` guards against the shelves, writes the session and the fragment that comes back is rendered from it |
-| One island on load, one on visible | none: nothing here is an island; the elements are defined when `main.ts` runs and upgrade wherever their markup is |
+| One island on load, one on visible | the masthead's and the planner's definitions run when `main.ts` does; `time-ago` is an `<Island when="visible" define>` in the loans panel, so its module is imported when the panel scrolls into view |
 | A segment whose service call fails | `getWeather` answers `$fail`, the panel falls to `slots/weather/error.tsx` and the page is otherwise whole |
 | A cached segment plus an uncached one | `getShed` and `listTools` carry `x-sf-cache`, `listLoans` and `getWeather` do not |
 | Metadata from loader data | `export const meta` in the tool loader and the reserved loader |
