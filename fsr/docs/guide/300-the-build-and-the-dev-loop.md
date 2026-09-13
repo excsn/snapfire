@@ -27,7 +27,7 @@ A `.vue` file under `src/` is compiled by a plugin, `snapfirec-vue` on `PATH`, w
 
 The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path, the entry script and the component stylesheets to link, so the two tools meet through a file rather than through configuration.
 
-They meet through a second directory too. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr-bundle/` with those calls turned into reads of what the server delivered, and `fsr dev` passes `--overlay .fsr-bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy, and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
+They meet through a second directory too. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr-bundle/` with those calls turned into reads of what the server delivered and `fsr dev` passes `--overlay .fsr-bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
 
 ## A Cargo project runs the build for you
 
@@ -35,7 +35,7 @@ An application with a Rust project puts three lines in `build.rs`: build, write,
 
 ## `fsr dev`
 
-`fsr dev <app>` is those steps in a loop. It generates, bundles, builds the Cargo project beside the app and runs it, or runs the stock host when there is no such project, then watches. What it does on a change depends on what changed:
+`fsr dev <app>` is those steps in a loop. It generates, bundles, builds the Cargo project beside the app and runs it or runs the stock host when there is no such project, then watches. What it does on a change depends on what changed:
 
 | Changed | It does |
 | --- | --- |
@@ -46,9 +46,9 @@ An application with a Rust project puts three lines in `build.rs`: build, write,
 | `config/` beside an app with no Cargo project | reloads the stock host in place, restarts when refused |
 | a test | nothing; `fsr test` is its own command |
 
-The browser follows along. A served document in development carries a script listening on the host's `/__fsr/events`; the loop tells the host after a rebundle and the host tells every open document. A stylesheet edit re-links the stylesheets and refreshes the route's payload in place, so the layout keeps its state; an edited module reloads the page, since the one it hydrated with is stale; a restart drops the stream and the reconnect does the same check. `server.dev = false` turns it off, and `prerender` never writes the script.
+The browser follows along. A served document in development carries a script listening on the host's `/__fsr/events`; the loop tells the host after a rebundle and the host tells every open document. A stylesheet edit re-links the stylesheets and refreshes the route's payload in place, so the layout keeps its state; an edited module reloads the page, since the one it hydrated with is stale; a restart drops the stream and the reconnect does the same check. `server.dev = false` turns it off and `prerender` never writes the script.
 
-The reload rule is the one worth knowing: when the generated files actually differ the loop asks the running server to reload its tables in place, `POST /__fsr/reload`, and restarts only when the reload is refused, a changed `[session]` for one, or when the Rust project changed. Editing a page never restarts, because the bundle's output names are stable and the host reads it from disk; a reload keeps every session, which chapter 204 explains. A step that fails leaves the running server up and waits, so a typo never takes the page down. Stopping the loop stops the server with it.
+The reload rule is the one worth knowing: when the generated files actually differ the loop asks the running server to reload its tables in place (`POST /__fsr/reload`) and restarts only when the reload is refused (a changed `[session]`, for one) or when the Rust project changed. Editing a page never restarts, because the bundle's output names are stable and the host reads it from disk; a reload keeps every session, which chapter 204 explains. A step that fails leaves the running server up and waits, so a typo never takes the page down. Stopping the loop stops the server with it.
 
 Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for production, the way `cargo run` is for a project that has one; it refuses a configuration whose `[app] dir` names a different directory.
 
@@ -58,6 +58,6 @@ A route whose loader reads no parameter, no query, no session, no identity and n
 
 ## The lab
 
-Run `fsr dev app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again, since the plan changed, then a restart, and the page reloads with the new text. Now edit `routes/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
+Run `fsr dev app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again, since the plan changed, then a restart, then the page reloads with the new text. Now edit `routes/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again, since the plan changed, then a restart. Put it back.
 
 Then break something: add `try {` without a closing brace to the loader. The loop prints the parse error with its line and waits; the previous server keeps serving. Fix it and the loop picks up where it left off.

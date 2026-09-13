@@ -79,7 +79,7 @@ That patching is what a keyed placement is for. `key=` on a Tera `island(...)` w
 
 ## One push, both frameworks
 
-The desk's clock moves every four seconds, publishes `prices`, and `live(["prices"])` in the entry module revalidates the route. Nobody clicked: the masthead and the table take the new price together, each patched in place.
+The desk's clock moves every four seconds and publishes `prices`. `live(["prices"])` in the entry module revalidates the route. Nobody clicked: the masthead and the table take the new price together, each patched in place.
 
 ## What a fragment costs
 

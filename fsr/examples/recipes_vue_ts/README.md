@@ -35,11 +35,11 @@ fsr dev app
 
 ## A page that mounts nothing
 
-Read `app/generated/islands.ts` after a build. It registers three modules, all of them `.vue`, all with the Vue mounter, and imports nothing else. No route module is in it.
+Read `app/generated/islands.ts` after a build. It registers three modules, all of them `.vue`, all with the Vue mounter. It imports nothing else. No route module is in it.
 
 That is the build reading each template: a page or layout with no state and no handlers has nothing for the browser to change, so it is marked `static` in the report, left out of the registry and left out of the bundle. The server renders its markup and the client's navigator swaps it as markup. The islands inside it are mounted by the document's own scan, so a Vue island sits under a static layout the way it would under a React one.
 
-The page a Vue island is placed on has nothing of the island in it. The server has no body for a `.vue` component, so it writes the island's marker and its props and nothing between them, and Vue mounts rather than hydrates. Look at `/recipe/3` before the scripts run: the plan button is not there yet.
+The page a Vue island is placed on has nothing of the island in it. The server has no body for a `.vue` component, so it writes the island's marker and its props and nothing between them and Vue mounts rather than hydrates. Look at `/recipe/3` before the scripts run: the plan button is not there yet.
 
 ## The scoped styles
 

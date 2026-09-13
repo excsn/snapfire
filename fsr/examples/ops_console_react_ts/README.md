@@ -39,15 +39,15 @@ fsr dev app
 
 Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091 and the identity service on 8092. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`, which the identity service reads and the host never opens: every sign-in is a call to `authenticate` and every session is a record the service holds, so the host keeps neither in memory.
 
-To run it with no backend at all, `APP_ENV=mock fsr serve app` picks up `config/mock.toml`, which names the fleet client's transport as `mock`, and the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
+To run it with no backend at all, `APP_ENV=mock fsr serve app` picks up `config/mock.toml`. That file names the fleet client's transport as `mock`, so the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
 
 ## Try it
 
-Open the summary, then `Agents`. Click a name: its page renders under the list, and the list stays as it is. Click `peek` instead: the same route renders into the panel beside the list, and the URL changes just the same. Pick a region first and either one keeps it.
+Open the summary, then `Agents`. Click a name: its page renders under the list and the list stays as it is. Click `peek` instead: the same route renders into the panel beside the list and the URL changes just the same. Pick a region first and either one keeps it.
 
-Open the gear: the settings route renders into a drawer over the console. Switch the rows to compact and the list behind the drawer changes before the server has answered; reload, and it is still compact, because the setting lives in the session and the root layout seeds it back into the store. `watch` an agent from the list and the header's count moves the same way, then the settings drawer lists it.
+Open the gear: the settings route renders into a drawer over the console. Switch the rows to compact and the list behind the drawer changes before the server has answered; reload and it is still compact, because the setting lives in the session and the root layout seeds it back into the store. `watch` an agent from the list and the header's count moves the same way, then the settings drawer lists it.
 
-Acknowledge an alert in the right column: the count in the header and the headline beside it move at once, and the revalidation that follows agrees. From the agent list, `open` on an alert peeks at that agent; from the summary, where the agents layout is not on the page, the same link navigates.
+Acknowledge an alert in the right column: the count in the header and the headline beside it move at once and the revalidation that follows agrees. From the agent list, `open` on an alert peeks at that agent; from the summary, where the agents layout is not on the page, the same link navigates.
 
 ## Tests
 

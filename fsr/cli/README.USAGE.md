@@ -160,7 +160,7 @@ A body test imports it beside `load` and runs it over data, usually the data the
 
 ### Seeding the Store
 
-A loader module may also export `store`, the same shape, returning the store keys this route seeds. The build lowers it beside `load`, the host runs it after the data arrives, and the keys reach the browser in the document, in a navigation's payload and with a streamed segment when it resolves. Components render on the server from the same values, so a seeded key hydrates without a flash.
+A loader module may also export `store`, the same shape, returning the store keys this route seeds. The build lowers it beside `load`, the host runs it after the data arrives and the keys reach the browser in the document, in a navigation's payload and with a streamed segment when it resolves. Components render on the server from the same values, so a seeded key hydrates without a flash.
 
 ```ts
 export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/count": Number(data.cartCount) });
@@ -168,7 +168,7 @@ export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/cou
 
 A body test runs it the way it runs `meta`: `const seeded = store({ data })`, then an assertion on the key.
 
-Every segment on the route may export one, merged outermost first, so a page wins a key its layout also sets. The keys are literal strings here, since a `store` body runs before any component and follows no imports. `useStore` in a component is how the browser reads and writes them, and the client package's guide has the rest.
+Every segment on the route may export one, merged outermost first, so a page wins a key its layout also sets. The keys are literal strings here, since a `store` body runs before any component and follows no imports. `useStore` in a component is how the browser reads and writes them and the client package's guide has the rest.
 
 ## Writing a Layout
 
@@ -196,7 +196,7 @@ export async function load({ session }: Ctx) {
 
 Layouts nest: `routes/account/layout.tsx` sits inside `routes/layout.tsx` for every page under `account/`. A layout's loader takes the plain `Ctx`, since it serves many patterns. The page inside a layout cannot read the layout's data and the layout cannot read the page's; they share the session, the actions and the store the layout's `store` export seeds.
 
-A layout serving many patterns has no parameters of its own, so what it knows about where the reader is, is `ctx.path`: the path the request matched, the query left off and the locale prefix left on. It is what a navigation pane builds its links from, since `${path}?view=active` is this page under another view, and what a list marks its current row with:
+A layout serving many patterns has no parameters of its own, so what it knows about where the reader is, is `ctx.path`: the path the request matched, the query left off and the locale prefix left on. It is what a navigation pane builds its links from, since `${path}?view=active` is this page under another view and what a list marks its current row with:
 
 ```ts
 export async function load({ query, path }: Ctx) {
@@ -231,11 +231,11 @@ export async function load({ services }: Ctx) {
 }
 ```
 
-Its props type is `LayoutPromoProps`, its source id `layout.promo`, and it is keyed, cached and kept across navigation like any segment. `<Slot name="modal" />` declares a region nothing fills on a document load, and children on it are the fallback the region shows until something does.
+Its props type is `LayoutPromoProps` and its source id is `layout.promo`. It is keyed, cached and kept across navigation like any segment. `<Slot name="modal" />` declares a region nothing fills on a document load and children on it are the fallback the region shows until something does.
 
-The two forms are not interchangeable. A prop is a slot only because `slots/<name>/` exists beside the layout, and that directory puts a page on every plan under the layout, an intercept included, so the prop is always filled and `{promo ?? <p>…</p>}` never reaches its right-hand side. Write the prop form as placement, `{promo}`, and reach for `<Slot name>` with children when a region really can be empty, which is the intercept-only slot a `page.<slot>.tsx` fills on a navigation.
+The two forms are not interchangeable. A prop is a slot only because `slots/<name>/` exists beside the layout and that directory puts a page on every plan under the layout, an intercept included, so the prop is always filled and `{promo ?? <p>…</p>}` never reaches its right-hand side. Write the prop form as placement (`{promo}`) and reach for `<Slot name>` with children when a region really can be empty, which is the intercept-only slot a `page.<slot>.tsx` fills on a navigation.
 
-`page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one, and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr-client/react` or the `data-sf-full` and `data-sf-into` attributes on any anchor.
+`page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr-client/react` or the `data-sf-full` and `data-sf-into` attributes on any anchor.
 
 The report lists slots by source id and intercepts as `<pattern> into <slot>`. A route may carry one variant per slot. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
 
@@ -257,7 +257,7 @@ export const addToCart = action<AddToCart>(async ({ input, session }) => {
 
 The input type must be declared under `schemas/`; the host checks a submitted value against it before the body runs.
 
-A plain form can post an action too: `<form method="post" action="/_sf/action/cart.addToCart">` with a hidden `_csrf` input holding the `csrf_token` prop a page or layout receives. The host verifies the token, hands the fields to the action as strings and answers 303 back to the page that posted. The token exists once the session is signed in, or for every session with `csrf = "always"` under `[session]`, which a form anonymous visitors post needs.
+A plain form can post an action too: `<form method="post" action="/_sf/action/cart.addToCart">` with a hidden `_csrf` input holding the `csrf_token` prop a page or layout receives. The host verifies the token, hands the fields to the action as strings and answers 303 back to the page that posted. The token exists once the session is signed in or for every session with `csrf = "always"` under `[session]`, which a form anonymous visitors post needs.
 
 ## Writing a Route Handler
 
@@ -299,7 +299,7 @@ export async function middleware({ request, identity }: MiddlewareCtx): Promise<
 
 ## Signing In
 
-The host owns the flow and the application owns the page. `[auth]` in `config/app.toml` names the provider and the login route; `config/auth.toml` holds the `file` provider's accounts, and `bearer` on a client says its calls carry the token the callback stored.
+The host owns the flow and the application owns the page. `[auth]` in `config/app.toml` names the provider and the login route; `config/auth.toml` holds the `file` provider's accounts and `bearer` on a client says its calls carry the token the callback stored.
 
 ```toml
 [auth]
@@ -318,7 +318,7 @@ password = "wonder"
 claims = { role = "admin" }
 ```
 
-`routes/login/page.tsx` is an ordinary route whose form posts to `/auth/callback`. The host sends the browser there from `/auth/login`, with `return_to` in the query, and back to it with `error=denied` when the provider refuses, which its loader reads from `query`:
+`routes/login/page.tsx` is an ordinary route whose form posts to `/auth/callback`. The host sends the browser there from `/auth/login`, with `return_to` in the query, then back to it with `error=denied` when the provider refuses, which its loader reads from `query`:
 
 ```ts
 export async function load({ query }: Ctx) {
@@ -339,7 +339,7 @@ export default function LoginPage({ denied }: LoginProps) {
 }
 ```
 
-A signed-in session reaches every body as `identity`, read by field, and reaches a page or layout as two props the host injects, `identity` and `csrf_token`. A sign-out is a form posting the token to `/auth/logout`, and the sign-in link is a plain anchor with `data-sf-native`, since `/auth/login` answers with a redirect rather than a payload:
+A signed-in session reaches every body as `identity`, read by field. It reaches a page or layout as two props the host injects, `identity` and `csrf_token`. A sign-out is a form posting the token to `/auth/logout` and the sign-in link is a plain anchor with `data-sf-native`, since `/auth/login` answers with a redirect rather than a payload:
 
 ```tsx
 export default function Layout({ children, identity, csrf_token }: { children: ReactNode; identity?: Identity; csrf_token?: string }) {
@@ -368,7 +368,7 @@ A private route is a line of middleware, with the literal `return_to` you want:
 if (request.path === "/account" && !identity?.subject) return { redirect: "/auth/login?return_to=/account" };
 ```
 
-`provider = "service"` with `client = "<name>"` asks that client's `authenticate` instead of a file, and `[session] store = "service"` with a `client` keeps the sessions behind one too, so the host holds neither accounts nor sessions; the console's identity service is the example, and `APP_ENV=mock` puts it behind a file like any other client. A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner also serves the three `/auth/` routes against the spec's session, so the flow itself is a spec, see [Running the Specs](#running-the-specs).
+`provider = "service"` with `client = "<name>"` asks that client's `authenticate` instead of a file and `[session] store = "service"` with a `client` keeps the sessions behind one too, so the host holds neither accounts nor sessions; the console's identity service is the example and `APP_ENV=mock` puts it behind a file like any other client. A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner also serves the three `/auth/` routes against the spec's session, so the flow itself is a spec, see [Running the Specs](#running-the-specs).
 
 ## Importing a Service
 
@@ -378,7 +378,7 @@ Put the document under `clients/` named after the service. Every operation becom
 app/clients/shopping.openapi.json      services.shopping.listProducts, getProduct, placeOrder
 ```
 
-An operation may say how long its answer holds with `x-sf-cache`, and a mutating one which tags it drops with `x-sf-writes`; with `[cache.data]` in `config/app.toml` the host answers the method from memory and the report lists it under `cached`. `scope` is `private` unless the operation says `shared` or `subject`, so a signed-in user's call is never served someone else's answer by default.
+An operation may say how long its answer holds with `x-sf-cache` and a mutating one which tags it drops with `x-sf-writes`; with `[cache.data]` in `config/app.toml` the host answers the method from memory and the report lists it under `cached`. `scope` is `private` unless the operation says `shared` or `subject`, so a signed-in user's call is never served someone else's answer by default.
 
 ```json
 "get": { "operationId": "listProducts", "x-sf-cache": { "ttl": "30s", "tags": ["catalog"], "scope": "shared", "stale": "2m" } }
@@ -649,7 +649,7 @@ fsr check app
 
 ## Typechecking
 
-`build`, `check` and `dev` run `snapfiretc` over the `tsconfig.json` the build writes, which is the one carrying `strict`, the aliases and the specs. It runs beside snapfirec rather than after it, since neither reads the other's output, and it is the only thing in the toolchain that reads a type for meaning: snapfirec strips them.
+`build`, `check` and `dev` run `snapfiretc` over the `tsconfig.json` the build writes, which is the one carrying `strict`, the aliases and the specs. It runs beside snapfirec rather than after it, since neither reads the other's output and it is the only thing in the toolchain that reads a type for meaning: snapfirec strips them.
 
 ```sh
 fsr build app
@@ -680,7 +680,7 @@ fsr check app --tsc-version 7.0.2
 fsr build app --no-typecheck
 ```
 
-The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`. When there is none, the build says so and carries on rather than failing, so an application that never asked for a typecheck still builds. It is `cargo install snapfire_typecheck` away, and [its guide](../../typecheck/README.USAGE.md) covers the cache, the version ladder and what it does with the network.
+The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`. When there is none, the build says so and carries on rather than failing, so an application that never asked for a typecheck still builds. It is `cargo install snapfire_typecheck` away and [its guide](../../typecheck/README.USAGE.md) covers the cache, the version ladder and what it does with the network.
 
 ## Running the Specs
 
@@ -706,7 +706,7 @@ test("the entry module's derive is registered", () => {
 });
 ```
 
-A `fetch` inside a spec is answered by the runner: `/_sf/action/<id>` runs the lowered action under the spec's `ctx`, a path matching a lowered handler runs it with the matched params and the body checked against its input type, and anything else renders the route through the stock host when a configuration is beside the app. `load(path, { ctx })` is that fetch plus the document it produces.
+A `fetch` inside a spec is answered by the runner: `/_sf/action/<id>` runs the lowered action under the spec's `ctx`, a path matching a lowered handler runs it with the matched params and the body checked against its input type and anything else renders the route through the stock host when a configuration is beside the app. `load(path, { ctx })` is that fetch plus the document it produces.
 
 An action takes a form the way the host takes one. With `content-type: application/x-www-form-urlencoded` the body is fields rather than JSON, read against the action's declared input type since a form carries text and nothing else; a success is the `303` back to the `Referer`'s path carrying whatever `__fragment` the action's own query asked for:
 
@@ -744,7 +744,7 @@ at = "/billing"
 shell = "../portal/app/generated/shell.json"
 ```
 
-Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as written, `services.ledger` keeps its name, `actions.invoice.pay` keeps its nesting. What changes is the plan file and the browser bundle, where a module is `billing:routes/page.tsx#default` and an action `billing:invoice.pay`, together with the paths, which are literal: a site's links are written with the prefix, `/billing/invoice/1`, and its middleware compares against it. A body test mocks `ledger`, not `billing:ledger`; the runner strips the prefix.
+Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as written, `services.ledger` keeps its name, `actions.invoice.pay` keeps its nesting. What changes is the plan file and the browser bundle, where a module is `billing:routes/page.tsx#default` and an action `billing:invoice.pay`, together with the paths, which are literal: a site's links are written with the prefix (`/billing/invoice/1`) and its middleware compares against it. A body test mocks `ledger`, not `billing:ledger`; the runner strips the prefix.
 
 `fsr dev` serves a site's bundle under `<at>/static/js/app`, so bundle a site by hand with that public path:
 
@@ -752,7 +752,7 @@ Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as
 snapfirec --root app --config tsconfig.build.json --source-map --public-path /billing/static/js/app --import-map importmap.json
 ```
 
-With `shell` set, the build reads the shell contract and writes `generated/shell.d.ts`: `ShellStore`, the keys the shell's loaders seed with their types, and `ShellImport`, the specifiers the shell's import map serves. The report's `shell` row counts both and names any import the site maps differently, since the shell's mapping serves at mount.
+With `shell` set, the build reads the shell contract and writes `generated/shell.d.ts`: `ShellStore`, the keys the shell's loaders seed with their types and `ShellImport`, the specifiers the shell's import map serves. The report's `shell` row counts both and names any import the site maps differently, since the shell's mapping serves at mount.
 
 ```ts
 import { key } from "@snapfire/fsr-client/store";
@@ -763,7 +763,7 @@ export const who = key<ShellStore["portal/who"]>("portal/who");
 
 ## Building a Shell
 
-An application without `[site]` is a shell as far as the build is concerned: it writes `generated/shell.json`, the contract a site is built against, with every store key its loaders' `store` exports seed, typed as the browser reads them, the import map it serves and the fsr version that wrote it. A shell that is not built by `fsr`, or a team that wants a narrower promise than the build would state, writes the same document by hand.
+An application without `[site]` is a shell as far as the build is concerned: it writes `generated/shell.json`, the contract a site is built against, with every store key its loaders' `store` exports seed, typed as the browser reads them, the import map it serves and the fsr version that wrote it. A shell that is not built by `fsr` or a team that wants a narrower promise than the build would state, writes the same document by hand.
 
 ```json
 {
@@ -774,7 +774,7 @@ An application without `[site]` is a shell as far as the build is concerned: it 
 }
 ```
 
-Mounting is the host's: a `[sites]` table in the shell's configuration names each site's artifact, and `fsr serve` mounts them through `snapfire_fsr_sites`, rereading the table on `SIGHUP` or the configured poll. The host guide's "Mounting Sites" chapter says what a mount does.
+Mounting is the host's: a `[sites]` table in the shell's configuration names each site's artifact and `fsr serve` mounts them through `snapfire_fsr_sites`, rereading the table on `SIGHUP` or the configured poll. The host guide's "Mounting Sites" chapter says what a mount does.
 
 A mount may pin the artifact's content hash, so a pinned mount refuses bytes the table did not mean.
 
@@ -782,7 +782,7 @@ Once a shell is running somewhere, `fsr sites list <shell> --host <url>` puts th
 
 ## Serving Without a Rust Project
 
-`serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app, or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.
+`serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.
 
 `dev` builds every site the shell's `[sites]` table mounts from a path as well as the shell, each through its own compiler held open for the session, so a change under a site recompiles that file in that site and reloads the host. A change elsewhere in the project, a build script's markdown for one, runs `cargo build` and restarts the binary it produced. Every rebuild prints the paths that caused it as `dev: changed ...`; a file rewritten with the bytes it already held is not a change, whoever wrote it. Three rebuilds in a row caused by nothing but the loop's own writes stop it until an edit arrives, naming the path, rather than letting a build that keeps producing different output spin.
 
@@ -808,7 +808,7 @@ transport = "mock"
 
 ## Serving Locales
 
-A `[locales]` section in `config/app.toml` names the locales, spelled as the application wants to read them, and the default, which serves unprefixed. Every other locale serves under its tag: `/fr_FR/about` is `/about` in French, the prefix matched in any case or separator and stripped before the route matches. A request without a prefix follows the cookie, then `Accept-Language`, then the default; `remember = true` writes the cookie when a prefix chose the locale, so an unprefixed link from a French page stays French. The default may be prefixed too, `/en_US/about`, which renders `/about` with a canonical link pointing at it.
+A `[locales]` section in `config/app.toml` names the locales, spelled as the application wants to read them and the default, which serves unprefixed. Every other locale serves under its tag: `/fr_FR/about` is `/about` in French, the prefix matched in any case or separator and stripped before the route matches. A request without a prefix follows the cookie, then `Accept-Language`, then the default; `remember = true` writes the cookie when a prefix chose the locale, so an unprefixed link from a French page stays French. The default may be prefixed too, `/en_US/about`, which renders `/about` with a canonical link pointing at it.
 
 ```toml
 [locales]
@@ -843,7 +843,7 @@ fsr prerender app
 fsr prerender app --out build/static
 ```
 
-A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route, and so does a page or layout on it reading its `csrf_token` prop. Reading `identity`, in a loader or as a page's prop, or calling a client whose `bearer` is set, keeps the route qualified for anonymous visitors: the report says `for anonymous visitors`, the file serves everyone with no identity and a signed-in visitor is rendered live. An editor previewing unpublished content is that: signed in, with the loader's call carrying their token.
+A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route and so does a page or layout on it reading its `csrf_token` prop. Reading `identity` in a loader or as a page's prop keeps the route qualified for anonymous visitors. So does calling a client whose `bearer` is set. The report says `for anonymous visitors`, the file serves everyone with no identity and a signed-in visitor is rendered live. An editor previewing unpublished content is that: signed in, with the loader's call carrying their token.
 
 The same pass also warms loads, which is what an application with no qualifying route gets out of it. One layout reading the session makes every route under it dynamic however fixed the pages are, so the command applies the test per loader as well: a loader reading nothing of the request is run once per locale and written to `loads.json` beside the documents, whatever its route does. The report lists those under `warm`, the host reads the file at boot and a request that reaches such a loader takes its data instead of calling the backend. Reading `path` disqualifies a loader here though not a route, since a layout's loader answers every route beneath it; reading `identity` warms the anonymous case alone. A request never adds to the file, so rerunning the command is what refreshes it.
 
@@ -858,9 +858,9 @@ export function ProductCard({ product }: { product: Product }) { const __sfh = _
   <span className="price">{__sfh.r(3, () => (money(product.price_cents)))}</span>
 ```
 
-That copy lives in `.fsr-bundle/` and snapfirec reads it in place of the source at the same path; the source itself, the editor and `fsr check` never see it. A read that finds no value, because the server did not evaluate that branch or the value changed with browser state, calls the original. Inputs are props only when nothing in the call reaches a `useState`, `useStore` or `useRef` binding, a value computed from one, or a store key; a call inside a lambda or under another hoisted call stays as written.
+That copy lives in `.fsr-bundle/` and snapfirec reads it in place of the source at the same path; the source itself, the editor and `fsr check` never see it. A read that finds no value, because the server did not evaluate that branch or the value changed with browser state, calls the original. Inputs are props only when nothing in the call reaches one of three things: a `useState`, `useStore` or `useRef` binding; a value computed from one; a store key. a call inside a lambda or under another hoisted call stays as written.
 
-A whole subtree goes the same way when everything in it is props only, no element in it carries a handler, a `ref` or a spread, it holds no island and no slot, and every component it renders is pure, with no state and nothing bound. The server records the element's inner markup and the browser hands it to React as the element's inner HTML, so React neither renders nor hydrates anything inside it:
+A whole subtree goes the same way when everything in it is props only; no element in it carries a handler, a `ref` or a spread; it holds no island and no slot; and every component it renders is pure, with no state and nothing bound. The server records the element's inner markup and the browser hands it to React as the element's inner HTML, so React neither renders nor hydrates anything inside it:
 
 ```tsx
 {__sfh.c(2, (__sfHtml) => <ul className="list" dangerouslySetInnerHTML={__sfHtml} />, () => (<ul className="list">
@@ -868,7 +868,7 @@ A whole subtree goes the same way when everything in it is props only, no elemen
 </ul>))}
 ```
 
-Only the outermost static subtree is taken, and only one that does something: a run of literal markup is left to React, which costs nothing for it. A miss renders the original JSX, which is also what a remount does when the table has no entry. The report says what was hoisted:
+Only the outermost static subtree is taken and only one that does something: a run of literal markup is left to React, which costs nothing for it. A miss renders the original JSX, which is also what a remount does when the table has no entry. The report says what was hoisted:
 
 ```
 hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees
@@ -901,7 +901,7 @@ Two rules: `mode` is refused, since nothing is mounted to round-trip; and the mo
 
 ## Placing an Island in Server Mode
 
-An island can run with no JavaScript half at all: its events round-trip to the server, Rust runs the handler and renders the component again, and the browser patches the markup in place. The component is written as React; the placement chooses the mode:
+An island can run with no JavaScript half at all: its events round-trip to the server, Rust runs the handler and renders the component again and the browser patches the markup in place. The component is written as React; the placement chooses the mode:
 
 ```tsx
 <Island when="visible" mode="server">
@@ -919,7 +919,7 @@ islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 
 ## Calling the Standard Library
 
-`@snapfire/fsr-client/std` is one import that works in a component, a loader, an action, a handler and middleware, and answers the same on the server and in the browser under the document's locale:
+`@snapfire/fsr-client/std` is one import that works in a component, a loader, an action, a handler and middleware. It answers the same on the server and in the browser under the document's locale:
 
 ```tsx
 import { intl, text, time } from "@snapfire/fsr-client/std";
@@ -938,7 +938,7 @@ export async function load({ params, services }: Ctx<"/order/{id}">) {
 }
 ```
 
-`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` may sit anywhere. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random` and `id.new` are the server's: a loader, an action, middleware or an event handler may call them, and a component's render path may not, which is a build error naming the line rather than a client row, since the browser would run that component too:
+`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` may sit anywhere. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random` and `id.new` are the server's: a loader, an action, middleware or an event handler may call them and a component's render path may not, which is a build error naming the line rather than a client row, since the browser would run that component too:
 
 ```
 routes/page.tsx:3:14: `id.new` on a render path; it runs on the server only, and a component's render path runs in the browser too
@@ -954,11 +954,11 @@ export default function Help({ watching }: { watching: number }) {
 }
 ```
 
-The build lowers each call to the plan and Rust answers it from ICU4X, or from the catalog for `t`; the bundle's copy calls `Intl`, or reads the table the document carried. A call whose inputs are props only is hoisted like a helper call, so the browser reads the server's value and calls nothing.
+The build lowers each call to the plan and Rust answers it from ICU4X or from the catalog for `t`; the bundle's copy calls `Intl` or reads the table the document carried. A call whose inputs are props only is hoisted like a helper call, so the browser reads the server's value and calls nothing.
 
 ## Writing an Extension
 
-`ext/` beside `routes/` holds the application's own extensions, reached as `@ext/<name>` from anywhere under the app. A module there is written in the same subset as any helper, and every export must lower: a helper the server cannot run is not an extension, so a `new Date()` in one stops the build naming the line instead of dropping a page to the browser.
+`ext/` beside `routes/` holds the application's own extensions, reached as `@ext/<name>` from anywhere under the app. A module there is written in the same subset as any helper and every export must lower: a helper the server cannot run is not an extension, so a `new Date()` in one stops the build naming the line instead of dropping a page to the browser.
 
 ```ts
 // ext/labels.ts
@@ -969,7 +969,7 @@ export function count(n: number, noun: string): string {
 }
 ```
 
-A native pair is a function with a Rust half. Its browser half is declared in an `ext/` module with `native`, and the host registers the Rust half under the same name:
+A native pair is a function with a Rust half. Its browser half is declared in an `ext/` module with `native` and the host registers the Rust half under the same name:
 
 ```ts
 // ext/fleet.ts
@@ -1066,7 +1066,7 @@ Under `fsr dev` the loop has already generated and bundled every application bef
 
 A build script never declares a directory it writes into. `types/` is left out of the list above because `emit` refreshes the declarations `fsr` carries there; a script that rewrites one of its own inputs is stale the moment it finishes, so cargo runs it on every build and a watcher of those inputs rebuilds on every run.
 
-`emit` is generation and then the bundle. `build` and `write` are the generation alone, and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract, and for `emit` otherwise.
+`emit` is generation and then the bundle. `build` and `write` are the generation alone and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract and for `emit` otherwise.
 
 `src` belongs in the watched list whenever a component outside `routes/` is placed with `<Island>`, since a change there has to reach `dist/`. `emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else, as the examples in this repository do.
 

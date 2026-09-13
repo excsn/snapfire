@@ -158,7 +158,7 @@ A plan node naming an id that was never inserted is `AssembleError::MissingDataS
 
 * `fn key(&self, source: &DataSourceId, ctx: &RequestCtx) -> Option<String>`: `None` means never memoize.
 
-The key must name everything the source reads. A source keyed without something it reads serves one request's data to another, so a keyer widens to `None` rather than guessing. `snapfire_fsr`'s keyer answers a key only for a lowered source whose body reads nothing of the request beyond the identity, and only the anonymous case for one that reads the identity.
+The key must name everything the source reads. A source keyed without something it reads serves one request's data to another, so a keyer widens to `None` rather than guessing. `snapfire_fsr`'s keyer answers a key only for a lowered source whose body reads nothing of the request beyond the identity and only the anonymous case for one that reads the identity.
 
 ### `NoLoadKey`
 
@@ -248,7 +248,7 @@ pub async fn assemble(
 ) -> Result<Assembly, AssembleError>
 ```
 
-`head` is a [`Head`](#head) or anything that converts to one: a `Node` or `&Node` becomes a head with an empty title, and `&Head` is cloned.
+`head` is a [`Head`](#head) or anything that converts to one: a `Node` or `&Node` becomes a head with an empty title and `&Head` is cloned.
 
 Turns a plan plus a request into a payload. The order is fixed: every eager data source resolves to completion, then evaluation begins.
 
@@ -256,7 +256,7 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 * **Load outcomes.** A missing registration aborts with `AssembleError::MissingDataSource`. A `LoadError` is recorded against its node id; the wave continues.
 * **Failure degradation.** A node with a recorded failure renders its `error` module or the built-in error node when it has none. Its children are not built.
 * **Metadata.** After the eager wave, the innermost node whose data source has a `Metadata` registered and whose data loaded, deferred children excluded, describes the document: its `describe` runs once with that node's data. A failure there is logged on target `fsr::load` and leaves the defaults. The result, defaults filled in from `head`, is `Assembly::meta`; a deferred subtree does the same for itself when it resolves and carries it in `Resolved::meta`.
-* **Head.** `Chunk::Slot(SlotName("head"))` substitutes `head.node(&meta)`, the head's `rest` followed by the title and description, and marks the subtree head-using, which propagates to ancestors through non-deferred children.
+* **Head.** `Chunk::Slot(SlotName("head"))` substitutes `head.node(&meta)`, the head's `rest` followed by the title and description and marks the subtree head-using, which propagates to ancestors through non-deferred children.
 * **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
 * **Slots inside an island.** A `Chunk::Node` holding a `Node::Slot` anywhere under it has each slot answered the way a `Chunk::Slot` is, in place, the child segment's path counting into the island's `children`; this is how a layout's page sits inside the layout's own markup.
 * **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props alone or `Node::raw("")` when it has none. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`.
@@ -369,7 +369,7 @@ What a hit restores. `Debug + Clone + PartialEq`.
 
 * `fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>`: `key` is the composed key from [`assemble`](#assemble).
 * `fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()>`
-* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities, and return how many it removed.
+* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities and return how many it removed.
 
 ### `NoCache`
 
@@ -465,7 +465,7 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub services: ServiceHandle`
 * `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
-* `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's, and under a context nothing resolved.
+* `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's. Empty too under a context nothing resolved.
 * `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` and `path` are empty.
 * `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.

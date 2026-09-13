@@ -325,7 +325,7 @@ Serialises a segment's subtree wrapped in `<!--sf-g:key-->` and `<!--/sf-g-->`, 
 * `regionSources(node: SfNode, ids: { next: number }): Map<string, RegionSource>`
 * `interface RegionSource { props: { [key: string]: SfValue }; html: string; nested: Map<string, RegionSource> }`
 
-What a payload says about the island regions inside `node`, keyed by the `$k` each client node carries, which is the string the server wrote as `data-sf-region`. A client node is descended into rather than collected, since an island's regions live in its own body, and each entry carries the regions inside itself under `nested`. `html` is that island's own markup from `nodeToHtml`, for a region that does not exist in the DOM yet.
+What a payload says about the island regions inside `node`, keyed by the `$k` each client node carries, which is the string the server wrote as `data-sf-region`. A client node is descended into rather than collected, since an island's regions live in its own body and each entry carries the regions inside itself under `nested`. `html` is that island's own markup from `nodeToHtml`, for a region that does not exist in the DOM yet.
 
 The navigator builds this from the segment's node and hands it to `patchIsland`, which is how the islands nested under a patched one are reached.
 
@@ -377,7 +377,7 @@ Mounts every unscheduled island marker under `root`. Selects `sf-i:not([data-sf-
 
 Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root` first and then across the document. A missing or empty script yields `{}`.
 
-A marker whose module id no registry knows is left as rendered and remembered, not reported. Every id still unregistered is warned about once the document settles: on `DOMContentLoaded`, after which every deferred module script has run, or on a microtask when the state is already `complete`, and never while an entry named by `loadEntry` is still loading. A mounted site's islands are missing on every scan that precedes its entry, so a first miss is the healthy path rather than a defect.
+A marker whose module id no registry knows is left as rendered and remembered, not reported. Every id still unregistered is warned about once the document settles: on `DOMContentLoaded`, after which every deferred module script has run or on a microtask when the state is already `complete` and never while an entry named by `loadEntry` is still loading. A mounted site's islands are missing on every scan that precedes its entry, so a first miss is the healthy path rather than a defect.
 
 ### loadEntry
 
@@ -405,7 +405,7 @@ Re-renders the island mounted at `el` with `props`, in place, through the entry'
 
 * `function islandState(el: Element): { props: Props; regions: unknown } | null`
 
-The props the island at `el` last mounted or patched with, and the regions the last patch carried. Null when nothing is mounted there.
+The props the island at `el` last mounted or patched with and the regions the last patch carried. Null when nothing is mounted there.
 
 * `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
 
@@ -440,7 +440,7 @@ What the server writes and this package reads.
 
 * `function mountServer(el: Element, module: string, props: Props): void`
 
-Mounts `el` as an island in server mode: keeps `props` less `$s`, which is the state, and listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, the handler being the token the attribute carried, a number when it is an index and a string when it is a name, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`; when the answer carries `revalidate`, the handler called an action the host has already run and the island calls `refresh` the way a browser-mode action call does once the patch is in. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
+Mounts `el` as an island in server mode: keeps `props` less `$s`, the key the state rides under, then listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, the handler being the token the attribute carried, a number when it is an index and a string when it is a name, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`; when the answer carries `revalidate`, the handler called an action the host has already run and the island calls `refresh` the way a browser-mode action call does once the patch is in. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
 
 ### isServerIsland
 
@@ -456,9 +456,9 @@ Patches `el`'s children to match `html`: a text or comment node by content, an e
 
 ## 6. Navigation
 
-Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator, the document's current path and one router cache: payload text by the origin, the slot asked for and `pathname + search`, or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads.
+Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator, the document's current path and one router cache: payload text by the origin, the slot asked for and `pathname + search` or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads.
 
-A request for a payload says where it comes from: `x-sf-from` carries the document's path and search, which lets the server render the target into a slot of a live layout, an intercept; `x-sf-into` names that slot outright; a full navigation sends neither. `interface NavigateOptions { full?: boolean; into?: string }` chooses, and an anchor chooses with `data-sf-full` and `data-sf-into`.
+A request for a payload says where it comes from: `x-sf-from` carries the document's path and search, which lets the server render the target into a slot of a live layout, an intercept; `x-sf-into` names that slot outright; a full navigation sends neither. `interface NavigateOptions { full?: boolean; into?: string }` chooses and an anchor chooses with `data-sf-full` and `data-sf-into`.
 
 ### enableNavigation
 
@@ -485,15 +485,15 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 * `navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>`
 
-Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago, or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given and `x-sf-into` set to `into`. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default), the current path is moved to the target, then the window scrolls to the top unless the payload was an intercept, which opens in place; `sf:navigate` is dispatched on `document` with the path in `detail`; each `S` row after it fills its slot, rescans and dispatches `sf:fill` with the slot id, each `H` row retitles and each `T` row seeds, and the promise resolves once the last row has been applied. A feed that ends before `G`, or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document, and the rows still arriving for this one stop applying.
+Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given, then `x-sf-into` set to `into`. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default), the current path is moved to the target, then the window scrolls to the top unless the payload was an intercept, which opens in place; `sf:navigate` is dispatched on `document` with the path in `detail`; each `S` row after it fills its slot, rescans and dispatches `sf:fill` with the slot id, each `H` row retitles and each `T` row seeds and the promise resolves once the last row has been applied. A feed that ends before `G` or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document and the rows still arriving for this one stop applying.
 
-Applying walks the old and new segment spines together. A segment whose digest both responses agree on rendered the same, so its region is kept and its delimiter retagged with the new key, and an island in it is not re-rendered; the walk descends to its children all the same, since a digest elides them. Otherwise the first key mismatch replaces that region from the new payload, and a mismatch the region cannot answer, at the root, descends when the two keys name the same module. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included, and its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
+Applying walks the old and new segment spines together. A segment whose digest both responses agree on rendered the same, so its region is kept and its delimiter retagged with the new key and an island in it is not re-rendered; the walk descends to its children all the same, since a digest elides them. Otherwise the first key mismatch replaces that region from the new payload and a mismatch the region cannot answer, at the root, descends when the two keys name the same module. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included. Its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
 
 ### refresh
 
 * `refresh(): Promise<void>`
 
-Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was, and applies it as `navigate` does, row by row as it streams, with one difference: a kept leaf region that is not an island is replaced when its digest moved, or, when neither response carried one, replaced regardless. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps. `sf:navigate` is dispatched once the eager wave is applied, as `navigate` does.
+Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was and applies it as `navigate` does, row by row as it streams, with one difference: a kept leaf region that is not an island is replaced when its digest moved, or, when neither response carried one, replaced regardless. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps. `sf:navigate` is dispatched once the eager wave is applied, as `navigate` does.
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
 
@@ -502,9 +502,9 @@ Falls back to `window.location.reload()` when there is no sidecar, when the resp
 * `live(topics: string[], options?: LiveOptions): () => void`
 * `LiveOptions`: `{ onTopic?: (topic: string) => void; path?: string }`
 
-Opens the host's event stream at `path`, `/_sf/live` by default, asking for `topics`, and returns the function that closes it. Every publish of a topic in the list calls `onTopic`, which defaults to `refresh()`, so the route's loaders run again and the page is patched in place without a navigation. The browser reconnects the stream on its own, so a restarted server resumes without a reload.
+Opens the host's event stream at `path` (`/_sf/live` by default) asking for `topics`, then returns the function that closes it. Every publish of a topic in the list calls `onTopic`, which defaults to `refresh()`, so the route's loaders run again and the page is patched in place without a navigation. The browser reconnects the stream on its own, so a restarted server resumes without a reload.
 
-Does nothing and returns a no-op where `EventSource` is absent, which is every server-side render, or when `topics` is empty. An island typically opens it in an effect and returns the closer, so leaving the page stops the stream.
+Does nothing and returns a no-op where `topics` is empty or where `EventSource` is absent, which is every server-side render. An island typically opens it in an effect and returns the closer, so leaving the page stops the stream.
 
 ### socket
 
@@ -512,7 +512,7 @@ Does nothing and returns a no-op where `EventSource` is absent, which is every s
 * `SocketOptions`: `{ onRow?: (key: string, value: unknown) => void; onOpen?: () => void; onClose?: () => void; path?: string; backoffMs?: number }`
 * `Socket`: `{ send(key: string, value: unknown): void; open(): boolean; close(): void }`
 
-Opens a WebSocket on `topic` at `path`, `/_sf/socket` by default, and keeps it open: a drop calls `onClose` and is retried after `backoffMs`, doubling to a minute, and every connection calls `onOpen`. Rows the server sends are written into the store under their keys unless `onRow` says otherwise, so an island reading a key follows without being told.
+Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it open: a drop calls `onClose` and is retried after `backoffMs`, doubling to a minute. Every connection calls `onOpen`. Rows the server sends are written into the store under their keys unless `onRow` says otherwise, so an island reading a key follows without being told.
 
 `send` is dropped rather than queued while the socket is down, which is right for what this seam carries: the state of a keystroke, superseded by the next one. Returns a socket whose methods do nothing where `WebSocket` is absent, which is every server-side render.
 
@@ -556,7 +556,7 @@ Names a key. Declaring one in a module the build can follow is what lets a compo
 
 * `get<T>(k: StoreKey<T>): T | undefined`
 
-What the key holds, or `undefined` when nothing has set it.
+What the key holds or `undefined` when nothing has set it.
 
 ### set
 
@@ -592,7 +592,7 @@ Registers a key computed from others and computes it once now. It recomputes whe
 
 * `optimistic<T, R>(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R>`
 
-Sets the key to `guess`, awaits `remote` and returns its result. A rejection restores what the key held, or clears it when it held nothing, and rethrows. A success leaves the guess in place: the revalidation an action runs carries the seed that replaces it.
+Sets the key to `guess`, awaits `remote` and returns its result. A rejection restores what the key held or clears it when it held nothing and rethrows. A success leaves the guess in place: the revalidation an action runs carries the seed that replaces it.
 
 ### seed
 
@@ -604,13 +604,13 @@ Writes a whole map in one transaction. The navigator calls it for every `T` row 
 
 * `adopt(root?: ParentNode): void`
 
-Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then any seed a streamed resolution left on `window.__sfSeed` before this module loaded, and installs `window.__sfSeedApply` so later resolutions seed as they arrive. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. Idempotent.
+Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then any seed a streamed resolution left on `window.__sfSeed` before this module loaded and installs `window.__sfSeedApply` so later resolutions seed as they arrive. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. Idempotent.
 
 ### reset
 
 * `reset(): void`
 
-Forgets every key and notifies nobody, which is what a new document calls for: the listeners of the old one went with its roots, and the derived keys stay registered for the next seed. The spec runner's `load` calls it before each document.
+Forgets every key and notifies nobody, which is what a new document calls for: the listeners of the old one went with its roots and the derived keys stay registered for the next seed. The spec runner's `load` calls it before each document.
 
 ### snapshot
 
@@ -657,9 +657,9 @@ Reads `data-sf-locale` off the document element and sets it. Nothing written lea
 
 * `localePath(to: string, from?: string): string`
 
-The page the document is showing, under locale `to`: its path with the current locale's prefix replaced. Nothing else is rewritten, and `from` is used as it stands when given, so this is the caller asking for one segment to change rather than a link being rewritten behind them.
+The page the document is showing, under locale `to`: its path with the current locale's prefix replaced. Nothing else is rewritten and `from` is used as it stands when given, so this is the caller asking for one segment to change rather than a link being rewritten behind them.
 
-`from` defaults to `currentDocumentPath()` rather than `location.pathname`, and the difference matters: an intercepted navigation puts the target's URL in the address bar while the page underneath stays. A language switcher inside a drawer opened over `/agents` reads `/settings` from the address bar and `/agents` from here, and `/agents` is the page the reader is on.
+`from` defaults to `currentDocumentPath()` rather than `location.pathname` and the difference matters: an intercepted navigation puts the target's URL in the address bar while the page underneath stays. A language switcher inside a drawer opened over `/agents` reads `/settings` from the address bar and `/agents` from here. `/agents` is the page the reader is on.
 
 A path already under the current prefix has it swapped rather than stacked, so `/fr_FR/help` to `en_US` is `/en_US/help`. A query is carried. The result is always prefixed, including for the default locale, which is what remembers the choice.
 
@@ -685,7 +685,7 @@ Creates the element with `createElement(component, props, children)`, then calls
 * `interface HoistReader { r<T>(id: number, compute: () => T): T; l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R; c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement }`
 * `type Hoisted = { readonly [key: string]: unknown }`
 
-The reader the build binds at the top of every component it rewrote, keyed under `module`. `r` returns the table's value for `<module>|<id>`, or `<module>|<id>@<i>.<j>` inside loops, and calls `compute` when the table has no such key or there is no table. `l` wraps a JSX `.map` callback: while it runs, its index argument is on the loop path, and the element it returns is placed under a provider carrying that path with the element's own `key`, so a component it renders keys its hoists below the iteration that placed it. The path starts from the enclosing provider's, so it continues through nested components. `c` is a static subtree: when the table holds a string under the key, `hit` renders the element with that markup as its inner HTML, which React neither renders nor hydrates inside; otherwise `miss` renders the original JSX.
+The reader the build binds at the top of every component it rewrote, keyed under `module`. `r` returns the table's value for `<module>|<id>` or for `<module>|<id>@<i>.<j>` inside loops. It calls `compute` when the table has no such key or there is no table. `l` wraps a JSX `.map` callback: while it runs, its index argument is on the loop path and the element it returns is placed under a provider carrying that path with the element's own `key`, so a component it renders keys its hoists below the iteration that placed it. The path starts from the enclosing provider's, so it continues through nested components. `c` is a static subtree: when the table holds a string under the key, `hit` renders the element with that markup as its inner HTML, which React neither renders nor hydrates inside; otherwise `miss` renders the original JSX.
 
 ### withHoisted
 
@@ -693,16 +693,16 @@ The reader the build binds at the top of every component it rewrote, keyed under
 
 `element` under `table`, the way the mounter places an island under the table its props carried. `null` makes every read compute. The testing module's `render` uses it with the table the server render produced.
 
-The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, by the `data-sf-region` key each carries, which is how an `Island` rendered under this root finds its own. The provider is built once per root and kept, and it carries what the payload behind the current patch says about those regions, taken from `islandState`. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
+The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, by the `data-sf-region` key each carries, which is how an `Island` rendered under this root finds its own. The provider is built once per root and kept and it carries what the payload behind the current patch says about those regions, taken from `islandState`. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the child segment at hydration and never reconciles it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
 
 ### Island
 
 * `function Island({ when, mode, children }: IslandProps): ReactElement`
-* `interface IslandProps { when?: MountTiming; mode?: "server"; children?: ReactNode }`; `mode` rides as `data-sf-mode`, and `island(component, { when, mode })` takes the same.
+* `interface IslandProps { when?: MountTiming; mode?: "server"; children?: ReactNode }`; `mode` rides as `data-sf-mode` and `island(component, { when, mode })` takes the same.
 
-Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-region` naming the placement, `data-sf-when` when `when` is given, and its own props script; the child is never rendered by this element.
+Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-region` naming the placement, `data-sf-when` when `when` is given and its own props script; the child is never rendered by this element.
 
-In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` and `suppressHydrationWarning`, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Which region it renders is settled once, on the placement's first render, and the claim is consuming: a region belongs to the placement that took it for as long as that placement lives, so a placement the parent added later can never take one another is already showing. The build splices the region key onto the placement as `__sfKey`, which this element lifts off the child before the child sees its props.
+In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` and `suppressHydrationWarning`, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Which region it renders is settled once, on the placement's first render. The claim is consuming: a region belongs to the placement that took it for as long as that placement lives, so a placement the parent added later can never take one another is already showing. The build splices the region key onto the placement as `__sfKey`, which this element lifts off the child before the child sees its props.
 
 After every render it reconciles what it owns. A mounted root takes the props the parent just computed, plus the `$h` the last payload gave it. A placement with no region takes its markup from the payload behind the current patch, which `scan` then mounts. A placement with neither renders its child inline, in the parent's own root, which is what a placement created by browser state alone gets.
 
@@ -717,13 +717,13 @@ After every render it reconciles what it owns. A mounted root takes the props th
 * `function Slot({ name, children }: SlotProps): ReactElement`
 * `interface SlotProps { name: string; children?: ReactNode }`
 
-A named slot of a layout: the region a parallel segment under `slots/<name>/` renders into, or the one an intercept `page.<name>.tsx` opens in. On the server the build lowers the use to `<sf-s data-sf-name>` around the segment, or around `children`, the fallback, while nothing fills it; the children are never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the region of that name under the root already holds and `suppressHydrationWarning`, taken once per instance, so the root adopts the region and never reconciles it while `navigate` fills and empties it. A layout that destructures a prop named after a `slots/` directory gets the same region as that prop, from `reactMounter`, and needs no `Slot`.
+A named slot of a layout: the region a parallel segment under `slots/<name>/` renders into or the one an intercept `page.<name>.tsx` opens in. On the server the build lowers the use to `<sf-s data-sf-name>` around the segment or around `children`, the fallback, while nothing fills it; the children are never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the region of that name under the root already holds and `suppressHydrationWarning`, taken once per instance, so the root adopts the region and never reconciles it while `navigate` fills and empties it. A layout that destructures a prop named after a `slots/` directory gets the same region as that prop from `reactMounter` and needs no `Slot`.
 
 ### useStore
 
 * `function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void]`
 
-A store key as component state, over `useSyncExternalStore`. Reads the store's value, or `initial` while nothing has set the key; `initial` is captured on the first render, so a fresh object literal there is safe. The setter writes the store, which re-renders every component reading that key in any root.
+A store key as component state, over `useSyncExternalStore`. Reads the store's value or `initial` while nothing has set the key; `initial` is captured on the first render, so a fresh object literal there is safe. The setter writes the store, which re-renders every component reading that key in any root.
 
 The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback, which is why a seeded key hydrates without a flash. The setter is dropped by lowering, like any handler.
 
@@ -844,7 +844,7 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 ### t
 
-* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`; with `args.count` a number or bigint, `key.<intl.plural(count)>` then `key.other` then `key`; `{name}` replaced by `String(args[name])` for a scalar argument and left as written otherwise; the key itself when the table lacks every form or no table is held. Lowered by the build to `i18n.t`, the server's, and hoisted when its inputs are props only.
+* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`; with `args.count` a number or bigint, `key.<intl.plural(count)>` then `key.other` then `key`; `{name}` replaced by `String(args[name])` for a scalar argument and left as written otherwise; the key itself when the table lacks every form or no table is held. Lowered by the build to the server's `i18n.t` and hoisted when its inputs are props only.
 
 ### native
 
@@ -882,7 +882,7 @@ Not every failure surfaces as a rejection.
 | Situation | Behaviour |
 | --- | --- |
 | No island registered for a marker's module id | Marker left as rendered and remembered; `console.warn("sf: no island registered for <id>")` only once the document settles and it is still unregistered |
-| An entry module fails to import | `console.warn("sf: loading <src> failed", err)`, and `src` is forgotten so a later payload retries |
+| An entry module fails to import | `console.warn("sf: loading <src> failed", err)` and `src` is forgotten so a later payload retries |
 | A loader or mounter rejects | `console.warn("sf: mounting <id> failed", err)`, marker left as rendered |
 | A marker with no `data-sf-module` | Skipped, not marked mounted |
 | Missing or empty props script | Mounted with `{}` |

@@ -1,6 +1,6 @@
 # 303. The deploy tree
 
-The question this chapter answers: what do you copy to a server, and how does what it serves there stay the same as what it served under `fsr dev`?
+The question this chapter answers: what do you copy to a server and how does what it serves there stay the same as what it served under `fsr dev`?
 
 **For:** everyone.
 
@@ -8,7 +8,7 @@ The question this chapter answers: what do you copy to a server, and how does wh
 
 An application's directory is mostly things a server must never hand out. `routes/` and `src/` are the TypeScript the application is written in. `types/` is declarations for the editor. `tsconfig.json` and `tsconfig.build.json` are compiler input. `.fsr-bundle/` is the overlay chapter 300 describes. None of it is reachable in development either, because the host serves the static roots and nothing else, but a deployment that copies the app directory wholesale puts every one of those files under a web server's root and hopes the routing hides them.
 
-So a deploy tree has one directory a web server is pointed at, `serve/`, and everything else sits outside it:
+So a deploy tree has one directory a web server is pointed at (`serve/`) and everything else sits outside it:
 
 ```
 dist/
@@ -88,7 +88,7 @@ config/bundle.toml               read by the host
 place beside it: the binary, the logging configuration
 ```
 
-The routes on the left are not a list the command carries. They are the host's own static roots, read from the configuration the same way the host reads them at boot: the `[[static]]` entries the file declares, plus the four the host infers, which chapter 200 covers, `dist/` at the public path from `dist/.snapfire-build.json`, `vendor/`, `icons/` and `styles/`. So the URLs a server answers from disk are the URLs the host answered in development, and adding a `[[static]]` entry changes the deploy without anyone editing a build script. A hand written copy list is the same information written twice, and the second copy is the one that goes stale.
+The routes on the left are not a list the command carries. They are the host's own static roots, read from the configuration the same way the host reads them at boot: the `[[static]]` entries the file declares, plus the four the host infers, which chapter 200 covers, `dist/` at the public path from `dist/.snapfire-build.json`, `vendor/`, `icons/` and `styles/`. So the URLs a server answers from disk are the URLs the host answered in development and adding a `[[static]]` entry changes the deploy without anyone editing a build script. A hand written copy list is the same information written twice and the second copy is the one that goes stale.
 
 The list on the right is derived the same way, from what the host reads at boot rather than from a directory the bundle sweeps. `app/clients/` is there when the application declares a service, because the host imports each client's document at boot and refuses to start without it. `app/locales/` is there when the application has message catalogs, because the host reads that directory by name and an application whose catalogs did not ship serves message keys instead of messages. Neither is named in any configuration setting, which is exactly why the list has to come from the host's own reads.
 
@@ -98,7 +98,7 @@ A static root is copied whole, so whatever the directory holds is served. A vend
 
 ## What it deliberately does not hold
 
-The binary and the logging configuration. Those are the two things that differ per deployment and per tool: which binary and which logging file becomes `fibre_logging.yaml`. The command names them rather than guessing, and the build script that calls it places them:
+The binary and the logging configuration. Those are the two things that differ per deployment and per tool: which binary and which logging file becomes `fibre_logging.yaml`. The command names them rather than guessing and the build script that calls it places them:
 
 ```sh
 fsr bundle app --out dist
@@ -129,7 +129,7 @@ The process still knows those routes, so it answers them when nothing is in fron
 
 ## The lab
 
-Run `fsr bundle app --out /tmp/dist` in the storefront and look at what landed: `find /tmp/dist -name '*.tsx'` finds nothing, and `find /tmp/dist/serve -type d` is the static roots the boot report listed.
+Run `fsr bundle app --out /tmp/dist` in the storefront and look at what landed: `find /tmp/dist -name '*.tsx'` finds nothing and `find /tmp/dist/serve -type d` is the static roots the boot report listed.
 
 Read `/tmp/dist/config/bundle.toml` and compare its `[[static]]` entries against the ones in `config/app.toml`: the routes are the same and the directories are not, because the tree's are where the files landed. Then bundle `/tmp/dist` itself into `/tmp/dist2`; `diff -r /tmp/dist /tmp/dist2` comes back empty.
 

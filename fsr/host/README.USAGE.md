@@ -173,7 +173,7 @@ From the app directory, each reported at boot under `inferred`:
 | the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own |
 
 The build facts are read from `dist/` or, failing that, from whichever directory a `[[static]]` root already points at, since an application that writes its own root for the browser tree keeps the bundle elsewhere: a project rendering through Tera has `js/dist`, whose component stylesheets would otherwise never reach the head. The report names the directory it read.
-| `clients.<name>.document` | `clients/<name>.openapi.json`, or `clients/<name>.proto` when only that exists |
+| `clients.<name>.document` | `clients/<name>.openapi.json` or `clients/<name>.proto` when only that exists |
 
 Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.
 
@@ -232,7 +232,7 @@ let app = Router::new().nest_service("/shop", host.service());
 
 ## Terminating TLS
 
-Most deployments put a proxy in front and the host never sees a certificate. For the one that has no proxy, the `tls` feature makes the hyper listener terminate: build with it, name the files in `[server.tls]`, and ALPN chooses HTTP/2 or HTTP/1.1 for each connection.
+Most deployments put a proxy in front and the host never sees a certificate. For the one that has no proxy, the `tls` feature makes the hyper listener terminate: build with it, name the files in `[server.tls]` and ALPN chooses HTTP/2 or HTTP/1.1 for each connection.
 
 ```toml
 [server]
@@ -245,7 +245,7 @@ key = "privkey.pem"
 reload = "hup"
 ```
 
-`cert` and `key` default to `cert.pem` and `key.pem`, so a directory laid out that way needs only `dir`. Both are read under `dir` when it is set and against the project root when it is not, and an absolute path is taken as written. `alpn` defaults to `["h2", "http/1.1"]` when `server.http2` is on and `["http/1.1"]` when it is not.
+`cert` and `key` default to `cert.pem` and `key.pem`, so a directory laid out that way needs only `dir`. Both are read under `dir` when it is set and against the project root when it is not and an absolute path is taken as written. `alpn` defaults to `["h2", "http/1.1"]` when `server.http2` is on and `["http/1.1"]` when it is not.
 
 A renewal is a signal, not a restart. Whatever writes the files, certbot or anything else, runs `kill -HUP <pid>` afterwards:
 
@@ -253,13 +253,13 @@ A renewal is a signal, not a restart. Whatever writes the files, certbot or anyt
 certbot renew --deploy-hook 'kill -HUP $(cat /run/app.pid)'
 ```
 
-The host re-reads both files and swaps what the next handshake presents. Connections already up keep the certificate they started on, and a file that will not read leaves the running certificate in place with the reason logged, so a bad renewal never takes the listener down. `reload = "usr1"`, `"usr2"` or `"none"` when SIGHUP is spoken for; `none` means a new certificate needs a restart, which is also the case on Windows, where there are no signals. `Host::reload_tls` is the same swap for a caller that has its own trigger.
+The host re-reads both files and swaps what the next handshake presents. Connections already up keep the certificate they started on and a file that will not read leaves the running certificate in place with the reason logged, so a bad renewal never takes the listener down. `reload = "usr1"`, `"usr2"` or `"none"` when SIGHUP is spoken for; `none` means a new certificate needs a restart, which is also the case on Windows, where there are no signals. `Host::reload_tls` is the same swap for a caller that has its own trigger.
 
-Without the `tls` feature a configured `[server.tls]` is a startup error rather than a plaintext listener. Certificates themselves stay outside: there is no ACME client here, and issuing and renewing are the deployment's, the way nginx has always had it.
+Without the `tls` feature a configured `[server.tls]` is a startup error rather than a plaintext listener. Certificates themselves stay outside: there is no ACME client here and issuing and renewing are the deployment's, the way nginx has always had it.
 
 ## Pushing to an Open Page
 
-A page follows the server without polling it. `Host::publish` names a topic, every open stream watching that topic hears it, and the browser decides what to do about it.
+A page follows the server without polling it. `Host::publish` names a topic, every open stream watching that topic hears it and the browser decides what to do about it.
 
 ```rust
 let host = Arc::new(host);
@@ -273,9 +273,9 @@ tokio::spawn(async move {
 });
 ```
 
-The endpoint is `GET /_sf/live?topics=a,b`, framework-owned like the action path and on whether or not `dev` is set. It answers with a `text/event-stream`: a comment frame at once so the browser knows the connection stands, then one `data: {"topic":"a"}` per publish of a topic that stream asked for. A topic nobody asked for is skipped, and a publish nobody is listening to costs a send into an empty channel.
+The endpoint is `GET /_sf/live?topics=a,b`, framework-owned like the action path and on whether or not `dev` is set. It answers with a `text/event-stream`: a comment frame at once so the browser knows the connection stands, then one `data: {"topic":"a"}` per publish of a topic that stream asked for. A topic nobody asked for is skipped and a publish nobody is listening to costs a send into an empty channel.
 
-The browser half is `live(topics)` from `@snapfire/fsr-client`, which by default calls `refresh()`: the route's loaders run again and the page is patched in place. So the server says only that something changed, and what changed is answered the ordinary way, by a loader. A page that wants something else passes `onTopic`.
+The browser half is `live(topics)` from `@snapfire/fsr-client`, which by default calls `refresh()`: the route's loaders run again and the page is patched in place. So the server says only that something changed and what changed is answered the ordinary way, by a loader. A page that wants something else passes `onTopic`.
 
 A topic is a string anyone can ask for, so anything private needs a rule:
 
@@ -286,13 +286,13 @@ builder.topics(|topic, session, identity| match topic.strip_prefix("room/") {
 })
 ```
 
-It is asked once per topic as the stream opens, against the session the request's cookie names, and one refusal refuses the stream with 403 naming the topic rather than opening it half. Without a rule any topic may be followed by anyone. How a session comes to hold what the rule reads is the application's: `chat_react_ts` records the room in the session from the room's own loader, so opening a room is joining it.
+It is asked once per topic as the stream opens, against the session the request's cookie names and one refusal refuses the stream with 403 naming the topic rather than opening it half. Without a rule any topic may be followed by anyone. How a session comes to hold what the rule reads is the application's: `chat_react_ts` records the room in the session from the room's own loader, so opening a room is joining it.
 
 Publishing reaches the streams this process is holding. Behind several replicas each instance reaches its own, so a topic that must reach every reader needs a bus behind `publish`, which is not built.
 
 ## Taking What a Page Sends
 
-`publish` is the server telling a page. The `ws` feature is the other direction: `GET /_sf/socket?topic=a` upgrades, the same topic rule decides who may open it, and `HostBuilder::socket` decides what anything sent over it means.
+`publish` is the server telling a page. The `ws` feature is the other direction: `GET /_sf/socket?topic=a` upgrades, the same topic rule decides who may open it and `HostBuilder::socket` decides what anything sent over it means.
 
 ```rust
 builder.socket(move |who, on| match on {
@@ -302,11 +302,11 @@ builder.socket(move |who, on| match on {
 })
 ```
 
-The handler is called once when a connection joins, once per row it sends and once when it leaves, and what it answers goes out to that topic as store rows: `everyone` includes the sender, `others` is what a typing indicator wants, and `Reply::default()` drops it, which is what an unrecognised key deserves. `who.connection` is unique per socket, so two windows of one session are two presences.
+The handler is called once when a connection joins, once per row it sends and once when it leaves and what it answers goes out to that topic as store rows: `everyone` includes the sender, `others` is what a typing indicator wants and `Reply::default()` drops it, which is what an unrecognised key deserves. `who.connection` is unique per socket, so two windows of one session are two presences.
 
-A row is `{"key": ..., "value": ...}` going in and `{"rows": [...]}` coming back, and the browser half writes each row into the store, so an island reading that key follows without being told. `Host::sockets()` gives the registry: `on(topic)` counts what is open, and `push(topic, rows)` sends from outside any connection.
+A row is `{"key": ..., "value": ...}` going in and `{"rows": [...]}` coming back and the browser half writes each row into the store, so an island reading that key follows without being told. `Host::sockets()` gives the registry: `on(topic)` counts what is open and `push(topic, rows)` sends from outside any connection.
 
-Nothing durable belongs on this seam. A message worth keeping is an action, and the page learns about it through `publish` and a loader; the socket is for what is not worth keeping, which is why `wave_react_ts` uses both at once.
+Nothing durable belongs on this seam. A message worth keeping is an action and the page learns about it through `publish` and a loader; the socket is for what is not worth keeping, which is why `wave_react_ts` uses both at once.
 
 ## Serving with actix
 
@@ -371,7 +371,7 @@ let answer = host.call_handler("GET", "/api/health", session, Value::Null).await
 
 ## Posting a Form to an Action
 
-The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields are read against the action's declared input type, since a urlencoded body carries text and nothing else, so a field declared `number` reaches the body as one and a field that will not parse is the same `invalid` failure a JSON body of the wrong shape would be; a success answers 303 back to the page that posted, by its `Referer`, with `__fragment` carried over when the action's URL had it, and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified, or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
+The action route takes a form as well as a fetch. A `POST` with a form-encoded body carries `_csrf`, which the host verifies against the session before the action runs; the other fields are read against the action's declared input type, since a urlencoded body carries text and nothing else, so a field declared `number` reaches the body as one and a field that will not parse is the same `invalid` failure a JSON body of the wrong shape would be; a success answers 303 back to the page that posted, by its `Referer`, with `__fragment` carried over when the action's URL had it and a failure answers the JSON error. The token is the `csrf_token` prop a page renders into a hidden input, minted once the session is identified or for every session with `csrf = "always"`, which a form anonymous visitors post needs; that setting establishes the session on the first response so the token verifies on the next.
 
 ```html
 <form method="post" action="/_sf/action/add_server">
@@ -423,7 +423,7 @@ assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction
 
 ## Prerendering the Routes That Never Change
 
-A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads, and so does a page or layout reading its `identity` or `csrf_token` prop, since a render for nobody cannot supply them. A route that reads only the locale still qualifies: that is what the render per locale is for.
+A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads and so does a page or layout reading its `identity` or `csrf_token` prop, since a render for nobody cannot supply them. A route that reads only the locale still qualifies: that is what the render per locale is for.
 
 ```rust
 let written = host.prerender(&host.report().prerender.clone().unwrap()).await?;
@@ -443,20 +443,20 @@ assert_eq!(host.prerenderable_anonymous(), vec!["/posts".to_owned()]);
 
 ## Warming the Loads a Route Cannot Prerender
 
-A whole route prerenders only when everything on it reads nothing of the request, and one layout is enough to lose that: a console whose header shows what you are watching makes every page under it dynamic, however fixed the page itself is. The verdict is correct per route and too coarse to be useful, since the cost on such a route is the loader, not the render.
+A whole route prerenders only when everything on it reads nothing of the request and one layout is enough to lose that: a console whose header shows what you are watching makes every page under it dynamic, however fixed the page itself is. The verdict is correct per route and too coarse to be useful, since the cost on such a route is the loader, not the render.
 
-`prerender` therefore does a second thing before it writes any document. It runs every source the report lists under `warm`, once per locale with nothing of a request behind it, and writes them to `loads.json` beside the documents. The classification is the same one, applied per source rather than per route, so a fixed page under a dynamic layout is warmed and so is a fixed layout over dynamic pages.
+`prerender` therefore does a second thing before it writes any document. It runs every source the report lists under `warm`, once per locale with nothing of a request behind it and writes them to `loads.json` beside the documents. The classification is the same one, applied per source rather than per route, so a fixed page under a dynamic layout is warmed and so is a fixed layout over dynamic pages.
 
 ```
 warm      layout.promo           2 loads memoized
           widths
 ```
 
-At boot the host reads that file, and from then on a request that reaches one of those sources takes the loaded data instead of running the loader: no service call, no interpreter. Everything else on the route runs live, so the console's header is still per session while the page beneath it costs nothing.
+At boot the host reads that file and from then on a request that reaches one of those sources takes the loaded data instead of running the loader: no service call, no interpreter. Everything else on the route runs live, so the console's header is still per session while the page beneath it costs nothing.
 
-A source reading a parameter, the query, the session or the clock is never warmed, and neither is one reading `path`, since a route that prerenders has one path but a layout source answers every route beneath it. A source reading the identity is warmed for the anonymous case alone, under `<source>|anon`, and a signed-in request loads for itself. Values are written in the payload crate's JSON encoding, so a wide integer survives the round trip the way it does on the wire.
+A source reading a parameter, the query, the session or the clock is never warmed and neither is one reading `path`, since a route that prerenders has one path but a layout source answers every route beneath it. A source reading the identity is warmed for the anonymous case alone, under `<source>|anon` and a signed-in request loads for itself. Values are written in the payload crate's JSON encoding, so a wide integer survives the round trip the way it does on the wire.
 
-The memo is only ever filled by a build. A request never writes to it, so a source the build did not reach costs a load every time and nothing grows without bound; a rebuild is what refreshes it, the same contract the documents keep. Rerunning `prerender` takes fresh loads before it renders anything, so a second pass never writes a document from the first pass's data. Without `server.prerender` configured, or with the file deleted, every load runs per request.
+The memo is only ever filled by a build. A request never writes to it, so a source the build did not reach costs a load every time and nothing grows without bound; a rebuild is what refreshes it, the same contract the documents keep. Rerunning `prerender` takes fresh loads before it renders anything, so a second pass never writes a document from the first pass's data. Without `server.prerender` configured or with the file deleted, every load runs per request.
 
 ```rust
 assert_eq!(host.report().app.warmable, vec!["layout.promo".to_owned(), "widths".to_owned()]);
@@ -465,7 +465,7 @@ assert_eq!(host.report().warmed, 2);
 
 ## Serving Locales
 
-A `[locales]` section makes the locale a request attribute the host resolves before anything else, the way it resolves the session. The sources are consulted in `order`, `prefix`, `cookie` and `header` by default, and the first that answers wins. A path prefix is a supported tag in any case or separator, `/fr_FR/about`, `/fr-fr/about` or `/FR_FR/about`, stripped before the route matches, so no route carries a locale segment. The cookie is `sf_locale` unless `cookie` says otherwise. `Accept-Language` is matched by weight, exact tag first and then language alone, so `fr-CA` reaches `fr_FR`. Nothing answering, the default serves.
+A `[locales]` section makes the locale a request attribute the host resolves before anything else, the way it resolves the session. The sources are consulted in `order`, `prefix`, `cookie` and `header` by default and the first that answers wins. A path prefix is a supported tag in any case or separator, `/fr_FR/about`, `/fr-fr/about` or `/FR_FR/about`, stripped before the route matches, so no route carries a locale segment. The cookie is `sf_locale` unless `cookie` says otherwise. `Accept-Language` is matched by weight, exact tag first and then language alone, so `fr-CA` reaches `fr_FR`. Nothing answering, the default serves.
 
 ```toml
 [locales]
@@ -510,7 +510,7 @@ catalogs  en_US 5 keys, fr_FR 5 keys
 
 ## Signing In on the Host
 
-An `[auth]` section mounts the identity flow from `snapfire_fsr_auth` on three framework-owned routes, the way the action route is owned. `GET /auth/login` starts it, with `return_to` from the query, else the `Referer`'s path, else `/`, and only ever a path on this origin; the provider's `begin` says where the browser goes, which for the `file` provider is the application's login page with `return_to` in the query. The login page is the application's own route, since auth never renders; a `GET` of it seeds the flow when none is in progress, so a typed URL still posts somewhere. `/auth/callback` takes a form or JSON `POST`, or a `GET` carrying the provider's query; a success is a 303 to where the flow began, a refusal a 303 back to the login page with `error=denied` and the `return_to` it had, a callback with no flow in progress a 400. `POST /auth/logout` verifies `_csrf` from the form, or `x-sf-csrf` from a fetch, against the session, clears identity and custody, deletes the record and answers 303 `/` with the cookie expiring. None of the three takes a locale prefix.
+An `[auth]` section mounts the identity flow from `snapfire_fsr_auth` on three framework-owned routes, the way the action route is owned. `GET /auth/login` starts it, with `return_to` from the query, else the `Referer`'s path, else `/` and only ever a path on this origin; the provider's `begin` says where the browser goes, which for the `file` provider is the application's login page with `return_to` in the query. The login page is the application's own route, since auth never renders; a `GET` of it seeds the flow when none is in progress, so a typed URL still posts somewhere. `/auth/callback` takes a form or JSON `POST` or a `GET` carrying the provider's query; a success is a 303 to where the flow began, a refusal a 303 back to the login page with `error=denied` and the `return_to` it had, a callback with no flow in progress a 400. `POST /auth/logout` verifies `_csrf` from the form or `x-sf-csrf` from a fetch, against the session, clears identity and custody, deletes the record and answers 303 `/` with the cookie expiring. None of the three takes a locale prefix.
 
 The `file` provider is `DevProvider::from_toml` over `config/auth.toml`, read beside `app.toml` and never through the ladder, so an overlay cannot merge two tables of accounts:
 
@@ -533,7 +533,7 @@ login = "/login"
 base_url = "http://127.0.0.1:8092"
 ```
 
-A Rust host hands in any `IdentityProvider` instead, and the login page is `auth.login` when the section is written, `/login` otherwise:
+A Rust host hands in any `IdentityProvider` instead and the login page is `auth.login` when the section is written, `/login` otherwise:
 
 ```rust
 let host = Host::from(".")?.identity(Arc::new(my_provider)).build()?;
@@ -593,7 +593,7 @@ host.render_to_string("/product/1", RenderMode::Html, SessionCell::default()).aw
 assert_eq!(host.invalidate("routes/product/[id]/page.tsx#default").await, 1);
 ```
 
-`invalidate` takes a module name and drops every entry under it, across all params and identities, and says how many went. A subtree with a streamed descendant, a failed source or the head slot is never written, so a page behind `loading.tsx` keeps its layout out of the cache too. Without a `[cache]` section nothing is cached and `invalidate` answers zero.
+`invalidate` takes a module name and drops every entry under it, across all params and identities and says how many went. A subtree with a streamed descendant, a failed source or the head slot is never written, so a page behind `loading.tsx` keeps its layout out of the cache too. Without a `[cache]` section nothing is cached and `invalidate` answers zero.
 
 ## Caching Service Answers
 
@@ -633,7 +633,7 @@ let host = Host::from(env!("CARGO_MANIFEST_DIR"))?
   .build()?;
 ```
 
-`Ambient` carries the request's locale in the application's spelling, `bcp47()` for ICU, and the clock. A plan that calls a name nothing registers refuses to build, `BindError::UnknownExtension`, naming the body or component that calls it, so a forgotten half is a boot failure. The report lists the pairs:
+`Ambient` carries the request's locale in the application's spelling, `bcp47()` for ICU and the clock. A plan that calls a name nothing registers refuses to build, `BindError::UnknownExtension`, naming the body or component that calls it, so a forgotten half is a boot failure. The report lists the pairs:
 
 ```
 natives   fleet.queueLabel       rust
@@ -711,7 +711,7 @@ services  fleet                  mock        clients/fleet.mock.json
 
 ## Reloading the Application in Place
 
-Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them through the reloader the builder was given, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload, and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone.
+Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them through the reloader the builder was given, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone.
 
 ```rust
 let host = Host::from(".")?
@@ -721,11 +721,11 @@ let report = host.reload()?;
 print!("{report}");
 ```
 
-The reloader is a builder for the application as it now stands, with whatever the first builder added in Rust added again. `fsr serve` sets one that rereads the project, and `fsr dev` asks for it after a change to the generated files instead of restarting the process. A Rust host with no reloader is reloaded with a builder it made itself, `reload_with`.
+The reloader is a builder for the application as it now stands, with whatever the first builder added in Rust added again. `fsr serve` sets one that rereads the project and `fsr dev` asks for it after a change to the generated files instead of restarting the process. A Rust host with no reloader is reloaded with a builder it made itself, `reload_with`.
 
 ## Serving a Site
 
-An application with a `[site]` section is a site: `fsr build` prefixes every id it emits with `<name>:` and puts every route under `at`, so two sites can carry the same files, and the host serves it alone the same way it serves any application. A site's clients register under the prefix too, `billing:ledger`, since its bodies were lowered to call them by that name; the report's `site` row names the site and its prefix and every other row shows the prefixed ids. Its stylesheets are inferred under `<at>/static/css` and its bundle under the public path the build was given, so both keep working once the site is mounted.
+An application with a `[site]` section is a site: `fsr build` prefixes every id it emits with `<name>:` and puts every route under `at`, so two sites can carry the same files and the host serves it alone the same way it serves any application. A site's clients register under the prefix too, `billing:ledger`, since its bodies were lowered to call them by that name; the report's `site` row names the site and its prefix and every other row shows the prefixed ids. Its stylesheets are inferred under `<at>/static/css` and its bundle under the public path the build was given, so both keep working once the site is mounted.
 
 ```toml
 [site]
@@ -741,11 +741,11 @@ let html = host.render_to_string("/billing/invoice/1", RenderMode::Html, Session
 assert!(html.contains("data-sf-module=\"billing:routes/invoice/[id]/page.tsx#default\""));
 ```
 
-Nothing in a site's own code knows it is one: routes are written as `routes/invoice/[id]/`, links as `/billing/invoice/1`, since a link is served exactly as written, and a body calls `services.ledger` while the build spells it `billing:ledger` in the plan.
+Nothing in a site's own code knows it is one: routes are written as `routes/invoice/[id]/`, links as `/billing/invoice/1`, since a link is served exactly as written and a body calls `services.ledger` while the build spells it `billing:ledger` in the plan.
 
 ## Mounting Sites
 
-The host mounts a site from its artifact, the project directory a site's build leaves behind with `config/` beside `app/`, and serves it under the site's prefix with the shell's root layout wrapped around it. One document, one session, one navigation across the shell and every site.
+The host mounts a site from its artifact, the project directory a site's build leaves behind with `config/` beside `app/` and serves it under the site's prefix with the shell's root layout wrapped around it. One document, one session, one navigation across the shell and every site.
 
 ```rust
 use snapfire_fsr_host::{Host, Mount};
@@ -754,15 +754,15 @@ let billing = Mount::load("billing", "/srv/sites/billing/1.4.2", "1.4.2", "3a098
 let host = Host::from(".")?.mount(billing).build()?;
 ```
 
-What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set, and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default`, or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash, and one more naming what was ignored.
+What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default` or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash and one more naming what was ignored.
 
-A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site, and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix, and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes, and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table.
+A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table.
 
 `snapfire_fsr_sites` turns the `[sites]` table into mounts, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
 
 ## Refreshing the Browser in Development
 
-In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream, and `POST /__fsr/changed` tells every open document that something changed. `POST /__fsr/reload` calls `reload` and answers with the new report, or the error. `fsr dev` posts `changed` after a rebundle and `reload` after a change to the generated files; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
+In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream and `POST /__fsr/changed` tells every open document that something changed. `POST /__fsr/reload` calls `reload` and answers with the new report or the error. `fsr dev` posts `changed` after a rebundle and `reload` after a change to the generated files; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
 
 ```rust
 host.changed();
@@ -770,7 +770,7 @@ host.changed();
 
 Every event names the bundle the server sees now, a hash over the modules `dist/.snapfire-build.json` lists. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them.
 
-`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment, and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
+`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
 
 ## Watching What a Request Did
 
@@ -803,7 +803,7 @@ request 19.92ms ok GET /agents
         render routes/agents/page.tsx#default 0.10ms miss
 ```
 
-Four spans come from the framework: `request` at the root, `source` per plan node as the loaders run in parallel, `call` per service method whatever its transport, and `render` nested the way the plan nests, saying whether the memo hit. Add your own with `tracing` and they join the trace they are inside.
+Four spans come from the framework: `request` at the root, `source` per plan node as the loaders run in parallel, `call` per service method whatever its transport and `render` nested the way the plan nests, saying whether the memo hit. Add your own with `tracing` and they join the trace they are inside.
 
 To read a trace from your own code, hold the handle:
 
@@ -822,7 +822,7 @@ With no collector installed the spans cost a relaxed atomic load and a branch, s
 
 ## Reading the Report
 
-`Host::report` is the application's report as of the last reload, plus the `site` row when the application is a site, the `sites` rows when it mounts any, and the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
+`Host::report` is the application's report as of the last reload, plus the `site` row when the application is a site, the `sites` rows when it mounts any and the services reached, the static roots served, the configuration read and what was inferred. Printed at boot it reads:
 
 ```
 routes    /                      plan file
@@ -844,7 +844,7 @@ ignored   http, not the host's; left to the application's own store
 
 ## Error Handling
 
-`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches, `Leak` a bundle under `dist/` carrying a loader, an actions module, a handler or the middleware, or importing one, each named with its reason, `Mount` a site that could not be mounted, naming the site and why.
+`HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches, `Leak` a bundle under `dist/` carrying a loader, an actions module, a handler or the middleware or importing one, each named with its reason, `Mount` a site that could not be mounted, naming the site and why.
 
 ```rust
 use snapfire_fsr_host::HostError;

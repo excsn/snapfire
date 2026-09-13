@@ -64,10 +64,10 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Go to a route from code | `navigate` |
 | Re-fetch the current route after a mutation | `refresh` |
 | Follow the server and revalidate when it says so | `live`, over the host's event stream |
-| Send as fast as someone types, and take rows back | `socket`, one WebSocket per topic |
+| Send as fast as someone types and take rows back | `socket`, one WebSocket per topic |
 | Call a server action by id | `action` |
 | Match on why an action failed | `ActionFailure` and its `kind` |
-| Render a page, or load a route and click through it, under `fsr test` | `render`, `load`, `screen` and `fireEvent` from `@snapfire/fsr-client/testing` |
+| Render a page or load a route and click through it, under `fsr test` | `render`, `load`, `screen` and `fireEvent` from `@snapfire/fsr-client/testing` |
 | Parse a whole payload response yourself | `parsePayload` |
 | Parse a single node row | `decodeNode` |
 | Turn a decoded node back into HTML | `nodeToHtml`, `renderSegment` |

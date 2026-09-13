@@ -683,7 +683,7 @@ impl Interceptor for RequireIdentity {
 
 ## Caching a Method's Answers
 
-Freshness is the data owner's knowledge, so it is declared on the contract, per method, and the registry does the rest. `ttl` says how long an answer holds, `tags` name what a write drops it under, `scope` says who may share it, and `stale` opens a window after `ttl` in which the last answer is served while a refresh runs behind it.
+Freshness is the data owner's knowledge, so it is declared on the contract, per method and the registry does the rest. `ttl` says how long an answer holds, `tags` name what a write drops it under, `scope` says who may share it and `stale` opens a window after `ttl` in which the last answer is served while a refresh runs behind it.
 
 ```rust
 use snapfire_fsr_service::{Freshness, Method, Service, Type};
@@ -716,7 +716,7 @@ services.invalidate_tags(["catalog"]);
 
 The scope is the safety rule. `private`, the default, means an identified call never reads or writes the cache, so a bearer-carrying answer cannot be served to someone else by accident; anonymous calls share one entry. `shared` serves everyone the same entry. `subject` keeps one entry per subject. A miss always runs the caller's own call with its own credentials; only the refresh a `stale` window starts runs anonymously, which is why `stale` is refused off `shared` scope by `validate` and by `try_build`.
 
-A failure is never stored: the next call asks again, and a refresh that fails keeps the last answer. Two calls with the same arguments in another order share an entry, since the key renders maps by sorted key.
+A failure is never stored: the next call asks again and a refresh that fails keeps the last answer. Two calls with the same arguments in another order share an entry, since the key renders maps by sorted key.
 
 ## Holding Credentials
 

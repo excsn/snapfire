@@ -14,23 +14,23 @@ FSR is a native, systems-level engine built from the ground up, preserving the d
 
 * **Native SSR.** TypeScript components compile to an intermediate representation rendered directly by Rust. Pages that do not need JavaScript do not start a JavaScript runtime.
 
-* **Many teams, one site, one render.** Multiple teams can build independently versioned sites and mount them into one shell while sharing navigation, session, and application state. See [the sites chapter](docs/guide/205-sites.md).
+* **Many teams, one site, one render.** Multiple teams can build independently versioned sites and mount them into one shell while sharing navigation, session and application state. See [the sites chapter](docs/guide/205-sites.md).
 
-* **Backend services are first-class.** OpenAPI and protobuf contracts generate typed service clients. HTTP, gRPC, and mock transports share the same application boundary.
+* **Backend services are first-class.** OpenAPI and protobuf contracts generate typed service clients. HTTP, gRPC and mock transports share the same application boundary.
 
-* **One application model.** Routes, loaders, actions, services, identity, caching, rendering, and navigation are runtime primitives. React, Svelte, Vue, and Tera can participate in the same application. The UI layer is replaceable.
+* **One application model.** Routes, loaders, actions, services, identity, caching, rendering and navigation are runtime primitives. React, Svelte, Vue and Tera can participate in the same application. The UI layer is replaceable.
 
 * **Resilient parallel loaders.**  A failing backend degrades its segment instead of taking down the entire page. The plan assembler resolves segments concurrently and isolates a backend failure to the segment that asked.
 
-* **Island hydration without mismatches.** React hydrates over the server's own markup, timed per island: on load, when visible or when idle. The storefront renders every page with zero console errors, and a hydration mismatch fails a test under `fsr test` before it reaches a browser.
+* **Island hydration without mismatches.** React hydrates over the server's own markup, timed per island: on load, when visible or when idle. The storefront renders every page with zero console errors and a hydration mismatch fails a test under `fsr test` before it reaches a browser.
 
 * **Type-safe server actions.** Typed actions work from JavaScript or ordinary HTML forms, with schema validation and CSRF protection handled by the runtime. Every action gets a typed, generated call site; input is checked against the schema before the body runs; the session is mutated from a page click and the route revalidates in place.
 
-* **Streaming and Islands.** A `loading.tsx` beside a page defers it: the document ships with the fallback and the page streams into its slot when the loader finishes. Pages can stream deferred content and hydrate interactive islands on load, visibility, or idle.
+* **Streaming and Islands.** A `loading.tsx` beside a page defers it: the document ships with the fallback and the page streams into its slot when the loader finishes. Pages can stream deferred content and hydrate interactive islands on load, visibility or idle.
 
 * **Slots without sigils.** Parallel and intercepted routes use ordinary filesystem conventions instead of special routing syntax.
 
-* **Tests without Node.** The runtime can test loaders, actions, rendering, hydration, navigation, and page behavior inside the same application environment.
+* **Tests without Node.** The runtime can test loaders, actions, rendering, hydration, navigation and page behavior inside the same application environment.
 
 ## Architecture
 
@@ -54,7 +54,7 @@ The goal is simple:
 
 > **Application developers write the application. Platform developers can replace the machinery underneath it.**
 
-Rust is normally invisible. It is the escape hatch for extensions, custom hosts, transports, renderers, or replacement building blocks.
+Rust is normally invisible. It is the escape hatch for extensions, custom hosts, transports, renderers or replacement building blocks.
 
 Chapter [000 of the guide](docs/guide/000-what-fsr-is-made-of.md) lays out the vocabulary and [900](docs/guide/900-the-parts-bin.md) lists every block by the itch it scratches.
 
@@ -78,7 +78,7 @@ Each crate under this directory carries a `README.md`, a `README.USAGE.md` and a
 
 ## Status
 
-The storefront currently runs on the stock host with TypeScript loaders and actions, Rust-side rendering, and React hydration.
+The storefront currently runs on the stock host with TypeScript loaders and actions, Rust-side rendering and React hydration.
 
 *Designed to be your unstoppable, high-performance daily driver*
 

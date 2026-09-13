@@ -33,8 +33,8 @@ Client navigation is the part that depends on what serves the files. The navigat
 
 ## Tests
 
-`cargo test -p handbook_react_ts`: that every route is prerenderable and none is left out, that the whole site is written as documents and payloads, that a written document carries the page's markup, its own title and no reference to a host, and that a render with a session full of junk is byte for byte the render without one.
+`cargo test -p handbook_react_ts`: that every route is prerenderable and none is left out, that the whole site is written as documents and payloads, that a written document carries the page's markup, its own title and no reference to a host and that a render with a session full of junk is byte for byte the render without one.
 
 `fsr test app`: the home page's cards come from the loader's constant and the layout wraps every page.
 
-Checked in a browser over `python3 -m http.server`: every document and every asset answers, the page hydrates with an empty console, and following a link lands on the next page with its own title.
+Checked in a browser over `python3 -m http.server`: every document and every asset answers, the page hydrates with an empty console and following a link lands on the next page with its own title.

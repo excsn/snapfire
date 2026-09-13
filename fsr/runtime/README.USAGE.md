@@ -401,7 +401,7 @@ let assembly = assemble(&runtime, &plan, &ctx, &head).await?;
 assert_eq!(assembly.meta.title.as_deref(), Some("SnapFire FSR"));
 ```
 
-A segment describes the document from its own data by registering a `Metadata` under its source's id. The innermost described segment wins, its `describe` runs once after the eager wave with the data that source loaded, and the head slot then carries `rest` followed by the chosen title and description. `assembly.meta` holds what was settled, defaults included.
+A segment describes the document from its own data by registering a `Metadata` under its source's id. The innermost described segment wins, its `describe` runs once after the eager wave with the data that source loaded and the head slot then carries `rest` followed by the chosen title and description. `assembly.meta` holds what was settled, defaults included.
 
 ```rust
 struct ProductMeta;
@@ -533,7 +533,7 @@ So a request for `/dash/servers` as `alice`, whose loader returned the fingerpri
 dash_page|section=servers|ident=alice|csrf=-|3f2a9c1d40b7e558
 ```
 
-Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another; an anonymous request keys on `-`. The CSRF token is injected into props, so it is in the key too when a host sets one, and `-` when none does. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
+Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another; an anonymous request keys on `-`. The CSRF token is injected into props, so it is in the key too when a host sets one and `-` when none does. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
 
 Three things disqualify a subtree from caching:
 
@@ -621,7 +621,7 @@ let runtime = Runtime::builder().keyer(Arc::new(SectionKeyer)).build();
 
 The sidecar mirrors the tree. `path` locates a segment's subtree relative to its parent segment's node, where `[]` is the whole node and `[i]` is child `i` of a `Seq`. A deferred segment carries `slot: Some(id)` and no path, because its region in the DOM is the `data-sf-slot` element instead.
 
-A narrower keyer is an optimisation rather than a requirement, because `digest` beside the key already says what changed. Every segment carries the fingerprint of its own output with its child segments elided, so a browser keeps the DOM of a segment that rendered the same however coarse its key is, and a parent is left alone when only a child moved.
+A narrower keyer is an optimisation rather than a requirement, because `digest` beside the key already says what changed. Every segment carries the fingerprint of its own output with its child segments elided, so a browser keeps the DOM of a segment that rendered the same however coarse its key is and a parent is left alone when only a child moved.
 
 ## Carrying Request State
 

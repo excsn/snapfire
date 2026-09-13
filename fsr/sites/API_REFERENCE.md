@@ -1,6 +1,6 @@
 # snapfire_fsr_sites API reference
 
-`snapfire_fsr_sites`: the `[sites]` table of a shell's configuration resolved, hashed and mounted on `snapfire_fsr_host`, and watched.
+`snapfire_fsr_sites`: the `[sites]` table of a shell's configuration resolved, hashed and mounted on `snapfire_fsr_host` and watched.
 
 ## Contents
 
@@ -104,7 +104,7 @@ Module constants: `CONFIG` is `"config"`, `APP` is `"app"`, `SERVE` is `"serve"`
 
 * `pub struct Manifest { pub format: u32, pub name: String, pub version: String, pub at: String, pub hash: String, pub files: Vec<Entry> }`, written as `.snapfire-site.json` at an artifact's root. `MANIFEST` is that name and `FORMAT` is `2`.
 * `Manifest::of(dir, version)` lays the tree out and hashes it; `Manifest::of_rows(dir, version, config, rows)` does it from rows a caller has. `read`, `read_archive`, `write`, `path`.
-* `verify(&self, dir) -> Result<(), ArtifactError>`: every listed file present with the digest listed, nothing present and unlisted, and the whole listing hashing to what the manifest declares. What an install checks before a staged directory is renamed into place.
+* `verify(&self, dir) -> Result<(), ArtifactError>`: every listed file present with the digest listed, nothing present and unlisted and the whole listing hashing to what the manifest declares. What an install checks before a staged directory is renamed into place.
 
 ### pack
 

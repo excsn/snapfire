@@ -73,11 +73,11 @@ export async function load({ params, services, native }: Ctx<"/room/{id}">) {
 }
 ```
 
-Rust is synchronous, and so is this. The build reads `fn` against `async fn` and types the call accordingly, so `words` returns a number rather than a promise and nothing is awaited that never suspends.
+Rust is synchronous and so is this. The build reads `fn` against `async fn` and types the call accordingly, so `words` returns a number rather than a promise and nothing is awaited that never suspends.
 
 Three things follow from it being your Rust rather than a service. Only what the block declares `pub` crosses, so a module holding another calls it as an ordinary method and that one never appears in TypeScript. There is no contract, no transport and no interceptor chain, because there is nothing to cross. And the declaration comes from the signature: `fsr` reads the Rust with `syn` the way it reads your TypeScript with swc, before anything compiles, so the two cannot drift.
 
-Reach for a service instead when the thing genuinely is one, something over a wire that a document already describes, or when you want the cache and the interceptors that come with a call crossing a boundary.
+Reach for a service instead when the thing genuinely is one, something over a wire that a document already describes or when you want the cache and the interceptors that come with a call crossing a boundary.
 
 ## The lab
 

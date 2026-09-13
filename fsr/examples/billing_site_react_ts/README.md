@@ -1,6 +1,6 @@
 # billing_site_react_ts
 
-A site: an application built with a `[site]` section, so every id it emits is prefixed `billing:` and every route sits under `/billing`. It runs alone with `cargo run -p billing_site_react_ts`, and `portal_react_ts` mounts the same artifact under its own header.
+A site: an application built with a `[site]` section, so every id it emits is prefixed `billing:` and every route sits under `/billing`. It runs alone with `cargo run -p billing_site_react_ts` and `portal_react_ts` mounts the same artifact under its own header.
 
 | It shows | Where |
 | --- | --- |

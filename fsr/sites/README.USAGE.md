@@ -95,7 +95,7 @@ The paths that moved are named back in a generated `config/bundle.toml`, the las
 
 ## Deploying a Site
 
-A deploy is the artifact laid out under the root, the table's pointer moved and the host told. `watch` reloads on `SIGHUP` at once and, with `poll` set, rereads the table on that interval and reloads when a row's path, version or hash moved. Rereading an unchanged table does nothing, so a signal can be resent at any time, and an instance that missed one converges on the next poll.
+A deploy is the artifact laid out under the root, the table's pointer moved and the host told. `watch` reloads on `SIGHUP` at once and, with `poll` set, rereads the table on that interval and reloads when a row's path, version or hash moved. Rereading an unchanged table does nothing, so a signal can be resent at any time and an instance that missed one converges on the next poll.
 
 ```sh
 kill -HUP $(pgrep portal_react_ts)

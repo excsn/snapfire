@@ -15,34 +15,34 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 
 ## The chapters
 
-**Foundations**, or what you are standing on:
+**Foundations** or what you are standing on:
 
 - [000. What fsr is made of](000-what-fsr-is-made-of.md), TypeScript as the application language, Rust as the runtime, the two artifacts that are the truth, what fsr refuses to do and the vocabulary map. Everyone.
 - [001. One contract, no client code](001-one-contract-no-client-code.md), how a service's own document becomes a typed call nobody wrote. Everyone.
 - [002. A body is data](002-a-body-is-data.md), why a loader is lowered rather than run, what residue is and why the report always says where a body runs. Everyone.
 - [003. Rendered where it is cheapest](003-rendered-where-it-is-cheapest.md), how a React page is rendered on the server with no JavaScript engine, what hydrates over it, what the browser reads instead of computing again and the one setting that hands the whole render back to it. Everyone.
 
-**The application**, or what you write:
+**The application** or what you write:
 
 - [100. Routes, loaders and pages](100-routes-loaders-and-pages.md), the file conventions, params and query, the props a page receives and navigation that keeps the layout. App developers.
 - [101. Actions and the session](101-actions-and-the-session.md), schemas, session defaults, guards and the cart as the worked case. App developers.
 - [102. Components the server renders](102-components-the-server-renders.md), what a component may say, helpers and the standard library, `useState`, what stays in the browser, what the server computes for it and an island the server drives. App developers.
-- [103. Testing a body and a page](103-testing-a-body.md), mocks the contract checks, the trace, page tests over a DOM with hydration, loading a route and clicking through it, and `fsr test`. App developers.
+- [103. Testing a body and a page](103-testing-a-body.md), mocks, the contract checks, the trace, page tests over a DOM with hydration, loading a route and clicking through it, plus `fsr test`. App developers.
 - [104. Islands in another framework](104-islands-in-another-framework.md), a `.vue` file placed by a template, the plugin that compiles it with no Node, scoped styles reaching the head, why a template with no state loads no framework and the application with no React in it. App developers.
 - [105. No framework at all](105-no-framework-at-all.md), custom elements a template writes and the browser upgrades, a shadow root the server renders, the store read with no adapter, htmx regions over fragments the host renders and the two events that let a library and the navigator share a document. App developers.
 - [106. Two frameworks on one page](106-two-frameworks-on-one-page.md), module-id dispatch as the whole seam, one store under two adapters, one router over segments that differ, htmx as a third shape and what the three of them weigh. App developers, plus anyone weighing a migration.
 
-**The host**, or what runs it:
+**The host** or what runs it:
 
 - [200. The stock host and its configuration](200-the-stock-host-and-its-configuration.md), the config ladder, what the host infers and the boot report. Platform developers.
 - [201. Graduating to Rust](201-graduating-to-rust.md), taking one name back from the plan file and the rule that keeps it honest. Platform developers.
 - [202. Services and transports](202-services-and-transports.md), HTTP, gRPC, interceptors and why application code never sees a token. Platform developers.
 - [203. Sessions and identity](203-sessions-and-identity.md), the signed cookie, the store, who the request is and where a login goes. Platform developers.
-- [204. Reloading in place](204-reloading-in-place.md), the tables a request reads, what a reload swaps and what it refuses, and why `fsr dev` no longer restarts. Platform developers.
+- [204. Reloading in place](204-reloading-in-place.md), the tables a request reads, what a reload swaps and what it refuses and why `fsr dev` no longer restarts. Platform developers.
 - [205. Sites: one product, many teams](205-sites.md), a team's application built as a site, the shell that mounts it under a path, what crosses the seam and how a deploy is a pointer moved. Everyone.
 - [206. What a request did](206-what-a-request-did.md), the trace behind a slow or wrong page: the four spans the framework opens, reading them with no collector wired, what they cost when nobody is watching and how to get them out. Everyone.
 
-**Tooling**, or the commands:
+**Tooling** or the commands:
 
 - [300. The build and the dev loop](300-the-build-and-the-dev-loop.md), `fsr build`, `fsr check`, `fsr dev`, `fsr serve` and why `generated/` is not committed. Everyone.
 - [301. Dependencies without npm](301-dependencies-without-npm.md), `fsr add`, `fsr types`, the import map and what xwpm changes. Everyone.
@@ -69,7 +69,7 @@ And one appendix:
 
 **A Rust developer extending the platform:** read 000, 002 and 003 for the contract you are extending, then the 200s in order, then the parts bin.
 
-**A team that owns one part of a larger product:** read 205, then the 100s; the shell is someone else's, and your site runs alone until it is mounted.
+**A team that owns one part of a larger product:** read 205, then the 100s; the shell is someone else's and your site runs alone until it is mounted.
 
 **Someone evaluating fsr for a team:** read 000, 001 and 002. Those three cover the claims the rest of the guide depends on.
 

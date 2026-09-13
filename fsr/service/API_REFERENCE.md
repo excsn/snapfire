@@ -304,7 +304,7 @@ Writes a zero-padded 16-digit lowercase hex counter under that key, but only whe
 
 ### DataCache
 
-The interceptor `data_cache` installs: one `fibre_cache` per distinct `(ttl, stale)`, built on first use so a host may be built before its runtime runs. Tag generations are part of every key, so a write moves a generation on and the entries under it become unreachable. A miss runs the caller's own call, credentials included; only a `stale` refresh runs anonymously. A failed call is never stored, and a failed refresh keeps the last answer.
+The interceptor `data_cache` installs: one `fibre_cache` per distinct `(ttl, stale)`, built on first use so a host may be built before its runtime runs. Tag generations are part of every key, so a write moves a generation on and the entries under it become unreachable. A miss runs the caller's own call, credentials included; only a `stale` refresh runs anonymously. A failed call is never stored and a failed refresh keeps the last answer.
 
 * `fn from_contract(contract: &Contract, capacity: u64) -> Result<Self, DataCacheError>`
 * `fn is_empty(&self) -> bool`: no method declares `cache` and none `writes`

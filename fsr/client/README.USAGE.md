@@ -176,7 +176,7 @@ The key must be the exact `data-sf-module` string the server wrote. A layout is 
 sf: no island registered for components/ServerChart.tsx#default
 ```
 
-The warning waits for the document to settle, because a miss is not yet a defect. A mounted site puts a second entry module in the head and registers its islands when that module runs, which is after the shell's `boot` has already scanned them; the same holds for the entry a payload names on the first navigation into a site. So a module id missing at scan time is remembered rather than reported, and warned about only once every deferred script has run and nothing named by `loadEntry` is still in flight.
+The warning waits for the document to settle, because a miss is not yet a defect. A mounted site puts a second entry module in the head and registers its islands when that module runs, which is after the shell's `boot` has already scanned them; the same holds for the entry a payload names on the first navigation into a site. So a module id missing at scan time is remembered rather than reported and warned about only once every deferred script has run and nothing named by `loadEntry` is still in flight.
 
 ## Choosing When an Island Hydrates
 
@@ -254,13 +254,13 @@ import { OrderHelp } from "@src/ui/OrderHelp";
 </Island>
 ```
 
-The build lowers the use: the server renders `OrderHelp` with its props as a nested island inside an `<sf-s data-sf-island data-sf-when="visible">` region of the page's markup, with its own props script, and registers the module in `generated/islands.ts`. In the browser the page's root adopts the region as it stands and never reconciles it, while `scan` mounts `OrderHelp` in a root of its own when it scrolls into view, so its state is its own and the page's re-renders leave it alone.
+The build lowers the use: the server renders `OrderHelp` with its props as a nested island inside an `<sf-s data-sf-island data-sf-when="visible">` region of the page's markup with its own props script. It registers the module in `generated/islands.ts`. In the browser the page's root adopts the region as it stands and never reconciles it, while `scan` mounts `OrderHelp` in a root of its own when it scrolls into view, so its state is its own and the page's re-renders leave it alone.
 
-A placement inside a `.map` is one region per item, and the build names each of them, so the page can grow a list without an island taking a region that belongs to another item. When the page revalidates, every island under it takes the new props: a placement that is still there keeps its root, its DOM and its state, one the new data added is mounted from the payload, and one it dropped goes with its item. Nothing about that is written by hand. `island(OrderHelp, { when: "visible" })` at module level gives a component that places itself the same way wherever it is used. `when` on the region wins over the registry's timing for that use; a use without one takes the registry's, else `"load"`. A component from another framework works the same way once its module has a mounter registered, since the registry picks the mounter by module.
+A placement inside a `.map` is one region per item and the build names each of them, so the page can grow a list without an island taking a region that belongs to another item. When the page revalidates, every island under it takes the new props: a placement that is still there keeps its root, its DOM and its state, one the new data added is mounted from the payload and one it dropped goes with its item. Nothing about that is written by hand. `island(OrderHelp, { when: "visible" })` at module level gives a component that places itself the same way wherever it is used. `when` on the region wins over the registry's timing for that use; a use without one takes the registry's, else `"load"`. A component from another framework works the same way once its module has a mounter registered, since the registry picks the mounter by module.
 
 ## Placing an Island in Server Mode
 
-An island whose events round-trip to the server. The browser holds its props and state, every bound event is sent to the server, Rust runs the handler and renders the component again, and the markup that comes back is patched into place. No component code runs in the browser, so the component has no JavaScript half to keep in step with the server.
+An island whose events round-trip to the server. The browser holds its props and state, every bound event is sent to the server, Rust runs the handler and renders the component again and the markup that comes back is patched into place. No component code runs in the browser, so the component has no JavaScript half to keep in step with the server.
 
 ```tsx
 <Island when="visible" mode="server">
@@ -268,7 +268,7 @@ An island whose events round-trip to the server. The browser holds its props and
 </Island>
 ```
 
-`island(OrderHelp, { mode: "server" })` is the same as a module-level alias, declared beside the use or exported from the component's own module and imported, by name or through a namespace import; the build follows the import and places the island the alias declared. The component is written as React; the mode decides where its handlers run. The build lowers each handler, which must be `const`s, calls to state setters and calls to actions, `e.preventDefault()` aside, and refuses the mode over a handler it cannot lower or over a component inside the island with state or handlers of its own. An action a handler calls, `void save({ id })` with `save` an `action("desk.save")`, is dispatched by the host during the round trip, with the session and everything else the action route would give it; the answer tells the island to refresh the page's data the way a browser-mode call does, so what the action wrote reaches every other island on the page. The server marks each bound element with `data-sf-on="click:0"` and the island's initial state rides in its props as `$s`; `scan` mounts an `sf-i` under an `sf-s[data-sf-mode="server"]` through `mountServer` instead of the registry, with `data-sf-pending` on the island while a round trip is out and a second event during one dropped. A list the server renders keeps a moved element across a patch when the element carries a `key`, which prints as `data-sf-key` in this mode.
+`island(OrderHelp, { mode: "server" })` is the same as a module-level alias, declared beside the use or exported from the component's own module and imported, by name or through a namespace import; the build follows the import and places the island the alias declared. The component is written as React; the mode decides where its handlers run. The build lowers each handler, which must be `const`s, calls to state setters and calls to actions (`e.preventDefault()` aside) and refuses the mode over a handler it cannot lower or over a component inside the island with state or handlers of its own. An action a handler calls, `void save({ id })` with `save` an `action("desk.save")`, is dispatched by the host during the round trip, with the session and everything else the action route would give it; the answer tells the island to refresh the page's data the way a browser-mode call does, so what the action wrote reaches every other island on the page. The server marks each bound element with `data-sf-on="click:0"` and the island's initial state rides in its props as `$s`; `scan` mounts an `sf-i` under an `sf-s[data-sf-mode="server"]` through `mountServer` instead of the registry, with `data-sf-pending` on the island while a round trip is out and a second event during one dropped. A list the server renders keeps a moved element across a patch when the element carries a `key`, which prints as `data-sf-key` in this mode.
 
 ## Filling a Layout's Slots
 
@@ -289,7 +289,7 @@ export default function Layout({ cartCount, children, promo }: LayoutProps & { c
 }
 ```
 
-Both are `<sf-s data-sf-name>` regions in the server's markup, which the layout's root adopts and never reconciles, the way it adopts `children`. Children of `Slot`, or `{promo ?? <p>…</p>}` for the prop form, are the fallback the region shows while nothing fills it, rendered by the server and put back when a navigation empties the slot. Navigation fills and empties them: a soft navigation to a route with a `page.modal.tsx` writes the variant into the `modal` region of the nearest live layout that declares it and leaves the page alone, and the navigation away empties it again. A document load renders the page, never the variant. The promo keeps its DOM across every page under the layout, since its key never changes.
+Both are `<sf-s data-sf-name>` regions in the server's markup, which the layout's root adopts and never reconciles, the way it adopts `children`. Children of `Slot` or `{promo ?? <p>…</p>}` for the prop form, are the fallback the region shows while nothing fills it, rendered by the server and put back when a navigation empties the slot. Navigation fills and empties them: a soft navigation to a route with a `page.modal.tsx` writes the variant into the `modal` region of the nearest live layout that declares it and leaves the page alone and the navigation away empties it again. A document load renders the page, never the variant. The promo keeps its DOM across every page under the layout, since its key never changes.
 
 The navigator sends the document's path with every soft request, which is how the server knows an intercept applies. A link says otherwise with `Link`:
 
@@ -396,7 +396,7 @@ import { enableNavigation } from "@snapfire/fsr-client";
 enableNavigation();
 ```
 
-It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments that rendered something different, so the layout's DOM, its scroll position and any island state above the changed region survive. Sameness is the digest each segment carries, not its key, which is what keeps a pane that ignores a query parameter when the URL's query moves under it. A kept island whose props changed is re-rendered in place through its patcher rather than replaced, and one whose digest held is left alone entirely. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
+It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments that rendered something different, so the layout's DOM, its scroll position and any island state above the changed region survive. Sameness is the digest each segment carries, not its key, which is what keeps a pane that ignores a query parameter when the URL's query moves under it. A kept island whose props changed is re-rendered in place through its patcher rather than replaced and one whose digest held is left alone entirely. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
 ## Prefetching and the Router Cache
 
@@ -410,7 +410,7 @@ enableNavigation({ cacheMs: 5_000 });
 
 `"viewport"` fetches a link's payload as it scrolls into view rather than waiting for a pointer, which is what a long list of links wants; each link is fetched once and then left alone. It costs a request per link on screen, so it is the document's choice rather than the default.
 
-A link decides for itself, whichever way the document leans. `none` is right for a link whose loader is expensive or whose route logs the visit, and `viewport` for the one link on the page that is almost certainly next:
+A link decides for itself, whichever way the document leans. `none` is right for a link whose loader is expensive or whose route logs the visit and `viewport` for the one link on the page that is almost certainly next:
 
 ```html
 <a href="/reports/yearly" data-sf-prefetch="none">Yearly report</a>
@@ -439,7 +439,7 @@ await navigate("/servers/eu");
 await navigate("/servers/eu", false);
 ```
 
-A third argument chooses how the target is asked for: `{ full: true }` is the document's rendering of a route that would otherwise open in a layout's slot, `{ into: "modal" }` names the slot outright. Without either the request carries the document's path, and the server intercepts when the target has a `page.<slot>.tsx` under a layout the origin shares.
+A third argument chooses how the target is asked for: `{ full: true }` is the document's rendering of a route that would otherwise open in a layout's slot, `{ into: "modal" }` names the slot outright. Without either the request carries the document's path and the server intercepts when the target has a `page.<slot>.tsx` under a layout the origin shares.
 
 ```ts
 await navigate("/product/7", true, { full: true });
@@ -453,7 +453,7 @@ await refresh();
 
 Both request the payload form of the URL by appending `__payload` to the query string, `navigate` through the router cache; both fall back to a full load when the response is not usable.
 
-Both apply the payload as it streams. The eager wave, every row up to the `G` sidecar, lands as one patch: the changed segments are swapped in, a deferred one showing the fallback its `loading.tsx` renders, history moves and the window scrolls. Each `S` row then fills its slot as it arrives, with the head and store rows that follow it. The promise resolves once the payload has been applied whole. A click on a route whose loader is slow therefore shows the fallback then the fill, the way a document load does, and a click that joins a hover's fetch still in flight streams from wherever it is. A later navigation stops the rows of an earlier one from applying.
+Both apply the payload as it streams. The eager wave, every row up to the `G` sidecar, lands as one patch: the changed segments are swapped in, a deferred one showing the fallback its `loading.tsx` renders, history moves and the window scrolls. Each `S` row then fills its slot as it arrives, with the head and store rows that follow it. The promise resolves once the payload has been applied whole. A click on a route whose loader is slow therefore shows the fallback then the fill (the way a document load does) and a click that joins a hover's fetch still in flight streams from wherever it is. A later navigation stops the rows of an earlier one from applying.
 
 ```ts
 const done = navigate("/servers/eu"); // the fallback is in the document once the sidecar arrives
@@ -470,7 +470,7 @@ applyHead({ title: "Cart · Shopping" });
 
 ## Wiring Another Library to the Navigator
 
-For htmx there is an entry that does it, `bindHtmx`, and the whole wiring is one line:
+For htmx there is an entry that does it, `bindHtmx`. The whole wiring is one line:
 
 ```ts
 import htmx from "htmx.org";
@@ -504,7 +504,7 @@ document.body.addEventListener("library:settled", () => {
 
 ## Following the Server
 
-`refresh()` asks. `live()` waits to be told: it opens the host's event stream, and every publish of a topic it asked for revalidates the route, so the page follows the server without polling it.
+`refresh()` asks. `live()` waits to be told: it opens the host's event stream and every publish of a topic it asked for revalidates the route, so the page follows the server without polling it.
 
 ```tsx
 import { useEffect } from "react";
@@ -516,7 +516,7 @@ export default function Live({ topic }: { topic: string }) {
 }
 ```
 
-`live` returns the function that closes the stream, which is what an effect wants back. The server side is one call, `Host::publish("board")`, and the browser reconnects on its own if the connection drops.
+`live` returns the function that closes the stream, which is what an effect wants back. The server side is one call, `Host::publish("board")`. The browser reconnects on its own if the connection drops.
 
 What arrives is the topic and nothing else: no data rides on the stream. The route's loaders answer that, the ordinary way, when `refresh()` runs. A page that wants to do something other than revalidate passes `onTopic`:
 
@@ -528,7 +528,7 @@ Nothing happens where `EventSource` is absent, so the same component renders on 
 
 ## Sending as Fast as Someone Types
 
-`live` hears. `socket` speaks. It opens one WebSocket on a topic, writes what comes back into the store, and reconnects on its own.
+`live` hears. `socket` speaks. It opens one WebSocket on a topic, writes what comes back into the store and reconnects on its own.
 
 ```ts
 import { socket } from "@snapfire/fsr-client";
@@ -537,7 +537,7 @@ const wire = socket(`wave/${id}`, { onOpen: () => setConnected(true), onClose: (
 wire.send("typing", { parent, body });
 ```
 
-What the server makes of a sent row is its business: it answers with rows, they land in the store under their keys, and every island reading one of those keys re-renders. Nothing on this seam is durable, and a send while the connection is down is dropped rather than queued, because the next keystroke supersedes it anyway.
+What the server makes of a sent row is its business: it answers with rows, they land in the store under their keys and every island reading one of those keys re-renders. Nothing on this seam is durable and a send while the connection is down is dropped rather than queued, because the next keystroke supersedes it anyway.
 
 One connection is enough for a page. Hold it in a module rather than in a component, hand each island a share and close it when the last one goes, which is what `wave_react_ts` does in `src/ui/wire.ts`.
 
@@ -589,7 +589,7 @@ export const cartCount = key<number>("cart/count");
 
 ### Seeding the Store From a Loader
 
-Export `store` beside `load`, a function of the data the loader returned. What it returns is written to the store before anything mounts, and the server renders from the same values, so the first paint and the hydration agree:
+Export `store` beside `load`, a function of the data the loader returned. What it returns is written to the store before anything mounts and the server renders from the same values, so the first paint and the hydration agree:
 
 ```ts
 // routes/layout.loader.ts
@@ -605,7 +605,7 @@ Every segment on the route may export one. They merge outermost first, so a page
 
 ### Reading a Key in a Component
 
-`useStore` is the React binding. It reads like `useState` and returns the store's value, or the initial one while nothing has set the key:
+`useStore` is the React binding. It reads like `useState` and returns the store's value or the initial one while nothing has set the key:
 
 ```tsx
 import { useStore } from "@snapfire/fsr-client/react";
@@ -617,18 +617,18 @@ export function CartBadge() {
 }
 ```
 
-The build lowers this call, so the key has to be something it can read: a string literal, or a `key()` it can follow through an import. A key computed at runtime is refused with a diagnostic.
+The build lowers this call, so the key has to be something it can read: a string literal or a `key()` it can follow through an import. A key computed at runtime is refused with a diagnostic.
 
 ### Writing From Anywhere
 
-The setter writes the store, and every component reading that key re-renders, whichever root it sits in:
+The setter writes the store and every component reading that key re-renders, whichever root it sits in:
 
 ```tsx
 const [items, setItems] = useStore(cartCount, 0);
 <button onClick={() => setItems(items + 1)}>one more</button>
 ```
 
-Outside a component, and outside React entirely, the module functions do the same:
+Outside a component and outside React entirely, the module functions do the same:
 
 ```ts
 import { get, set, subscribe } from "@snapfire/fsr-client";
@@ -640,7 +640,7 @@ const stop = subscribe(cartCount, (value) => console.log("now", value));
 
 ### Optimistic Updates
 
-`optimistic` shows a value at once, runs the call, and puts the key back if it fails. A successful action revalidates, and the seed that revalidation carries replaces the guess with what the server settled on:
+`optimistic` shows a value at once, runs the call and puts the key back if it fails. A successful action revalidates and the seed that revalidation carries replaces the guess with what the server settled on:
 
 ```ts
 import { optimistic } from "@snapfire/fsr-client";
@@ -673,13 +673,13 @@ transaction(() => {
 });
 ```
 
-A derived key a component reads at first paint has to be seeded by the server too, with the same formula, or the first client render disagrees with the markup React is hydrating and React reports a mismatch. Register the derivation before `boot`: computing the value the seed already holds notifies nobody, and from then on every change to a source updates it. The ops console's headline is written this way, once in the root layout's `store` and once in `src/main.ts`.
+A derived key a component reads at first paint has to be seeded by the server too using the same formula. Otherwise the first client render disagrees with the markup React is hydrating and React reports a mismatch. Register the derivation before `boot`: computing the value the seed already holds notifies nobody and from then on every change to a source updates it. The ops console's headline is written this way, once in the root layout's `store` and once in `src/main.ts`.
 
 The store lives as long as the document. A soft navigation keeps it and writes whatever the new route seeded; a full load starts it again from that document's seed. Anything that must outlive a reload belongs in the session.
 
 ## Reading the Locale
 
-The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">`, and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. A payload for a route a mounted site serves carries an `E` row naming the site's entry module; the navigator imports it once, then scans again, so the site's islands register and mount on first arrival without a document load. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
+The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">` and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. A payload for a route a mounted site serves carries an `E` row naming the site's entry module; the navigator imports it once, then scans again, so the site's islands register and mount on first arrival without a document load. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
 
 ```tsx
 import { localePath } from "@snapfire/fsr-client";
@@ -704,9 +704,9 @@ export function LanguagePicker() {
 
 A link is served exactly as written: `/fr_FR/` is the French document and `/cart` is whatever the request resolves to, the cookie the host wrote when a prefix chose French, then the browser's `Accept-Language`, then the default. Nothing is ever prefixed behind your back.
 
-Which is why a switcher has to say where it is going. `localePath("fr_FR")` is the page the document is showing with the current locale's prefix replaced, so choosing a language keeps the reader where they are instead of sending them to whatever page the switcher happens to live on. It reads `currentDocumentPath()` rather than `location.pathname`, and the difference is real: an intercepted navigation puts the target's URL in the address bar while the page underneath stays, so a switcher in a drawer opened over `/agents` sees `/settings` in the address bar and `/agents` here.
+Which is why a switcher has to say where it is going. `localePath("fr_FR")` is the page the document is showing with the current locale's prefix replaced, so choosing a language keeps the reader where they are instead of sending them to whatever page the switcher happens to live on. It reads `currentDocumentPath()` rather than `location.pathname` and the difference is real: an intercepted navigation puts the target's URL in the address bar while the page underneath stays, so a switcher in a drawer opened over `/agents` sees `/settings` in the address bar and `/agents` here.
 
-The call sits in the handler rather than the `href` for two reasons. The `href` is then a literal a browser with no JavaScript can follow, and the component stays one the build can lower: a library call in the render tree is residue and would drop the whole page to client rendering.
+The call sits in the handler rather than the `href` for two reasons. The `href` is then a literal a browser with no JavaScript can follow and the component stays one the build can lower: a library call in the render tree is residue and would drop the whole page to client rendering.
 
 Outside React, `currentLocale` reads the locale and `subscribeLocale` follows it.
 

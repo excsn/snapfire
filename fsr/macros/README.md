@@ -6,7 +6,7 @@
 
 One attribute: `#[native]` on an `impl` block marks the methods a lowered TypeScript body may reach as `ctx.native.<module>.<method>()`.
 
-The attribute writes the dispatcher and emits the block unchanged, so the methods stay ordinary Rust. A module holds another and calls it directly, and only what the block declares `pub` ever crosses into TypeScript.
+The attribute writes the dispatcher and emits the block unchanged, so the methods stay ordinary Rust. A module holds another and calls it directly and only what the block declares `pub` ever crosses into TypeScript.
 
 ## Install
 
