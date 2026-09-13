@@ -5,7 +5,7 @@ members = [
   "web",
   "web/examples/basic_site",
   "typecheck",
-  "compiler/plugin",
+  "compiler/wire",
   "compiler/vue"
 ]
 exclude = [
