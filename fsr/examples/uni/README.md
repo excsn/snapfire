@@ -15,7 +15,7 @@ cd js && snapfirec --root . --config tsconfig.build.json --source-map --minify c
   --public-path /static/js/app --import-map importmap.json
 ```
 
-That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one component is a single-file component.
+That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one component is a single-file component. For the editor and `tsc`, `fsr types .` in `js/` fetches the declarations, writes `types/foreign.d.ts` for the `.vue` imports and the `tsconfig.json` that maps them; nothing here runs `fsr build`.
 
 ## The pieces
 

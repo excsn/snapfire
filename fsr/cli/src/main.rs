@@ -474,6 +474,9 @@ fn main() -> ExitCode {
         for (package, why) in &report.missing {
           println!("missing   {package:<28} {why}");
         }
+        for path in &report.written {
+          println!("wrote     {path}");
+        }
         ExitCode::SUCCESS
       }
       Err(e) => failed(e),

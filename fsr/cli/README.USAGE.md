@@ -453,7 +453,7 @@ export function registerIslands(): void {
 }
 ```
 
-A `.vue` file a template imports is a component the build does not read: it is placed as an island the server writes empty with its props and refused anywhere but inside `<Island>`. `generated/foreign.d.ts` declares `*.vue` for the typechecker. `snapfirec-vue` must be on `PATH` for the bundle, from `cargo install snapfire_vue`.
+A `.vue` file a template imports is a component the build does not read: it is placed as an island the server writes empty with its props and refused anywhere but inside `<Island>`. `types/foreign.d.ts` declares `*.vue` for the typechecker, written by the build and by `fsr types` alike. `snapfirec-vue` must be on `PATH` for the bundle, from `cargo install snapfire_vue`.
 
 ## Typing Pages and Calling Actions
 
@@ -500,7 +500,7 @@ A module that imports a package outside its bundle stops the command naming it; 
 
 ## Fetching Declarations
 
-`fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes `types`, else `@types/<package>` from DefinitelyTyped, plus the dependencies a DefinitelyTyped package declares. A package `fsr add` vendored is fetched at the same major. The fsr packages, `@snapfire/fsr-client` and `@snapfire/fsr-authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`.
+`fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes `types`, else `@types/<package>` from DefinitelyTyped, plus the dependencies a DefinitelyTyped package declares. A package `fsr add` vendored is fetched at the same major. The fsr packages, `@snapfire/fsr-client` and `@snapfire/fsr-authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`. It then writes what the typechecker needs beside them: `types/foreign.d.ts` when a source under `src/` is a `.vue` file, a component in a language the build does not read, plus `tsconfig.json` with every package mapped to the entry it recorded, so an application hosted from Rust that never runs `fsr build` typechecks from this one command.
 
 ```sh
 fsr types app
@@ -514,6 +514,7 @@ types     react-dom                    @types/react-dom 18.3.7
 types     sweetalert2                  sweetalert2 11.26.25
 types     prop-types                   @types/prop-types 15.7.15
 types     csstype                      csstype 3.2.3
+wrote     tsconfig.json
 ```
 
 A package with nothing to fetch is reported `missing` and the build goes on; its imports are `any` in the editor and errors under `strict`. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit`, never shipped, so a fresh checkout runs `fsr types` once rather than committing them.
