@@ -56,6 +56,8 @@ The socket carries rows, `{"key": ..., "value": ...}` up and `{"rows": [...]}` d
 | `src/backend.rs` | the service the loaders and actions call, over the controller |
 | `routes/wave/[id]/page.tsx` | the transcript, rendered on the server |
 | `src/ui/Presence.tsx`, `src/ui/Under.tsx`, `src/ui/Body.tsx` | the three islands that read what the controller sends |
+| `src/ui/Gadget.tsx` | the gadget, a server-mode island that loads no module |
+| `routes/actions.ts` | `name`, `blip`, `amend`, `play` and `reset`, the five durable writes |
 | `src/ui/wire.ts` | the one connection the page holds |
 
 ## Four panes
@@ -78,7 +80,26 @@ This example is what found DEFECTS 1.2, now FIXED 10.73: a revalidation used to 
 
 The transcript is. Every blip, in reading order, at the depth `waves.getWave` gave it, rendered in Rust with no JavaScript engine, so the wave is readable before a line of the bundle has run.
 
-Four things are islands, because they cannot be rendered ahead of time: `Presence`, the pill and the participant list; `Under`, the drafts and the composer beneath each blip; `Body`, a blip's text and the rewrite of it; and `Name`. Everything else on the page is lowered. `fsr check app` prints the list and will tell you the moment something falls out of it.
+Four things are browser islands, because they cannot be rendered ahead of time: `Presence`, the pill and the participant list; `Under`, the drafts and the composer beneath each blip; `Body`, a blip's text and the rewrite of it; and `Name`. `Gadget` is the fifth island and the odd one: it is in server mode, so no module is loaded for it. Everything else on the page is lowered. `fsr check app` prints the list and will tell you the moment something falls out of it.
+
+## The gadget, in server mode
+
+The board under the transcript is noughts and crosses. It belongs to the wave rather than to a window, so whoever opens the wave plays the same board.
+
+`Gadget` is a server-mode island. The browser fetches no module for it. A click posts the element and the handler to the host. The host runs the lowered handler, whose whole body is one call:
+
+```tsx
+onClick={(e) => void actions.$root.play({ wave, cell: Number((e.target as HTMLButtonElement).value) })}
+```
+
+`actions.$root.play` is the action exported as `play` from `routes/actions.ts`. The generated client nests a callable under the route's directories. `routes/` itself has no directory to nest under, so `$root` stands in for it. The `$` is an ordinary property name.
+
+Everything a move means lives in `src/field.rs` behind that action: whose turn it is, whether the cell is free, whether that finished the game. The handler could not do that work itself, because a server-mode handler may not contain an `if` and deciding a move is all conditionals. Naming an action is the way out: an action is Rust and has no restrictions.
+
+Two rules of the seam apply here.
+
+- The cell number rides on the element as `value` and comes back through `e.target`. A handler may not read a name the markup bound, because the host re-runs the component's own bindings and has no loop variable to give it. The build refuses that placement by name.
+- The action publishes the wave's topic like every other write, so a move made in one window reaches the others without a reload.
 
 ## A wave is not public
 
