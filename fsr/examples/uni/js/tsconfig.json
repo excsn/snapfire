@@ -7,20 +7,30 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
+      "@snapfire/fsr": ["./generated/fsr"],
+      "@snapfire/fsr/head": ["./generated/head"],
+      "@snapfire/fsr/testing": ["./generated/testing"],
+      "@app/*": ["./*"],
+      "@routes/*": ["./routes/*"],
+      "@src/*": ["./src/*"],
+      "@schemas/*": ["./schemas/*"],
+      "@generated/*": ["./generated/*"],
+      "@ext/*": ["./ext/*"],
+      "@snapfire/fsr-authoring": ["./types/@snapfire/fsr-authoring/index.d.ts"],
+      "@snapfire/fsr-authoring/*": ["./types/@snapfire/fsr-authoring/*"],
       "@snapfire/fsr-client": ["./types/@snapfire/fsr-client/index.d.ts"],
       "@snapfire/fsr-client/*": ["./types/@snapfire/fsr-client/*"],
       "csstype": ["./types/csstype/index.d.ts"],
       "csstype/*": ["./types/csstype/*"],
-      "htmx.org": ["./types/htmx.org/index.d.ts"],
+      "htmx.org": ["./types/htmx.org/dist/htmx.esm.d.ts"],
+      "htmx.org/*": ["./types/htmx.org/*"],
       "react": ["./types/react/index.d.ts"],
       "react/*": ["./types/react/*"],
-      "react-dom": ["./types/react-dom/index.d.ts"],
       "react-dom/*": ["./types/react-dom/*"],
-      "vue": ["./types/vue/index.d.ts"],
+      "vue": ["./types/vue/dist/vue.d.ts"],
       "vue/*": ["./types/vue/*"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "types/foreign.d.ts", "types/react-dom/index.d.ts"]
 }
