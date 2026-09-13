@@ -21,7 +21,7 @@ export default function ReservedPage({ reserved, deposit }: ReservedProps) {
                 {tool.name}
               </Link>
               <span className="by">
-                {tool.keeper}'s, {tool.days} days
+                {tool.keeper}'s, {tool.days} {Number(tool.days) === 1 ? "day" : "days"}
               </span>
             </span>
             <span className={`category category-${tool.category.toLowerCase()}`}>{tool.category}</span>
