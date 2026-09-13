@@ -8,6 +8,7 @@ The Tera evaluator for SnapFire FSR: it renders a template to a string and split
   * [MARKER](#marker)
 * [2. Template Functions](#2-template-functions)
   * [island](#island)
+  * [on](#on)
   * [slot](#slot)
   * [head](#head)
 * [3. Registration](#3-registration)
@@ -38,14 +39,24 @@ The three functions `register_markers` installs. Each returns a string, so a tem
 
 Emits a client node at this position.
 
-* `island(module: String, props: any = {}, key: String?, when: String?, mode: String?) -> String`
+* `island(module: String, props: any = {}, state: any?, key: String?, when: String?, mode: String?) -> String`
 * `module` is required, a module id in `path#export` form. Absence or a non-string is a render error.
 * `props` is optional and defaults to an empty object. It must serialise to JSON and must decode to a map or null; anything else fails the split.
 * `key` names the region a revalidation patches rather than replaces. It is written into the markup as `data-sf-region` and into the props as `$k`, which is what the browser matches on; without it an island is kept exactly as it stands or replaced whole.
 * `when` is `"load"`, `"visible"` or `"idle"`, the timing that schedules the mount; anything else is a render error naming what was written.
-* `mode` is `"browser"`, the default, or `"server"`, whose events round-trip to the host; anything else is a render error. Server mode needs the module to be a lowered component the plan carries, since the host runs it.
+* `mode` is `"browser"`, the default, or `"server"`, whose events round-trip to the host; anything else is a render error. The module is either a lowered component the plan carries or a template this instance holds, whose handlers the host carries by name.
+* `state` is the island's initial state in server mode, written into the props under `$s`, which is where the browser reads a server-mode island's state. Props that are not a map are a render error when state is given.
 * Emits the token `island:<base64 of {"m": module, "p": props, "w": when, "d": mode, "k": key}>`.
-* Produces `Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: None })`, wrapped in raw `<sf-s data-sf-island …>` and `</sf-s>` chunks when any of `key`, `when` or `mode` is given. Islands emitted here always have empty `children` and no `ssr` subtree: the server renders no body for one, so a server-mode placement is filled by the first step the browser asks for.
+* Produces `Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr })`, wrapped in raw `<sf-s data-sf-island …>` and `</sf-s>` chunks when any of `key`, `when` or `mode` is given. `children` is always empty. `ssr` is `None` except for a server-mode placement whose module is a template this instance holds, which is rendered here from `snapfire_fsr_runtime::island_data(props, props["$s"])` so the first paint carries the island's markup; a slot inside such a template is an error; an island inside one is left unrendered for the browser to ask for.
+
+### on
+
+Writes the attribute that binds an island's handlers, for markup a template renders.
+
+* `on(<event>: String, ...) -> String`
+* Each keyword is an event type and its value the handler's name: `on(click="filter", input="search")` becomes `data-sf-on="click:filter input:search"`. At least one is required.
+* A name must be non-empty and made of ASCII alphanumerics, `_`, `-` or `.`; anything else is a render error naming it. A value that is not a string is a render error naming its event.
+* The result is a safe string, so the attribute's quotes survive escaping. Nothing here checks that a handler by that name is registered: the host answers `404` at the step if it is not.
 
 ### slot
 
@@ -105,6 +116,8 @@ The island payload is JSON with five keys: `m` is the module id string, `p` is t
 ## 6. Template Context
 
 Every key of the `Data` map passed to `evaluate` becomes a top-level Tera variable of the same name, converted with `snapfire_fsr_payload::value_to_json`.
+
+An island a template renders is given `state`, the state the placement declared or the last step produced, beside the props the placement passed less `$s` and `$k`.
 
 The assembler injects three before calling the evaluator; they are present in fallback and error modules too:
 

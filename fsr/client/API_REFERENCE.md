@@ -429,7 +429,7 @@ What the server writes and this package reads.
 | `<sf-s data-sf-name="…">` | a layout's markup, around a named slot: a parallel segment or the region an intercept opens in, empty when nothing fills it | `Slot` and `reactMounter`, which adopt it; `navigate`, which fills and empties it |
 | `<sf-s data-sf-island data-sf-region="…" data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which claims it by its region key and adopts it; `scan`, which reads the timing |
 | `<sf-s data-sf-island data-sf-mode="server">` | the same region for an island in server mode | `scan`, which mounts the `sf-i` inside through `mountServer` and never through the registry |
-| `data-sf-on="click:0 change:1"` | the renderer, on an element of a server-mode island that binds handlers | `mountServer`, which delegates those event types on the island |
+| `data-sf-on="click:0 change:1"` | the renderer, on an element of a server-mode island that binds handlers; a template writes names instead, `click:filter`, through Tera's `on` | `mountServer`, which delegates those event types on the island |
 | `data-sf-key` | the renderer, from an element's `key`, in server mode only | `morph`, which moves a keyed element rather than recreating it |
 | `data-sf-pending` | `mountServer`, on the island while a round trip is out | the application's styles |
 | `$s` in the props script | the renderer, the initial values of a server-mode island's state | `mountServer` |
@@ -440,7 +440,7 @@ What the server writes and this package reads.
 
 * `function mountServer(el: Element, module: string, props: Props): void`
 
-Mounts `el` as an island in server mode: keeps `props` less `$s`, which is the state, and listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`; when the answer carries `revalidate`, the handler called an action the host has already run and the island calls `refresh` the way a browser-mode action call does once the patch is in. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
+Mounts `el` as an island in server mode: keeps `props` less `$s`, which is the state, and listens on `el` for every event type its markup binds. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, the handler being the token the attribute carried, a number when it is an index and a string when it is a name, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`; when the answer carries `revalidate`, the handler called an action the host has already run and the island calls `refresh` the way a browser-mode action call does once the patch is in. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was.
 
 ### isServerIsland
 

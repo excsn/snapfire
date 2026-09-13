@@ -54,8 +54,8 @@ function handlerFor(el, target, type) {
     const bound = target.closest("[data-sf-on]");
     if (!bound || !el.contains(bound)) return null;
     for (const pair of (bound.getAttribute("data-sf-on") ?? "").split(" ")){
-        const [event, index] = pair.split(":");
-        if (event === type && index !== undefined) return Number(index);
+        const [event, handler] = pair.split(":");
+        if (event === type && handler !== undefined) return handler;
     }
     return null;
 }
@@ -83,10 +83,11 @@ async function step(el, island, handler, event) {
             "content-type": "application/json"
         };
         if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
+        const named = handler !== null && !/^\d+$/.test(handler);
         const body = JSON.stringify({
             props: island.props,
             state: island.state,
-            handler,
+            handler: handler === null || named ? handler : Number(handler),
             event: encodeValue(event)
         });
         const res = await fetch(`/_sf/island/${encodeURIComponent(island.module)}`, {

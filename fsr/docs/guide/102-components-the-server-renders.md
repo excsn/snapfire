@@ -68,6 +68,33 @@ The trade is a round trip per event, which the island shows as `data-sf-pending`
 islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 ```
 
+## An island with no component at all
+
+A server-mode island never ships its component, so a fair question is whether it needs one. It does not. The island's markup can be a template and its handlers Rust, which is the shape a Tera application wants. Nothing about the round trip changes:
+
+```tera
+{{ island(module="fleet.tera#default", props={}, state=fleet, mode="server", key="fleet") }}
+```
+
+The placement carries the state, since a template declares none. Inside `fleet.tera`, `{{ on(click="filter") }}` writes the attribute that binds a handler by name rather than by index, because there is no lowered handler list to index into:
+
+```tera
+<button value="busy" {{ on(click="filter") }}>busy</button>
+```
+
+The handler is registered on the host, one per name, answering with the state to render from next:
+
+```rust
+builder.island_handler("fleet.tera#default", "filter", |ctx, event| async move {
+  let chosen = /* event.target.value, checked like any input */;
+  Ok(state_with(chosen, servers(&ctx).await?))
+})
+```
+
+It is ordinary Rust, so it calls services, reads the session and writes it, none of which a lowered handler may do. The example's filter re-reads its fleet on every step, so the card shows what a page render would rather than what the browser last saw, which is the same reason a server-mode island exists at all.
+
+The first paint comes from the same template, rendered by the evaluator as the page is assembled, so the card is in the document before any script runs. What the browser adds is the round trip.
+
 ## A component as its own island
 
 A page hydrates as one React root, so a component inside it shares that root: it re-renders with the page and hydrates when the page does. To give a component a root of its own, with its own timing and state the page never touches, place it with `Island` from the React adapter:

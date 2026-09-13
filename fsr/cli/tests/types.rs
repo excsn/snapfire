@@ -3,9 +3,14 @@ use std::path::PathBuf;
 use snapfire_fsr_cli::types::{foreign_shim, status, tsconfig, write_foreign_shim, TypedPackage, TypesManifest};
 use snapfire_fsr_cli::xwpm::Layout;
 
+/// One directory per call rather than per nanosecond: two tests in this file
+/// run in parallel and the clock is coarse enough that they collided.
+static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn app() -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let dir = std::env::temp_dir().join(format!("fsr-cli-types-{}-{nanos}", std::process::id()));
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let dir = std::env::temp_dir().join(format!("fsr-cli-types-{}-{nanos}-{n}", std::process::id()));
   std::fs::create_dir_all(dir.join("types/react")).unwrap();
   std::fs::create_dir_all(dir.join("types/@snapfire/fsr-client")).unwrap();
   std::fs::create_dir_all(dir.join("types/sweetalert2")).unwrap();

@@ -98,6 +98,8 @@ pub struct Report {
   pub warmable: Vec<String>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
+  /// Islands a template renders, with the handlers each answers: `<module> <name>`.
+  pub islands: Vec<String>,
 }
 
 impl std::fmt::Display for Report {
@@ -124,6 +126,10 @@ impl std::fmt::Display for Report {
     for (i, (module, owner)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<22} {}", owner.as_str())?;
+    }
+    for (i, island) in self.islands.iter().enumerate() {
+      let label = if i == 0 { "islands" } else { "" };
+      writeln!(f, "{label:<9} {island:<22} {}", Owner::Rust.as_str())?;
     }
     Ok(())
   }
@@ -165,6 +171,8 @@ pub struct App {
   /// `ctx.native.<name>`.
   pub natives: Arc<snapfire_fsr_runtime::Natives>,
   pub actions: ActionRegistry,
+  /// The handlers of every island a template renders, by module and name.
+  pub islands: snapfire_fsr_runtime::IslandRegistry,
   /// The contract the plan's type names resolve through.
   pub contract: Option<Arc<Contract>>,
   /// Each lowered action's or handler's declared input type, by its id.
@@ -249,6 +257,7 @@ pub struct AppBuilder {
   islands_only: bool,
   /// The application's own Rust, registered by name.
   natives: snapfire_fsr_runtime::Natives,
+  islands: snapfire_fsr_runtime::IslandRegistry,
   routes: Routes,
   lowered_middleware: Option<snapfire_fsr_ir::Body>,
   rust_middleware: Option<(Arc<dyn ActionHandler>, Owner)>,
@@ -303,6 +312,7 @@ impl App {
     AppBuilder {
       islands_only: false,
       natives: snapfire_fsr_runtime::Natives::new(),
+      islands: snapfire_fsr_runtime::IslandRegistry::new(),
       routes,
       lowered_middleware: None,
       rust_middleware: None,
@@ -454,6 +464,18 @@ impl AppBuilder {
     P: Fn(&ModuleId) -> bool + Send + Sync + 'static,
   {
     self.evaluators.register(predicate, evaluator);
+    self
+  }
+
+  /// One handler of an island a template renders, answering with the state to
+  /// render it from next. `module` is the template the placement names and
+  /// `name` is what its markup binds, `data-sf-on="click:<name>"`.
+  pub fn island_handler<F, Fut>(mut self, module: impl Into<String>, name: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, snapfire_fsr_runtime::IslandEvent) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<snapfire_fsr_core::Value, ActionError>> + Send + 'static,
+  {
+    self.islands.insert_fn(module, name, f);
     self
   }
 
@@ -883,6 +905,12 @@ impl AppBuilder {
       prerenderable_anonymous: prerenderable_anonymous.clone(),
       warmable: warmable.clone(),
       components,
+      islands: self
+        .islands
+        .modules()
+        .into_iter()
+        .flat_map(|module| self.islands.names(&module).into_iter().map(move |name| format!("{module} {name}")))
+        .collect(),
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -939,6 +967,7 @@ impl AppBuilder {
       services: self.services.unwrap_or_else(|| Services::builder().build()),
       natives: Arc::new(self.natives),
       actions: self.actions,
+      islands: self.islands,
       contract: self.contract,
       declared_inputs,
       report,

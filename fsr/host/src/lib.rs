@@ -38,7 +38,8 @@ use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, Rout
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
   ActionError, AssembleError, DataSource, Evaluator, FailureKind, FibreCache, Head, Identity, LoadError, Locale,
-  Matcher, Metadata, RequestCtx, Resolver, SessionCell, WarmLoads, assemble, html_stream, parse_query, wire_stream,
+  Chunk, IslandEvent, Matcher, Metadata, RequestCtx, Resolver, SessionCell, WarmLoads, assemble, html_stream,
+  parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials,
@@ -1722,6 +1723,90 @@ impl Host {
       .await
   }
 
+  /// One round trip of an island a template renders. The handler the markup
+  /// named answers with the state to render from next, then the module is
+  /// rendered again through its own evaluator with that state beside the
+  /// props. A step whose handler wrote the session asks the page to
+  /// revalidate, since what the rest of it renders from has moved.
+  async fn template_island(
+    &self,
+    t: &Tables,
+    module: &str,
+    body: &[u8],
+    incoming: Incoming,
+    visit: &Resolution,
+  ) -> Response<Body> {
+    let posted = match island_body(body, &visit.locale.tag) {
+      Ok(posted) => posted,
+      Err((status, json)) => return json_response(status, &json),
+    };
+    let name = match &posted.handler {
+      Value::Null => None,
+      Value::Str(name) => Some(name.to_string()),
+      _ => {
+        return json_response(
+          StatusCode::BAD_REQUEST,
+          &serde_json::json!({ "kind": "invalid", "message": "a template island's handler is a name" }),
+        );
+      }
+    };
+    let session = incoming.session.clone();
+    let was_dirty = session.is_dirty();
+    let mut state = posted.state.clone();
+    if let Some(name) = name {
+      if !t.app.islands.names(module).iter().any(|held| *held == name) {
+        return json_response(
+          StatusCode::NOT_FOUND,
+          &serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler `{name}`") }),
+        );
+      }
+      let ctx = self.ctx(t, incoming, Params::new(), Params::new(), &visit.path, visit.locale.clone());
+      let event = IslandEvent { props: Value::Map(posted.props.clone()), state: state.clone(), event: posted.event.clone() };
+      match t.app.islands.dispatch(module, &name, ctx, event).await {
+        Ok(next) => state = next,
+        Err(e) => {
+          return json_response(
+            StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
+          );
+        }
+      }
+    }
+    let id: ModuleId = match module.parse() {
+      Ok(id) => id,
+      Err(e) => {
+        return json_response(
+          StatusCode::BAD_REQUEST,
+          &serde_json::json!({ "kind": "invalid", "message": format!("island module id: {e}") }),
+        );
+      }
+    };
+    let data = snapfire_fsr_runtime::island_data(&posted.props, &state);
+    let mut chunks = t.app.runtime.evaluators.select(&id).evaluate(&id, &data);
+    let mut nodes = Vec::new();
+    while let Some(chunk) = chunks.next().await {
+      match chunk {
+        Ok(Chunk::Node(node)) => nodes.push(node),
+        Ok(Chunk::Slot(slot)) => {
+          let message = format!("`{module}` emitted the slot `{}`, which an island has no child to fill", slot.0);
+          return json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": message }));
+        }
+        Err(e) => {
+          return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &serde_json::json!({ "kind": "internal", "message": e.to_string() }),
+          );
+        }
+      }
+    }
+    let html = snapfire_fsr_payload::html_serialize(&Node::Seq(nodes));
+    let revalidate = !was_dirty && session.is_dirty();
+    json_response(
+      StatusCode::OK,
+      &serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&state), "html": html, "revalidate": revalidate }),
+    )
+  }
+
   async fn dispatch_action(
     &self,
     t: &Tables,
@@ -2205,6 +2290,13 @@ impl Host {
   ) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(module) = path.strip_prefix("/_sf/island/").map(percent_decoded) {
+        let lowered = t.app.lowered.as_deref().is_some_and(|e| e.components().contains_key(&module));
+        if !lowered && t.app.islands.holds(&module) {
+          let incoming = self.incoming(opened, self.matched_host(req.headers()));
+          let mut response = self.template_island(t, &module, req.body(), incoming, &visit).await;
+          self.set_cookie(opened, &mut response).await;
+          return response;
+        }
         let mut response = match island_step(t.app.lowered.as_deref(), &module, req.body(), &visit.locale.tag) {
           Ok(step) => {
             let mut failed = None;
@@ -3042,31 +3134,21 @@ impl IslandStep {
   }
 }
 
-/// One round trip of an island in server mode: the body is `{ props, state,
-/// handler, event }`; `handler` is the index of the handler that fired or
-/// null to render as is. Answers the state after the handler, the island's
-/// markup rendered from it and the actions the handler called, which the
-/// caller dispatches before answering; a failure is the status and JSON body
-/// to answer with.
-pub fn island_step(
-  lowered: Option<&snapfire_fsr_ir::IrEvaluator>,
-  module: &str,
-  body: &[u8],
-  locale: &str,
-) -> Result<IslandStep, (StatusCode, serde_json::Value)> {
-  let Some(evaluator) = lowered else {
-    return Err((
-      StatusCode::NOT_FOUND,
-      serde_json::json!({ "kind": "not_found", "message": "no lowered component" }),
-    ));
-  };
-  let components = evaluator.components();
-  let Some(component) = components.get(module).cloned() else {
-    return Err((
-      StatusCode::NOT_FOUND,
-      serde_json::json!({ "kind": "not_found", "message": format!("`{module}` is not a lowered component") }),
-    ));
-  };
+/// What a step posted, before either path has judged it: the props the island
+/// was mounted with, the state it holds, the handler that fired and the event
+/// the browser saw. A lowered component wants an index and a map; a template
+/// island wants a name and whatever its handlers agreed on, so the judging is
+/// each path's own.
+pub struct IslandBody {
+  pub props: ValueMap,
+  pub state: Value,
+  pub handler: Value,
+  pub event: Value,
+}
+
+/// Reads a step's body. `locale` joins the props the way it does for a page,
+/// so a template or a component renders in the document's language.
+pub fn island_body(body: &[u8], locale: &str) -> Result<IslandBody, (StatusCode, serde_json::Value)> {
   let input = match serde_json::from_slice::<serde_json::Value>(body)
     .map_err(|e| e.to_string())
     .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
@@ -3095,10 +3177,47 @@ pub fn island_step(
       ));
     }
   };
-  let state = match input.get("state") {
-    Some(Value::Map(map)) => map.clone(),
-    None | Some(Value::Null) => ValueMap::default(),
-    Some(_) => {
+  if !locale.is_empty() {
+    props.entry("locale".to_owned()).or_insert_with(|| Value::str(locale.to_owned()));
+  }
+  Ok(IslandBody {
+    props,
+    state: input.get("state").cloned().unwrap_or(Value::Null),
+    handler: input.get("handler").cloned().unwrap_or(Value::Null),
+    event: input.get("event").cloned().unwrap_or(Value::Null),
+  })
+}
+
+/// One round trip of an island in server mode: the body is `{ props, state,
+/// handler, event }`; `handler` is the index of the handler that fired or
+/// null to render as is. Answers the state after the handler, the island's
+/// markup rendered from it and the actions the handler called, which the
+/// caller dispatches before answering; a failure is the status and JSON body
+/// to answer with.
+pub fn island_step(
+  lowered: Option<&snapfire_fsr_ir::IrEvaluator>,
+  module: &str,
+  body: &[u8],
+  locale: &str,
+) -> Result<IslandStep, (StatusCode, serde_json::Value)> {
+  let Some(evaluator) = lowered else {
+    return Err((
+      StatusCode::NOT_FOUND,
+      serde_json::json!({ "kind": "not_found", "message": "no lowered component" }),
+    ));
+  };
+  let components = evaluator.components();
+  let Some(component) = components.get(module).cloned() else {
+    return Err((
+      StatusCode::NOT_FOUND,
+      serde_json::json!({ "kind": "not_found", "message": format!("`{module}` is not a lowered component") }),
+    ));
+  };
+  let posted = island_body(body, locale)?;
+  let state = match posted.state {
+    Value::Map(map) => map,
+    Value::Null => ValueMap::default(),
+    _ => {
       return Err((
         StatusCode::BAD_REQUEST,
         serde_json::json!({ "kind": "invalid", "message": "state must be an object" }),
@@ -3111,14 +3230,14 @@ pub fn island_step(
       serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }),
     ));
   }
-  let handler = match input.get("handler") {
-    None | Some(Value::Null) => None,
-    Some(Value::Int(i)) if *i >= 0 => Some(*i as usize),
-    Some(Value::F64(f)) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
-    Some(_) => {
+  let handler = match &posted.handler {
+    Value::Null => None,
+    Value::Int(i) if *i >= 0 => Some(*i as usize),
+    Value::F64(f) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
+    _ => {
       return Err((
         StatusCode::BAD_REQUEST,
-        serde_json::json!({ "kind": "invalid", "message": "handler must be an index" }),
+        serde_json::json!({ "kind": "invalid", "message": "a lowered component's handler is an index" }),
       ));
     }
   };
@@ -3128,15 +3247,9 @@ pub fn island_step(
       serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", handler.unwrap_or(0)) }),
     ));
   }
-  let event = input.get("event").cloned().unwrap_or(Value::Null);
-  if !locale.is_empty() {
-    props
-      .entry("locale".to_owned())
-      .or_insert_with(|| Value::str(locale.to_owned()));
-  }
   match evaluator
     .interpreter()
-    .island_step(module, &component, &props, &state, handler, &event, &components)
+    .island_step(module, &component, &posted.props, &state, handler, &posted.event, &components)
   {
     Ok(stepped) => {
       let html = snapfire_fsr_payload::html_serialize(&Node::Seq(snapfire_fsr_ir::rendered_nodes(&stepped.rendered)));
@@ -3466,6 +3579,19 @@ impl HostBuilder {
     Fut: Future<Output = Result<Value, ActionError>> + Send + 'static,
   {
     self.app_mut(|app| app.action(id, f));
+    self
+  }
+
+  /// One handler of an island a template renders. `module` is what the
+  /// placement names and `name` is what its markup binds with
+  /// `data-sf-on="click:<name>"`; the handler answers with the state the
+  /// module is rendered from next.
+  pub fn island_handler<F, Fut>(mut self, module: impl Into<String>, name: impl Into<String>, f: F) -> Self
+  where
+    F: Fn(RequestCtx, IslandEvent) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, ActionError>> + Send + 'static,
+  {
+    self.app_mut(|app| app.island_handler(module, name, f));
     self
   }
 

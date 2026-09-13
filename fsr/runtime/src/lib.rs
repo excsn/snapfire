@@ -10,6 +10,7 @@ pub mod resolver;
 pub mod natives;
 pub mod segments;
 pub mod services;
+pub mod islands;
 pub mod store;
 pub mod stream;
 
@@ -21,6 +22,7 @@ pub use cache::{CacheEntry, FibreCache, LoadCache, MemoryCache, MemoryLoadCache,
 pub use ctx::{Identity, Locale, RequestCtx, SessionCell, parse_query};
 pub use data::{DataSource, DataSources, LoadError, LoadKeyer, NoLoadKey};
 pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
+pub use islands::{IslandEvent, IslandHandler, IslandRegistry, island_data};
 pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
 pub use meta::{Head, HeadEl, Meta, Metadata};
 pub use resolver::{Resolver, TableResolver};

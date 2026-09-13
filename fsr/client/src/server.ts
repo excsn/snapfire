@@ -76,13 +76,14 @@ function listen(el: Element, island: ServerIsland): void {
   }
 }
 
-function handlerFor(el: Element, target: EventTarget | null, type: string): number | null {
+/** The handler bound for `type` on the element the event came from: an index for a lowered component, a name for an island a template rendered. The token is carried as written and the host decides which it is. */
+function handlerFor(el: Element, target: EventTarget | null, type: string): string | null {
   if (!(target instanceof Element)) return null;
   const bound = target.closest("[data-sf-on]");
   if (!bound || !el.contains(bound)) return null;
   for (const pair of (bound.getAttribute("data-sf-on") ?? "").split(" ")) {
-    const [event, index] = pair.split(":");
-    if (event === type && index !== undefined) return Number(index);
+    const [event, handler] = pair.split(":");
+    if (event === type && handler !== undefined) return handler;
   }
   return null;
 }
@@ -100,7 +101,7 @@ async function fire(el: Element, island: ServerIsland, type: string, event: Even
   await step(el, island, handler, detail as SfValue);
 }
 
-async function step(el: Element, island: ServerIsland, handler: number | null, event: SfValue | null): Promise<void> {
+async function step(el: Element, island: ServerIsland, handler: string | null, event: SfValue | null): Promise<void> {
   island.pending = true;
   el.setAttribute("data-sf-pending", "");
   try {
@@ -108,7 +109,8 @@ async function step(el: Element, island: ServerIsland, handler: number | null, e
     if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
     // Everything but the state is encoded here; the state is already the
     // server's own encoding, carried back untouched so a double stays one.
-    const body = JSON.stringify({ props: island.props, state: island.state, handler, event: encodeValue(event as SfValue) });
+    const named = handler !== null && !/^\d+$/.test(handler);
+    const body = JSON.stringify({ props: island.props, state: island.state, handler: handler === null || named ? handler : Number(handler), event: encodeValue(event as SfValue) });
     const res = await fetch(`/_sf/island/${encodeURIComponent(island.module)}`, { method: "POST", headers, body });
     const text = await res.text();
     if (!res.ok) {
