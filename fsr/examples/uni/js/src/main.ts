@@ -17,7 +17,7 @@ registerIsland("js/src/ui/Feed.tsx#default", {
 });
 
 registerIsland("js/src/ui/Holdings.vue#default", {
-  loader: () => import("./ui/Holdings.js").then((m) => m.default),
+  loader: () => import("./ui/Holdings.vue").then((m) => m.default),
   mount: vueMounter,
   patch: vuePatcher,
 });

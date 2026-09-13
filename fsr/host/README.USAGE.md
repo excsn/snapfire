@@ -171,6 +171,8 @@ From the app directory, each reported at boot under `inferred`:
 | a `/static/js/vendor` root | `vendor/` in the app directory |
 | a `/static/css` root and `document.styles` | `styles/` in the app directory, every `.css` in it linked from the head in name order |
 | the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own |
+
+The build facts are read from `dist/` or, failing that, from whichever directory a `[[static]]` root already points at, since an application that writes its own root for the browser tree keeps the bundle elsewhere: a project rendering through Tera has `js/dist`, whose component stylesheets would otherwise never reach the head. The report names the directory it read.
 | `clients.<name>.document` | `clients/<name>.openapi.json`, or `clients/<name>.proto` when only that exists |
 
 Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.

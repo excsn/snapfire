@@ -48,4 +48,17 @@ The tape asks for itself: `hx-get="?__fragment=tape"` on a ten second trigger. T
 
 ## The honest cost
 
-Two runtimes on one page pay for both. The vendor tree here is React at 152 KiB, Vue at 116 KiB and htmx at 168 KiB, before compression and before the client itself. That is the number the composition claim has to carry, which is why this example exists rather than a paragraph saying mixing is possible.
+Two runtimes on one page pay for both, and this page pays for three things that mount differently. Measured from the files this page loads, gzip at level 9:
+
+| | raw | gzip |
+| --- | --- | --- |
+| React, with its adapter | 153.5K | 49.9K |
+| Vue, with its adapter | 116.9K | 45.8K |
+| htmx, with its binding | 165.3K | 37.0K |
+| the fsr client | 60.8K | 17.6K |
+| this application | 6.6K | 2.2K |
+| everything the page loads | 503.1K | 152.6K |
+
+Read it as the price of the claim rather than as a recommendation. React and Vue together are 96K compressed before a line of the application runs, which is why mixing is for a migration or for a page that genuinely holds two teams' work, not for a default. htmx is the largest raw file here and the cheapest thing on the page in what it asks of the framework: nothing mounts it, nothing hydrates it and the region it drives is markup the server already rendered.
+
+The fsr client is served from the host binary unminified, which is why 60.8K raw is a fair share of it; minified it is 43.2K.

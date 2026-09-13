@@ -40,10 +40,10 @@ async fn the_router_swaps_a_vue_segment_for_a_react_one_under_the_same_layout() 
   let board = body(host.handle(Request::get("/board?__payload").body(Bytes::new()).unwrap()).await).await;
   let news = body(host.handle(Request::get("/news?__payload").body(Bytes::new()).unwrap()).await).await;
 
-  assert!(board.contains("Holdings.vue"), "the board payload names the Vue module: {board}");
-  assert!(!board.contains("Feed.tsx"), "and not the React page one");
-  assert!(news.contains("Feed.tsx"), "the news payload names the React module: {news}");
-  assert!(!news.contains("Holdings.vue"), "and not the Vue one");
+  assert!(board.contains("Holdings.vue#default"), "the board payload names the Vue module: {board}");
+  assert!(!board.contains("Feed.tsx#default"), "and not the React page one");
+  assert!(news.contains("Feed.tsx#default"), "the news payload names the React module: {news}");
+  assert!(!news.contains("Holdings.vue#default"), "and not the Vue one");
   assert!(news.contains("layout.tera"), "both carry the layout segment, which the navigator keeps");
 }
 

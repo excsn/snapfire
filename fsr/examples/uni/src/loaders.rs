@@ -4,13 +4,16 @@ use snapfire_fsr_host::HostBuilder;
 use crate::state::{self, Tape};
 
 /// What the masthead island is rendered with: the symbol the session is
-/// watching and the price beside it, so the React island renders on the
-/// server with the value its store will hold.
+/// watching and every price, so it can show the one the store moves to
+/// without asking the server again.
 fn watch_props(symbol: &str) -> Value {
+  let mut prices = ValueMap::default();
+  for holding in state::HOLDINGS {
+    prices.insert(holding.symbol.to_owned(), Value::F64(holding.price));
+  }
   let mut map = ValueMap::default();
   map.insert("symbol".to_owned(), Value::str(symbol));
-  let price = state::holding(symbol).map(|h| h.price).unwrap_or_default();
-  map.insert("price".to_owned(), Value::F64(price));
+  map.insert("prices".to_owned(), Value::Map(prices));
   Value::Map(map)
 }
 

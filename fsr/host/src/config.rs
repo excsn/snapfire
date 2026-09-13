@@ -1084,22 +1084,24 @@ impl Config {
     // Linked after the document's own sheets, whether written or inferred from
     // `styles/`, so a component's rules come later in the cascade.
     let mut component_sheets: Vec<String> = Vec::new();
-    if let Some(facts) = build_facts(&app) {
+    let mut facts_dir = "dist".to_owned();
+    if let Some((dir, facts)) = build_facts(&app, &statics) {
+      facts_dir = dir.clone();
       if let Some(public_path) = facts.public_path {
         let route = public_path.trim_end_matches('/').to_owned();
         if !statics.iter().any(|s| s.route == route) {
           statics.push(StaticRoot {
             route: route.clone(),
-            dir: "dist".to_owned(),
+            dir: dir.clone(),
           });
-          inferred.push(format!("static {route} from dist/.snapfire-build.json"));
+          inferred.push(format!("static {route} from {dir}/.snapfire-build.json"));
         }
         if document.entry.is_none() && facts.entries.iter().any(|e| e == "src/main.js") {
           // From the route rather than from the path it was trimmed out of:
           // the entry is a URL the static root above answers, so a public
           // path written without a trailing slash cannot run the two together.
           document.entry = Some(format!("{route}/src/main.js"));
-          inferred.push("document.entry from dist/.snapfire-build.json".to_owned());
+          inferred.push(format!("document.entry from {dir}/.snapfire-build.json"));
         }
         component_sheets = facts.styles.iter().map(|style| format!("{route}/{style}")).collect();
       }
@@ -1194,7 +1196,7 @@ impl Config {
           sheets.push(href);
         }
       }
-      inferred.push("document.styles gains the component stylesheets from dist/.snapfire-build.json".to_owned());
+      inferred.push(format!("document.styles gains the component stylesheets from {facts_dir}/.snapfire-build.json"));
     }
     for (name, client) in clients.iter_mut() {
       if client.document.is_none() {
@@ -1302,9 +1304,21 @@ struct BuildFacts {
   styles: Vec<String>,
 }
 
-fn build_facts(app: &Path) -> Option<BuildFacts> {
-  let text = std::fs::read_to_string(app.join("dist/.snapfire-build.json")).ok()?;
-  serde_json::from_str(&text).ok()
+/// The compiler's facts file, from `dist/` or from whichever static root a
+/// configuration points at its bundle: an application that writes its own
+/// `[[static]]` for the browser tree, which is what a project rendering
+/// through Tera does, keeps the bundle outside `dist/` and its component
+/// stylesheets would otherwise never reach the head.
+fn build_facts(app: &Path, statics: &[StaticRoot]) -> Option<(String, BuildFacts)> {
+  let dirs = std::iter::once("dist".to_owned()).chain(statics.iter().map(|root| root.dir.clone()));
+  for dir in dirs {
+    let path = app.join(&dir).join(".snapfire-build.json");
+    let Ok(text) = std::fs::read_to_string(&path) else { continue };
+    if let Ok(facts) = serde_json::from_str::<BuildFacts>(&text) {
+      return Some((dir, facts));
+    }
+  }
+  None
 }
 
 fn to_json(value: &c5store::value::C5DataValue) -> serde_json::Value {
