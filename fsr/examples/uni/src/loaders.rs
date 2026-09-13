@@ -1,7 +1,7 @@
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::HostBuilder;
 
-use crate::session::{bought, lot, watched};
+use crate::session::{lot, position, watched};
 use crate::state::{self, Tape, Ticks};
 
 /// What the masthead island is rendered with. Every price rides along, so the
@@ -34,13 +34,18 @@ pub fn register(builder: HostBuilder, tape: Tape, ticks: Ticks) -> HostBuilder {
       let symbol = watched(&ctx);
       let size = lot(&ctx);
       let Value::Map(mut watch) = watch_props(&symbol, ticks.now()) else { unreachable!("watch props are a map") };
-      watch.insert("owned".to_owned(), Value::Int(bought(&ctx, &symbol) as i128));
+      watch.insert("owned".to_owned(), Value::Int(position(&ctx, &symbol).shares as i128));
       watch.insert("lot".to_owned(), Value::Int(size as i128));
       let mut stepper = ValueMap::default();
       stepper.insert("size".to_owned(), Value::Int(size as i128));
+      // The book, printed by the layout itself. No island and no mounter:
+      // the numbers are the server's arithmetic, kept current by the
+      // revalidation `live(["prices"])` asks for.
+      let figures = state::figures(ticks.now(), |holding| position(&ctx, holding.symbol));
       let mut data = ValueMap::default();
       data.insert("watch".to_owned(), Value::Map(watch));
       data.insert("lot".to_owned(), Value::Map(stepper));
+      data.insert("figures".to_owned(), figures.as_value());
       Ok(data)
         }
       }
@@ -58,7 +63,7 @@ pub fn register(builder: HostBuilder, tape: Tape, ticks: Ticks) -> HostBuilder {
             Value::Map(map) => map,
             _ => ValueMap::default(),
           };
-          row.insert("shares".to_owned(), Value::Int((holding.shares + bought(&ctx, holding.symbol)) as i128));
+          row.insert("shares".to_owned(), Value::Int((holding.shares + position(&ctx, holding.symbol).shares) as i128));
           row.insert("price".to_owned(), Value::F64(state::price_at(holding, tick)));
           Value::Map(row)
         })

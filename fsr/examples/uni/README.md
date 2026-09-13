@@ -22,7 +22,7 @@ That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one co
 | File | What it is |
 | --- | --- |
 | `templates/document.tera` | the document: `<html>`, the head and one slot, so the layout beneath it is a region the navigator can patch |
-| `templates/layout.tera` | the layout: a masthead with the React island and the server-mode one, `content` for the page and `tape` for the region beside it |
+| `templates/layout.tera` | the layout: a masthead with the React island and the server-mode one, the book as plain markup, `content` for the page and `tape` for the region beside it |
 | `templates/board.tera` | the board page, whose one island is Vue |
 | `templates/news.tera` | the news page, whose one island is React |
 | `templates/tape.tera` | the region htmx polls; no island, no mounter, no framework |
@@ -34,8 +34,8 @@ That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one co
 | `js/src/ui/Lot.tsx` | the one component the server renders itself: lowered by `build.rs` into the plan, placed in server mode, mounting nothing; its buttons call an action, which the host dispatches when the handler runs |
 | `js/src/main.ts` | five `registerIsland` calls, two mounters, one `bindHtmx`, one `live` |
 | `src/routes.rs` | the plans: a document over a layout over a page, with `tape` as a second child |
-| `src/loaders.rs` | four sources in Rust, one per segment |
-| `src/actions.rs` | `desk.buy`, which writes the session both islands are rendered from |
+| `src/loaders.rs` | four sources in Rust, one per segment; the layout's also prints the book |
+| `src/actions.rs` | `desk.watch`, `desk.lot` and `desk.buy`, each writing the session every piece above is rendered from |
 | `build.rs` | lowers `Lot.tsx` to the IR and writes the plan the host reads |
 
 ## One store, two runtimes
@@ -57,6 +57,7 @@ React reads it with `useStore` from `@snapfire/fsr-client/react`, Vue with `useS
 | the masthead arrows | a store write the Vue table follows, plus one quiet `desk.watch` the page does not revalidate for: the session remembers the symbol for the next load |
 | the lot stepper | nothing mounts: every click posts to the host, Rust runs the handler, dispatches the `desk.lot` action it calls, renders the component again and the browser patches the markup, then refreshes the page's data the way it does after any action |
 | the tape | nothing mounts: htmx swaps a fragment the host rendered |
+| the book | nothing mounts and nothing is asked for: value, cost, profit and the day are arithmetic the layout's loader did, printed into the markup. They stay current because `live(["prices"])` revalidates the route when the desk's clock moves |
 
 Two of those ship a framework and two do not.
 

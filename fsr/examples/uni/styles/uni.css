@@ -38,6 +38,22 @@ body {
 .watch button { border: 0; background: #eef0f4; border-radius: 999px; padding: 3px 10px; cursor: pointer; }
 .watch .turn { padding: 0 8px; font-size: 16px; line-height: 1.2; }
 
+.summary {
+  display: flex;
+  align-items: baseline;
+  gap: 26px;
+  padding: 10px 22px;
+  background: #fff;
+  border-bottom: 1px solid #e3e5ea;
+}
+
+.summary div { display: flex; align-items: baseline; gap: 8px; }
+.summary .label { color: #6b7280; font-size: 13px; }
+.summary b { font-variant-numeric: tabular-nums; font-size: 16px; }
+.summary .pct { font-variant-numeric: tabular-nums; font-size: 13px; }
+.summary .up { color: #15803d; }
+.summary .down { color: #b91c1c; }
+
 .columns { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; padding: 22px; align-items: start; }
 
 .page { background: #fff; border: 1px solid #e3e5ea; border-radius: 10px; padding: 18px 20px; }

@@ -1,20 +1,77 @@
 use snapfire_fsr_core::{Value, ValueMap};
 
 /// One line of the desk: what is held, what it is worth and where it moved.
+/// `cost` is what the desk paid a share, which is the only reason it can say
+/// what it has made.
 pub struct Holding {
   pub symbol: &'static str,
   pub name: &'static str,
   pub shares: i64,
   pub price: f64,
+  pub cost: f64,
   pub change: f64,
 }
 
 pub const HOLDINGS: &[Holding] = &[
-  Holding { symbol: "ARBR", name: "Arbor Works", shares: 120, price: 41.20, change: 1.8 },
-  Holding { symbol: "KLNS", name: "Kiln & Sons", shares: 64, price: 118.05, change: -0.9 },
-  Holding { symbol: "MRSH", name: "Marsh Optics", shares: 310, price: 7.65, change: 4.2 },
-  Holding { symbol: "VLDT", name: "Veldt Freight", shares: 45, price: 260.40, change: 0.3 },
+  Holding { symbol: "ARBR", name: "Arbor Works", shares: 120, price: 41.20, cost: 36.80, change: 1.8 },
+  Holding { symbol: "KLNS", name: "Kiln & Sons", shares: 64, price: 118.05, cost: 131.40, change: -0.9 },
+  Holding { symbol: "MRSH", name: "Marsh Optics", shares: 310, price: 7.65, cost: 5.90, change: 4.2 },
+  Holding { symbol: "VLDT", name: "Veldt Freight", shares: 45, price: 260.40, cost: 254.75, change: 0.3 },
 ];
+
+/// What a visitor bought on top of the desk's own line: the shares and what
+/// they cost, since a count alone cannot price a profit.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Position {
+  pub shares: i64,
+  pub spent: f64,
+}
+
+/// The desk's book at one tick: what it is worth, what it cost, the profit
+/// between them and what the day has moved.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Figures {
+  pub value: f64,
+  pub cost: f64,
+  pub profit: f64,
+  pub profit_pct: f64,
+  pub day: f64,
+}
+
+/// The book at `tick`, with `own` adding each visitor's own position to the
+/// line. Pure: the same numbers for the same tick and the same positions.
+pub fn figures(tick: usize, own: impl Fn(&Holding) -> Position) -> Figures {
+  let mut value = 0.0;
+  let mut cost = 0.0;
+  let mut day = 0.0;
+  for holding in HOLDINGS {
+    let extra = own(holding);
+    let shares = (holding.shares + extra.shares) as f64;
+    let price = price_at(holding, tick);
+    value += shares * price;
+    cost += holding.shares as f64 * holding.cost + extra.spent;
+    day += shares * price * holding.change / 100.0;
+  }
+  let profit = value - cost;
+  let profit_pct = if cost == 0.0 { 0.0 } else { profit / cost * 100.0 };
+  Figures { value, cost, profit, profit_pct, day }
+}
+
+impl Figures {
+  /// The summary as a template reads it: every number already printed, since
+  /// the markup shows them and nothing downstream does arithmetic on them.
+  pub fn as_value(&self) -> Value {
+    let mut map = ValueMap::default();
+    map.insert("value".to_owned(), Value::str(format!("{:.2}", self.value)));
+    map.insert("cost".to_owned(), Value::str(format!("{:.2}", self.cost)));
+    map.insert("profit".to_owned(), Value::str(format!("{:+.2}", self.profit)));
+    map.insert("profit_pct".to_owned(), Value::str(format!("{:+.1}%", self.profit_pct)));
+    map.insert("day".to_owned(), Value::str(format!("{:+.2}", self.day)));
+    map.insert("up".to_owned(), Value::Bool(self.profit >= 0.0));
+    map.insert("day_up".to_owned(), Value::Bool(self.day >= 0.0));
+    Value::Map(map)
+  }
+}
 
 pub const HEADLINES: &[(&str, &str)] = &[
   ("ARBR", "Arbor Works signs the northern yard"),
@@ -63,6 +120,7 @@ pub fn as_value(h: &Holding) -> Value {
   map.insert("name".to_owned(), Value::str(h.name));
   map.insert("shares".to_owned(), Value::Int(h.shares as i128));
   map.insert("price".to_owned(), Value::F64(h.price));
+  map.insert("cost".to_owned(), Value::F64(h.cost));
   map.insert("change".to_owned(), Value::F64(h.change));
   Value::Map(map)
 }

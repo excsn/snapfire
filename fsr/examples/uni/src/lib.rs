@@ -41,7 +41,7 @@ pub fn builder(ticks: state::Ticks, tape: state::Tape) -> Result<HostBuilder, Ho
     .route("/board", routes::board_plan())
     .route("/news", routes::news_plan())
     .route("/", routes::board_plan());
-  Ok(actions::register(loaders::register(builder, tape, ticks)))
+  Ok(actions::register(loaders::register(builder, tape, ticks.clone()), ticks))
 }
 
 pub fn build() -> Result<Host, HostError> {

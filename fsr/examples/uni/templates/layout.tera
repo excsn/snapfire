@@ -5,9 +5,15 @@
   {{ island(module="js/src/ui/Watch.tsx#default", props=watch, key="watch") }}
   {{ island(module="js/src/ui/Lot.tsx#default", props=lot, key="lot", mode="server") }}
 </header>
+<section class="summary">
+  <div><span class="label">value</span><b>{{ figures.value }}</b></div>
+  <div><span class="label">cost</span><b>{{ figures.cost }}</b></div>
+  <div><span class="label">profit</span><b class="{% if figures.up %}up{% else %}down{% endif %}">{{ figures.profit }}</b><span class="pct {% if figures.up %}up{% else %}down{% endif %}">{{ figures.profit_pct }}</span></div>
+  <div><span class="label">day</span><b class="{% if figures.day_up %}up{% else %}down{% endif %}">{{ figures.day }}</b></div>
+</section>
 <div class="columns">
   <main>{{ slot(name="content") }}</main>
   <aside>{{ slot(name="tape") }}</aside>
 </div>
-<footer class="colophon">One Tera layout. A React island in the masthead, a Vue island on the board, an htmx region on the right, one store between them.</footer>
+<footer class="colophon">One Tera layout. A React island in the masthead, a Vue island on the board, an htmx region on the right, one store between them. The book above is markup the layout printed: nothing there mounts.</footer>
 </div>

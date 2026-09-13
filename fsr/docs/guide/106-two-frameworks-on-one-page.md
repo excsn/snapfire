@@ -53,6 +53,8 @@ bindHtmx(htmx);
 
 So one page here holds three interaction models: a component the browser hydrates, a component the browser mounts fresh, a region nothing mounts at all. The lot stepper in the masthead is a fourth, from chapter 102: a React component the host renders and steps itself, placed in server mode, whose buttons call an action the host dispatches inside the round trip.
 
+The fifth is the cheapest and it is the page's most valuable content. The book under the masthead, value against cost with the profit between them, is arithmetic the layout's loader did, printed straight into the markup: no island, no mounter, no props script, nothing to hydrate, no module loaded. It is current because the desk's clock pushes `prices` and `live(["prices"])` revalidates the route, so the server computes the numbers again and the navigator swaps the segment. Reach for an island when the browser owns something; when the server owns it, markup is the whole answer.
+
 ## What it costs
 
 This is the part worth reading before you reach for it. Measured from the files `uni`'s board actually loads, gzip at level 9:
@@ -85,6 +87,8 @@ Open `/board` and click a row in the table. The masthead symbol changes; the tab
 Click News. The page segment is React now, the masthead is the same element it was, the feed's filter already reading the symbol you picked in the Vue table. Click Board again: the table comes back with your row still held.
 
 Watch the tape on the right for ten seconds. It swaps itself, having asked the host for one slot of the route. Nothing in it mounted.
+
+Watch the book while you wait. The prices move every four seconds, the push revalidates and the value and the profit follow, all of it markup. Press "buy 10" and the cost climbs by what the shares cost at that moment rather than by what the desk paid years ago, which is why a position carries its own basis.
 
 Press the lot's `+`. Nothing mounted for that either: the click posts to the host, Rust runs the lowered handler, the handler calls `desk.lot`, the host runs the action and answers the stepper's new markup, then the page refreshes its data and the masthead's buy button, a React island, reads the size the action wrote. Reload: the lot is still what you set, since the action wrote the session. [`Lot.tsx`](../../examples/uni/js/src/ui/Lot.tsx) is a component with two buttons calling an action and nothing else; the mode on its placement in `layout.tera` is what decides that the handler runs in Rust.
 
