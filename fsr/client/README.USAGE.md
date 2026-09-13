@@ -355,7 +355,7 @@ import { boot } from "@snapfire/fsr-client";
 boot();
 ```
 
-`scan` is what does the work. It is idempotent: it only matches `sf-i` markers without `data-sf-mounted` and it stamps that attribute before scheduling. Call it directly for markup you inserted yourself:
+`scan` is what does the work. It is idempotent: it only matches `sf-i` markers without `data-sf-scheduled` and it stamps that attribute as it takes each one. `data-sf-mounted` is a different statement, stamped when the mounter has run, so an island waiting on `visible` or `idle` carries the first and not yet the second. Call `scan` directly for markup you inserted yourself:
 
 ```ts
 import { scan } from "@snapfire/fsr-client";

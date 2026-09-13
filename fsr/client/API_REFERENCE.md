@@ -371,7 +371,7 @@ Registers or replaces the entry for a module id in the process-wide registry. `m
 
 * `scan(root: ParentNode): void`
 
-Mounts every unmounted island marker under `root`. Selects `sf-i:not([data-sf-mounted])`, skips a marker with no `data-sf-module`, stamps `data-sf-mounted` before scheduling, then schedules according to the `data-sf-when` of the `sf-s` region the marker sits in, when a page or layout placed it with one, else the entry's timing. Idempotent, so rescanning a root that is already mounted does nothing.
+Mounts every unscheduled island marker under `root`. Selects `sf-i:not([data-sf-scheduled])`, skips a marker with no `data-sf-module`, stamps `data-sf-scheduled`, then schedules according to the `data-sf-when` of the `sf-s` region the marker sits in, when a page or layout placed it with one, else the entry's timing. Idempotent, so rescanning a root a scan has taken does nothing. `data-sf-mounted` is stamped separately, when the mounter has actually run, so the two say different things for an island still waiting on `visible` or `idle`.
 
 Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root` first and then across the document. A missing or empty script yields `{}`.
 
@@ -415,7 +415,8 @@ What the server writes and this package reads.
 | --- | --- | --- |
 | `<sf-i id data-sf-module>` | HTML serialiser, `nodeToHtml` | `scan` |
 | `<script type="application/json" data-sf-props="<id>">` | HTML serialiser, `nodeToHtml` | `scan` |
-| `data-sf-mounted` | `scan` | `scan` |
+| `data-sf-scheduled` | `scan`, on the marker it takes | `scan`, `navigate`, the React `Island` |
+| `data-sf-mounted` | the mount itself, once the mounter has run | tests, anything asking whether an island is live |
 | `<div data-sf-slot="N">` | HTML serialiser, `nodeToHtml` | the fill script, `refresh`, `navigate` |
 | `<template data-sf-fill="N">` | the streamed HTML response | the fill script |
 | `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script; `navigate` and `refresh`, once per `S` row they apply | `boot`, `enableNavigation` and whatever else wires markup it did not write |

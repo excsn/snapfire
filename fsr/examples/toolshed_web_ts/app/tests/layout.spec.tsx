@@ -33,6 +33,7 @@ test("the one island is an element definition; no framework mounts", async () =>
   const markers = Array.from(document.querySelectorAll("sf-i"));
   assert.equal(markers.length, 1, "the loans list, whose definition is imported when it scrolls into view");
   assert.equal(markers[0].getAttribute("data-sf-module"), "src/elements/time-ago.ts#default");
+  assert.ok(markers[0].hasAttribute("data-sf-mounted"), "the harness has no layout, so its observer reports the panel in view at once and the definition is imported");
   assert.ok(markers[0].innerHTML.includes("<time-ago"), "the element markup the server wrote sits inside the marker, waiting for its definition");
   assert.equal(document.querySelector('script[data-sf-props="sf-i0"]')?.textContent, '{"$k":"routes/slots/loans/page.tsx#default|i0"}', "its props are the region key and nothing else");
   assert.ok(document.querySelector("loan-planner template[shadowrootmode=open]"), "the planner's shadow root is written by the server");

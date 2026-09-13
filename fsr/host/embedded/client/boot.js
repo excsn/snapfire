@@ -25,7 +25,10 @@ function awaitingAnAncestor(el) {
 }
 function mountNow(entry, moduleId, el, props) {
     const hydrate = serverRendered(el);
-    const handle = entry.loader().then((mod)=>entry.mount(mod, props, el, hydrate)).catch((err)=>{
+    const handle = entry.loader().then((mod)=>entry.mount(mod, props, el, hydrate)).then((value)=>{
+        el.setAttribute(MOUNTED, "");
+        return value;
+    }).catch((err)=>{
         console.warn(`sf: mounting ${moduleId} failed`, err);
         return undefined;
     });
@@ -84,13 +87,16 @@ function schedule(entry, moduleId, el, props) {
             }
     }
 }
+const SCHEDULED = "data-sf-scheduled";
+const MOUNTED = "data-sf-mounted";
 export function scan(root) {
-    for (const el of Array.from(root.querySelectorAll("sf-i:not([data-sf-mounted])"))){
+    for (const el of Array.from(root.querySelectorAll(`sf-i:not([${SCHEDULED}])`))){
         const moduleId = el.getAttribute("data-sf-module");
         if (!moduleId) continue;
         if (awaitingAnAncestor(el)) continue;
         if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
-            el.setAttribute("data-sf-mounted", "");
+            el.setAttribute(SCHEDULED, "");
+            el.setAttribute(MOUNTED, "");
             mountServer(el, moduleId, propsFor(root, el.id));
             continue;
         }
@@ -100,7 +106,7 @@ export function scan(root) {
             arm();
             continue;
         }
-        el.setAttribute("data-sf-mounted", "");
+        el.setAttribute(SCHEDULED, "");
         const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when");
         schedule(placed ? {
             ...entry,

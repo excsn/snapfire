@@ -106,10 +106,10 @@ function propsOf(children: ReactNode): Props {
   return rest as Props;
 }
 
-/** The `sf-i` a region holds, when one is mounted there. */
+/** The `sf-i` a region holds, when a scan has taken one there. A marker whose timing has not fired yet counts: the boot runtime owns it either way. */
 function rootIn(region: Element): Element | null {
   const first = region.firstElementChild;
-  return first?.tagName === "SF-I" && first.hasAttribute("data-sf-mounted") ? first : null;
+  return first?.tagName === "SF-I" && first.hasAttribute("data-sf-scheduled") ? first : null;
 }
 
 export interface IslandProps {

@@ -247,7 +247,7 @@ function morphStatic(key, node, seg) {
             const source = sources.get(regionKey);
             if (!old || !source) continue;
             const root = old.firstElementChild;
-            if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-mounted")) continue;
+            if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-scheduled")) continue;
             const script = old.querySelector(`script[data-sf-props="${root.id}"]`);
             if (script) script.textContent = scriptSafeJson(source.props);
             fresh.replaceWith(old);

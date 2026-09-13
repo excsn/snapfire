@@ -80,7 +80,7 @@ function propsOf(children) {
 }
 function rootIn(region) {
     const first = region.firstElementChild;
-    return first?.tagName === "SF-I" && first.hasAttribute("data-sf-mounted") ? first : null;
+    return first?.tagName === "SF-I" && first.hasAttribute("data-sf-scheduled") ? first : null;
 }
 export function Island({ when, mode, children }) {
     const regions = useContext(RegionsContext);

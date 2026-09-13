@@ -55,7 +55,7 @@ export function serverRendered(el: Element): boolean {
   return Array.from(el.childNodes).some((node) => !(node instanceof Element && node.tagName === "SF-S"));
 }
 
-/** An island the nearest island above it has not rendered. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded, and the copy carries the `data-sf-mounted` a scan would leave. The parent's own mount reaches it instead. */
+/** An island the nearest island above it has not rendered. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded, and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead. */
 function awaitingAnAncestor(el: Element): boolean {
   const above = el.parentElement?.closest("sf-i");
   return above !== null && above !== undefined && !serverRendered(above);
@@ -66,6 +66,10 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
   const handle = entry
     .loader()
     .then((mod) => entry.mount(mod, props, el, hydrate))
+    .then((value) => {
+      el.setAttribute(MOUNTED, "");
+      return value;
+    })
     .catch((err) => {
       console.warn(`sf: mounting ${moduleId} failed`, err);
       return undefined;
@@ -120,14 +124,21 @@ function schedule(entry: IslandEntry, moduleId: string, el: Element, props: Prop
   }
 }
 
+/** Marks a marker some scan has taken, so a rescan leaves it alone however its timing is still waiting. What it does not say is that anything mounted: [`MOUNTED`] says that. */
+const SCHEDULED = "data-sf-scheduled";
+
+/** Marks a marker whose mounter has run. A `visible` or `idle` island carries [`SCHEDULED`] from the scan that took it and this one only once its timing fired, which is the difference a test reads. */
+const MOUNTED = "data-sf-mounted";
+
 /** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. Idempotent. */
 export function scan(root: ParentNode): void {
-  for (const el of Array.from(root.querySelectorAll("sf-i:not([data-sf-mounted])"))) {
+  for (const el of Array.from(root.querySelectorAll(`sf-i:not([${SCHEDULED}])`))) {
     const moduleId = el.getAttribute("data-sf-module");
     if (!moduleId) continue;
     if (awaitingAnAncestor(el)) continue;
     if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
-      el.setAttribute("data-sf-mounted", "");
+      el.setAttribute(SCHEDULED, "");
+      el.setAttribute(MOUNTED, "");
       mountServer(el, moduleId, propsFor(root, el.id));
       continue;
     }
@@ -137,7 +148,7 @@ export function scan(root: ParentNode): void {
       arm();
       continue;
     }
-    el.setAttribute("data-sf-mounted", "");
+    el.setAttribute(SCHEDULED, "");
     const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when") as MountTiming | null;
     schedule(placed ? { ...entry, when: placed } : entry, moduleId, el, propsFor(root, el.id));
   }
