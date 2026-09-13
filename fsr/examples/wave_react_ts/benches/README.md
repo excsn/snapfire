@@ -40,8 +40,6 @@ The bench prints its own table rather than criterion's three numbers, since a ro
 
 ### 2026-09-13, `7f8309f`, MacBook M4 Pro
 
-One run, powermode 2, load 3.82 at the start and 6.74 at the end, 14 cores.
-
 **Paced, 10 keystrokes a second per window, 5 s a row**
 
 | Windows | sent/s | applied/s | views/s | seen | gaps | p50 ms | p99 ms | max ms |
