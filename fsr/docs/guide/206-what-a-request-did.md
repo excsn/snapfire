@@ -33,18 +33,20 @@ Every example does exactly this.
 Under `fsr dev`, the host answers `GET /__fsr/traces` with the last fifty, newest last. One request to the console's agents page:
 
 ```
-request 19.92ms ok GET /agents
-  source layout 16.25ms ok
-  source agents.layout 16.60ms ok
-    call fleet.listAlerts 15.99ms ok
-    call fleet.listAgents 15.54ms ok
-  render shell#document 1.37ms
-    render routes/layout.tsx#default 1.16ms
-      render routes/agents/layout.tsx#default 0.82ms miss
-        render routes/agents/page.tsx#default 0.10ms miss
+request 19.92ms ok {"method": "GET", "path": "/agents", "status": "200"}
+  source 16.25ms ok {"id": "layout", "memo": "miss", "node": "1"}
+  source 16.60ms ok {"id": "agents.layout", "node": "2"}
+    call 15.99ms ok {"service": "fleet", "method": "listAlerts"}
+    call 15.54ms ok {"service": "fleet", "method": "listAgents"}
+  render 1.37ms {"module": "shell#document"}
+    render 1.16ms {"module": "routes/layout.tsx#default", "cache": "miss"}
+      render 0.82ms {"module": "routes/agents/layout.tsx#default", "cache": "miss"}
+        render 0.10ms {"module": "routes/agents/page.tsx#default", "cache": "miss"}
 ```
 
-Read down and the shape of the page is there. Two loaders ran and they ran together rather than one after the other, because both took about sixteen milliseconds inside a request that took twenty. The two service calls sit under the loader that made them, so you know which loader is waiting on which backend. Rendering the whole tree cost one and a half milliseconds against sixteen spent waiting, which tells you where to look and where not to. And `miss` on the last two says the render memo had nothing for them.
+The endpoint answers a JSON array. Every span carries its own `depth`, so laying it out as a tree is the reader's job; the shape of the page is in that. Two loaders ran and they ran together rather than one after the other, because both took about sixteen milliseconds inside a request that took twenty. The two service calls sit under the loader that made them, so you know which loader is waiting on which backend. Rendering the whole tree cost one and a half milliseconds against sixteen spent waiting, which tells you where to look and where not to.
+
+Two different caches report themselves in two different fields. A `source` span carries `memo: hit` or `memo: miss` when that loader is memoizable. A `render` span carries `cache: hit` or `cache: miss` when the render cache was consulted for that node. Ask for the same page again and the render subtree gets shorter rather than faster: a `cache: hit` high in the tree means the nodes beneath it were never rendered, so they have no spans at all.
 
 None of that is deducible from ten log lines.
 
@@ -55,11 +57,11 @@ The framework opens four and anything you open with `tracing` joins whichever re
 | Span | One per | Says |
 | --- | --- | --- |
 | `request` | request, the root | method, path, status and whether it succeeded |
-| `source` | plan node with a loader | which source and whether it failed |
+| `source` | plan node with a loader | the `id`, the `node`, whether it failed and `memo` when it is memoizable |
 | `call` | service method, whatever the transport | service, method and the failure kind when it failed |
-| `render` | plan node | the module and whether the memo hit |
+| `render` | plan node | the `module`, plus `cache` when the render cache was consulted |
 
-A failure names its kind rather than a raw status, because the failure vocabulary is what your code acts on and what a dashboard should group by.
+A failure names its kind rather than a raw status, because the failure vocabulary is what your code acts on and what a dashboard should group by. Only `request`, `source` and `call` set an outcome. A `render` span has none, so read its `cache` field instead of looking for `ok` on it.
 
 ## What it costs when nobody is watching
 
@@ -83,4 +85,4 @@ Start the ops console and load `/agents`, then fetch `/__fsr/traces` and find th
 
 Now open the fleet backend and make `listAlerts` sleep for half a second. Load the page again and read the trace: the request grows by roughly half a second, one `source` span grows with it and the `call` span underneath names which method did it. The other loader is unchanged, which is the parallelism showing itself.
 
-Then load the same page twice without changing anything and compare the `render` spans. The second one says `hit` where the first said `miss`.
+Then load the same page twice without changing anything and compare the `render` spans. The second one says `cache: hit` where the first said `cache: miss`; the spans that sat beneath it are gone.
