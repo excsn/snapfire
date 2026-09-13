@@ -9,16 +9,17 @@ import { join, typing } from "@src/ui/wire";
 interface Draft {
   who: string;
   parent: string;
+  anchor: string;
   body: string;
 }
 
-/** What sits under one blip and is not kept: whoever else is typing a reply to it and this reader's own composer. The blips themselves are rendered by the server; this is the part that could not be. A reader with no name gets no composer and the action refuses one anyway. */
-export default function Under({ wave, parent, me, open = false }: { wave: string; parent: string; me: string; open?: boolean }) {
+/** What sits under one blip and is not kept: whoever else is typing a reply there and this reader's own composer. With `anchor` it sits beside that block of the blip instead. The blips themselves are rendered by the server; this is the part that could not be. A reader with no name gets no composer and the action refuses one anyway. */
+export default function Under({ wave, parent, anchor = "", me, open = false }: { wave: string; parent: string; anchor?: string; me: string; open?: boolean }) {
   const [drafts] = useStore(key<Draft[]>("wave/drafts"), []);
   const [writing, setWriting] = useState(open);
   useEffect(() => join(`wave/${wave}`, () => {}), [wave]);
 
-  const ghosts = drafts.filter((draft) => draft.parent === parent && draft.who !== me);
+  const ghosts = drafts.filter((draft) => draft.parent === parent && draft.anchor === anchor && draft.who !== me);
 
   function chord(event: KeyboardEvent<HTMLInputElement>): void {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") event.currentTarget.form?.requestSubmit();
@@ -30,13 +31,13 @@ export default function Under({ wave, parent, me, open = false }: { wave: string
     const body = String(new FormData(form).get("body") ?? "").trim();
     if (!body) return;
     form.reset();
-    typing(parent, "");
+    typing(parent, anchor, "");
     if (!open) setWriting(false);
-    await actions.$root.blip({ wave, parent, body });
+    await actions.$root.blip({ wave, parent, anchor, body });
   }
 
   return (
-    <div className="under">
+    <div className={anchor ? "under aside" : "under"}>
       <div className="ghosts">
         {ghosts.map((draft) => (
           <div key={draft.who} className="blip ghost">
@@ -50,12 +51,12 @@ export default function Under({ wave, parent, me, open = false }: { wave: string
         open ? <p className="nameless">Name yourself at the top to write on this wave.</p> : null
       ) : writing ? (
         <form className="composer" onSubmit={keep}>
-          <input name="body" placeholder={parent ? "Reply" : "Add to the wave"} onChange={(e) => typing(parent, e.target.value)} onKeyDown={chord} autoFocus={!open} />
+          <input name="body" placeholder={anchor ? "Reply to this" : parent ? "Reply" : "Add to the wave"} onChange={(e) => typing(parent, anchor, e.target.value)} onKeyDown={chord} autoFocus={!open} />
           <button type="submit">Keep</button>
         </form>
       ) : (
         <button className="reply" onClick={() => setWriting(true)}>
-          Reply
+          {anchor ? "Reply to this" : "Reply"}
         </button>
       )}
     </div>

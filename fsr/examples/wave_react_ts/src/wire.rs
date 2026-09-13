@@ -51,11 +51,11 @@ impl Wire {
         }
       }
       On::Said(row) if row.key == "typing" => {
-        let (parent, body) = match &row.value {
-          Value::Map(map) => (text(map, "parent"), text(map, "body")),
-          _ => (String::new(), String::new()),
+        let (parent, anchor, body) = match &row.value {
+          Value::Map(map) => (text(map, "parent"), text(map, "anchor"), text(map, "body")),
+          _ => (String::new(), String::new(), String::new()),
         };
-        self.submit(who.connection, Op::Typing { parent, body });
+        self.submit(who.connection, Op::Typing { parent, anchor, body });
       }
       On::Said(row) if row.key == "named" => {
         let name = match &row.value {
@@ -149,6 +149,7 @@ fn rows_of(op: &Op) -> Vec<Row> {
             let mut map = ValueMap::default();
             map.insert("who".to_owned(), Value::str(draft.who.clone()));
             map.insert("parent".to_owned(), Value::str(draft.parent.clone()));
+            map.insert("anchor".to_owned(), Value::str(draft.anchor.clone()));
             map.insert("body".to_owned(), Value::str(draft.body.clone()));
             Value::Map(map)
           })

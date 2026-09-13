@@ -299,13 +299,14 @@
         "required": [
           "id",
           "parent",
+          "anchor",
           "who",
           "body",
-          "html",
           "at",
           "edited",
           "editors",
-          "depth"
+          "parts",
+          "replies"
         ],
         "properties": {
           "id": {
@@ -314,15 +315,16 @@
           "parent": {
             "type": "string"
           },
+          "anchor": {
+            "type": "string",
+            "description": "the block of the parent this answers, as the path the service gives it; empty for the whole blip"
+          },
           "who": {
             "type": "string"
           },
           "body": {
-            "type": "string"
-          },
-          "html": {
             "type": "string",
-            "description": "the body rendered from markdown on the server, with raw HTML shown as text"
+            "description": "the markdown as it was written"
           },
           "at": {
             "type": "string"
@@ -336,9 +338,60 @@
               "type": "string"
             }
           },
-          "depth": {
-            "type": "number",
-            "format": "double"
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "description": "the body parsed on the server, with raw HTML kept as text"
+          },
+          "replies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Blip"
+            },
+            "description": "the replies to the whole blip, then any whose block is gone"
+          }
+        }
+      },
+      "Part": {
+        "type": "object",
+        "required": [
+          "kind",
+          "text",
+          "href",
+          "at",
+          "children",
+          "replies"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "the element the part renders as; text for a run of text"
+          },
+          "text": {
+            "type": "string",
+            "description": "a text part's text, a code block's source or an image's alt"
+          },
+          "href": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "description": "the path of a block a reply can answer, empty for any other part"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            }
+          },
+          "replies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Blip"
+            },
+            "description": "the replies anchored to this block"
           }
         }
       },
@@ -362,6 +415,7 @@
         "required": [
           "who",
           "parent",
+          "anchor",
           "body"
         ],
         "properties": {
@@ -369,6 +423,9 @@
             "type": "string"
           },
           "parent": {
+            "type": "string"
+          },
+          "anchor": {
             "type": "string"
           },
           "body": {

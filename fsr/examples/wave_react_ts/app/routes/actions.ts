@@ -9,7 +9,7 @@ export const name = action(async ({ input, session }: ActionCtx<NameInput>) => {
 
 export const blip = action(async ({ input, services, session }: ActionCtx<BlipInput>) => {
   if (!session.name) fail("invalid", "name yourself before writing on a wave");
-  const kept = await services.waves.addBlip({ id: input.wave, parent: input.parent, who: session.name, body: input.body });
+  const kept = await services.waves.addBlip({ id: input.wave, parent: input.parent, anchor: input.anchor, who: session.name, body: input.body });
   return { kept };
 });
 

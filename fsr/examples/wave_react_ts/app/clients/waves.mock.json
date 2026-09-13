@@ -43,35 +43,93 @@
       {
         "id": "1",
         "parent": "",
+        "anchor": "",
         "who": "alice",
         "body": "Starting a wave for the launch.",
-        "html": "<p>Starting a wave for the launch.</p>\n",
         "at": "09:10",
         "edited": "",
         "editors": [],
-        "depth": 0
-      },
-      {
-        "id": "2",
-        "parent": "1",
-        "who": "bob",
-        "body": "Good. I will take the runtime half.",
-        "html": "<p>Good. I will take the runtime half.</p>\n",
-        "at": "09:12",
-        "edited": "",
-        "editors": [],
-        "depth": 1
+        "parts": [
+          {
+            "kind": "p",
+            "text": "",
+            "href": "",
+            "at": "0",
+            "children": [
+              {
+                "kind": "text",
+                "text": "Starting a wave for the launch.",
+                "href": "",
+                "at": "",
+                "children": [],
+                "replies": []
+              }
+            ],
+            "replies": []
+          }
+        ],
+        "replies": [
+          {
+            "id": "2",
+            "parent": "1",
+            "anchor": "",
+            "who": "bob",
+            "body": "Good. I will take the runtime half.",
+            "at": "09:12",
+            "edited": "",
+            "editors": [],
+            "parts": [
+              {
+                "kind": "p",
+                "text": "",
+                "href": "",
+                "at": "0",
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "Good. I will take the runtime half.",
+                    "href": "",
+                    "at": "",
+                    "children": [],
+                    "replies": []
+                  }
+                ],
+                "replies": []
+              }
+            ],
+            "replies": []
+          }
+        ]
       },
       {
         "id": "3",
         "parent": "",
+        "anchor": "",
         "who": "alice",
         "body": "Anything else goes under its own blip.",
-        "html": "<p>Anything else goes under its own blip.</p>\n",
         "at": "09:14",
         "edited": "",
         "editors": [],
-        "depth": 0
+        "parts": [
+          {
+            "kind": "p",
+            "text": "",
+            "href": "",
+            "at": "0",
+            "children": [
+              {
+                "kind": "text",
+                "text": "Anything else goes under its own blip.",
+                "href": "",
+                "at": "",
+                "children": [],
+                "replies": []
+              }
+            ],
+            "replies": []
+          }
+        ],
+        "replies": []
       }
     ],
     "game": {
@@ -120,26 +178,64 @@
   "addBlip": {
     "id": "4",
     "parent": "",
+    "anchor": "",
     "who": "you",
     "body": "Added.",
-    "html": "<p>Added.</p>\n",
     "at": "09:20",
     "edited": "",
     "editors": [],
-    "depth": 0
+    "parts": [
+      {
+        "kind": "p",
+        "text": "",
+        "href": "",
+        "at": "0",
+        "children": [
+          {
+            "kind": "text",
+            "text": "Added.",
+            "href": "",
+            "at": "",
+            "children": [],
+            "replies": []
+          }
+        ],
+        "replies": []
+      }
+    ],
+    "replies": []
   },
   "editBlip": {
     "id": "1",
     "parent": "",
+    "anchor": "",
     "who": "alice",
     "body": "Rewritten.",
-    "html": "<p>Rewritten.</p>\n",
     "at": "09:10",
     "edited": "09:25",
     "editors": [
       "bob"
     ],
-    "depth": 0
+    "parts": [
+      {
+        "kind": "p",
+        "text": "",
+        "href": "",
+        "at": "0",
+        "children": [
+          {
+            "kind": "text",
+            "text": "Rewritten.",
+            "href": "",
+            "at": "",
+            "children": [],
+            "replies": []
+          }
+        ],
+        "replies": []
+      }
+    ],
+    "replies": []
   },
   "play": {
     "cells": [

@@ -65,18 +65,23 @@ button:hover { border-color: var(--accent); }
 .person.on::before { content: ""; display: inline-block; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--mine); margin-right: 0.35rem; vertical-align: 0.05rem; }
 
 .blips { list-style: none; margin: 0 0 1rem; padding: 0; }
-.blips li { position: relative; }
-.blips li[style*="margin-left"]::before { content: ""; position: absolute; left: -0.75rem; top: 0; bottom: 0.5rem; width: 1px; background: var(--rule); }
+.replies, .asides { list-style: none; margin: 0; padding: 0; }
+.thread { position: relative; }
+.replies { margin-left: 1.5rem; }
+.replies > .thread::before { content: ""; position: absolute; left: -0.75rem; top: 0; bottom: 0.5rem; width: 1px; background: var(--rule); }
+.asides { margin: 0.35rem 0 0.5rem; padding-left: 0.7rem; border-left: 2px solid var(--accent); }
 
 .blip { background: var(--panel); border: 1px solid var(--rule); border-left-width: 3px; border-radius: 8px; padding: 0.55rem 0.8rem; margin-bottom: 0.4rem; }
 .blip.mine { border-left-color: var(--mine); }
 .blip .who { font-weight: 600; color: var(--accent); font-size: 0.88rem; margin-right: 0.6rem; }
-.blip.mine .who { color: var(--mine); }
+.blip.mine > .who { color: var(--mine); }
 .blip .at { color: var(--dim); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .blip .body { margin: 0.2rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .blip .body.md { white-space: normal; }
 .body.md > * { margin: 0 0 0.4rem; }
 .body.md > :last-child { margin-bottom: 0; }
+.block > :first-child { margin: 0; }
+.body.md ul:not(.asides):not(.replies), .body.md ol:not(.asides):not(.replies) { padding-left: 1.3rem; }
 
 .body-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.25rem; min-height: 1.2rem; }
 .edited { color: var(--dim); font-size: 0.74rem; letter-spacing: 0.04em; }
@@ -84,7 +89,7 @@ button:hover { border-color: var(--accent); }
 .editor { background: var(--raised); border: 1px solid var(--rule); border-radius: 999px; padding: 0.05rem 0.45rem; color: var(--dim); font-size: 0.7rem; }
 .editor::before { content: "✎"; margin-right: 0.25rem; opacity: 0.7; }
 .take { background: none; border: 0; color: var(--dim); padding: 0; font-size: 0.78rem; margin-left: auto; opacity: 0; }
-.blip:hover .take, .take:focus { opacity: 1; }
+.blip:hover > sf-s .take, .take:focus { opacity: 1; }
 .take:hover { color: var(--accent); }
 
 .body-held .body { border-left: 2px solid var(--ghost); padding-left: 0.6rem; color: var(--ink); }
@@ -104,6 +109,9 @@ button:hover { border-color: var(--accent); }
 
 .reply { background: none; border: 0; color: var(--dim); padding: 0 0 0.5rem; font-size: 0.82rem; }
 .reply:hover { color: var(--accent); }
+.under.aside > .reply { opacity: 0; padding: 0.1rem 0 0.3rem; font-size: 0.74rem; }
+.block:hover > sf-s .under.aside > .reply, li:hover > sf-s .under.aside > .reply, .under.aside > .reply:focus { opacity: 1; }
+.under.aside .composer { margin: 0.2rem 0 0.5rem; }
 
 .nameless { color: var(--dim); font-size: 0.88rem; margin: 0.3rem 0 1rem; }
 .composer { display: flex; gap: 0.5rem; margin: 0.25rem 0 1rem; }

@@ -12,8 +12,8 @@ interface Edit {
   body: string;
 }
 
-/** One blip's text and the rewrite of it. A blip is a document rather than a message: anyone on the wave may take it and while they hold it every other window watches the words change. The field holds it for exactly one window, so this never has to decide who wins. */
-export default function Body({ wave, blip, text, html, edited, editors, me }: { wave: string; blip: string; text: string; html: string; edited: string; editors: string[]; me: string }) {
+/** What is live about one blip: someone else's rewrite of it as they type, this reader's own and the button that starts one. The text itself is the server's, rendered beside this from the parts the service parsed. It stays in place while anyone rewrites it. A blip is a document rather than a message: anyone on the wave may take it and while they hold it every other window watches the words change. The field holds it for exactly one window, so this never has to decide who wins. */
+export default function Body({ wave, blip, text, edited, editors, me }: { wave: string; blip: string; text: string; edited: string; editors: string[]; me: string }) {
   const [edits] = useStore(key<Edit[]>("wave/edits"), []);
   const [mine, setMine] = useState(false);
   const theirs = edits.filter((edit) => edit.blip === blip && edit.who !== me);
@@ -60,25 +60,22 @@ export default function Body({ wave, blip, text, html, edited, editors, me }: { 
       </div>
     </form>
   ) : (
-    <div className="body-read">
-      <div className="body md" dangerouslySetInnerHTML={{ __html: html }} />
-      <div className="body-foot">
-        {editors.length > 0 ? (
-          <ul className="editors" title="everyone who has rewritten this blip">
-            {editors.map((who) => (
-              <li key={who} className="editor">
-                {who}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {edited ? <span className="edited">edited {edited}</span> : null}
-        {me ? (
-          <button className="take" onClick={take}>
-            Edit
-          </button>
-        ) : null}
-      </div>
+    <div className="body-foot">
+      {editors.length > 0 ? (
+        <ul className="editors" title="everyone who has rewritten this blip">
+          {editors.map((who) => (
+            <li key={who} className="editor">
+              {who}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {edited ? <span className="edited">edited {edited}</span> : null}
+      {me ? (
+        <button className="take" onClick={take}>
+          Edit
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use plaza::{query_with, CommandSender, ControllerCommand};
-use pulldown_cmark::{html, CowStr, Event, Parser, Tag};
+use pulldown_cmark::{CowStr, Event, HeadingLevel, Parser, Tag};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use snapfire_fsr_service::{LocalTransport, Transport};
@@ -14,9 +14,10 @@ pub type Waves = CommandSender<Op, Conn, Field>;
 /// The waves the field starts with. A blip's `at` is the wall clock, since a
 /// transcript is the one place a reader wants the real one.
 pub fn seed() -> Vec<Wave> {
-  let blip = |id: u64, parent: &str, who: &str, body: &str, at: &str| Blip {
+  let blip = |id: u64, parent: &str, anchor: &str, who: &str, body: &str, at: &str| Blip {
     id,
     parent: parent.to_owned(),
+    anchor: anchor.to_owned(),
     who: who.to_owned(),
     body: body.to_owned(),
     at: at.to_owned(),
@@ -29,10 +30,11 @@ pub fn seed() -> Vec<Wave> {
       title: "Snapfire kickoff".to_owned(),
       participants: vec!["alice".to_owned(), "bob".to_owned()],
       blips: vec![
-        blip(1, "", "alice", "Starting a wave for the launch. Reply under a blip and it nests.", "09:10"),
-        blip(2, "1", "bob", "Good. I will take the runtime half.", "09:12"),
-        blip(3, "2", "alice", "Then I have the client. Watch this line while I type in the other window.", "09:13"),
-        blip(4, "", "alice", "Anything that is **its own subject** goes at the top level. A blip is [markdown](https://commonmark.org).", "09:14"),
+        blip(1, "", "", "alice", "Starting a wave for the launch. Reply under a blip and it nests.", "09:10"),
+        blip(2, "1", "", "bob", "Good. I will take the runtime half.", "09:12"),
+        blip(3, "2", "", "alice", "Then I have the client. Watch this line while I type in the other window.", "09:13"),
+        blip(4, "", "", "alice", "Anything that is **its own subject** goes at the top level. A blip is [markdown](https://commonmark.org).\n\nA reply can answer one part of a blip:\n\n- the runtime\n- the client", "09:14"),
+        blip(6, "4", "2.1", "bob", "The client is mine too.", "09:16"),
       ],
       game: Game::default(),
     },
@@ -40,7 +42,7 @@ pub fn seed() -> Vec<Wave> {
       id: "board".to_owned(),
       title: "Arrivals board review".to_owned(),
       participants: vec!["alice".to_owned()],
-      blips: vec![blip(5, "", "alice", "The panels stream. The clock is the part I want a second opinion on.", "08:02")],
+      blips: vec![blip(5, "", "", "alice", "The panels stream. The clock is the part I want a second opinion on.", "08:02")],
       game: Game::default(),
     },
   ]
@@ -92,19 +94,94 @@ fn under(field: &Field, view: &str, who: &str) -> Value {
   Value::Seq(listed.map(summary).collect())
 }
 
-/// A blip's body as markup, rendered here so the browser never parses
-/// markdown. Raw HTML in the source is shown as text and a link or image keeps
+/// One part of a blip's body: a node of its markdown, which the page renders
+/// with a component that calls itself, so no string of markup is ever
+/// written. Raw HTML in the source is a text part and a link or image keeps
 /// its target only when that is http, https, mailto or has no scheme.
-fn markdown(body: &str) -> String {
-  let events = Parser::new(body).map(|event| match event {
-    Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
-    Event::Start(Tag::Link { link_type, dest_url, title, id }) => Event::Start(Tag::Link { link_type, dest_url: safe_url(dest_url), title, id }),
-    Event::Start(Tag::Image { link_type, dest_url, title, id }) => Event::Start(Tag::Image { link_type, dest_url: safe_url(dest_url), title, id }),
-    event => event,
-  });
-  let mut out = String::new();
-  html::push_html(&mut out, events);
-  out
+struct Part {
+  kind: &'static str,
+  /// A text part's text, a code block's or code span's source, an image's alt.
+  text: String,
+  href: String,
+  children: Vec<Part>,
+}
+
+impl Part {
+  fn new(kind: &'static str) -> Self {
+    Self { kind, text: String::new(), href: String::new(), children: Vec::new() }
+  }
+
+  /// A block a reply can answer: a paragraph, a heading, a code block or a
+  /// list item holding no block of its own, whose blocks are answered instead.
+  fn answerable(&self) -> bool {
+    const BLOCKS: [&str; 11] = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "ul", "ol", "blockquote"];
+    match self.kind {
+      "li" => !self.children.iter().any(|child| BLOCKS.contains(&child.kind)),
+      kind => BLOCKS[..8].contains(&kind),
+    }
+  }
+}
+
+/// `body` parsed into parts. CommonMark only: tables, footnotes and the
+/// other extensions are off, so their syntax stays text.
+fn parts(body: &str) -> Vec<Part> {
+  let mut open = vec![Part::new("root")];
+  for event in Parser::new(body) {
+    match event {
+      Event::Start(tag) => open.push(opened(tag)),
+      Event::End(_) if open.len() > 1 => {
+        let done = open.pop().expect("more than the root is open");
+        open.last_mut().expect("the root stays open").children.push(done);
+      }
+      Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => leaf(&mut open, &text),
+      Event::SoftBreak => leaf(&mut open, "\n"),
+      Event::Code(text) => push(&mut open, Part { text: text.to_string(), ..Part::new("code") }),
+      Event::HardBreak => push(&mut open, Part::new("br")),
+      Event::Rule => push(&mut open, Part::new("hr")),
+      _ => {}
+    }
+  }
+  open.swap_remove(0).children
+}
+
+fn opened(tag: Tag<'_>) -> Part {
+  match tag {
+    Tag::Paragraph | Tag::HtmlBlock => Part::new("p"),
+    Tag::Heading { level, .. } => Part::new(match level {
+      HeadingLevel::H1 => "h1",
+      HeadingLevel::H2 => "h2",
+      HeadingLevel::H3 => "h3",
+      HeadingLevel::H4 => "h4",
+      HeadingLevel::H5 => "h5",
+      HeadingLevel::H6 => "h6",
+    }),
+    Tag::BlockQuote(_) => Part::new("blockquote"),
+    Tag::CodeBlock(_) => Part::new("pre"),
+    Tag::List(Some(_)) => Part::new("ol"),
+    Tag::List(None) => Part::new("ul"),
+    Tag::Item => Part::new("li"),
+    Tag::Emphasis => Part::new("em"),
+    Tag::Strong => Part::new("strong"),
+    Tag::Link { dest_url, .. } => Part { href: safe_url(dest_url).to_string(), ..Part::new("a") },
+    Tag::Image { dest_url, .. } => Part { href: safe_url(dest_url).to_string(), ..Part::new("img") },
+    _ => Part::new("span"),
+  }
+}
+
+fn push(open: &mut [Part], part: Part) {
+  if let Some(top) = open.last_mut() {
+    top.children.push(part);
+  }
+}
+
+/// Text lands in the open part: as the source of a code block or an image's
+/// alt, else as a text part of its own.
+fn leaf(open: &mut [Part], text: &str) {
+  let Some(top) = open.last_mut() else { return };
+  match top.kind {
+    "pre" | "img" => top.text.push_str(text),
+    _ => top.children.push(Part { text: text.to_owned(), ..Part::new("text") }),
+  }
 }
 
 fn safe_url(url: CowStr<'_>) -> CowStr<'_> {
@@ -115,32 +192,54 @@ fn safe_url(url: CowStr<'_>) -> CowStr<'_> {
   }
 }
 
-fn blip_value(blip: &Blip, depth: f64) -> Value {
+/// `parts` as the page reads them. Every part has a path, its index under
+/// each part above it joined by dots; a block a reply can answer carries its
+/// path as `at` and the replies anchored there, taken out of `anchored`.
+fn parts_value(parts: Vec<Part>, path: &str, anchored: &mut BTreeMap<String, Vec<Value>>) -> Value {
+  let mut out = Vec::with_capacity(parts.len());
+  for (i, part) in parts.into_iter().enumerate() {
+    let at = if path.is_empty() { i.to_string() } else { format!("{path}.{i}") };
+    let answerable = part.answerable();
+    let mut map = ValueMap::default();
+    map.insert("kind".to_owned(), Value::str(part.kind));
+    map.insert("text".to_owned(), Value::str(part.text));
+    map.insert("href".to_owned(), Value::str(part.href));
+    map.insert("children".to_owned(), parts_value(part.children, &at, anchored));
+    map.insert("replies".to_owned(), Value::seq(if answerable { anchored.remove(&at).unwrap_or_default() } else { Vec::new() }));
+    map.insert("at".to_owned(), Value::str(if answerable { at } else { String::new() }));
+    out.push(Value::Map(map));
+  }
+  Value::seq(out)
+}
+
+/// A blip as the page reads it: its body as parts, each reply anchored to a
+/// block of it under that block and every other reply after it. A reply
+/// whose block an amend took away joins the others rather than being lost.
+fn blip_value(blip: &Blip, blips: &[Blip]) -> Value {
+  let id = blip.id.to_string();
+  let mut replies = Vec::new();
+  let mut anchored: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+  for reply in blips.iter().filter(|reply| reply.parent == id) {
+    let value = blip_value(reply, blips);
+    match reply.anchor.is_empty() {
+      true => replies.push(value),
+      false => anchored.entry(reply.anchor.clone()).or_default().push(value),
+    }
+  }
+  let parts = parts_value(parts(&blip.body), "", &mut anchored);
+  replies.extend(anchored.into_values().flatten());
   let mut map = ValueMap::default();
-  map.insert("id".to_owned(), Value::str(blip.id.to_string()));
+  map.insert("id".to_owned(), Value::str(id));
   map.insert("parent".to_owned(), Value::str(blip.parent.clone()));
+  map.insert("anchor".to_owned(), Value::str(blip.anchor.clone()));
   map.insert("who".to_owned(), Value::str(blip.who.clone()));
   map.insert("body".to_owned(), Value::str(blip.body.clone()));
-  map.insert("html".to_owned(), Value::str(markdown(&blip.body)));
   map.insert("at".to_owned(), Value::str(blip.at.clone()));
   map.insert("edited".to_owned(), Value::str(blip.edited.clone()));
   map.insert("editors".to_owned(), Value::Seq(blip.editors.iter().map(|who| Value::str(who.clone())).collect()));
-  map.insert("depth".to_owned(), Value::F64(depth));
+  map.insert("parts".to_owned(), parts);
+  map.insert("replies".to_owned(), Value::seq(replies));
   Value::Map(map)
-}
-
-/// Blips in reading order: every blip followed by its replies, each carrying
-/// how deep it sits, so the page needs no tree walk of its own.
-fn threaded(blips: &[Blip]) -> Vec<Value> {
-  fn walk(blips: &[Blip], parent: &str, depth: f64, out: &mut Vec<Value>) {
-    for blip in blips.iter().filter(|blip| blip.parent == parent) {
-      out.push(blip_value(blip, depth));
-      walk(blips, &blip.id.to_string(), depth + 1.0, out);
-    }
-  }
-  let mut out = Vec::new();
-  walk(blips, "", 0.0, &mut out);
-  out
 }
 
 fn wave_value(field: &Field, id: &str) -> Option<Value> {
@@ -149,7 +248,7 @@ fn wave_value(field: &Field, id: &str) -> Option<Value> {
   map.insert("id".to_owned(), Value::str(wave.id.clone()));
   map.insert("title".to_owned(), Value::str(wave.title.clone()));
   map.insert("participants".to_owned(), Value::Seq(wave.participants.iter().map(|who| Value::str(who.clone())).collect()));
-  map.insert("blips".to_owned(), Value::seq(threaded(&wave.blips)));
+  map.insert("blips".to_owned(), Value::seq(wave.blips.iter().filter(|blip| blip.parent.is_empty()).map(|blip| blip_value(blip, &wave.blips)).collect::<Vec<_>>()));
   map.insert("game".to_owned(), game_value(&wave.game));
   Some(Value::Map(map))
 }
@@ -226,7 +325,7 @@ pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsync
             .await
             .map_err(|_| gone("editBlip"))?;
           let amended = query_with(&field, move |field| {
-            field.waves.get(&id).and_then(|wave| wave.blips.iter().find(|held| held.id.to_string() == blip).map(|held| blip_value(held, 0.0)))
+            field.waves.get(&id).and_then(|wave| wave.blips.iter().find(|held| held.id.to_string() == blip).map(|held| blip_value(held, &wave.blips)))
           })
           .await
           .map_err(|_| gone("editBlip"))?;
@@ -258,16 +357,17 @@ pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsync
       .method("waves.addBlip", move |call| {
         let field = writing.clone();
         let mut told = kept.clone();
-        let (id, parent, who, body) = (string(&call.args, "id"), string(&call.args, "parent"), string(&call.args, "who"), string(&call.args, "body"));
+        let (id, parent, anchor) = (string(&call.args, "id"), string(&call.args, "parent"), string(&call.args, "anchor"));
+        let (who, body) = (string(&call.args, "who"), string(&call.args, "body"));
         async move {
           let topic = format!("wave/{id}");
-          let op = Op::Keep { wave: id.clone(), parent, who, body };
+          let op = Op::Keep { wave: id.clone(), parent, anchor, who, body };
           field
             .send(ControllerCommand::SubmitSystemOps { source_description: "an action".to_owned(), ops: vec![op] })
             .await
             .map_err(|_| gone("addBlip"))?;
           let kept = query_with(&field, move |field| {
-            field.waves.get(&id).and_then(|wave| wave.blips.last().map(|blip| blip_value(blip, 0.0)))
+            field.waves.get(&id).and_then(|wave| wave.blips.last().map(|blip| blip_value(blip, &wave.blips)))
           })
           .await
           .map_err(|_| gone("addBlip"))?;

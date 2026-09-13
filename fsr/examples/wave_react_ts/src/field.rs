@@ -15,6 +15,9 @@ pub type Conn = u64;
 pub struct Blip {
   pub id: u64,
   pub parent: String,
+  /// The block of the parent's content this answers, as the path the service
+  /// gives each block; empty for a reply to the whole blip.
+  pub anchor: String,
   pub who: String,
   pub body: String,
   pub at: String,
@@ -29,6 +32,7 @@ pub struct Blip {
 pub struct Draft {
   pub who: String,
   pub parent: String,
+  pub anchor: String,
   pub body: String,
 }
 
@@ -156,8 +160,8 @@ pub struct View {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Op {
   Watch { wave: String, name: String },
-  Typing { parent: String, body: String },
-  Keep { wave: String, parent: String, who: String, body: String },
+  Typing { parent: String, anchor: String, body: String },
+  Keep { wave: String, parent: String, anchor: String, who: String, body: String },
   /// Take a blip to rewrite it. Refused by doing nothing when someone else
   /// holds it; the view is what tells both windows who won.
   Open { blip: String },
@@ -223,10 +227,10 @@ impl Field {
     Some(amended.clone())
   }
 
-  fn keep(&mut self, wave: &str, parent: &str, who: &str, body: &str, at: String) -> Option<Blip> {
+  fn keep(&mut self, wave: &str, parent: &str, anchor: &str, who: &str, body: &str, at: String) -> Option<Blip> {
     let id = self.next;
     let held = self.waves.get_mut(wave)?;
-    let blip = Blip { id, parent: parent.to_owned(), who: who.to_owned(), body: body.to_owned(), at, edited: String::new(), editors: Vec::new() };
+    let blip = Blip { id, parent: parent.to_owned(), anchor: anchor.to_owned(), who: who.to_owned(), body: body.to_owned(), at, edited: String::new(), editors: Vec::new() };
     admit(held, who);
     held.blips.push(blip.clone());
     self.next += 1;
@@ -307,7 +311,7 @@ impl StateLogic<Op, Conn, Field> for Rules {
               field.here.entry(wave.clone()).or_default().insert(conn, name);
               touched = Some(wave);
             }
-            Op::Typing { parent, body } => {
+            Op::Typing { parent, anchor, body } => {
               let Some(conn) = conn else { continue };
               let Some(wave) = field.watching.get(&conn).cloned() else { continue };
               let who = field.here.get(&wave).and_then(|here| here.get(&conn)).cloned().unwrap_or_default();
@@ -320,13 +324,13 @@ impl StateLogic<Op, Conn, Field> for Rules {
                   drafts.remove(&conn);
                 }
                 false => {
-                  drafts.insert(conn, Draft { who, parent, body });
+                  drafts.insert(conn, Draft { who, parent, anchor, body });
                 }
               }
               self.keystroke(field, &mut touched, wave);
             }
-            Op::Keep { wave, parent, who, body } => {
-              field.keep(&wave, &parent, &who, &body, (self.clock)());
+            Op::Keep { wave, parent, anchor, who, body } => {
+              field.keep(&wave, &parent, &anchor, &who, &body, (self.clock)());
               if let (Some(conn), Some(drafts)) = (conn, field.drafts.get_mut(&wave)) {
                 drafts.remove(&conn);
               }

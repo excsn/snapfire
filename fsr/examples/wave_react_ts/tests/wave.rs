@@ -28,7 +28,7 @@ fn watch(wave: &str, name: &str) -> Op {
 }
 
 fn typing(parent: &str, body: &str) -> Op {
-  Op::Typing { parent: parent.to_owned(), body: body.to_owned() }
+  Op::Typing { parent: parent.to_owned(), anchor: String::new(), body: body.to_owned() }
 }
 
 async fn view(field: &Field, conn: Conn) -> View {
@@ -75,6 +75,17 @@ async fn a_draft_is_built_for_everyone_but_its_author() {
   apply(&rules, &mut field, 2, vec![typing("", "bob's turn")]).await;
   rules.process_input(&mut field, LogicInput::AgentLeft { agent_id: 2 }).await.unwrap();
   assert!(view(&field, 1).await.drafts.is_empty(), "leaving takes the draft with it");
+}
+
+#[tokio::test]
+async fn a_draft_beside_a_block_carries_the_block() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+
+  apply(&rules, &mut field, 1, vec![Op::Typing { parent: "4".to_owned(), anchor: "2.1".to_owned(), body: "and the host".to_owned() }]).await;
+  let seen = view(&field, 2).await.drafts;
+  assert_eq!((seen[0].parent.as_str(), seen[0].anchor.as_str()), ("4", "2.1"), "bob sees it beside the list item alice answers");
 }
 
 #[tokio::test]
@@ -353,7 +364,7 @@ async fn a_wave_is_followed_only_by_a_session_that_opened_it() {
   let session = SessionCell::default();
   session.insert("name", Value::str("alice"));
   let html = host.render_to_string("/wave/kickoff", RenderMode::Html, session.clone()).await.unwrap();
-  assert!(html.contains("margin-left:1.5rem"), "the transcript is rendered on the server, nested: {html}");
+  assert!(html.contains("<ol class=\"replies\">"), "the transcript is rendered on the server, nested: {html}");
   match session.get("waves") {
     Some(Value::Map(waves)) => assert!(waves.contains_key("kickoff"), "the loader recorded the wave: {waves:?}"),
     other => panic!("the session holds no waves: {other:?}"),
@@ -361,36 +372,96 @@ async fn a_wave_is_followed_only_by_a_session_that_opened_it() {
 }
 
 #[tokio::test]
-async fn a_blip_body_is_markdown_the_service_renders_with_raw_html_as_text() {
+async fn a_blip_body_is_parts_the_service_parses_with_raw_html_as_text() {
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, _kept) = backend::service(field);
+  let parts = |body: &'static str| {
+    let service = service.clone();
+    async move { flat(field_of(&kept(&service, "", "", body).await, "parts")) }
+  };
+
+  assert_eq!(parts("carol, **arriving** late").await, ["p@0", "text=carol, ", "strong", "text=arriving", "text= late"]);
+  let block = parts("<script>alert(1)</script>").await;
+  assert!(block.iter().all(|part| part.starts_with("p") || part.starts_with("text=")) && block.iter().any(|part| part.contains("<script>")), "a raw HTML block is text: {block:?}");
+  let inline = parts("a <b>bold</b> claim").await;
+  assert!(inline.iter().all(|part| part.starts_with("p") || part.starts_with("text=")) && inline.contains(&"text=<b>".to_owned()), "raw inline HTML is text: {inline:?}");
+  let links: Vec<String> = parts("[run](javascript:alert(1)) or [read](https://example.com/a)").await.into_iter().filter(|part| part.starts_with("a")).collect();
+  assert_eq!(links, ["a>#", "a>https://example.com/a"], "a script link points nowhere and an https link is kept");
+  assert_eq!(parts("- one\n- two\n\n  more").await[..3], ["ul", "li", "p@0.0.0"], "a list item holding a paragraph is answered at the paragraph");
+}
+
+#[tokio::test]
+async fn a_reply_to_a_block_sits_under_it_and_one_whose_block_is_gone_joins_the_others() {
   let (field, controller) =
     StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
   tokio::spawn(controller.run());
   let (service, _kept) = backend::service(field);
 
-  assert_eq!(kept_html(&service, "carol, **arriving** late").await, "<p>carol, <strong>arriving</strong> late</p>\n");
-  let block = kept_html(&service, "<script>alert(1)</script>").await;
-  assert!(block.contains("&lt;script&gt;") && !block.contains("<script"), "a raw HTML block is text: {block}");
-  let inline = kept_html(&service, "a <b>bold</b> claim").await;
-  assert!(inline.contains("&lt;b&gt;") && !inline.contains("<b>"), "raw inline HTML is text: {inline}");
-  let link = kept_html(&service, "[run](javascript:alert(1)) or [read](https://example.com/a)").await;
-  assert!(link.contains("href=\"#\"") && !link.contains("javascript"), "a script link points nowhere: {link}");
-  assert!(link.contains("href=\"https://example.com/a\""), "an https link is kept: {link}");
+  kept(&service, "4", "1", "beside the second paragraph").await;
+  kept(&service, "4", "9", "beside a block that is not there").await;
+  let wave = call(&service, "getWave", ValueMap::from_iter([("id".to_owned(), Value::str("kickoff"))])).await;
+  let four = nth(field_of(&wave, "blips"), 1);
+  let second = nth(field_of(&four, "parts"), 1);
+  assert_eq!(field_of(&second, "at"), &Value::str("1"));
+  assert!(format!("{:?}", field_of(&second, "replies")).contains("beside the second paragraph"), "{second:?}");
+  let item = nth(field_of(&nth(field_of(&four, "parts"), 2), "children"), 1);
+  assert_eq!(field_of(&item, "at"), &Value::str("2.1"));
+  assert!(format!("{:?}", field_of(&item, "replies")).contains("The client is mine too."), "the seed's reply to the list item: {item:?}");
+  let replies = format!("{:?}", field_of(&four, "replies"));
+  assert!(replies.contains("beside a block that is not there") && !replies.contains("beside the second paragraph"), "{replies}");
 }
 
-async fn kept_html(service: &Arc<dyn Transport>, body: &str) -> String {
+async fn kept(service: &Arc<dyn Transport>, parent: &str, anchor: &str, body: &str) -> Value {
   let args = ValueMap::from_iter([
     ("id".to_owned(), Value::str("kickoff")),
-    ("parent".to_owned(), Value::str("")),
+    ("parent".to_owned(), Value::str(parent)),
+    ("anchor".to_owned(), Value::str(anchor)),
     ("who".to_owned(), Value::str("carol")),
     ("body".to_owned(), Value::str(body)),
   ]);
-  match call(service, "addBlip", args).await {
-    Value::Map(blip) => match blip.get("html") {
-      Some(Value::Str(html)) => html.to_string(),
-      other => panic!("the kept blip carries no html: {other:?}"),
-    },
-    other => panic!("addBlip answered something other than a blip: {other:?}"),
+  call(service, "addBlip", args).await
+}
+
+fn field_of<'v>(value: &'v Value, key: &str) -> &'v Value {
+  match value {
+    Value::Map(map) => map.get(key).unwrap_or_else(|| panic!("no `{key}` in {value:?}")),
+    other => panic!("not a map: {other:?}"),
   }
+}
+
+fn nth(value: &Value, i: usize) -> Value {
+  match value {
+    Value::Seq(items) => items.iter().nth(i).cloned().unwrap_or_else(|| panic!("no item {i} in {value:?}")),
+    other => panic!("not a sequence: {other:?}"),
+  }
+}
+
+/// Every part, depth first, as its kind then `@at` for a block a reply can
+/// answer, `=text` and `>href` where it has them.
+fn flat(parts: &Value) -> Vec<String> {
+  fn walk(parts: &Value, out: &mut Vec<String>) {
+    let Value::Seq(parts) = parts else { return };
+    for part in parts.iter() {
+      let text = |key: &str| match field_of(part, key) {
+        Value::Str(text) => text.to_string(),
+        _ => String::new(),
+      };
+      let mut shown = text("kind");
+      for (mark, key) in [('@', "at"), ('=', "text"), ('>', "href")] {
+        if !text(key).is_empty() {
+          shown.push(mark);
+          shown.push_str(&text(key));
+        }
+      }
+      out.push(shown);
+      walk(field_of(part, "children"), out);
+    }
+  }
+  let mut out = Vec::new();
+  walk(parts, &mut out);
+  out
 }
 
 #[tokio::test]
@@ -407,6 +478,7 @@ async fn the_wave_page_writes_a_blip_as_the_markup_the_service_made() {
   let html = host.render_to_string("/wave/kickoff", RenderMode::Html, session).await.unwrap();
   assert!(html.contains("<strong>its own subject</strong>"), "the seed's markdown is markup in the page: {html}");
   assert!(html.contains("<a href=\"https://commonmark.org\">markdown</a>"), "and its link is kept: {html}");
+  assert!(html.contains("<ol class=\"asides\">") && html.contains("The client is mine too."), "bob's reply to the list item sits under it: {html}");
 }
 
 #[tokio::test]

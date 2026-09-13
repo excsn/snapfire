@@ -14,6 +14,8 @@ export interface ResetInput {
 export interface BlipInput {
   wave: string;
   parent: string;
+  /** The block of the parent this answers, empty for the whole blip. */
+  anchor: string;
   body: string;
 }
 
