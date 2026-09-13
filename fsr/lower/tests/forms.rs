@@ -187,3 +187,27 @@ fn a_handler_that_reaches_an_action_through_a_binding_the_build_cannot_follow_is
   });
   assert!(why.is_some_and(|w| w.contains("`.play()` in a handler")), "destructuring the generated client is refused rather than silently dropped: {attrs:?}");
 }
+
+#[test]
+fn a_hook_reached_through_a_namespace_import_is_still_that_hook() {
+  let bare = lower(&[("routes/a/page.tsx", "import { useState } from \"react\";\nexport default function P() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n")], "routes/a/page.tsx#default");
+  let namespaced = lower(&[("routes/a/page.tsx", "import * as React from \"react\";\nexport default function P() {\n  const [n, setN] = React.useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n")], "routes/a/page.tsx#default");
+  assert_eq!(render_of(&namespaced, "routes/a/page.tsx#default"), render_of(&bare, "routes/a/page.tsx#default"), "`React.useState` is `useState`");
+
+  let store = lower(
+    &[
+      ("src/store.ts", "import { key } from \"@snapfire/fsr-client/store\";\nexport const cartCount = key<number>(\"cart/count\");\n"),
+      ("routes/a/page.tsx", "import * as sf from \"@snapfire/fsr-client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [n] = sf.useStore(cartCount, 0);\n  return <p>{n}</p>;\n}\n"),
+    ],
+    "routes/a/page.tsx#default",
+  );
+  let (_, page) = store.components.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap();
+  assert!(format!("{page:?}").contains("cart/count"), "and so is a namespaced `useStore`: {page:?}");
+}
+
+#[test]
+fn a_method_call_on_a_local_object_is_not_mistaken_for_a_hook() {
+  let mut set = ComponentSet::new(&app(&[("routes/a/page.tsx", "const box = { useThing: () => 1 };\nexport default function P() {\n  const n = box.useThing();\n  return <p>{n}</p>;\n}\n")]));
+  let err = set.lower("routes/a/page.tsx#default").unwrap_err().to_string();
+  assert!(!err.contains("`useThing`"), "the hook rule only follows a namespace import, so this is an ordinary unfollowable call: {err}");
+}

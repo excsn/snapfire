@@ -1070,11 +1070,19 @@ impl ComponentLowerer<'_, '_> {
 const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle"];
 
 /// The hook a call names when its callee is a bare identifier.
-fn hook_call(expr: &js::Expr) -> Option<(&str, &js::CallExpr)> {
+fn hook_call<'a>(parsed: &Parsed, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
   let js::Expr::Call(call) = expr else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Ident(id) = &**callee else { return None };
-  let name = id.sym.as_ref();
+  let name = match &**callee {
+    js::Expr::Ident(id) => id.sym.as_ref(),
+    js::Expr::Member(member) => {
+      let js::Expr::Ident(ns) = &*member.obj else { return None };
+      let js::MemberProp::Ident(name) = &member.prop else { return None };
+      find_namespace_import(parsed, ns.sym.as_ref())?;
+      name.sym.as_ref()
+    }
+    _ => return None,
+  };
   name.starts_with("use").then_some((name, call))
 }
 
@@ -1113,7 +1121,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
               }
             }
-            js::Stmt::Expr(e) if hook_call(&e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
+            js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
             js::Stmt::Decl(js::Decl::Var(var)) => {
               for decl in &var.decls {
                 if let Some(stmt) = self.let_stmt(decl)? {
@@ -1177,7 +1185,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
-        let expr = match hook_call(init) {
+        let expr = match hook_call(self.lowerer.parsed, init) {
           Some(("useCallback", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
               self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
@@ -1231,13 +1239,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let js::Expr::Call(call) = init else {
           return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState` or `useStore`"));
         };
-        let called = match &call.callee {
-          js::Callee::Expr(e) => match &**e {
-            js::Expr::Ident(id) => id.sym.to_string(),
-            _ => String::new(),
-          },
-          _ => String::new(),
-        };
+        let called = hook_call(self.lowerer.parsed, init).map(|(name, _)| name).unwrap_or_default();
         if called == "useStore" {
           return self.store_stmt(decl, arr, call);
         }
