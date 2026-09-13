@@ -410,7 +410,7 @@ fn collect_foreign(dir: &Path, into: &mut Vec<String>) {
   }
 }
 
-/// Writes the shim under `<types>/`, or removes a stale one when there is
+/// Writes the shim under `<types>/` or removes a stale one when there is
 /// nothing foreign any more. The path written, relative to the app.
 pub fn write_foreign_shim(app: &Path, layout: &Layout, placed: &[String]) -> Result<Option<String>, BuildError> {
   let rel = format!("{}/{FOREIGN_SHIM}", layout.types.trim_end_matches('/'));
