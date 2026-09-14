@@ -156,7 +156,7 @@ async fn window(me: usize, room: usize, url: String, cookie: String, start: Inst
     }
     sent += 1;
     let body = format!("{me}:{sent}:{}", start.elapsed().as_micros());
-    if tx.send(text(serde_json::json!({ "key": "typing", "value": { "parent": "", "body": body } }))).await.is_err() {
+    if tx.send(text(serde_json::json!({ "key": "typing", "value": { "parent": "", "writing": true, "body": body } }))).await.is_err() {
       break;
     }
   }

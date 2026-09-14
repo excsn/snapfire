@@ -41,9 +41,9 @@ export function join(topic: string, onOpen: (open: boolean) => void): () => void
   };
 }
 
-/** Says what this reader is part way through typing under `parent` or nothing when the field is empty. `anchor` is the block it answers, empty for the whole blip. */
-export function typing(parent: string, anchor: string, body: string): void {
-  held?.socket.send("typing", { parent, anchor, body });
+/** Says this reader is part way through typing under `parent` or has stopped when `body` is empty. The words go only when `shown`; otherwise the others are told who is typing and nothing of what. `anchor` is the block it answers, empty for the whole blip. */
+export function typing(parent: string, anchor: string, body: string, shown = false): void {
+  held?.socket.send("typing", { parent, anchor, writing: body !== "", body: shown ? body : "" });
 }
 
 /** Says the reader has named themselves, so presence stops calling them nobody. The socket joined before the name existed, so the name travels as a row rather than in the handshake. */

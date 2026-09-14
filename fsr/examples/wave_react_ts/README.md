@@ -1,6 +1,6 @@
 # wave_react_ts
 
-Google Wave's idea, on FSR: a conversation of blips nested inside the blips they answer, participants you can see arriving and everyone's typing visible to everyone else before a word of it is kept.
+Google Wave's idea, on FSR: a conversation of blips nested inside the blips they answer, participants you can see arriving and a ghost wherever someone is typing. A writer who ticks Show what I type lets everyone read the words before a word of them is kept.
 
 It is the example that needs a WebSocket and it is the one that shows exactly how much a WebSocket is for. A blip is durable and never touches the socket. A keystroke is not durable and never touches an action.
 
@@ -10,7 +10,7 @@ It is the example that needs a WebSocket and it is the one that shows exactly ho
 cargo run -p wave_react_ts
 ```
 
-Open `http://127.0.0.1:8140/` in two windows, name yourself in each, open the same wave in both and start typing in one.
+Open `http://127.0.0.1:8140/` in two windows, name yourself in each, open the same wave in both and start typing in one. The other window shows who is typing. Tick Show what I type beside the composer and it shows the words as well.
 
 ## One owner of the state
 
@@ -47,6 +47,8 @@ Which is the same rule as everything else here: durable goes through an action, 
 | Who is here | a `Watch` operation and plaza's presence stream | it is true only while a connection is |
 | What someone is typing | a `Typing` operation, one per keystroke | it is superseded by the next keystroke and worth nothing after |
 
+A `Typing` row carries the words only while its writer has Show what I type ticked, which starts unticked. Until then it says only that they are typing and where, so the words stay in the browser and the others see a ghost that reads "bob is typing".
+
 The socket carries rows, `{"key": ..., "value": ...}` up and `{"rows": [...]}` down and the browser writes each row into the store, so `Presence` and `Under` follow by reading a key. Neither ever fetches.
 
 | Piece | What it is |
@@ -69,7 +71,7 @@ The socket carries rows, `{"key": ..., "value": ...}` up and `{"rows": [...]}` d
 
 The rail, the contacts, the inbox and the open wave are four segments of one route: three parallel slots under `routes/slots/` and the page. Every one of them is rendered on the server. There is no header: the wordmark and the reader's name sit at the foot of the side pane, and the name opens the reader's settings, where it can be changed.
 
-Where the panes sit side by side the app is the window's height and each pane scrolls on its own. The open wave's transcript scrolls between its scrubber and its composer, so both stay in view. Where the panes stack the page scrolls as a whole and the scrubber and the composer stick to the window's edges. A blip landing patches the transcript in place, so it keeps its scroll. A blip this reader keeps is brought into view when it lands out of view.
+Where the panes sit side by side the app is the window's height and each pane scrolls on its own. The open wave's transcript scrolls below the bar under its title and ends with the wave's composer, which takes no room of its own. A wave opens at the end of its transcript. Where the panes stack the page scrolls as a whole and that bar sticks to the window's top edge. A blip landing patches the transcript in place, so it keeps its scroll. A blip this reader keeps is brought into view when it lands out of view.
 
 A rail link is this page under another view, `${path}?view=active`, which is what `ctx.path` is for: a layout and a parallel segment match no parameters of their own, so without it neither the rail could build that link nor the inbox mark the wave that is open. The views themselves are filters the controller applies, `inbox`, `active` for whoever has a connection on a wave and `mine` for the waves this reader has written in, so a view is a query rather than a route.
 
@@ -109,7 +111,7 @@ Next week
 ```
 ````
 
-`noughts` is a board of noughts and crosses. `yesno` asks the fence's first line and takes one answer each of Yes, No or Maybe. `poll` asks the first line and offers every line after it as a choice. A fence of any other kind is code. The composer's Gadget menu writes the fence for you, with what was typed so far as the question.
+`noughts` is a board of noughts and crosses. `yesno` asks the fence's first line and takes one answer each of Yes, No or Maybe. `poll` asks the first line and offers every line after it as a choice. A fence of any other kind is code. The composer's Gadget menu writes the fence for you. A board is added at once, with what was typed so far as a line above it. Yes / No / Maybe and Poll open one editor in the composer shaped like the vote it makes. The question is its heading and starts as what was typed. Each answer can be renamed or removed and + adds another. Yes / No / Maybe starts with those three answers and Poll with two blank ones. Either is kept as a poll once two answers are written. The editor can also set when voting ends, which the poll shows in UTC; from then on it takes no answer and no rewrite. Add to wave keeps it and Back returns to the composer. A poll's author can close it for good with Close poll, which posts a blip of theirs at the end of the wave with the result and a link back to the poll. A closed poll cannot be reopened. In playback the close is one step, the one that brings the announcement into view.
 
 The fence is a block like any other, so it has an id. The blip keeps the gadget's state under that id (`Blip.gadgets`). Writing above or below it leaves the state where it was. Rewriting the fence as another kind starts the new one from nothing. Every move and every answer is a change in the wave's log, so playback shows the board filling and the answers arriving.
 
@@ -134,7 +136,7 @@ Every durable change to a wave is logged: a kept blip, an amend, a move on a boa
 
 A step is the wave's own page under `?at=`. The loader passes it to `waves.getWave`, which replays the log that far and lights the blip or the gadget the step changed. The page under `?at=` places no composer, no editor and no reply, so nobody writes on the past. No gadget can be used either.
 
-`src/ui/Playback.tsx` is the scrubber. Moving it is a navigation that takes the place of the current history entry and leaves the window where it was:
+`src/ui/Playback.tsx` is the scrubber. It sits in a bar under the wave's title and above its blips. On the wave as it stands it is one button, which opens playback at the last step, where the wave stands. Playback is the page under `?at=` and nothing else, so a reload or a shared link reopens it at that step. The bar says how many changes the wave has and its ✕ leaves playback for the wave as it stands. Moving the scrubber is a navigation that takes the place of the current history entry and leaves the window where it was:
 
 ```ts
 void navigate(`${url.pathname}${url.search}`, true, { replace: true, scroll: false });
@@ -160,7 +162,7 @@ Only the query changes, so the navigator morphs the page rather than replacing i
 
 ## Tests
 
-`cargo test -p wave_react_ts`: that watching a wave puts you on it and leaving takes you off, that a draft is built for everyone but its author and goes when it empties or its author does, that one window holds a blip while the others watch it change, that an amend keeps the rewrite with whoever made it and a departure lets the blip go, that a window with no name reads and writes nothing, that the rules refuse a wave that does not exist and drop a keystroke from a window watching nothing, that a view names which waves the inbox lists and who is a contact, that the service reads and writes through the controller with the read after the write seeing it and the topic going out that neither the stream nor the socket is open to a session that has not opened the wave, that two windows hold two blocks of one blip while the whole blip waits for both, that a block rewrite splits or removes that block alone, that a rewrite of the whole blip keeps the ids of the blocks it kept or edited, that a reply stays with its block when a block is written above it, that the log holds every durable change and replaying it rebuilds the wave, that the service shows the wave after any step of its log and that a gadget keeps its state while the text around it changes.
+`cargo test -p wave_react_ts`: that watching a wave puts you on it and leaving takes you off, that a draft is built for everyone but its author and goes when it empties or its author does, that a draft whose words are kept back tells the others only who is typing, that one window holds a blip while the others watch it change, that an amend keeps the rewrite with whoever made it and a departure lets the blip go, that a window with no name reads and writes nothing, that the rules refuse a wave that does not exist and drop a keystroke from a window watching nothing, that a view names which waves the inbox lists and who is a contact, that the service reads and writes through the controller with the read after the write seeing it and the topic going out that neither the stream nor the socket is open to a session that has not opened the wave, that two windows hold two blocks of one blip while the whole blip waits for both, that a block rewrite splits or removes that block alone, that a rewrite of the whole blip keeps the ids of the blocks it kept or edited, that a reply stays with its block when a block is written above it, that the log holds every durable change and replaying it rebuilds the wave, that the service shows the wave after any step of its log and that a gadget keeps its state while the text around it changes.
 
 `fsr test app`: the depths, which parts are islands, the inbox beside the open wave, the card the request's path marks, the rail's links, presence across every wave, a step of playback with nothing on it to write with, the scrubber surviving its own navigation, a vote answered where its fence is and the Gadget menu writing the fence.
 

@@ -76,7 +76,7 @@
           {
             "name": "at",
             "in": "query",
-            "description": "the step of the wave's log to show it after; the wave as it stands when absent, empty or not before the end",
+            "description": "the step of the wave's log to show it after, the last step at most; the wave as it stands when absent, empty or not a number",
             "schema": {
               "type": "string"
             }
@@ -220,6 +220,59 @@
         "responses": {
           "200": {
             "description": "the blip holding the board, after the move",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Blip"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/waves/{id}/blips/{blip}/gadgets/{block}/close": {
+      "post": {
+        "operationId": "closeVote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "blip",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "block",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Closer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the blip holding the vote; closed for good when its author asked, with a blip of theirs at the end of the wave announcing the result",
             "content": {
               "application/json": {
                 "schema": {
@@ -399,7 +452,7 @@
         "properties": {
           "kind": {
             "type": "string",
-            "description": "kept, amended, played, cleared or voted; empty before the first change"
+            "description": "kept, amended, played, cleared, voted or closed; empty before the first change"
           },
           "who": {
             "type": "string"
@@ -629,6 +682,9 @@
           "turn",
           "won",
           "choices",
+          "closed",
+          "ended",
+          "ends",
           "lit"
         ],
         "properties": {
@@ -663,6 +719,18 @@
           "lit": {
             "type": "boolean",
             "description": "whether the step of playback shown moved on this gadget"
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "whether its author closed the vote for good"
+          },
+          "ended": {
+            "type": "boolean",
+            "description": "whether the vote's deadline has passed"
+          },
+          "ends": {
+            "type": "string",
+            "description": "when voting ends, in UTC; empty for a vote with no deadline and for a board"
           }
         }
       },
@@ -703,6 +771,18 @@
           "answer": {
             "type": "string",
             "description": "one of the answers the vote offers; the answer already given takes it back"
+          }
+        }
+      },
+      "Closer": {
+        "type": "object",
+        "required": [
+          "who"
+        ],
+        "properties": {
+          "who": {
+            "type": "string",
+            "description": "who is closing the vote; only its author can"
           }
         }
       }

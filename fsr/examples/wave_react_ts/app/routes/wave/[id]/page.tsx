@@ -17,21 +17,25 @@ export default function WavePage({ wave, me }: WaveIdProps) {
         </Island>
       </header>
 
-      <Island when="load">
-        <Playback step={wave.step} steps={wave.steps} live={wave.live} change={wave.change} />
-      </Island>
-
-      <ol className="blips">
-        {wave.blips.map((blip) => (
-          <Blip key={blip.id} wave={wave.id} blip={blip} me={me} live={wave.live} />
-        ))}
-      </ol>
-
-      {wave.live ? (
+      <nav className="wave-nav" aria-label="playback">
         <Island when="load">
-          <Under wave={wave.id} parent="" me={me} open />
+          <Playback wave={wave.id} step={wave.step} steps={wave.steps} live={wave.live} />
         </Island>
-      ) : null}
+      </nav>
+
+      <div className="transcript">
+        <ol className="blips">
+          {wave.blips.map((blip) => (
+            <Blip key={blip.id} wave={wave.id} blip={blip} me={me} live={wave.live} />
+          ))}
+        </ol>
+
+        {wave.live ? (
+          <Island when="load">
+            <Under wave={wave.id} parent="" me={me} open />
+          </Island>
+        ) : null}
+      </div>
     </article>
   );
 }

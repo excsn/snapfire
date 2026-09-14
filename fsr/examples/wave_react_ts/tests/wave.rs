@@ -14,7 +14,7 @@ use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_service::Transport;
 use wave_react_ts::backend;
-use wave_react_ts::field::{Conn, Field, Op, Rules, View, Views};
+use wave_react_ts::field::{Change, Conn, Field, Op, Rules, View, Views};
 use wave_react_ts::gadgets::State;
 
 fn rules() -> Rules {
@@ -30,7 +30,7 @@ fn watch(wave: &str, name: &str) -> Op {
 }
 
 fn typing(parent: &str, body: &str) -> Op {
-  Op::Typing { parent: parent.to_owned(), anchor: String::new(), body: body.to_owned() }
+  Op::Typing { parent: parent.to_owned(), anchor: String::new(), writing: !body.is_empty(), body: body.to_owned() }
 }
 
 fn open(blip: &str, block: &str) -> Op {
@@ -98,9 +98,24 @@ async fn a_draft_beside_a_block_carries_the_block() {
   apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
   apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
 
-  apply(&rules, &mut field, 1, vec![Op::Typing { parent: "4".to_owned(), anchor: "b3.1".to_owned(), body: "and the host".to_owned() }]).await;
+  apply(&rules, &mut field, 1, vec![Op::Typing { parent: "4".to_owned(), anchor: "b3.1".to_owned(), writing: true, body: "and the host".to_owned() }]).await;
   let seen = view(&field, 2).await.drafts;
   assert_eq!((seen[0].parent.as_str(), seen[0].anchor.as_str()), ("4", "b3.1"), "bob sees it beside the list item alice answers");
+}
+
+#[tokio::test]
+async fn a_draft_whose_words_are_kept_back_tells_the_others_only_who_is_typing() {
+  let (rules, mut field) = (rules(), Field::new(backend::seed()));
+  apply(&rules, &mut field, 1, vec![watch("kickoff", "alice")]).await;
+  apply(&rules, &mut field, 2, vec![watch("kickoff", "bob")]).await;
+
+  apply(&rules, &mut field, 1, vec![Op::Typing { parent: "2".to_owned(), anchor: String::new(), writing: true, body: String::new() }]).await;
+  let seen = view(&field, 2).await.drafts;
+  assert_eq!(seen.len(), 1, "bob is told alice is typing: {seen:?}");
+  assert_eq!((seen[0].who.as_str(), seen[0].body.as_str()), ("alice", ""), "and nothing of what");
+
+  apply(&rules, &mut field, 1, vec![Op::Typing { parent: "2".to_owned(), anchor: String::new(), writing: false, body: String::new() }]).await;
+  assert!(view(&field, 2).await.drafts.is_empty(), "until she stops");
 }
 
 #[tokio::test]
@@ -665,8 +680,11 @@ async fn the_service_shows_a_wave_after_any_step_of_its_log() {
   assert_eq!(field_of(field_of(&three, "change"), "who"), &Value::str("alice"));
   assert_eq!(field_of(&three, "participants"), &Value::seq(vec![Value::str("alice"), Value::str("bob")]));
 
-  assert_eq!(field_of(&at("8").await, "live"), &Value::Bool(true), "a step at the end is the wave as it stands");
-  assert_eq!(field_of(&at("soon").await, "live"), &Value::Bool(true), "and so is one that is not a number");
+  let last = at("8").await;
+  assert_eq!((field_of(&last, "step"), field_of(&last, "live")), (&Value::F64(8.0), &Value::Bool(false)), "the last step is still playback");
+  assert!(lit(&last), "and lights what the last change touched");
+  assert_eq!(field_of(&at("12").await, "step"), &Value::F64(8.0), "a step past the end is the last step");
+  assert_eq!(field_of(&at("soon").await, "live"), &Value::Bool(true), "one that is not a number is the wave as it stands");
 }
 
 /// Whether anything in `value` is lit.
@@ -697,6 +715,68 @@ async fn a_gadget_is_a_block_and_keeps_its_state_while_the_text_around_it_change
   assert_eq!(poll(&field), None, "a poll rewritten as a board keeps nothing of the poll");
   apply(&rules, &mut field, 1, vec![Op::Play { wave: "kickoff".to_owned(), blip: "8".to_owned(), block: "b1".to_owned(), who: "alice".to_owned(), cell: Some(0) }]).await;
   assert!(matches!(poll(&field), Some(State::Board(game)) if game.cells == "x........"), "and plays as a board from then on");
+}
+
+#[tokio::test]
+async fn a_poll_s_author_closes_it_for_good_and_a_blip_of_theirs_announces_the_result() {
+  let rules = rules();
+  let mut field = Field::new(backend::seed());
+  let vote = |who: &str, answer: &str| Op::Vote { wave: "kickoff".to_owned(), blip: "8".to_owned(), block: "b1".to_owned(), who: who.to_owned(), answer: answer.to_owned() };
+  let close = |who: &str| Op::CloseVote { wave: "kickoff".to_owned(), blip: "8".to_owned(), block: "b1".to_owned(), who: who.to_owned() };
+  let poll = |field: &Field| field.waves["kickoff"].blips.iter().find(|blip| blip.id == 8).cloned().unwrap();
+  let fence = poll(&field).blocks[0].text.clone();
+  let before = field.waves["kickoff"].blips.len();
+
+  apply(&rules, &mut field, 1, vec![vote("alice", "Friday"), vote("bob", "Friday"), vote("carol", "Thursday"), close("bob")]).await;
+  assert!(poll(&field).closed.is_empty(), "only its author closes a poll");
+  apply(&rules, &mut field, 1, vec![close("alice")]).await;
+  let announced = field.waves["kickoff"].blips.last().cloned().unwrap();
+  assert_eq!(field.waves["kickoff"].blips.len(), before + 1, "closing posts one blip");
+  assert_eq!((announced.who.as_str(), announced.parent.as_str(), announced.at.as_str()), ("alice", "", "10:00"), "at the top of the wave, from its author, as they close it");
+  assert_eq!(announced.body(), "Poll closed: [When do we launch?](#blip-8)\n\nFriday won with 2 of 3 votes.");
+
+  let held = poll(&field).gadgets.get("b1").cloned();
+  apply(&rules, &mut field, 1, vec![close("alice"), vote("dave", "Thursday"), vote("alice", "Friday"), amend("8", "b1", "alice", "```gadget poll\nWhen?\nNever\n```")]).await;
+  assert_eq!(field.waves["kickoff"].blips.len(), before + 1, "closing it again posts nothing, since there is no reopening");
+  assert_eq!(poll(&field).gadgets.get("b1").cloned(), held, "a closed poll takes no answer and nobody takes theirs back");
+  assert_eq!(poll(&field).blocks[0].text, fence, "and no rewrite");
+
+  let wave = &field.waves["kickoff"];
+  assert!(matches!(wave.log.last(), Some(Change::Closed { .. })), "the close is one change, the announcement with it");
+  assert_eq!(wave.replayed(wave.log.len()).blips.last().map(|blip| blip.body()), Some(announced.body()), "which replaying rebuilds");
+}
+
+#[tokio::test]
+async fn a_poll_takes_answers_until_its_deadline_and_none_after_it() {
+  let at = |secs: u64| Rules { instant: Box::new(move || secs), ..rules() };
+  let (before, after) = (at(951_868_800), at(951_868_860));
+  let mut field = Field::new(backend::seed());
+  let fence = "```gadget poll until=2000-03-01T00:01Z\nWhen?\nThursday\nFriday\n```";
+  apply(&before, &mut field, 1, vec![Op::Keep { wave: "kickoff".to_owned(), parent: String::new(), anchor: String::new(), who: "alice".to_owned(), body: fence.to_owned() }]).await;
+  let id = field.waves["kickoff"].blips.last().unwrap().id.to_string();
+  let vote = |who: &str| Op::Vote { wave: "kickoff".to_owned(), blip: id.clone(), block: "b1".to_owned(), who: who.to_owned(), answer: "Friday".to_owned() };
+
+  apply(&before, &mut field, 1, vec![vote("bob")]).await;
+  apply(&after, &mut field, 1, vec![vote("carol"), amend(&id, "b1", "alice", "```gadget poll\nWhen?\nNever\n```")]).await;
+  let polled = field.waves["kickoff"].blips.last().cloned().unwrap();
+  assert_eq!(polled.gadgets.get("b1"), Some(&State::Votes(BTreeMap::from([("bob".to_owned(), "Friday".to_owned())]))), "bob answered in time; at the deadline carol's answer is refused");
+  assert_eq!(polled.blocks[0].text, fence, "and so is a rewrite of the poll");
+
+  apply(&after, &mut field, 1, vec![Op::CloseVote { wave: "kickoff".to_owned(), blip: id.clone(), block: "b1".to_owned(), who: "alice".to_owned() }]).await;
+  assert_eq!(field.waves["kickoff"].blips.last().map(|blip| blip.body()), Some(format!("Poll closed: [When?](#blip-{id})\n\nFriday won with 1 of 1 vote.")), "its author can still announce it");
+}
+
+#[tokio::test]
+async fn the_service_closes_a_vote_for_its_author_and_the_gadget_says_so() {
+  let (field, controller) =
+    StateControllerBuilder::new(Arc::new(rules()), InProcessSession::<Op, Conn>::new(), Arc::new(Views), Field::new(backend::seed())).build();
+  tokio::spawn(controller.run());
+  let (service, mut told) = backend::service(field);
+  let close = ValueMap::from_iter([("id", "kickoff"), ("blip", "8"), ("block", "b1"), ("who", "alice")].map(|(key, value)| (key.to_owned(), Value::str(value))));
+  let poll = field_of(&nth(field_of(&call(&service, "closeVote", close).await, "blocks"), 0), "gadget").clone();
+  assert_eq!(field_of(&poll, "closed"), &Value::Bool(true));
+  assert_eq!((field_of(&poll, "ended"), field_of(&poll, "ends")), (&Value::Bool(false), &Value::str("")), "a poll with no deadline has none to pass");
+  assert_eq!(told.try_recv().unwrap(), "wave/kickoff", "and the wave's pages hear of it");
 }
 
 #[tokio::test]

@@ -37,12 +37,15 @@ pub struct Blip {
   /// The state of each gadget block, by block id. A gadget nobody has used
   /// yet has none.
   pub gadgets: BTreeMap<String, State>,
+  /// The vote blocks its author has closed. Closing is for good: such a block
+  /// takes no answer and no rewrite from then on.
+  pub closed: BTreeSet<String>,
 }
 
 impl Blip {
   /// A blip as first written: `body` split into blocks, each with an id of its own.
   pub fn written(id: u64, parent: &str, anchor: &str, who: &str, body: &str, at: String) -> Self {
-    let mut blip = Self { id, parent: parent.to_owned(), anchor: anchor.to_owned(), who: who.to_owned(), blocks: Vec::new(), made: 0, at, edited: String::new(), editors: Vec::new(), gadgets: BTreeMap::new() };
+    let mut blip = Self { id, parent: parent.to_owned(), anchor: anchor.to_owned(), who: who.to_owned(), blocks: Vec::new(), made: 0, at, edited: String::new(), editors: Vec::new(), gadgets: BTreeMap::new(), closed: BTreeSet::new() };
     blip.blocks = blocks::assign(&[], blocks::split(body), &mut blip.made);
     blip
   }
@@ -51,6 +54,18 @@ impl Blip {
   /// of the whole blip starts from.
   pub fn body(&self) -> String {
     self.blocks.iter().map(|block| block.text.as_str()).collect::<Vec<_>>().join("\n\n")
+  }
+
+  /// This blip rewritten: `body` in place of block `block` or of all of it
+  /// when `block` is empty. None when it has no such block.
+  pub fn rewritten(&self, block: &str, body: &str) -> Option<Blip> {
+    let mut next = self.clone();
+    next.rewrite(block, body).then_some(next)
+  }
+
+  /// The markdown of block `block`.
+  pub fn text_of(&self, block: &str) -> Option<&str> {
+    self.blocks.iter().find(|held| held.id == block).map(|held| held.text.as_str())
   }
 
   /// `body` in place of block `block` or of the whole blip when `block` is
@@ -77,6 +92,8 @@ impl Blip {
   }
 }
 
+/// What one window is part way through typing. `body` is empty while its
+/// reader keeps the words back, so the others are told only who is typing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Draft {
   pub who: String,
@@ -123,6 +140,9 @@ pub enum Change {
   /// An answer to the vote that gadget block `block` of blip `blip` is or
   /// the same answer again to take it back.
   Voted { blip: String, block: String, who: String, answer: String, at: String },
+  /// The author of the vote that gadget block `block` of blip `blip` is
+  /// closing it for good, with blip `id` announcing what it came to in `body`.
+  Closed { blip: String, block: String, who: String, id: u64, body: String, at: String },
 }
 
 impl Wave {
@@ -160,9 +180,11 @@ impl Wave {
       }
       Change::Amended { blip, block, who, body, at } => {
         let Some(amended) = self.blips.iter_mut().find(|held| held.id.to_string() == *blip) else { return false };
-        if !amended.rewrite(block, body) {
+        let Some(next) = amended.rewritten(block, body) else { return false };
+        if !amended.closed.iter().all(|id| amended.text_of(id) == next.text_of(id)) {
           return false;
         }
+        *amended = next;
         let blocks = &amended.blocks;
         amended.gadgets.retain(|id, state| blocks.iter().find(|held| held.id == *id).and_then(|held| gadgets::kind_of(&held.text)).is_some_and(|kind| kind.fits(state)));
         amended.edited = at.clone();
@@ -184,11 +206,42 @@ impl Wave {
         }
         State::Votes(_) => false,
       }),
-      Change::Voted { blip, block, who, answer, .. } => self.gadget(blip, block, |kind, state| match state {
-        State::Votes(votes) => gadgets::vote(kind, votes, who, answer),
-        State::Board(_) => false,
-      }),
+      Change::Voted { blip, block, who, answer, .. } => {
+        if self.closed(blip, block) {
+          return false;
+        }
+        self.gadget(blip, block, |kind, state| match state {
+          State::Votes(votes) => gadgets::vote(kind, votes, who, answer),
+          State::Board(_) => false,
+        })
+      }
+      Change::Closed { blip, block, who, id, body, at } => {
+        let Some(held) = self.blips.iter_mut().find(|held| held.id.to_string() == *blip) else { return false };
+        let vote = held.text_of(block).and_then(gadgets::kind_of).is_some_and(|kind| !matches!(kind, Kind::Noughts));
+        if !vote || held.who != *who || !held.closed.insert(block.clone()) {
+          return false;
+        }
+        self.blips.push(Blip::written(*id, "", "", who, body, at.clone()));
+        true
+      }
     }
+  }
+
+  /// Whether gadget block `block` of blip `blip` is a vote its author closed.
+  fn closed(&self, blip: &str, block: &str) -> bool {
+    self.blips.iter().find(|held| held.id.to_string() == blip).is_some_and(|held| held.closed.contains(block))
+  }
+
+  /// What would announce the vote that gadget block `block` of blip `blip`
+  /// is, from the answers it holds now. None when that block is no vote.
+  pub fn announcement(&self, blip: &str, block: &str) -> Option<String> {
+    let held = self.blips.iter().find(|held| held.id.to_string() == blip)?;
+    let kind = held.text_of(block).and_then(gadgets::kind_of).filter(|kind| !matches!(kind, Kind::Noughts))?;
+    let votes = match held.gadgets.get(block) {
+      Some(State::Votes(votes)) => votes.clone(),
+      _ => BTreeMap::new(),
+    };
+    Some(gadgets::announcement(&kind, &votes, blip))
   }
 
   /// Applies `change` to the state of gadget block `block` of blip `blip`,
@@ -244,7 +297,9 @@ pub struct View {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Op {
   Watch { wave: String, name: String },
-  Typing { parent: String, anchor: String, body: String },
+  /// A keystroke. `writing` is false once the field is empty and `body` is
+  /// empty while its reader keeps the words back.
+  Typing { parent: String, anchor: String, writing: bool, body: String },
   Keep { wave: String, parent: String, anchor: String, who: String, body: String },
   /// Take a block of a blip to rewrite it, the whole blip when `block` is
   /// empty. Refused by doing nothing when someone else holds it; the view is
@@ -259,6 +314,8 @@ pub enum Op {
   Play { wave: String, blip: String, block: String, who: String, cell: Option<usize> },
   /// An answer to a vote gadget or the same answer again to take it back.
   Vote { wave: String, blip: String, block: String, who: String, answer: String },
+  /// The vote's author closing it for good, which a blip of theirs announces.
+  CloseVote { wave: String, blip: String, block: String, who: String },
   View(Box<View>),
 }
 
@@ -309,13 +366,31 @@ impl Field {
     }
   }
 
-  /// The rewrite kept, with its hold released alongside it.
-  fn amend(&mut self, wave: &str, blip: &str, block: &str, who: &str, body: &str, at: String) {
+  /// The rewrite kept, with its hold released alongside it. A rewrite that
+  /// would change a block in `ended` is refused.
+  fn amend(&mut self, wave: &str, blip: &str, block: &str, who: &str, body: &str, at: String, ended: &[String]) {
     if let Some(edits) = self.edits.get_mut(wave) {
       edits.remove(&(blip.to_owned(), block.to_owned()));
     }
-    if let Some(held) = self.waves.get_mut(wave) {
+    let Some(held) = self.waves.get_mut(wave) else { return };
+    let changes_ended = held
+      .blips
+      .iter()
+      .find(|held| held.id.to_string() == blip)
+      .and_then(|old| old.rewritten(block, body).map(|next| ended.iter().any(|id| old.text_of(id) != next.text_of(id))))
+      .unwrap_or(false);
+    if !changes_ended {
       held.apply(Change::Amended { blip: blip.to_owned(), block: block.to_owned(), who: who.to_owned(), body: body.to_owned(), at });
+    }
+  }
+
+  /// The vote closed for good by its author, with the blip that announces it.
+  fn close(&mut self, wave: &str, blip: &str, block: &str, who: &str, at: String) {
+    let id = self.next;
+    let Some(held) = self.waves.get_mut(wave) else { return };
+    let Some(body) = held.announcement(blip, block) else { return };
+    if held.apply(Change::Closed { blip: blip.to_owned(), block: block.to_owned(), who: who.to_owned(), id, body, at }) {
+      self.next += 1;
     }
   }
 
@@ -351,6 +426,9 @@ impl Field {
 pub struct Rules {
   /// What a kept blip is stamped with, so a test can hold the clock still.
   pub clock: Box<dyn Fn() -> String + Send + Sync>,
+  /// The time a vote's deadline is held against, in seconds since the epoch,
+  /// so a test can move it.
+  pub instant: Box<dyn Fn() -> u64 + Send + Sync>,
   /// A keystroke (`Typing` or `Rewriting`) waits for the next `TimeStep` to
   /// be sent, so a wave sends views at the tick rate however fast anyone
   /// types. Every other change is sent at once. Needs a `TickDriver`.
@@ -362,7 +440,14 @@ pub struct Rules {
 
 impl Rules {
   pub fn new() -> Self {
-    Self { clock: Box::new(now), on_tick: false, uniform: false }
+    Self { clock: Box::new(now), instant: Box::new(epoch), on_tick: false, uniform: false }
+  }
+
+  /// The gadget blocks of `blip` whose deadline has passed.
+  fn ended(&self, field: &Field, wave: &str, blip: &str) -> Vec<String> {
+    let now = (self.instant)();
+    let Some(held) = field.waves.get(wave).and_then(|wave| wave.blips.iter().find(|held| held.id.to_string() == blip)) else { return Vec::new() };
+    held.blocks.iter().filter(|block| gadgets::until(&block.text).is_some_and(|until| until <= now)).map(|block| block.id.clone()).collect()
   }
 
   /// Where a keystroke's wave goes: out with this input or into `unsent` for
@@ -401,7 +486,7 @@ impl StateLogic<Op, Conn, Field> for Rules {
               field.here.entry(wave.clone()).or_default().insert(conn, name);
               touched = Some(wave);
             }
-            Op::Typing { parent, anchor, body } => {
+            Op::Typing { parent, anchor, writing, body } => {
               let Some(conn) = conn else { continue };
               let Some(wave) = field.watching.get(&conn).cloned() else { continue };
               let who = field.here.get(&wave).and_then(|here| here.get(&conn)).cloned().unwrap_or_default();
@@ -409,11 +494,11 @@ impl StateLogic<Op, Conn, Field> for Rules {
                 continue;
               }
               let drafts = field.drafts.entry(wave.clone()).or_default();
-              match body.is_empty() {
-                true => {
+              match writing {
+                false => {
                   drafts.remove(&conn);
                 }
-                false => {
+                true => {
                   drafts.insert(conn, Draft { who, parent, anchor, body });
                 }
               }
@@ -463,7 +548,8 @@ impl StateLogic<Op, Conn, Field> for Rules {
               touched = Some(wave);
             }
             Op::Amend { wave, blip, block, who, body } => {
-              field.amend(&wave, &blip, &block, &who, &body, (self.clock)());
+              let ended = self.ended(field, &wave, &blip);
+              field.amend(&wave, &blip, &block, &who, &body, (self.clock)(), &ended);
               touched = Some(wave);
             }
             Op::Play { wave, blip, block, who, cell } => {
@@ -477,9 +563,14 @@ impl StateLogic<Op, Conn, Field> for Rules {
               touched = Some(wave);
             }
             Op::Vote { wave, blip, block, who, answer } => {
-              if let Some(held) = field.waves.get_mut(&wave) {
+              let ended = self.ended(field, &wave, &blip).contains(&block);
+              if let (false, Some(held)) = (ended, field.waves.get_mut(&wave)) {
                 held.apply(Change::Voted { blip, block, who, answer, at: (self.clock)() });
               }
+              touched = Some(wave);
+            }
+            Op::CloseVote { wave, blip, block, who } => {
+              field.close(&wave, &blip, &block, &who, (self.clock)());
               touched = Some(wave);
             }
             Op::View(_) => {}
@@ -545,6 +636,11 @@ impl SnapshotProvider<Conn, Field, Op> for Views {
 }
 
 pub fn now() -> String {
-  let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
+  let secs = epoch();
   format!("{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60)
+}
+
+/// Seconds since the epoch.
+pub fn epoch() -> u64 {
+  std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
 }

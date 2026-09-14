@@ -8,7 +8,7 @@ use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use snapfire_fsr_service::{LocalTransport, Transport};
 
 use crate::blocks::Block;
-use crate::field::{Blip, Change, Conn, Field, Op, Wave};
+use crate::field::{epoch, Blip, Change, Conn, Field, Op, Wave};
 use crate::gadgets::{self, Game, Kind, State};
 
 pub type Waves = CommandSender<Op, Conn, Field>;
@@ -230,7 +230,7 @@ fn parts_value(parts: Vec<Part>, path: &str, anchored: &mut BTreeMap<String, Vec
 /// anchored to it follows the block wherever an edit moves it; a list item in
 /// it is at the id and its path below. A gadget block is one part of kind
 /// `gadget`, which a reply can answer too.
-fn blocks_value(blip: &Blip, lit: Lit<'_>, anchored: &mut BTreeMap<String, Vec<Value>>) -> Value {
+fn blocks_value(blip: &Blip, lit: Lit<'_>, now: u64, anchored: &mut BTreeMap<String, Vec<Value>>) -> Value {
   let id = blip.id.to_string();
   let whole = blip.body();
   let mut reading = Parser::new(&whole);
@@ -252,7 +252,7 @@ fn blocks_value(blip: &Blip, lit: Lit<'_>, anchored: &mut BTreeMap<String, Vec<V
     map.insert("id".to_owned(), Value::str(block.id.clone()));
     map.insert("text".to_owned(), Value::str(block.text.clone()));
     map.insert("parts".to_owned(), Value::seq(parts));
-    map.insert("gadget".to_owned(), gadget_value(blip, block, kind.as_ref(), lit.blip == id && lit.block == block.id));
+    map.insert("gadget".to_owned(), gadget_value(blip, block, kind.as_ref(), lit.blip == id && lit.block == block.id, now));
     out.push(Value::Map(map));
   }
   Value::seq(out)
@@ -270,18 +270,18 @@ struct Lit<'a> {
 /// anchored to a block under that block and every other reply after it. A
 /// reply whose block an amend took away joins the others rather than being
 /// lost. It is lit when `lit` names it and no block of it.
-fn blip_value(blip: &Blip, blips: &[Blip], lit: Lit<'_>) -> Value {
+fn blip_value(blip: &Blip, blips: &[Blip], lit: Lit<'_>, now: u64) -> Value {
   let id = blip.id.to_string();
   let mut replies = Vec::new();
   let mut anchored: BTreeMap<String, Vec<Value>> = BTreeMap::new();
   for reply in blips.iter().filter(|reply| reply.parent == id) {
-    let value = blip_value(reply, blips, lit);
+    let value = blip_value(reply, blips, lit, now);
     match reply.anchor.is_empty() {
       true => replies.push(value),
       false => anchored.entry(reply.anchor.clone()).or_default().push(value),
     }
   }
-  let blocks = blocks_value(blip, lit, &mut anchored);
+  let blocks = blocks_value(blip, lit, now, &mut anchored);
   replies.extend(anchored.into_values().flatten());
   let mut map = ValueMap::default();
   map.insert("id".to_owned(), Value::str(id));
@@ -298,16 +298,19 @@ fn blip_value(blip: &Blip, blips: &[Blip], lit: Lit<'_>) -> Value {
   Value::Map(map)
 }
 
-/// The wave as the page reads it: replayed to step `at` of its log or as it
-/// stands when `at` is empty or not before the end. A step of playback lights
-/// the blip or the board its change touched.
+/// The wave as the page reads it: as it stands when `at` is empty or not a
+/// number, else replayed to step `at` of its log, the last step at most. A
+/// step of playback lights what its change touched, the last step included:
+/// a blip, a board or the announcement of a vote it closed.
 fn wave_value(field: &Field, id: &str, at: &str) -> Option<Value> {
   let wave = field.waves.get(id)?;
+  let now = epoch();
   let steps = wave.log.len();
-  let step = at.parse::<usize>().ok().filter(|at| *at < steps).unwrap_or(steps);
-  let live = step == steps;
+  let asked = at.parse::<usize>().ok();
+  let step = asked.map_or(steps, |at| at.min(steps));
+  let live = asked.is_none();
   let replayed;
-  let shown = match live {
+  let shown = match step == steps {
     true => wave,
     false => {
       replayed = wave.replayed(step);
@@ -319,6 +322,7 @@ fn wave_value(field: &Field, id: &str, at: &str) -> Option<Value> {
     (false, Some(Change::Kept { id, .. })) => (id.to_string(), ""),
     (false, Some(Change::Amended { blip, .. })) => (blip.clone(), ""),
     (false, Some(Change::Played { blip, block, .. } | Change::Cleared { blip, block, .. } | Change::Voted { blip, block, .. })) => (blip.clone(), block.as_str()),
+    (false, Some(Change::Closed { id, .. })) => (id.to_string(), ""),
     _ => (String::new(), ""),
   };
   let lit = Lit { blip: &blip, block };
@@ -326,7 +330,7 @@ fn wave_value(field: &Field, id: &str, at: &str) -> Option<Value> {
   map.insert("id".to_owned(), Value::str(wave.id.clone()));
   map.insert("title".to_owned(), Value::str(wave.title.clone()));
   map.insert("participants".to_owned(), Value::Seq(shown.participants.iter().map(|who| Value::str(who.clone())).collect()));
-  map.insert("blips".to_owned(), Value::seq(shown.blips.iter().filter(|blip| blip.parent.is_empty()).map(|blip| blip_value(blip, &shown.blips, lit)).collect::<Vec<_>>()));
+  map.insert("blips".to_owned(), Value::seq(shown.blips.iter().filter(|blip| blip.parent.is_empty()).map(|blip| blip_value(blip, &shown.blips, lit, now)).collect::<Vec<_>>()));
   map.insert("step".to_owned(), Value::F64(step as f64));
   map.insert("steps".to_owned(), Value::F64(steps as f64));
   map.insert("live".to_owned(), Value::Bool(live));
@@ -335,8 +339,9 @@ fn wave_value(field: &Field, id: &str, at: &str) -> Option<Value> {
 }
 
 /// What one change in the log did, for the scrubber to say: its kind (`kept`,
-/// `amended`, `played`, `cleared` or `voted`), who made it, when and the blip
-/// it touched. Every field is empty before the first change.
+/// `amended`, `played`, `cleared`, `voted` or `closed`), who made it, when and
+/// the blip it touched, which for a closed vote is its announcement. Every
+/// field is empty before the first change.
 fn change_value(change: Option<&Change>) -> Value {
   let (kind, who, at, blip) = match change {
     Some(Change::Kept { id, who, at, .. }) => ("kept", who.as_str(), at.as_str(), id.to_string()),
@@ -344,6 +349,7 @@ fn change_value(change: Option<&Change>) -> Value {
     Some(Change::Played { blip, who, at, .. }) => ("played", who.as_str(), at.as_str(), blip.clone()),
     Some(Change::Cleared { blip, who, at, .. }) => ("cleared", who.as_str(), at.as_str(), blip.clone()),
     Some(Change::Voted { blip, who, at, .. }) => ("voted", who.as_str(), at.as_str(), blip.clone()),
+    Some(Change::Closed { id, who, at, .. }) => ("closed", who.as_str(), at.as_str(), id.to_string()),
     None => ("", "", "", String::new()),
   };
   let mut map = ValueMap::default();
@@ -357,10 +363,13 @@ fn change_value(change: Option<&Change>) -> Value {
 /// A block's gadget as the page reads it, every field empty when the block is
 /// no gadget: its kind, the question a vote asks and a board's cells with
 /// whose turn it is and who has won. A vote carries each answer it offers
-/// with everyone who gave it. `lit` when a step of playback moved on it.
-fn gadget_value(blip: &Blip, block: &Block, kind: Option<&Kind>, lit: bool) -> Value {
+/// with everyone who gave it, whether its author closed it and when voting
+/// ends, which has passed when it is at or before `now`. `lit` when a step of
+/// playback moved on it.
+fn gadget_value(blip: &Blip, block: &Block, kind: Option<&Kind>, lit: bool, now: u64) -> Value {
   let state = kind.and_then(|kind| blip.gadgets.get(&block.id).filter(|state| kind.fits(state)));
   let board = matches!(kind, Some(Kind::Noughts));
+  let until = gadgets::until(&block.text).filter(|_| matches!(kind, Some(Kind::YesNo { .. } | Kind::Poll { .. })));
   let game = match state {
     Some(State::Board(game)) => game.clone(),
     _ => Game::default(),
@@ -403,6 +412,9 @@ fn gadget_value(blip: &Blip, block: &Block, kind: Option<&Kind>, lit: bool) -> V
   map.insert("turn".to_owned(), Value::str(if board { game.turn.clone() } else { String::new() }));
   map.insert("won".to_owned(), Value::str(if board { game.won.clone() } else { String::new() }));
   map.insert("choices".to_owned(), Value::seq(choices));
+  map.insert("closed".to_owned(), Value::Bool(blip.closed.contains(&block.id)));
+  map.insert("ended".to_owned(), Value::Bool(until.is_some_and(|until| until <= now)));
+  map.insert("ends".to_owned(), Value::str(until.map(gadgets::shown_utc).unwrap_or_default()));
   map.insert("lit".to_owned(), Value::Bool(lit));
   Value::Map(map)
 }
@@ -410,7 +422,7 @@ fn gadget_value(blip: &Blip, block: &Block, kind: Option<&Kind>, lit: bool) -> V
 /// Blip `blip` of wave `wave` as the page reads it, its replies under it.
 fn held_blip(field: &Field, wave: &str, blip: &str) -> Option<Value> {
   let wave = field.waves.get(wave)?;
-  wave.blips.iter().find(|held| held.id.to_string() == blip).map(|held| blip_value(held, &wave.blips, Lit::default()))
+  wave.blips.iter().find(|held| held.id.to_string() == blip).map(|held| blip_value(held, &wave.blips, Lit::default(), epoch()))
 }
 
 fn string(args: &ValueMap, key: &str) -> String {
@@ -430,9 +442,9 @@ fn gone(method: &'static str) -> ServiceError {
 /// that op has been applied, since the controller does one thing at a time.
 pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsyncReceiver<String>) {
   let (told, hear) = fibre::mpsc::unbounded();
-  let (amended, kept, played, voted) = (told.clone(), told.clone(), told.clone(), told);
-  let (listing, counting, reading, writing, amending, playing, voting) =
-    (field.clone(), field.clone(), field.clone(), field.clone(), field.clone(), field.clone(), field);
+  let (amended, kept, played, voted, closed) = (told.clone(), told.clone(), told.clone(), told.clone(), told);
+  let (listing, counting, reading, writing, amending, playing, voting, closing) =
+    (field.clone(), field.clone(), field.clone(), field.clone(), field.clone(), field.clone(), field.clone(), field);
   let transport: Arc<dyn Transport> = Arc::new(
     LocalTransport::new()
       .method("waves.listWaves", move |call| {
@@ -507,6 +519,22 @@ pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsync
           answered.ok_or_else(|| ServiceError::new(FailureKind::NotFound, "waves", "vote", "no such blip"))
         }
       })
+      .method("waves.closeVote", move |call| {
+        let field = closing.clone();
+        let mut told = closed.clone();
+        let (id, blip, block, who) = (string(&call.args, "id"), string(&call.args, "blip"), string(&call.args, "block"), string(&call.args, "who"));
+        async move {
+          let topic = format!("wave/{id}");
+          let op = Op::CloseVote { wave: id.clone(), blip: blip.clone(), block, who };
+          field
+            .send(ControllerCommand::SubmitSystemOps { source_description: "an action".to_owned(), ops: vec![op] })
+            .await
+            .map_err(|_| gone("closeVote"))?;
+          let held = query_with(&field, move |field| held_blip(field, &id, &blip)).await.map_err(|_| gone("closeVote"))?;
+          let _ = told.send(topic);
+          held.ok_or_else(|| ServiceError::new(FailureKind::NotFound, "waves", "closeVote", "no such blip"))
+        }
+      })
       .method("waves.addBlip", move |call| {
         let field = writing.clone();
         let mut told = kept.clone();
@@ -520,7 +548,7 @@ pub fn service(field: Waves) -> (Arc<dyn Transport>, fibre::mpsc::UnboundedAsync
             .await
             .map_err(|_| gone("addBlip"))?;
           let kept = query_with(&field, move |field| {
-            field.waves.get(&id).and_then(|wave| wave.blips.last().map(|blip| blip_value(blip, &wave.blips, Lit::default())))
+            field.waves.get(&id).and_then(|wave| wave.blips.last().map(|blip| blip_value(blip, &wave.blips, Lit::default(), epoch())))
           })
           .await
           .map_err(|_| gone("addBlip"))?;

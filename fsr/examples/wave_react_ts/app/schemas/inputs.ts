@@ -24,6 +24,13 @@ export interface VoteInput {
   answer: string;
 }
 
+export interface CloseInput {
+  wave: string;
+  blip: string;
+  /** The gadget block the vote is. */
+  block: string;
+}
+
 export interface BlipInput {
   wave: string;
   parent: string;

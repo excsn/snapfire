@@ -51,11 +51,11 @@ impl Wire {
         }
       }
       On::Said(row) if row.key == "typing" => {
-        let (parent, anchor, body) = match &row.value {
-          Value::Map(map) => (text(map, "parent"), text(map, "anchor"), text(map, "body")),
-          _ => (String::new(), String::new(), String::new()),
+        let (parent, anchor, writing, body) = match &row.value {
+          Value::Map(map) => (text(map, "parent"), text(map, "anchor"), flag(map, "writing"), text(map, "body")),
+          _ => (String::new(), String::new(), false, String::new()),
         };
-        self.submit(who.connection, Op::Typing { parent, anchor, body });
+        self.submit(who.connection, Op::Typing { parent, anchor, writing, body });
       }
       On::Said(row) if row.key == "named" => {
         let name = match &row.value {
@@ -189,6 +189,10 @@ fn block_of(row: &Row) -> String {
     Value::Map(map) => text(map, "block"),
     _ => String::new(),
   }
+}
+
+fn flag(map: &ValueMap, key: &str) -> bool {
+  matches!(map.get(key), Some(Value::Bool(true)))
 }
 
 fn text(map: &ValueMap, key: &str) -> String {

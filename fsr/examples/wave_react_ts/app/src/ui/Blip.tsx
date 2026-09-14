@@ -16,7 +16,7 @@ export default function Blip({ wave, blip, me, live }: { wave: string; blip: Kep
         <span className="at">{blip.at}</span>
         <div className="body md">
           {blip.blocks.map((block) => (
-            <Section key={block.id} wave={wave} blip={blip.id} block={block} me={me} live={live} />
+            <Section key={block.id} wave={wave} blip={blip.id} block={block} me={me} mine={blip.who === me} live={live} />
           ))}
         </div>
         {live ? (
@@ -60,11 +60,11 @@ function Stamp({ edited, editors }: { edited: string; editors: string[] }): Reac
 }
 
 /** One block inside a `Block` island, whose children are its parts rendered here on the server. A paragraph, a heading or a code block keeps its aside outside the island, so its replies and its composer stay put while the block is rewritten; a list or a quote holds the asides of its items. A gadget block is its gadget, a server-mode island, with its aside after it. A step of playback has no browser islands, so any other block is its parts. */
-function Section({ wave, blip, block, me, live }: { wave: string; blip: string; block: Source; me: string; live: boolean }): ReactElement {
+function Section({ wave, blip, block, me, mine, live }: { wave: string; blip: string; block: Source; me: string; mine: boolean; live: boolean }): ReactElement {
   return block.gadget.kind !== "" ? (
     <div className="block">
       <Island mode="server">
-        <Gadget wave={wave} blip={blip} block={block.id} gadget={block.gadget} live={live} />
+        <Gadget wave={wave} blip={blip} block={block.id} gadget={block.gadget} live={live} mine={mine} />
       </Island>
       <Aside wave={wave} blip={blip} part={block.parts[0]} me={me} live={live} />
     </div>

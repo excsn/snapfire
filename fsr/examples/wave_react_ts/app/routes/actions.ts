@@ -1,6 +1,6 @@
 import { action, fail } from "@snapfire/fsr";
 import type { ActionCtx } from "@snapfire/fsr";
-import type { AmendInput, BlipInput, NameInput, PlayInput, ResetInput, VoteInput } from "@schemas/inputs";
+import type { AmendInput, BlipInput, CloseInput, NameInput, PlayInput, ResetInput, VoteInput } from "@schemas/inputs";
 
 export const name = action(async ({ input, session }: ActionCtx<NameInput>) => {
   session.name = input.name;
@@ -33,6 +33,14 @@ export const vote = action(async ({ input, services, session }: ActionCtx<VoteIn
   if (!session.name) fail("invalid", "name yourself before voting");
   const answered = await services.waves.vote({ id: input.wave, blip: input.blip, block: input.block, who: session.name, answer: input.answer });
   return { answered };
+});
+
+/** The vote's author closing it for good, which posts its result as a blip of
+ * theirs. The service refuses anyone else. */
+export const close = action(async ({ input, services, session }: ActionCtx<CloseInput>) => {
+  if (!session.name) fail("invalid", "name yourself before closing a poll");
+  const closed = await services.waves.closeVote({ id: input.wave, blip: input.blip, block: input.block, who: session.name });
+  return { closed };
 });
 
 export const amend = action(async ({ input, services, session }: ActionCtx<AmendInput>) => {

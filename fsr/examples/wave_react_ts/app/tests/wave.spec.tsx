@@ -8,11 +8,14 @@ interface Gadget {
   turn: string;
   won: string;
   choices: { answer: string; count: number; who: string[] }[];
+  closed: boolean;
+  ended: boolean;
+  ends: string;
   lit: boolean;
 }
 
 /** What a block that is no gadget carries. */
-const none: Gadget = { kind: "", question: "", cells: [], turn: "", won: "", choices: [], lit: false };
+const none: Gadget = { kind: "", question: "", cells: [], turn: "", won: "", choices: [], closed: false, ended: false, ends: "", lit: false };
 const noughts: Gadget = { ...none, kind: "noughts", cells: Array.from({ length: 9 }, (_, at) => ({ at, mark: "" })), turn: "x" };
 const poll: Gadget = { ...none, kind: "poll", question: "When?", choices: [{ answer: "Thursday", count: 1, who: ["bob"] }, { answer: "Friday", count: 0, who: [] }] };
 
@@ -201,6 +204,21 @@ test("someone typing beside a block shows there and nowhere else", async () => {
   expect(document.querySelectorAll(`${FIRST_BLOCK} > sf-s .blip.ghost`).length, "beside the paragraph bob is answering").toEqual(1);
 });
 
+test("someone typing with their words kept back shows who is typing and nothing of what", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  set(key<{ who: string; parent: string; anchor: string; body: string }[]>("wave/drafts"), [{ who: "bob", parent: "", anchor: "", body: "" }]);
+  await settle();
+  const ghost = document.querySelector(".transcript > sf-s .blip.ghost");
+  expect(ghost?.textContent, "above the wave's composer").toEqual("bobis typing");
+  expect(ghost?.querySelector(".body"), "with no words").toBeNull();
+});
+
+test("the composer keeps the words back until Show what I type is ticked", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  const shown = document.querySelector(".transcript > sf-s .composer .showing input") as HTMLInputElement;
+  expect(shown.checked, "the box starts unticked").toBeFalsy();
+});
+
 test("a reply to a block goes to the action with the block it answers", async () => {
   const asked: { parent: string; anchor: string; body: string }[] = [];
   const live = ctx({
@@ -225,6 +243,13 @@ test("a reply to a block goes to the action with the block it answers", async ()
 });
 
 /// DEFECTS 5.3: the client action path and the revalidation it triggers.
+test("a wave opens at the end of its transcript", async () => {
+  const into = spyOn(Element.prototype, "scrollIntoView");
+  await load("/wave/kickoff", { ctx: open("alice") });
+  expect(into, "the end is brought into view at once").toHaveBeenCalledWith({ behavior: "auto", block: "end" });
+  into.mockRestore();
+});
+
 test("keeping a blip calls the action and the transcript follows without a reload", async () => {
   const blips = [blip("1", "", "", "alice", "Starting a wave.")];
   const live = ctx({
@@ -246,7 +271,7 @@ test("keeping a blip calls the action and the transcript follows without a reloa
   await load("/wave/kickoff", { ctx: live });
   expect(document.querySelectorAll(".blips > .thread").length, "one blip to begin with").toEqual(1);
 
-  const composer = document.querySelector(".wave > sf-s .composer input") as HTMLInputElement;
+  const composer = document.querySelector(".transcript > sf-s .composer input") as HTMLInputElement;
   await fireEvent.change(composer, "written through the action client");
   await fireEvent.submit(composer);
 
@@ -275,17 +300,17 @@ test("a blip the reader keeps out of view is brought into view", async () => {
   Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
   const place = spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
     const top = this.id === "blip-2" ? 1200 : 0;
-    const height = this.classList.contains("blips") ? 800 : 100;
+    const height = this.classList.contains("transcript") ? 800 : 100;
     return { x: 0, y: top, width: 400, height, top, left: 0, right: 400, bottom: top + height, toJSON: () => ({}) };
   });
   const scrolled = spyOn(Element.prototype, "scrollIntoView");
 
-  const transcript = document.querySelector(".blips");
-  const composer = document.querySelector(".wave > sf-s .composer input") as HTMLInputElement;
+  const transcript = document.querySelector(".transcript");
+  const composer = document.querySelector(".transcript > sf-s .composer input") as HTMLInputElement;
   await fireEvent.change(composer, "below the fold");
   await fireEvent.submit(composer);
 
-  expect(document.querySelector(".blips"), "the transcript is the element that was there, so it keeps its scroll").toBe(transcript);
+  expect(document.querySelector(".transcript"), "the transcript is the element that was there, so it keeps its scroll").toBe(transcript);
   expect(scrolled.mock.contexts.map((el) => (el as Element).id), "the kept blip and nothing else").toEqual(["blip-2"]);
   scrolled.mockRestore();
   place.mockRestore();
@@ -349,7 +374,7 @@ test("a block whose children change keeps the island inside them as it stands", 
   const draft = items()[0].querySelector(".composer input") as HTMLInputElement;
   await fireEvent.change(draft, "half a reply");
 
-  const composer = document.querySelector(".wave > sf-s .composer input") as HTMLInputElement;
+  const composer = document.querySelector(".transcript > sf-s .composer input") as HTMLInputElement;
   await fireEvent.change(composer, "under the second");
   await fireEvent.submit(composer);
 
@@ -388,7 +413,7 @@ const replaying = {
 test("a step of playback lights what it changed and offers nothing to write with", async () => {
   await load("/wave/kickoff?at=3", { ctx: ctx({ session: { name: "alice", waves: {} }, services: { waves: { getWave: () => replaying, ...listings } } }) });
   expect(Array.from(document.querySelectorAll(".blip.lit > .who")).map((who) => who.textContent), "the blip the step rewrote is lit").toEqual(["alice"]);
-  expect(document.querySelector(".playback .said")?.textContent).toEqual("3 of 5: bob rewrote a blip at 09:20");
+  expect(document.querySelector(".playback .count")?.textContent).toEqual("5 changes");
   expect(document.querySelector(".blips .edited")?.textContent, "the stamp says when as it did then").toEqual("edited 09:20");
   expect(document.querySelectorAll(".under").length, "no composer, no reply and no ghost anywhere").toEqual(0);
   expect(document.querySelectorAll(".take, .edit-block").length, "and no blip or block offers itself for rewriting").toEqual(0);
@@ -396,7 +421,7 @@ test("a step of playback lights what it changed and offers nothing to write with
   expect(document.querySelector(".gadget .again"), "or cleared").toBeNull();
 });
 
-test("the scrubber takes the page to a step in place of its history entry and stays itself", async () => {
+test("playback opens from the bar under the title at the last step, every move takes the place of its history entry and the exit closes it", async () => {
   const asked: string[] = [];
   const live = ctx({
     session: { name: "alice", waves: {} },
@@ -404,28 +429,40 @@ test("the scrubber takes the page to a step in place of its history entry and st
       waves: {
         getWave: (input: { at?: string }) => {
           asked.push(input.at ?? "");
-          return input.at ? replaying : wave;
+          return input.at ? { ...replaying, step: Number(input.at) } : wave;
         },
         ...listings,
       },
     },
   });
   await load("/wave/kickoff", { ctx: live });
-  const bar = document.querySelector(".playback");
+  expect(document.querySelector(".playback"), "no scrubber on the wave as it stands").toBeNull();
   const entries = history.length;
   const top = spyOn(window, "scrollTo");
+  const into = spyOn(Element.prototype, "scrollIntoView");
+
+  await fireEvent.click(document.querySelector(".wave-nav .open-playback") as Element);
+  expect(location.pathname + location.search, "where the wave stands").toEqual("/wave/kickoff?at=5");
+  expect(into, "with the end of the transcript brought into view").toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
+  into.mockRestore();
+  const bar = document.querySelector(".playback");
+  expect(bar, "the bar opened").toBeTruthy();
+  expect(document.querySelector(".wave-nav .open-playback"), "in place of the button").toBeNull();
+  expect(document.querySelector(".playback .count")?.textContent).toEqual("5 changes");
+
   await fireEvent.click(document.querySelector('.playback [title="a step back"]') as Element);
   expect(location.pathname + location.search).toEqual("/wave/kickoff?at=4");
   expect(top, "the window stays where the reader left it").not.toHaveBeenCalled();
   top.mockRestore();
-  expect(asked, "the loader asked the service for that step").toEqual(["", "4"]);
-  expect(history.length, "the step took the place of the entry it moved from").toEqual(entries);
+  expect(asked, "the loader asked the service for each step").toEqual(["", "5", "4"]);
+  expect(history.length, "every move took the place of the entry it moved from").toEqual(entries);
   expect(document.querySelector(".playback"), "the scrubber is the island that was there").toBe(bar);
-  expect(document.querySelectorAll(".composer").length, "and the step offers nothing to write with").toEqual(0);
+  expect(document.querySelectorAll(".composer").length, "and playback offers nothing to write with").toEqual(0);
 
-  await fireEvent.click(document.querySelector(".playback .to-live") as Element);
-  expect(location.pathname + location.search, "the end of the log is the wave as it stands").toEqual("/wave/kickoff");
-  expect(document.querySelector(".playback"), "still the same scrubber").toBe(bar);
+  await fireEvent.click(document.querySelector(".playback .exit") as Element);
+  expect(location.pathname + location.search, "the exit is the wave as it stands").toEqual("/wave/kickoff");
+  expect(document.querySelector(".playback"), "with the bar closed").toBeNull();
+  expect(document.querySelector(".wave-nav .open-playback"), "and the button back").toBeTruthy();
 });
 
 test("a gadget sits in its blip where its fence is and an answer goes to the action with its blip and block", async () => {
@@ -455,6 +492,44 @@ test("a gadget sits in its blip where its fence is and an answer goes to the act
   expect(Array.from(gadget.querySelectorAll(".choice")).map((choice) => choice.textContent), "each answer with how many gave it and who").toEqual(["Thursday1bob", "Friday0"]);
   await fireEvent.click(gadget.querySelectorAll(".choice button")[1]);
   expect(asked, "the action carried the gadget's blip and block").toEqual([{ blip: "1", block: "b2", answer: "Friday" }]);
+});
+
+test("a poll's author closes it for good and a closed poll or one past its deadline takes no answer", async () => {
+  const closes: { id: string; blip: string; block: string; who: string }[] = [];
+  const polled = (gadget: Gadget) => blip("1", "", "", "alice", "", { blocks: [{ id: "b2", text: "```gadget poll\nWhen?\nThursday\nFriday\n```", parts: [gadgetPart("b2")], gadget }] });
+  const reading = (name: string, gadget: Gadget) =>
+    ctx({
+      session: { name, waves: {} },
+      services: {
+        waves: {
+          getWave: () => ({ ...wave, blips: [polled(gadget)] }),
+          closeVote: (input: { id: string; blip: string; block: string; who: string }) => {
+            closes.push(input);
+            return polled({ ...gadget, closed: true });
+          },
+          ...listings,
+        },
+      },
+    });
+  const shown = () => document.querySelector(".gadget.votes .closing")?.textContent ?? "";
+  const answerable = () => Array.from(document.querySelectorAll(".gadget.votes .choice button")).some((button) => !(button as HTMLButtonElement).disabled);
+
+  await load("/wave/kickoff", { ctx: reading("bob", { ...poll, ends: "15 Sep 18:00 UTC" }) });
+  expect(shown(), "a poll says when voting ends").toEqual("Ends 15 Sep 18:00 UTC");
+  expect(document.querySelector(".gadget.votes .close"), "and only its author is offered to close it").toBeNull();
+
+  await load("/wave/kickoff", { ctx: reading("alice", poll) });
+  await fireEvent.click(document.querySelector(".gadget.votes .close") as Element);
+  expect(closes, "closing goes to the service as its author").toEqual([{ id: "kickoff", blip: "1", block: "b2", who: "alice" }]);
+
+  await load("/wave/kickoff", { ctx: reading("alice", { ...poll, closed: true }) });
+  expect(shown()).toEqual("Closed");
+  expect(document.querySelector(".gadget.votes .close"), "there is no reopening").toBeNull();
+  expect(answerable(), "a closed poll takes no answer").toBeFalsy();
+
+  await load("/wave/kickoff", { ctx: reading("bob", { ...poll, ended: true, ends: "15 Sep 18:00 UTC" }) });
+  expect(shown()).toEqual("Ended 15 Sep 18:00 UTC");
+  expect(answerable(), "and neither does one past its deadline").toBeFalsy();
 });
 
 test("a gadget keeps its props as the server encoded them when a revalidation hands it new ones", async () => {
@@ -495,7 +570,7 @@ test("a gadget keeps its props as the server encoded them when a revalidation ha
   warned.mockRestore();
 });
 
-test("the composer's gadget menu keeps a blip that is the fence the service reads, with what was typed as its question", async () => {
+async function composing(): Promise<{ bodies: string[]; composer: HTMLFormElement; pick: (name: string) => Element }> {
   const bodies: string[] = [];
   const live = ctx({
     session: { name: "alice", waves: {} },
@@ -511,11 +586,57 @@ test("the composer's gadget menu keeps a blip that is the fence the service read
     },
   });
   await load("/wave/kickoff", { ctx: live });
-  const composer = document.querySelector(".wave > sf-s .composer") as HTMLFormElement;
+  const composer = document.querySelector(".transcript > sf-s .composer") as HTMLFormElement;
+  const pick = (name: string) => Array.from(composer.querySelectorAll(".add-gadget button")).find((button) => button.textContent === name) as Element;
+  return { bodies, composer, pick };
+}
+
+test("the composer's gadget menu opens a vote in an editor shaped like it and keeps it as a poll", async () => {
+  const { bodies, composer, pick } = await composing();
   await fireEvent.change(composer.querySelector("input") as HTMLInputElement, "Ship on Friday?");
-  const yesno = Array.from(composer.querySelectorAll(".add-gadget button")).find((button) => button.textContent === "Yes / No / Maybe") as Element;
-  await fireEvent.click(yesno);
-  expect(bodies).toEqual(["```gadget yesno\nShip on Friday?\n```"]);
+  await fireEvent.click(pick("Yes / No / Maybe"));
+  expect(bodies, "nothing is kept until the editor sends it").toEqual([]);
+  expect(composer.querySelector(".gadget.votes .choices"), "the editor is the vote's own markup").toBeTruthy();
+  expect((composer.querySelector(".gadget-editor .question") as HTMLInputElement).value, "what was typed is the question").toEqual("Ship on Friday?");
+  const answers = () => Array.from(composer.querySelectorAll(".gadget-editor .answer")).map((input) => (input as HTMLInputElement).value);
+  expect(answers(), "a yes/no starts with its three answers, each one editable").toEqual(["Yes", "No", "Maybe"]);
+  await fireEvent.click(composer.querySelectorAll(".gadget-editor .drop")[2] as Element);
+  expect(answers(), "and removable").toEqual(["Yes", "No"]);
+  expect(composer.querySelector('button[type="submit"]')?.textContent).toEqual("Add to wave");
+  await fireEvent.submit(composer);
+  expect(bodies).toEqual(["```gadget poll\nShip on Friday?\nYes\nNo\n```"]);
+  expect(composer.querySelector(".gadget-editor"), "and the editor closes").toBeNull();
+});
+
+test("a poll is written in the editor with its answers, two of them at least", async () => {
+  const { bodies, composer, pick } = await composing();
+  const into = spyOn(Element.prototype, "scrollIntoView");
+  await fireEvent.click(pick("Poll"));
+  expect(into, "the editor is brought into view as it opens").toHaveBeenCalledWith({ behavior: "smooth", block: "nearest" });
+  into.mockRestore();
+  const submit = composer.querySelector('button[type="submit"]') as HTMLButtonElement;
+  expect(submit.disabled, "a poll with no answers written cannot be kept").toBeTruthy();
+  await fireEvent.change(composer.querySelector(".gadget-editor .question") as HTMLInputElement, "When?");
+  const choice = (i: number) => composer.querySelectorAll(".gadget-editor .answer")[i] as HTMLInputElement;
+  await fireEvent.change(choice(0), "Thursday");
+  await fireEvent.change(choice(1), "Friday");
+  await fireEvent.click(composer.querySelector(".gadget-editor .more") as Element);
+  await fireEvent.change(choice(2), "Saturday");
+  await fireEvent.click(composer.querySelectorAll(".gadget-editor .drop")[1] as Element);
+  const written = Array.from(composer.querySelectorAll(".gadget-editor .answer")).map((input) => (input as HTMLInputElement).value);
+  expect(written, "an answer can be added and one removed").toEqual(["Thursday", "Saturday"]);
+  expect(submit.disabled).toBeFalsy();
+  await fireEvent.change(composer.querySelector(".gadget-editor .until input") as HTMLInputElement, "2026-09-15T18:00");
+  await fireEvent.submit(composer);
+  const until = `${new Date("2026-09-15T18:00").toISOString().slice(0, 16)}Z`;
+  expect(bodies, "the deadline goes on the fence as a UTC minute").toEqual(["```gadget poll until=" + until + "\nWhen?\nThursday\nSaturday\n```"]);
+});
+
+test("a board from the gadget menu is kept at once, with what was typed above it", async () => {
+  const { bodies, composer, pick } = await composing();
+  await fireEvent.change(composer.querySelector("input") as HTMLInputElement, "Your move");
+  await fireEvent.click(pick("Noughts and crosses"));
+  expect(bodies).toEqual(["Your move\n\n```gadget noughts\n```"]);
 });
 
 test("a reader with no name is asked for one across the top and the side pane names nobody", async () => {

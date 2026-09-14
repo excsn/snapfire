@@ -67,8 +67,12 @@ button:disabled:hover { border-color: var(--rule); }
 .empty p { margin: 0 0 0.6rem; }
 .hint { max-width: 34rem; font-size: 0.92rem; }
 
-.wave-head { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.wave-head { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
 .wave-head h1 { margin-right: auto; }
+.wave-nav { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.9rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--rule); }
+.wave-nav > sf-s { flex: 1; }
+.wave-nav:has(.playback) { padding-bottom: 0; border-bottom: 0; }
+.transcript > sf-s { display: flow-root; }
 .live { font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--rule); border-radius: 999px; padding: 0.12rem 0.5rem; }
 .live.on { color: var(--mine); border-color: currentColor; }
 .wave-head h1 { margin: 0; font-size: 1.25rem; }
@@ -127,13 +131,14 @@ button:disabled:hover { border-color: var(--rule); }
 .block-live:hover > .edit-block, .edit-block:focus { opacity: 1; }
 .edit-block:hover { color: var(--accent); }
 
-.playback { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; margin: 0 0 0.9rem; padding: 0.45rem 0.6rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; }
-.playback.on { border-color: var(--ghost); }
+.open-playback { padding: 0.25rem 0.7rem; font-size: 0.82rem; }
+.playback { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; margin: 0; padding: 0.45rem 0.6rem; background: var(--panel); border: 1px solid var(--ghost); border-radius: 8px; }
+.playback .bar-head { flex-basis: 100%; display: flex; align-items: center; justify-content: space-between; }
+.playback .count { color: var(--dim); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.playback .exit { padding: 0.1rem 0.45rem; font-size: 0.8rem; }
 .playback .step { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
 .playback .play { min-width: 4.8rem; }
 .playback input[type="range"] { flex: 1; min-width: 8rem; padding: 0; border: 0; background: none; accent-color: var(--accent); }
-.playback .said { flex-basis: 100%; color: var(--dim); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
-.playback .to-live { background: var(--accent); border-color: var(--accent); color: #0f1216; font-weight: 600; }
 .blip.lit, .gadget.lit { border-color: var(--ghost); box-shadow: 0 0 0 1px var(--ghost); }
 
 .blip.ghost { border-style: dashed; border-left-color: var(--ghost); background: transparent; }
@@ -148,8 +153,10 @@ button:disabled:hover { border-color: var(--rule); }
 .under.aside .composer { margin: 0.2rem 0 0.5rem; }
 
 .nameless { color: var(--dim); font-size: 0.88rem; margin: 0.3rem 0 1rem; }
-.composer { display: flex; gap: 0.5rem; margin: 0.25rem 0 1rem; }
+.composer { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.25rem 0 1rem; }
 .composer input { flex: 1; }
+.composer .showing { display: flex; align-items: center; gap: 0.35rem; color: var(--dim); font-size: 0.8rem; white-space: nowrap; cursor: pointer; }
+.composer .showing input { flex: none; margin: 0; accent-color: var(--accent); }
 
 /* Gadgets: shared state in a blip, rendered and stepped by the server */
 .gadget { margin: 0.6rem 0 1rem; padding: 0.7rem 0.85rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; display: inline-grid; gap: 0.55rem; }
@@ -180,8 +187,19 @@ button:disabled:hover { border-color: var(--rule); }
 .add-gadget[open] > summary { color: var(--ink); border-color: var(--accent); }
 .add-gadget > div { position: absolute; right: 0; bottom: 100%; z-index: 4; display: grid; gap: 0.25rem; margin-bottom: 0.25rem; padding: 0.35rem; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; white-space: nowrap; }
 .composer .add-gadget button { background: var(--panel); border-color: var(--rule); color: var(--ink); font-weight: 400; text-align: left; }
+.composer input[hidden] { display: none; }
+.composer.making { flex-wrap: wrap; align-items: flex-start; }
+.gadget-editor { flex: 1 1 100%; }
+.gadget-editor input { flex: none; background: transparent; }
+.gadget-editor .question { font-weight: 600; border: 0; border-bottom: 1px dashed var(--rule); border-radius: 0; padding: 0.1rem 0; }
+.gadget-editor .answer { field-sizing: content; min-width: 6ch; padding: 0.15rem 0.6rem; font-size: 0.85rem; border: 1px dashed var(--rule); border-radius: 6px; }
+.composer .gadget-editor button, .composer .back { background: var(--panel); border-color: var(--rule); color: var(--ink); font-weight: 400; }
+.gadget-editor .drop { padding: 0.1rem 0.4rem; font-size: 0.75rem; color: var(--dim); }
+.gadget-editor .until { display: flex; align-items: center; gap: 0.45rem; color: var(--dim); font-size: 0.8rem; }
+.gadget .closing { margin: 0; color: var(--dim); font-size: 0.8rem; }
+.gadget .close { justify-self: start; padding: 0.15rem 0.6rem; font-size: 0.8rem; }
 
-/* Wide: each pane scrolls on its own and the transcript scrolls between the scrubber and the composer */
+/* Wide: each pane scrolls on its own and the transcript, with the wave's composer at its end, scrolls below the bar under the title */
 @media (min-width: 72.01rem) {
   .app { height: 100dvh; display: flex; flex-direction: column; padding-bottom: 1rem; }
   .naming { flex: none; }
@@ -193,12 +211,10 @@ button:disabled:hover { border-color: var(--rule); }
   .open > sf-s { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .wave { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .wave > * { flex: none; }
-  .wave > .blips { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 0.5rem; }
+  .wave > .transcript { flex: 1; min-height: 0; overflow-y: auto; }
 }
 
-/* Stacked: the page scrolls and the scrubber and the wave's composer stick to the window */
+/* Stacked: the page scrolls and the bar under the title sticks to the window */
 @media (max-width: 72rem) {
   .wave > sf-s { display: block; }
-  .wave > sf-s:has(.playback) { position: sticky; top: 0; z-index: 3; background: var(--paper); padding-top: 0.5rem; }
-  .wave > sf-s:has(.under) { position: sticky; bottom: 0; z-index: 3; background: var(--paper); padding-top: 0.5rem; }
-}
+  .wave > .wave-nav { position: sticky; top: 0; z-index: 3; background: var(--paper); padding-top: 0.5rem; }}
