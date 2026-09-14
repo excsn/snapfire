@@ -1089,6 +1089,21 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered
   }
 }
 
+/// The `return` an `if` with no `else` holds as its only statement, braced or bare.
+fn early_return(branch: &js::IfStmt) -> Option<&js::ReturnStmt> {
+  if branch.alt.is_some() {
+    return None;
+  }
+  match &*branch.cons {
+    js::Stmt::Return(ret) => Some(ret),
+    js::Stmt::Block(block) => match block.stmts.as_slice() {
+      [js::Stmt::Return(ret)] => Some(ret),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
 fn branch_to_expr(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt) -> Lowered<Expr> {
   match stmt {
     js::Stmt::Block(block) => block_to_expr(lowerer, &block.stmts),
@@ -1222,6 +1237,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       FunctionBody::Expr(e) => self.child_expr(e)?,
       FunctionBody::Block(stmts) => {
         let mut render = None;
+        let mut early = Vec::new();
         for stmt in stmts {
           match stmt {
             js::Stmt::Return(ret) => {
@@ -1229,6 +1245,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               render = Some(self.child_expr(arg)?);
               break;
             }
+            js::Stmt::If(branch) => {
+              let ret = early_return(branch).ok_or_else(|| self.lowerer.residue(branch.span, "an `if` in a component other than `if (...) return` with no `else`"))?;
+              let cond = self.lowerer.expr(&branch.test)?;
+              let then = match ret.arg.as_deref() {
+                Some(arg) => self.child_expr(arg)?,
+                None => Tmpl::Fragment(Vec::new()),
+              };
+              early.push((cond, then));
+            }
+            other if !early.is_empty() => return Err(self.lowerer.residue(other.span(), "a statement after an early `return`; only another `if (...) return` or the final `return` can follow one")),
             js::Stmt::Decl(js::Decl::Fn(f)) => {
               self.handlers.push(f.ident.sym.to_string());
               if let Some(body) = &f.function.body {
@@ -1246,7 +1272,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             other => return Err(self.lowerer.residue(other.span(), "a statement a component cannot hold before its `return`")),
           }
         }
-        render.ok_or_else(|| self.lowerer.residue(Span::default(), "a component must return its tree"))?
+        let render = render.ok_or_else(|| self.lowerer.residue(Span::default(), "a component must return its tree"))?;
+        early.into_iter().rev().fold(render, |r#else, (cond, then)| Tmpl::If { cond, then: Box::new(then), r#else: Some(Box::new(r#else)) })
       }
     };
     self.lowerer.scope.truncate(depth);
@@ -3013,6 +3040,27 @@ export default function Order({ id }: { id: number }) {
     assert_eq!(keep(0), Entry::Field("data-sf-keep".to_owned(), Expr::lit_str("false")));
     assert_eq!(keep(1), Entry::Field("data-sf-keep".to_owned(), Expr::lit_str("true")));
     assert!(matches!(keep(2), Entry::Field(name, Expr::Ternary(..)) if name == "data-sf-keep"), "a computed keep is spelled when it renders: {:?}", keep(2));
+  }
+
+  #[test]
+  fn an_early_return_lowers_to_the_conditional_a_ternary_lowers_to() {
+    let early = "export default function P({ live, steps }: { live: boolean; steps: number }) {\n  const count = steps + 1;\n  if (steps === 0) return null;\n  if (live) {\n    return <button>open</button>;\n  }\n  return <p>{count}</p>;\n}\n";
+    let ternary = "export default function P({ live, steps }: { live: boolean; steps: number }) {\n  const count = steps + 1;\n  return steps === 0 ? null : live ? <button>open</button> : <p>{count}</p>;\n}\n";
+    let early = lower(&[("routes/index/page.tsx", early)], "routes/index/page.tsx#default").unwrap();
+    let ternary = lower(&[("routes/index/page.tsx", ternary)], "routes/index/page.tsx#default").unwrap();
+    assert_eq!(early[0].1.body, ternary[0].1.body);
+    assert_eq!(early[0].1.render, ternary[0].1.render);
+    assert!(matches!(&early[0].1.render, Tmpl::If { then, r#else: Some(_), .. } if **then == Tmpl::Fragment(Vec::new())), "{:?}", early[0].1.render);
+  }
+
+  #[test]
+  fn a_statement_after_an_early_return_or_an_if_that_is_not_one_is_residue() {
+    let after = "import { useState } from \"react\";\nexport default function P({ live }: { live: boolean }) {\n  if (live) return <b>live</b>;\n  const [n] = useState(0);\n  return <p>{n}</p>;\n}\n";
+    let err = lower(&[("routes/index/page.tsx", after)], "routes/index/page.tsx#default").unwrap_err().to_string();
+    assert_eq!(err, "routes/index/page.tsx:4:3: a statement after an early `return`; only another `if (...) return` or the final `return` can follow one");
+    let otherwise = "export default function P({ live }: { live: boolean }) {\n  if (live) return <b>live</b>;\n  else return <p>still</p>;\n}\n";
+    let err = lower(&[("routes/index/page.tsx", otherwise)], "routes/index/page.tsx#default").unwrap_err().to_string();
+    assert_eq!(err, "routes/index/page.tsx:2:3: an `if` in a component other than `if (...) return` with no `else`");
   }
 
   #[test]
