@@ -51,17 +51,17 @@ export function named(name: string): void {
   held?.socket.send("named", { name });
 }
 
-/** Reaches for a blip to rewrite it. The field decides: whoever gets there first holds it and the other window learns so by being sent the holder's text. */
-export function hold(blip: string): void {
-  held?.socket.send("open", { blip });
+/** Reaches for one block of a blip to rewrite it; an empty `block` reaches for the whole blip. The field decides: whoever gets there first holds it and the other window learns so by being sent the holder's text. */
+export function hold(blip: string, block: string): void {
+  held?.socket.send("open", { blip, block });
 }
 
 /** The rewrite as it stands, one row per keystroke, kept by nobody until the action runs. */
-export function rewriting(blip: string, body: string): void {
-  held?.socket.send("rewriting", { blip, body });
+export function rewriting(blip: string, block: string, body: string): void {
+  held?.socket.send("rewriting", { blip, block, body });
 }
 
-/** Lets a blip go without keeping the rewrite. */
-export function release(blip: string): void {
-  held?.socket.send("close", { blip });
+/** Lets a block or a blip go without keeping the rewrite. */
+export function release(blip: string, block: string): void {
+  held?.socket.send("close", { blip, block });
 }

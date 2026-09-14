@@ -7,6 +7,9 @@ use plaza::state_logic::{LogicOutput, SnapshotRequest};
 use plaza::{Agent, LogicInput, SnapshotProvider, StateLogic};
 use serde::{Deserialize, Serialize};
 
+use crate::blocks::{self, Block};
+use crate::gadgets::{self, Game, Kind, State};
+
 /// A connection, which is what plaza calls an agent here. Two windows of one
 /// person are two agents, because presence and a draft belong to a window.
 pub type Conn = u64;
@@ -15,17 +18,63 @@ pub type Conn = u64;
 pub struct Blip {
   pub id: u64,
   pub parent: String,
-  /// The block of the parent's content this answers, as the path the service
-  /// gives each block; empty for a reply to the whole blip.
+  /// The block of the parent this answers: its id, then the path of a list item
+  /// inside it when the reply answers one (`b3.1`); empty for a reply to the
+  /// whole blip.
   pub anchor: String,
   pub who: String,
-  pub body: String,
+  /// The body, one top-level markdown block each. A block keeps its id while
+  /// its text changes, so a reply anchored to it stays with it.
+  pub blocks: Vec<Block>,
+  /// How many block ids this blip has handed out.
+  pub made: u64,
   pub at: String,
   /// When it was last amended, empty while it still says what it first said.
   pub edited: String,
   /// Everyone who has rewritten it, in the order they first did. The author
   /// is `who` and is not repeated here unless they came back to it.
   pub editors: Vec<String>,
+  /// The state of each gadget block, by block id. A gadget nobody has used
+  /// yet has none.
+  pub gadgets: BTreeMap<String, State>,
+}
+
+impl Blip {
+  /// A blip as first written: `body` split into blocks, each with an id of its own.
+  pub fn written(id: u64, parent: &str, anchor: &str, who: &str, body: &str, at: String) -> Self {
+    let mut blip = Self { id, parent: parent.to_owned(), anchor: anchor.to_owned(), who: who.to_owned(), blocks: Vec::new(), made: 0, at, edited: String::new(), editors: Vec::new(), gadgets: BTreeMap::new() };
+    blip.blocks = blocks::assign(&[], blocks::split(body), &mut blip.made);
+    blip
+  }
+
+  /// The markdown as one text, its blocks a blank line apart: what a rewrite
+  /// of the whole blip starts from.
+  pub fn body(&self) -> String {
+    self.blocks.iter().map(|block| block.text.as_str()).collect::<Vec<_>>().join("\n\n")
+  }
+
+  /// `body` in place of block `block` or of the whole blip when `block` is
+  /// empty. A block's text becomes as many blocks as `body` holds, the first
+  /// keeping the block's id. An empty `body` removes the block. The whole
+  /// blip's text becomes its blocks, each keeping its id where the new text
+  /// kept or edited it. False when the blip has no such block.
+  fn rewrite(&mut self, block: &str, body: &str) -> bool {
+    let texts = blocks::split(body);
+    if block.is_empty() {
+      self.blocks = blocks::assign(&self.blocks, texts, &mut self.made);
+      return true;
+    }
+    let Some(place) = self.blocks.iter().position(|held| held.id == block) else { return false };
+    let mut replaced = Vec::with_capacity(texts.len());
+    for (i, text) in texts.into_iter().enumerate() {
+      replaced.push(match i {
+        0 => Block { id: block.to_owned(), text },
+        _ => blocks::fresh(&mut self.made, text),
+      });
+    }
+    self.blocks.splice(place..=place, replaced);
+    true
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -36,12 +85,14 @@ pub struct Draft {
   pub body: String,
 }
 
-/// One blip being rewritten. Holding it is the lock: a blip has one of these
-/// or none, so the second person to reach for it is refused by there being an
-/// entry already.
+/// One blip or one block of it being rewritten. Holding it is the lock: the
+/// second window to reach for something held is refused by there being an
+/// entry already. `block` is empty for the whole blip, which is held against
+/// every block of it, as each block is against the whole.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Editing {
   pub blip: String,
+  pub block: String,
   pub who: String,
   pub body: String,
 }
@@ -52,74 +103,106 @@ pub struct Wave {
   pub title: String,
   pub participants: Vec<String>,
   pub blips: Vec<Blip>,
-  /// The wave's gadget. Wave's gadgets were shared state inside the
-  /// conversation rather than one person's widget, which is what makes this
-  /// worth having: two windows play one board.
-  pub game: Game,
+  /// Every durable change in the order the rules applied it: kept blips,
+  /// amends, moves and votes, never a keystroke or a hold. The rest of the
+  /// wave is this log applied to an empty wave. Held in memory only.
+  pub log: Vec<Change>,
 }
 
-/// Noughts and crosses, the gadget every Wave demo had. `cells` is nine of
-/// `.`, `x` or `o`; `turn` is the mark to play next and `won` the mark that
-/// has three, empty while nobody does.
+/// One durable change to a wave, carrying everything the rules need to apply
+/// it again, so replaying the log rebuilds the wave down to its block ids.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Game {
-  pub cells: String,
-  pub turn: String,
-  pub won: String,
-  /// Who plays which mark, in the order they first moved.
-  pub players: BTreeMap<String, String>,
+pub enum Change {
+  Kept { id: u64, parent: String, anchor: String, who: String, body: String, at: String },
+  /// A rewrite of block `block` of a blip or of all of it when `block` is empty.
+  Amended { blip: String, block: String, who: String, body: String, at: String },
+  /// A move on the board that gadget block `block` of blip `blip` is.
+  Played { blip: String, block: String, who: String, cell: usize, at: String },
+  /// A fresh board.
+  Cleared { blip: String, block: String, who: String, at: String },
+  /// An answer to the vote that gadget block `block` of blip `blip` is or
+  /// the same answer again to take it back.
+  Voted { blip: String, block: String, who: String, answer: String, at: String },
 }
 
-impl Default for Game {
-  fn default() -> Self {
-    Self { cells: ".........".to_owned(), turn: "x".to_owned(), won: String::new(), players: BTreeMap::new() }
-  }
-}
-
-const LINES: [[usize; 3]; 8] = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
-
-impl Game {
-  /// The mark `who` plays: theirs if they have one, else the mark whose turn
-  /// it is when nobody holds it. A third person watches.
-  fn mark_for(&self, who: &str) -> Option<String> {
-    if let Some(mark) = self.players.get(who) {
-      return Some(mark.clone());
-    }
-    let taken = self.players.values().any(|mark| mark == &self.turn);
-    (!taken).then(|| self.turn.clone())
+impl Wave {
+  /// A wave with nothing in it yet.
+  pub fn new(id: &str, title: &str) -> Self {
+    Self { id: id.to_owned(), title: title.to_owned(), participants: Vec::new(), blips: Vec::new(), log: Vec::new() }
   }
 
-  /// Everything a move is: whose turn, whether the cell is free, whether that
-  /// finished it. All of it branches, which is why none of it is in a handler.
-  fn play(&mut self, who: &str, cell: usize) -> bool {
-    if !self.won.is_empty() || cell >= 9 {
-      return false;
+  /// Applies `change` and logs it. A change the rules refuse, a move out of
+  /// turn or an amend of a block that is not there, changes nothing and is
+  /// not logged.
+  pub fn apply(&mut self, change: Change) -> bool {
+    let applied = self.step(&change);
+    if applied {
+      self.log.push(change);
     }
-    let Some(mark) = self.mark_for(who) else { return false };
-    if mark != self.turn {
-      return false;
-    }
-    let mut cells: Vec<char> = self.cells.chars().collect();
-    if cells.get(cell) != Some(&'.') {
-      return false;
-    }
-    cells[cell] = mark.chars().next().unwrap_or('x');
-    self.cells = cells.iter().collect();
-    self.players.insert(who.to_owned(), mark.clone());
-    self.won = LINES
-      .iter()
-      .find(|line| line.iter().all(|i| cells[*i] == cells[line[0]] && cells[*i] != '.'))
-      .map(|line| cells[line[0]].to_string())
-      .unwrap_or_default();
-    self.turn = match mark.as_str() {
-      "x" => "o".to_owned(),
-      _ => "x".to_owned(),
-    };
-    true
+    applied
   }
 
-  fn clear(&mut self) {
-    *self = Game::default();
+  /// The wave as it stood after its first `steps` changes.
+  pub fn replayed(&self, steps: usize) -> Wave {
+    let mut wave = Wave::new(&self.id, &self.title);
+    for change in self.log.iter().take(steps) {
+      wave.apply(change.clone());
+    }
+    wave
+  }
+
+  fn step(&mut self, change: &Change) -> bool {
+    match change {
+      Change::Kept { id, parent, anchor, who, body, at } => {
+        self.blips.push(Blip::written(*id, parent, anchor, who, body, at.clone()));
+        admit(self, who);
+        true
+      }
+      Change::Amended { blip, block, who, body, at } => {
+        let Some(amended) = self.blips.iter_mut().find(|held| held.id.to_string() == *blip) else { return false };
+        if !amended.rewrite(block, body) {
+          return false;
+        }
+        let blocks = &amended.blocks;
+        amended.gadgets.retain(|id, state| blocks.iter().find(|held| held.id == *id).and_then(|held| gadgets::kind_of(&held.text)).is_some_and(|kind| kind.fits(state)));
+        amended.edited = at.clone();
+        if !who.is_empty() && !amended.editors.contains(who) {
+          amended.editors.push(who.clone());
+        }
+        admit(self, who);
+        true
+      }
+      Change::Played { blip, block, who, cell, .. } => self.gadget(blip, block, |_, state| match state {
+        State::Board(game) => game.play(who, *cell),
+        State::Votes(_) => false,
+      }),
+      Change::Cleared { blip, block, .. } => self.gadget(blip, block, |_, state| match state {
+        State::Board(game) => {
+          let played = *game != Game::default();
+          game.clear();
+          played
+        }
+        State::Votes(_) => false,
+      }),
+      Change::Voted { blip, block, who, answer, .. } => self.gadget(blip, block, |kind, state| match state {
+        State::Votes(votes) => gadgets::vote(kind, votes, who, answer),
+        State::Board(_) => false,
+      }),
+    }
+  }
+
+  /// Applies `change` to the state of gadget block `block` of blip `blip`,
+  /// starting from a fresh one when it has none of its kind. The state is
+  /// kept only when the change applied. False when the block is no gadget.
+  fn gadget(&mut self, blip: &str, block: &str, change: impl FnOnce(&Kind, &mut State) -> bool) -> bool {
+    let Some(held) = self.blips.iter_mut().find(|held| held.id.to_string() == blip) else { return false };
+    let Some(kind) = held.blocks.iter().find(|held| held.id == block).and_then(|held| gadgets::kind_of(&held.text)) else { return false };
+    let mut state = held.gadgets.get(block).filter(|state| kind.fits(state)).cloned().unwrap_or_else(|| kind.fresh());
+    let applied = change(&kind, &mut state);
+    if applied {
+      held.gadgets.insert(block.to_owned(), state);
+    }
+    applied
   }
 }
 
@@ -133,8 +216,9 @@ pub struct Field {
   pub here: BTreeMap<String, BTreeMap<Conn, String>>,
   /// Wave, then connection, then what that window is part way through typing.
   pub drafts: BTreeMap<String, BTreeMap<Conn, Draft>>,
-  /// Wave, then blip, then the window rewriting it and how far it has got.
-  pub edits: BTreeMap<String, BTreeMap<String, (Conn, Editing)>>,
+  /// Wave, then blip and block, then the window rewriting it and how far it
+  /// has got.
+  pub edits: BTreeMap<String, BTreeMap<(String, String), (Conn, Editing)>>,
   /// Which wave a connection is looking at.
   pub watching: BTreeMap<Conn, String>,
   /// Waves whose drafts or rewrites changed since the last tick, when views
@@ -162,16 +246,19 @@ pub enum Op {
   Watch { wave: String, name: String },
   Typing { parent: String, anchor: String, body: String },
   Keep { wave: String, parent: String, anchor: String, who: String, body: String },
-  /// Take a blip to rewrite it. Refused by doing nothing when someone else
-  /// holds it; the view is what tells both windows who won.
-  Open { blip: String },
-  Rewriting { blip: String, body: String },
-  Close { blip: String },
+  /// Take a block of a blip to rewrite it, the whole blip when `block` is
+  /// empty. Refused by doing nothing when someone else holds it; the view is
+  /// what tells both windows who won.
+  Open { blip: String, block: String },
+  Rewriting { blip: String, block: String, body: String },
+  Close { blip: String, block: String },
   /// The rewrite, kept. An action submits this, never a socket, because a
   /// blip is durable.
-  Amend { wave: String, blip: String, who: String, body: String },
-  /// A move in the wave's gadget; a fresh board when `cell` is absent.
-  Play { wave: String, who: String, cell: Option<usize> },
+  Amend { wave: String, blip: String, block: String, who: String, body: String },
+  /// A move on a board gadget; a fresh board when `cell` is absent.
+  Play { wave: String, blip: String, block: String, who: String, cell: Option<usize> },
+  /// An answer to a vote gadget or the same answer again to take it back.
+  Vote { wave: String, blip: String, block: String, who: String, answer: String },
   View(Box<View>),
 }
 
@@ -201,40 +288,43 @@ impl Field {
     Some(wave)
   }
 
-  /// Whether `conn` is the window holding `blip`. Nothing else may write it.
-  fn holds(&self, wave: &str, blip: &str, conn: Conn) -> bool {
-    self.edits.get(wave).and_then(|edits| edits.get(blip)).is_some_and(|(held_by, _)| *held_by == conn)
+  /// Whether `conn` is the window holding `block` of `blip`. Nothing else may write it.
+  fn holds(&self, wave: &str, blip: &str, block: &str, conn: Conn) -> bool {
+    self.edits.get(wave).and_then(|edits| edits.get(&(blip.to_owned(), block.to_owned()))).is_some_and(|(held_by, _)| *held_by == conn)
   }
 
-  /// The blip as it stands, which is what a window starts a rewrite from.
-  fn body_of(&self, wave: &str, blip: &str) -> Option<String> {
-    self.waves.get(wave)?.blips.iter().find(|held| held.id.to_string() == blip).map(|held| held.body.clone())
+  /// Whether `block` of `blip` can be taken: nobody holds it or the whole
+  /// blip and, for the whole blip, nobody holds any block of it.
+  fn free(&self, wave: &str, blip: &str, block: &str) -> bool {
+    let Some(edits) = self.edits.get(wave) else { return true };
+    edits.keys().all(|(held, part)| held != blip || (!block.is_empty() && !part.is_empty() && part != block))
   }
 
-  /// The rewrite kept, with the hold released alongside it.
-  fn amend(&mut self, wave: &str, blip: &str, who: &str, body: &str, at: String) -> Option<Blip> {
+  /// What a window starts a rewrite from: the whole blip's markdown or one block's.
+  fn start_of(&self, wave: &str, blip: &str, block: &str) -> Option<String> {
+    let held = self.waves.get(wave)?.blips.iter().find(|held| held.id.to_string() == blip)?;
+    match block.is_empty() {
+      true => Some(held.body()),
+      false => held.blocks.iter().find(|held| held.id == block).map(|held| held.text.clone()),
+    }
+  }
+
+  /// The rewrite kept, with its hold released alongside it.
+  fn amend(&mut self, wave: &str, blip: &str, block: &str, who: &str, body: &str, at: String) {
     if let Some(edits) = self.edits.get_mut(wave) {
-      edits.remove(blip);
+      edits.remove(&(blip.to_owned(), block.to_owned()));
     }
-    let held = self.waves.get_mut(wave)?;
-    admit(held, who);
-    let amended = held.blips.iter_mut().find(|held| held.id.to_string() == blip)?;
-    amended.body = body.to_owned();
-    amended.edited = at;
-    if !who.is_empty() && !amended.editors.iter().any(|there| there == who) {
-      amended.editors.push(who.to_owned());
+    if let Some(held) = self.waves.get_mut(wave) {
+      held.apply(Change::Amended { blip: blip.to_owned(), block: block.to_owned(), who: who.to_owned(), body: body.to_owned(), at });
     }
-    Some(amended.clone())
   }
 
-  fn keep(&mut self, wave: &str, parent: &str, anchor: &str, who: &str, body: &str, at: String) -> Option<Blip> {
+  fn keep(&mut self, wave: &str, parent: &str, anchor: &str, who: &str, body: &str, at: String) {
     let id = self.next;
-    let held = self.waves.get_mut(wave)?;
-    let blip = Blip { id, parent: parent.to_owned(), anchor: anchor.to_owned(), who: who.to_owned(), body: body.to_owned(), at, edited: String::new(), editors: Vec::new() };
-    admit(held, who);
-    held.blips.push(blip.clone());
-    self.next += 1;
-    Some(blip)
+    let Some(held) = self.waves.get_mut(wave) else { return };
+    if held.apply(Change::Kept { id, parent: parent.to_owned(), anchor: anchor.to_owned(), who: who.to_owned(), body: body.to_owned(), at }) {
+      self.next += 1;
+    }
   }
 
   /// What `wave` looks like to `conn`: everyone here and every draft and
@@ -336,54 +426,59 @@ impl StateLogic<Op, Conn, Field> for Rules {
               }
               touched = Some(wave);
             }
-            Op::Open { blip } => {
+            Op::Open { blip, block } => {
               let Some(conn) = conn else { continue };
               let Some(wave) = field.watching.get(&conn).cloned() else { continue };
-              if field.edits.get(&wave).is_some_and(|edits| edits.contains_key(&blip)) {
+              if !field.free(&wave, &blip, &block) {
                 continue;
               }
-              let Some(body) = field.body_of(&wave, &blip) else { continue };
+              let Some(body) = field.start_of(&wave, &blip, &block) else { continue };
               let who = field.here.get(&wave).and_then(|here| here.get(&conn)).cloned().unwrap_or_default();
               if who.is_empty() {
                 continue;
               }
-              field.edits.entry(wave.clone()).or_default().insert(blip.clone(), (conn, Editing { blip, who, body }));
+              field.edits.entry(wave.clone()).or_default().insert((blip.clone(), block.clone()), (conn, Editing { blip, block, who, body }));
               touched = Some(wave);
             }
-            Op::Rewriting { blip, body } => {
+            Op::Rewriting { blip, block, body } => {
               let Some(conn) = conn else { continue };
               let Some(wave) = field.watching.get(&conn).cloned() else { continue };
-              if !field.holds(&wave, &blip, conn) {
+              if !field.holds(&wave, &blip, &block, conn) {
                 continue;
               }
-              if let Some((_, edit)) = field.edits.get_mut(&wave).and_then(|edits| edits.get_mut(&blip)) {
+              if let Some((_, edit)) = field.edits.get_mut(&wave).and_then(|edits| edits.get_mut(&(blip, block))) {
                 edit.body = body;
               }
               self.keystroke(field, &mut touched, wave);
             }
-            Op::Close { blip } => {
+            Op::Close { blip, block } => {
               let Some(conn) = conn else { continue };
               let Some(wave) = field.watching.get(&conn).cloned() else { continue };
-              if !field.holds(&wave, &blip, conn) {
+              if !field.holds(&wave, &blip, &block, conn) {
                 continue;
               }
               if let Some(edits) = field.edits.get_mut(&wave) {
-                edits.remove(&blip);
+                edits.remove(&(blip, block));
               }
               touched = Some(wave);
             }
-            Op::Amend { wave, blip, who, body } => {
-              field.amend(&wave, &blip, &who, &body, (self.clock)());
+            Op::Amend { wave, blip, block, who, body } => {
+              field.amend(&wave, &blip, &block, &who, &body, (self.clock)());
               touched = Some(wave);
             }
-            Op::Play { wave, who, cell } => {
+            Op::Play { wave, blip, block, who, cell } => {
               if let Some(held) = field.waves.get_mut(&wave) {
-                match cell {
-                  Some(cell) => {
-                    held.game.play(&who, cell);
-                  }
-                  None => held.game.clear(),
-                }
+                let at = (self.clock)();
+                held.apply(match cell {
+                  Some(cell) => Change::Played { blip, block, who, cell, at },
+                  None => Change::Cleared { blip, block, who, at },
+                });
+              }
+              touched = Some(wave);
+            }
+            Op::Vote { wave, blip, block, who, answer } => {
+              if let Some(held) = field.waves.get_mut(&wave) {
+                held.apply(Change::Voted { blip, block, who, answer, at: (self.clock)() });
               }
               touched = Some(wave);
             }

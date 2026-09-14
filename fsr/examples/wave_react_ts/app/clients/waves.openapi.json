@@ -72,6 +72,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "description": "the step of the wave's log to show it after; the wave as it stands when absent, empty or not before the end",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -170,12 +178,28 @@
         }
       }
     },
-    "/waves/{id}/game": {
+    "/waves/{id}/blips/{blip}/gadgets/{block}/moves": {
       "post": {
         "operationId": "play",
         "parameters": [
           {
             "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "blip",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "block",
             "in": "path",
             "required": true,
             "schema": {
@@ -195,11 +219,64 @@
         },
         "responses": {
           "200": {
-            "description": "the board after the move",
+            "description": "the blip holding the board, after the move",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Game"
+                  "$ref": "#/components/schemas/Blip"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/waves/{id}/blips/{blip}/gadgets/{block}/votes": {
+      "post": {
+        "operationId": "vote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "blip",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "block",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Vote"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the blip holding the vote, after the answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Blip"
                 }
               }
             }
@@ -268,7 +345,10 @@
           "title",
           "participants",
           "blips",
-          "game"
+          "step",
+          "steps",
+          "live",
+          "change"
         ],
         "properties": {
           "id": {
@@ -289,8 +369,47 @@
               "$ref": "#/components/schemas/Blip"
             }
           },
-          "game": {
-            "$ref": "#/components/schemas/Game"
+          "step": {
+            "type": "number",
+            "format": "double",
+            "description": "how many changes of the log the wave is shown after"
+          },
+          "steps": {
+            "type": "number",
+            "format": "double",
+            "description": "how many changes the log holds"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "whether this is the wave as it stands rather than a step of playback"
+          },
+          "change": {
+            "$ref": "#/components/schemas/Change"
+          }
+        }
+      },
+      "Change": {
+        "type": "object",
+        "required": [
+          "kind",
+          "who",
+          "at",
+          "blip"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "kept, amended, played, cleared or voted; empty before the first change"
+          },
+          "who": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "blip": {
+            "type": "string",
+            "description": "the blip the change touched"
           }
         }
       },
@@ -305,8 +424,9 @@
           "at",
           "edited",
           "editors",
-          "parts",
-          "replies"
+          "blocks",
+          "replies",
+          "lit"
         ],
         "properties": {
           "id": {
@@ -317,14 +437,14 @@
           },
           "anchor": {
             "type": "string",
-            "description": "the block of the parent this answers, as the path the service gives it; empty for the whole blip"
+            "description": "the block of the parent this answers: its id, then the path of a list item inside it; empty for the whole blip"
           },
           "who": {
             "type": "string"
           },
           "body": {
             "type": "string",
-            "description": "the markdown as it was written"
+            "description": "the markdown, its blocks a blank line apart"
           },
           "at": {
             "type": "string"
@@ -338,12 +458,12 @@
               "type": "string"
             }
           },
-          "parts": {
+          "blocks": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Part"
+              "$ref": "#/components/schemas/Block"
             },
-            "description": "the body parsed on the server, with raw HTML kept as text"
+            "description": "the body as its top-level markdown blocks, each parsed on the server with raw HTML kept as text"
           },
           "replies": {
             "type": "array",
@@ -351,6 +471,38 @@
               "$ref": "#/components/schemas/Blip"
             },
             "description": "the replies to the whole blip, then any whose block is gone"
+          },
+          "lit": {
+            "type": "boolean",
+            "description": "whether the step of playback shown kept or amended this blip"
+          }
+        }
+      },
+      "Block": {
+        "type": "object",
+        "required": [
+          "id",
+          "text",
+          "parts",
+          "gadget"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the block's id, kept while its text changes"
+          },
+          "text": {
+            "type": "string",
+            "description": "the block's markdown"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            }
+          },
+          "gadget": {
+            "$ref": "#/components/schemas/Gadget"
           }
         }
       },
@@ -378,7 +530,7 @@
           },
           "at": {
             "type": "string",
-            "description": "the path of a block a reply can answer, empty for any other part"
+            "description": "the path of a part a reply can answer: its block's id, then its path inside the block; empty for any other part"
           },
           "children": {
             "type": "array",
@@ -407,6 +559,10 @@
           },
           "body": {
             "type": "string"
+          },
+          "block": {
+            "type": "string",
+            "description": "the block rewritten; empty or absent for the whole blip"
           }
         }
       },
@@ -464,25 +620,89 @@
           }
         }
       },
-      "Game": {
+      "Gadget": {
         "type": "object",
         "required": [
+          "kind",
+          "question",
           "cells",
           "turn",
-          "won"
+          "won",
+          "choices",
+          "lit"
         ],
         "properties": {
+          "kind": {
+            "type": "string",
+            "description": "noughts, yesno or poll; empty for a block that is no gadget"
+          },
+          "question": {
+            "type": "string",
+            "description": "the question a vote asks"
+          },
           "cells": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Cell"
-            }
+            },
+            "description": "a board's nine cells; empty for a vote"
           },
           "turn": {
             "type": "string"
           },
           "won": {
             "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            },
+            "description": "each answer a vote offers, in order; empty for a board"
+          },
+          "lit": {
+            "type": "boolean",
+            "description": "whether the step of playback shown moved on this gadget"
+          }
+        }
+      },
+      "Choice": {
+        "type": "object",
+        "required": [
+          "answer",
+          "count",
+          "who"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number",
+            "format": "double"
+          },
+          "who": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "everyone who gave this answer"
+          }
+        }
+      },
+      "Vote": {
+        "type": "object",
+        "required": [
+          "who",
+          "answer"
+        ],
+        "properties": {
+          "who": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string",
+            "description": "one of the answers the vote offers; the answer already given takes it back"
           }
         }
       }

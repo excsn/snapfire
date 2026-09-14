@@ -66,15 +66,15 @@ impl Wire {
           self.submit(who.connection, Op::Watch { wave: wave.to_owned(), name });
         }
       }
-      On::Said(row) if row.key == "open" => self.submit(who.connection, Op::Open { blip: blip_of(&row) }),
+      On::Said(row) if row.key == "open" => self.submit(who.connection, Op::Open { blip: blip_of(&row), block: block_of(&row) }),
       On::Said(row) if row.key == "rewriting" => {
         let body = match &row.value {
           Value::Map(map) => text(map, "body"),
           _ => String::new(),
         };
-        self.submit(who.connection, Op::Rewriting { blip: blip_of(&row), body });
+        self.submit(who.connection, Op::Rewriting { blip: blip_of(&row), block: block_of(&row), body });
       }
-      On::Said(row) if row.key == "close" => self.submit(who.connection, Op::Close { blip: blip_of(&row) }),
+      On::Said(row) if row.key == "close" => self.submit(who.connection, Op::Close { blip: blip_of(&row), block: block_of(&row) }),
       On::Said(_) => {}
       On::Left => {
         self.topics.lock().remove(&who.connection);
@@ -162,6 +162,7 @@ fn rows_of(op: &Op) -> Vec<Row> {
           .map(|edit| {
             let mut map = ValueMap::default();
             map.insert("blip".to_owned(), Value::str(edit.blip.clone()));
+            map.insert("block".to_owned(), Value::str(edit.block.clone()));
             map.insert("who".to_owned(), Value::str(edit.who.clone()));
             map.insert("body".to_owned(), Value::str(edit.body.clone()));
             Value::Map(map)
@@ -178,6 +179,14 @@ fn rows_of(op: &Op) -> Vec<Row> {
 fn blip_of(row: &Row) -> String {
   match &row.value {
     Value::Map(map) => text(map, "blip"),
+    _ => String::new(),
+  }
+}
+
+/// The block a row names, empty for the whole blip.
+fn block_of(row: &Row) -> String {
+  match &row.value {
+    Value::Map(map) => text(map, "block"),
     _ => String::new(),
   }
 }

@@ -4,11 +4,24 @@ export interface NameInput {
 
 export interface PlayInput {
   wave: string;
+  blip: string;
+  /** The gadget block the board is. */
+  block: string;
   cell: bigint;
 }
 
 export interface ResetInput {
   wave: string;
+  blip: string;
+  block: string;
+}
+
+export interface VoteInput {
+  wave: string;
+  blip: string;
+  /** The gadget block the vote is. */
+  block: string;
+  answer: string;
 }
 
 export interface BlipInput {
@@ -22,5 +35,7 @@ export interface BlipInput {
 export interface AmendInput {
   wave: string;
   blip: string;
+  /** The block rewritten, empty for the whole blip. */
+  block: string;
   body: string;
 }

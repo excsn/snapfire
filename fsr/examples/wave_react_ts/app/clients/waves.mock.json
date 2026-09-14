@@ -49,23 +49,38 @@
         "at": "09:10",
         "edited": "",
         "editors": [],
-        "parts": [
+        "blocks": [
           {
-            "kind": "p",
-            "text": "",
-            "href": "",
-            "at": "0",
-            "children": [
+            "id": "b1",
+            "text": "Starting a wave for the launch.",
+            "parts": [
               {
-                "kind": "text",
-                "text": "Starting a wave for the launch.",
+                "kind": "p",
+                "text": "",
                 "href": "",
-                "at": "",
-                "children": [],
+                "at": "b1",
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "Starting a wave for the launch.",
+                    "href": "",
+                    "at": "",
+                    "children": [],
+                    "replies": []
+                  }
+                ],
                 "replies": []
               }
             ],
-            "replies": []
+            "gadget": {
+              "kind": "",
+              "question": "",
+              "cells": [],
+              "turn": "",
+              "won": "",
+              "choices": [],
+              "lit": false
+            }
           }
         ],
         "replies": [
@@ -78,28 +93,45 @@
             "at": "09:12",
             "edited": "",
             "editors": [],
-            "parts": [
+            "blocks": [
               {
-                "kind": "p",
-                "text": "",
-                "href": "",
-                "at": "0",
-                "children": [
+                "id": "b1",
+                "text": "Good. I will take the runtime half.",
+                "parts": [
                   {
-                    "kind": "text",
-                    "text": "Good. I will take the runtime half.",
+                    "kind": "p",
+                    "text": "",
                     "href": "",
-                    "at": "",
-                    "children": [],
+                    "at": "b1",
+                    "children": [
+                      {
+                        "kind": "text",
+                        "text": "Good. I will take the runtime half.",
+                        "href": "",
+                        "at": "",
+                        "children": [],
+                        "replies": []
+                      }
+                    ],
                     "replies": []
                   }
                 ],
-                "replies": []
+                "gadget": {
+                  "kind": "",
+                  "question": "",
+                  "cells": [],
+                  "turn": "",
+                  "won": "",
+                  "choices": [],
+                  "lit": false
+                }
               }
             ],
-            "replies": []
+            "replies": [],
+            "lit": false
           }
-        ]
+        ],
+        "lit": false
       },
       {
         "id": "3",
@@ -110,69 +142,52 @@
         "at": "09:14",
         "edited": "",
         "editors": [],
-        "parts": [
+        "blocks": [
           {
-            "kind": "p",
-            "text": "",
-            "href": "",
-            "at": "0",
-            "children": [
+            "id": "b1",
+            "text": "Anything else goes under its own blip.",
+            "parts": [
               {
-                "kind": "text",
-                "text": "Anything else goes under its own blip.",
+                "kind": "p",
+                "text": "",
                 "href": "",
-                "at": "",
-                "children": [],
+                "at": "b1",
+                "children": [
+                  {
+                    "kind": "text",
+                    "text": "Anything else goes under its own blip.",
+                    "href": "",
+                    "at": "",
+                    "children": [],
+                    "replies": []
+                  }
+                ],
                 "replies": []
               }
             ],
-            "replies": []
+            "gadget": {
+              "kind": "",
+              "question": "",
+              "cells": [],
+              "turn": "",
+              "won": "",
+              "choices": [],
+              "lit": false
+            }
           }
         ],
-        "replies": []
+        "replies": [],
+        "lit": false
       }
     ],
-    "game": {
-      "cells": [
-        {
-          "at": 0,
-          "mark": ""
-        },
-        {
-          "at": 1,
-          "mark": ""
-        },
-        {
-          "at": 2,
-          "mark": ""
-        },
-        {
-          "at": 3,
-          "mark": ""
-        },
-        {
-          "at": 4,
-          "mark": ""
-        },
-        {
-          "at": 5,
-          "mark": ""
-        },
-        {
-          "at": 6,
-          "mark": ""
-        },
-        {
-          "at": 7,
-          "mark": ""
-        },
-        {
-          "at": 8,
-          "mark": ""
-        }
-      ],
-      "turn": "x",
-      "won": ""
+    "step": 3,
+    "steps": 3,
+    "live": true,
+    "change": {
+      "kind": "kept",
+      "who": "alice",
+      "at": "09:14",
+      "blip": "3"
     }
   },
   "addBlip": {
@@ -184,26 +199,42 @@
     "at": "09:20",
     "edited": "",
     "editors": [],
-    "parts": [
+    "blocks": [
       {
-        "kind": "p",
-        "text": "",
-        "href": "",
-        "at": "0",
-        "children": [
+        "id": "b1",
+        "text": "Added.",
+        "parts": [
           {
-            "kind": "text",
-            "text": "Added.",
+            "kind": "p",
+            "text": "",
             "href": "",
-            "at": "",
-            "children": [],
+            "at": "b1",
+            "children": [
+              {
+                "kind": "text",
+                "text": "Added.",
+                "href": "",
+                "at": "",
+                "children": [],
+                "replies": []
+              }
+            ],
             "replies": []
           }
         ],
-        "replies": []
+        "gadget": {
+          "kind": "",
+          "question": "",
+          "cells": [],
+          "turn": "",
+          "won": "",
+          "choices": [],
+          "lit": false
+        }
       }
     ],
-    "replies": []
+    "replies": [],
+    "lit": false
   },
   "editBlip": {
     "id": "1",
@@ -216,67 +247,137 @@
     "editors": [
       "bob"
     ],
-    "parts": [
+    "blocks": [
       {
-        "kind": "p",
-        "text": "",
-        "href": "",
-        "at": "0",
-        "children": [
+        "id": "b1",
+        "text": "Rewritten.",
+        "parts": [
           {
-            "kind": "text",
-            "text": "Rewritten.",
+            "kind": "p",
+            "text": "",
             "href": "",
-            "at": "",
-            "children": [],
+            "at": "b1",
+            "children": [
+              {
+                "kind": "text",
+                "text": "Rewritten.",
+                "href": "",
+                "at": "",
+                "children": [],
+                "replies": []
+              }
+            ],
             "replies": []
           }
         ],
-        "replies": []
+        "gadget": {
+          "kind": "",
+          "question": "",
+          "cells": [],
+          "turn": "",
+          "won": "",
+          "choices": [],
+          "lit": false
+        }
       }
     ],
-    "replies": []
+    "replies": [],
+    "lit": false
   },
   "play": {
-    "cells": [
+    "id": "1",
+    "parent": "",
+    "anchor": "",
+    "who": "alice",
+    "body": "Rewritten.",
+    "at": "09:10",
+    "edited": "09:25",
+    "editors": [
+      "bob"
+    ],
+    "blocks": [
       {
-        "at": 0,
-        "mark": ""
-      },
-      {
-        "at": 1,
-        "mark": ""
-      },
-      {
-        "at": 2,
-        "mark": ""
-      },
-      {
-        "at": 3,
-        "mark": ""
-      },
-      {
-        "at": 4,
-        "mark": ""
-      },
-      {
-        "at": 5,
-        "mark": ""
-      },
-      {
-        "at": 6,
-        "mark": ""
-      },
-      {
-        "at": 7,
-        "mark": ""
-      },
-      {
-        "at": 8,
-        "mark": ""
+        "id": "b1",
+        "text": "Rewritten.",
+        "parts": [
+          {
+            "kind": "p",
+            "text": "",
+            "href": "",
+            "at": "b1",
+            "children": [
+              {
+                "kind": "text",
+                "text": "Rewritten.",
+                "href": "",
+                "at": "",
+                "children": [],
+                "replies": []
+              }
+            ],
+            "replies": []
+          }
+        ],
+        "gadget": {
+          "kind": "",
+          "question": "",
+          "cells": [],
+          "turn": "",
+          "won": "",
+          "choices": [],
+          "lit": false
+        }
       }
     ],
-    "turn": "x",
-    "won": ""
+    "replies": [],
+    "lit": false
+  },
+  "vote": {
+    "id": "1",
+    "parent": "",
+    "anchor": "",
+    "who": "alice",
+    "body": "Rewritten.",
+    "at": "09:10",
+    "edited": "09:25",
+    "editors": [
+      "bob"
+    ],
+    "blocks": [
+      {
+        "id": "b1",
+        "text": "Rewritten.",
+        "parts": [
+          {
+            "kind": "p",
+            "text": "",
+            "href": "",
+            "at": "b1",
+            "children": [
+              {
+                "kind": "text",
+                "text": "Rewritten.",
+                "href": "",
+                "at": "",
+                "children": [],
+                "replies": []
+              }
+            ],
+            "replies": []
+          }
+        ],
+        "gadget": {
+          "kind": "",
+          "question": "",
+          "cells": [],
+          "turn": "",
+          "won": "",
+          "choices": [],
+          "lit": false
+        }
+      }
+    ],
+    "replies": [],
+    "lit": false
   }
 }

@@ -1,5 +1,5 @@
 import { morph, registerIsland, scan } from "@snapfire/fsr-client";
-import { assert, settle, test } from "@snapfire/fsr-client/testing";
+import { expect, settle, test } from "@snapfire/fsr-client/testing";
 
 /// A gadget is a server island, so every click patches its markup in with `morph`. An island placed inside it is not the gadget's to redraw: its marker keeps the id and the marks the document gave it, its children stay as the browser drew them and only its props follow the gadget's render.
 test("a gadget's step leaves an island inside it alone and hands it the new props", async () => {
@@ -26,12 +26,12 @@ test("a gadget's step leaves an island inside it alone and hands it the new prop
     '<p>turn o</p><sf-s data-sf-island data-sf-mode="browser"><sf-i id="sf-i0" data-sf-module="spec/Chart"></sf-i><script type="application/json" data-sf-props="sf-i0">{"n":2}</script></sf-s>',
   );
   await settle();
-  assert.equal(gadget.querySelector("p")?.textContent, "turn o", "the gadget's own markup is patched");
+  expect(gadget.querySelector("p")?.textContent, "the gadget's own markup is patched").toEqual("turn o");
   const chart = gadget.querySelector("sf-i") as Element;
-  assert.equal(chart.id, "sf-i4", "the island keeps the id the document gave it rather than the step's");
-  assert.equal(chart.textContent, "drawn by the browser", "and what the browser drew");
-  assert.ok(chart.hasAttribute("data-sf-mounted"), "and the mark that says it mounted");
-  assert.equal(chart.nextElementSibling?.getAttribute("data-sf-props"), "sf-i4", "its props script still names it");
-  assert.equal(chart.nextElementSibling?.textContent, '{"n":2}', "and carries the step's props");
-  assert.equal(patched, [{ n: 2 }], "which reached the island");
+  expect(chart.id, "the island keeps the id the document gave it rather than the step's").toEqual("sf-i4");
+  expect(chart.textContent, "and what the browser drew").toEqual("drawn by the browser");
+  expect(chart.hasAttribute("data-sf-mounted"), "and the mark that says it mounted").toBeTruthy();
+  expect(chart.nextElementSibling?.getAttribute("data-sf-props"), "its props script still names it").toEqual("sf-i4");
+  expect(chart.nextElementSibling?.textContent, "and carries the step's props").toEqual('{"n":2}');
+  expect(patched, "which reached the island").toEqual([{ n: 2 }]);
 });

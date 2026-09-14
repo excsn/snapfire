@@ -1,0 +1,57 @@
+import { useEffect, useState } from "react";
+import { navigate } from "@snapfire/fsr-client";
+
+import type { Change } from "@generated/client";
+
+/** The scrubber over the wave's log, where a step is one kept blip, one amend, one move or one vote. The wave after a step is this page under `?at=`, replayed and rendered by the server, so moving the scrubber is a navigation that replaces its history entry. The query is all that changes, so this island and its state survive it. The end of the log is the wave as it stands. Playing steps on once a beat until it gets there. */
+export default function Playback({ step, steps, live, change }: { step: number; steps: number; live: boolean; change: Change }) {
+  const [playing, setPlaying] = useState(false);
+  const [shown, setShown] = useState(step);
+  useEffect(() => setShown(step), [step]);
+  useEffect(() => {
+    if (!playing || live) return undefined;
+    const beat = setTimeout(() => go(step + 1), 800);
+    return () => clearTimeout(beat);
+  }, [playing, live, step]);
+
+  function go(to: number): void {
+    const at = Math.max(0, Math.min(to, steps));
+    if (at >= steps) setPlaying(false);
+    setShown(at);
+    const url = new URL(window.location.href);
+    if (at >= steps) url.searchParams.delete("at");
+    else url.searchParams.set("at", String(at));
+    void navigate(`${url.pathname}${url.search}`, true, { replace: true });
+  }
+
+  function toggle(): void {
+    setPlaying(!playing);
+    if (!playing && live) go(0);
+  }
+
+  const did = change.kind === "kept" ? "wrote a blip" : change.kind === "amended" ? "rewrote a blip" : change.kind === "played" ? "moved" : change.kind === "voted" ? "voted" : "cleared a board";
+
+  return (
+    <div className={live ? "playback" : "playback on"}>
+      <button className="step" title="the start" onClick={() => go(0)} disabled={shown === 0}>
+        ⏮
+      </button>
+      <button className="step" title="a step back" onClick={() => go(shown - 1)} disabled={shown === 0}>
+        ◀
+      </button>
+      <button className="play" onClick={toggle} disabled={steps === 0}>
+        {playing ? "Pause" : "Play"}
+      </button>
+      <input type="range" aria-label="step" min={0} max={steps} value={shown} onChange={(e) => go(Number(e.target.value))} />
+      <button className="step" title="a step on" onClick={() => go(shown + 1)} disabled={live}>
+        ▶
+      </button>
+      <span className="said">{live ? `${steps} changes` : change.kind === "" ? `0 of ${steps}` : `${step} of ${steps}: ${change.who} ${did} at ${change.at}`}</span>
+      {live ? null : (
+        <button className="to-live" onClick={() => go(steps)}>
+          Live
+        </button>
+      )}
+    </div>
+  );
+}
