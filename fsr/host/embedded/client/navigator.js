@@ -601,7 +601,7 @@ export async function navigate(href, push = true, options = {}) {
     const record = (same)=>options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href);
     if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
         if (push) record(url.href === window.location.href);
-        scrollToFragment(url.hash);
+        if (options.scroll !== false) scrollToFragment(url.hash);
         return;
     }
     const keep = options.keep ?? url.pathname === currentPath.split("?")[0];
@@ -626,7 +626,7 @@ export async function navigate(href, push = true, options = {}) {
     currentPath = `${url.pathname}${url.search}`;
     if (openSlot === null) {
         documentPath = currentPath;
-        scrollToFragment(url.hash);
+        if (options.scroll !== false) scrollToFragment(url.hash);
     }
     announce();
     await drain(rows, eager.segments, gen);

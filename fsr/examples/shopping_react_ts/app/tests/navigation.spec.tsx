@@ -141,3 +141,14 @@ test("a link that says not to keep replaces the page's island on a change of que
   expect(location.pathname + location.search).toEqual(href);
   expect(document.querySelector(CATALOG), "a new catalog in place of the one that was there").not.toBe(island);
 });
+
+test("a navigation told not to scroll leaves the window where it was", async () => {
+  await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
+  const top = spyOn(window, "scrollTo");
+  await navigate("/?category=printing", true, { scroll: false });
+  expect(location.pathname + location.search).toEqual("/?category=printing");
+  expect(top, "not to the top").not.toHaveBeenCalled();
+  await navigate("/", true);
+  expect(top, "while a navigation left to itself still goes to the top").toHaveBeenCalledTimes(1);
+  top.mockRestore();
+});

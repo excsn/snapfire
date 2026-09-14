@@ -550,6 +550,8 @@ export interface NavigateOptions {
   replace?: boolean;
   /** Whether a segment whose key changed but whose module did not is morphed in place, keeping every island its new markup places again with its DOM and its state, rather than replaced. Defaults to true when the target has the current pathname, which means only the query changed. Otherwise it defaults to false. */
   keep?: boolean;
+  /** Whether the window scrolls to the element the target's fragment names or to the top when it names none. Defaults to true; false leaves the window where it is. */
+  scroll?: boolean;
 }
 
 function askFor(options: NavigateOptions): Ask {
@@ -709,13 +711,13 @@ function scrollToFragment(hash: string): void {
   else window.scrollTo(0, 0);
 }
 
-/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling, as does one whose `options.scroll` is false; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
   const record = (same: boolean) => (options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href));
   if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
     if (push) record(url.href === window.location.href);
-    scrollToFragment(url.hash);
+    if (options.scroll !== false) scrollToFragment(url.hash);
     return;
   }
   const keep = options.keep ?? url.pathname === currentPath.split("?")[0];
@@ -740,7 +742,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   currentPath = `${url.pathname}${url.search}`;
   if (openSlot === null) {
     documentPath = currentPath;
-    scrollToFragment(url.hash);
+    if (options.scroll !== false) scrollToFragment(url.hash);
   }
   announce();
   await drain(rows, eager.segments, gen);

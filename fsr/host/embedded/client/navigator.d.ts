@@ -11,6 +11,8 @@ export interface NavigateOptions {
 	replace?: boolean;
 	/** Whether a segment whose key changed but whose module did not is morphed in place, keeping every island its new markup places again with its DOM and its state, rather than replaced. Defaults to true when the target has the current pathname, which means only the query changed. Otherwise it defaults to false. */
 	keep?: boolean;
+	/** Whether the window scrolls to the element the target's fragment names or to the top when it names none. Defaults to true; false leaves the window where it is. */
+	scroll?: boolean;
 }
 export interface NavigationOptions {
 	/** When a link's payload is fetched ahead of its click: on hover, focus or touch; as the link enters the viewport; or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
@@ -24,7 +26,7 @@ export declare function prefetch(href: string, options?: NavigateOptions): Promi
 export declare function clearRouterCache(): void;
 /** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and applies it, every kept island taking its new props in place and every kept region that is not an island replaced, so layouts and pages keep their DOM and their state while what they show follows the mutation. */
 export declare function refresh(): Promise<void>;
-/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling, as does one whose `options.scroll` is false; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
 export declare function navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>;
 /** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */
 export declare function currentDocumentPath(): string;

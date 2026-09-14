@@ -302,12 +302,12 @@ import { Link } from "@snapfire/fsr-client/react";
 
 `full` asks for the document's rendering of the target whatever the origin; `into` names the slot outright, for a link the server would not match. On any anchor the same is `data-sf-full` and `data-sf-into`. `refresh` re-renders an open intercept in its slot over the page it keeps.
 
-A navigation that changes only the query keeps the page's islands: its region is morphed rather than replaced, so every island the new markup places again keeps its DOM and its state and takes the new props. `navigate` says otherwise for one navigation with `keep`, as does a `Link` with `keep` or an anchor with `data-sf-keep`. `replace` puts the target in place of the current history entry, which suits a control that navigates on every change:
+A navigation that changes only the query keeps the page's islands: its region is morphed rather than replaced, so every island the new markup places again keeps its DOM and its state and takes the new props. `navigate` says otherwise for one navigation with `keep`, as does a `Link` with `keep` or an anchor with `data-sf-keep`. `replace` puts the target in place of the current history entry and `scroll: false` leaves the window where it is. Together they suit a control that navigates on every change:
 
 ```ts
 import { navigate } from "@snapfire/fsr-client";
 
-void navigate(`/wave/${id}?at=${step}`, true, { replace: true });
+void navigate(`/wave/${id}?at=${step}`, true, { replace: true, scroll: false });
 void navigate("/?category=printing", true, { keep: false });
 ```
 
