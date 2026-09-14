@@ -454,7 +454,7 @@ A third argument chooses how the target is asked for: `{ full: true }` is the do
 await navigate("/product/7", true, { full: true });
 ```
 
-`refresh` drops the router cache, re-fetches the current route and hands every kept island its new props in place, which is the revalidation an action performs for you: a layout's cart count follows the mutation and a page keeps what the user typed. The URL has not moved, so every key matches and the digests decide: a region whose output the mutation changed is replaced and every other region is untouched.
+`refresh` drops the router cache, re-fetches the current route and hands every kept island its new props in place, which is the revalidation an action performs for you: a layout's cart count follows the mutation and a page keeps what the user typed. The URL has not moved, so every key matches and the digests decide: a region whose output the mutation changed is patched in place, so an element that stands where it stood keeps its DOM and a scrolled list keeps its scroll. Every other region is untouched.
 
 ```ts
 await refresh();

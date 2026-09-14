@@ -114,7 +114,9 @@ async function step(el, island, handler, event) {
 export function morph(el, html) {
     const template = document.createElement("template");
     template.innerHTML = html;
-    morphChildren(el, template.content);
+    morphNodes(el, Array.from(el.childNodes), Array.from(template.content.childNodes), null, {
+        nested: morphNested
+    });
 }
 function keyOf(node) {
     if (!(node instanceof Element)) return null;
@@ -128,33 +130,40 @@ function alike(a, b) {
     if (a instanceof Element && b instanceof Element && a.tagName !== b.tagName) return false;
     return keyOf(a) === keyOf(b);
 }
-function morphChildren(from, to) {
-    const old = Array.from(from.childNodes);
+export function morphNodes(parent, old, fresh, end, hooks) {
     let i = 0;
-    for (const next of Array.from(to.childNodes)){
+    for (const next of fresh){
+        while(i < old.length && old[i].parentNode !== parent)old.splice(i, 1);
         const current = old[i];
         if (current && alike(current, next)) {
-            morphNode(current, next);
+            morphNode(current, next, hooks);
             i += 1;
             continue;
         }
         const key = keyOf(next);
-        const moved = key === null ? undefined : old.slice(i).find((candidate)=>keyOf(candidate) === key);
+        const moved = key === null ? null : old.slice(i).find((candidate)=>candidate.parentNode === parent && keyOf(candidate) === key) ?? hooks.adopt?.(key) ?? null;
         if (moved) {
-            from.insertBefore(moved, current ?? null);
-            old.splice(old.indexOf(moved), 1);
+            parent.insertBefore(moved, current ?? end);
+            const at = old.indexOf(moved);
+            if (at !== -1) old.splice(at, 1);
             old.splice(i, 0, moved);
-            morphNode(moved, next);
+            morphNode(moved, next, hooks);
         } else {
             const imported = document.importNode(next, true);
-            from.insertBefore(imported, current ?? null);
+            parent.insertBefore(imported, current ?? end);
             old.splice(i, 0, imported);
         }
         i += 1;
     }
-    for (const stale of old.slice(i))stale.remove();
+    for (const stale of old.slice(i)){
+        if (stale.parentNode === parent) parent.removeChild(stale);
+    }
 }
-function morphNode(current, next) {
+export function morphElement(current, next, hooks) {
+    morphAttributes(current, next);
+    morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks);
+}
+function morphNode(current, next, hooks) {
     if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
         if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
         return;
@@ -162,11 +171,10 @@ function morphNode(current, next) {
     if (!(current instanceof Element) || !(next instanceof Element)) return;
     if (isPropsScript(current)) return;
     if (current.tagName === "SF-I") {
-        morphNested(current, next);
+        hooks.nested(current, next);
         return;
     }
-    morphAttributes(current, next);
-    morphChildren(current, next);
+    morphElement(current, next, hooks);
 }
 function isPropsScript(el) {
     return el.tagName === "SCRIPT" && el.hasAttribute("data-sf-props");

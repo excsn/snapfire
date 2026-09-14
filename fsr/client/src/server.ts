@@ -134,7 +134,13 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
 export function morph(el: Element, html: string): void {
   const template = document.createElement("template");
   template.innerHTML = html;
-  morphChildren(el, template.content);
+  morphNodes(el, Array.from(el.childNodes), Array.from(template.content.childNodes), null, { nested: morphNested });
+}
+
+/** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. */
+export interface MorphHooks {
+  nested: (current: Element, next: Element) => void;
+  adopt?: (key: string) => Node | null;
 }
 
 function keyOf(node: Node): string | null {
@@ -151,34 +157,44 @@ function alike(a: Node, b: Node): boolean {
   return keyOf(a) === keyOf(b);
 }
 
-function morphChildren(from: Node, to: Node): void {
-  const old = Array.from(from.childNodes);
+/** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. */
+export function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks): void {
   let i = 0;
-  for (const next of Array.from(to.childNodes)) {
+  for (const next of fresh) {
+    while (i < old.length && old[i].parentNode !== parent) old.splice(i, 1);
     const current = old[i];
     if (current && alike(current, next)) {
-      morphNode(current, next);
+      morphNode(current, next, hooks);
       i += 1;
       continue;
     }
     const key = keyOf(next);
-    const moved = key === null ? undefined : old.slice(i).find((candidate) => keyOf(candidate) === key);
+    const moved = key === null ? null : (old.slice(i).find((candidate) => candidate.parentNode === parent && keyOf(candidate) === key) ?? hooks.adopt?.(key) ?? null);
     if (moved) {
-      from.insertBefore(moved, current ?? null);
-      old.splice(old.indexOf(moved), 1);
+      parent.insertBefore(moved, current ?? end);
+      const at = old.indexOf(moved);
+      if (at !== -1) old.splice(at, 1);
       old.splice(i, 0, moved);
-      morphNode(moved, next);
+      morphNode(moved, next, hooks);
     } else {
       const imported = document.importNode(next, true);
-      from.insertBefore(imported, current ?? null);
+      parent.insertBefore(imported, current ?? end);
       old.splice(i, 0, imported);
     }
     i += 1;
   }
-  for (const stale of old.slice(i)) stale.remove();
+  for (const stale of old.slice(i)) {
+    if (stale.parentNode === parent) parent.removeChild(stale);
+  }
 }
 
-function morphNode(current: Node, next: Node): void {
+/** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. */
+export function morphElement(current: Element, next: Element, hooks: MorphHooks): void {
+  morphAttributes(current, next);
+  morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks);
+}
+
+function morphNode(current: Node, next: Node, hooks: MorphHooks): void {
   if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
     if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
     return;
@@ -186,11 +202,10 @@ function morphNode(current: Node, next: Node): void {
   if (!(current instanceof Element) || !(next instanceof Element)) return;
   if (isPropsScript(current)) return;
   if (current.tagName === "SF-I") {
-    morphNested(current, next);
+    hooks.nested(current, next);
     return;
   }
-  morphAttributes(current, next);
-  morphChildren(current, next);
+  morphElement(current, next, hooks);
 }
 
 function isPropsScript(el: Element): boolean {

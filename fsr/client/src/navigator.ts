@@ -2,6 +2,7 @@ import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
+import { morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { seed, transaction } from "./store.js";
 import { SfValue } from "./values.js";
 
@@ -266,7 +267,7 @@ function isBetween(el: Element, region: Region): boolean {
   return false;
 }
 
-/** Replaces a static segment's markup while keeping every island inside it that the new payload also places: a region key both sides hold moves the old `<sf-s>`, its mounted root and its state into the new markup where the new one stood, then takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. False when the region is not in the document, which leaves the caller to swap. */
+/** Patches a static segment's markup in place by the rules of `morph`, so every element that stands where it stood keeps its DOM, a scrolled pane its scroll and a focused control its value. An island the new payload places again, by region key, keeps its root and its state wherever in the region it stood and takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. False when the region is not in the document, which leaves the caller to swap. */
 function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
   const region = findRegion(key);
   if (!region) return false;
@@ -275,27 +276,35 @@ function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
   const template = document.createElement("template");
   template.innerHTML = renderSegment(node, seg, ids);
   const kept = islandRegionsIn(region);
-  if (kept.size > 0) {
-    const sources = regionSources(node, ids);
-    for (const fresh of Array.from(template.content.querySelectorAll("sf-s[data-sf-island][data-sf-region]"))) {
-      const regionKey = fresh.getAttribute("data-sf-region") ?? "";
-      const old = kept.get(regionKey);
-      const source = sources.get(regionKey);
-      if (!old || !source) continue;
-      const root = old.firstElementChild;
-      if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-scheduled")) continue;
-      const script = old.querySelector(`script[data-sf-props="${root.id}"]`);
-      if (script) script.textContent = propsScript(source);
-      fresh.replaceWith(old);
-      void patchIsland(root, source.props, source.nested, source.children, source.encoded);
-    }
+  const sources = regionSources(node, ids);
+  const old: Node[] = [];
+  for (let n: Node | null = region.start; n; n = n.nextSibling) {
+    old.push(n);
+    if (n === region.end) break;
   }
-  parent.insertBefore(template.content, region.start);
-  const range = document.createRange();
-  range.setStartBefore(region.start);
-  range.setEndAfter(region.end);
-  range.deleteContents();
+  const hooks: MorphHooks = {
+    nested: (current, next) => takeIsland(current, next, sources, hooks),
+    adopt: (found) => (found.startsWith("region:") ? (kept.get(found.slice("region:".length)) ?? null) : null),
+  };
+  morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
   return true;
+}
+
+/** An island marker the new markup places again. A root that was scheduled, under a region the payload describes, keeps its DOM and its state: its props script and the island take the new props. Any other marker is swapped for the new one, whose props script is patched in beside it for the next scan to mount. */
+function takeIsland(current: Element, next: Element, sources: ReturnType<typeof regionSources>, hooks: MorphHooks): void {
+  const after = current.nextElementSibling;
+  const script = after?.tagName === "SCRIPT" && after.getAttribute("data-sf-props") === current.id ? after : null;
+  const wrapper = current.parentElement;
+  const regionKey = wrapper?.hasAttribute("data-sf-island") ? wrapper.getAttribute("data-sf-region") : null;
+  const source = regionKey === null ? undefined : sources.get(regionKey);
+  if (source && current.hasAttribute("data-sf-scheduled")) {
+    if (script) script.textContent = propsScript(source);
+    void patchIsland(current, source.props, source.nested, source.children, source.encoded);
+    return;
+  }
+  const wanted = next.nextElementSibling;
+  current.replaceWith(document.importNode(next, true));
+  if (script && wanted?.tagName === "SCRIPT") morphElement(script, wanted, hooks);
 }
 
 /** Whether a segment nothing mounts has to be replaced, child segments included: its own markup changed. Nothing else can carry new markup into it. The root is never one: its own markup is the document, whose head `applyHead` already handles. */

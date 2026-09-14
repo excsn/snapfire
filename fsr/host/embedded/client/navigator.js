@@ -2,6 +2,7 @@ import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
+import { morphElement, morphNodes } from "./server.js";
 import { seed, transaction } from "./store.js";
 let current = null;
 const ids = {
@@ -242,27 +243,33 @@ function morphStatic(key, node, seg) {
     const template = document.createElement("template");
     template.innerHTML = renderSegment(node, seg, ids);
     const kept = islandRegionsIn(region);
-    if (kept.size > 0) {
-        const sources = regionSources(node, ids);
-        for (const fresh of Array.from(template.content.querySelectorAll("sf-s[data-sf-island][data-sf-region]"))){
-            const regionKey = fresh.getAttribute("data-sf-region") ?? "";
-            const old = kept.get(regionKey);
-            const source = sources.get(regionKey);
-            if (!old || !source) continue;
-            const root = old.firstElementChild;
-            if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-scheduled")) continue;
-            const script = old.querySelector(`script[data-sf-props="${root.id}"]`);
-            if (script) script.textContent = propsScript(source);
-            fresh.replaceWith(old);
-            void patchIsland(root, source.props, source.nested, source.children, source.encoded);
-        }
+    const sources = regionSources(node, ids);
+    const old = [];
+    for(let n = region.start; n; n = n.nextSibling){
+        old.push(n);
+        if (n === region.end) break;
     }
-    parent.insertBefore(template.content, region.start);
-    const range = document.createRange();
-    range.setStartBefore(region.start);
-    range.setEndAfter(region.end);
-    range.deleteContents();
+    const hooks = {
+        nested: (current, next)=>takeIsland(current, next, sources, hooks),
+        adopt: (found)=>found.startsWith("region:") ? kept.get(found.slice("region:".length)) ?? null : null
+    };
+    morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
     return true;
+}
+function takeIsland(current, next, sources, hooks) {
+    const after = current.nextElementSibling;
+    const script = after?.tagName === "SCRIPT" && after.getAttribute("data-sf-props") === current.id ? after : null;
+    const wrapper = current.parentElement;
+    const regionKey = wrapper?.hasAttribute("data-sf-island") ? wrapper.getAttribute("data-sf-region") : null;
+    const source = regionKey === null ? undefined : sources.get(regionKey);
+    if (source && current.hasAttribute("data-sf-scheduled")) {
+        if (script) script.textContent = propsScript(source);
+        void patchIsland(current, source.props, source.nested, source.children, source.encoded);
+        return;
+    }
+    const wanted = next.nextElementSibling;
+    current.replaceWith(document.importNode(next, true));
+    if (script && wanted?.tagName === "SCRIPT") morphElement(script, wanted, hooks);
 }
 function staticChanged(oldSeg, newSeg, same, force) {
     const known = oldSeg.d !== undefined && newSeg.d !== undefined;
