@@ -238,6 +238,17 @@ test("a node reads as its interface, the way a browser names it", () => {
   expect(Object.prototype.toString.call(document.createTextNode("x"))).toEqual("[object Text]");
 });
 
+test("an attribute name on an HTML element is matched in any case, the way a browser matches it", () => {
+  document.body.innerHTML = '<input autocomplete="off"><svg viewBox="0 0 1 1"></svg>';
+  const input = document.querySelector("input") as HTMLInputElement;
+  expect(input.getAttribute("autoComplete"), "React's spelling finds the attribute the markup wrote").toEqual("off");
+  input.setAttribute("tabIndex", "2");
+  expect(input.getAttribute("tabindex"), "a name is written in lower case").toEqual("2");
+  input.removeAttribute("autoComplete");
+  expect(input.hasAttribute("autocomplete"), "and removed in any case").toBeFalsy();
+  expect(document.querySelector("svg")?.getAttribute("viewBox"), "an SVG element's name is taken as written").toEqual("0 0 1 1");
+});
+
 test("a button carries its value and a control names the form it belongs to", () => {
   document.body.innerHTML = '<form id="f"><button value="Friday" name="answer">Fri</button><input name="q"></form><select form="f"></select><textarea></textarea>';
   const form = document.getElementById("f");

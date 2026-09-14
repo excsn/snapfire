@@ -303,6 +303,16 @@ const layout = {
 for (const [name, descriptor] of Object.entries(layout)) {
   if (!(name in globalThis.Element.prototype)) Object.defineProperty(globalThis.Element.prototype, name, { configurable: true, ...descriptor });
 }
+// A browser lowercases an attribute name given to an HTML element of an HTML document, so `getAttribute("autoComplete")` finds `autocomplete`; linkedom takes the name as written. React's hydration asks for an attribute in its own spelling. linkedom gives an XML document's elements the XHTML namespace too, so the document decides.
+const HTML_NS = "http://www.w3.org/1999/xhtml";
+for (const method of ["getAttribute", "getAttributeNode", "hasAttribute", "removeAttribute", "setAttribute", "toggleAttribute"]) {
+  const own = globalThis.Element.prototype[method];
+  if (typeof own !== "function") continue;
+  globalThis.Element.prototype[method] = function (name, ...rest) {
+    const html = this.namespaceURI === HTML_NS && documentProto.isPrototypeOf(this.ownerDocument);
+    return own.call(this, html ? String(name).toLowerCase() : name, ...rest);
+  };
+}
 if (typeof globalThis.HTMLElement.prototype.click !== "function") {
   globalThis.HTMLElement.prototype.click = function () {
     this.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
