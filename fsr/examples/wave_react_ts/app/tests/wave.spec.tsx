@@ -219,6 +219,17 @@ test("the composer keeps the words back until Show what I type is ticked", async
   expect(shown.checked, "the box starts unticked").toBeFalsy();
 });
 
+test("Show what I type sits in the composer's options menu and is checked there once ticked", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  const menu = document.querySelector(".transcript > sf-s .composer details.options") as Element;
+  expect(menu.querySelector("summary")?.getAttribute("aria-label"), "the menu names itself").toEqual("Options");
+  expect(menu.querySelector(".showing .name")?.textContent, "the setting").toEqual("Show what I type");
+  expect(menu.querySelector(".showing .what")?.textContent, "what it is for").toEqual("Others read your words as you type");
+  expect(menu.querySelector(".showing .tick")?.textContent, "unchecked").toEqual("");
+  await fireEvent.click(menu.querySelector(".showing input") as Element);
+  expect(menu.querySelector(".showing .tick")?.textContent, "checked").toEqual("✓");
+});
+
 test("a keystroke sends who is typing over the socket and the words only once Show what I type is ticked", async () => {
   const sent: { key: string; value: { writing: boolean; body: string } }[] = [];
   class Wire {

@@ -155,8 +155,17 @@ button:disabled:hover { border-color: var(--rule); }
 .nameless { color: var(--dim); font-size: 0.88rem; margin: 0.3rem 0 1rem; }
 .composer { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.25rem 0 1rem; }
 .composer input { flex: 1; }
-.composer .showing { display: flex; align-items: center; gap: 0.35rem; color: var(--dim); font-size: 0.8rem; white-space: nowrap; cursor: pointer; }
-.composer .showing input { flex: none; margin: 0; accent-color: var(--accent); }
+.options { position: relative; }
+.options > summary { list-style: none; cursor: pointer; display: flex; align-items: center; height: 100%; box-sizing: border-box; padding: 0 0.5rem; border: 1px solid var(--rule); border-radius: 6px; color: var(--dim); }
+.options > summary::-webkit-details-marker { display: none; }
+.options > summary:hover, .options[open] > summary { color: var(--ink); border-color: var(--accent); }
+.options > div { position: absolute; right: 0; bottom: 100%; z-index: 4; margin-bottom: 0.25rem; padding: 0.35rem; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; width: max-content; max-width: min(20rem, 80vw); }
+.composer .showing { position: relative; display: grid; grid-template-columns: 1rem auto; column-gap: 0.4rem; padding: 0.35rem 0.6rem 0.35rem 0.4rem; border-radius: 4px; cursor: pointer; }
+.composer .showing:hover, .composer .showing:has(input:focus-visible) { background: var(--panel); }
+.composer .showing input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.composer .showing .tick { grid-row: span 2; color: var(--accent); font-weight: 600; }
+.composer .showing .name { color: var(--ink); font-size: 0.85rem; }
+.composer .showing .what { color: var(--dim); font-size: 0.75rem; }
 
 /* Gadgets: shared state in a blip, rendered and stepped by the server */
 .gadget { margin: 0.6rem 0 1rem; padding: 0.7rem 0.85rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; display: inline-grid; gap: 0.55rem; }

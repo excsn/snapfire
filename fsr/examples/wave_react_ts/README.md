@@ -10,7 +10,7 @@ It is the example that needs a WebSocket and it is the one that shows exactly ho
 cargo run -p wave_react_ts
 ```
 
-Open `http://127.0.0.1:8140/` in two windows, name yourself in each, open the same wave in both and start typing in one. The other window shows who is typing. Tick Show what I type beside the composer and it shows the words as well.
+Open `http://127.0.0.1:8140/` in two windows, name yourself in each, open the same wave in both and start typing in one. The other window shows who is typing. Tick Show what I type in the composer's ⋯ menu and it shows the words as well.
 
 ## One owner of the state
 

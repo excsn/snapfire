@@ -19,7 +19,7 @@ function fence(kind: string, lines: string[], until = ""): string {
   return ["```gadget " + kind + (until ? ` until=${until}` : ""), ...lines, "```"].join("\n");
 }
 
-/** What sits under one blip and is not kept: whoever else is typing a reply there and this reader's own composer. With `anchor` it sits beside that block of the blip instead. The blips themselves are rendered by the server; this is the part that could not be. A reader with no name gets no composer and the action refuses one anyway. A window has one reply open at a time: `wave/replying` names it, so opening one closes the other. Cancel or Escape closes it too. The wave's own composer, `open`, stays open. A blip this reader keeps is brought into view when it lands out of view. Its Gadget menu adds a board at once, with what was typed so far as a line above it. Yes / No / Maybe and Poll open one editor in the composer shaped like the vote it makes. The question is its heading and starts as what was typed. Each answer can be renamed or removed and + adds another. Yes / No / Maybe starts with those three answers and Poll with two blank ones. Either is kept as a poll once two answers are written, with the minute voting ends when one is set. The editor is brought into view as it opens and as it grows. Add to wave keeps it and Back returns to the composer. The others read the words as they are typed only while Show what I type is ticked, one setting for the page that starts unticked. Until then they are told who is typing and where. Ticking or unticking it sends what the composer holds under the new setting at once. */
+/** What sits under one blip and is not kept: whoever else is typing a reply there and this reader's own composer. With `anchor` it sits beside that block of the blip instead. The blips themselves are rendered by the server; this is the part that could not be. A reader with no name gets no composer and the action refuses one anyway. A window has one reply open at a time: `wave/replying` names it, so opening one closes the other. Cancel or Escape closes it too. The wave's own composer, `open`, stays open. A blip this reader keeps is brought into view when it lands out of view. Its Gadget menu adds a board at once, with what was typed so far as a line above it. Yes / No / Maybe and Poll open one editor in the composer shaped like the vote it makes. The question is its heading and starts as what was typed. Each answer can be renamed or removed and + adds another. Yes / No / Maybe starts with those three answers and Poll with two blank ones. Either is kept as a poll once two answers are written, with the minute voting ends when one is set. The editor is brought into view as it opens and as it grows. Add to wave keeps it and Back returns to the composer. The others read the words as they are typed only while Show what I type is ticked in the composer's options menu, one setting for the page that starts unticked. The options menu and the Gadget menu share a `name`, so opening one closes the other. Until then they are told who is typing and where. Ticking or unticking it sends what the composer holds under the new setting at once. */
 export default function Under({ wave, parent, anchor = "", me, open = false }: { wave: string; parent: string; anchor?: string; me: string; open?: boolean }) {
   const [drafts] = useStore(key<Draft[]>("wave/drafts"), []);
   const [replying, setReplying] = useStore(key<string>("wave/replying"), "");
@@ -155,11 +155,26 @@ export default function Under({ wave, parent, anchor = "", me, open = false }: {
             </div>
           ) : (
             <>
-              <label className="showing" title="Unticked, the others see only that you are typing">
-                <input type="checkbox" checked={showing} onChange={(e) => setShowing(e.target.checked)} />
-                Show what I type
-              </label>
-              <details className="add-gadget">
+              <details className="options" name="composer-menu">
+                <summary aria-label="Options" title="Options">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+                    <circle cx="3" cy="8" r="1.5" />
+                    <circle cx="8" cy="8" r="1.5" />
+                    <circle cx="13" cy="8" r="1.5" />
+                  </svg>
+                </summary>
+                <div>
+                  <label className="showing">
+                    <input type="checkbox" checked={showing} onChange={(e) => setShowing(e.target.checked)} />
+                    <span className="tick" aria-hidden="true">
+                      {showing ? "✓" : ""}
+                    </span>
+                    <span className="name">Show what I type</span>
+                    <span className="what">Others read your words as you type</span>
+                  </label>
+                </div>
+              </details>
+              <details className="add-gadget" name="composer-menu">
                 <summary>Gadget</summary>
                 <div>
                   <button type="button" onClick={(e) => pick("noughts", e.currentTarget)}>
