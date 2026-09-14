@@ -1,4 +1,4 @@
-import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -40,6 +40,13 @@ function findRegion(key: string): Region | null {
   return null;
 }
 
+/** Ends the islands between a region's delimiters, before the nodes between them go. */
+function discardRegion(region: Region): void {
+  for (let n: Node | null = region.start.nextSibling; n && n !== region.end; n = n.nextSibling) {
+    if (n instanceof Element) discard(n);
+  }
+}
+
 /** Fails when the region's parent cannot hold the replacement. The root segment's delimiters are children of the document, which admits no text nodes. Inserting before deleting keeps a refusal from emptying the page. */
 function replaceRegion(region: Region, html: string): boolean {
   const parent = region.start.parentNode;
@@ -47,6 +54,7 @@ function replaceRegion(region: Region, html: string): boolean {
   const template = document.createElement("template");
   template.innerHTML = html;
   parent.insertBefore(template.content, region.start);
+  discardRegion(region);
   const range = document.createRange();
   range.setStartBefore(region.start);
   range.setEndAfter(region.end);
@@ -61,6 +69,7 @@ function fillSlot(slot: number, node: SfNode, key: string | null): void {
   const template = document.createElement("template");
   const html = nodeToHtml(node, ids);
   template.innerHTML = key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`;
+  discard(el);
   el.replaceWith(template.content);
 }
 
@@ -94,6 +103,7 @@ function removeChild(old: Segment): boolean {
   const region = findRegion(old.k);
   if (region) {
     const parent = region.start.parentNode;
+    discardRegion(region);
     let node: Node | null = region.start;
     while (node) {
       const next: Node | null = node.nextSibling;
@@ -101,12 +111,16 @@ function removeChild(old: Segment): boolean {
       if (node === region.end) break;
       node = next;
     }
-    if (parent instanceof Element && parent.hasAttribute("data-sf-name")) parent.innerHTML = fallbacks.get(parent) ?? "";
+    if (parent instanceof Element && parent.hasAttribute("data-sf-name")) {
+      discard(parent);
+      parent.innerHTML = fallbacks.get(parent) ?? "";
+    }
     return true;
   }
   if (old.s === undefined) return false;
   const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
   if (!el) return false;
+  discard(el);
   el.remove();
   return true;
 }
@@ -140,6 +154,7 @@ function replaceChild(old: Segment, html: string): boolean {
   if (!el) return false;
   const template = document.createElement("template");
   template.innerHTML = html;
+  discard(el);
   el.replaceWith(template.content);
   return true;
 }
@@ -220,6 +235,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean,
       const slot = region && newChild.n !== undefined ? namedSlotOf(region, newChild.n) : null;
       if (!slot) return false;
       if (!fallbacks.has(slot)) fallbacks.set(slot, slot.innerHTML);
+      discard(slot);
       if (newChild.s !== undefined) {
         const pending = pendingOf(newNode, newChild.s);
         if (!pending) return false;
@@ -285,6 +301,9 @@ function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
   const hooks: MorphHooks = {
     nested: (current, next) => takeIsland(current, next, sources, hooks),
     adopt: (found) => (found.startsWith("region:") ? (kept.get(found.slice("region:".length)) ?? null) : null),
+    drop: (node) => {
+      if (node instanceof Element) discard(node);
+    },
   };
   morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
   return true;
@@ -303,6 +322,7 @@ function takeIsland(current: Element, next: Element, sources: ReturnType<typeof 
     return;
   }
   const wanted = next.nextElementSibling;
+  discard(current);
   current.replaceWith(document.importNode(next, true));
   if (script && wanted?.tagName === "SCRIPT") morphElement(script, wanted, hooks);
 }

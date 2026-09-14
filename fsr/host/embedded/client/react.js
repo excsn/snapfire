@@ -378,4 +378,7 @@ export const reactPatcher = (handle, component, props, el)=>{
     patchChildren(el, islandState(el)?.children ?? null);
     handle.render(islandElement(component, props, el, true));
 };
+export const reactUnmounter = (handle)=>{
+    handle.unmount();
+};
 //# sourceMappingURL=react.js.map

@@ -1,6 +1,6 @@
 import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type Ref } from "vue";
 
-import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props } from "./boot.js";
+import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -90,6 +90,12 @@ export const vueMounter: Mounter = (module, props, el, hydrate) => {
   childrenHeld.set(el, children);
   app.mount(el);
   return app;
+};
+
+export const vueUnmounter: Unmounter = (handle, el) => {
+  (handle as App).unmount();
+  held.delete(el);
+  childrenHeld.delete(el);
 };
 
 export const vuePatcher: Patcher = (handle, module, props, el) => {

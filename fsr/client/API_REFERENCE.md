@@ -33,6 +33,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Mounter](#mounter)
   * [MountTiming](#mounttiming)
   * [defineMounter](#definemounter)
+  * [Unmounter](#unmounter)
   * [IslandEntry](#islandentry)
   * [registerIsland](#registerisland)
   * [scan](#scan)
@@ -40,6 +41,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [boot](#boot)
   * [patchIsland](#patchisland)
   * [islandState](#islandstate)
+  * [discard](#discard)
   * [DOM Contract](#dom-contract)
   * [isServerIsland](#isserverisland)
   * [morph](#morph)
@@ -89,9 +91,11 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Link](#link)
   * [Mount](#mount)
   * [reactPatcher](#reactpatcher)
+  * [reactUnmounter](#reactunmounter)
 * [11. The Vue Mounter](#11-the-vue-mounter)
   * [vueMounter](#vuemounter)
   * [vuePatcher](#vuepatcher)
+  * [vueUnmounter](#vueunmounter)
   * [Mount (Vue)](#mount-vue)
   * [useStore (Vue)](#usestore-vue)
 * [12. Binding htmx](#12-binding-htmx)
@@ -375,6 +379,12 @@ Registration, timing and the scan that mounts markers.
 
 The mounter for an island whose module defines a custom element rather than exporting a component: it does nothing. Importing the module is the whole mount, since the element the server already wrote upgrades itself the moment its definition runs, so what the island's timing schedules is the import. `fsr build` registers a module an `<Island define>` names with it, carrying no `patch`, since nothing is mounted to re-render.
 
+### Unmounter
+
+* `type Unmounter = (handle: unknown, el: Element) => void`
+
+Ends the island mounted at `el`; `handle` is what the mounter returned. Called by `discard`, so an entry without one has its root dropped as it stands when the marker leaves the document.
+
 ### IslandEntry
 
 What a module id is registered with.
@@ -382,6 +392,8 @@ What a module id is registered with.
 * `loader: () => Promise<unknown>`, resolving to the value passed to `mount`.
 * `mount: Mounter`
 * `when?: MountTiming`, defaulting to `"load"`. Per island, not per page.
+* `patch?: Patcher`
+* `unmount?: Unmounter`
 
 ### registerIsland
 
@@ -428,6 +440,14 @@ Re-renders the island mounted at `el` with `props`, in place, through the entry'
 The props the island at `el` last mounted or patched with, the regions the last patch carried and the markup it gave the island's children region. Null when nothing is mounted there.
 
 * `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
+
+### discard
+
+* `discard(root: ParentNode): void`
+
+Ends every island under `root` and `root` itself when it is a marker, nested islands before the island around them. A mount still waiting on `visible` or `idle` is called off, one whose loader is in flight mounts nothing when the loader lands and a mounted one goes to its entry's `unmount`. Afterwards `islandState` answers null for those markers and `patchIsland` false.
+
+The navigator calls it on every node it takes out of the document: a swapped region, an emptied slot, a marker the morph replaces and every node the morph removes. A root left in a detached element keeps running otherwise, with its effects never cleaned up and whatever they hold still held. Code that removes markers itself calls it the same way, before the removal. A root's own render removing its nested markers is the one exception, since the framework ends what it rendered.
 
 ### DOM Contract
 
@@ -775,6 +795,12 @@ Calls `render` on the root the mounter returned with `createElement(component, p
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 
+### reactUnmounter
+
+* `const reactUnmounter: Unmounter`
+
+Calls `unmount` on the root the mounter returned, so every effect cleanup in the island runs.
+
 ## 11. The Vue Mounter
 
 `@snapfire/fsr-client/vue`: its own entry point, so the core package never imports Vue and a page with no Vue island never loads it. Requires `vue` in the page's import map.
@@ -790,6 +816,12 @@ Takes the module's default export (the module itself when it is the component) a
 * `const vuePatcher: Patcher`
 
 Assigns the new props into the reactive object the mounter holds for `el`, deleting keys the new props lack, so the component re-renders in place with its DOM and its state. New markup for the children region, read from `islandState`, is written into the slot. Does nothing for an element nothing mounted.
+
+### vueUnmounter
+
+* `const vueUnmounter: Unmounter`
+
+Calls `unmount` on the app the mounter returned and forgets the reactive props and children held for `el`.
 
 ### Mount (Vue)
 

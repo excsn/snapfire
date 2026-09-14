@@ -5,6 +5,8 @@ export type Props = {
 export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean) => unknown;
 /** Re-renders a mounted island in place with new props; `handle` is what the mounter returned. */
 export type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void;
+/** Ends a mounted island, running whatever its framework runs when a root goes away; `handle` is what the mounter returned. */
+export type Unmounter = (handle: unknown, el: Element) => void;
 export type MountTiming = "load" | "visible" | "idle";
 export interface IslandEntry {
 	loader: () => Promise<unknown>;
@@ -12,6 +14,8 @@ export interface IslandEntry {
 	/** When hydration happens: immediately, when scrolled into view or when the main thread is idle. Defaults to "load". Per island, not per page. */
 	when?: MountTiming;
 	patch?: Patcher;
+	/** Called by `discard` for an island whose marker is leaving the document. Left out, the root is dropped as it stands. */
+	unmount?: Unmounter;
 }
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
 /** Every island registered so far, by module id. */
@@ -20,6 +24,8 @@ export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 export declare const defineMounter: Mounter;
 /** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
 export declare function serverRendered(el: Element): boolean;
+/** Ends every island under `root`, `root` itself included when it is a marker, before the caller takes those nodes out of the document: a mount still waiting on its timing is called off, one whose loader is in flight mounts nothing when it lands and a mounted one is handed to its entry's `unmount`, nested islands before the island around them. What was mounted there is forgotten, so `islandState` answers null and `patchIsland` false. Call it on every node removed by anything other than a mounted root's own render, since a root left in a detached element keeps running: its effects never clean up and whatever they hold stays held. */
+export declare function discard(root: ParentNode): void;
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
 export declare function islandState(el: Element): {
 	props: Props;

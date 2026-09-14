@@ -1,7 +1,7 @@
 import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props } from "./boot.js";
+import { islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -437,4 +437,8 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
 export const reactPatcher: Patcher = (handle, component, props, el) => {
   patchChildren(el, islandState(el)?.children ?? null);
   (handle as Root).render(islandElement(component, props, el, true));
+};
+
+export const reactUnmounter: Unmounter = (handle) => {
+  (handle as Root).unmount();
 };

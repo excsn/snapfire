@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
-import { boot, registeredIslands } from "./boot.js";
+import { boot, discard, registeredIslands } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -632,12 +632,13 @@ export async function act<T>(body: () => T | Promise<T>): Promise<T> {
   return out;
 }
 
-/** Empties the document's body, which the runner also does after every test. */
+/** Ends every island the body holds and empties it, which the runner also does after every test. */
 export function cleanup(): void {
+  discard(document.body);
   document.body.innerHTML = "";
 }
 
-/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
+/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. The islands of the page showing until now are ended first, as leaving a page ends them in a browser. Needs the configuration beside the app, since the host that renders is the one that serves. */
 export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<{ status: number; path: string }> {
   sf().use(options.ctx?.id ?? 0);
   let res = await fetch(path);
@@ -649,6 +650,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   }
   const html = await res.text();
   if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
+  discard(document);
   sf().load(html, path);
   clearRouterCache();
   reset();

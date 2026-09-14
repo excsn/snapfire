@@ -137,10 +137,11 @@ export function morph(el: Element, html: string): void {
   morphNodes(el, Array.from(el.childNodes), Array.from(template.content.childNodes), null, { nested: morphNested });
 }
 
-/** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. */
+/** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. `drop` is told of each node the walk is about to remove, before it goes. */
 export interface MorphHooks {
   nested: (current: Element, next: Element) => void;
   adopt?: (key: string) => Node | null;
+  drop?: (node: Node) => void;
 }
 
 function keyOf(node: Node): string | null {
@@ -184,7 +185,9 @@ export function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node |
     i += 1;
   }
   for (const stale of old.slice(i)) {
-    if (stale.parentNode === parent) parent.removeChild(stale);
+    if (stale.parentNode !== parent) continue;
+    hooks.drop?.(stale);
+    parent.removeChild(stale);
   }
 }
 

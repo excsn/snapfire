@@ -219,6 +219,36 @@ test("the composer keeps the words back until Show what I type is ticked", async
   expect(shown.checked, "the box starts unticked").toBeFalsy();
 });
 
+test("a keystroke sends who is typing over the socket and the words only once Show what I type is ticked", async () => {
+  const sent: { key: string; value: { writing: boolean; body: string } }[] = [];
+  class Wire {
+    static OPEN = 1;
+    readyState = 1;
+    onopen: (() => void) | null = null;
+    constructor() {
+      setTimeout(() => this.onopen?.(), 0);
+    }
+    send(text: string): void {
+      sent.push(JSON.parse(text));
+    }
+    close(): void {}
+  }
+  const held = (globalThis as { WebSocket?: unknown }).WebSocket;
+  (globalThis as { WebSocket?: unknown }).WebSocket = Wire;
+  try {
+    await load("/wave/kickoff", { ctx: open("alice") });
+    const composer = document.querySelector(".transcript > sf-s .composer input[name=body]") as HTMLInputElement;
+    await fireEvent.change(composer, "half a secret");
+    expect(sent.at(-1)?.key, "a typing row went").toEqual("typing");
+    expect(sent.at(-1)?.value.writing, "saying alice is writing").toBeTruthy();
+    expect(sent.at(-1)?.value.body, "and nothing of what").toEqual("");
+    await fireEvent.click(document.querySelector(".transcript > sf-s .composer .showing input") as Element);
+    expect(sent.at(-1)?.value.body, "ticked, the words go").toEqual("half a secret");
+  } finally {
+    (globalThis as { WebSocket?: unknown }).WebSocket = held;
+  }
+});
+
 test("a reply to a block goes to the action with the block it answers", async () => {
   const asked: { parent: string; anchor: string; body: string }[] = [];
   const live = ctx({

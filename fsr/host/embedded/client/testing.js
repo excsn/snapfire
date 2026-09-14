@@ -1,4 +1,4 @@
-import { boot, registeredIslands } from "./boot.js";
+import { boot, discard, registeredIslands } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -493,6 +493,7 @@ export async function act(body) {
     return out;
 }
 export function cleanup() {
+    discard(document.body);
     document.body.innerHTML = "";
 }
 export async function load(path, options = {}) {
@@ -506,6 +507,7 @@ export async function load(path, options = {}) {
     }
     const html = await res.text();
     if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
+    discard(document);
     sf().load(html, path);
     clearRouterCache();
     reset();

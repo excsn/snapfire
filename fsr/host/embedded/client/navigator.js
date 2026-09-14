@@ -1,4 +1,4 @@
-import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
@@ -33,12 +33,18 @@ function findRegion(key) {
     }
     return null;
 }
+function discardRegion(region) {
+    for(let n = region.start.nextSibling; n && n !== region.end; n = n.nextSibling){
+        if (n instanceof Element) discard(n);
+    }
+}
 function replaceRegion(region, html) {
     const parent = region.start.parentNode;
     if (!(parent instanceof Element)) return false;
     const template = document.createElement("template");
     template.innerHTML = html;
     parent.insertBefore(template.content, region.start);
+    discardRegion(region);
     const range = document.createRange();
     range.setStartBefore(region.start);
     range.setEndAfter(region.end);
@@ -51,6 +57,7 @@ function fillSlot(slot, node, key) {
     const template = document.createElement("template");
     const html = nodeToHtml(node, ids);
     template.innerHTML = key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`;
+    discard(el);
     el.replaceWith(template.content);
 }
 function keyOfSlot(seg, slot) {
@@ -76,6 +83,7 @@ function removeChild(old) {
     const region = findRegion(old.k);
     if (region) {
         const parent = region.start.parentNode;
+        discardRegion(region);
         let node = region.start;
         while(node){
             const next = node.nextSibling;
@@ -83,12 +91,16 @@ function removeChild(old) {
             if (node === region.end) break;
             node = next;
         }
-        if (parent instanceof Element && parent.hasAttribute("data-sf-name")) parent.innerHTML = fallbacks.get(parent) ?? "";
+        if (parent instanceof Element && parent.hasAttribute("data-sf-name")) {
+            discard(parent);
+            parent.innerHTML = fallbacks.get(parent) ?? "";
+        }
         return true;
     }
     if (old.s === undefined) return false;
     const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
     if (!el) return false;
+    discard(el);
     el.remove();
     return true;
 }
@@ -120,6 +132,7 @@ function replaceChild(old, html) {
     if (!el) return false;
     const template = document.createElement("template");
     template.innerHTML = html;
+    discard(el);
     el.replaceWith(template.content);
     return true;
 }
@@ -193,6 +206,7 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
             const slot = region && newChild.n !== undefined ? namedSlotOf(region, newChild.n) : null;
             if (!slot) return false;
             if (!fallbacks.has(slot)) fallbacks.set(slot, slot.innerHTML);
+            discard(slot);
             if (newChild.s !== undefined) {
                 const pending = pendingOf(newNode, newChild.s);
                 if (!pending) return false;
@@ -251,7 +265,10 @@ function morphStatic(key, node, seg) {
     }
     const hooks = {
         nested: (current, next)=>takeIsland(current, next, sources, hooks),
-        adopt: (found)=>found.startsWith("region:") ? kept.get(found.slice("region:".length)) ?? null : null
+        adopt: (found)=>found.startsWith("region:") ? kept.get(found.slice("region:".length)) ?? null : null,
+        drop: (node)=>{
+            if (node instanceof Element) discard(node);
+        }
     };
     morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
     return true;
@@ -268,6 +285,7 @@ function takeIsland(current, next, sources, hooks) {
         return;
     }
     const wanted = next.nextElementSibling;
+    discard(current);
     current.replaceWith(document.importNode(next, true));
     if (script && wanted?.tagName === "SCRIPT") morphElement(script, wanted, hooks);
 }

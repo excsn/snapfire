@@ -90,6 +90,11 @@ export const vueMounter = (module, props, el, hydrate)=>{
     app.mount(el);
     return app;
 };
+export const vueUnmounter = (handle, el)=>{
+    handle.unmount();
+    held.delete(el);
+    childrenHeld.delete(el);
+};
 export const vuePatcher = (handle, module, props, el)=>{
     const state = held.get(el);
     if (!state) return;

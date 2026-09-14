@@ -251,6 +251,8 @@ pub struct Options {
   pub mounter: String,
   /// The export of the mounter module that re-renders a mounted island with new props.
   pub patcher: String,
+  /// The export of the mounter module that ends a mounted island whose marker is leaving the document.
+  pub unmounter: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,6 +361,7 @@ impl Default for Options {
       mounter_module: "@snapfire/fsr-client/react".to_owned(),
       mounter: "reactMounter".to_owned(),
       patcher: "reactPatcher".to_owned(),
+      unmounter: "reactUnmounter".to_owned(),
     }
   }
 }
@@ -1373,11 +1376,11 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<(String, bool)> {
 /// The mounter a module is registered with: the framework its file is
 /// written for, so a `.vue` component mounts through Vue and everything else
 /// through the build's default.
-fn mounter_for(module: &str, options: &Options) -> (String, String, String) {
+fn mounter_for(module: &str, options: &Options) -> (String, String, String, String) {
   let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
   match Path::new(file).extension().and_then(|e| e.to_str()) {
-    Some("vue") => ("vueMounter".to_owned(), "vuePatcher".to_owned(), "@snapfire/fsr-client/vue".to_owned()),
-    _ => (options.mounter.clone(), options.patcher.clone(), options.mounter_module.clone()),
+    Some("vue") => ("vueMounter".to_owned(), "vuePatcher".to_owned(), "vueUnmounter".to_owned(), "@snapfire/fsr-client/vue".to_owned()),
+    _ => (options.mounter.clone(), options.patcher.clone(), options.unmounter.clone(), options.mounter_module.clone()),
   }
 }
 
@@ -1398,15 +1401,15 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       let _ = writeln!(out, "import {{ registerIsland }} from \"@snapfire/fsr-client\";");
     }
   }
-  let mut imported: Vec<(String, String, String)> = Vec::new();
+  let mut imported: Vec<(String, String, String, String)> = Vec::new();
   for module in registered.iter().filter(|m| !defines.contains(**m)) {
     let mounter = mounter_for(module, options);
     if !imported.contains(&mounter) {
       imported.push(mounter);
     }
   }
-  for (mounter, patcher, from) in &imported {
-    let _ = writeln!(out, "import {{ {mounter}, {patcher} }} from \"{from}\";");
+  for (mounter, patcher, unmounter, from) in &imported {
+    let _ = writeln!(out, "import {{ {mounter}, {patcher}, {unmounter} }} from \"{from}\";");
   }
   out.push_str("\nexport function registerIslands(): void {\n");
   let prefix = options.prefix();
@@ -1423,8 +1426,8 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\"), mount: defineMounter }});");
       continue;
     }
-    let (mounter, patcher, _) = mounter_for(module, options);
-    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {mounter}, patch: {patcher} }});");
+    let (mounter, patcher, unmounter, _) = mounter_for(module, options);
+    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {mounter}, patch: {patcher}, unmount: {unmounter} }});");
   }
   out.push_str("}\n");
   out

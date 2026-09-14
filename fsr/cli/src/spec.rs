@@ -85,7 +85,7 @@ pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildE
     let name = file.file_name().unwrap_or_default().to_string_lossy().trim_end_matches(".ts").to_owned();
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
   }
-  boot_source.push_str("import { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
+  boot_source.push_str("import { discard } from \"@snapfire/fsr-client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
   if let Some(entry) = entry_module(&app) {
     boot_source.push_str(&format!("import \"./dist/src/{entry}.js\";\n"));
   }
@@ -197,7 +197,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
           (Err(failure), _) if log.is_empty() => Outcome::Failed(indent(&failure)),
           (Err(failure), _) => Outcome::Failed(format!("{}\nconsole during the test:\n{}", indent(&failure), indent(&log))),
         };
-        engine.eval_string("document.body.innerHTML = \"\"; \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
+        engine.eval_string("__sf.discard(document.body); document.body.innerHTML = \"\"; \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
         results.push((name.clone(), result));
       }
       if ran {

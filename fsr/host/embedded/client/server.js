@@ -156,7 +156,9 @@ export function morphNodes(parent, old, fresh, end, hooks) {
         i += 1;
     }
     for (const stale of old.slice(i)){
-        if (stale.parentNode === parent) parent.removeChild(stale);
+        if (stale.parentNode !== parent) continue;
+        hooks.drop?.(stale);
+        parent.removeChild(stale);
     }
 }
 export function morphElement(current, next, hooks) {

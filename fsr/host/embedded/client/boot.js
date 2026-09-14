@@ -3,6 +3,7 @@ import { isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt } from "./store.js";
 import { decodeValue } from "./values.js";
 const mounted = new WeakMap();
+const pending = new WeakMap();
 const islands = new Map();
 export function registerIsland(moduleId, entry) {
     islands.set(moduleId, entry);
@@ -28,21 +29,39 @@ function awaitingAnAncestor(el) {
 }
 function mountNow(entry, moduleId, el, props) {
     const hydrate = serverRendered(el);
-    const handle = entry.loader().then((mod)=>entry.mount(mod, props, el, hydrate)).then((value)=>{
+    const island = {
+        entry,
+        moduleId,
+        handle: Promise.resolve(undefined),
+        root: undefined,
+        gone: false,
+        props,
+        regions: null,
+        children: null
+    };
+    island.handle = entry.loader().then((mod)=>island.gone ? undefined : entry.mount(mod, props, el, hydrate)).then((value)=>{
+        if (island.gone) return undefined;
+        island.root = value;
         el.setAttribute(MOUNTED, "");
         return value;
     }).catch((err)=>{
         console.warn(`sf: mounting ${moduleId} failed`, err);
         return undefined;
     });
-    mounted.set(el, {
-        entry,
-        moduleId,
-        handle,
-        props,
-        regions: null,
-        children: null
-    });
+    mounted.set(el, island);
+}
+export function discard(root) {
+    const markers = Array.from(root.querySelectorAll("sf-i"));
+    if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+    for (const el of markers.reverse()){
+        pending.get(el)?.();
+        pending.delete(el);
+        const island = mounted.get(el);
+        if (!island) continue;
+        island.gone = true;
+        mounted.delete(el);
+        if (island.root !== undefined) island.entry.unmount?.(island.root, el);
+    }
 }
 export function islandState(el) {
     const island = mounted.get(el);
@@ -75,19 +94,29 @@ function schedule(entry, moduleId, el, props) {
                 const observer = new IntersectionObserver((entries)=>{
                     if (entries.some((e)=>e.isIntersecting)) {
                         observer.disconnect();
+                        pending.delete(el);
                         mountNow(entry, moduleId, el, props);
                     }
                 });
+                pending.set(el, ()=>observer.disconnect());
                 observer.observe(el);
                 return;
             }
         case "idle":
             {
+                let off = false;
+                const run = ()=>{
+                    pending.delete(el);
+                    if (!off) mountNow(entry, moduleId, el, props);
+                };
+                pending.set(el, ()=>{
+                    off = true;
+                });
                 const idle = window.requestIdleCallback;
                 if (idle) {
-                    idle(()=>mountNow(entry, moduleId, el, props));
+                    idle(run);
                 } else {
-                    setTimeout(()=>mountNow(entry, moduleId, el, props), 1);
+                    setTimeout(run, 1);
                 }
                 return;
             }

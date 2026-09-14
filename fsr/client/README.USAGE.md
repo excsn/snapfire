@@ -157,16 +157,17 @@ snapfiretc --root . --config tsconfig.json
 
 ## Registering an Island
 
-An entry is a loader, a mounter, an optional patcher and an optional timing. The loader resolves to whatever the mounter expects, which for `reactMounter` is the component itself; the patcher re-renders the island with new props when a navigation or a revalidation keeps its DOM:
+An entry is a loader, a mounter, an optional patcher, an optional unmounter and an optional timing. The loader resolves to whatever the mounter expects, which for `reactMounter` is the component itself; the patcher re-renders the island with new props when a navigation or a revalidation keeps its DOM; the unmounter ends it when a navigation takes its marker out of the document, so its effects clean up:
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
-import { reactMounter } from "@snapfire/fsr-client/react";
+import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr-client/react";
 
 registerIsland("components/ServerChart.tsx#default", {
   loader: () => import("./ServerChart.js").then((m) => m.default),
   mount: reactMounter,
   patch: reactPatcher,
+  unmount: reactUnmounter,
 });
 ```
 
@@ -342,22 +343,29 @@ Call it in `setup`: the subscription ends with the component's scope. Writing `.
 
 ## Writing a Mounter for Another Framework
 
-A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller, so return whatever the framework needs for teardown:
+A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:
 
 ```ts
-import { registerIsland, type Mounter, type Props } from "@snapfire/fsr-client";
-import { mount, type Component } from "svelte";
+import { registerIsland, type Mounter, type Props, type Unmounter } from "@snapfire/fsr-client";
+import { mount, unmount, type Component } from "svelte";
 
 const svelteMounter: Mounter = (module, props, el, hydrate) => {
   if (!hydrate) el.replaceChildren();
   return mount(module as Component, { target: el, props: props as Record<string, unknown> });
 };
 
+const svelteUnmounter: Unmounter = (handle) => {
+  void unmount(handle as Record<string, unknown>);
+};
+
 registerIsland("components/Counter.svelte#default", {
   loader: () => import("./Counter.js").then((m) => m.default),
   mount: svelteMounter,
+  unmount: svelteUnmounter,
 });
 ```
+
+An entry without `unmount` has its root dropped as it stands, which leaves the framework's effects running on a detached element.
 
 `hydrate` is true when the marker has child nodes. The React mounter in the `/react` entry reads exactly the same flag:
 

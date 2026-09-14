@@ -1,5 +1,5 @@
 import { type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
-import { MountTiming, Mounter, Patcher, type Props } from "./boot.js";
+import { MountTiming, Mounter, Patcher, type Props, type Unmounter } from "./boot.js";
 import type { PrefetchTiming } from "./navigator.js";
 import { type StoreKey } from "./store.js";
 export interface IslandProps {
@@ -90,3 +90,4 @@ export declare function useHoisted(module: string): HoistReader;
 export declare function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement;
 export declare const reactMounter: Mounter;
 export declare const reactPatcher: Patcher;
+export declare const reactUnmounter: Unmounter;

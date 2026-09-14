@@ -7,6 +7,8 @@ export type Props = { [key: string]: SfValue };
 export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean) => unknown;
 /** Re-renders a mounted island in place with new props; `handle` is what the mounter returned. */
 export type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void;
+/** Ends a mounted island, running whatever its framework runs when a root goes away; `handle` is what the mounter returned. */
+export type Unmounter = (handle: unknown, el: Element) => void;
 
 export type MountTiming = "load" | "visible" | "idle";
 
@@ -16,12 +18,18 @@ export interface IslandEntry {
   /** When hydration happens: immediately, when scrolled into view or when the main thread is idle. Defaults to "load". Per island, not per page. */
   when?: MountTiming;
   patch?: Patcher;
+  /** Called by `discard` for an island whose marker is leaving the document. Left out, the root is dropped as it stands. */
+  unmount?: Unmounter;
 }
 
 interface Mounted {
   entry: IslandEntry;
   moduleId: string;
   handle: Promise<unknown>;
+  /** What the mounter returned, once it has; undefined while the loader is in flight or after a failed mount. */
+  root: unknown;
+  /** Set by `discard`. A loader that resolves after it mounts nothing. */
+  gone: boolean;
   /** The props the island last mounted or patched with. */
   props: Props;
   /** What the payload behind the last patch said about the regions inside this island, for the adapter to hand its nested islands. */
@@ -31,6 +39,9 @@ interface Mounted {
 }
 
 const mounted = new WeakMap<Element, Mounted>();
+
+/** How to call off a mount whose timing has not fired, by marker. */
+const pending = new WeakMap<Element, () => void>();
 
 const islands = new Map<string, IslandEntry>();
 
@@ -69,10 +80,13 @@ function awaitingAnAncestor(el: Element): boolean {
 
 function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
   const hydrate = serverRendered(el);
-  const handle = entry
+  const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null };
+  island.handle = entry
     .loader()
-    .then((mod) => entry.mount(mod, props, el, hydrate))
+    .then((mod) => (island.gone ? undefined : entry.mount(mod, props, el, hydrate)))
     .then((value) => {
+      if (island.gone) return undefined;
+      island.root = value;
       el.setAttribute(MOUNTED, "");
       return value;
     })
@@ -80,7 +94,22 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
       console.warn(`sf: mounting ${moduleId} failed`, err);
       return undefined;
     });
-  mounted.set(el, { entry, moduleId, handle, props, regions: null, children: null });
+  mounted.set(el, island);
+}
+
+/** Ends every island under `root`, `root` itself included when it is a marker, before the caller takes those nodes out of the document: a mount still waiting on its timing is called off, one whose loader is in flight mounts nothing when it lands and a mounted one is handed to its entry's `unmount`, nested islands before the island around them. What was mounted there is forgotten, so `islandState` answers null and `patchIsland` false. Call it on every node removed by anything other than a mounted root's own render, since a root left in a detached element keeps running: its effects never clean up and whatever they hold stays held. */
+export function discard(root: ParentNode): void {
+  const markers = Array.from(root.querySelectorAll("sf-i"));
+  if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+  for (const el of markers.reverse()) {
+    pending.get(el)?.();
+    pending.delete(el);
+    const island = mounted.get(el);
+    if (!island) continue;
+    island.gone = true;
+    mounted.delete(el);
+    if (island.root !== undefined) island.entry.unmount?.(island.root, el);
+  }
 }
 
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
@@ -113,18 +142,28 @@ function schedule(entry: IslandEntry, moduleId: string, el: Element, props: Prop
       const observer = new IntersectionObserver((entries) => {
         if (entries.some((e) => e.isIntersecting)) {
           observer.disconnect();
+          pending.delete(el);
           mountNow(entry, moduleId, el, props);
         }
       });
+      pending.set(el, () => observer.disconnect());
       observer.observe(el);
       return;
     }
     case "idle": {
+      let off = false;
+      const run = () => {
+        pending.delete(el);
+        if (!off) mountNow(entry, moduleId, el, props);
+      };
+      pending.set(el, () => {
+        off = true;
+      });
       const idle = (window as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback;
       if (idle) {
-        idle(() => mountNow(entry, moduleId, el, props));
+        idle(run);
       } else {
-        setTimeout(() => mountNow(entry, moduleId, el, props), 1);
+        setTimeout(run, 1);
       }
       return;
     }

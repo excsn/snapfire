@@ -53,6 +53,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Mount every island on the page and keep up with streamed chunks | `boot` |
 | Mount islands inside a subtree you inserted yourself | `scan` |
 | Re-render a mounted island with new props, keeping its DOM and state | `patchIsland`, `reactPatcher` |
+| End the islands in a subtree you are about to remove | `discard`, `reactUnmounter` |
 | Delay hydration until the island scrolls into view | `when: "visible"` |
 | Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
 | Mount Vue components | `vueMounter` from `@snapfire/fsr-client/vue` |

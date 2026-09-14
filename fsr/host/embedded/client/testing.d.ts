@@ -169,9 +169,9 @@ export declare function renderHook<
 }>;
 /** Runs `body` and settles, React's `act` for code that changes state outside an event the harness dispatched. */
 export declare function act<T>(body: () => T | Promise<T>): Promise<T>;
-/** Empties the document's body, which the runner also does after every test. */
+/** Ends every island the body holds and empties it, which the runner also does after every test. */
 export declare function cleanup(): void;
-/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
+/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. The islands of the page showing until now are ended first, as leaving a page ends them in a browser. Needs the configuration beside the app, since the host that renders is the one that serves. */
 export declare function load(path: string, options?: {
 	ctx?: TestCtx;
 }): Promise<{
