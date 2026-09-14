@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@snapfire/fsr-client/react";
 
+import Me from "@src/ui/Me";
 import Name from "@src/ui/Name";
 
 export default function WaveLayout({
@@ -18,16 +19,22 @@ export default function WaveLayout({
 }) {
   return (
     <div className="app">
-      <header>
-        <Link href="/" className="wordmark">
-          Waves
-        </Link>
-        <Name name={name ?? ""} />
-      </header>
+      {name ? null : (
+        <div className="naming">
+          <p>Name yourself to write on a wave.</p>
+          <Name name="" />
+        </div>
+      )}
       <div className="panes">
         <aside className="side">
           {rail}
           {contacts}
+          <footer className="side-foot">
+            <Link href="/" className="wordmark">
+              Waves
+            </Link>
+            {name ? <Me name={name} /> : null}
+          </footer>
         </aside>
         <aside className="inbox">{waves}</aside>
         <main className="open">{children}</main>

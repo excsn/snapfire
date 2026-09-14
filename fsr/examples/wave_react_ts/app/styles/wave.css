@@ -16,7 +16,8 @@
 body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 
 .app { max-width: 78rem; margin: 0 auto; padding: 0 1rem 3rem; }
-.app header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--rule); }
+.naming { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 1rem; padding: 0.7rem 0.9rem; background: var(--raised); border: 1px solid var(--accent); border-radius: 8px; }
+.naming p { margin: 0; }
 .wordmark { color: var(--ink); text-decoration: none; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.95rem; }
 
 .name { display: flex; gap: 0.4rem; }
@@ -32,6 +33,15 @@ button:disabled:hover { border-color: var(--rule); }
 @media (max-width: 72rem) { .panes { grid-template-columns: 11rem minmax(0, 1fr); } .open { grid-column: 1 / -1; } }
 @media (max-width: 46rem) { .panes { grid-template-columns: 1fr; } }
 .side { display: grid; gap: 1rem; }
+.side-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
+.side-foot .me { background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; padding: 0.2rem 0.6rem; color: var(--mine); font-size: 0.85rem; font-weight: 600; overflow-wrap: anywhere; cursor: pointer; }
+.side-foot .me:hover, .side-foot .me:focus-visible { border-color: var(--accent); }
+.modal { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / 55%); }
+.sheet { display: grid; gap: 0.8rem; width: min(24rem, 100%); padding: 1rem 1.1rem; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; }
+.sheet h2 { margin: 0; font-size: 1rem; }
+.sheet label { color: var(--dim); font-size: 0.85rem; }
+.sheet .name input { flex: 1; }
+.sheet .close { justify-self: end; }
 
 .rail ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
 .view { display: block; padding: 0.35rem 0.6rem; border-radius: 6px; color: var(--dim); text-decoration: none; font-size: 0.9rem; }
@@ -168,5 +178,27 @@ button:disabled:hover { border-color: var(--rule); }
 .add-gadget > summary { list-style: none; cursor: pointer; padding: 0.4rem 0.6rem; border: 1px solid var(--rule); border-radius: 6px; color: var(--dim); font-size: 0.85rem; }
 .add-gadget > summary::-webkit-details-marker { display: none; }
 .add-gadget[open] > summary { color: var(--ink); border-color: var(--accent); }
-.add-gadget > div { position: absolute; right: 0; z-index: 2; display: grid; gap: 0.25rem; margin-top: 0.25rem; padding: 0.35rem; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; white-space: nowrap; }
+.add-gadget > div { position: absolute; right: 0; bottom: 100%; z-index: 4; display: grid; gap: 0.25rem; margin-bottom: 0.25rem; padding: 0.35rem; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; white-space: nowrap; }
 .composer .add-gadget button { background: var(--panel); border-color: var(--rule); color: var(--ink); font-weight: 400; text-align: left; }
+
+/* Wide: each pane scrolls on its own and the transcript scrolls between the scrubber and the composer */
+@media (min-width: 72.01rem) {
+  .app { height: 100dvh; display: flex; flex-direction: column; padding-bottom: 1rem; }
+  .naming { flex: none; }
+  .panes { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .panes > * { min-height: 0; overflow-y: auto; }
+  .side { display: flex; flex-direction: column; }
+  .side-foot { margin-top: auto; }
+  .open { display: flex; flex-direction: column; }
+  .open > sf-s { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .wave { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .wave > * { flex: none; }
+  .wave > .blips { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 0.5rem; }
+}
+
+/* Stacked: the page scrolls and the scrubber and the wave's composer stick to the window */
+@media (max-width: 72rem) {
+  .wave > sf-s { display: block; }
+  .wave > sf-s:has(.playback) { position: sticky; top: 0; z-index: 3; background: var(--paper); padding-top: 0.5rem; }
+  .wave > sf-s:has(.under) { position: sticky; bottom: 0; z-index: 3; background: var(--paper); padding-top: 0.5rem; }
+}

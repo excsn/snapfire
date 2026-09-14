@@ -481,6 +481,25 @@ test("the composer's gadget menu keeps a blip that is the fence the service read
   expect(bodies).toEqual(["```gadget yesno\nShip on Friday?\n```"]);
 });
 
+test("a reader with no name is asked for one across the top and the side pane names nobody", async () => {
+  await load("/wave/kickoff", { ctx: open("") });
+  expect(document.querySelectorAll(".naming .name input").length, "the bar with the name form").toEqual(1);
+  expect(document.querySelector(".side-foot .wordmark")?.textContent).toEqual("Waves");
+  expect(document.querySelector(".side-foot .me"), "and no name at its foot").toBeNull();
+});
+
+test("a named reader's name opens their settings, where it can be changed", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  expect(document.querySelector(".naming"), "no bar once there is a name").toBeNull();
+  const me = document.querySelector(".side-foot .me") as Element;
+  expect(me.textContent).toEqual("alice");
+  await fireEvent.click(me);
+  const input = document.querySelector(".modal .sheet .name input") as HTMLInputElement;
+  expect(input.value, "the settings hold the name as it is").toEqual("alice");
+  await fireEvent.keyDown(input, { key: "Escape" });
+  expect(document.querySelector(".modal"), "and Escape closes them").toBeNull();
+});
+
 test("opening a reply closes the one already open", async () => {
   await load("/wave/kickoff", { ctx: open("alice") });
   await fireEvent.click(document.querySelector(".blips > .thread > sf-s .reply") as Element);

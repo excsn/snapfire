@@ -20,8 +20,8 @@ export default function Name({ name }: { name: string }) {
   }
   return (
     <form className="name" onSubmit={keep}>
-      <input name="name" defaultValue={name} placeholder="who are you" />
-      <button type="submit">{saved ? saved : "set"}</button>
+      <input name="name" defaultValue={saved} placeholder="who are you" autoFocus={name !== ""} />
+      <button type="submit">Save</button>
     </form>
   );
 }

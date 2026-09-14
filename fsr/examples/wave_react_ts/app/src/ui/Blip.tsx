@@ -11,7 +11,7 @@ import Under from "@src/ui/Under";
 export default function Blip({ wave, blip, me, live }: { wave: string; blip: Kept; me: string; live: boolean }): ReactElement {
   return (
     <li className="thread">
-      <div className={`${blip.who === me ? "blip mine" : "blip"}${blip.lit ? " lit" : ""}`}>
+      <div id={`blip-${blip.id}`} className={`${blip.who === me ? "blip mine" : "blip"}${blip.lit ? " lit" : ""}`}>
         <span className="who">{blip.who}</span>
         <span className="at">{blip.at}</span>
         <div className="body md">

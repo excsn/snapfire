@@ -67,7 +67,9 @@ The socket carries rows, `{"key": ..., "value": ...}` up and `{"rows": [...]}` d
 
 ## Four panes
 
-The rail, the contacts, the inbox and the open wave are four segments of one route: three parallel slots under `routes/slots/` and the page. Every one of them is rendered on the server.
+The rail, the contacts, the inbox and the open wave are four segments of one route: three parallel slots under `routes/slots/` and the page. Every one of them is rendered on the server. There is no header: the wordmark and the reader's name sit at the foot of the side pane, and the name opens the reader's settings, where it can be changed.
+
+Where the panes sit side by side the app is the window's height and each pane scrolls on its own. The open wave's transcript scrolls between its scrubber and its composer, so both stay in view. Where the panes stack the page scrolls as a whole and the scrubber and the composer stick to the window's edges.
 
 A rail link is this page under another view, `${path}?view=active`, which is what `ctx.path` is for: a layout and a parallel segment match no parameters of their own, so without it neither the rail could build that link nor the inbox mark the wave that is open. The views themselves are filters the controller applies, `inbox`, `active` for whoever has a connection on a wave and `mine` for the waves this reader has written in, so a view is a query rather than a route.
 
@@ -75,7 +77,7 @@ A click on the rail changes one pane at a time. Every segment carries a digest o
 
 ## Naming yourself
 
-A reader with no name may open a wave and read it and nothing else: no composer, no blip offers itself for rewriting, the rules drop every op the window sends and both actions refuse it. Presence leaves it out too, so nobody is listed as `someone`.
+A reader with no name is asked for one in a bar across the top of the page, which goes once they give it. Until then they may open a wave and read it and nothing else: no composer, no blip offers itself for rewriting, the rules drop every op the window sends and both actions refuse it. Presence leaves it out too, so nobody is listed as `someone`.
 
 The name is a session write and `me` reaches every composer through the wave's page. Naming asks for the document again rather than revalidating, because a session write changes what every island on the page was rendered from and a fresh document is the honest answer to that.
 
@@ -138,7 +140,7 @@ A step is the wave's own page under `?at=`. The loader passes it to `waves.getWa
 void navigate(`${url.pathname}${url.search}`, true, { replace: true, scroll: false });
 ```
 
-Only the query changes, so the navigator morphs the page rather than replacing it and the scrubber keeps its DOM and its state: a drag carries on and play keeps playing. The end of the log is the wave as it stands.
+Only the query changes, so the navigator morphs the page rather than replacing it and the scrubber keeps its DOM and its state: a drag carries on and play keeps playing. Whenever the scrubber moves, by a drag, a step button or play, the blip or gadget that step changed is scrolled smoothly into the middle of the transcript when it is out of view, the last change included once the wave is live again. The scrubber stays in view while it does. The end of the log is the wave as it stands.
 
 ## A wave is not public
 
