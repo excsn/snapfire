@@ -2,17 +2,7 @@ import { useEffect, useState } from "react";
 import { navigate } from "@snapfire/fsr-client";
 
 import type { Change } from "@generated/client";
-
-/** Brings `el` to the middle of what shows it when it is out of view, smoothly unless the reader asks for less motion. What shows it is the part of the transcript inside the window: the transcript scrolls on its own where the panes sit side by side and the window scrolls where they stack. */
-function follow(el: Element): void {
-  const box = el.getBoundingClientRect();
-  const pane = el.closest(".blips")?.getBoundingClientRect();
-  const top = Math.max(pane?.top ?? 0, 0);
-  const bottom = Math.min(pane?.bottom ?? window.innerHeight, window.innerHeight);
-  if (box.top >= top && box.bottom <= bottom) return;
-  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
-}
+import { follow } from "@src/ui/follow";
 
 /** The scrubber over the wave's log, where a step is one kept blip, one amend, one move or one vote. The wave after a step is this page under `?at=`, replayed and rendered by the server, so moving the scrubber is a navigation that replaces its history entry and leaves the window where it is. The query is all that changes, so this island and its state survive it. The end of the log is the wave as it stands. Playing steps on once a beat until it gets there. Every step brings what it changed into view when it is out of view, the last one included once the wave is live again. */
 export default function Playback({ step, steps, live, change }: { step: number; steps: number; live: boolean; change: Change }) {

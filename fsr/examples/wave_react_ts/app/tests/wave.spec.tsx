@@ -255,6 +255,43 @@ test("keeping a blip calls the action and the transcript follows without a reloa
   expect(document.querySelectorAll(".blips > .thread").length, "and the new blip is one item, in its own region").toEqual(2);
 });
 
+test("a blip the reader keeps out of view is brought into view", async () => {
+  const blips = [blip("1", "", "", "alice", "Starting a wave.")];
+  const live = ctx({
+    session: { name: "dora", waves: {} },
+    services: {
+      waves: {
+        getWave: () => ({ id: "kickoff", title: "Snapfire kickoff", participants: ["alice"], ...clock, blips }),
+        addBlip: (input: { body: string }) => {
+          const kept = blip(String(blips.length + 1), "", "", "dora", input.body);
+          blips.push(kept);
+          return kept;
+        },
+        ...listings,
+      },
+    },
+  });
+  await load("/wave/kickoff", { ctx: live });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+  const place = spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const top = this.id === "blip-2" ? 1200 : 0;
+    const height = this.classList.contains("blips") ? 800 : 100;
+    return { x: 0, y: top, width: 400, height, top, left: 0, right: 400, bottom: top + height, toJSON: () => ({}) };
+  });
+  const scrolled = spyOn(Element.prototype, "scrollIntoView");
+
+  const transcript = document.querySelector(".blips");
+  const composer = document.querySelector(".wave > sf-s .composer input") as HTMLInputElement;
+  await fireEvent.change(composer, "below the fold");
+  await fireEvent.submit(composer);
+
+  expect(document.querySelector(".blips"), "the transcript is the element that was there, so it keeps its scroll").toBe(transcript);
+  expect(scrolled.mock.contexts.map((el) => (el as Element).id), "the kept blip and nothing else").toEqual(["blip-2"]);
+  scrolled.mockRestore();
+  place.mockRestore();
+  delete (window as { innerHeight?: number }).innerHeight;
+});
+
 test("someone rewriting a block shows their words in that block and leaves the rest of the blip alone", async () => {
   await load("/wave/kickoff", { ctx: open("alice") });
   set(key<{ blip: string; block: string; who: string; body: string }[]>("wave/edits"), [{ blip: "1", block: "b1", who: "bob", body: "his words" }]);

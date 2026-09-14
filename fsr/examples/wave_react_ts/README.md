@@ -69,7 +69,7 @@ The socket carries rows, `{"key": ..., "value": ...}` up and `{"rows": [...]}` d
 
 The rail, the contacts, the inbox and the open wave are four segments of one route: three parallel slots under `routes/slots/` and the page. Every one of them is rendered on the server. There is no header: the wordmark and the reader's name sit at the foot of the side pane, and the name opens the reader's settings, where it can be changed.
 
-Where the panes sit side by side the app is the window's height and each pane scrolls on its own. The open wave's transcript scrolls between its scrubber and its composer, so both stay in view. Where the panes stack the page scrolls as a whole and the scrubber and the composer stick to the window's edges.
+Where the panes sit side by side the app is the window's height and each pane scrolls on its own. The open wave's transcript scrolls between its scrubber and its composer, so both stay in view. Where the panes stack the page scrolls as a whole and the scrubber and the composer stick to the window's edges. A blip landing patches the transcript in place, so it keeps its scroll. A blip this reader keeps is brought into view when it lands out of view.
 
 A rail link is this page under another view, `${path}?view=active`, which is what `ctx.path` is for: a layout and a parallel segment match no parameters of their own, so without it neither the rail could build that link nor the inbox mark the wave that is open. The views themselves are filters the controller applies, `inbox`, `active` for whoever has a connection on a wave and `mine` for the waves this reader has written in, so a view is a query rather than a route.
 

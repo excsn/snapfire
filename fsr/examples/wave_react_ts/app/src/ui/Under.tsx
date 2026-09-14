@@ -4,6 +4,7 @@ import { useStore } from "@snapfire/fsr-client/react";
 import { key } from "@snapfire/fsr-client/store";
 
 import { actions } from "@generated/client";
+import { follow } from "@src/ui/follow";
 import { join, typing } from "@src/ui/wire";
 
 interface Draft {
@@ -21,7 +22,7 @@ function gadgetBlip(kind: string, text: string): string {
   return text ? `${text}\n\n${fence([])}` : fence([]);
 }
 
-/** What sits under one blip and is not kept: whoever else is typing a reply there and this reader's own composer. With `anchor` it sits beside that block of the blip instead. The blips themselves are rendered by the server; this is the part that could not be. A reader with no name gets no composer and the action refuses one anyway. A window has one reply open at a time: `wave/replying` names it, so opening one closes the other. Cancel or Escape closes it too. The wave's own composer, `open`, stays open. Its Gadget menu keeps a blip that is one gadget, what was typed so far its question. */
+/** What sits under one blip and is not kept: whoever else is typing a reply there and this reader's own composer. With `anchor` it sits beside that block of the blip instead. The blips themselves are rendered by the server; this is the part that could not be. A reader with no name gets no composer and the action refuses one anyway. A window has one reply open at a time: `wave/replying` names it, so opening one closes the other. Cancel or Escape closes it too. The wave's own composer, `open`, stays open. A blip this reader keeps is brought into view when it lands out of view. Its Gadget menu keeps a blip that is one gadget, what was typed so far its question. */
 export default function Under({ wave, parent, anchor = "", me, open = false }: { wave: string; parent: string; anchor?: string; me: string; open?: boolean }) {
   const [drafts] = useStore(key<Draft[]>("wave/drafts"), []);
   const [replying, setReplying] = useStore(key<string>("wave/replying"), "");
@@ -46,15 +47,22 @@ export default function Under({ wave, parent, anchor = "", me, open = false }: {
     if (event.key === "Escape" && !open) stop();
   }
 
+  /** The action's revalidation has put the kept blip in the transcript by the time it answers. */
+  async function send(form: HTMLFormElement, body: string): Promise<void> {
+    form.reset();
+    typing(parent, anchor, "");
+    if (!open) setReplying("");
+    const { kept } = await actions.$root.blip({ wave, parent, anchor, body });
+    const landed = document.getElementById(`blip-${kept.id}`);
+    if (landed) follow(landed);
+  }
+
   async function keep(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const form = event.currentTarget;
     const body = String(new FormData(form).get("body") ?? "").trim();
     if (!body) return;
-    form.reset();
-    typing(parent, anchor, "");
-    if (!open) setReplying("");
-    await actions.$root.blip({ wave, parent, anchor, body });
+    await send(form, body);
   }
 
   async function add(kind: string, button: HTMLButtonElement): Promise<void> {
@@ -62,10 +70,7 @@ export default function Under({ wave, parent, anchor = "", me, open = false }: {
     if (!form) return;
     const text = String(new FormData(form).get("body") ?? "").trim();
     button.closest("details")?.removeAttribute("open");
-    form.reset();
-    typing(parent, anchor, "");
-    if (!open) setReplying("");
-    await actions.$root.blip({ wave, parent, anchor, body: gadgetBlip(kind, text) });
+    await send(form, gadgetBlip(kind, text));
   }
 
   return (
