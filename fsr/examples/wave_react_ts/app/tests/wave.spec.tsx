@@ -376,8 +376,11 @@ test("the scrubber takes the page to a step in place of its history entry and st
   await load("/wave/kickoff", { ctx: live });
   const bar = document.querySelector(".playback");
   const entries = history.length;
+  const top = spyOn(window, "scrollTo");
   await fireEvent.click(document.querySelector('.playback [title="a step back"]') as Element);
   expect(location.pathname + location.search).toEqual("/wave/kickoff?at=4");
+  expect(top, "the window stays where the reader left it").not.toHaveBeenCalled();
+  top.mockRestore();
   expect(asked, "the loader asked the service for that step").toEqual(["", "4"]);
   expect(history.length, "the step took the place of the entry it moved from").toEqual(entries);
   expect(document.querySelector(".playback"), "the scrubber is the island that was there").toBe(bar);

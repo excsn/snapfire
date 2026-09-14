@@ -132,10 +132,10 @@ Every durable change to a wave is logged: a kept blip, an amend, a move on a boa
 
 A step is the wave's own page under `?at=`. The loader passes it to `waves.getWave`, which replays the log that far and lights the blip or the gadget the step changed. The page under `?at=` places no composer, no editor and no reply, so nobody writes on the past. No gadget can be used either.
 
-`src/ui/Playback.tsx` is the scrubber. Moving it is a navigation that takes the place of the current history entry:
+`src/ui/Playback.tsx` is the scrubber. Moving it is a navigation that takes the place of the current history entry and leaves the window where it was:
 
 ```ts
-void navigate(`${url.pathname}${url.search}`, true, { replace: true });
+void navigate(`${url.pathname}${url.search}`, true, { replace: true, scroll: false });
 ```
 
 Only the query changes, so the navigator morphs the page rather than replacing it and the scrubber keeps its DOM and its state: a drag carries on and play keeps playing. The end of the log is the wave as it stands.
