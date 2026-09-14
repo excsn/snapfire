@@ -20,13 +20,14 @@ export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 export declare const defineMounter: Mounter;
 /** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
 export declare function serverRendered(el: Element): boolean;
-/** The props an island last took and the regions the last payload described inside it, for an adapter placing its nested islands. Null when nothing is mounted at `el`. */
+/** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
 export declare function islandState(el: Element): {
 	props: Props;
 	regions: unknown;
+	children: string | null;
 } | null;
-/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it, which the adapter reads back through `islandState`. False when nothing is mounted there or the island's entry has no patcher. */
-export declare function patchIsland(el: Element, props: Props, regions?: unknown): Promise<boolean>;
+/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it and `children` the markup it gives the island's children region, both read back by the adapter through `islandState`. `encoded` is `props` as the server encoded them, which a server island hands back in place of encoding `props` again. False when nothing is mounted there or the island's entry has no patcher. */
+export declare function patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown): Promise<boolean>;
 /** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. Idempotent. */
 export declare function scan(root: ParentNode): void;
 /** Imports an entry module once and rescans, so the islands it registers mount. Call it before the scan that will miss them, so a miss is not reported while its registration is in flight. */

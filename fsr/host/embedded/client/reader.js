@@ -24,6 +24,7 @@ export function decodeNode(row) {
                     kind: "client",
                     module: body["m"],
                     props: decodeValue(body["p"]),
+                    encoded: body["p"] ?? {},
                     children: (body["ch"] ?? []).map(decodeNode),
                     ssr: body["s"] == null ? null : decodeNode(body["s"])
                 };

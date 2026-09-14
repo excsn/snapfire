@@ -26,6 +26,8 @@ interface Mounted {
   props: Props;
   /** What the payload behind the last patch said about the regions inside this island, for the adapter to hand its nested islands. */
   regions: unknown;
+  /** The markup the payload behind the last patch gave the island's children region, null when it gave none. */
+  children: string | null;
 }
 
 const mounted = new WeakMap<Element, Mounted>();
@@ -78,18 +80,18 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
       console.warn(`sf: mounting ${moduleId} failed`, err);
       return undefined;
     });
-  mounted.set(el, { entry, moduleId, handle, props, regions: null });
+  mounted.set(el, { entry, moduleId, handle, props, regions: null, children: null });
 }
 
-/** The props an island last took and the regions the last payload described inside it, for an adapter placing its nested islands. Null when nothing is mounted at `el`. */
-export function islandState(el: Element): { props: Props; regions: unknown } | null {
+/** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
+export function islandState(el: Element): { props: Props; regions: unknown; children: string | null } | null {
   const island = mounted.get(el);
-  return island ? { props: island.props, regions: island.regions } : null;
+  return island ? { props: island.props, regions: island.regions, children: island.children } : null;
 }
 
-/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it, which the adapter reads back through `islandState`. False when nothing is mounted there or the island's entry has no patcher. */
-export async function patchIsland(el: Element, props: Props, regions: unknown = null): Promise<boolean> {
-  if (isServerIsland(el)) return patchServer(el, props);
+/** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it and `children` the markup it gives the island's children region, both read back by the adapter through `islandState`. `encoded` is `props` as the server encoded them, which a server island hands back in place of encoding `props` again. False when nothing is mounted there or the island's entry has no patcher. */
+export async function patchIsland(el: Element, props: Props, regions: unknown = null, children: string | null = null, encoded?: unknown): Promise<boolean> {
+  if (isServerIsland(el)) return patchServer(el, props, encoded);
   const island = mounted.get(el);
   if (!island?.entry.patch) return false;
   const handle = await island.handle;
@@ -97,6 +99,7 @@ export async function patchIsland(el: Element, props: Props, regions: unknown = 
   const mod = await island.entry.loader();
   island.props = props;
   island.regions = regions;
+  island.children = children;
   island.entry.patch(handle, mod, props, el);
   return true;
 }

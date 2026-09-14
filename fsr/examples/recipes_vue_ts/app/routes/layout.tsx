@@ -28,7 +28,9 @@ export default function BoxLayout({
           <Link href="/tonight">Tonight</Link>
         </nav>
         <Island when="load">
-          <Tonight count={planned} />
+          <Tonight count={planned}>
+            Kept in the session cookie. <a href="/tonight">See them</a>. This panel is Vue state in the root layout: move between recipes and it stays open.
+          </Tonight>
         </Island>
       </header>
       <div className="columns">

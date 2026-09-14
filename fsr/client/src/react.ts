@@ -3,12 +3,13 @@ import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props } from "./boot.js";
 import { encodeValue } from "./values.js";
-import type { RegionSource } from "./render.js";
+import { CHILDREN_ATTR, type RegionSource } from "./render.js";
+import { morph } from "./server.js";
 import type { PrefetchTiming } from "./navigator.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 
-/** The `<sf-s>` a layout renders its child segment into, when `el` is a layout: the first one under it that is not inside a nested island, is not an island's own region and is not a named slot. */
+/** The `<sf-s>` a layout renders its child segment into or an island's children render in, `data-sf-children`: the first one under `el` that is not inside a nested island, is not an island's own region and is not a named slot. */
 function slotOf(el: Element): Element | null {
   for (const slot of Array.from(el.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-name])"))) {
     if (slot.parentElement?.closest("sf-i") === el) return slot;
@@ -25,10 +26,24 @@ function namedSlotsOf(el: Element): Element[] {
 function adopted(slot: Element | null, name?: string): ReactElement {
   const props: { [key: string]: unknown } = { dangerouslySetInnerHTML: { __html: slot?.innerHTML ?? "" }, suppressHydrationWarning: true };
   if (name !== undefined) props["data-sf-name"] = name;
+  if (slot?.hasAttribute(CHILDREN_ATTR)) props[CHILDREN_ATTR] = "";
   return createElement("sf-s", props);
 }
 
-/** The child element a layout receives, created once per root. */
+/** The markup an island's children region holds now: what the server wrote, then what each patch gave it. */
+const childrenMarkup = new WeakMap<Element, string>();
+
+/** An island's children: an `<sf-s data-sf-children>` whose markup React sets once per instance and never reconciles. A patch morphs the region in place, so an island nested in it keeps its DOM and its state. A component that stops rendering its children and renders them again gets the latest markup. The islands in it are then mounted afresh. */
+function IslandChildren({ root }: { root: Element }): ReactElement {
+  const [html] = useState(() => childrenMarkup.get(root) ?? "");
+  const region = useRef<Element | null>(null);
+  useEffect(() => {
+    if (region.current) scan(region.current);
+  }, []);
+  return createElement("sf-s", { ref: region, [CHILDREN_ATTR]: "", dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
+}
+
+/** The child element a layout or an island with children receives, created once per root. */
 const children = new WeakMap<Element, ReactElement>();
 
 function childrenFor(el: Element): ReactElement | undefined {
@@ -36,9 +51,25 @@ function childrenFor(el: Element): ReactElement | undefined {
   if (held) return held;
   const slot = slotOf(el);
   if (!slot) return undefined;
-  const element = adopted(slot);
+  let element: ReactElement;
+  if (slot.hasAttribute(CHILDREN_ATTR)) {
+    childrenMarkup.set(el, slot.innerHTML);
+    element = createElement(IslandChildren, { root: el });
+  } else {
+    element = adopted(slot);
+  }
   children.set(el, element);
   return element;
+}
+
+/** Brings an island's children region to the markup a patch gave it: morphed in place while the component renders it, remembered for when it next does. */
+function patchChildren(el: Element, fresh: string | null): void {
+  if (fresh === null || !childrenMarkup.has(el) || childrenMarkup.get(el) === fresh) return;
+  childrenMarkup.set(el, fresh);
+  const region = slotOf(el);
+  if (!region?.hasAttribute(CHILDREN_ATTR)) return;
+  morph(region, fresh);
+  scan(region);
 }
 
 /** A layout's named slots as props, one adopted region per `<sf-s data-sf-name>`, created once per root. */
@@ -159,7 +190,7 @@ export function Island({ when, mode, children }: IslandProps): ReactElement {
     }
     if (source) {
       hoisted.current = source.props[HOISTED_PROP];
-      void patchIsland(mounted, source.props as Props, source.nested);
+      void patchIsland(mounted, source.props as Props, source.nested, source.children, source.encoded);
       return;
     }
     if (hoisted.current === undefined) hoisted.current = islandState(mounted)?.props[HOISTED_PROP];
@@ -271,15 +302,18 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   prefetch?: PrefetchTiming;
   /** Leaves the click to the browser: a full document load. */
   native?: boolean;
+  /** Whether a segment whose key changed but whose module did not is morphed in place, keeping the islands its new markup places again, rather than replaced. Left out, the navigator keeps them when only the query changes. */
+  keep?: boolean;
 }
 
-/** An `<a>` the navigator reads: `full`, `into`, `prefetch` and `native` ride as `data-sf-*` attributes. */
-export function Link({ full, into, prefetch, native, ...rest }: LinkProps): ReactElement {
+/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes. */
+export function Link({ full, into, prefetch, native, keep, ...rest }: LinkProps): ReactElement {
   const attrs: { [key: string]: unknown } = { ...rest };
   if (full) attrs["data-sf-full"] = "true";
   if (into) attrs["data-sf-into"] = into;
   if (prefetch) attrs["data-sf-prefetch"] = prefetch;
   if (native) attrs["data-sf-native"] = "true";
+  if (keep !== undefined) attrs["data-sf-keep"] = keep ? "true" : "false";
   return createElement("a", attrs);
 }
 
@@ -401,5 +435,6 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
 };
 
 export const reactPatcher: Patcher = (handle, component, props, el) => {
+  patchChildren(el, islandState(el)?.children ?? null);
   (handle as Root).render(islandElement(component, props, el, true));
 };

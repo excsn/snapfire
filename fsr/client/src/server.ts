@@ -45,12 +45,12 @@ export function mountServer(el: Element, module: string, encoded: unknown): void
   listen(el, island);
 }
 
-/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. */
-export async function patchServer(el: Element, props: Props): Promise<boolean> {
+/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. */
+export async function patchServer(el: Element, props: Props, encoded?: unknown): Promise<boolean> {
   const island = islands.get(el);
   if (!island) return false;
-  const encoded = encodeValue(props as SfValue) as { [key: string]: unknown };
-  const { [STATE_PROP]: state, ...own } = encoded;
+  const carried = (encoded ?? encodeValue(props as SfValue)) as { [key: string]: unknown };
+  const { [STATE_PROP]: state, ...own } = carried;
   island.props = own;
   if (state !== undefined) island.state = state;
   await step(el, island, null, null);
@@ -130,7 +130,7 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
   }
 }
 
-/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by `data-sf-key`, attributes by name. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
+/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
 export function morph(el: Element, html: string): void {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -138,7 +138,11 @@ export function morph(el: Element, html: string): void {
 }
 
 function keyOf(node: Node): string | null {
-  return node instanceof Element ? node.getAttribute("data-sf-key") : null;
+  if (!(node instanceof Element)) return null;
+  const key = node.getAttribute("data-sf-key");
+  if (key !== null) return key;
+  const region = node.hasAttribute("data-sf-island") ? node.getAttribute("data-sf-region") : null;
+  return region === null ? null : `region:${region}`;
 }
 
 function alike(a: Node, b: Node): boolean {

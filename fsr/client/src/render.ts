@@ -9,6 +9,11 @@ function scriptSafeJson(value: SfValue): string {
   return JSON.stringify(encodeValue(value)).replace(/</g, "\\u003c");
 }
 
+/** An island's props script: its props as the server encoded them, else encoded here. */
+function propsScript(node: { props: { [key: string]: SfValue }; encoded?: unknown }): string {
+  return node.encoded === undefined ? scriptSafeJson(node.props) : JSON.stringify(node.encoded).replace(/</g, "\\u003c");
+}
+
 export interface IdAlloc {
   next: number;
 }
@@ -25,7 +30,7 @@ export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
     case "client": {
       const id = `sf-c${ids.next++}`;
       const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c) => nodeToHtml(c, ids)).join("");
-      const props = scriptSafeJson(node.props);
+      const props = propsScript(node);
       return (
         `<sf-i id="${id}" data-sf-module="${node.module}">${inner}</sf-i>` +
         `<script type="application/json" data-sf-props="${id}">${props}</script>`
@@ -76,7 +81,7 @@ function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segme
   if (node.kind === "seq") return items(node.children);
   if (node.kind === "client" && !node.ssr) {
     const id = `sf-c${ids.next++}`;
-    return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${scriptSafeJson(node.props)}</script>`;
+    return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${propsScript(node)}</script>`;
   }
   return nodeToHtml(node, ids);
 }
@@ -84,11 +89,28 @@ function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segme
 /** The props key an island's region key rides under, written by the renderer. */
 export const REGION_KEY = "$k";
 
-/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet and the regions inside it. */
+/** What a payload says about one nested island region: the props to mount or patch it with, its own markup for a region that does not exist yet, the regions inside it and the markup of its children region. */
 export interface RegionSource {
   props: { [key: string]: SfValue };
+  /** `props` as the server encoded them, absent on a node no payload brought. */
+  encoded?: unknown;
   html: string;
   nested: Map<string, RegionSource>;
+  children: string | null;
+}
+
+/** The attribute of the region an island's children render in, which the mounter hands the component as its `children`. */
+export const CHILDREN_ATTR = "data-sf-children";
+
+/** The markup of an island's children region: the `<sf-s data-sf-children>` in its own markup that is not inside an island nested in it. Null for a node that is not an island or holds no such region. */
+export function childrenOf(node: SfNode, ids: IdAlloc): string | null {
+  if (node.kind !== "client") return null;
+  const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c) => nodeToHtml(c, ids)).join("");
+  if (!html.includes(CHILDREN_ATTR)) return null;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const region = Array.from(template.content.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`)).find((found) => !found.parentElement?.closest("sf-i"));
+  return region ? region.innerHTML : null;
 }
 
 /** The island regions `node` describes, by region key: the islands directly inside it, each carrying the ones inside itself. An island's own body is where its nested regions live, so a client node is descended into rather than collected at the top. */
@@ -101,7 +123,7 @@ export function regionSources(node: SfNode, ids: IdAlloc): Map<string, RegionSou
         return;
       case "client": {
         const key = n.props[REGION_KEY];
-        if (typeof key === "string") out.set(key, { props: n.props, html: nodeToHtml(n, ids), nested: regionSources(n, ids) });
+        if (typeof key === "string") out.set(key, { props: n.props, encoded: n.encoded, html: nodeToHtml(n, ids), nested: regionSources(n, ids), children: childrenOf(n, ids) });
         return;
       }
       case "pending":
@@ -120,6 +142,6 @@ export function regionSources(node: SfNode, ids: IdAlloc): Map<string, RegionSou
   return out;
 }
 
-export { scriptSafeJson };
+export { propsScript, scriptSafeJson };
 
 export { subtreeAt };

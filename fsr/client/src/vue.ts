@@ -1,6 +1,8 @@
-import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, type App, type Component } from "vue";
+import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type Ref } from "vue";
 
-import { patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props } from "./boot.js";
+import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props } from "./boot.js";
+import { CHILDREN_ATTR } from "./render.js";
+import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 
@@ -18,21 +20,61 @@ function ownProps(props: Props): Record<string, unknown> {
   return own;
 }
 
+/** The markup of each island's children region, which a patch morphs in place. */
+const childrenHeld = new WeakMap<Element, Ref<string | null>>();
+
+/** The region `el`'s children render in: the `<sf-s data-sf-children>` under it that is not inside a nested island. */
+function childrenRegion(el: Element): Element | null {
+  for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`))) {
+    if (region.parentElement?.closest("sf-i") === el) return region;
+  }
+  return null;
+}
+
+/** An island's children as its default slot: an `<sf-s data-sf-children>` Vue renders empty and never patches, whose markup is written from what the server sent and then scanned for islands. A patch morphs it, so an island nested in it keeps its DOM and its state. */
+const Children = defineComponent({
+  name: "SfChildren",
+  props: { html: { type: String, required: true } },
+  setup(props) {
+    const region = shallowRef<Element | null>(null);
+    let written: string | null = null;
+    const write = () => {
+      const el = region.value;
+      if (!el || written === props.html) return;
+      if (written === null) {
+        const template = document.createElement("template");
+        template.innerHTML = props.html;
+        el.replaceChildren(template.content);
+      } else {
+        morph(el, props.html);
+      }
+      written = props.html;
+      scan(el);
+    };
+    onMounted(write);
+    watch(() => props.html, write, { flush: "post" });
+    return () => h("sf-s", { ref: region, [CHILDREN_ATTR]: "" });
+  },
+});
+
 /**
  * Vue mounts a component through an app and an app takes its root props once.
  * A one-element wrapper holding them reactively is what makes a patch possible:
  * it renders nothing of its own, so the markup Vue hydrates is the component's
- * and nothing else.
+ * and nothing else. The children region is read before the app mounts, since
+ * mounting empties `el`.
  */
-function rootFor(component: Component, props: Props): { root: Component; props: Record<string, unknown> } {
+function rootFor(component: Component, props: Props, el: Element): { root: Component; props: Record<string, unknown>; children: Ref<string | null> } {
   const state = reactive(ownProps(props));
+  const region = childrenRegion(el);
+  const children = ref<string | null>(region ? region.innerHTML : null);
   const root = defineComponent({
     name: "SfIsland",
     setup() {
-      return () => h(component, state);
+      return () => h(component, state, children.value === null ? undefined : { default: () => h(Children, { html: children.value ?? "" }) });
     },
   });
-  return { root, props: state };
+  return { root, props: state, children };
 }
 
 /** The default export of a module or the module when it is the component itself. */
@@ -42,9 +84,10 @@ function componentOf(module: unknown): Component {
 }
 
 export const vueMounter: Mounter = (module, props, el, hydrate) => {
-  const { root, props: state } = rootFor(componentOf(module), props);
+  const { root, props: state, children } = rootFor(componentOf(module), props, el);
   const app: App = hydrate ? createSSRApp(root) : createApp(root);
   held.set(el, state);
+  childrenHeld.set(el, children);
   app.mount(el);
   return app;
 };
@@ -57,6 +100,9 @@ export const vuePatcher: Patcher = (handle, module, props, el) => {
     if (!(key in next)) delete state[key];
   }
   Object.assign(state, next);
+  const fresh = islandState(el)?.children ?? null;
+  const children = childrenHeld.get(el);
+  if (fresh !== null && children) children.value = fresh;
 };
 
 /** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. Call it in `setup`, so the subscription ends with the component. */

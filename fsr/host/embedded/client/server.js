@@ -23,11 +23,11 @@ export function mountServer(el, module, encoded) {
     }
     listen(el, island);
 }
-export async function patchServer(el, props) {
+export async function patchServer(el, props, encoded) {
     const island = islands.get(el);
     if (!island) return false;
-    const encoded = encodeValue(props);
-    const { [STATE_PROP]: state, ...own } = encoded;
+    const carried = encoded ?? encodeValue(props);
+    const { [STATE_PROP]: state, ...own } = carried;
     island.props = own;
     if (state !== undefined) island.state = state;
     await step(el, island, null, null);
@@ -117,7 +117,11 @@ export function morph(el, html) {
     morphChildren(el, template.content);
 }
 function keyOf(node) {
-    return node instanceof Element ? node.getAttribute("data-sf-key") : null;
+    if (!(node instanceof Element)) return null;
+    const key = node.getAttribute("data-sf-key");
+    if (key !== null) return key;
+    const region = node.hasAttribute("data-sf-island") ? node.getAttribute("data-sf-region") : null;
+    return region === null ? null : `region:${region}`;
 }
 function alike(a, b) {
     if (a.nodeType !== b.nodeType) return false;

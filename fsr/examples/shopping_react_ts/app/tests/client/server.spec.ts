@@ -1,5 +1,5 @@
 import { morph } from "@snapfire/fsr-client";
-import { assert, test } from "@snapfire/fsr-client/testing";
+import { expect, test } from "@snapfire/fsr-client/testing";
 
 function box(html: string): HTMLElement {
   const el = document.createElement("div");
@@ -13,14 +13,14 @@ test("morph changes text and attributes in place and keeps the nodes it can", ()
   const p = el.querySelector("p");
   const text = p?.firstChild;
   morph(el, '<p class="b">uno</p><span>two</span><i>three</i>');
-  assert.equal(el.querySelector("p"), p, "the element stays");
-  assert.equal(p?.firstChild, text, "and so does its text node");
-  assert.equal(p?.textContent, "uno");
-  assert.equal(p?.getAttribute("class"), "b");
-  assert.equal(p?.hasAttribute("title"), false, "a removed attribute goes");
-  assert.equal(el.children.length, 3);
+  expect(el.querySelector("p"), "the element stays").toBe(p);
+  expect(p?.firstChild, "and so does its text node").toBe(text);
+  expect(p?.textContent).toEqual("uno");
+  expect(p?.getAttribute("class")).toEqual("b");
+  expect(p?.hasAttribute("title"), "a removed attribute goes").toEqual(false);
+  expect(el.children.length).toEqual(3);
   morph(el, "<p>uno</p>");
-  assert.equal(el.children.length, 1, "trailing nodes are removed");
+  expect(el.children.length, "trailing nodes are removed").toEqual(1);
   el.remove();
 });
 
@@ -29,12 +29,12 @@ test("a keyed element moves rather than being recreated, and an unkeyed one is m
   const [a, b, c] = Array.from(el.querySelectorAll("li"));
   morph(el, '<ul><li data-sf-key="c">c</li><li data-sf-key="a">a!</li><li data-sf-key="b">b</li></ul>');
   const after = Array.from(el.querySelectorAll("li"));
-  assert.equal(after[0], c);
-  assert.equal(after[1], a);
-  assert.equal(after[2], b);
-  assert.equal(a.textContent, "a!");
+  expect(after[0]).toBe(c);
+  expect(after[1]).toBe(a);
+  expect(after[2]).toBe(b);
+  expect(a.textContent).toEqual("a!");
   morph(el, "<ul><li>x</li><li>y</li></ul>");
-  assert.equal(el.querySelectorAll("li").length, 2);
+  expect(el.querySelectorAll("li").length).toEqual(2);
   el.remove();
 });
 
@@ -45,9 +45,10 @@ test("a focused control keeps what the user typed; an unfocused one takes the se
   q.focus();
   r.value = "stale";
   morph(el, '<input name="q" value="server2"><input name="r" value="server2">');
-  assert.equal(q.value, document.activeElement === q ? "typing" : "server2", "kept while focused; the runner's DOM may not track focus, and then it follows the server");
-  assert.equal(r.value, "server2");
-  assert.equal(q.getAttribute("value"), "server2", "the attribute still follows the server");
+  expect(document.activeElement).toBe(q);
+  expect(q.value, "kept while focused").toEqual("typing");
+  expect(r.value).toEqual("server2");
+  expect(q.getAttribute("value"), "the attribute still follows the server").toEqual("server2");
   el.remove();
 });
 
@@ -55,7 +56,16 @@ test("a nested island inside the markup is left as it stands", () => {
   const el = box('<div><sf-i id="sf-i9" data-sf-module="m"><b>mounted</b></sf-i></div>');
   const inner = el.querySelector("sf-i");
   morph(el, '<div><sf-i id="sf-i9" data-sf-module="m"><b>server</b></sf-i></div>');
-  assert.equal(el.querySelector("sf-i"), inner);
-  assert.equal(inner?.textContent, "mounted");
+  expect(el.querySelector("sf-i")).toBe(inner);
+  expect(inner?.textContent).toEqual("mounted");
   el.remove();
+});
+
+test("an island region moves with its key rather than taking the markup of whatever is now in its place", () => {
+  const el = box('<sf-s data-sf-island data-sf-region="r|a"><span>a</span></sf-s>');
+  const held = el.firstElementChild;
+  morph(el, '<sf-s data-sf-island data-sf-region="r|b"><span>b</span></sf-s><sf-s data-sf-island data-sf-region="r|a"><span>a</span></sf-s>');
+  expect(el.children[1], "the region already here is the second one now").toBe(held);
+  expect(el.children[0].getAttribute("data-sf-region")).toEqual("r|b");
+  expect(el.children[1].getAttribute("data-sf-region")).toEqual("r|a");
 });

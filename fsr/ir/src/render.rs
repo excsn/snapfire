@@ -186,9 +186,16 @@ struct Slot<'a> {
   children: &'a [Tmpl],
   scope: Rc<Vec<(String, Value)>>,
   /// The hoist module and path of the caller, which its children key under:
-  /// the browser builds them in the caller's render. `None` for an island's.
+  /// the browser builds them in the caller's render.
   keys: Option<(String, Vec<Step>)>,
+  /// An island's children, which are the server's markup inside the island
+  /// rather than part of its render: see `render_children`.
+  island: bool,
 }
+
+/// The region an island's children render in, which the mounter hands the
+/// component as its `children` and never renders itself.
+pub const CHILDREN_OPEN: &str = "<sf-s data-sf-children>";
 
 impl Interpreter {
   /// Renders `component` with `props` bound as `$props`. A `$store` prop and
@@ -578,8 +585,8 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys });
-  let mut body = |env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false });
+  let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   slots.pop();
   env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
@@ -602,18 +609,24 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
     out.markup(&format!("{ISLAND_MARK}{index}\0"));
     return Ok(());
   }
+  let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
   // A component the server has no body for, a `.vue` file among them, is
-  // placed empty with its props: the browser mounts it rather than
-  // hydrating it and the page around it is whole either way.
+  // placed with its props and its children and nothing else: the browser
+  // mounts it rather than hydrating it and the page around it is whole
+  // either way.
   let Some(component) = library.get(module) else {
+    let mut inner = Out::default();
+    if !children.is_empty() {
+      render_children(env, children, keys.as_ref(), library, slots, &mut inner)?;
+    }
     let index = out.islands.len();
-    out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: String::new(), islands: Vec::new(), hoisted: ValueMap::default() } });
+    out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys: None });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: true });
   let mut inner = Out::default();
   let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
@@ -636,23 +649,52 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
     return Ok(());
   };
   let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
-  let callee_keys = match (&slot.keys, &mut env.hoists) {
-    (Some((module, path)), Some(h)) => Some((std::mem::replace(&mut h.module, module.clone()), std::mem::replace(&mut h.path, path.clone()))),
-    _ => None,
+  let result = match slot.island {
+    true => render_children(env, slot.children, slot.keys.as_ref(), library, slots, out),
+    false => {
+      let callee_keys = match (&slot.keys, &mut env.hoists) {
+        (Some((module, path)), Some(h)) => Some((std::mem::replace(&mut h.module, module.clone()), std::mem::replace(&mut h.path, path.clone()))),
+        _ => None,
+      };
+      let mut result = Ok(());
+      for child in slot.children {
+        result = render(env, child, library, slots, out);
+        if result.is_err() {
+          break;
+        }
+      }
+      if let (Some((module, path)), Some(h)) = (callee_keys, &mut env.hoists) {
+        h.module = module;
+        h.path = path;
+      }
+      result
+    }
   };
+  env.scope = inner;
+  slots.push(slot);
+  result
+}
+
+/// An island's children, in a `CHILDREN_OPEN` region. The browser adopts the
+/// region's markup and never renders the children. Nothing they hoist is kept
+/// and an island among them keys under `keys`, the caller that wrote them.
+fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(String, Vec<Step>)>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let caller = keys.map(|(module, path)| {
+    let mut hoists = Hoists::new(module.clone());
+    hoists.path = path.clone();
+    hoists
+  });
+  let held = std::mem::replace(&mut env.hoists, caller);
+  out.markup(CHILDREN_OPEN);
   let mut result = Ok(());
-  for child in slot.children {
+  for child in children {
     result = render(env, child, library, slots, out);
     if result.is_err() {
       break;
     }
   }
-  if let (Some((module, path)), Some(h)) = (callee_keys, &mut env.hoists) {
-    h.module = module;
-    h.path = path;
-  }
-  env.scope = inner;
-  slots.push(slot);
+  out.close_tag("sf-s");
+  env.hoists = held;
   result
 }
 
@@ -1499,6 +1541,44 @@ mod island_tests {
       ["src/ui/Wrap.tsx#Wrap|i0@0.c1", "routes/w/page.tsx#default|i2@0", "src/ui/Wrap.tsx#Wrap|i0@1.c1", "routes/w/page.tsx#default|i2@1"],
       "the children were built by the page, which is where the browser computes their keys"
     );
+  }
+
+  #[test]
+  fn an_islands_children_render_in_a_region_where_the_component_places_them() {
+    let mut library = Components::new();
+    let card = Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("card".to_owned()), Tmpl::Slot("content".to_owned())] };
+    library.insert("src/ui/Card.tsx#Card".to_owned(), Arc::new(Component::new(Vec::new(), card)));
+    let child = Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("$props").field("name"))] };
+    let page = Component::new(Vec::new(), Tmpl::Island { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![child], when: None, mode: None, id: 0, define: false });
+    let mut props = ValueMap::default();
+    props.insert("name".to_owned(), Value::str("ada"));
+    let rendered = Interpreter::default().render(&page, &props, &library).unwrap();
+    assert_eq!(rendered.islands[0].body.html, "<div>card<sf-s data-sf-children><p>ada</p></sf-s></div>", "the children read the page's props");
+  }
+
+  #[test]
+  fn a_component_the_server_cannot_render_is_placed_with_its_children() {
+    let page = Component::new(
+      Vec::new(),
+      Tmpl::Fragment(vec![
+        Tmpl::Island { module: "src/ui/Tonight.vue#default".to_owned(), props: Vec::new(), children: vec![Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("server".to_owned())] }], when: None, mode: None, id: 0, define: false },
+        island_at("src/ui/Empty.vue#default", 1),
+      ]),
+    );
+    let rendered = Interpreter::default().render(&page, &ValueMap::default(), &Components::new()).unwrap();
+    assert_eq!(rendered.islands[0].body.html, "<sf-s data-sf-children><p>server</p></sf-s>");
+    assert_eq!(rendered.islands[1].body.html, "");
+  }
+
+  #[test]
+  fn an_island_among_an_islands_children_keys_under_the_page_that_wrote_it() {
+    let mut library = Components::new();
+    library.insert("src/ui/Body.tsx#Body".to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Text("body".to_owned()))));
+    library.insert("src/ui/Card.tsx#Card".to_owned(), Arc::new(Component::new(Vec::new(), Tmpl::Slot("content".to_owned()))));
+    let page = Component::new(Vec::new(), Tmpl::Island { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![island_at("src/ui/Body.tsx#Body", 3)], when: None, mode: None, id: 0, define: false });
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    assert_eq!(keys_of(&rendered), ["routes/w/page.tsx#default|i0"]);
+    assert_eq!(keys_of(&rendered.islands[0].body), ["routes/w/page.tsx#default|i3"]);
   }
 
   #[test]

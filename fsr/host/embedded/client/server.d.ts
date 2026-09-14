@@ -11,7 +11,7 @@ export declare function isServerIsland(el: Element): boolean;
 * binds.
 */
 export declare function mountServer(el: Element, module: string, encoded: unknown): void;
-/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. */
-export declare function patchServer(el: Element, props: Props): Promise<boolean>;
-/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by `data-sf-key`, attributes by name. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
+/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. */
+export declare function patchServer(el: Element, props: Props, encoded?: unknown): Promise<boolean>;
+/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
 export declare function morph(el: Element, html: string): void;

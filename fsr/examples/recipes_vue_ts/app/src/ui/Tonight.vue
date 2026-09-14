@@ -13,7 +13,7 @@ const open = ref(false);
   <div class="tonight" :class="{ 'tonight-open': open }">
     <button class="tonight-count" aria-label="tonight" @click="open = !open">{{ held.value }} for tonight</button>
     <p v-if="open" class="tonight-note">
-      Kept in the session cookie. <a href="/tonight">See them</a>. This panel is Vue state in the root layout: move between recipes and it stays open.
+      <slot />
     </p>
   </div>
 </template>

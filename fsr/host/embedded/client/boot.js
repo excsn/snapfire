@@ -40,18 +40,20 @@ function mountNow(entry, moduleId, el, props) {
         moduleId,
         handle,
         props,
-        regions: null
+        regions: null,
+        children: null
     });
 }
 export function islandState(el) {
     const island = mounted.get(el);
     return island ? {
         props: island.props,
-        regions: island.regions
+        regions: island.regions,
+        children: island.children
     } : null;
 }
-export async function patchIsland(el, props, regions = null) {
-    if (isServerIsland(el)) return patchServer(el, props);
+export async function patchIsland(el, props, regions = null, children = null, encoded) {
+    if (isServerIsland(el)) return patchServer(el, props, encoded);
     const island = mounted.get(el);
     if (!island?.entry.patch) return false;
     const handle = await island.handle;
@@ -59,6 +61,7 @@ export async function patchIsland(el, props, regions = null) {
     const mod = await island.entry.loader();
     island.props = props;
     island.regions = regions;
+    island.children = children;
     island.entry.patch(handle, mod, props, el);
     return true;
 }

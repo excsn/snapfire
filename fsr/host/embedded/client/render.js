@@ -5,6 +5,9 @@ function escapeText(text) {
 function scriptSafeJson(value) {
     return JSON.stringify(encodeValue(value)).replace(/</g, "\\u003c");
 }
+function propsScript(node) {
+    return node.encoded === undefined ? scriptSafeJson(node.props) : JSON.stringify(node.encoded).replace(/</g, "\\u003c");
+}
 export function nodeToHtml(node, ids) {
     switch(node.kind){
         case "text":
@@ -17,7 +20,7 @@ export function nodeToHtml(node, ids) {
             {
                 const id = `sf-c${ids.next++}`;
                 const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
-                const props = scriptSafeJson(node.props);
+                const props = propsScript(node);
                 return `<sf-i id="${id}" data-sf-module="${node.module}">${inner}</sf-i>` + `<script type="application/json" data-sf-props="${id}">${props}</script>`;
             }
         case "pending":
@@ -62,11 +65,21 @@ function renderPositioned(node, positioned, ids) {
     if (node.kind === "seq") return items(node.children);
     if (node.kind === "client" && !node.ssr) {
         const id = `sf-c${ids.next++}`;
-        return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${scriptSafeJson(node.props)}</script>`;
+        return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${propsScript(node)}</script>`;
     }
     return nodeToHtml(node, ids);
 }
 export const REGION_KEY = "$k";
+export const CHILDREN_ATTR = "data-sf-children";
+export function childrenOf(node, ids) {
+    if (node.kind !== "client") return null;
+    const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
+    if (!html.includes(CHILDREN_ATTR)) return null;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const region = Array.from(template.content.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`)).find((found)=>!found.parentElement?.closest("sf-i"));
+    return region ? region.innerHTML : null;
+}
 export function regionSources(node, ids) {
     const out = new Map();
     const walk = (n)=>{
@@ -79,8 +92,10 @@ export function regionSources(node, ids) {
                     const key = n.props[REGION_KEY];
                     if (typeof key === "string") out.set(key, {
                         props: n.props,
+                        encoded: n.encoded,
                         html: nodeToHtml(n, ids),
-                        nested: regionSources(n, ids)
+                        nested: regionSources(n, ids),
+                        children: childrenOf(n, ids)
                     });
                     return;
                 }
@@ -99,6 +114,6 @@ export function regionSources(node, ids) {
     walk(node);
     return out;
 }
-export { scriptSafeJson };
+export { propsScript, scriptSafeJson };
 export { subtreeAt };
 //# sourceMappingURL=render.js.map

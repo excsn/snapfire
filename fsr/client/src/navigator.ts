@@ -1,7 +1,7 @@
 import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
-import { escapeKey, nodeToHtml, regionSources, renderSegment, scriptSafeJson, subtreeAt, IdAlloc } from "./render.js";
+import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { seed, transaction } from "./store.js";
 import { SfValue } from "./values.js";
 
@@ -155,29 +155,32 @@ function islandOf(region: Region): { el: Element; script: Element | null } | nul
   return null;
 }
 
-/** Hands a kept island the props the new payload carries, so it re-renders in place with its DOM and its state, plus the regions the payload describes inside it, so the islands nested under it follow. Its props script is rewritten for the next mount. */
+/** Hands a kept island the props the new payload carries, the regions the payload describes inside it and the markup of its children region, so it re-renders in place with its DOM and its state and the islands nested under it follow. Its props script is rewritten for the next mount. */
 function patchProps(region: Region, node: SfNode): void {
   if (node.kind !== "client") return;
   const island = islandOf(region);
   if (!island) return;
-  const json = scriptSafeJson(node.props);
-  if (island.script?.textContent === json) return;
+  const json = propsScript(node);
+  const children = childrenOf(node, ids);
+  if (island.script?.textContent === json && children === null) return;
   if (island.script) island.script.textContent = json;
-  void patchIsland(island.el, node.props, regionSources(node, ids));
+  void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded);
 }
 
-/** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
-function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean): boolean {
+/** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. With `keep`, a mismatch of the same module is morphed in place instead, so every island its new markup places again keeps its DOM and its state, unless the new segment carries a slot over untouched, which its markup does not hold. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
+function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean, keep: boolean): boolean {
   const swap = () => replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
   const paired = moduleOf(oldSeg.k) === moduleOf(newSeg.k);
   const same = paired && oldSeg.d !== undefined && oldSeg.d === newSeg.d;
+  const morphs = keep && paired && (newNode.kind === "client" || !newSeg.keep?.length);
   let key = oldSeg.k;
   if (oldSeg.k !== newSeg.k) {
     // A region that cannot be replaced is the root, whose delimiters are
     // children of the document. Same module means the same chrome, so the
     // change is below it: retag the delimiter and descend rather than
     // demanding a full load.
-    if (!same) {
+    if (!same && morphs && newNode.kind !== "client" && morphStatic(oldSeg.k, newNode, newSeg)) return true;
+    if (!same && !morphs) {
       if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
       if (!paired) return false;
     }
@@ -196,12 +199,12 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
   } else if (staticChanged(oldSeg, newSeg, same, force)) {
     return morphStatic(key, newNode, newSeg) || swap();
   }
-  const keep = newSeg.keep ?? [];
+  const untouched = newSeg.keep ?? [];
   const carried: Segment[] = [];
   if (named) {
     for (const oldChild of oldSeg.c) {
       if (newSeg.c.some((c) => c.n === oldChild.n)) continue;
-      if (keep.includes(oldChild.n ?? "")) {
+      if (untouched.includes(oldChild.n ?? "")) {
         carried.push(oldChild);
         continue;
       }
@@ -232,7 +235,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean)
       if (!pending || !replaceChild(oldChild, nodeToHtml(pending, ids))) return false;
       continue;
     }
-    if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force)) return false;
+    if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force, keep)) return false;
   }
   newSeg.c.push(...carried);
   return true;
@@ -282,9 +285,9 @@ function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
       const root = old.firstElementChild;
       if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-scheduled")) continue;
       const script = old.querySelector(`script[data-sf-props="${root.id}"]`);
-      if (script) script.textContent = scriptSafeJson(source.props);
+      if (script) script.textContent = propsScript(source);
       fresh.replaceWith(old);
-      void patchIsland(root, source.props, source.nested);
+      void patchIsland(root, source.props, source.nested, source.children, source.encoded);
     }
   }
   parent.insertBefore(template.content, region.start);
@@ -388,13 +391,13 @@ async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
   }
 }
 
-/** False when the eager wave could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. */
-function applyEager(eager: Eager, force: boolean): boolean {
+/** False when the eager wave could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. With `keep`, a segment whose key changed within its module is morphed rather than replaced. */
+function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   if (!current) return false;
   transaction(() => {
     for (const values of eager.seeds) seed(values);
   });
-  if (!diff(current, eager.segments, eager.tree, force)) return false;
+  if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
   current = eager.segments;
   openSlot = interceptSlot(eager.segments);
   for (const head of eager.heads) applyHead(head);
@@ -543,6 +546,10 @@ export interface NavigateOptions {
   full?: boolean;
   /** Renders the target into this slot of the nearest live layout that declares it. */
   into?: string;
+  /** Replaces the current history entry rather than adding one. */
+  replace?: boolean;
+  /** Whether a segment whose key changed but whose module did not is morphed in place, keeping every island its new markup places again with its DOM and its state, rather than replaced. Defaults to true when the target has the current pathname, which means only the query changed. Otherwise it defaults to false. */
+  keep?: boolean;
 }
 
 function askFor(options: NavigateOptions): Ask {
@@ -552,7 +559,8 @@ function askFor(options: NavigateOptions): Ask {
 }
 
 function askOf(anchor: Element): NavigateOptions {
-  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined };
+  const keep = anchor.getAttribute("data-sf-keep");
+  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined, keep: keep === null ? undefined : keep !== "false" };
 }
 
 function headersOf(ask: Ask): Record<string, string> {
@@ -641,6 +649,8 @@ function watchLinks(root: ParentNode): void {
 export async function prefetch(href: string, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
   if (url.origin !== window.location.origin) return;
+  if (url.hash && `${url.pathname}${url.search}` === currentPath) return;
+  url.hash = "";
   await payloadFor(url, askFor(options)).whole();
 }
 
@@ -664,7 +674,7 @@ export async function refresh(): Promise<void> {
   // the time its markup is and the browser never paints it unstyled.
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
-  if (!eager || !patch(eager, true)) return bail();
+  if (!eager || !patch(eager, true, false)) return bail();
   announce();
   await drain(rows, eager.segments, gen);
 }
@@ -675,9 +685,9 @@ function announce(): void {
 }
 
 /** `applyEager` with a throw counted as a patch that failed. */
-function patch(eager: Eager, force: boolean): boolean {
+function patch(eager: Eager, force: boolean, keep: boolean): boolean {
   try {
-    const applied = applyEager(eager, force);
+    const applied = applyEager(eager, force, keep);
     if (!applied) console.warn("sf: the payload could not be patched in place; loading the document instead");
     return applied;
   } catch (err) {
@@ -686,11 +696,33 @@ function patch(eager: Eager, force: boolean): boolean {
   }
 }
 
-/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the top. */
+/** Scrolls to the element a fragment names, by id and then by an anchor's name, the way a browser does; to the top when it names none. */
+function scrollToFragment(hash: string): void {
+  let id = hash.slice(1);
+  try {
+    id = decodeURIComponent(id);
+  } catch {
+    // A malformed escape is looked up as written.
+  }
+  const target = id ? (document.getElementById(id) ?? Array.from(document.querySelectorAll("a[name]")).find((a) => a.getAttribute("name") === id)) : null;
+  if (target) target.scrollIntoView();
+  else window.scrollTo(0, 0);
+}
+
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
+  const record = (same: boolean) => (options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href));
+  if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
+    if (push) record(url.href === window.location.href);
+    scrollToFragment(url.hash);
+    return;
+  }
+  const keep = options.keep ?? url.pathname === currentPath.split("?")[0];
+  const page = new URL(url.href);
+  page.hash = "";
   const gen = ++generation;
-  const feed = payloadFor(url, askFor(options));
+  const feed = payloadFor(page, askFor(options));
   if (!(await feed.ok)) {
     if (gen === generation) window.location.assign(href);
     return;
@@ -700,15 +732,15 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   if (gen !== generation) return;
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
-  if (!eager || !patch(eager, false)) {
+  if (!eager || !patch(eager, false, keep)) {
     window.location.assign(href);
     return;
   }
-  if (push) history.pushState(null, "", href);
+  if (push) record(false);
   currentPath = `${url.pathname}${url.search}`;
   if (openSlot === null) {
     documentPath = currentPath;
-    window.scrollTo(0, 0);
+    scrollToFragment(url.hash);
   }
   announce();
   await drain(rows, eager.segments, gen);
@@ -763,7 +795,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
     event.preventDefault();
-    void navigate(url.pathname + url.search, true, askOf(anchor));
+    void navigate(url.pathname + url.search + url.hash, true, askOf(anchor));
   });
   fallbackPrefetch = options.prefetch ?? "hover";
   resetViewport();
@@ -778,6 +810,6 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   watchLinks(document);
   document.addEventListener("sf:fill", () => watchLinks(document));
   window.addEventListener("popstate", () => {
-    void navigate(window.location.pathname + window.location.search, false);
+    void navigate(window.location.pathname + window.location.search + window.location.hash, false);
   });
 }

@@ -2,6 +2,8 @@ import { cloneElement, createContext, createElement, Fragment, isValidElement, u
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
+import { CHILDREN_ATTR } from "./render.js";
+import { morph } from "./server.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe } from "./store.js";
 function slotOf(el) {
@@ -21,7 +23,24 @@ function adopted(slot, name) {
         suppressHydrationWarning: true
     };
     if (name !== undefined) props["data-sf-name"] = name;
+    if (slot?.hasAttribute(CHILDREN_ATTR)) props[CHILDREN_ATTR] = "";
     return createElement("sf-s", props);
+}
+const childrenMarkup = new WeakMap();
+function IslandChildren({ root }) {
+    const [html] = useState(()=>childrenMarkup.get(root) ?? "");
+    const region = useRef(null);
+    useEffect(()=>{
+        if (region.current) scan(region.current);
+    }, []);
+    return createElement("sf-s", {
+        ref: region,
+        [CHILDREN_ATTR]: "",
+        dangerouslySetInnerHTML: {
+            __html: html
+        },
+        suppressHydrationWarning: true
+    });
 }
 const children = new WeakMap();
 function childrenFor(el) {
@@ -29,9 +48,25 @@ function childrenFor(el) {
     if (held) return held;
     const slot = slotOf(el);
     if (!slot) return undefined;
-    const element = adopted(slot);
+    let element;
+    if (slot.hasAttribute(CHILDREN_ATTR)) {
+        childrenMarkup.set(el, slot.innerHTML);
+        element = createElement(IslandChildren, {
+            root: el
+        });
+    } else {
+        element = adopted(slot);
+    }
     children.set(el, element);
     return element;
+}
+function patchChildren(el, fresh) {
+    if (fresh === null || !childrenMarkup.has(el) || childrenMarkup.get(el) === fresh) return;
+    childrenMarkup.set(el, fresh);
+    const region = slotOf(el);
+    if (!region?.hasAttribute(CHILDREN_ATTR)) return;
+    morph(region, fresh);
+    scan(region);
 }
 const slotProps = new WeakMap();
 function slotPropsFor(el) {
@@ -121,7 +156,7 @@ export function Island({ when, mode, children }) {
         }
         if (source) {
             hoisted.current = source.props[HOISTED_PROP];
-            void patchIsland(mounted, source.props, source.nested);
+            void patchIsland(mounted, source.props, source.nested, source.children, source.encoded);
             return;
         }
         if (hoisted.current === undefined) hoisted.current = islandState(mounted)?.props[HOISTED_PROP];
@@ -215,7 +250,7 @@ export function useStore(k, initial) {
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
 }
-export function Link({ full, into, prefetch, native, ...rest }) {
+export function Link({ full, into, prefetch, native, keep, ...rest }) {
     const attrs = {
         ...rest
     };
@@ -223,6 +258,7 @@ export function Link({ full, into, prefetch, native, ...rest }) {
     if (into) attrs["data-sf-into"] = into;
     if (prefetch) attrs["data-sf-prefetch"] = prefetch;
     if (native) attrs["data-sf-native"] = "true";
+    if (keep !== undefined) attrs["data-sf-keep"] = keep ? "true" : "false";
     return createElement("a", attrs);
 }
 const HoistContext = createContext(null);
@@ -339,6 +375,7 @@ export const reactMounter = (component, props, el, hydrate)=>{
     return root;
 };
 export const reactPatcher = (handle, component, props, el)=>{
+    patchChildren(el, islandState(el)?.children ?? null);
     handle.render(islandElement(component, props, el, true));
 };
 //# sourceMappingURL=react.js.map

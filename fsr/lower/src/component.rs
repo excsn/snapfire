@@ -379,14 +379,17 @@ impl ComponentSet {
     Ok(component)
   }
 
-  /// Whether a component rendered inline, islands aside, is one the browser
-  /// mounts. Its children were lowered before it, so their verdicts are in.
+  /// Whether markup, islands aside, is something the browser mounts: an
+  /// element with an event handler (lowered or not) or a component rendered
+  /// inline that is. Its children were lowered before it, so their verdicts
+  /// are in.
   fn inline_hydrates(&self, tmpl: &Tmpl) -> bool {
     match tmpl {
       Tmpl::Component { module, children, .. } => {
         self.components.iter().any(|(m, c)| m == module && c.hydrate) || children.iter().any(|c| self.inline_hydrates(c))
       }
-      Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
+      Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n.starts_with(HANDLER_ATTR) || n == UNLOWERED_ATTR)) || children.iter().any(|c| self.inline_hydrates(c)),
+      Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Baked { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::If { then, r#else, .. } => self.inline_hydrates(then) || r#else.as_ref().is_some_and(|e| self.inline_hydrates(e)),
       Tmpl::For { body, .. } => self.inline_hydrates(body),
@@ -1864,8 +1867,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(self.slot_with_fallback(&name, fallback))
   }
 
-  /// `<Link href="/x" full into="modal" prefetch="none">` from the client
-  /// library: an `<a>` carrying the data attributes the navigator reads.
+  /// `<Link href="/x" full into="modal" prefetch="none" keep={false}>` from the
+  /// client library: an `<a>` carrying the data attributes the navigator reads.
   fn link_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     let mut attrs = Vec::new();
     for attr in &el.opening.attrs {
@@ -1885,12 +1888,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         continue;
       }
       let value = self.attr_value(attr)?;
-      let name = match raw.as_str() {
-        "full" => "data-sf-full",
-        "into" => "data-sf-into",
-        "prefetch" => "data-sf-prefetch",
-        "native" => "data-sf-native",
-        other => html_attr_name(other),
+      let (name, value) = match raw.as_str() {
+        "full" => ("data-sf-full", value),
+        "into" => ("data-sf-into", value),
+        "prefetch" => ("data-sf-prefetch", value),
+        "native" => ("data-sf-native", value),
+        "keep" => ("data-sf-keep", keep_value(value)),
+        other => (html_attr_name(other), value),
       };
       attrs.push(Entry::Field(name.to_owned(), value));
     }
@@ -2998,6 +3002,20 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
+  fn a_link_writes_its_keep_out_since_a_false_attribute_is_dropped() {
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <p><Link href=\"?at=1\" keep={false}>a</Link><Link href=\"?at=2\" keep>b</Link><Link href=\"?at=3\" keep={on}>c</Link></p>;\n}\n")];
+    let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
+    let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
+    let keep = |i: usize| match &children[i] {
+      Tmpl::Element { attrs, .. } => attrs[1].clone(),
+      other => panic!("{other:?}"),
+    };
+    assert_eq!(keep(0), Entry::Field("data-sf-keep".to_owned(), Expr::lit_str("false")));
+    assert_eq!(keep(1), Entry::Field("data-sf-keep".to_owned(), Expr::lit_str("true")));
+    assert!(matches!(keep(2), Entry::Field(name, Expr::Ternary(..)) if name == "data-sf-keep"), "a computed keep is spelled when it renders: {:?}", keep(2));
+  }
+
+  #[test]
   fn an_island_around_an_element_or_with_a_computed_timing_is_residue() {
     let element = [("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <Island when=\"visible\"><p>x</p></Island>;\n}\n")];
     let err = lower(&element, "routes/a/page.tsx#default").unwrap_err().to_string();
@@ -3005,6 +3023,16 @@ export default function Order({ id }: { id: number }) {
     let timing = [("routes/b/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Help } from \"../../src/ui/Help\";\nexport default function B({ n }: { n: number }) {\n  return <Island when={n > 0 ? \"visible\" : \"load\"}><Help /></Island>;\n}\n"), ("src/ui/Help.tsx", "export function Help() {\n  return <p>help</p>;\n}\n")];
     let err = lower(&timing, "routes/b/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("written out"), "{err}");
+  }
+}
+
+/// A `Link`'s `keep` as the navigator reads it: `"true"` or `"false"`, since a
+/// false attribute is dropped from the markup and the navigator reads a
+/// missing one as leaving it the choice.
+fn keep_value(value: Expr) -> Expr {
+  match value {
+    Expr::Lit(Lit::Bool(keep)) => Expr::lit_str(if keep { "true" } else { "false" }),
+    value => Expr::Ternary(Box::new(value), Box::new(Expr::lit_str("true")), Box::new(Expr::lit_str("false"))),
   }
 }
 

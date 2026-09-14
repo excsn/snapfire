@@ -1,5 +1,7 @@
-import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref } from "vue";
-import { patchIsland, scan } from "./boot.js";
+import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
+import { islandState, patchIsland, scan } from "./boot.js";
+import { CHILDREN_ATTR } from "./render.js";
+import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe } from "./store.js";
 const held = new WeakMap();
@@ -15,17 +17,65 @@ function ownProps(props) {
     }
     return own;
 }
-function rootFor(component, props) {
+const childrenHeld = new WeakMap();
+function childrenRegion(el) {
+    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`))){
+        if (region.parentElement?.closest("sf-i") === el) return region;
+    }
+    return null;
+}
+const Children = defineComponent({
+    name: "SfChildren",
+    props: {
+        html: {
+            type: String,
+            required: true
+        }
+    },
+    setup (props) {
+        const region = shallowRef(null);
+        let written = null;
+        const write = ()=>{
+            const el = region.value;
+            if (!el || written === props.html) return;
+            if (written === null) {
+                const template = document.createElement("template");
+                template.innerHTML = props.html;
+                el.replaceChildren(template.content);
+            } else {
+                morph(el, props.html);
+            }
+            written = props.html;
+            scan(el);
+        };
+        onMounted(write);
+        watch(()=>props.html, write, {
+            flush: "post"
+        });
+        return ()=>h("sf-s", {
+                ref: region,
+                [CHILDREN_ATTR]: ""
+            });
+    }
+});
+function rootFor(component, props, el) {
     const state = reactive(ownProps(props));
+    const region = childrenRegion(el);
+    const children = ref(region ? region.innerHTML : null);
     const root = defineComponent({
         name: "SfIsland",
         setup () {
-            return ()=>h(component, state);
+            return ()=>h(component, state, children.value === null ? undefined : {
+                    default: ()=>h(Children, {
+                            html: children.value ?? ""
+                        })
+                });
         }
     });
     return {
         root,
-        props: state
+        props: state,
+        children
     };
 }
 function componentOf(module) {
@@ -33,9 +83,10 @@ function componentOf(module) {
     return holder && holder.default || module;
 }
 export const vueMounter = (module, props, el, hydrate)=>{
-    const { root, props: state } = rootFor(componentOf(module), props);
+    const { root, props: state, children } = rootFor(componentOf(module), props, el);
     const app = hydrate ? createSSRApp(root) : createApp(root);
     held.set(el, state);
+    childrenHeld.set(el, children);
     app.mount(el);
     return app;
 };
@@ -47,6 +98,9 @@ export const vuePatcher = (handle, module, props, el)=>{
         if (!(key in next)) delete state[key];
     }
     Object.assign(state, next);
+    const fresh = islandState(el)?.children ?? null;
+    const children = childrenHeld.get(el);
+    if (fresh !== null && children) children.value = fresh;
 };
 export function useStore(key, initial) {
     const state = reactive({

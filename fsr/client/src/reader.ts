@@ -8,6 +8,8 @@ export type SfNode =
       kind: "client";
       module: string;
       props: { [key: string]: SfValue };
+      /** `props` as the server encoded them, which is what a props script holds and a server island hands back: decoding a double and encoding it again gives an integer, since JavaScript has one number type. Absent on a node no payload brought, whose `props` are encoded where they are written. */
+      encoded?: unknown;
       children: SfNode[];
       ssr: SfNode | null;
     }
@@ -80,6 +82,7 @@ export function decodeNode(row: unknown): SfNode {
         kind: "client",
         module: body["m"] as string,
         props: decodeValue(body["p"]) as { [key: string]: SfValue },
+        encoded: body["p"] ?? {},
         children: ((body["ch"] as unknown[]) ?? []).map(decodeNode),
         ssr: body["s"] == null ? null : decodeNode(body["s"]),
       };

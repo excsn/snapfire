@@ -1,7 +1,7 @@
 import { applyStyles, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
-import { escapeKey, nodeToHtml, regionSources, renderSegment, scriptSafeJson, subtreeAt } from "./render.js";
+import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
 import { seed, transaction } from "./store.js";
 let current = null;
 const ids = {
@@ -139,18 +139,21 @@ function patchProps(region, node) {
     if (node.kind !== "client") return;
     const island = islandOf(region);
     if (!island) return;
-    const json = scriptSafeJson(node.props);
-    if (island.script?.textContent === json) return;
+    const json = propsScript(node);
+    const children = childrenOf(node, ids);
+    if (island.script?.textContent === json && children === null) return;
     if (island.script) island.script.textContent = json;
-    void patchIsland(island.el, node.props, regionSources(node, ids));
+    void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded);
 }
-function diff(oldSeg, newSeg, newNode, force) {
+function diff(oldSeg, newSeg, newNode, force, keep) {
     const swap = ()=>replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
     const paired = moduleOf(oldSeg.k) === moduleOf(newSeg.k);
     const same = paired && oldSeg.d !== undefined && oldSeg.d === newSeg.d;
+    const morphs = keep && paired && (newNode.kind === "client" || !newSeg.keep?.length);
     let key = oldSeg.k;
     if (oldSeg.k !== newSeg.k) {
-        if (!same) {
+        if (!same && morphs && newNode.kind !== "client" && morphStatic(oldSeg.k, newNode, newSeg)) return true;
+        if (!same && !morphs) {
             if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
             if (!paired) return false;
         }
@@ -169,12 +172,12 @@ function diff(oldSeg, newSeg, newNode, force) {
     } else if (staticChanged(oldSeg, newSeg, same, force)) {
         return morphStatic(key, newNode, newSeg) || swap();
     }
-    const keep = newSeg.keep ?? [];
+    const untouched = newSeg.keep ?? [];
     const carried = [];
     if (named) {
         for (const oldChild of oldSeg.c){
             if (newSeg.c.some((c)=>c.n === oldChild.n)) continue;
-            if (keep.includes(oldChild.n ?? "")) {
+            if (untouched.includes(oldChild.n ?? "")) {
                 carried.push(oldChild);
                 continue;
             }
@@ -203,7 +206,7 @@ function diff(oldSeg, newSeg, newNode, force) {
             if (!pending || !replaceChild(oldChild, nodeToHtml(pending, ids))) return false;
             continue;
         }
-        if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force)) return false;
+        if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force, keep)) return false;
     }
     newSeg.c.push(...carried);
     return true;
@@ -249,9 +252,9 @@ function morphStatic(key, node, seg) {
             const root = old.firstElementChild;
             if (!root || root.tagName !== "SF-I" || !root.hasAttribute("data-sf-scheduled")) continue;
             const script = old.querySelector(`script[data-sf-props="${root.id}"]`);
-            if (script) script.textContent = scriptSafeJson(source.props);
+            if (script) script.textContent = propsScript(source);
             fresh.replaceWith(old);
-            void patchIsland(root, source.props, source.nested);
+            void patchIsland(root, source.props, source.nested, source.children, source.encoded);
         }
     }
     parent.insertBefore(template.content, region.start);
@@ -340,12 +343,12 @@ async function eagerOf(rows) {
         }
     }
 }
-function applyEager(eager, force) {
+function applyEager(eager, force, keep) {
     if (!current) return false;
     transaction(()=>{
         for (const values of eager.seeds)seed(values);
     });
-    if (!diff(current, eager.segments, eager.tree, force)) return false;
+    if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
     current = eager.segments;
     openSlot = interceptSlot(eager.segments);
     for (const head of eager.heads)applyHead(head);
@@ -472,9 +475,11 @@ function askFor(options) {
     };
 }
 function askOf(anchor) {
+    const keep = anchor.getAttribute("data-sf-keep");
     return {
         full: anchor.hasAttribute("data-sf-full"),
-        into: anchor.getAttribute("data-sf-into") ?? undefined
+        into: anchor.getAttribute("data-sf-into") ?? undefined,
+        keep: keep === null ? undefined : keep !== "false"
     };
 }
 function headersOf(ask) {
@@ -539,6 +544,8 @@ function watchLinks(root) {
 export async function prefetch(href, options = {}) {
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
+    if (url.hash && `${url.pathname}${url.search}` === currentPath) return;
+    url.hash = "";
     await payloadFor(url, askFor(options)).whole();
 }
 export function clearRouterCache() {
@@ -559,7 +566,7 @@ export async function refresh() {
     if (gen !== generation) return;
     if (eager) await applyStyles(eager.styles);
     if (gen !== generation) return;
-    if (!eager || !patch(eager, true)) return bail();
+    if (!eager || !patch(eager, true, false)) return bail();
     announce();
     await drain(rows, eager.segments, gen);
 }
@@ -570,9 +577,9 @@ function announce() {
         }
     }));
 }
-function patch(eager, force) {
+function patch(eager, force, keep) {
     try {
-        const applied = applyEager(eager, force);
+        const applied = applyEager(eager, force, keep);
         if (!applied) console.warn("sf: the payload could not be patched in place; loading the document instead");
         return applied;
     } catch (err) {
@@ -580,10 +587,28 @@ function patch(eager, force) {
         return false;
     }
 }
+function scrollToFragment(hash) {
+    let id = hash.slice(1);
+    try {
+        id = decodeURIComponent(id);
+    } catch  {}
+    const target = id ? document.getElementById(id) ?? Array.from(document.querySelectorAll("a[name]")).find((a)=>a.getAttribute("name") === id) : null;
+    if (target) target.scrollIntoView();
+    else window.scrollTo(0, 0);
+}
 export async function navigate(href, push = true, options = {}) {
     const url = new URL(href, window.location.href);
+    const record = (same)=>options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href);
+    if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
+        if (push) record(url.href === window.location.href);
+        scrollToFragment(url.hash);
+        return;
+    }
+    const keep = options.keep ?? url.pathname === currentPath.split("?")[0];
+    const page = new URL(url.href);
+    page.hash = "";
     const gen = ++generation;
-    const feed = payloadFor(url, askFor(options));
+    const feed = payloadFor(page, askFor(options));
     if (!await feed.ok) {
         if (gen === generation) window.location.assign(href);
         return;
@@ -593,15 +618,15 @@ export async function navigate(href, push = true, options = {}) {
     if (gen !== generation) return;
     if (eager) await applyStyles(eager.styles);
     if (gen !== generation) return;
-    if (!eager || !patch(eager, false)) {
+    if (!eager || !patch(eager, false, keep)) {
         window.location.assign(href);
         return;
     }
-    if (push) history.pushState(null, "", href);
+    if (push) record(false);
     currentPath = `${url.pathname}${url.search}`;
     if (openSlot === null) {
         documentPath = currentPath;
-        window.scrollTo(0, 0);
+        scrollToFragment(url.hash);
     }
     announce();
     await drain(rows, eager.segments, gen);
@@ -651,7 +676,7 @@ export function enableNavigation(options = {}) {
         const url = new URL(href, window.location.href);
         if (url.origin !== window.location.origin) return;
         event.preventDefault();
-        void navigate(url.pathname + url.search, true, askOf(anchor));
+        void navigate(url.pathname + url.search + url.hash, true, askOf(anchor));
     });
     fallbackPrefetch = options.prefetch ?? "hover";
     resetViewport();
@@ -668,7 +693,7 @@ export function enableNavigation(options = {}) {
     watchLinks(document);
     document.addEventListener("sf:fill", ()=>watchLinks(document));
     window.addEventListener("popstate", ()=>{
-        void navigate(window.location.pathname + window.location.search, false);
+        void navigate(window.location.pathname + window.location.search + window.location.hash, false);
     });
 }
 //# sourceMappingURL=navigator.js.map

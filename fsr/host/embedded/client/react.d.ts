@@ -57,9 +57,11 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 	prefetch?: PrefetchTiming;
 	/** Leaves the click to the browser: a full document load. */
 	native?: boolean;
+	/** Whether a segment whose key changed but whose module did not is morphed in place, keeping the islands its new markup places again, rather than replaced. Left out, the navigator keeps them when only the query changes. */
+	keep?: boolean;
 }
-/** An `<a>` the navigator reads: `full`, `into`, `prefetch` and `native` ride as `data-sf-*` attributes. */
-export declare function Link({ full, into, prefetch, native, ...rest }: LinkProps): ReactElement;
+/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes. */
+export declare function Link({ full, into, prefetch, native, keep, ...rest }: LinkProps): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
 export type Hoisted = {
 	readonly [key: string]: unknown;
