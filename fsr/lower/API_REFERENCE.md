@@ -24,7 +24,16 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
   * [Handlers](#handlers)
   * [Lambdas](#lambdas)
   * [Schemas](#schemas)
-* [3. Error Handling](#3-error-handling)
+* [3. Test Files](#3-test-files)
+  * [lower_tests](#lower_tests)
+  * [TestFile and Block](#testfile-and-block)
+  * [TestCase and Mode](#testcase-and-mode)
+  * [Step](#step)
+  * [Assertion and Subject](#assertion-and-subject)
+  * [Matcher and Pattern](#matcher-and-pattern)
+  * [Mock, Answer and Binding](#mock-answer-and-binding)
+  * [Target](#target)
+* [4. Error Handling](#4-error-handling)
   * [LowerError](#lowererror)
   * [Residue](#residue)
 
@@ -152,7 +161,70 @@ The cursor over one application: parsed files, lowered components and the resolu
 * `T | null`, `T | undefined` and a `?` field are `Optional(T)`; a union of two real types, an inline object type, a literal outside a named union and a generic reference are residue.
 * A type alias must be a union of string literals and becomes `TypeDef::Union` of unit variants.
 
-## 3. Error Handling
+## 3. Test Files
+
+`snapfire_fsr_lower::testing`: reads a `*.test.ts` into the cases `fsr test` replays through the interpreter.
+
+### lower_tests
+
+* `pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError>`
+
+Lowers the test file at `file`, relative to the app. The file holds imports, `const` fixtures, mock functions, `let` bindings, hooks, `describe` blocks and tests; anything else is a `LowerError::Residue` naming its line. A test imports the loader, its `meta` or `store`, an action, a route handler or the middleware by path or alias and its helpers from `@snapfire/fsr/testing`. An `only` anywhere in the file is resolved here, so every case it does not cover carries `Mode::Skip`.
+
+### TestFile and Block
+
+* `pub struct TestFile { pub file: String, pub blocks: Vec<Block>, pub tests: Vec<TestCase> }`
+* `TestFile::chain(&self, block: usize) -> Vec<usize>`: the blocks around `block`, outermost first, block 0 being the file.
+* `TestFile::full_name(&self, case: &TestCase) -> String`: the case's name under its blocks' names, joined with ` > `.
+* `pub struct Block { pub name: String, pub parent: Option<usize>, pub each: Option<Each>, pub before_all: Vec<(usize, Step)>, pub after_all: Vec<(usize, Step)>, pub before_each: Vec<(usize, Step)>, pub after_each: Vec<(usize, Step)> }`
+
+A `describe` or the file itself, each hook as its steps with their lines. A mock function declared at the top of a file or a block is a `Step::Fn` in its `before_each`, so every test starts it with no calls.
+
+### TestCase and Mode
+
+* `pub struct TestCase { pub name: String, pub line: usize, pub block: usize, pub mode: Mode, pub each: Option<Each>, pub steps: Vec<(usize, Step)> }`
+* `pub enum Mode { Run, Skip, Todo }`
+* `pub struct Each { pub table: Expr, pub params: Vec<Binding> }`
+
+`name` is the pattern an `each` fills. `table` is evaluated when the file runs: an array row is spread over `params` and any other row binds the one parameter. A template table lowers to an array of objects keyed by its headings.
+
+### Step
+
+* `pub enum Step { Mock { name, mock }, Run { binding, target, ctx, input }, Let { name, value }, Assert(Assertion), Fn { name, answer: Option<Answer> }, Answer { name, answer, once }, Clear { name, reset } }`
+
+`Mock` is a `ctx(...)` bound or assigned to a name. `Let` is a local `const` or an assignment to a `let`. `Fn` is `fn(impl)`, `vi.fn(impl)` or `jest.fn(impl)`. `Answer` is `mockReturnValue`, `mockResolvedValue`, `mockRejectedValue`, `mockImplementation` and their `Once` forms. `Clear` is `mockClear` or `mockReset`; an empty name is every mock function, which `vi.clearAllMocks()` asks for.
+
+### Assertion and Subject
+
+* `pub enum Assertion { Ok(Expr), Equal(Expr, Expr), Rejects { target, ctx, input, kind: Option<String> }, Expect { subject: Subject, not: bool, matcher: Matcher, message: Option<String> } }`
+* `pub enum Subject { Value(Expr), Settled { target, ctx, input, rejects: bool }, Mock(String) }`
+
+`Ok`, `Equal` and `Rejects` are `assert.ok`, `assert.equal` and `assert.rejects`. `assert.match(actual, pattern, message?)` lowers to an `Expect` with `Matcher::Match`. `Expect` is `expect(subject, message?)` with `.not` and a matcher; the message must be a string literal. A subject under `.resolves` or `.rejects` is a run, settled when the step runs. Its failure reads as `{ kind, message }`. A call matcher reads a mock function by name.
+
+### Matcher and Pattern
+
+* `pub enum Matcher { Be, Equal, StrictEqual, Truthy, Falsy, Null, Undefined, Defined, NaN, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, CloseTo, Contain, ContainEqual, Length, Property, Match, MatchObject, TypeOf, OneOf, Throw, Called, CalledOnce, CalledTimes, CalledWith, CalledExactlyOnceWith, LastCalledWith, NthCalledWith, Returned, ReturnedTimes, ReturnedWith, LastReturnedWith }`, each carrying the expressions its arguments lowered to
+* `Matcher::name(&self) -> &'static str`: the name a test writes, `toBe` for `Be`. `Matcher::takes_expected(&self) -> bool` and `Matcher::reads_calls(&self) -> bool`.
+* `pub enum Pattern { Text(Expr), Regex { source: String, flags: String } }`
+* `pub const EXPECT_MARK: &str = "$sf.expect"`
+
+Each matcher's older names lower to the same variant: `toBeCalled` is `Called`, `toThrowError` is `Throw`. Expected values lower like any value, except that `expect.any`, `anything`, `objectContaining`, `arrayContaining`, `stringContaining`, `stringMatching` and `closeTo`, with their `expect.not` forms, lower to objects whose `EXPECT_MARK` field names the helper, which the runner reads as a matcher. A regular expression literal is kept as its source and flags for `toMatch`, `toThrow` and `stringMatching`, the only places the lowering takes one. A matcher for markup is refused, since a body test has none.
+
+### Mock, Answer and Binding
+
+* `pub struct Mock { pub session, pub services: Vec<(String, String, Expr)>, pub mock_fns: Vec<(String, String, String)>, pub input, pub params, pub query, pub identity, pub locale, pub path, pub host, pub config }`
+* `pub enum Answer { Returns(Expr), Calls(Expr), Fails(Expr) }`
+* `pub enum Binding { Name(String), Fields(Vec<(String, String)>) }`
+
+A service method that names a mock function or a `let` is in `mock_fns` as `(service, method, name)` rather than in `services`, which holds a lambda or a value as a lambda of no parameters. `Returns` answers a value whatever the arguments, `Calls` applies a lambda to them and `Fails` fails the call with the kind its value names when that is `{ kind, message }`.
+
+### Target
+
+* `pub enum Target { Loader { file }, Meta { file }, Store { file }, Action { file, export }, Handler { file, export }, Middleware { file } }`
+
+What a run names: a loader module, its `meta` or its `store`, an action export, a route handler's method or the middleware, each path relative to the app.
+
+## 4. Error Handling
 
 ### LowerError
 

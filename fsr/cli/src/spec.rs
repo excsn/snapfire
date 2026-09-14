@@ -30,7 +30,7 @@ use snapfire_fsr_runtime::{parse_query, HandlerMatcher, Identity, RequestCtx, Se
 use snapfire_fsr_service::Type;
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
-use crate::test::Summary;
+use crate::test::{Outcome, Summary};
 use crate::vendor::{self, ESM_HOST, VendorManifest};
 use crate::xwpm::Layout;
 use crate::{BuildError, Built, dev, serve};
@@ -159,15 +159,28 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     }
     let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), handlers.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone(), &natives));
     let local = tokio::task::LocalSet::new();
-    let outcome: Result<Vec<(String, Result<(), String>)>, BuildError> = runtime.block_on(local.run_until(async {
+    let outcome: Result<Vec<(String, Outcome)>, BuildError> = runtime.block_on(local.run_until(async {
       let engine = Engine::new(resolution.clone(), &dom, hooks.clone(), calls.clone()).map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
       engine.import(&boot).await.map_err(|e| BuildError::Dev(format!("{rel}: registering islands: {e}")))?;
       engine.import(&compiled).await.map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
       let names = engine.test_names().map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
+      let modes = engine.test_modes().map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
       let mut results = Vec::new();
+      let mut ran = false;
       for (i, name) in names.iter().enumerate() {
         if filter.is_some_and(|f| !name.contains(f) && !rel.contains(f)) {
           continue;
+        }
+        match modes.get(i).map(String::as_str) {
+          Some("skip") => {
+            results.push((name.clone(), Outcome::Skipped));
+            continue;
+          }
+          Some("todo") => {
+            results.push((name.clone(), Outcome::Todo));
+            continue;
+          }
+          _ => ran = true,
         }
         engine.take_console();
         hooks.reset();
@@ -179,27 +192,28 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
         let errored = console.iter().any(|(level, _)| level == "error");
         let log = console.iter().map(|(level, text)| format!("console.{level}: {text}")).collect::<Vec<_>>().join("\n");
         let result = match (result, errored) {
-          (Ok(()), false) => Ok(()),
-          (Ok(()), true) => Err(format!("console.error during the test:\n{}", indent(&log))),
-          (Err(failure), _) if log.is_empty() => Err(indent(&failure)),
-          (Err(failure), _) => Err(format!("{}\nconsole during the test:\n{}", indent(&failure), indent(&log))),
+          (Ok(()), false) => Outcome::Passed,
+          (Ok(()), true) => Outcome::Failed(format!("console.error during the test:\n{}", indent(&log))),
+          (Err(failure), _) if log.is_empty() => Outcome::Failed(indent(&failure)),
+          (Err(failure), _) => Outcome::Failed(format!("{}\nconsole during the test:\n{}", indent(&failure), indent(&log))),
         };
         engine.eval_string("document.body.innerHTML = \"\"; \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
         results.push((name.clone(), result));
       }
+      if ran {
+        engine.take_console();
+        let finished = match engine.finish().await {
+          Ok(result) => result,
+          Err(e) => Err(e.to_string()),
+        };
+        if let Err(failure) = finished {
+          results.push(("afterAll".to_owned(), Outcome::Failed(indent(&failure))));
+        }
+      }
       Ok(results)
     }));
     for (name, result) in outcome? {
-      match result {
-        Ok(()) => {
-          summary.passed += 1;
-          summary.lines.push(format!("test {rel}: {name} ... ok"));
-        }
-        Err(failure) => {
-          summary.failed += 1;
-          summary.lines.push(format!("test {rel}: {name} ... FAILED\n{failure}"));
-        }
-      }
+      summary.record(&rel, &name, result);
     }
   }
   Ok(())
@@ -344,12 +358,12 @@ fn discover(app: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildE
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct TestVendor {
-  /// Specifier to `(version, file under the test vendor dir)`.
+  /// Specifier to `(the URL it was fetched from, file under the test vendor dir)`, so a changed URL fetches again.
   #[serde(default)]
   entries: BTreeMap<String, (String, String)>,
 }
 
-/// linkedom and the development builds of the React modules the app vendors, fetched once from esm.sh into `.fsr-test/vendor`; by specifier.
+/// The development builds of linkedom and of the React modules the app vendors, fetched once from esm.sh into `.fsr-test/vendor`; by specifier.
 fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path) -> Result<HashMap<String, PathBuf>, BuildError> {
   let dir = test_dir.join("vendor");
   let manifest_path = dir.join("manifest.json");
@@ -358,7 +372,7 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path) -> Result<HashMap<S
     Err(_) => TestVendor::default(),
   };
   let vendored = VendorManifest::read(app, layout)?;
-  let mut wanted: Vec<(String, String, String)> = vec![("linkedom".to_owned(), LINKEDOM.to_owned(), format!("{ESM_HOST}/linkedom@{LINKEDOM}/worker?target=es2022&bundle"))];
+  let mut wanted: Vec<(String, String)> = vec![("linkedom".to_owned(), format!("{ESM_HOST}/linkedom@{LINKEDOM}/worker?target=es2022&bundle&dev"))];
   for specifier in DEV_BUILDS {
     let package = vendor::package_of(specifier);
     let Some(entry) = vendored.packages.get(&package) else { continue };
@@ -375,14 +389,14 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path) -> Result<HashMap<S
       url.push_str("&external=");
       url.push_str(&entry.externals.join(","));
     }
-    wanted.push((specifier.to_string(), entry.version.clone(), url));
+    wanted.push((specifier.to_string(), url));
   }
   let mut out = HashMap::new();
   let mut client = None;
-  for (specifier, version, url) in wanted {
+  for (specifier, url) in wanted {
     if let Some((have, file)) = manifest.entries.get(&specifier) {
       let path = dir.join(file);
-      if *have == version && path.is_file() {
+      if *have == url && path.is_file() {
         out.insert(specifier, path);
         continue;
       }
@@ -392,7 +406,7 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path) -> Result<HashMap<S
       None => client.insert(vendor::client()?),
     };
     let file = fetch_bundle(client, &url, &dir, &specifier)?;
-    manifest.entries.insert(specifier.clone(), (version, file.clone()));
+    manifest.entries.insert(specifier.clone(), (url, file.clone()));
     out.insert(specifier, dir.join(file));
   }
   std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;

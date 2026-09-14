@@ -1,14 +1,16 @@
 import { boot, registeredIslands } from "./boot.js";
+import { advance, AssertionError, settle, sf, show } from "./harness.js";
+import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
+import { prettyDOM, waitFor, within } from "./queries.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 export { f64 } from "./values.js";
-function sf() {
-    const s = globalThis.__sf;
-    if (!s) throw new Error("@snapfire/fsr-client/testing runs under `fsr test` only");
-    return s;
-}
+export { advance, AssertionError, settle, show } from "./harness.js";
+export { clearAllMocks, expect, fn, isMockFunction, resetAllMocks, restoreAllMocks, spyOn } from "./expect.js";
+export { configure, getDefaultNormalizer, logRoles, prettyDOM, screen, TestingLibraryElementError, waitFor, waitForElementToBeRemoved, within } from "./queries.js";
+export { createEvent, fireEvent, userEvent } from "./events.js";
 const mocks = new Map();
 export function ctx(mock = {}) {
     const methods = [];
@@ -32,10 +34,10 @@ export function ctx(mock = {}) {
     };
     const id = sf().ctx(JSON.stringify(spec));
     for (const [service, table] of Object.entries(mock.services ?? {})){
-        for (const [method, fn] of Object.entries(table))mocks.set(`${id}:${service}.${method}`, fn);
+        for (const [method, answer] of Object.entries(table))mocks.set(`${id}:${service}.${method}`, answer);
     }
     for (const [module, table] of Object.entries(mock.native ?? {})){
-        for (const [method, fn] of Object.entries(table))mocks.set(`${id}:native:${module}.${method}`, fn);
+        for (const [method, answer] of Object.entries(table))mocks.set(`${id}:native:${module}.${method}`, answer);
     }
     return {
         id,
@@ -51,54 +53,309 @@ export function ctx(mock = {}) {
     };
 }
 function callMock(key, args) {
-    const fn = mocks.get(key);
-    if (!fn) {
+    const answer = mocks.get(key);
+    if (!answer) {
         console.error(`no mock for ${key}`);
         throw new Error(`no mock for ${key}`);
     }
-    const result = fn(decodeValue(JSON.parse(args)));
+    const result = answer(decodeValue(JSON.parse(args)));
     if (result !== null && typeof result === "object" && typeof result.then === "function") {
-        throw new Error(`the mock for ${key} returned a promise; a mock answers synchronously`);
+        const settled = result[SETTLED];
+        if (!settled) throw new Error(`the mock for ${key} returned a promise; a mock answers synchronously or through a mock function's mockResolvedValue`);
+        if (!settled.ok) throw settled.value;
+        return JSON.stringify(encodeValue(settled.value));
     }
     return JSON.stringify(encodeValue(result));
 }
-const cases = [];
-export function test(name, body) {
-    cases.push({
+function block(name, parent, mode) {
+    return {
         name,
-        body
-    });
+        parent,
+        mode,
+        beforeAll: [],
+        afterAll: [],
+        beforeEach: [],
+        afterEach: [],
+        entered: false,
+        failure: null
+    };
+}
+const root = block("", null, "run");
+let current = root;
+const cases = [];
+const entered = [];
+function chain(from) {
+    const out = [];
+    for(let at = from; at; at = at.parent)out.unshift(at);
+    return out;
+}
+function fullName(c) {
+    return [
+        ...chain(c.block).slice(1).map((b)=>b.name),
+        c.name
+    ].join(" > ");
+}
+function anyOnly() {
+    return cases.some((c)=>c.mode === "only" || chain(c.block).some((b)=>b.mode === "only"));
+}
+function modeOf(c, only) {
+    if (c.mode === "todo") return "todo";
+    const blocks = chain(c.block);
+    if (c.mode === "skip" || blocks.some((b)=>b.mode === "skip")) return "skip";
+    if (only && c.mode !== "only" && !blocks.some((b)=>b.mode === "only")) return "skip";
+    return "run";
+}
+function invoke(body) {
+    if (body.length > 0) {
+        return new Promise((resolve, reject)=>{
+            const done = (error)=>error === undefined || error === null ? resolve(undefined) : reject(error);
+            done.fail = (error)=>reject(error ?? new Error("done.fail()"));
+            try {
+                body(done);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    }
+    return Promise.resolve().then(()=>body());
+}
+async function runCase(c) {
+    const blocks = chain(c.block);
+    for (const b of blocks){
+        if (b.entered) continue;
+        b.entered = true;
+        entered.push(b);
+        try {
+            for (const hook of b.beforeAll)await invoke(hook);
+        } catch (error) {
+            b.failure = {
+                error
+            };
+        }
+    }
+    const failed = blocks.find((b)=>b.failure);
+    if (failed?.failure) throw failed.failure.error;
+    resetAssertions();
+    let failure = null;
+    try {
+        for (const b of blocks)for (const hook of b.beforeEach)await invoke(hook);
+        if (c.body) await invoke(c.body);
+        verifyAssertions();
+    } catch (error) {
+        failure = {
+            error
+        };
+    }
+    for (const b of [
+        ...blocks
+    ].reverse()){
+        for (const hook of b.afterEach){
+            try {
+                await invoke(hook);
+            } catch (error) {
+                failure ??= {
+                    error
+                };
+            }
+        }
+    }
+    if (failure) throw failure.error;
+}
+async function finish() {
+    const failures = [];
+    for (const b of [
+        ...entered
+    ].reverse()){
+        for (const hook of b.afterAll){
+            try {
+                await invoke(hook);
+            } catch (error) {
+                failures.push(`${b.name || "the file"}: ${error instanceof Error ? error.message : show(error)}`);
+            }
+        }
+    }
+    if (failures.length > 0) throw new AssertionError(`afterAll failed\n${failures.join("\n")}`);
 }
 Object.assign(globalThis, {
     __sf_call: callMock,
-    __sf_tests: ()=>cases.map((c)=>c.name),
+    __sf_tests: ()=>cases.map(fullName),
+    __sf_modes: ()=>{
+        const only = anyOnly();
+        return cases.map((c)=>modeOf(c, only));
+    },
     __sf_run: (i)=>{
-        const run = Promise.resolve().then(()=>cases[i].body());
+        const run = runCase(cases[i]);
+        run.catch(()=>{});
+        return run;
+    },
+    __sf_finish: ()=>{
+        const run = finish();
         run.catch(()=>{});
         return run;
     }
 });
-export class AssertionError extends Error {
-    constructor(message){
-        super(message);
-        this.name = "AssertionError";
+function rowsOf(table, values) {
+    if (Array.isArray(table) && Object.prototype.hasOwnProperty.call(table, "raw")) {
+        const headings = String(table[0]).split("|").map((h)=>h.trim()).filter(Boolean);
+        const rows = [];
+        for(let i = 0; i < values.length; i += headings.length){
+            const row = {};
+            headings.forEach((heading, j)=>row[heading] = values[i + j]);
+            rows.push([
+                row
+            ]);
+        }
+        return rows;
     }
+    if (!Array.isArray(table)) throw new Error("each takes an array of rows or a template table");
+    return table.map((row)=>Array.isArray(row) ? row : [
+            row
+        ]);
 }
-export function show(value, depth = 0) {
-    if (typeof value === "bigint") return `${value}n`;
-    if (typeof value === "string") return JSON.stringify(value);
-    if (value === null || typeof value !== "object") return String(value);
-    if (typeof value.nodeType === "number") {
-        const el = value;
-        return `<${el.nodeName.toLowerCase()}${el.id ? `#${el.id}` : ""}${typeof el.className === "string" && el.className ? `.${el.className.split(" ").join(".")}` : ""}>`;
+function titled(name, args, index) {
+    let next = 0;
+    let out = name.replace(/%([sdifjoOp#$%])/g, (whole, flag)=>{
+        if (flag === "%") return "%";
+        if (flag === "#") return String(index);
+        if (flag === "$") return String(index + 1);
+        if (next >= args.length) return whole;
+        const value = args[next++];
+        switch(flag){
+            case "s":
+                return typeof value === "string" ? value : show(value);
+            case "d":
+            case "i":
+                return typeof value === "bigint" ? String(value) : String(Math.trunc(Number(value)));
+            case "f":
+                return String(Number(value));
+            case "j":
+                return JSON.stringify(value);
+            default:
+                return show(value);
+        }
+    });
+    const row = args.length === 1 && typeof args[0] === "object" && args[0] !== null ? args[0] : null;
+    if (row) {
+        out = out.replace(/\$([A-Za-z_][\w.]*)/g, (whole, path)=>{
+            let at = row;
+            for (const key of path.split(".")){
+                if (at === null || typeof at !== "object" || !(key in at)) return whole;
+                at = at[key];
+            }
+            return typeof at === "string" ? at : show(at);
+        });
     }
-    if (depth > 6) return "…";
-    if (Array.isArray(value)) return `[${value.map((v)=>show(v, depth + 1)).join(", ")}]`;
-    if (value instanceof Uint8Array) return `Uint8Array(${value.length})`;
-    const entries = Object.entries(value).map(([k, v])=>`${JSON.stringify(k)}: ${show(v, depth + 1)}`);
-    return `{ ${entries.join(", ")} }`;
+    return out;
 }
-function sameInteger(a, b) {
+function eachOf(register) {
+    return (table, ...values)=>(name, body)=>{
+            rowsOf(table, values).forEach((args, index)=>register(titled(name, args, index), ()=>body(...args)));
+        };
+}
+function registerAs(mode) {
+    return (name, body)=>{
+        cases.push({
+            name,
+            block: current,
+            body: body ?? null,
+            mode: body ? mode : "todo"
+        });
+    };
+}
+function inverted(body) {
+    return async ()=>{
+        let threw = false;
+        try {
+            await invoke(body);
+        } catch  {
+            threw = true;
+        }
+        if (!threw) throw new AssertionError("test.fails: the test passed");
+    };
+}
+export const test = Object.assign(registerAs("run"), {
+    only: Object.assign(registerAs("only"), {
+        each: eachOf(registerAs("only"))
+    }),
+    skip: Object.assign(registerAs("skip"), {
+        each: eachOf(registerAs("skip"))
+    }),
+    todo: (name)=>registerAs("todo")(name),
+    each: eachOf(registerAs("run")),
+    skipIf: (condition)=>condition ? registerAs("skip") : registerAs("run"),
+    runIf: (condition)=>condition ? registerAs("run") : registerAs("skip"),
+    fails: (name, body)=>registerAs("run")(name, body ? inverted(body) : undefined),
+    concurrent: registerAs("run")
+});
+export const it = test;
+export const xit = test.skip;
+export const xtest = test.skip;
+export const fit = test.only;
+function groupAs(mode) {
+    return (name, body)=>{
+        const outer = current;
+        current = block(name, outer, mode);
+        try {
+            const returned = body();
+            if (returned && typeof returned.then === "function") throw new Error(`describe(${JSON.stringify(name)}): a describe body runs at once and returns nothing; put what it awaits in a test or a hook`);
+        } finally{
+            current = outer;
+        }
+    };
+}
+function describeEachOf(group) {
+    return (table, ...values)=>(name, body)=>{
+            rowsOf(table, values).forEach((args, index)=>group(titled(name, args, index), ()=>body(...args)));
+        };
+}
+export const describe = Object.assign(groupAs("run"), {
+    only: Object.assign(groupAs("only"), {
+        each: describeEachOf(groupAs("only"))
+    }),
+    skip: Object.assign(groupAs("skip"), {
+        each: describeEachOf(groupAs("skip"))
+    }),
+    each: describeEachOf(groupAs("run")),
+    skipIf: (condition)=>condition ? groupAs("skip") : groupAs("run"),
+    runIf: (condition)=>condition ? groupAs("run") : groupAs("skip"),
+    concurrent: groupAs("run")
+});
+export const xdescribe = describe.skip;
+export const fdescribe = describe.only;
+export function beforeAll(body, _timeout) {
+    current.beforeAll.push(body);
+}
+export function afterAll(body, _timeout) {
+    current.afterAll.push(body);
+}
+export function beforeEach(body, _timeout) {
+    current.beforeEach.push(body);
+}
+export function afterEach(body, _timeout) {
+    current.afterEach.push(body);
+}
+export const vi = {
+    fn,
+    spyOn,
+    isMockFunction,
+    mocked: (value)=>value,
+    clearAllMocks,
+    resetAllMocks,
+    restoreAllMocks,
+    useFakeTimers () {
+        return vi;
+    },
+    useRealTimers () {
+        return vi;
+    },
+    isFakeTimers: ()=>true,
+    advanceTimersByTime: (ms)=>advance(ms),
+    advanceTimersByTimeAsync: (ms)=>advance(ms),
+    waitFor: (callback, options)=>waitFor(callback, options)
+};
+export const jest = vi;
+export function equal(a, b) {
+    if (Object.is(a, b)) return true;
     const [big, num] = typeof a === "bigint" ? [
         a,
         b
@@ -106,11 +363,7 @@ function sameInteger(a, b) {
         b,
         a
     ];
-    return typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big;
-}
-export function equal(a, b) {
-    if (Object.is(a, b)) return true;
-    if (sameInteger(a, b)) return true;
+    if (typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big) return true;
     if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
     if (Array.isArray(a) !== Array.isArray(b)) return false;
     if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i)=>equal(x, b[i]));
@@ -125,6 +378,10 @@ export const assert = {
     },
     equal (actual, expected, message) {
         if (!equal(actual, expected)) throw new AssertionError(`${message ?? "assert.equal"}\n  actual:   ${show(actual)}\n  expected: ${show(expected)}`);
+    },
+    match (actual, pattern, message) {
+        const hit = typeof actual === "string" && (typeof pattern === "string" ? actual.includes(pattern) : pattern.test(actual));
+        if (!hit) throw new AssertionError(`${message ?? "assert.match"}\n  actual:  ${show(actual)}\n  pattern: ${show(pattern instanceof RegExp ? String(pattern) : pattern)}`);
     },
     throws (run, match) {
         try {
@@ -150,12 +407,6 @@ function matchError(e, match) {
     const text = e instanceof Error ? `${e.kind ?? ""} ${e.message}` : String(e);
     const hit = typeof match === "string" ? text.includes(match) : match.test(text);
     if (!hit) throw new AssertionError(`expected an error matching ${show(match instanceof RegExp ? String(match) : match)}, got ${show(text.trim())}`);
-}
-export function settle() {
-    return sf().idle();
-}
-export function advance(ms) {
-    return sf().advance(ms);
 }
 async function moduleOf(type) {
     for (const [id, entry] of registeredIslands()){
@@ -188,14 +439,61 @@ export async function render(element, options = {}) {
     }
     await settle();
     return {
+        ...within(container),
         container,
+        baseElement: document.body,
         root,
         hydrated,
         unmount () {
             root.unmount();
             container.remove();
+        },
+        async rerender (next) {
+            root.render(next);
+            await settle();
+        },
+        asFragment () {
+            const template = document.createElement("template");
+            template.innerHTML = container.innerHTML;
+            return template.content;
+        },
+        debug (target, maxLength) {
+            console.log(prettyDOM(target ?? container, maxLength));
         }
     };
+}
+export async function renderHook(hook, options = {}) {
+    const { createElement } = await import("react");
+    const result = {
+        current: undefined
+    };
+    function Probe({ props }) {
+        result.current = hook(props);
+        return null;
+    }
+    const element = (props)=>{
+        const probe = createElement(Probe, {
+            props
+        });
+        return options.wrapper ? createElement(options.wrapper, null, probe) : probe;
+    };
+    const rendered = await render(element(options.initialProps), {
+        ctx: options.ctx,
+        hydrate: false
+    });
+    return {
+        result,
+        rerender: (props)=>rendered.rerender(element(props ?? options.initialProps)),
+        unmount: ()=>rendered.unmount()
+    };
+}
+export async function act(body) {
+    const out = await body();
+    await settle();
+    return out;
+}
+export function cleanup() {
+    document.body.innerHTML = "";
 }
 export async function load(path, options = {}) {
     sf().use(options.ctx?.id ?? 0);
@@ -240,108 +538,4 @@ function applyFills() {
     }
     return late;
 }
-function normalise(text) {
-    return text.replace(/\s+/g, " ").trim();
-}
-function ownText(el) {
-    let out = "";
-    for (const node of Array.from(el.childNodes)){
-        if (node.nodeType === 3) out += node.textContent ?? "";
-    }
-    return normalise(out);
-}
-function matches(text, matcher) {
-    return typeof matcher === "string" ? text === matcher : matcher.test(text);
-}
-function all(root, pick) {
-    return Array.from(root.querySelectorAll("*")).filter(pick);
-}
-function one(what, found) {
-    if (found.length === 1) return found[0];
-    if (found.length === 0) throw new AssertionError(`no element ${what}`);
-    throw new AssertionError(`${found.length} elements ${what}: ${found.map((el)=>`<${el.tagName.toLowerCase()}>`).join(", ")}`);
-}
-export const screen = {
-    getByText (matcher, root = document.body) {
-        return one(`with text ${show(matcher instanceof RegExp ? String(matcher) : matcher)}`, screen.getAllByText(matcher, root));
-    },
-    queryByText (matcher, root = document.body) {
-        const found = screen.getAllByText(matcher, root);
-        return found.length === 0 ? null : found[0];
-    },
-    getAllByText (matcher, root = document.body) {
-        return all(root, (el)=>matches(ownText(el), matcher));
-    },
-    getByLabelText (matcher, root = document.body) {
-        const labelled = all(root, (el)=>matches(normalise(el.getAttribute("aria-label") ?? ""), matcher));
-        const byLabel = Array.from(root.querySelectorAll("label")).filter((label)=>matches(ownText(label), matcher) || matches(normalise(label.textContent ?? ""), matcher)).flatMap((label)=>{
-            const target = label.getAttribute("for");
-            const control = target ? root.querySelector(`#${CSS.escape(target)}`) : label.querySelector("input, select, textarea, button");
-            return control ? [
-                control
-            ] : [];
-        });
-        return one(`labelled ${show(matcher instanceof RegExp ? String(matcher) : matcher)}`, [
-            ...labelled,
-            ...byLabel
-        ]);
-    },
-    getByPlaceholderText (matcher, root = document.body) {
-        return one(`with placeholder ${show(String(matcher))}`, all(root, (el)=>matches(el.getAttribute("placeholder") ?? "", matcher)));
-    },
-    getByTestId (id, root = document.body) {
-        return one(`with data-testid ${show(id)}`, all(root, (el)=>el.getAttribute("data-testid") === id));
-    }
-};
-function setValue(el, value) {
-    if (el.tagName === "SELECT") {
-        const option = Array.from(el.querySelectorAll("option")).find((o)=>String(o.value) === value);
-        if (!option) throw new AssertionError(`fireEvent.change: no option with value ${show(value)}`);
-        option.selected = true;
-        return;
-    }
-    const proto = Object.getPrototypeOf(el);
-    const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
-    if (descriptor?.set) {
-        descriptor.set.call(el, value);
-    } else {
-        el.value = value;
-    }
-}
-export const fireEvent = {
-    click (el) {
-        el.dispatchEvent(new MouseEvent("click", {
-            bubbles: true,
-            cancelable: true
-        }));
-        return settle();
-    },
-    change (el, value) {
-        setValue(el, value);
-        el.dispatchEvent(new Event("input", {
-            bubbles: true
-        }));
-        el.dispatchEvent(new Event("change", {
-            bubbles: true
-        }));
-        return settle();
-    },
-    submit (el) {
-        const form = el instanceof HTMLFormElement ? el : el.closest("form");
-        if (!form) throw new AssertionError("fireEvent.submit: no form");
-        form.dispatchEvent(new Event("submit", {
-            bubbles: true,
-            cancelable: true
-        }));
-        return settle();
-    },
-    keyDown (el, key) {
-        el.dispatchEvent(new KeyboardEvent("keydown", {
-            key,
-            bubbles: true,
-            cancelable: true
-        }));
-        return settle();
-    }
-};
 //# sourceMappingURL=testing.js.map

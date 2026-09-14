@@ -462,11 +462,38 @@ impl Engine {
     self.call_global("__sf_tests", ())
   }
 
+  /// What each registered test is, in `test_names` order: `run`, `skip` or
+  /// `todo`. A runner that names no modes runs every test.
+  pub fn test_modes(&self) -> Result<Vec<String>, EngineError> {
+    if !self.has_global("__sf_modes") {
+      return Ok(vec!["run".to_owned(); self.test_names()?.len()]);
+    }
+    self.call_global("__sf_modes", ())
+  }
+
   /// Runs test `index` to completion; a rejection is the failure text.
   pub async fn run_test(&self, index: usize) -> Result<Result<(), String>, EngineError> {
+    self.await_global("__sf_run", (index as u32,)).await
+  }
+
+  /// Runs what a spec file does after its last test, its `afterAll` hooks; a
+  /// rejection is the failure text. Nothing to run when the runner names no
+  /// such step.
+  pub async fn finish(&self) -> Result<Result<(), String>, EngineError> {
+    if !self.has_global("__sf_finish") {
+      return Ok(Ok(()));
+    }
+    self.await_global("__sf_finish", ()).await
+  }
+
+  fn has_global(&self, name: &str) -> bool {
+    self.context.with(|ctx| ctx.globals().get::<_, rquickjs::Value>(name).map(|value| value.is_function()).unwrap_or(false))
+  }
+
+  async fn await_global(&self, name: &str, args: impl for<'js> rquickjs::function::IntoArgs<'js>) -> Result<Result<(), String>, EngineError> {
     let promise = self.context.with(|ctx| {
-      let f: Function = ctx.globals().get("__sf_run").map_err(|e| js_error(&ctx, e))?;
-      let promise: Promise = f.call((index as u32,)).map_err(|e| js_error(&ctx, e))?;
+      let f: Function = ctx.globals().get(name).map_err(|e| js_error(&ctx, e))?;
+      let promise: Promise = f.call(args).map_err(|e| js_error(&ctx, e))?;
       Ok::<_, EngineError>(Persistent::save(&ctx, promise))
     })?;
     self.settle().await?;
@@ -544,6 +571,9 @@ mod tests {
       ("String(new URL('http://h/?a=1&b=2').searchParams.get('b'))", "2"),
       ("(() => { const p = new URLSearchParams(); p.set('q', 'a b'); p.set('c', '1'); p.set('q', 'x'); return p.toString(); })()", "q=x&c=1"),
       ("[...new URLSearchParams('a=1&a=2&b=%20').entries()].map(([k, v]) => k + '=' + v).join(',')", "a=1,a=2,b= "),
+      ("(() => { const u = new URL('http://h/p?a=1'); u.searchParams.set('at', '4'); return u.href; })()", "http://h/p?a=1&at=4"),
+      ("(() => { const u = new URL('http://h/p?at=4'); u.searchParams.delete('at'); return u.href + '|' + u.search; })()", "http://h/p|"),
+      ("(() => { const u = new URL('http://h/p'); u.search = '?q=x'; return u.searchParams.get('q') + '|' + u.href; })()", "x|http://h/p?q=x"),
     ];
     for (source, expected) in cases {
       assert_eq!(e.eval_string(source).unwrap(), expected, "{source}");

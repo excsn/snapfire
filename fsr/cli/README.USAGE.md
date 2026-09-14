@@ -691,20 +691,22 @@ fsr test app
 fsr test app cart
 ```
 
-Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, static templates left out. The DOM is linkedom with what an entry module reaches for filled in: `customElements` is the document's own registry, so an element module defines its class; `XPathEvaluator` compiles expressions that match nothing, so a library that builds one at import, htmx for one, loads and does no harm. A spec's `fetch` of a route answers what the host would: the document, the payload with `__payload` in the query or one segment as markup with `__fragment`.
+Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, static templates left out. The DOM is linkedom with what an entry module reaches for filled in: `customElements` is the document's own registry, so an element module defines its class; `XPathEvaluator` compiles expressions that match nothing, so a library that builds one at import, htmx for one, loads and does no harm. `document.activeElement` follows `focus()` and `blur()`, which dispatch `focus`, `focusin`, `blur` and `focusout`. An input keeps what was typed apart from its `value` attribute, an input with no type or an unknown one reads as `text` and a text control's selection is its caret. `requestSubmit` fires a cancelable `submit`. A spec's `fetch` of a route answers what the host would: the document, the payload with `__payload` in the query or one segment as markup with `__fragment`.
 
-A mock may write an integer field as a number. `minutes: 35` reaches the loader as the `i64` the contract names, since a JavaScript number is a double whatever it holds; `assert.equal` reads `35` and `35n` as the same value where either side is whole; the generated mock types take `number` wherever a field is `bigint`.
+A mock may write an integer field as a number. `minutes: 35` reaches the loader as the `i64` the contract names, since a JavaScript number is a double whatever it holds; `toEqual` reads `35` and `35n` as the same value where either side is whole; the generated mock types take `number` wherever a field is `bigint`.
 
 ```ts
 import { get, set } from "@snapfire/fsr-client";
-import { assert, test } from "@snapfire/fsr-client/testing";
+import { expect, test } from "@snapfire/fsr-client/testing";
 import { headline, openAlerts } from "@src/store";
 
 test("the entry module's derive is registered", () => {
   set(openAlerts, 2);
-  assert.equal(get(headline), "2 to look at");
+  expect(get(headline)).toEqual("2 to look at");
 });
 ```
+
+A file's tests may sit in `describe` blocks with hooks. `skip`, `only` and `todo` decide what runs and the last line counts skipped and todo tests beside passed and failed ones, `test result: ok. 12 passed; 0 failed; 1 skipped`. An `afterAll` that fails is reported as a test named `afterAll`.
 
 A `fetch` inside a spec is answered by the runner: `/_sf/action/<id>` runs the lowered action under the spec's `ctx`, a path matching a lowered handler runs it with the matched params and the body checked against its input type and anything else renders the route through the stock host when a configuration is beside the app. `load(path, { ctx })` is that fetch plus the document it produces.
 
@@ -716,7 +718,7 @@ const posted = await fetch("/_sf/action/tool.$id.reserve?__fragment", {
   headers: { "content-type": "application/x-www-form-urlencoded", referer: "/tool/1" },
   body: "_csrf=t&tool_id=1&days=2",
 });
-assert.equal(posted.headers.get("location"), "/tool/1?__fragment");
+expect(posted.headers.get("location")).toEqual("/tool/1?__fragment");
 ```
 
 One difference from the edge: a spec's context carries no CSRF token, so the runner takes `_csrf` out of the fields without verifying it. The verification itself is the host's, with the host's own tests.

@@ -557,7 +557,7 @@ fn mounted_prefixes(config: &Config) -> Vec<String> {
 /// about.
 fn hrefs_of(tmpl: &Tmpl) -> Vec<String> {
   let mut out = Vec::new();
-  let mut children = |list: &Vec<Tmpl>, out: &mut Vec<String>| {
+  let children = |list: &Vec<Tmpl>, out: &mut Vec<String>| {
     for child in list {
       out.extend(hrefs_of(child));
     }

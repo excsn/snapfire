@@ -1,5 +1,5 @@
 import { currentLocale, localePath } from "@snapfire/fsr-client";
-import { assert, ctx, load, render, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, render, screen, test } from "@snapfire/fsr-client/testing";
 
 import Help from "@routes/help/page";
 
@@ -7,32 +7,32 @@ function services() {
   return { fleet: { listAgents: () => [], listAlerts: () => [] } };
 }
 
-test("a prefixed document loads in French, marks the html element and hydrates the page reading the locale", async () => {
+test("a prefixed document loads in French, marks the html element and renders the page in that locale", async () => {
   const c = ctx({ session: { watching: {}, density: "comfortable" }, services: services() });
   await load("/fr_FR/help", { ctx: c });
-  assert.equal(document.documentElement.getAttribute("lang"), "fr-FR");
-  assert.equal(document.documentElement.getAttribute("data-sf-locale"), "fr_FR");
-  assert.equal(currentLocale(), "fr_FR");
-  assert.ok(screen.getByText("Comment ça marche"));
-  assert.ok(document.querySelector('sf-i[data-sf-module="routes/help/page.tsx#default"][data-sf-mounted]'), "the page hydrated against the locale the server wrote");
+  expect(document.documentElement.getAttribute("lang")).toEqual("fr-FR");
+  expect(document.documentElement.getAttribute("data-sf-locale")).toEqual("fr_FR");
+  expect(currentLocale()).toEqual("fr_FR");
+  expect(screen.getByText("Comment ça marche")).toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/help/page.tsx#default"]'), "the help page has no state or handlers, so its French markup is what the server wrote").toBeNull();
 
   await load("/help", { ctx: c });
-  assert.equal(document.documentElement.getAttribute("lang"), "en-US");
-  assert.equal(currentLocale(), "en_US");
-  assert.ok(screen.getByText("How this works"));
+  expect(document.documentElement.getAttribute("lang")).toEqual("en-US");
+  expect(currentLocale()).toEqual("en_US");
+  expect(screen.getByText("How this works")).toBeTruthy();
 });
 
 test("a component renders under the locale its ctx names, and the host's default without one", async () => {
   const french = await render(<Help />, { ctx: ctx({ locale: "fr_FR" }) });
-  assert.equal(french.hydrated, "routes/help/page.tsx#default", "the server rendered it in French and React hydrated over that");
-  assert.equal(french.container.querySelector("h1")?.textContent, "Comment ça marche");
-  assert.equal(ctx({ locale: "fr_FR" }).locale, "fr_FR");
-  assert.equal(ctx().locale, "en_US");
+  expect(french.hydrated, "the help page is static, so render mounts it fresh in the locale its ctx names").toBeNull();
+  expect(french.container.querySelector("h1")?.textContent).toEqual("Comment ça marche");
+  expect(ctx({ locale: "fr_FR" }).locale).toEqual("fr_FR");
+  expect(ctx().locale).toEqual("en_US");
   french.unmount();
 
   const english = await render(<Help />, { ctx: ctx() });
-  assert.equal(english.hydrated, "routes/help/page.tsx#default");
-  assert.equal(english.container.querySelector("h1")?.textContent, "How this works");
+  expect(english.hydrated).toBeNull();
+  expect(english.container.querySelector("h1")?.textContent).toEqual("How this works");
   english.unmount();
 });
 
@@ -40,12 +40,12 @@ test("switching locale keeps the page the reader is on, not the one the switcher
   const c = ctx({ session: { watching: {}, density: "comfortable" }, services: services() });
 
   await load("/help", { ctx: c });
-  assert.equal(localePath("fr_FR"), "/fr_FR/help", "an unprefixed document takes the prefix");
+  expect(localePath("fr_FR"), "an unprefixed document takes the prefix").toEqual("/fr_FR/help");
 
   await load("/fr_FR/help", { ctx: c });
-  assert.equal(localePath("en_US"), "/en_US/help", "a prefixed one swaps it rather than stacking");
-  assert.equal(localePath("fr_FR"), "/fr_FR/help", "and choosing the locale it is already in is the same page");
+  expect(localePath("en_US"), "a prefixed one swaps it rather than stacking").toEqual("/en_US/help");
+  expect(localePath("fr_FR"), "and choosing the locale it is already in is the same page").toEqual("/fr_FR/help");
 
-  assert.equal(localePath("fr_FR", "/agents?region=eu"), "/fr_FR/agents?region=eu", "a path given explicitly keeps its query");
-  assert.equal(localePath("fr_FR", "/fr_FR"), "/fr_FR", "the root under a prefix is the prefix");
+  expect(localePath("fr_FR", "/agents?region=eu"), "a path given explicitly keeps its query").toEqual("/fr_FR/agents?region=eu");
+  expect(localePath("fr_FR", "/fr_FR"), "the root under a prefix is the prefix").toEqual("/fr_FR");
 });

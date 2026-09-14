@@ -1,4 +1,4 @@
-import { assert, ctx, load, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
 
 const board = {
   at: "08:25",
@@ -22,28 +22,28 @@ const field = () =>
 
 test("both boards render a row per flight with its status as a class", async () => {
   await load("/", { ctx: field() });
-  assert.equal(document.querySelector(".clock strong")?.textContent, "08:25");
+  expect(document.querySelector(".clock strong")?.textContent).toEqual("08:25");
   const tables = Array.from(document.querySelectorAll(".table h2")).map((h) => h.textContent);
-  assert.equal(tables.join(", "), "Arrivals, Departures", "one table each way");
+  expect(tables.join(", "), "one table each way").toEqual("Arrivals, Departures");
   const rows = Array.from(document.querySelectorAll("tbody tr"));
-  assert.equal(rows.length, 3, "two arrivals and one departure");
-  assert.equal(rows[1]?.className, "status-delayed", "the class comes from the row's own code, never from parsing its words");
-  assert.equal(rows[2]?.querySelector(".gate")?.textContent, "B02");
+  expect(rows.length, "two arrivals and one departure").toEqual(3);
+  expect(rows[1]?.className, "the class comes from the row's own code, never from parsing its words").toEqual("status-delayed");
+  expect(rows[2]?.querySelector(".gate")?.textContent).toEqual("B02");
 });
 
 test("each panel is a slot of its own, filled from its own service", async () => {
   await load("/", { ctx: field() });
   const panels = Array.from(document.querySelectorAll(".panel h2")).map((h) => h.textContent);
-  assert.ok(panels.includes("The field"), `the weather panel is placed, got ${panels.join(", ")}`);
-  assert.ok(panels.includes("Gate changes"), `the gate panel is placed, got ${panels.join(", ")}`);
-  assert.equal(document.querySelector(".weather .reading")?.textContent, "clear");
-  assert.equal(document.querySelector(".gates .now")?.textContent, "B14");
-  assert.equal(document.querySelectorAll(".skeleton").length, 0, "every panel answered, so no skeleton is left");
+  expect(panels.includes("The field"), `the weather panel is placed, got ${panels.join(", ")}`).toBeTruthy();
+  expect(panels.includes("Gate changes"), `the gate panel is placed, got ${panels.join(", ")}`).toBeTruthy();
+  expect(document.querySelector(".weather .reading")?.textContent).toEqual("clear");
+  expect(document.querySelector(".gates .now")?.textContent).toEqual("B14");
+  expect(document.querySelectorAll(".skeleton").length, "every panel answered, so no skeleton is left").toEqual(0);
 });
 
 test("the page carries the island that follows the field", async () => {
   await load("/", { ctx: field() });
   const live = document.querySelector(".live");
-  assert.ok(live, "the live pill is in the layout");
-  assert.equal(live?.textContent, "live");
+  expect(live, "the live pill is in the layout").toBeTruthy();
+  expect(live?.textContent).toEqual("live");
 });

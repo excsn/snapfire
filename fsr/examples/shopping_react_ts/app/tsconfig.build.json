@@ -14,5 +14,5 @@
       "@ext/*": ["./ext/*"]
     }
   },
-  "include": ["src/**/*", "ext/**/*", "routes/cart/page.tsx", "routes/layout.tsx", "routes/product/[id]/page.tsx", "generated/islands.ts", "generated/client.ts"]
+  "include": ["src/**/*", "ext/**/*", "routes/cart/page.tsx", "routes/layout.tsx", "routes/page.tsx", "routes/product/[id]/page.modal.tsx", "routes/product/[id]/page.tsx", "generated/islands.ts", "generated/client.ts"]
 }

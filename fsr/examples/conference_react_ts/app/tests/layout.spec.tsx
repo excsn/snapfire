@@ -1,4 +1,4 @@
-import { assert, ctx, fireEvent, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr-client/testing";
 
 const talks = [
   { id: "1", title: "A plan is not a program", track: "Runtime", room: "Hall B", starts: "09:30", ends: "10:10", speaker: "Ada Okonjo", level: "intro", abstract: "" },
@@ -17,14 +17,14 @@ test("the panel opened in the masthead is still open after the page beneath it c
   await load("/", { ctx: day() });
   const count = screen.getByLabelText("my schedule");
   await fireEvent.click(count);
-  assert.ok(screen.getByText(/Kept in the session cookie/), "the panel is open");
+  expect(screen.getByText(/Kept in the session cookie/), "the panel is open").toBeTruthy();
 
   await fireEvent.click(screen.getByText("A plan is not a program"));
 
-  assert.equal(location.pathname, "/talk/1");
-  assert.ok(document.querySelector(".talk h2"), "the page region was replaced");
-  assert.ok(screen.getByLabelText("my schedule") === count, "the layout's DOM was kept");
-  assert.ok(screen.getByText(/Kept in the session cookie/), "and the state inside it");
+  expect(location.pathname).toEqual("/talk/1");
+  expect(document.querySelector(".talk h2"), "the page region was replaced").toBeTruthy();
+  expect(screen.getByLabelText("my schedule"), "the layout's DOM was kept").toBe(count);
+  expect(screen.getByText(/Kept in the session cookie/), "and the state inside it").toBeTruthy();
 });
 
 test("the saved count is seeded by the layout loader and read through the store", async () => {
@@ -35,5 +35,5 @@ test("the saved count is seeded by the layout loader and read through the store"
     },
   });
   await load("/", { ctx: held });
-  assert.equal(screen.getByLabelText("my schedule").textContent, "1 saved");
+  expect(screen.getByLabelText("my schedule").textContent).toEqual("1 saved");
 });

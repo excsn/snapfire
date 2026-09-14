@@ -1,4 +1,4 @@
-import { assert, ctx, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
 
 const recipes = [
   { id: "1", title: "Leek and potato soup", course: "Starter", cook: "Ama", minutes: 35, serves: 4, ingredients: [], method: "" },
@@ -23,23 +23,23 @@ const kitchen = () =>
 
 test("the box is a row per recipe under the masthead the layout loaded", async () => {
   await load("/", { ctx: kitchen() });
-  assert.equal(document.querySelector(".masthead h1")?.textContent, "The Sunday Box");
+  expect(document.querySelector(".masthead h1")?.textContent).toEqual("The Sunday Box");
   const rows = Array.from(document.querySelectorAll(".recipe-row"));
-  assert.equal(rows.length, 2, "one row per recipe");
-  assert.equal(rows[0]?.querySelector(".recipe-title")?.textContent, "Leek and potato soup");
-  assert.equal(rows[1]?.querySelector(".course")?.textContent, "Main");
+  expect(rows.length, "one row per recipe").toEqual(2);
+  expect(rows[0]?.querySelector(".recipe-title")?.textContent).toEqual("Leek and potato soup");
+  expect(rows[1]?.querySelector(".course")?.textContent).toEqual("Main");
 });
 
 test("one slot answers while the other is down and the page is whole either way", async () => {
   await load("/", { ctx: kitchen() });
-  assert.ok(screen.getByText("The oven runs hot."), "the notes slot filled");
-  assert.ok(document.querySelector(".market.panel-down"), "the market slot fell back to its own error boundary");
-  assert.equal(document.querySelectorAll(".recipe-row").length, 2, "and the page beside it is untouched");
-  assert.equal(document.querySelectorAll(".skeleton").length, 0, "both slots settled, so no fallback is left");
+  expect(screen.getByText("The oven runs hot."), "the notes slot filled").toBeTruthy();
+  expect(document.querySelector(".market.panel-down"), "the market slot fell back to its own error boundary").toBeTruthy();
+  expect(document.querySelectorAll(".recipe-row").length, "and the page beside it is untouched").toEqual(2);
+  expect(document.querySelectorAll(".skeleton").length, "both slots settled, so no fallback is left").toEqual(0);
 });
 
 test("a course in the query narrows the rows and marks the chip", async () => {
   await load("/?course=Main", { ctx: kitchen() });
-  assert.equal(document.querySelectorAll(".recipe-row").length, 1);
-  assert.equal(document.querySelector(".chip-on")?.textContent, "Main");
+  expect(document.querySelectorAll(".recipe-row").length).toEqual(1);
+  expect(document.querySelector(".chip-on")?.textContent).toEqual("Main");
 });

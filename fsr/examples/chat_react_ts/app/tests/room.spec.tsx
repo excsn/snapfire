@@ -1,4 +1,4 @@
-import { assert, ctx, load, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
 
 const transcript = {
   room: { id: "lobby", name: "Lobby", about: "Anyone, anything", messages: 2 },
@@ -23,20 +23,20 @@ const room = (name: string) =>
 test("a room renders its transcript and marks what this reader said", async () => {
   await load("/room/lobby", { ctx: room("bob") });
   const said = Array.from(document.querySelectorAll(".said"));
-  assert.equal(said.length, 2, "one line per message");
-  assert.equal(said[0]?.className, "said", "alice's line belongs to alice");
-  assert.equal(said[1]?.className, "said mine", "bob's own line is marked");
-  assert.equal(document.querySelector(".said .body")?.textContent, "Morning.");
+  expect(said.length, "one line per message").toEqual(2);
+  expect(said[0]?.className, "alice's line belongs to alice").toEqual("said");
+  expect(said[1]?.className, "bob's own line is marked").toEqual("said mine");
+  expect(document.querySelector(".said .body")?.textContent).toEqual("Morning.");
 });
 
 test("the room carries the island that follows it", async () => {
   await load("/room/lobby", { ctx: room("alice") });
-  assert.ok(document.querySelector(".live"), "the live pill is on the room");
-  assert.ok(document.querySelector(".say input"), "and so is the composer");
+  expect(document.querySelector(".live"), "the live pill is on the room").toBeTruthy();
+  expect(document.querySelector(".say input"), "and so is the composer").toBeTruthy();
 });
 
 test("the room list links into each room", async () => {
   await load("/", { ctx: room("alice") });
   const hrefs = Array.from(document.querySelectorAll("a")).map((a) => a.getAttribute("href"));
-  assert.ok(hrefs.includes("/room/lobby"), `a link per room, got ${hrefs.join(" ")}`);
+  expect(hrefs.includes("/room/lobby"), `a link per room, got ${hrefs.join(" ")}`).toBeTruthy();
 });

@@ -1,5 +1,5 @@
 import { clear, derive, get, key, optimistic, seed, set, snapshot, subscribe, transaction } from "@snapfire/fsr-client";
-import { assert, test } from "@snapfire/fsr-client/testing";
+import { expect, test } from "@snapfire/fsr-client/testing";
 
 let n = 0;
 /** A fresh key per test, since the store is one map for the whole run. */
@@ -10,14 +10,14 @@ function fresh<T>(): ReturnType<typeof key<T>> {
 
 test("a key is the string it names, and get reads what set wrote", () => {
   const k = fresh<number>();
-  assert.equal(typeof k, "string");
-  assert.equal(get(k), undefined);
+  expect(typeof k).toEqual("string");
+  expect(get(k)).toBeUndefined();
   set(k, 3);
-  assert.equal(get(k), 3);
-  assert.equal(snapshot()[k], 3);
+  expect(get(k)).toEqual(3);
+  expect(snapshot()[k]).toEqual(3);
   clear(k);
-  assert.equal(get(k), undefined);
-  assert.equal(k in snapshot(), false);
+  expect(get(k)).toBeUndefined();
+  expect(k in snapshot()).toEqual(false);
 });
 
 test("a listener hears every change, never the value already held, and stops when unsubscribed", () => {
@@ -29,14 +29,14 @@ test("a listener hears every change, never the value already held, and stops whe
   set(k, 2);
   clear(k);
   clear(k);
-  assert.equal(seen, [
+  expect(seen).toEqual([
     [k, 1],
     [k, 2],
     [k, undefined],
   ]);
   stop();
   set(k, 9);
-  assert.equal(seen.length, 3);
+  expect(seen.length).toEqual(3);
 });
 
 test("a listener added or removed during a notification takes effect from the next one", () => {
@@ -50,9 +50,9 @@ test("a listener added or removed during a notification takes effect from the ne
   };
   const stopOnce = subscribe(k, once);
   set(k, 1);
-  assert.equal(seen, ["once"], "the listener added mid-notification did not hear this one");
+  expect(seen, "the listener added mid-notification did not hear this one").toEqual(["once"]);
   set(k, 2);
-  assert.equal(seen, ["once", "late"], "the one-shot listener is gone and the late one hears");
+  expect(seen, "the one-shot listener is gone and the late one hears").toEqual(["once", "late"]);
 });
 
 test("a transaction collapses notifications to one per key, and a nested one defers to the outermost", () => {
@@ -68,26 +68,26 @@ test("a transaction collapses notifications to one per key, and a nested one def
       set(b, 1);
       set(a, 3);
     });
-    assert.equal(seen, [], "nothing fires before the outermost block ends");
-    assert.equal(get(a), 3, "reads inside see the writes");
+    expect(seen, "nothing fires before the outermost block ends").toEqual([]);
+    expect(get(a), "reads inside see the writes").toEqual(3);
   });
-  assert.equal(seen, ["a", "b"]);
-  assert.equal(get(a), 3);
+  expect(seen).toEqual(["a", "b"]);
+  expect(get(a)).toEqual(3);
 });
 
 test("a transaction that throws still fires what it dirtied and leaves the store out of it", () => {
   const k = fresh<number>();
   const seen: unknown[] = [];
   subscribe(k, (v) => seen.push(v));
-  assert.throws(() =>
+  expect(() =>
     transaction(() => {
       set(k, 5);
       throw new Error("halfway");
     }),
-  );
-  assert.equal(seen, [5]);
+  ).toThrow();
+  expect(seen).toEqual([5]);
   set(k, 6);
-  assert.equal(seen, [5, 6], "later writes notify at once again");
+  expect(seen, "later writes notify at once again").toEqual([5, 6]);
 });
 
 test("a derived key computes now and recomputes when a source changes, once per change", () => {
@@ -99,18 +99,18 @@ test("a derived key computes now and recomputes when a source changes, once per 
   const seen: unknown[] = [];
   subscribe(sum, (v) => seen.push(v));
   derive(sum, [a, b], (read) => (read(a) ?? 0) + (read(b) ?? 0));
-  assert.equal(get(sum), 3, "computed at registration");
-  assert.equal(seen, [3]);
+  expect(get(sum), "computed at registration").toEqual(3);
+  expect(seen).toEqual([3]);
   set(a, 10);
-  assert.equal(get(sum), 12);
+  expect(get(sum)).toEqual(12);
   set(b, 2);
-  assert.equal(seen, [3, 12], "a source written with its own value changes nothing");
+  expect(seen, "a source written with its own value changes nothing").toEqual([3, 12]);
   transaction(() => {
     set(a, 0);
     set(b, 0);
   });
-  assert.equal(get(sum), 0);
-  assert.equal(seen, [3, 12, 0], "two source writes in one transaction recompute once");
+  expect(get(sum)).toEqual(0);
+  expect(seen, "two source writes in one transaction recompute once").toEqual([3, 12, 0]);
 });
 
 test("a derived key feeds another derived key", () => {
@@ -120,9 +120,9 @@ test("a derived key feeds another derived key", () => {
   set(a, 2);
   derive(twice, [a], (read) => (read(a) ?? 0) * 2);
   derive(label, [twice], (read) => `x${read(twice)}`);
-  assert.equal(get(label), "x4");
+  expect(get(label)).toEqual("x4");
   set(a, 5);
-  assert.equal(get(label), "x10");
+  expect(get(label)).toEqual("x10");
 });
 
 test("optimistic shows the guess, keeps it on success and puts the key back on failure", async () => {
@@ -131,18 +131,18 @@ test("optimistic shows the guess, keeps it on success and puts the key back on f
   const seen: unknown[] = [];
   subscribe(k, (v) => seen.push(v));
   const result = await optimistic(k, 2, async () => "ok");
-  assert.equal(result, "ok");
-  assert.equal(get(k), 2, "a success leaves the guess for the revalidation to replace");
-  await assert.rejects(optimistic(k, 3, async () => Promise.reject(new Error("no"))));
-  assert.equal(get(k), 2, "a failure restores what the key held");
-  assert.equal(seen, [2, 3, 2]);
+  expect(result).toEqual("ok");
+  expect(get(k), "a success leaves the guess for the revalidation to replace").toEqual(2);
+  await expect(optimistic(k, 3, async () => Promise.reject(new Error("no")))).rejects.toThrow();
+  expect(get(k), "a failure restores what the key held").toEqual(2);
+  expect(seen).toEqual([2, 3, 2]);
 });
 
 test("optimistic on a key nothing set clears it again on failure", async () => {
   const k = fresh<number>();
-  await assert.rejects(optimistic(k, 7, async () => Promise.reject(new Error("no"))));
-  assert.equal(get(k), undefined);
-  assert.equal(k in snapshot(), false);
+  await expect(optimistic(k, 7, async () => Promise.reject(new Error("no")))).rejects.toThrow();
+  expect(get(k)).toBeUndefined();
+  expect(k in snapshot()).toEqual(false);
 });
 
 test("seed writes a whole map in one transaction and the server's value wins a local one", () => {
@@ -153,9 +153,9 @@ test("seed writes a whole map in one transaction and the server's value wins a l
   subscribe(b, () => seen.push("b"));
   set(a, 99);
   seed({ [a]: 1, [b]: "two" });
-  assert.equal(get(a), 1);
-  assert.equal(get(b), "two");
-  assert.equal(seen, ["a", "a", "b"]);
+  expect(get(a)).toEqual(1);
+  expect(get(b)).toEqual("two");
+  expect(seen).toEqual(["a", "a", "b"]);
   seed({ [a]: 1 });
-  assert.equal(seen, ["a", "a", "b"], "a seed equal to what is held notifies nobody");
+  expect(seen, "a seed equal to what is held notifies nobody").toEqual(["a", "a", "b"]);
 });

@@ -1,4 +1,4 @@
-import { assert, ctx, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
 
 const talks = [
   { id: "1", title: "A plan is not a program", track: "Runtime", room: "Hall B", starts: "09:30", ends: "10:10", speaker: "Ada Okonjo", level: "intro", abstract: "" },
@@ -23,19 +23,19 @@ const day = () =>
 
 test("the day is a row per talk under the masthead the layout loaded", async () => {
   await load("/", { ctx: day() });
-  assert.equal(document.querySelector(".masthead h1")?.textContent, "Everything At Once");
+  expect(document.querySelector(".masthead h1")?.textContent).toEqual("Everything At Once");
   const rows = Array.from(document.querySelectorAll(".talk-row"));
-  assert.equal(rows.length, 2, "one row per talk");
-  assert.equal(rows[0]?.querySelector(".talk-title")?.textContent, "A plan is not a program");
-  assert.equal(rows[1]?.querySelector(".room")?.textContent, "Room 2");
+  expect(rows.length, "one row per talk").toEqual(2);
+  expect(rows[0]?.querySelector(".talk-title")?.textContent).toEqual("A plan is not a program");
+  expect(rows[1]?.querySelector(".room")?.textContent).toEqual("Room 2");
 });
 
 test("one slot answers while the other is down and the page is whole either way", async () => {
   await load("/", { ctx: day() });
-  assert.ok(screen.getByText("Registration has moved to the west door."), "the announcements slot filled");
-  assert.ok(document.querySelector(".sponsors.panel-down"), "the sponsors slot fell back to its own error boundary");
-  assert.equal(document.querySelectorAll(".talk-row").length, 2, "and the page beside it is untouched");
-  assert.equal(document.querySelectorAll(".skeleton").length, 0, "both slots settled, so no fallback is left");
+  expect(screen.getByText("Registration has moved to the west door."), "the announcements slot filled").toBeTruthy();
+  expect(document.querySelector(".sponsors.panel-down"), "the sponsors slot fell back to its own error boundary").toBeTruthy();
+  expect(document.querySelectorAll(".talk-row").length, "and the page beside it is untouched").toEqual(2);
+  expect(document.querySelectorAll(".skeleton").length, "both slots settled, so no fallback is left").toEqual(0);
 });
 
 test("the track chips carry the query the loader reads back", async () => {
@@ -45,6 +45,6 @@ test("the track chips carry the query the loader reads back", async () => {
     },
   });
   await load("/?track=Data", { ctx: filtered });
-  assert.equal(document.querySelectorAll(".talk-row").length, 1);
-  assert.equal(document.querySelector(".chip-on")?.textContent, "Data");
+  expect(document.querySelectorAll(".talk-row").length).toEqual(1);
+  expect(document.querySelector(".chip-on")?.textContent).toEqual("Data");
 });

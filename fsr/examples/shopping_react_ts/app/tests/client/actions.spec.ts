@@ -1,5 +1,5 @@
 import { action, ActionFailure } from "@snapfire/fsr-client";
-import { assert, test } from "@snapfire/fsr-client/testing";
+import { expect, test } from "@snapfire/fsr-client/testing";
 
 test("an action the build did not lower fails with the kind and message the host answered", async () => {
   const call = action("cart.nothing", { revalidate: false });
@@ -9,7 +9,7 @@ test("an action the build did not lower fails with the kind and message the host
   } catch (e) {
     failure = e;
   }
-  assert.ok(failure instanceof ActionFailure, "an ActionFailure, not a parse error");
-  assert.equal((failure as ActionFailure).kind, "internal");
-  assert.ok((failure as ActionFailure).message.includes("not a lowered action"));
+  expect(failure instanceof ActionFailure, "an ActionFailure, not a parse error").toBeTruthy();
+  expect((failure as ActionFailure).kind).toEqual("internal");
+  expect((failure as ActionFailure).message.includes("not a lowered action")).toBeTruthy();
 });

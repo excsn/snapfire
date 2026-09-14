@@ -1,0 +1,44 @@
+export function sf() {
+    const s = globalThis.__sf;
+    if (!s) throw new Error("@snapfire/fsr-client/testing runs under `fsr test` only");
+    return s;
+}
+export function settle() {
+    return sf().idle();
+}
+export function advance(ms) {
+    return sf().advance(ms);
+}
+export class AssertionError extends Error {
+    constructor(message){
+        super(message);
+        this.name = "AssertionError";
+    }
+}
+export function show(value, depth = 0) {
+    if (typeof value === "bigint") return `${value}n`;
+    if (typeof value === "string") return JSON.stringify(value);
+    if (typeof value === "undefined") return "undefined";
+    if (typeof value === "symbol") return String(value);
+    if (typeof value === "function") {
+        const named = value;
+        return typeof named.getMockName === "function" ? named.getMockName() : `[Function ${named.name || "anonymous"}]`;
+    }
+    if (value === null || typeof value !== "object") return String(value);
+    if (typeof value.asymmetricMatch === "function") return String(value);
+    if (value instanceof RegExp) return String(value);
+    if (value instanceof Date) return `Date(${Number.isNaN(value.getTime()) ? "Invalid" : value.toISOString()})`;
+    if (value instanceof Error) return `${value.name}: ${value.message}`;
+    if (typeof value.nodeType === "number") {
+        const el = value;
+        return `<${el.nodeName.toLowerCase()}${el.id ? `#${el.id}` : ""}${typeof el.className === "string" && el.className ? `.${el.className.split(" ").join(".")}` : ""}>`;
+    }
+    if (depth > 6) return "…";
+    if (Array.isArray(value)) return `[${value.map((v)=>show(v, depth + 1)).join(", ")}]`;
+    if (value instanceof Map) return `Map { ${Array.from(value.entries()).map(([k, v])=>`${show(k, depth + 1)} => ${show(v, depth + 1)}`).join(", ")} }`;
+    if (value instanceof Set) return `Set { ${Array.from(value.values()).map((v)=>show(v, depth + 1)).join(", ")} }`;
+    if (value instanceof Uint8Array) return `Uint8Array(${value.length})`;
+    const entries = Object.entries(value).map(([k, v])=>`${JSON.stringify(k)}: ${show(v, depth + 1)}`);
+    return entries.length === 0 ? "{}" : `{ ${entries.join(", ")} }`;
+}
+//# sourceMappingURL=harness.js.map

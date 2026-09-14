@@ -165,6 +165,14 @@ globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEv
 globalThis.getComputedStyle = (el) => el.style ?? {};
 globalThis.scrollTo = () => {};
 
+/** The URL each `URLSearchParams` is the query of, which a change to the params writes back to, as a browser's `url.searchParams` does. */
+const searchOwners = new WeakMap();
+
+function touched(params) {
+  const url = searchOwners.get(params);
+  if (url) url.query = params.list.length > 0 ? `?${params}` : "";
+}
+
 class URLSearchParams {
   constructor(init = "") {
     this.list = [];
@@ -186,9 +194,11 @@ class URLSearchParams {
   }
   append(k, v) {
     this.list.push([String(k), String(v)]);
+    touched(this);
   }
   delete(k) {
     this.list = this.list.filter(([n]) => n !== k);
+    touched(this);
   }
   get(k) {
     const hit = this.list.find(([n]) => n === k);
@@ -207,9 +217,11 @@ class URLSearchParams {
       this.list[i] = [String(k), String(v)];
       this.list = this.list.filter(([n], j) => n !== k || j === i);
     }
+    touched(this);
   }
   sort() {
     this.list.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    touched(this);
   }
   forEach(fn, self) {
     for (const [k, v] of this.list) fn.call(self, v, k, this);
@@ -268,9 +280,18 @@ class URL {
     if (!pathname.startsWith("/")) pathname = `/${pathname}`;
     if ((m[5] || "/").endsWith("/") && !pathname.endsWith("/")) pathname += "/";
     this.pathname = pathname;
-    this.search = m[6] && m[6] !== "?" ? m[6] : "";
+    this.query = m[6] && m[6] !== "?" ? m[6] : "";
     this.hash = m[7] && m[7] !== "#" ? m[7] : "";
-    this.searchParams = new URLSearchParams(this.search);
+    this.searchParams = new URLSearchParams(this.query);
+    searchOwners.set(this.searchParams, this);
+  }
+  get search() {
+    return this.query;
+  }
+  set search(value) {
+    const text = String(value).replace(/^\?/, "");
+    this.query = text ? `?${text}` : "";
+    this.searchParams.list = new URLSearchParams(text).list;
   }
   get host() {
     return this.port ? `${this.hostname}:${this.port}` : this.hostname;

@@ -1,4 +1,4 @@
-import { assert, ctx, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
 
 const soup = {
   id: "1",
@@ -20,25 +20,25 @@ const kitchen = (planned: Record<string, boolean> = {}) =>
 
 test("a recipe page is the recipe under its own layout under the masthead", async () => {
   await load("/recipe/1", { ctx: kitchen() });
-  assert.equal(document.querySelector(".recipe h2")?.textContent, "Leek and potato soup");
-  assert.ok(document.querySelector(".crumbs"), "the recipe layout is between the masthead and the page");
-  assert.ok(screen.getByText("Soften the leeks."));
-  assert.equal(document.title, "Leek and potato soup · The Sunday Box", "the title came from the loader's data");
+  expect(document.querySelector(".recipe h2")?.textContent).toEqual("Leek and potato soup");
+  expect(document.querySelector(".crumbs"), "the recipe layout is between the masthead and the page").toBeTruthy();
+  expect(screen.getByText("Soften the leeks.")).toBeTruthy();
+  expect(document.title, "the title came from the loader's data").toEqual("Leek and potato soup · The Sunday Box");
 });
 
 test("an id the box does not hold renders the segment's own boundary", async () => {
   await load("/recipe/99", { ctx: kitchen() });
-  assert.ok(screen.getByText("Not in the box"));
-  assert.equal(document.querySelector(".masthead h1")?.textContent, "The Sunday Box", "the layout above it still rendered");
+  expect(screen.getByText("Not in the box")).toBeTruthy();
+  expect(document.querySelector(".masthead h1")?.textContent, "the layout above it still rendered").toEqual("The Sunday Box");
 });
 
 test("a Vue island is placed empty by the server and carries its props for the mount", async () => {
   await load("/recipe/1", { ctx: kitchen({ "1": true }) });
   const islands = Array.from(document.querySelectorAll(".recipe sf-i[data-sf-module$='.vue#default']"));
-  assert.equal(islands.length, 2, "the plan control and the scaler; the masthead's is the layout's");
+  expect(islands.length, "the plan control and the scaler; the masthead's is the layout's").toEqual(2);
   const plan = islands.find((el) => el.getAttribute("data-sf-module")?.endsWith("PlanRecipe.vue#default"));
-  assert.ok(plan, "the plan control is a Vue island");
+  expect(plan, "the plan control is a Vue island").toBeTruthy();
   const props = JSON.parse(document.querySelector(`script[data-sf-props="${plan?.id}"]`)?.textContent ?? "{}");
-  assert.equal(props.id, "1");
-  assert.equal(props.planned, true);
+  expect(props.id).toEqual("1");
+  expect(props.planned).toEqual(true);
 });

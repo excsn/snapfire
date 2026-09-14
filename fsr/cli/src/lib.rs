@@ -754,6 +754,15 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
     components.push(ComponentEntry { module, body: component });
   }
+  // A component a page places as an island is mounted because the page asked
+  // for it, whatever its own markup would need.
+  let placed: Vec<String> = components.iter().flat_map(|entry| island_modules(&entry.body.render)).map(|(module, _)| module).collect();
+  static_modules.retain(|module| !placed.contains(module));
+  for (module, _, detail) in &mut report.components {
+    if placed.contains(module) {
+      detail.clear();
+    }
+  }
   report.components.sort();
   let layout = crate::xwpm::Layout::of(app)?;
   let shim = types::foreign_shim(app, &set.foreign);
@@ -1055,6 +1064,155 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String,
   out
 }
 
+/// What a body test declares its tests, hooks, mock functions and expectations with.
+const TESTING_DECLARATIONS: &str = r#"/** A test's or a hook's body. */
+export type Body = () => Promise<void> | void;
+
+type Named = (name: string, body?: Body, timeout?: number) => void;
+
+type Rows = {
+  (table: readonly unknown[]): (name: string, body: (...args: any[]) => Promise<void> | void) => void;
+  (strings: TemplateStringsArray, ...values: unknown[]): (name: string, body: (row: any) => Promise<void> | void) => void;
+};
+
+export type TestApi = Named & { only: Named & { each: Rows }; skip: Named & { each: Rows }; todo(name: string): void; each: Rows; concurrent: Named };
+
+type Group = (name: string, body: () => void) => void;
+
+type GroupRows = {
+  (table: readonly unknown[]): (name: string, body: (...args: any[]) => void) => void;
+  (strings: TemplateStringsArray, ...values: unknown[]): (name: string, body: (row: any) => void) => void;
+};
+
+export type DescribeApi = Group & { only: Group & { each: GroupRows }; skip: Group & { each: GroupRows }; each: GroupRows };
+
+export const test: TestApi = lowered as unknown as TestApi;
+export const it: TestApi = test;
+export const xit: Named = test;
+export const xtest: Named = test;
+export const fit: Named = test;
+export const describe: DescribeApi = lowered as unknown as DescribeApi;
+export const xdescribe: Group = describe;
+export const fdescribe: Group = describe;
+
+export function beforeAll(body: Body): void {
+  void body;
+  lowered();
+}
+
+export function afterAll(body: Body): void {
+  void body;
+  lowered();
+}
+
+export function beforeEach(body: Body): void {
+  void body;
+  lowered();
+}
+
+export function afterEach(body: Body): void {
+  void body;
+  lowered();
+}
+
+/** A function that records its calls and answers what it is told, for a ctx's services to name. */
+export interface MockFunction<A extends unknown[] = any[], R = any> {
+  (...args: A): R;
+  mockReturnValue(value: unknown): this;
+  mockReturnValueOnce(value: unknown): this;
+  mockResolvedValue(value: unknown): this;
+  mockResolvedValueOnce(value: unknown): this;
+  mockRejectedValue(error: unknown): this;
+  mockRejectedValueOnce(error: unknown): this;
+  mockImplementation(impl: (...args: A) => R): this;
+  mockImplementationOnce(impl: (...args: A) => R): this;
+  mockClear(): this;
+  mockReset(): this;
+}
+
+export function fn<A extends unknown[] = any[], R = any>(impl?: (...args: A) => R): MockFunction<A, R> {
+  void impl;
+  return lowered();
+}
+
+export const vi = { fn, clearAllMocks: (): void => lowered(), resetAllMocks: (): void => lowered(), restoreAllMocks: (): void => lowered() };
+export const jest = vi;
+
+export interface Matchers<R> {
+  toBe(expected: unknown): R;
+  toEqual(expected: unknown): R;
+  toStrictEqual(expected: unknown): R;
+  toBeTruthy(): R;
+  toBeFalsy(): R;
+  toBeNull(): R;
+  toBeUndefined(): R;
+  toBeDefined(): R;
+  toBeNaN(): R;
+  toBeGreaterThan(n: number | bigint): R;
+  toBeGreaterThanOrEqual(n: number | bigint): R;
+  toBeLessThan(n: number | bigint): R;
+  toBeLessThanOrEqual(n: number | bigint): R;
+  toBeCloseTo(n: number, digits?: number): R;
+  toContain(item: unknown): R;
+  toContainEqual(item: unknown): R;
+  toHaveLength(length: number): R;
+  toHaveProperty(path: string | (string | number)[], value?: unknown): R;
+  toMatch(pattern: string | RegExp): R;
+  toMatchObject(expected: object): R;
+  toBeTypeOf(type: "string" | "number" | "bigint" | "boolean" | "object"): R;
+  toBeOneOf(options: readonly unknown[]): R;
+  toThrow(expected?: string | RegExp): R;
+  toThrowError(expected?: string | RegExp): R;
+  toHaveBeenCalled(): R;
+  toHaveBeenCalledOnce(): R;
+  toHaveBeenCalledTimes(times: number): R;
+  toHaveBeenCalledWith(...args: unknown[]): R;
+  toHaveBeenCalledExactlyOnceWith(...args: unknown[]): R;
+  toHaveBeenLastCalledWith(...args: unknown[]): R;
+  toHaveBeenNthCalledWith(n: number, ...args: unknown[]): R;
+  toHaveReturned(): R;
+  toHaveReturnedTimes(times: number): R;
+  toHaveReturnedWith(value: unknown): R;
+  toHaveLastReturnedWith(value: unknown): R;
+  toBeCalled(): R;
+  toBeCalledTimes(times: number): R;
+  toBeCalledWith(...args: unknown[]): R;
+  lastCalledWith(...args: unknown[]): R;
+  nthCalledWith(n: number, ...args: unknown[]): R;
+  toReturn(): R;
+  toReturnTimes(times: number): R;
+  toReturnWith(value: unknown): R;
+  lastReturnedWith(value: unknown): R;
+}
+
+export interface Assertion extends Matchers<void> {
+  not: Matchers<void>;
+  resolves: Matchers<Promise<void>> & { not: Matchers<Promise<void>> };
+  rejects: Matchers<Promise<void>> & { not: Matchers<Promise<void>> };
+}
+
+export interface Expect {
+  /** `message` leads the report when the expectation fails. */
+  (value: unknown, message?: string): Assertion;
+  any(type: unknown): any;
+  anything(): any;
+  objectContaining(value: object): any;
+  arrayContaining(value: readonly unknown[]): any;
+  stringContaining(value: string): any;
+  stringMatching(value: string | RegExp): any;
+  closeTo(value: number, digits?: number): any;
+  not: {
+    objectContaining(value: object): any;
+    arrayContaining(value: readonly unknown[]): any;
+    stringContaining(value: string): any;
+    stringMatching(value: string | RegExp): any;
+  };
+}
+
+export const expect: Expect = lowered as unknown as Expect;
+
+"#;
+
 /// `generated/testing.ts`: what a `*.test.ts` imports from `@snapfire/fsr/testing`.
 /// The bodies throw because `fsr test` lowers the file rather than running it;
 /// the types are the point.
@@ -1067,8 +1225,8 @@ fn testing_module() -> String {
   out.push_str("export type TestCtx<Input = void, P extends keyof Routes = keyof Routes> = ActionCtx<Input, P> & { trace: Trace; request: RequestLine };\n\n");
   out.push_str("const lowered = (): never => {\n  throw new Error(\"a test file is lowered by `fsr test`, never run as JavaScript\");\n};\n\n");
   out.push_str("export function ctx<Input = void, P extends keyof Routes = keyof Routes>(mock: Mock<Input>): TestCtx<Input, P> {\n  void mock;\n  return lowered();\n}\n\n");
-  out.push_str("export function test(name: string, body: () => Promise<void>): void {\n  void name;\n  void body;\n  lowered();\n}\n\n");
-  out.push_str("export const assert = {\n  ok(value: unknown, message?: string): void {\n    void value;\n    void message;\n    lowered();\n  },\n  equal(actual: unknown, expected: unknown, message?: string): void {\n    void actual;\n    void expected;\n    void message;\n    lowered();\n  },\n  rejects(run: Promise<unknown> | (() => Promise<unknown>), kind?: string): Promise<void> {\n    void run;\n    void kind;\n    return lowered();\n  },\n};\n");
+  out.push_str(TESTING_DECLARATIONS);
+  out.push_str("export const assert = {\n  ok(value: unknown, message?: string): void {\n    void value;\n    void message;\n    lowered();\n  },\n  equal(actual: unknown, expected: unknown, message?: string): void {\n    void actual;\n    void expected;\n    void message;\n    lowered();\n  },\n  match(actual: unknown, pattern: string | RegExp, message?: string): void {\n    void actual;\n    void pattern;\n    void message;\n    lowered();\n  },\n  rejects(run: Promise<unknown> | (() => Promise<unknown>), kind?: string): Promise<void> {\n    void run;\n    void kind;\n    return lowered();\n  },\n  throws(run: Promise<unknown> | (() => Promise<unknown>), kind?: string): Promise<void> {\n    void run;\n    void kind;\n    return lowered();\n  },\n};\n");
   out
 }
 

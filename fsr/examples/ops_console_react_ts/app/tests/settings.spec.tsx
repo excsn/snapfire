@@ -1,5 +1,5 @@
 import { get } from "@snapfire/fsr-client";
-import { assert, ctx, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
 
 import { density, watching } from "@src/store";
 
@@ -13,17 +13,17 @@ test("the gear opens settings in the root layout's drawer, and a document load i
   const c = ctx({ session: { watching: { "1": true }, density: "comfortable" }, services: services() });
   await load("/agents", { ctx: c });
   const drawer = document.querySelector('sf-s[data-sf-name="drawer"]')!;
-  assert.ok(drawer.querySelector(".drawer-hint"));
+  expect(drawer.querySelector(".drawer-hint")).toBeTruthy();
 
   await fireEvent.click(screen.getByLabelText("Settings"));
-  assert.equal(location.pathname, "/settings");
-  assert.ok(drawer.querySelector('sf-i[data-sf-module="routes/settings/page.drawer.tsx#default"][data-sf-mounted]'), "the drawer variant hydrated in the root layout's slot");
-  assert.ok(drawer.querySelector(".watch-list .agent-name")?.textContent === "builder-eu-1", "listing what the session watches");
-  assert.ok(document.querySelector('sf-i[data-sf-module="routes/agents/layout.tsx#default"]'), "the agents page stayed under it");
+  expect(location.pathname).toEqual("/settings");
+  expect(drawer.querySelector('sf-i[data-sf-module="routes/settings/page.drawer.tsx#default"][data-sf-mounted]'), "the drawer variant hydrated in the root layout's slot").toBeTruthy();
+  expect(drawer.querySelector(".watch-list .agent-name")?.textContent, "listing what the session watches").toBe("builder-eu-1");
+  expect(document.querySelector('sf-i[data-sf-module="routes/agents/layout.tsx#default"]'), "the agents page stayed under it").toBeTruthy();
 
   await load("/settings", { ctx: c });
-  assert.equal(document.querySelector('sf-s[data-sf-name="drawer"]')!.querySelector(".drawer"), null, "the drawer slot holds only its fallback");
-  assert.ok(document.querySelector('sf-i[data-sf-module="routes/settings/page.tsx#default"][data-sf-mounted]'));
+  expect(document.querySelector('sf-s[data-sf-name="drawer"]')!.querySelector(".drawer"), "the drawer slot holds only its fallback").toBeNull();
+  expect(document.querySelector('sf-i[data-sf-module="routes/settings/page.tsx#default"][data-sf-mounted]')).toBeTruthy();
   await settle();
 });
 
@@ -31,27 +31,27 @@ test("density is written optimistically from the drawer, read by the list in ano
   const c = ctx({ session: { watching: {}, density: "comfortable" }, services: services() });
   await load("/agents", { ctx: c });
   await fireEvent.click(screen.getByLabelText("Settings"));
-  assert.equal(get(density), "comfortable");
-  assert.equal(document.querySelector(".agent-rows-compact"), null);
+  expect(get(density)).toEqual("comfortable");
+  expect(document.querySelector(".agent-rows-compact")).toBeNull();
 
   await fireEvent.click(screen.getByText("Compact"));
-  assert.equal(get(density), "compact", "written before the action answered");
-  assert.ok(document.querySelector(".agent-rows-compact"), "the list, in the agents layout's root, went compact");
+  expect(get(density), "written before the action answered").toEqual("compact");
+  expect(document.querySelector(".agent-rows-compact"), "the list, in the agents layout's root, went compact").toBeTruthy();
   await settle();
-  assert.equal(c.session.density, "compact", "the action held it in the session");
-  assert.equal(get(density), "compact", "and the revalidation seeded the same value back");
-  assert.ok(document.querySelector(".agent-rows-compact"));
+  expect(c.session.density, "the action held it in the session").toEqual("compact");
+  expect(get(density), "and the revalidation seeded the same value back").toEqual("compact");
+  expect(document.querySelector(".agent-rows-compact")).toBeTruthy();
   await settle();
 });
 
 test("unwatching from the drawer moves the header count before the server answers", async () => {
   const c = ctx({ session: { watching: { "1": true }, density: "comfortable" }, services: services() });
   await load("/settings", { ctx: c });
-  assert.equal(get(watching), 1);
+  expect(get(watching)).toEqual(1);
   await fireEvent.click(screen.getByText("unwatch"));
-  assert.equal(get(watching), 0);
+  expect(get(watching)).toEqual(0);
   await settle();
-  assert.equal(c.session.watching, {});
-  assert.ok(screen.getByLabelText("watching 0 agents"));
+  expect(c.session.watching).toEqual({});
+  expect(screen.getByLabelText("watching 0 agents")).toBeTruthy();
   await settle();
 });

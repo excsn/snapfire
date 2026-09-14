@@ -95,6 +95,23 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
 }
 
 #[test]
+fn a_page_with_a_handler_hydrates_and_a_component_placed_as_an_island_is_registered_whatever_it_holds() {
+  let dir = app(&[
+    (
+      "routes/index/page.tsx",
+      "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Tips } from \"../../src/ui/Tips\";\nexport default function Page() {\n  async function go(): Promise<void> {}\n  return <div><button onClick={() => void go()}>go</button><Island when=\"idle\"><Tips /></Island></div>;\n}\n",
+    ),
+    ("src/ui/Tips.tsx", "export function Tips() {\n  return <details><summary>tips</summary></details>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("registerIsland(\"routes/index/page.tsx#default\""), "a handler the lowerer cannot lower is still the browser's to run: {islands}");
+  assert!(islands.contains("registerIsland(\"src/ui/Tips.tsx#Tips\""), "the page placed it as an island, so it mounts though it holds nothing: {islands}");
+  assert!(!built.report.components.iter().any(|(module, _, detail)| (module == "routes/index/page.tsx#default" || module == "src/ui/Tips.tsx#Tips") && detail == "static"), "{}", built.report);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn slots_and_variants_out_of_place_are_refused() {
   let stray = app(&[("routes/index/page.tsx", PAGE), ("routes/slots/feed/page.tsx", PAGE)]);
   assert!(matches!(fails(&stray), BuildError::SlotsWithoutLayout(_)));

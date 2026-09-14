@@ -1,5 +1,5 @@
 import { get } from "@snapfire/fsr-client";
-import { assert, ctx, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
 
 import { headline, openAlerts, region, selected, watching } from "@src/store";
 
@@ -14,19 +14,19 @@ const alerts = [
 const jobs = [{ id: 11n, name: "compile", seconds: 92n }];
 
 function services() {
-  return { fleet: { listAgents: () => agents, getAgent: () => agents[0], listJobs: () => jobs, listAlerts: () => alerts, acknowledgeAlert: () => [alerts[1]] } };
+  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, listJobs: () => jobs, listAlerts: () => alerts, acknowledgeAlert: () => [alerts[1]] } };
 }
 
 test("two layouts seed the store, the inner one wins the region, and the derived headline follows both", async () => {
   const c = ctx({ session: { watching: { "1": true } }, services: services() });
   await load("/agents?region=eu", { ctx: c });
 
-  assert.equal(get(openAlerts), 2);
-  assert.equal(get(watching), 1);
-  assert.equal(get(region), "eu", "the agents layout's seed replaced the root layout's `all`");
-  assert.equal(get(headline), "2 to look at, watching 1", "seeded by the server; the browser derives it again from src/main.ts, which the runner does not load");
-  assert.ok(screen.getByLabelText("2 open alerts"));
-  assert.ok(screen.getByText("2 to look at, watching 1"));
+  expect(get(openAlerts)).toEqual(2);
+  expect(get(watching)).toEqual(1);
+  expect(get(region), "the agents layout's seed replaced the root layout's `all`").toEqual("eu");
+  expect(get(headline), "seeded by the server; the browser derives it again from src/main.ts, which the runner does not load").toEqual("2 to look at, watching 1");
+  expect(screen.getByLabelText("2 open alerts")).toBeTruthy();
+  expect(screen.getByText("2 to look at, watching 1")).toBeTruthy();
   await settle();
 });
 
@@ -34,12 +34,12 @@ test("a key nothing seeds is written by the list and read by the header in anoth
   const c = ctx({ session: { watching: {} }, services: services() });
   await load("/agents", { ctx: c });
 
-  assert.equal(get(selected), undefined);
-  assert.equal(document.querySelectorAll(".pill-selected").length, 0);
+  expect(get(selected)).toEqual(undefined);
+  expect(document.querySelectorAll(".pill-selected").length).toEqual(0);
   await fireEvent.click(screen.getByText("builder-us-1"));
-  assert.equal(get(selected), "3");
-  assert.ok(screen.getByText("#3"), "the header's pill appeared");
-  assert.equal(document.querySelectorAll(".agent-row-on").length, 1, "and the list marked the row");
+  expect(get(selected)).toEqual("3");
+  expect(screen.getByText("#3"), "the header's pill appeared").toBeTruthy();
+  expect(document.querySelectorAll(".agent-row-on").length, "and the list marked the row").toEqual(1);
   await settle();
 });
 
@@ -47,12 +47,12 @@ test("watching an agent is optimistic in the header and the revalidation keeps i
   const c = ctx({ session: { watching: {} }, services: services() });
   await load("/agents", { ctx: c });
 
-  assert.ok(screen.getByLabelText("watching 0 agents"));
+  expect(screen.getByLabelText("watching 0 agents")).toBeTruthy();
   await fireEvent.click(screen.getAllByText("watch")[0]);
-  assert.equal(get(watching), 1, "written before the action answered");
+  expect(get(watching), "written before the action answered").toEqual(1);
   await settle();
-  assert.equal(c.session.watching, { "1": true });
-  assert.ok(screen.getByLabelText("watching 1 agents"));
-  assert.equal(get(headline), "2 to look at, watching 1");
+  expect(c.session.watching).toEqual({ "1": true });
+  expect(screen.getByLabelText("watching 1 agents")).toBeTruthy();
+  expect(get(headline)).toEqual("2 to look at, watching 1");
   await settle();
 });

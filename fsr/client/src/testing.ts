@@ -1,34 +1,25 @@
-import type { ReactElement } from "react";
+import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
 import { boot, registeredIslands } from "./boot.js";
+import { advance, AssertionError, settle, sf, show } from "./harness.js";
+import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
+import { prettyDOM, waitFor, within, type BoundQueries, type WaitForOptions } from "./queries.js";
 import type { Hoisted } from "./react.js";
 import { reset, seed } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 export { f64 } from "./values.js";
 export type { DoubleValue } from "./values.js";
-
-/** What `fsr test` installs before a spec file loads. */
-interface Sf {
-  ctx(spec: string): number;
-  use(id: number): void;
-  session(id: number): string;
-  locale(id: number): string;
-  calls(id: number): string;
-  render(module: string, props: string): string | null;
-  load(html: string, url: string): void;
-  idle(): Promise<void>;
-  advance(ms: number): Promise<void>;
-}
-
-function sf(): Sf {
-  const s = (globalThis as { __sf?: Sf }).__sf;
-  if (!s) throw new Error("@snapfire/fsr-client/testing runs under `fsr test` only");
-  return s;
-}
+export { advance, AssertionError, settle, show } from "./harness.js";
+export { clearAllMocks, expect, fn, isMockFunction, resetAllMocks, restoreAllMocks, spyOn } from "./expect.js";
+export type { Assertion, AsymmetricMatcher, Expect, MatcherFunction, MatcherResult, MatcherState, Matchers, MockInstance, MockResult, MockState } from "./expect.js";
+export { configure, getDefaultNormalizer, logRoles, prettyDOM, screen, TestingLibraryElementError, waitFor, waitForElementToBeRemoved, within } from "./queries.js";
+export type { BoundQueries, ByRoleOptions, Matcher, MatcherOptions, Screen, SelectorMatcherOptions, WaitForOptions } from "./queries.js";
+export { createEvent, fireEvent, userEvent } from "./events.js";
+export type { EventInit, FireEvent, UserEvent, UserOptions } from "./events.js";
 
 type Method = (args: never) => unknown;
 
@@ -85,10 +76,10 @@ export function ctx(mock: Mock = {}): TestCtx {
   };
   const id = sf().ctx(JSON.stringify(spec));
   for (const [service, table] of Object.entries(mock.services ?? {})) {
-    for (const [method, fn] of Object.entries(table)) mocks.set(`${id}:${service}.${method}`, fn);
+    for (const [method, answer] of Object.entries(table)) mocks.set(`${id}:${service}.${method}`, answer);
   }
   for (const [module, table] of Object.entries(mock.native ?? {})) {
-    for (const [method, fn] of Object.entries(table)) mocks.set(`${id}:native:${module}.${method}`, fn);
+    for (const [method, answer] of Object.entries(table)) mocks.set(`${id}:native:${module}.${method}`, answer);
   }
   return {
     id,
@@ -102,73 +93,395 @@ export function ctx(mock: Mock = {}): TestCtx {
   };
 }
 
-/** Called by the runner when a body under test reaches a mocked service method. Answers synchronously: a mock is a function of its arguments. */
+/** Called by the runner when a body under test reaches a mocked service method. Answers synchronously: a mock is a function of its arguments or a mock function answering through `mockResolvedValue` or `mockRejectedValue`. */
 function callMock(key: string, args: string): string {
-  const fn = mocks.get(key);
-  if (!fn) {
+  const answer = mocks.get(key);
+  if (!answer) {
     console.error(`no mock for ${key}`);
     throw new Error(`no mock for ${key}`);
   }
-  const result = fn(decodeValue(JSON.parse(args)) as never);
+  const result = answer(decodeValue(JSON.parse(args)) as never);
   if (result !== null && typeof result === "object" && typeof (result as { then?: unknown }).then === "function") {
-    throw new Error(`the mock for ${key} returned a promise; a mock answers synchronously`);
+    const settled = (result as { [SETTLED]?: { ok: boolean; value: unknown } })[SETTLED];
+    if (!settled) throw new Error(`the mock for ${key} returned a promise; a mock answers synchronously or through a mock function's mockResolvedValue`);
+    if (!settled.ok) throw settled.value;
+    return JSON.stringify(encodeValue(settled.value as SfValue));
   }
   return JSON.stringify(encodeValue(result as SfValue));
 }
 
-interface Case {
-  name: string;
-  body: () => Promise<void> | void;
+// ---- the runner ----
+
+type Mode = "run" | "skip" | "only" | "todo";
+
+/** A test's or a hook's body: a function that may be async or may take a `done` callback. */
+export type TestBody = (done: DoneCallback) => unknown;
+
+export interface DoneCallback {
+  (error?: unknown): void;
+  fail(error?: unknown): void;
 }
 
-const cases: Case[] = [];
+interface Block {
+  name: string;
+  parent: Block | null;
+  mode: Mode;
+  beforeAll: TestBody[];
+  afterAll: TestBody[];
+  beforeEach: TestBody[];
+  afterEach: TestBody[];
+  entered: boolean;
+  failure: { error: unknown } | null;
+}
 
-export function test(name: string, body: () => Promise<void> | void): void {
-  cases.push({ name, body });
+interface Case {
+  name: string;
+  block: Block;
+  body: TestBody | null;
+  mode: Mode;
+}
+
+function block(name: string, parent: Block | null, mode: Mode): Block {
+  return { name, parent, mode, beforeAll: [], afterAll: [], beforeEach: [], afterEach: [], entered: false, failure: null };
+}
+
+const root = block("", null, "run");
+let current = root;
+const cases: Case[] = [];
+const entered: Block[] = [];
+
+function chain(from: Block): Block[] {
+  const out: Block[] = [];
+  for (let at: Block | null = from; at; at = at.parent) out.unshift(at);
+  return out;
+}
+
+function fullName(c: Case): string {
+  return [...chain(c.block).slice(1).map((b) => b.name), c.name].join(" > ");
+}
+
+function anyOnly(): boolean {
+  return cases.some((c) => c.mode === "only" || chain(c.block).some((b) => b.mode === "only"));
+}
+
+function modeOf(c: Case, only: boolean): "run" | "skip" | "todo" {
+  if (c.mode === "todo") return "todo";
+  const blocks = chain(c.block);
+  if (c.mode === "skip" || blocks.some((b) => b.mode === "skip")) return "skip";
+  if (only && c.mode !== "only" && !blocks.some((b) => b.mode === "only")) return "skip";
+  return "run";
+}
+
+function invoke(body: TestBody): Promise<unknown> {
+  if (body.length > 0) {
+    return new Promise((resolve, reject) => {
+      const done = ((error?: unknown) => (error === undefined || error === null ? resolve(undefined) : reject(error))) as DoneCallback;
+      done.fail = (error?: unknown) => reject(error ?? new Error("done.fail()"));
+      try {
+        (body as (done: DoneCallback) => unknown)(done);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  return Promise.resolve().then(() => (body as () => unknown)());
+}
+
+async function runCase(c: Case): Promise<void> {
+  const blocks = chain(c.block);
+  for (const b of blocks) {
+    if (b.entered) continue;
+    b.entered = true;
+    entered.push(b);
+    try {
+      for (const hook of b.beforeAll) await invoke(hook);
+    } catch (error) {
+      b.failure = { error };
+    }
+  }
+  const failed = blocks.find((b) => b.failure);
+  if (failed?.failure) throw failed.failure.error;
+  resetAssertions();
+  let failure: { error: unknown } | null = null;
+  try {
+    for (const b of blocks) for (const hook of b.beforeEach) await invoke(hook);
+    if (c.body) await invoke(c.body);
+    verifyAssertions();
+  } catch (error) {
+    failure = { error };
+  }
+  for (const b of [...blocks].reverse()) {
+    for (const hook of b.afterEach) {
+      try {
+        await invoke(hook);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  }
+  if (failure) throw failure.error;
+}
+
+/** Runs the `afterAll` hooks of every block a test entered, innermost first, after the file's last test. */
+async function finish(): Promise<void> {
+  const failures: string[] = [];
+  for (const b of [...entered].reverse()) {
+    for (const hook of b.afterAll) {
+      try {
+        await invoke(hook);
+      } catch (error) {
+        failures.push(`${b.name || "the file"}: ${error instanceof Error ? error.message : show(error)}`);
+      }
+    }
+  }
+  if (failures.length > 0) throw new AssertionError(`afterAll failed\n${failures.join("\n")}`);
 }
 
 Object.assign(globalThis, {
   __sf_call: callMock,
-  __sf_tests: () => cases.map((c) => c.name),
+  __sf_tests: () => cases.map(fullName),
+  __sf_modes: () => {
+    const only = anyOnly();
+    return cases.map((c) => modeOf(c, only));
+  },
   __sf_run: (i: number) => {
-    const run = Promise.resolve().then(() => cases[i].body());
+    const run = runCase(cases[i]);
+    run.catch(() => {});
+    return run;
+  },
+  __sf_finish: () => {
+    const run = finish();
     run.catch(() => {});
     return run;
   },
 });
 
-export class AssertionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AssertionError";
+/** The rows of an `each` table as the arguments each case is called with: an array row is spread, any other row is the one argument and a template table's rows are objects keyed by its heading. */
+function rowsOf(table: unknown, values: unknown[]): unknown[][] {
+  if (Array.isArray(table) && Object.prototype.hasOwnProperty.call(table, "raw")) {
+    const headings = String(table[0]).split("|").map((h) => h.trim()).filter(Boolean);
+    const rows: unknown[][] = [];
+    for (let i = 0; i < values.length; i += headings.length) {
+      const row: Record<string, unknown> = {};
+      headings.forEach((heading, j) => (row[heading] = values[i + j]));
+      rows.push([row]);
+    }
+    return rows;
   }
+  if (!Array.isArray(table)) throw new Error("each takes an array of rows or a template table");
+  return table.map((row) => (Array.isArray(row) ? row : [row]));
 }
 
-/** Values the way a test reads them: `1n` and `1` stay distinct, strings are quoted. */
-export function show(value: unknown, depth = 0): string {
-  if (typeof value === "bigint") return `${value}n`;
-  if (typeof value === "string") return JSON.stringify(value);
-  if (value === null || typeof value !== "object") return String(value);
-  if (typeof (value as { nodeType?: unknown }).nodeType === "number") {
-    const el = value as { nodeName: string; id?: string; className?: unknown };
-    return `<${el.nodeName.toLowerCase()}${el.id ? `#${el.id}` : ""}${typeof el.className === "string" && el.className ? `.${el.className.split(" ").join(".")}` : ""}>`;
+/** An `each` case's name: printf placeholders take the arguments in order, `%#` is the row's index, `%$` its number and `$name` a field of an object row. */
+function titled(name: string, args: unknown[], index: number): string {
+  let next = 0;
+  let out = name.replace(/%([sdifjoOp#$%])/g, (whole, flag: string) => {
+    if (flag === "%") return "%";
+    if (flag === "#") return String(index);
+    if (flag === "$") return String(index + 1);
+    if (next >= args.length) return whole;
+    const value = args[next++];
+    switch (flag) {
+      case "s":
+        return typeof value === "string" ? value : show(value);
+      case "d":
+      case "i":
+        return typeof value === "bigint" ? String(value) : String(Math.trunc(Number(value)));
+      case "f":
+        return String(Number(value));
+      case "j":
+        return JSON.stringify(value);
+      default:
+        return show(value);
+    }
+  });
+  const row = args.length === 1 && typeof args[0] === "object" && args[0] !== null ? args[0] : null;
+  if (row) {
+    out = out.replace(/\$([A-Za-z_][\w.]*)/g, (whole, path: string) => {
+      let at: unknown = row;
+      for (const key of path.split(".")) {
+        if (at === null || typeof at !== "object" || !(key in (at as object))) return whole;
+        at = (at as Record<string, unknown>)[key];
+      }
+      return typeof at === "string" ? at : show(at);
+    });
   }
-  if (depth > 6) return "…";
-  if (Array.isArray(value)) return `[${value.map((v) => show(v, depth + 1)).join(", ")}]`;
-  if (value instanceof Uint8Array) return `Uint8Array(${value.length})`;
-  const entries = Object.entries(value as Record<string, unknown>).map(([k, v]) => `${JSON.stringify(k)}: ${show(v, depth + 1)}`);
-  return `{ ${entries.join(", ")} }`;
+  return out;
 }
 
-/** Whether one side is a bigint and the other a whole number saying the same thing: an integer field reads back as a bigint and a test writes the number it stands for. */
-function sameInteger(a: unknown, b: unknown): boolean {
-  const [big, num] = typeof a === "bigint" ? [a, b] : [b, a];
-  return typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big;
+type Register = (name: string, body?: TestBody, timeout?: number) => void;
+
+export interface Each {
+  (table: readonly unknown[]): (name: string, body: (...args: any[]) => unknown, timeout?: number) => void;
+  (strings: TemplateStringsArray, ...values: unknown[]): (name: string, body: (row: any) => unknown, timeout?: number) => void;
 }
+
+function eachOf(register: (name: string, body: TestBody) => void): Each {
+  return ((table: unknown, ...values: unknown[]) =>
+    (name: string, body: (...args: unknown[]) => unknown) => {
+      rowsOf(table, values).forEach((args, index) => register(titled(name, args, index), () => body(...args)));
+    }) as Each;
+}
+
+export interface TestApi extends Register {
+  only: Register & { each: Each };
+  skip: Register & { each: Each };
+  todo(name: string): void;
+  each: Each;
+  skipIf(condition: unknown): Register;
+  runIf(condition: unknown): Register;
+  /** Passes when the body fails. */
+  fails: Register;
+  /** Runs in order like any other test: the runner runs one test at a time. */
+  concurrent: Register;
+}
+
+function registerAs(mode: Mode): Register {
+  return (name, body) => {
+    cases.push({ name, block: current, body: body ?? null, mode: body ? mode : "todo" });
+  };
+}
+
+function inverted(body: TestBody): TestBody {
+  return async () => {
+    let threw = false;
+    try {
+      await invoke(body);
+    } catch {
+      threw = true;
+    }
+    if (!threw) throw new AssertionError("test.fails: the test passed");
+  };
+}
+
+export const test: TestApi = Object.assign(registerAs("run"), {
+  only: Object.assign(registerAs("only"), { each: eachOf(registerAs("only")) }),
+  skip: Object.assign(registerAs("skip"), { each: eachOf(registerAs("skip")) }),
+  todo: (name: string) => registerAs("todo")(name),
+  each: eachOf(registerAs("run")),
+  skipIf: (condition: unknown) => (condition ? registerAs("skip") : registerAs("run")),
+  runIf: (condition: unknown) => (condition ? registerAs("run") : registerAs("skip")),
+  fails: ((name: string, body?: TestBody) => registerAs("run")(name, body ? inverted(body) : undefined)) as Register,
+  concurrent: registerAs("run"),
+});
+
+export const it: TestApi = test;
+export const xit: Register = test.skip;
+export const xtest: Register = test.skip;
+export const fit: Register = test.only;
+
+type Group = (name: string, body: () => void) => void;
+
+export interface DescribeApi extends Group {
+  only: Group & { each: DescribeEach };
+  skip: Group & { each: DescribeEach };
+  each: DescribeEach;
+  skipIf(condition: unknown): Group;
+  runIf(condition: unknown): Group;
+  concurrent: Group;
+}
+
+export interface DescribeEach {
+  (table: readonly unknown[]): (name: string, body: (...args: any[]) => void) => void;
+  (strings: TemplateStringsArray, ...values: unknown[]): (name: string, body: (row: any) => void) => void;
+}
+
+function groupAs(mode: Mode): Group {
+  return (name, body) => {
+    const outer = current;
+    current = block(name, outer, mode);
+    try {
+      const returned = body() as unknown;
+      if (returned && typeof (returned as { then?: unknown }).then === "function") throw new Error(`describe(${JSON.stringify(name)}): a describe body runs at once and returns nothing; put what it awaits in a test or a hook`);
+    } finally {
+      current = outer;
+    }
+  };
+}
+
+function describeEachOf(group: Group): DescribeEach {
+  return ((table: unknown, ...values: unknown[]) =>
+    (name: string, body: (...args: unknown[]) => void) => {
+      rowsOf(table, values).forEach((args, index) => group(titled(name, args, index), () => body(...args)));
+    }) as DescribeEach;
+}
+
+export const describe: DescribeApi = Object.assign(groupAs("run"), {
+  only: Object.assign(groupAs("only"), { each: describeEachOf(groupAs("only")) }),
+  skip: Object.assign(groupAs("skip"), { each: describeEachOf(groupAs("skip")) }),
+  each: describeEachOf(groupAs("run")),
+  skipIf: (condition: unknown) => (condition ? groupAs("skip") : groupAs("run")),
+  runIf: (condition: unknown) => (condition ? groupAs("run") : groupAs("skip")),
+  concurrent: groupAs("run"),
+});
+
+export const xdescribe: Group = describe.skip;
+export const fdescribe: Group = describe.only;
+
+/** Runs `body` once, before the first test of the enclosing `describe` or file that runs. The timeout is accepted and ignored: time does not pass on its own. */
+export function beforeAll(body: TestBody, _timeout?: number): void {
+  current.beforeAll.push(body);
+}
+
+/** Runs `body` once, after the file's last test, for every `describe` a test ran in. */
+export function afterAll(body: TestBody, _timeout?: number): void {
+  current.afterAll.push(body);
+}
+
+/** Runs `body` before each test of the enclosing `describe` or file, outer hooks first. */
+export function beforeEach(body: TestBody, _timeout?: number): void {
+  current.beforeEach.push(body);
+}
+
+/** Runs `body` after each test of the enclosing `describe` or file, inner hooks first, whether the test passed or not. */
+export function afterEach(body: TestBody, _timeout?: number): void {
+  current.afterEach.push(body);
+}
+
+export interface Vi {
+  fn: typeof fn;
+  spyOn: typeof spyOn;
+  isMockFunction: typeof isMockFunction;
+  mocked<T>(value: T): T;
+  clearAllMocks: typeof clearAllMocks;
+  resetAllMocks: typeof resetAllMocks;
+  restoreAllMocks: typeof restoreAllMocks;
+  useFakeTimers(): Vi;
+  useRealTimers(): Vi;
+  isFakeTimers(): boolean;
+  advanceTimersByTime(ms: number): Promise<void>;
+  advanceTimersByTimeAsync(ms: number): Promise<void>;
+  waitFor<T>(callback: () => T | Promise<T>, options?: WaitForOptions): Promise<T>;
+}
+
+/** Mock functions, spies and the clock. Timers are always fake, since the clock moves only when a test moves it, so `advanceTimersByTime` returns a promise to await. */
+export const vi: Vi = {
+  fn,
+  spyOn,
+  isMockFunction,
+  mocked: <T>(value: T): T => value,
+  clearAllMocks,
+  resetAllMocks,
+  restoreAllMocks,
+  useFakeTimers() {
+    return vi;
+  },
+  useRealTimers() {
+    return vi;
+  },
+  isFakeTimers: () => true,
+  advanceTimersByTime: (ms: number) => advance(ms),
+  advanceTimersByTimeAsync: (ms: number) => advance(ms),
+  waitFor: <T>(callback: () => T | Promise<T>, options?: WaitForOptions) => waitFor(callback, options),
+};
+
+/** The same object as `vi`, under its other name. */
+export const jest: Vi = vi;
 
 export function equal(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  if (sameInteger(a, b)) return true;
+  const [big, num] = typeof a === "bigint" ? [a, b] : [b, a];
+  if (typeof big === "bigint" && typeof num === "number" && Number.isInteger(num) && BigInt(num) === big) return true;
   if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => equal(x, b[i]));
@@ -178,12 +491,18 @@ export function equal(a: unknown, b: unknown): boolean {
   return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && equal((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 }
 
+/** The assertions specs used before `expect`, kept so code outside this repository keeps running. */
 export const assert = {
   ok(value: unknown, message?: string): void {
     if (!value) throw new AssertionError(message ?? `assert.ok: ${show(value)}`);
   },
   equal(actual: unknown, expected: unknown, message?: string): void {
     if (!equal(actual, expected)) throw new AssertionError(`${message ?? "assert.equal"}\n  actual:   ${show(actual)}\n  expected: ${show(expected)}`);
+  },
+  /** `actual` holds `pattern`: contains it when a string, matches it when a RegExp. */
+  match(actual: string, pattern: string | RegExp, message?: string): void {
+    const hit = typeof actual === "string" && (typeof pattern === "string" ? actual.includes(pattern) : pattern.test(actual));
+    if (!hit) throw new AssertionError(`${message ?? "assert.match"}\n  actual:  ${show(actual)}\n  pattern: ${show(pattern instanceof RegExp ? String(pattern) : pattern)}`);
   },
   throws(run: () => unknown, match?: string | RegExp): void {
     try {
@@ -212,22 +531,19 @@ function matchError(e: unknown, match?: string | RegExp): void {
   if (!hit) throw new AssertionError(`expected an error matching ${show(match instanceof RegExp ? String(match) : match)}, got ${show(text.trim())}`);
 }
 
-export interface Rendered {
+// ---- rendering and loading ----
+
+export interface Rendered extends BoundQueries {
   container: HTMLElement;
+  baseElement: HTMLElement;
   root: Root;
   /** The module id the server rendered and React hydrated over; `null` when the component mounted fresh. */
   hydrated: string | null;
   unmount(): void;
-}
-
-/** Runs everything that happens now: microtasks, action calls, their re-renders and timers already due. A timer set for later waits for `advance`. */
-export function settle(): Promise<void> {
-  return sf().idle();
-}
-
-/** Moves the clock `ms` forward and settles, so timers due by then fire in order. Time never passes on its own. */
-export function advance(ms: number): Promise<void> {
-  return sf().advance(ms);
+  /** Renders `element` into the same root and settles. */
+  rerender(element: ReactElement): Promise<void>;
+  asFragment(): DocumentFragment;
+  debug(element?: Element, maxLength?: number): void;
 }
 
 async function moduleOf(type: unknown): Promise<string | null> {
@@ -262,14 +578,63 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
   }
   await settle();
   return {
+    ...within(container),
     container,
+    baseElement: document.body,
     root,
     hydrated,
     unmount() {
       root.unmount();
       container.remove();
     },
+    async rerender(next: ReactElement) {
+      root.render(next);
+      await settle();
+    },
+    asFragment() {
+      const template = document.createElement("template");
+      template.innerHTML = container.innerHTML;
+      return template.content;
+    },
+    debug(target?: Element, maxLength?: number) {
+      console.log(prettyDOM(target ?? container, maxLength));
+    },
   };
+}
+
+/** Renders a component that calls `hook` and holds what it returned in `result.current`, so a hook is tested without a page around it. */
+export async function renderHook<Result, Props = undefined>(
+  hook: (props: Props) => Result,
+  options: { initialProps?: Props; ctx?: TestCtx; wrapper?: ComponentType<{ children: ReactNode }> } = {},
+): Promise<{ result: { current: Result }; rerender(props?: Props): Promise<void>; unmount(): void }> {
+  const { createElement } = await import("react");
+  const result = { current: undefined as Result };
+  function Probe({ props }: { props: Props }): null {
+    result.current = hook(props);
+    return null;
+  }
+  const element = (props: Props): ReactElement => {
+    const probe = createElement(Probe, { props });
+    return options.wrapper ? createElement(options.wrapper, null, probe) : probe;
+  };
+  const rendered = await render(element(options.initialProps as Props), { ctx: options.ctx, hydrate: false });
+  return {
+    result,
+    rerender: (props?: Props) => rendered.rerender(element((props ?? options.initialProps) as Props)),
+    unmount: () => rendered.unmount(),
+  };
+}
+
+/** Runs `body` and settles, React's `act` for code that changes state outside an event the harness dispatched. */
+export async function act<T>(body: () => T | Promise<T>): Promise<T> {
+  const out = await body();
+  await settle();
+  return out;
+}
+
+/** Empties the document's body, which the runner also does after every test. */
+export function cleanup(): void {
+  document.body.innerHTML = "";
 }
 
 /** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. Needs the configuration beside the app, since the host that renders is the one that serves. */
@@ -315,103 +680,3 @@ function applyFills(): (() => void)[] {
   }
   return late;
 }
-
-type Matcher = string | RegExp;
-
-function normalise(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function ownText(el: Element): string {
-  let out = "";
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === 3) out += node.textContent ?? "";
-  }
-  return normalise(out);
-}
-
-function matches(text: string, matcher: Matcher): boolean {
-  return typeof matcher === "string" ? text === matcher : matcher.test(text);
-}
-
-function all(root: ParentNode, pick: (el: HTMLElement) => boolean): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>("*")).filter(pick);
-}
-
-function one(what: string, found: HTMLElement[]): HTMLElement {
-  if (found.length === 1) return found[0];
-  if (found.length === 0) throw new AssertionError(`no element ${what}`);
-  throw new AssertionError(`${found.length} elements ${what}: ${found.map((el) => `<${el.tagName.toLowerCase()}>`).join(", ")}`);
-}
-
-/** Queries over the document, by the text an element itself holds, its label, its placeholder or its `data-testid`. */
-export const screen = {
-  getByText(matcher: Matcher, root: ParentNode = document.body): HTMLElement {
-    return one(`with text ${show(matcher instanceof RegExp ? String(matcher) : matcher)}`, screen.getAllByText(matcher, root));
-  },
-  queryByText(matcher: Matcher, root: ParentNode = document.body): HTMLElement | null {
-    const found = screen.getAllByText(matcher, root);
-    return found.length === 0 ? null : found[0];
-  },
-  getAllByText(matcher: Matcher, root: ParentNode = document.body): HTMLElement[] {
-    return all(root, (el) => matches(ownText(el), matcher));
-  },
-  getByLabelText(matcher: Matcher, root: ParentNode = document.body): HTMLElement {
-    const labelled = all(root, (el) => matches(normalise(el.getAttribute("aria-label") ?? ""), matcher));
-    const byLabel = Array.from(root.querySelectorAll<HTMLLabelElement>("label"))
-      .filter((label) => matches(ownText(label), matcher) || matches(normalise(label.textContent ?? ""), matcher))
-      .flatMap((label) => {
-        const target = label.getAttribute("for");
-        const control = target ? root.querySelector<HTMLElement>(`#${CSS.escape(target)}`) : label.querySelector<HTMLElement>("input, select, textarea, button");
-        return control ? [control] : [];
-      });
-    return one(`labelled ${show(matcher instanceof RegExp ? String(matcher) : matcher)}`, [...labelled, ...byLabel]);
-  },
-  getByPlaceholderText(matcher: Matcher, root: ParentNode = document.body): HTMLElement {
-    return one(`with placeholder ${show(String(matcher))}`, all(root, (el) => matches(el.getAttribute("placeholder") ?? "", matcher)));
-  },
-  getByTestId(id: string, root: ParentNode = document.body): HTMLElement {
-    return one(`with data-testid ${show(id)}`, all(root, (el) => el.getAttribute("data-testid") === id));
-  },
-};
-
-/** Sets a form control's value the way a user would, past React's own value tracking, so the `input` event that follows is seen as a change. */
-function setValue(el: HTMLElement, value: string): void {
-  if (el.tagName === "SELECT") {
-    const option = Array.from(el.querySelectorAll("option")).find((o) => String(o.value) === value);
-    if (!option) throw new AssertionError(`fireEvent.change: no option with value ${show(value)}`);
-    option.selected = true;
-    return;
-  }
-  const proto = Object.getPrototypeOf(el) as object;
-  const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
-  if (descriptor?.set) {
-    descriptor.set.call(el, value);
-  } else {
-    (el as unknown as { value: string }).value = value;
-  }
-}
-
-/** Dispatches DOM events and settles the engine after each, so the assertion that follows sees the re-render. */
-export const fireEvent = {
-  click(el: Element): Promise<void> {
-    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    return settle();
-  },
-  change(el: Element, value: string): Promise<void> {
-    setValue(el as HTMLElement, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    return settle();
-  },
-  submit(el: Element): Promise<void> {
-    const form = el instanceof HTMLFormElement ? el : el.closest("form");
-    if (!form) throw new AssertionError("fireEvent.submit: no form");
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    return settle();
-  },
-  keyDown(el: Element, key: string): Promise<void> {
-    el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-    return settle();
-  },
-};
