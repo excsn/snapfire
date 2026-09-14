@@ -175,7 +175,11 @@ export default function Under({ wave, parent, anchor = "", me, open = false }: {
                 </div>
               </details>
               <details className="add-gadget" name="composer-menu">
-                <summary>Gadget</summary>
+                <summary aria-label="Gadget" title="Gadget">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3.5 7.5H8a2.5 2.5 0 1 1 4 0h4.5V12a2.5 2.5 0 1 1 0 4v4.5h-13Z" />
+                  </svg>
+                </summary>
                 <div>
                   <button type="button" onClick={(e) => pick("noughts", e.currentTarget)}>
                     Noughts and crosses
@@ -190,9 +194,18 @@ export default function Under({ wave, parent, anchor = "", me, open = false }: {
               </details>
             </>
           )}
-          <button type="submit" disabled={!ready}>
-            {making ? "Add to wave" : "Send"}
-          </button>
+          {making ? (
+            <button type="submit" disabled={!ready}>
+              Add to wave
+            </button>
+          ) : (
+            <button type="submit" className="send" aria-label="Send" title="Send">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 3 3 10.5l7.5 3L13.5 21Z" />
+                <path d="M21 3 10.5 13.5" />
+              </svg>
+            </button>
+          )}
           {making ? (
             <button type="button" className="back" onClick={() => setMaking(false)}>
               Back

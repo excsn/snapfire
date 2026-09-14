@@ -191,9 +191,10 @@ button:disabled:hover { border-color: var(--rule); }
 .gadget .voter + .voter::before { content: ", "; }
 
 .add-gadget { position: relative; }
-.add-gadget > summary { list-style: none; cursor: pointer; padding: 0.4rem 0.6rem; border: 1px solid var(--rule); border-radius: 6px; color: var(--dim); font-size: 0.85rem; }
+.add-gadget > summary { list-style: none; cursor: pointer; display: flex; align-items: center; height: 100%; box-sizing: border-box; padding: 0 0.5rem; border: 1px solid var(--rule); border-radius: 6px; color: var(--dim); }
 .add-gadget > summary::-webkit-details-marker { display: none; }
-.add-gadget[open] > summary { color: var(--ink); border-color: var(--accent); }
+.add-gadget > summary:hover, .add-gadget[open] > summary { color: var(--ink); border-color: var(--accent); }
+.composer .send { display: flex; align-items: center; padding: 0 0.75rem; }
 .add-gadget > div { position: absolute; right: 0; bottom: 100%; z-index: 4; display: grid; gap: 0.25rem; margin-bottom: 0.25rem; padding: 0.35rem; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; white-space: nowrap; }
 .composer .add-gadget button { background: var(--panel); border-color: var(--rule); color: var(--ink); font-weight: 400; text-align: left; }
 .composer input[hidden] { display: none; }

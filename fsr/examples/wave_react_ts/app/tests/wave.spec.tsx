@@ -230,6 +230,17 @@ test("Show what I type sits in the composer's options menu and is checked there 
   expect(menu.querySelector(".showing .tick")?.textContent, "checked").toEqual("✓");
 });
 
+test("the composer's Send and Gadget are icons that name themselves", async () => {
+  await load("/wave/kickoff", { ctx: open("alice") });
+  const composer = document.querySelector(".transcript > sf-s .composer") as Element;
+  const send = composer.querySelector('button[type="submit"]') as Element;
+  expect(send.getAttribute("aria-label"), "the submit button").toEqual("Send");
+  expect(!!send.querySelector("svg"), "drawn as a paper plane").toBeTruthy();
+  const gadget = composer.querySelector(".add-gadget > summary") as Element;
+  expect(gadget.getAttribute("aria-label"), "the gadget menu").toEqual("Gadget");
+  expect(!!gadget.querySelector("svg"), "drawn as a puzzle piece").toBeTruthy();
+});
+
 test("a keystroke sends who is typing over the socket and the words only once Show what I type is ticked", async () => {
   const sent: { key: string; value: { writing: boolean; body: string } }[] = [];
   class Wire {
