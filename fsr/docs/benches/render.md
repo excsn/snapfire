@@ -32,7 +32,7 @@ The bench prepares the app the way `fsr test` does, compiling the pages into `ap
 
 ### 2026-09-07, `8bf357a`, MacBook M4 Pro
 
-Every group re-run back to back on one machine state, powermode 2, load 1.82 at the start and 3.61 at the end. The fidelity line read `identical` on all three pages in every group. This run follows a day of renderer work: the catalogue went from 992.74 µs to 127.67 µs on the system allocator, **7.8x** and to 82.29 µs with mimalloc under it.
+Every group re-run back to back on one machine state. The fidelity line read `identical` on all three pages in every group. This run follows a day of renderer work: the catalogue went from 992.74 µs to 127.67 µs on the system allocator, **7.8x** and to 82.29 µs with mimalloc under it.
 
 The allocator is a bench feature, `cargo bench --features mimalloc`, not something the library or the host sets. Both columns are shown because the choice is a deployment one and it is worth about 1.5x.
 
