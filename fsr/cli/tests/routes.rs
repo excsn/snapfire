@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_cli::{build, BuildError, Options};
+use snapfire_fsr_ir::{ShadowMode, ShadowRoot};
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -10,12 +11,19 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr-cli-routes-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  vendor_react(&dir, "18.3.1");
   for (name, source) in files {
     let path = dir.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, source).unwrap();
   }
   dir
+}
+
+/// What `fsr add` records for the React it vendored.
+fn vendor_react(dir: &Path, version: &str) {
+  std::fs::create_dir_all(dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"react":{{"version":"{version}"}}}}}}"#)).unwrap();
 }
 
 const LAYOUT: &str = "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed}<Slot name=\"modal\"><p>closed</p></Slot><Slot name=\"drawer\" /></div>;\n}\n";
@@ -37,6 +45,165 @@ const HANDLED: &str = "export default function Page() {\n  async function go(): 
 
 fn placing(component: &str) -> String {
   format!("import {{ Island }} from \"@snapfire/fsr-client/react\";\nimport Chart from \"../src/ui/{component}\";\nexport default function Page() {{\n  return <Island><Chart /></Island>;\n}}\n")
+}
+
+#[test]
+fn the_plan_records_the_vendored_react() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  assert_eq!(build(&dir, &Options::default()).unwrap().manifest.frameworks.get("react").map(String::as_str), Some("18.3.1"));
+  vendor_react(&dir, "19.3.0");
+  let built = build(&dir, &Options::default()).unwrap();
+  assert_eq!(built.manifest.frameworks.get("react").map(String::as_str), Some("19.3.0"));
+  assert!(built.manifest.to_sexpr().contains("(framework react"), "{}", built.manifest.to_sexpr());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_map_serving_react_with_no_vendored_version_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
+  match fails(&dir) {
+    BuildError::ReactUnrecorded { manifest, version, .. } => {
+      assert!(manifest.contains(".fsr-vendor.json"), "{manifest}");
+      assert_eq!(version, "18.3.1");
+    }
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_react_the_renderer_has_no_rules_for_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  vendor_react(&dir, "17.0.2");
+  match fails(&dir) {
+    BuildError::ReactMajor { version, supported } => {
+      assert_eq!(version, "17.0.2");
+      assert_eq!(supported, "18 and 19");
+    }
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_app_with_no_react_records_no_framework() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
+  assert!(build(&dir, &Options::default()).unwrap().manifest.frameworks.is_empty());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const GRID: &str = "export default function Grid({ rows, title }: { rows: number[]; title: string }) {\n  return <><b>{title}</b>{rows.length}</>;\n}\n";
+
+#[test]
+fn a_custom_element_with_a_template_under_elements_is_marked_where_it_is_placed() {
+  let page = "export default function Page({ rows }: { rows: number[] }) {\n  return <x-grid title=\"t\" rows={rows}>light</x-grid>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page), ("elements/x-grid.tsx", GRID)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let json = built.manifest.to_json();
+  assert!(json.contains("\"$shadow\"") && json.contains("elements/x-grid.tsx#default"), "{json}");
+  let template = built.manifest.components.iter().find(|c| c.module == "elements/x-grid.tsx#default").expect("the template is lowered");
+  assert!(template.body.hydrated_by.is_none(), "an element template is static");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_element_template_with_a_handler_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE), ("elements/x-grid.tsx", HANDLED)]);
+  match fails(&dir) {
+    BuildError::ElementTemplate { module, .. } => assert_eq!(module, "elements/x-grid.tsx#default"),
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_element_template_not_named_for_a_tag_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE), ("elements/Grid.tsx", GRID)]);
+  match fails(&dir) {
+    BuildError::ElementName { file } => assert_eq!(file, "Grid.tsx"),
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const PLACES_BOX: &str = "export default function Page() {\n  return <x-box>light</x-box>;\n}\n";
+
+fn lowered_box(template: &str) -> (snapfire_fsr_ir::Component, String) {
+  let dir = app(&[("routes/page.tsx", PLACES_BOX), ("elements/x-box.tsx", template)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+  let component = built.manifest.components.iter().find(|c| c.module == "elements/x-box.tsx#default").expect("the template is lowered").body.clone();
+  (component, built.manifest.to_sexpr())
+}
+
+#[test]
+fn an_element_template_rooted_in_a_shadow_template_declares_its_shadow_root() {
+  let (component, plan) = lowered_box("export default function Box({ title }: { title: string }) {\n  return <template shadowrootmode=\"closed\" shadowrootdelegatesfocus><p>{title}</p></template>;\n}\n");
+  assert_eq!(component.shadow, Some(ShadowRoot { mode: ShadowMode::Closed, delegates_focus: true, clonable: false, serializable: false }));
+  assert!(!format!("{:?}", component.render).contains("\"template\""), "the root template is the record and not markup: {:?}", component.render);
+  assert!(plan.contains("(shadow closed delegatesfocus)"), "{plan}");
+}
+
+#[test]
+fn an_element_template_is_lowered_without_hoisting() {
+  let page = "export default function Page({ rows }: { rows: number[] }) {\n  return <x-grid title=\"t\" rows={rows}>light</x-grid>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page), ("elements/x-grid.tsx", GRID)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+  let template = &built.manifest.components.iter().find(|c| c.module == "elements/x-grid.tsx#default").expect("the template is lowered").body;
+  let lowered = format!("{:?}", template.render);
+  assert!(!lowered.contains("$chunk") && !lowered.contains("Hoist"), "{lowered}");
+  assert!(!built.report.hoisted.iter().any(|(module, ..)| module == "elements/x-grid.tsx#default"), "{:?}", built.report.hoisted);
+}
+
+#[test]
+fn a_shadow_template_deeper_in_an_element_template_is_markup() {
+  let (component, _) = lowered_box("export default function Box() {\n  return <div><inner-box><template shadowrootmode=\"open\"><p>in</p></template></inner-box></div>;\n}\n");
+  assert_eq!(component.shadow, None);
+  assert!(format!("{:?}", component.render).contains("\"template\""), "{:?}", component.render);
+}
+
+#[test]
+fn an_element_template_whose_root_template_cannot_be_the_shadow_root_is_refused() {
+  for (root, says) in [
+    ("<template><p>in</p></template>", "has no `shadowrootmode`"),
+    ("<template shadowrootmode={mode}><p>in</p></template>", "`shadowrootmode` on its root `<template>` is not the string"),
+    ("<template shadowrootmode=\"closed\" id=\"box\"><p>in</p></template>", "`id` on its root `<template>` would be lost"),
+    ("<><template shadowrootmode=\"open\"><p>in</p></template><p>beside</p></>", "shares the root with other nodes"),
+    ("mode === \"closed\" ? <template shadowrootmode=\"closed\"><p>in</p></template> : <p>in</p>", "or sits in a branch"),
+  ] {
+    let template = format!("export default function Box({{ mode }}: {{ mode: \"open\" | \"closed\" }}) {{\n  return {root};\n}}\n");
+    let dir = app(&[("routes/page.tsx", PLACES_BOX), ("elements/x-box.tsx", &template)]);
+    match fails(&dir) {
+      BuildError::ElementTemplate { module, reason } => {
+        assert_eq!(module, "elements/x-box.tsx#default");
+        assert!(reason.contains(says), "{root}: {reason}");
+      }
+      other => panic!("{root}: {other}"),
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+}
+
+#[test]
+fn each_element_template_types_its_tag_for_the_jsx_the_templates_are_read_as() {
+  let dir = app(&[("routes/page.tsx", PLACES_BOX), ("elements/x-box.tsx", GRID)]);
+  let declarations = |dir: &Path| build(dir, &Options::default()).unwrap().files.into_iter().find(|(name, _)| name == "generated/elements.d.ts").map(|(_, text)| text).expect("the build declares its element templates");
+  let react = declarations(&dir);
+  assert!(react.contains("import type Template0 from \"../elements/x-box\";"), "{react}");
+  assert!(react.contains("declare module \"react\" {\n  namespace JSX {\n    interface IntrinsicElements {\n      [custom: `${string}-${string}`]: Host & Loose;\n      \"x-box\": Placed<typeof Template0>;\n"), "{react}");
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
+  let dialect = declarations(&dir);
+  assert!(dialect.contains("type Host = Attributes;"), "{dialect}");
+  assert!(dialect.contains("declare module \"@snapfire/fsr-authoring/template\" {\n  interface ElementTemplates {\n    \"x-box\": Placed<typeof Template0>;\n"), "{dialect}");
+  assert!(!dialect.contains("react"), "{dialect}");
+  std::fs::remove_file(dir.join("elements/x-box.tsx")).unwrap();
+  assert!(declarations(&dir).ends_with("\n\nexport {};\n"), "a dialect app with no template declares nothing");
+  std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

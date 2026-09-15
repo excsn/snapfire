@@ -70,6 +70,11 @@ pub struct Manifest {
   /// and the tree a soft navigation renders into a live layout's slot.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub intercepts: Vec<RouteEntry>,
+  /// The exact version of each vendored framework whose server markup the
+  /// renderer matches, by package: `react` to `18.3.1`. Read from the vendor
+  /// manifest at build.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub frameworks: std::collections::BTreeMap<String, String>,
 }
 
 /// A handler row: `method` and `pattern` are what the host matches, `id` is
@@ -394,12 +399,18 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default() }
   }
 
   /// The constants bodies read by name.
   pub fn with_consts(mut self, consts: Consts) -> Self {
     self.consts = consts;
+    self
+  }
+
+  /// The exact version of each vendored framework, by package.
+  pub fn with_frameworks(mut self, frameworks: std::collections::BTreeMap<String, String>) -> Self {
+    self.frameworks = frameworks;
     self
   }
 

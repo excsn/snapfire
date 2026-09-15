@@ -7,7 +7,7 @@
  * compiled by snapfirec against the React runtime as before.
  */
 
-import type { Attributes, Children, Intrinsic, TemplateNode } from "./template";
+import type { Attributes, Children, ElementTemplates, Intrinsic, TemplateNode } from "./template";
 
 export namespace JSX {
   type Element = TemplateNode;
@@ -21,7 +21,8 @@ export namespace JSX {
     key?: string | number | bigint;
   }
   interface IntrinsicClassAttributes<T> {}
-  type IntrinsicElements = Intrinsic;
+  // A tag in `ElementTemplates` takes its type from there alone: an intersection's property never includes the other side's index signature.
+  type IntrinsicElements = Intrinsic & ElementTemplates;
   type ElementType = keyof Intrinsic | ((props: any) => TemplateNode | null) | (new (...args: any[]) => any);
   type LibraryManagedAttributes<C, P> = P;
   type ElementAttributes = Attributes;

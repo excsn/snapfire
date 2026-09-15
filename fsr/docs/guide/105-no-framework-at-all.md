@@ -25,7 +25,7 @@ A template writes the element the way it writes a `div`, with its light DOM insi
 </shed-tally>
 ```
 
-The lowerer takes a hyphenated tag as an element and its attributes as attributes, so the server renders the button with the count in it before any script runs. The dialect's declarations, `@snapfire/fsr-authoring/template`, type a hyphenated tag as a custom element whose attributes are its own, so `<divv>` is still the typo the checker catches while `<shed-tally count={n}>` passes. An `hx-get` on an anchor passes for the same reason any hyphenated attribute does.
+The lowerer takes a hyphenated tag as an element and its attributes as attributes, so the server renders the button with the count in it before any script runs. The dialect's declarations, `@snapfire/fsr-authoring/template`, type a hyphenated tag as a custom element whose attributes are its own, so `<divv>` is still the typo the checker catches while `<shed-tally count={n}>` passes. An attribute the declarations do not name takes a scalar, children, a style object or a handler. An array of objects fails the typecheck, since an attribute on an element nothing hydrates is text. An `hx-get` on an anchor passes for the same reason any hyphenated attribute does.
 
 The element's module wires what the server wrote:
 
@@ -70,26 +70,47 @@ customElements.define("shed-tally", ShedTally);
 
 ## A shadow root the server writes
 
-An element that wants its own styles has a shadow root. The parser attaches one from a `<template shadowrootmode="open">` inside the element, before any script runs, so a template can write it and the server renders it:
+An element that wants its own styles has a shadow root. The parser attaches one from a `<template shadowrootmode="open">` inside the element, before any script runs. The element's template lives beside its class in `elements/loan-planner.tsx`. The server writes it inside every `<loan-planner>` it renders:
 
 ```tsx
-<loan-planner name="days" deposit={tool.deposit} disabled={reserved}>
-  <template shadowrootmode="open">
-    <style>{":host { display: block } :host([disabled]) { background: #f7f8fa } output { font-weight: 600 }"}</style>
-    <label>
-      {reserved ? "Borrowed for" : "Borrow for"}
-      <input type="range" name="days" min="1" max={`${tool.days}`} value={`${days}`} disabled={reserved} />
-      <output>{days} days</output>
-    </label>
-  </template>
-</loan-planner>
+export default function LoanPlanner({ deposit, days, max, disabled }: { deposit: number | bigint; days: number; max: number | bigint; disabled?: boolean }) {
+  return (
+    <>
+      <style>{":host { display: block } :host([disabled]) { background: #f7f8fa } output { font-weight: 600 }"}</style>
+      <label>
+        {disabled ? "Borrowed for" : "Borrow for"}
+        <input type="range" name="days" min="1" max={`${max}`} value={`${days}`} disabled={disabled} />
+        <output>{days} days</output>
+      </label>
+    </>
+  );
+}
 ```
 
-The planner is styled and laid out from the first paint, with no framework and no stylesheet to link. One thing to know: `innerHTML` attaches no declarative shadow roots, so an element that arrives inside a swapped fragment finds its template as an ordinary child. The example's element handles both in six lines, attaching a root from the template when the parser did not:
+The tool page places the tag and nothing else, `<loan-planner name="days" deposit={tool.deposit} disabled={reserved} max={tool.days} days={days} />`. The file name is the tag. The template's props are the element's attributes, so an array or an object reaches the template without becoming an attribute. The build types the tag with those props in `generated/elements.d.ts`, so a missing `days` or a `max` of the wrong type fails the typecheck at the page, while `name`, which the class reads and the template does not take, passes. A template with state or a handler stops the build, since the class owns the behaviour.
+
+The planner is styled and laid out from the first paint, with no framework and no stylesheet to link. One thing to know: `innerHTML` attaches no declarative shadow roots, so an element that arrives inside an htmx swap finds its template as an ordinary child. `shadowOf` from `@snapfire/fsr-client/elements` answers both cases, the root the parser attached or one attached from the template:
 
 ```ts
-const root = this.shadowRoot ?? this.attachFromTemplate();
+const root = shadowOf(this, this.#internals);
 ```
+
+The navigator writes what it applies with `setHTMLUnsafe` where the browser has it, so a page reached by a link keeps its shadow roots as well.
+
+The root is open unless the template declares its own. Returning a `<template shadowrootmode="closed">` makes the planner's root closed. `shadowrootdelegatesfocus` on it hands focus to the range when the host is focused:
+
+```tsx
+return (
+  <template shadowrootmode="closed" shadowrootdelegatesfocus>
+    <style>{":host { display: block } output { font-weight: 600 }"}</style>
+    <label>
+      Borrow for <input type="range" name="days" min="1" max={`${max}`} value={`${days}`} />
+    </label>
+  </template>
+);
+```
+
+The build reads that `<template>` as the shadow root. Anything on it besides the four `shadowroot` attributes stops the build, since the parser drops the template element once it becomes the root. A closed root is not on `this.shadowRoot`. The planner already holds its internals for the form value, which is why the call above passes `this.#internals`. An element without them would get `null` from `shadowOf`.
 
 The state is in the markup, not in a script that runs after paint. `reserved` comes from the loader, so the server writes `disabled` on the host and on the range, with the label reading "Borrowed for" from the first byte. A boolean attribute is written bare when it is true and left out when it is false, which is what `:host([disabled])` and a disabled control each want.
 
@@ -158,7 +179,7 @@ An action posted as a form is answered with a redirect to the page that posted i
 <form method="post" action="/_sf/action/tool.$id.reserve" hx-post="/_sf/action/tool.$id.reserve?__fragment" hx-target="closest .page" hx-swap="outerHTML">
   <input type="hidden" name="_csrf" value={csrf_token ?? ""} />
   <input type="hidden" name="tool_id" value={tool.id} />
-  <loan-planner name="days" deposit={tool.deposit} disabled={reserved} />
+  <loan-planner name="days" deposit={tool.deposit} disabled={reserved} max={tool.days} days={days} />
   <button type="submit">Reserve it</button>
 </form>
 ```

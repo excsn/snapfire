@@ -57,6 +57,8 @@ pub enum BindError {
   MiddlewareClaimed,
   #[error("the middleware is marked an override but the plan lowers none")]
   MiddlewareOverridesNothing,
+  #[error("the plan names react@{version}, a React whose markup this fsr does not write")]
+  React { version: String },
 }
 
 /// Who answers a name.
@@ -290,6 +292,8 @@ pub struct AppBuilder {
   /// The plan's named constants, which `Expr::Const` reads.
   consts: Option<Arc<snapfire_fsr_ir::ast::Consts>>,
   bearer_services: Vec<String>,
+  /// The frameworks the application vendors, whose markup the lowered components match.
+  frameworks: snapfire_fsr_ir::Frameworks,
 }
 
 impl App {
@@ -342,6 +346,7 @@ impl App {
       services: None,
       cache: None,
       loads: None,
+      frameworks: snapfire_fsr_ir::Frameworks::default(),
     }
   }
 
@@ -373,6 +378,9 @@ impl App {
       builder.consts = Some(Arc::new(parsed.consts.clone()));
     }
     builder.lowered_middleware = parsed.middleware.clone();
+    if let Some(version) = parsed.frameworks.get("react") {
+      builder.frameworks.react = Some(snapfire_fsr_ir::ReactMajor::of(version).ok_or_else(|| BindError::React { version: version.clone() })?);
+    }
     for row in &parsed.handlers {
       match &row.body {
         Some(body) => builder.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
@@ -561,6 +569,14 @@ impl AppBuilder {
 
   /// Where a load answered once is kept, for the sources `warmable` names.
   /// Nothing is memoized without one.
+  /// The frameworks the application vendors, for a host that builds its
+  /// routes by hand; a plan file names its own. None unless set, where every
+  /// lowered component is written as plain markup.
+  pub fn frameworks(mut self, frameworks: snapfire_fsr_ir::Frameworks) -> Self {
+    self.frameworks = frameworks;
+    self
+  }
+
   pub fn loads(mut self, loads: Arc<dyn LoadCache>) -> Self {
     self.loads = Some(loads);
     self
@@ -680,7 +696,7 @@ impl AppBuilder {
       }
     }
     let interpreter =
-      Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone()).with_consts(self.consts.clone());
+      Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone()).with_consts(self.consts.clone()).with_frameworks(self.frameworks);
 
     for name in &self.overrides {
       if !declared.contains(name) {

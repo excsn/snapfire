@@ -10,6 +10,9 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Expr](#expr)
   * [Tmpl](#tmpl)
   * [Component](#component)
+  * [HydratedBy](#hydratedby)
+  * [ShadowRoot](#shadowroot)
+  * [ShadowMode](#shadowmode)
   * [Entry](#entry)
   * [Lit](#lit)
   * [ArithOp](#arithop)
@@ -33,6 +36,8 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Ambient](#ambient)
   * [The Standard Library](#the-standard-library)
   * [Catalogs](#catalogs)
+  * [Frameworks](#frameworks)
+  * [ReactMajor](#reactmajor)
 * [5. Evaluation Rules](#5-evaluation-rules)
   * [Reads](#reads)
   * [Truthiness](#truthiness)
@@ -49,6 +54,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
 * [7. Error Handling](#7-error-handling)
   * [Fail](#fail)
   * [ParseError](#parseerror)
+  * [ShadowRootError](#shadowrooterror)
 
 ## 1. The Tree
 
@@ -106,8 +112,30 @@ A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, 
 
 ### Component
 
-* `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub handlers: Vec<Handler> }`; `Component::new(body, render)` has no state and no handlers.
-* `state` names the body `let`s the browser can change, the `useState` and `useStore` bindings in order. `handlers` are the component's event handlers as bodies, for an island in server mode, each `Handler { event, body }` running with `$props`, `$state` and `$event` bound after the body's `let`s and returning an object whose keys are the state names it sets, with any `Act` it holds collected for the host to dispatch. An element binds one through an attribute `$on:<event>` holding the handler's index; an element whose handler did not lower carries `$unlowered` with the line and the reason; an element's React `key` is kept as `$key`; an element's `dangerouslySetInnerHTML` is kept as `$html` holding the `__html` expression. `render::HANDLER_ATTR`, `render::UNLOWERED_ATTR`, `render::KEY_ATTR` and `render::RAW_ATTR` name them.
+* `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub handlers: Vec<Handler>, pub hydrated_by: Option<HydratedBy>, pub shadow: Option<ShadowRoot> }`; `Component::new(body, render)` has no state, no handlers and no shadow root and is hydrated by React.
+* `hydrated_by` is what mounts the component over the server's markup: `Some(HydratedBy::React)` for a component with state or handlers or one rendering such a component inline, `None` for a template nothing mounts. The plan marks `None` as `(static)` and the JSON form writes it as `"hydrate": false`. The renderer takes its markup rules from it; see [Frameworks](#frameworks).
+* `shadow` is the shadow root an element template declares, read from its root `<template>` by `ShadowRoot::take` at build time. It is `None` for every other component and for an element template whose root is anything else, which the renderer wraps in an open root. See [ShadowRoot](#shadowroot).
+* `state` names the body `let`s the browser can change, the `useState` and `useStore` bindings in order. `handlers` are the component's event handlers as bodies, for an island in server mode, each `Handler { event, body }` running with `$props`, `$state` and `$event` bound after the body's `let`s and returning an object whose keys are the state names it sets, with any `Act` it holds collected for the host to dispatch. An element binds one through an attribute `$on:<event>` holding the handler's index; an element whose handler did not lower carries `$unlowered` with the line and the reason; an element's React `key` is kept as `$key`; an element's `dangerouslySetInnerHTML` is kept as `$html` holding the `__html` expression; a placement of a custom element whose template sits under `elements/` carries `$shadow` holding the template's module. `render::HANDLER_ATTR`, `render::UNLOWERED_ATTR`, `render::KEY_ATTR`, `render::RAW_ATTR` and `render::SHADOW_ATTR` name them.
+
+### HydratedBy
+
+What mounts a component over the server's markup in the browser.
+
+* `pub enum HydratedBy { React }`: React is the only one, since a template lowers from TSX and TSX that needs the browser runs as React. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
+
+### ShadowRoot
+
+The declarative shadow root the server writes around an element template.
+
+* `pub struct ShadowRoot { pub mode: ShadowMode, pub delegates_focus: bool, pub clonable: bool, pub serializable: bool }`; derives `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`. The default is an open root with no options.
+* `ShadowRoot::take(render: &mut Tmpl) -> Result<Option<ShadowRoot>, ShadowRootError>` reads an element template's root `<template>` as its shadow root and leaves that template's children as the render. The root is the render itself or the only child of a root `Fragment`. `Ok(None)` when the root is anything else. A `<template shadowrootmode>` deeper in the tree is markup and is left alone.
+* `shadowrootmode` must be the literal string `open` or `closed`. `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` must be literal booleans, a bare attribute being `true`. Any other attribute is refused. So are a spread, a root `<template>` without `shadowrootmode` and a `<template shadowrootmode>` beside other root nodes or in a branch of a root `If`. See [ShadowRootError](#shadowrooterror).
+* The JSON form is `{"mode": "closed", "delegates_focus": true}` with the false options left out. The plan writes `(shadow closed delegatesfocus)` after `(static)`, naming each option that is true.
+
+### ShadowMode
+
+* `pub enum ShadowMode { Open, Closed }`, `Open` by default and lowercase in the JSON form; derives `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`.
+* `ShadowMode::of(mode: &str) -> Option<ShadowMode>` reads `open` or `closed`. `as_str(self) -> &'static str` writes them.
 
 ### Entry
 
@@ -186,7 +214,7 @@ Runs a body. `Clone`; the default carries the system clock and the standard libr
 * `Interpreter::with_clock(clock: Arc<dyn Clock>) -> Interpreter`
 * `Interpreter::with_extensions(self, extensions: Arc<Extensions>) -> Interpreter`: answers `Expr::Ext` from `extensions` in place of the standard library alone; `Interpreter::extensions(&self) -> &Arc<Extensions>` reads it back.
 * `Interpreter::with_catalogs(self, catalogs: Option<Arc<Catalogs>>) -> Interpreter`: the message catalogs every `Ambient` carries; none by default. `Interpreter::catalogs(&self) -> Option<&Arc<Catalogs>>`.
-* `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what React's server renderer writes, as `Rendered { html, islands }`. A `Tmpl::Island` renders its component apart, with the caller's children on the slot stack like a `Component` and leaves `ISLAND_MARK`, its index in `islands` and a NUL in `html` where it sits; `RenderedIsland { module, props, when, body }` holds the evaluated props and the island's own `Rendered`. A root `Slot` with no caller leaves `ROOT_SLOT`. An island's children render inside `render::CHILDREN_OPEN`, `<sf-s data-sf-children>`, closed after them, wherever its component places its `children`, which the mounter hands the component as its `children` without rendering them; nothing they hoist is kept and an island among them keys under the caller that wrote them. A component the server has no body for, a `.vue` file among them, has that region as its whole body; with no children its body is empty. `bind::rendered_nodes(&Rendered) -> Vec<Node>` turns the markup into nodes: raw pieces, `Node::Slot("content")` at `ROOT_SLOT` and, at an island, `Node::raw("<sf-s data-sf-island[ data-sf-when=\"…\"]>")`, a `Node::Client` whose `ssr` is the island's body and `Node::raw("</sf-s>")`. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
+* `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what the server renderer of the framework hydrating each component writes (see [Frameworks](#frameworks)), as `Rendered { html, islands }`. A `Tmpl::Island` renders its component apart, with the caller's children on the slot stack like a `Component` and leaves `ISLAND_MARK`, its index in `islands` and a NUL in `html` where it sits; `RenderedIsland { module, props, when, body }` holds the evaluated props and the island's own `Rendered`. A root `Slot` with no caller leaves `ROOT_SLOT`. An island's children render inside `render::CHILDREN_OPEN`, `<sf-s data-sf-children>`, closed after them, wherever its component places its `children`, which the mounter hands the component as its `children` without rendering them; nothing they hoist is kept and an island among them keys under the caller that wrote them. A component the server has no body for, a `.vue` file among them, has that region as its whole body; with no children its body is empty. `bind::rendered_nodes(&Rendered) -> Vec<Node>` turns the markup into nodes: raw pieces, `Node::Slot("content")` at `ROOT_SLOT` and, at an island, `Node::raw("<sf-s data-sf-island[ data-sf-when=\"…\"]>")`, a `Node::Client` whose `ssr` is the island's body and `Node::raw("</sf-s>")`. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
 * `Interpreter::render_module(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: `render` for the component under `module`, which keys its hoisted values; `render` is this with an empty module. A `Tmpl::Component` or `Tmpl::Island` is a call into `library` by module id, so a component may render itself; components nested deeper than `render::MAX_CALLS`, 96 in a debug build and 512 in a release build, fail the render with an internal `Fail` naming the module rather than overflowing the thread's stack. `Rendered.hoisted: ValueMap` holds every `Expr::Hoist` value the markup took, keyed `<module>|<id>` or `<module>|<id>@<i>.<j>` under `For` iterations, the callers' loops first, so a component placed from a loop keys below the iteration that placed it. A `Tmpl::Component` with `keyed` set adds `c<id>` to the path for what the component renders, so two placements of one component key apart; the caller's children render under the caller's module and path, where the browser builds them. `interp::Step` is one entry of the path, `Iteration(usize)` or `Placement(u32)`; a key recorded twice with different values is removed rather than left wrong. An island starts its own table: `RenderedIsland.body.hoisted` and `RenderedIsland::mount_props(&self) -> ValueMap` is its props plus that table under `HOISTED_PROP`, `"$h"`, when it is not empty. `IrEvaluator` adds the same key to the root node's props. `interp::Hoists { module, path, table }` is the recorder: `key(id)` spells the key and `record(id, &value)` applies the collision rule. An element whose attributes carry `render::CHUNK_ATTR`, `$chunk`, with an integer id renders its children into a buffer of their own and records that markup as a string under the id before writing it; an attribute whose name starts with `$` is never printed, which also covers the lowerer's `$bound` mark. An element carrying `render::RAW_ATTR`, `$html`, writes that string to the document unescaped and renders no children, the way React refuses to have both; a null writes nothing.
 * `Interpreter::island_step(&self, module, component, props, state, handler: Option<usize>, event: &Value, library) -> Result<Stepped, Fail>`: one round trip of an island in server mode. The body's `let`s run with `state` standing in for the component's state bindings, the handler at `handler` runs with `$props`, `$state` and `$event` bound and the object it returns is merged into the state for the keys the component names, then the component renders from that state in server mode: `$on:` markers print as `data-sf-on="click:0 change:1"` and `$key` as `data-sf-key`, neither of which prints in a browser-mode render. `None` for `handler` renders as is. `Stepped { state, rendered, acts }`: `acts` is every `Act` the handler ran, in order, as `(action id, input)` with the input evaluated where the statement stood, so it reads the props and the state as they were at that point; the interpreter dispatches nothing itself. A missing handler index is `Internal`.
 * A `Tmpl::Island` in server mode renders its component the same way and `RenderedIsland { mode, state, .. }` carries the mode and the values the state `let`s took; `mount_props` adds them under `render::STATE_PROP` (`$s`) and `rendered_nodes` writes `data-sf-mode="server"` on the region.
@@ -264,6 +292,35 @@ Message tables by locale, `catalog::Catalogs`, re-exported from `snapfire_fsr_co
 * `is_empty(&self) -> bool`; `default_tag(&self) -> &str`; `rows(&self) -> Vec<(String, usize)>`: each locale with how many keys its own table held.
 * `table(&self, tag: &str) -> Option<&Arc<Table>>` and `json(&self, tag: &str) -> Option<Arc<str>>`: the merged table for `tag`, the default locale's when `tag` has none, `None` when neither exists.
 * `lookup(&self, tag: &str, key: &str) -> Option<&str>`.
+
+### Frameworks
+
+The frameworks an application vendors, each at the major whose server markup the renderer writes.
+
+* `pub struct Frameworks { pub react: Option<ReactMajor> }`; `Default` vendors nothing. Defined in `render` and re-exported at the root.
+* `Interpreter::with_frameworks(self, frameworks: Frameworks) -> Interpreter` and `Interpreter::frameworks(&self) -> Frameworks`.
+* A component a vendored framework hydrates renders under that framework's rules at the vendored major. A component hydrated by a framework the application does not vendor renders as plain markup. A component nothing hydrates keeps its caller's rules. At the top of a render those are plain markup.
+
+| Written | React 18.3 | React 19 | Plain |
+| --- | --- | --- | --- |
+| custom element, array or object | `'' + value`: `"1,2"`, `"[object Object]"` | omitted | `Internal`, naming the element and the attribute |
+| custom element, `true` | `attr="true"` | `attr=""` | `attr="true"` |
+| custom element, `false` | `attr="false"` | omitted | omitted |
+| `inert={true}` | omitted | `inert=""` | `inert="true"` |
+| empty `src`, empty `href` off `<a>` | written | omitted | written |
+| a head tag React 19 hoists, outside `<svg>` and `<noscript>` | in place | `Internal`, naming the loader's `meta` export | in place |
+
+* A head tag React 19 hoists is one of two kinds. A `<title>` or a `<meta>` without `itemProp` is hoisted. A `<link>` is hoisted when it has a `rel`, a non-empty `href` and no load or error handler; a stylesheet `<link>` also needs a `precedence` and no `disabled`.
+* `className` on a custom element is written `class` under every set of rules.
+* `render::prepare` bakes a literal open tag only when every set of rules prints it alike. It never bakes a `<title>`, `<meta>` or `<link>`.
+* An element carrying `render::SHADOW_ATTR`, `$shadow`, holding a module id writes that component after its open tag under plain markup, with the element's other attributes as its props. The component's `shadow` gives the wrapping `<template>`: its `shadowrootmode` and each option that is true as a bare attribute. With no `shadow` the wrapper is `<template shadowrootmode="open">`. Nothing rendered inside it is recorded among an island's hoisted values, since the island's browser half never renders a shadow root. Its children follow. A non-scalar attribute on such an element reaches the template and is not written on the host.
+
+### ReactMajor
+
+* `pub enum ReactMajor { V18, V19 }`; `Default` is `V18`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
+* `ReactMajor::of(version: &str) -> Option<ReactMajor>`: the major of a version such as `18.3.1` or `19.3.0`; `None` for any other major.
+* `ReactMajor::number(self) -> u32`
+* `ReactMajor::ALL: [ReactMajor; 2]`, oldest first.
 
 ## 5. Evaluation Rules
 
@@ -356,3 +413,14 @@ Re-exported from `snapfire_fsr_core::ext`, with `FailureKind`.
 ### ParseError
 
 * `pub struct ParseError(serde_json::Error)`, returned by `from_json`; `Display` is `malformed IR: {inner}`.
+
+### ShadowRootError
+
+Returned by `ShadowRoot::take`. Derives `Debug`, `Clone`, `PartialEq`, `Eq` and implements `std::error::Error`; each `Display` names the root `<template>` and what to write instead.
+
+* `NoMode`: the root `<template>` has no `shadowrootmode`.
+* `NotLiteral { name: String, expected: &'static str }`: `shadowrootmode` or an option is an expression and not a literal of its type.
+* `Mode { mode: String }`: a `shadowrootmode` that is neither `open` nor `closed`.
+* `Attribute { name: String }`: an attribute the parser would drop with the template, named as the template wrote it, so `key` and `dangerouslySetInnerHTML` rather than their markers.
+* `Spread`: a spread on the root `<template>`.
+* `NotAlone`: a `<template shadowrootmode>` beside other root nodes or in a branch of a root `If`.

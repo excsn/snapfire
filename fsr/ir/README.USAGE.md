@@ -20,6 +20,7 @@ How to write a body as IR, run it against a request, read and write its JSON for
 * [Pinning the Clock](#pinning-the-clock)
 * [Testing Against a Mock Service Layer](#testing-against-a-mock-service-layer)
 * [How Calls Are Ordered](#how-calls-are-ordered)
+* [Matching the Framework That Hydrates](#matching-the-framework-that-hydrates)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -258,6 +259,30 @@ let body = vec![
 ```
 
 `a` and `b` are in flight at once. `c` starts when `a` has returned.
+
+## Matching the Framework That Hydrates
+
+A lowered component is written the way the framework that mounts it in the browser would write it, so hydration finds the markup it expects. `HydratedBy` on the component names that framework, `None` for a template nothing mounts. `Frameworks` on the interpreter names the major the application vendors; the plan carries it and `AppBuilder` hands it on.
+
+```rust
+use snapfire_fsr_ir::{Frameworks, Interpreter, ReactMajor};
+
+let interpreter = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19) });
+let html = interpreter.render(&component, &props, &library)?.html;
+```
+
+A component nothing hydrates renders inside its caller and keeps its caller's rules. At the top that is plain markup, the renderer's own. The three sets print these differently:
+
+| Written | React 18.3 | React 19 | Plain |
+| --- | --- | --- | --- |
+| custom element, array or object | `'' + value`: `"1,2"`, `"[object Object]"` | omitted | refused, naming the element and the attribute |
+| custom element, `true` | `attr="true"` | `attr=""` | `attr="true"` |
+| custom element, `false` | `attr="false"` | omitted | omitted |
+| `inert={true}` | omitted | `inert=""` | `inert="true"` |
+| empty `src`, empty `href` off `<a>` | written | omitted | written |
+| a `<title>`, `<meta>` or `<link>` React would hoist | in place | refused, naming the loader's `meta` export | in place |
+
+`className` on a custom element is written `class` under every set, which is React 19's behaviour and the one place React 18 is not copied. A literal open tag is baked once, so it is baked only when every set prints it alike.
 
 ## Error Handling
 

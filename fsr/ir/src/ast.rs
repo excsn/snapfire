@@ -195,10 +195,11 @@ fn is_zero(n: &u32) -> bool {
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
 /// `state` names the `let`s the browser can change, `useState` and `useStore`
 /// bindings in order; `handlers` are its event handlers as bodies, for an
-/// island in server mode, each returning the state it sets. `hydrate` is
-/// whether the browser mounts the component over the server's markup: false
+/// island in server mode, each returning the state it sets. `hydrated_by` is
+/// what mounts the component over the server's markup in the browser: `None`
 /// for a template with no state and no handlers, which then has no browser
-/// twin and pulls no framework into the page.
+/// twin and pulls no framework into the page. `shadow` is the shadow root an
+/// element template declares with its root `<template shadowrootmode>`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Component {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -208,16 +209,79 @@ pub struct Component {
   pub state: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<Handler>,
-  #[serde(default = "yes", skip_serializing_if = "is_true")]
-  pub hydrate: bool,
+  #[serde(rename = "hydrate", default = "by_react", skip_serializing_if = "is_by_react", with = "hydrated_as_flag")]
+  pub hydrated_by: Option<HydratedBy>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub shadow: Option<ShadowRoot>,
 }
 
-fn yes() -> bool {
-  true
+/// The declarative shadow root the server writes around an element template.
+/// The default is an open root with no options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShadowRoot {
+  pub mode: ShadowMode,
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub delegates_focus: bool,
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub clonable: bool,
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub serializable: bool,
 }
 
-fn is_true(b: &bool) -> bool {
-  *b
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShadowMode {
+  #[default]
+  Open,
+  Closed,
+}
+
+impl ShadowMode {
+  pub fn of(mode: &str) -> Option<Self> {
+    match mode {
+      "open" => Some(Self::Open),
+      "closed" => Some(Self::Closed),
+      _ => None,
+    }
+  }
+
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Self::Open => "open",
+      Self::Closed => "closed",
+    }
+  }
+}
+
+/// What mounts a component over the server's markup. React is the only one:
+/// a template is TSX, which runs as React when it needs the browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HydratedBy {
+  React,
+}
+
+fn by_react() -> Option<HydratedBy> {
+  Some(HydratedBy::React)
+}
+
+fn is_by_react(by: &Option<HydratedBy>) -> bool {
+  *by == Some(HydratedBy::React)
+}
+
+/// `hydrated_by` in the JSON plan as the `hydrate` flag it replaced, which
+/// says everything while React is the one framework that hydrates.
+mod hydrated_as_flag {
+  use serde::{Deserialize, Deserializer, Serializer};
+
+  use super::HydratedBy;
+
+  pub fn serialize<S: Serializer>(by: &Option<HydratedBy>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_bool(by.is_some())
+  }
+
+  pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<HydratedBy>, D::Error> {
+    Ok(bool::deserialize(d)?.then_some(HydratedBy::React))
+  }
 }
 
 /// One event handler of a component, lowered: runs with `$props`, `$state`
@@ -232,7 +296,7 @@ pub struct Handler {
 
 impl Component {
   pub fn new(body: Body, render: Tmpl) -> Self {
-    Self { body, render, state: Vec::new(), handlers: Vec::new(), hydrate: true }
+    Self { body, render, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(HydratedBy::React), shadow: None }
   }
 }
 

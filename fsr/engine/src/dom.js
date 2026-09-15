@@ -47,6 +47,38 @@ if (typeof globalThis.KeyboardEvent !== "function") {
 }
 if (typeof globalThis.FocusEvent !== "function") globalThis.FocusEvent = class FocusEvent extends globalThis.UIEvent {};
 if (typeof globalThis.InputEvent !== "function") globalThis.InputEvent = class InputEvent extends globalThis.UIEvent {};
+// linkedom hides a closed shadow root from everything, `ElementInternals` included, where a browser hands it to the element's own internals.
+const ROOTS = new WeakMap();
+{
+  let owner = globalThis.HTMLElement.prototype;
+  while (owner && !Object.prototype.hasOwnProperty.call(owner, "attachShadow")) owner = Object.getPrototypeOf(owner);
+  if (owner) {
+    const attachShadow = owner.attachShadow;
+    owner.attachShadow = function (init) {
+      const root = attachShadow.call(this, init);
+      ROOTS.set(this, root);
+      return root;
+    };
+  }
+}
+// linkedom's parser keeps a `<template shadowrootmode>` as a child. A browser's parser attaches it as the element's shadow root, as does its `setHTMLUnsafe`.
+const declareShadowRoots = (root) => {
+  for (const template of Array.from(root.querySelectorAll("template[shadowrootmode]"))) {
+    const mode = template.getAttribute("shadowrootmode");
+    const host = template.parentElement;
+    if ((mode !== "open" && mode !== "closed") || !host || !root.contains(template) || ROOTS.has(host)) continue;
+    const shadow = host.attachShadow({ mode, delegatesFocus: template.hasAttribute("shadowrootdelegatesfocus"), clonable: template.hasAttribute("shadowrootclonable"), serializable: template.hasAttribute("shadowrootserializable") });
+    for (const node of Array.from(template.childNodes)) shadow.appendChild(node);
+    template.remove();
+    declareShadowRoots(shadow);
+  }
+};
+if (typeof globalThis.Element.prototype.setHTMLUnsafe !== "function") {
+  globalThis.Element.prototype.setHTMLUnsafe = function (html) {
+    this.innerHTML = String(html);
+    declareShadowRoots(this);
+  };
+}
 // linkedom has no `attachInternals`. A form-associated custom element calls it as it is constructed and gives its form a value through `setFormValue`.
 const INTERNALS = new WeakMap();
 if (globalThis.HTMLElement && typeof globalThis.HTMLElement.prototype.attachInternals !== "function") {
@@ -65,7 +97,7 @@ if (globalThis.HTMLElement && typeof globalThis.HTMLElement.prototype.attachInte
       return [];
     }
     get shadowRoot() {
-      return this._element.shadowRoot ?? null;
+      return ROOTS.get(this._element) ?? null;
     }
     get willValidate() {
       return true;
@@ -246,6 +278,7 @@ const retire = (doc) => {
 globalThis.__sf.load = (html, url) => {
   globalThis.__sf_location(url);
   const page = L.parseHTML(String(html)).document;
+  declareShadowRoots(page);
   retire(globalThis.document);
   globalThis.document = page;
   if (registryKey) {

@@ -226,7 +226,8 @@ fn every_manifest() -> Manifest {
       Handler { event: "click".to_owned(), body: body.clone() },
       Handler { event: "submit".to_owned(), body: Vec::new() },
     ],
-    hydrate: true,
+    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    shadow: Some(snapfire_fsr_ir::ShadowRoot { mode: snapfire_fsr_ir::ShadowMode::Closed, delegates_focus: true, clonable: true, serializable: true }),
   };
   let node = Node {
     id: 0,
@@ -293,6 +294,7 @@ fn every_manifest() -> Manifest {
     ],
     middleware: Some(body),
     intercepts: vec![RouteEntry { pattern: "/modal".to_owned(), plan: node }],
+    frameworks: [("react".to_owned(), "18.3.1".to_owned())].into_iter().collect(),
   }
 }
 
@@ -505,6 +507,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
         .collect(),
       middleware,
       intercepts: intercepts.into_iter().map(|(pattern, plan)| RouteEntry { pattern, plan }).collect(),
+      frameworks: Default::default(),
     })
     .boxed()
 }

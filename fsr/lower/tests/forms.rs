@@ -46,7 +46,7 @@ fn render(library: &Components, module: &str, props: &[(&str, Value)]) -> Result
 }
 
 fn verdicts<'a>(set: &'a ComponentSet, module: &str) -> (bool, Option<&'a bool>) {
-  (set.components.iter().find(|(m, _)| m == module).unwrap_or_else(|| panic!("{module} did not lower")).1.hydrate, set.pure.get(module))
+  (set.components.iter().find(|(m, _)| m == module).unwrap_or_else(|| panic!("{module} did not lower")).1.hydrated_by.is_some(), set.pure.get(module))
 }
 
 fn island_in(tmpl: &Tmpl) -> Option<(&str, Option<&str>, Option<&str>)> {

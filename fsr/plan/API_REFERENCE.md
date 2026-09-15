@@ -37,7 +37,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of each vendored framework whose server markup the renderer matches, by package: `react` to `18.3.1`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
@@ -47,6 +47,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 * `Manifest::lowered_handlers(&self) -> impl Iterator<Item = &HandlerEntry>`
 * `Manifest::with_middleware(self, middleware: Option<Body>) -> Self`
 * `Manifest::with_intercepts(self, intercepts: Vec<RouteEntry>) -> Self`
+* `Manifest::with_frameworks(self, frameworks: BTreeMap<String, String>) -> Self`
 * `Manifest::intercepts(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the intercept trees in file order, checked like routes.
 * `Manifest::from_text(source: &str) -> Result<Self, PlanError>`: reads either form, told apart by the file's first term: `(` is s-expressions, `{` the JSON an older build wrote. What a host should call.
 * `Manifest::from_sexpr(source: &str) -> Result<Self, PlanError>`: parses `plan.sexp`, checks the version and refuses a `lowered` source or action row with no body.
@@ -131,7 +132,7 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 
 `snapfire_fsr_plan::sexpr` is the manifest half of the format; `snapfire_fsr_ir::sexpr` is the IR half and holds the syntax type.
 
-* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then routes, intercepts, the not-found tree, middleware, rows, consts and components.
+* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then one `(framework <package> <version>)` per vendored framework, then routes, intercepts, the not-found tree, middleware, rows, consts and components.
 * `manifest_from_sx(&[Sx]) -> Result<Manifest, SexprError>`: the same in reverse, with no version check; `Manifest::from_sexpr` adds it.
 
 ## 6. Error Handling

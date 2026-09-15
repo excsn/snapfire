@@ -37,6 +37,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Prerendering](#prerendering)
 * [Hoisting Render-Path Calls](#hoisting-render-path-calls)
 * [Deferring an Element's Definition](#deferring-an-elements-definition)
+* [Writing an Element's Shadow Template](#writing-an-elements-shadow-template)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Calling the Standard Library](#calling-the-standard-library)
 * [Writing an Extension](#writing-an-extension)
@@ -504,6 +505,8 @@ added     react-dom/client             react-dom/client.bundle.mjs  136190 bytes
 
 A module that imports a package outside its bundle stops the command naming it; vendor that package and repeat with it in `--external`. The host serves `vendor/` at `/static/js/vendor` by convention, which is the prefix the import map entries carry.
 
+The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 18.3.1)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
+
 ## Fetching Declarations
 
 `fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes `types`, else `@types/<package>` from DefinitelyTyped, plus the dependencies a DefinitelyTyped package declares. A package `fsr add` vendored is fetched at the same major. The fsr packages, `@snapfire/fsr-client` and `@snapfire/fsr-authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`. It then writes what the typechecker needs beside them: `types/foreign.d.ts` when a source under `src/` is a `.vue` file, a component in a language the build does not read, plus `tsconfig.json` with every package mapped to the entry it recorded, so an application hosted from Rust that never runs `fsr build` typechecks from this one command.
@@ -525,7 +528,7 @@ wrote     tsconfig.json
 
 A package with nothing to fetch is reported `missing` and the build goes on; its imports are `any` in the editor and errors under `strict`. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit`, never shipped, so a fresh checkout runs `fsr types` once rather than committing them.
 
-Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr-authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched. Those declarations type a hyphenated tag as a custom element whose attributes are its own, so `<shed-tally count={reserved}>` passes where `<divv>` does not. They also type `<template shadowrootmode="open">`, for a shadow root the server writes.
+Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr-authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched. Those declarations type a hyphenated tag as a custom element whose attributes are its own, so `<shed-tally count={reserved}>` passes where `<divv>` does not. They also type `<template shadowrootmode="open">`, for a shadow root the server writes. Under either set of declarations an element template's tag is typed with its props by `generated/elements.d.ts`, as [Writing an Element's Shadow Template](#writing-an-elements-shadow-template) shows.
 
 ```tsx
 import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
@@ -697,7 +700,7 @@ fsr test app
 fsr test app cart
 ```
 
-Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, static templates left out. The DOM is linkedom with what an entry module reaches for filled in: `customElements` is the document's own registry, so an element module defines its class; `XPathEvaluator` compiles expressions that match nothing, so a library that builds one at import, htmx for one, loads and does no harm. `document.activeElement` follows `focus()` and `blur()`, which dispatch `focus`, `focusin`, `blur` and `focusout`. An input keeps what was typed apart from its `value` attribute, an input with no type or an unknown one reads as `text` and a text control's selection is its caret. `requestSubmit` fires a cancelable `submit`. A spec's `fetch` of a route answers what the host would: the document, the payload with `__payload` in the query or one segment as markup with `__fragment`.
+Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, static templates left out. The DOM is linkedom with what an entry module reaches for filled in: `customElements` is the document's own registry, so an element module defines its class; `XPathEvaluator` compiles expressions that match nothing, so a library that builds one at import, htmx for one, loads and does no harm. `document.activeElement` follows `focus()` and `blur()`, which dispatch `focus`, `focusin`, `blur` and `focusout`. An input keeps what was typed apart from its `value` attribute, an input with no type or an unknown one reads as `text` and a text control's selection is its caret. `requestSubmit` fires a cancelable `submit`. A `<template shadowrootmode>` becomes its element's shadow root the way a browser's parser makes it, in a page `load()` parses and in markup written with `setHTMLUnsafe`, which is how `render()` writes the server's markup; a closed root is reachable through the element's `ElementInternals`. A spec's `fetch` of a route answers what the host would: the document, the payload with `__payload` in the query or one segment as markup with `__fragment`.
 
 A mock may write an integer field as a number. `minutes: 35` reaches the loader as the `i64` the contract names, since a JavaScript number is a double whatever it holds; `toEqual` reads `35` and `35n` as the same value where either side is whole; the generated mock types take `number` wherever a field is `bigint`.
 
@@ -906,6 +909,75 @@ The child is an element rather than a component and the server writes its markup
 ```
 
 Two rules: `mode` is refused, since nothing is mounted to round-trip; and the module must be a module, so give a definition file an `export` or the dynamic import has nothing to resolve. Without `define` an element's definition runs when the entry module does, which is what a masthead's wants.
+
+## Writing an Element's Shadow Template
+
+A custom element's shadow root can live beside its class instead of in every page that places it. `elements/<tag>.tsx` default-exports the template, whose props are the element's attributes:
+
+```tsx
+export default function LoanPlanner({ days, max, disabled }: { days: number; max: number; disabled?: boolean }) {
+  return (
+    <label>
+      {disabled ? "Borrowed for" : "Borrow for"}
+      <input type="range" name="days" min="1" max={`${max}`} value={`${days}`} disabled={disabled} />
+    </label>
+  );
+}
+```
+
+A page places the tag and nothing else:
+
+```tsx
+<loan-planner days={days} max={tool.days} disabled={reserved} />
+```
+
+The server writes the template inside the element as a declarative shadow root, so the parser attaches it before any script runs:
+
+```html
+<loan-planner days="7" max="14"><template shadowrootmode="open"><label>Borrow for<input type="range" name="days" min="1" max="14" value="7"/></label></template></loan-planner>
+```
+
+The template is markup. State or a handler stops the build, since the element's class owns its behaviour. An array or an object the page passes reaches the template as a prop and is never written on the host. In the browser the class takes the root with `shadowOf(this)` from `@snapfire/fsr-client/elements`, which also attaches it from the `<template>` when the markup came through `innerHTML`, an htmx swap among it.
+
+The root is open unless the template declares its own. A template does that by returning a `<template>` carrying the attributes the parser reads:
+
+```tsx
+export default function LoanPlanner({ days, max, disabled }: { days: number; max: number; disabled?: boolean }) {
+  return (
+    <template shadowrootmode="closed" shadowrootdelegatesfocus>
+      <label>
+        {disabled ? "Borrowed for" : "Borrow for"}
+        <input type="range" name="days" min="1" max={`${max}`} value={`${days}`} disabled={disabled} />
+      </label>
+    </template>
+  );
+}
+```
+
+The build takes that `<template>` as the shadow root and the server writes it in place of the open one:
+
+```html
+<loan-planner days="7" max="14"><template shadowrootmode="closed" shadowrootdelegatesfocus><label>Borrow for<input type="range" name="days" min="1" max="14" value="7"/></label></template></loan-planner>
+```
+
+`shadowrootmode` is `open` or `closed` written out. `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` are the options. Any other attribute on the root template stops the build, since the parser drops the template element once it becomes the root. A mode from an expression stops it too, as does a root template beside other nodes or in a branch.
+
+A closed root is not on `this.shadowRoot`. The class reaches it through its `ElementInternals`, so it calls `attachInternals()` and passes the result as `shadowOf(this, internals)`. Without them `shadowOf` cannot tell a closed root from none and returns `null`.
+
+The build types each template's tag in `generated/elements.d.ts`, so a page that places it is checked against the template's props. A missing prop or one of the wrong type fails the typecheck. An attribute the template does not take passes, since the element's class may read it. For an application with React in its import map the file augments React's intrinsic elements:
+
+```ts
+declare module "react" {
+  namespace JSX {
+    interface IntrinsicElements {
+      [custom: `${string}-${string}`]: Host & Loose;
+      "loan-planner": Placed<typeof Template0>;
+    }
+  }
+}
+```
+
+`Placed` is the template's props over the attributes every HTML element takes. The pattern entry lets a hyphenated tag with no template through with those attributes and any others. Without React the file fills the dialect's `ElementTemplates` instead, where a template's tag takes the arrays and objects its props name. A tag with no template still refuses them.
 
 ## Placing an Island in Server Mode
 

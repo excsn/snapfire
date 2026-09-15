@@ -1,6 +1,7 @@
 {
   "imports": {
     "@snapfire/fsr-client": "/static/js/fsr/index.js",
+    "@snapfire/fsr-client/elements": "/static/js/fsr/elements.js",
     "@snapfire/fsr-client/htmx": "/static/js/fsr/htmx.js",
     "@snapfire/fsr-client/std": "/static/js/fsr/std.js",
     "@snapfire/fsr-client/store": "/static/js/fsr/store.js",

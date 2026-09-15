@@ -320,7 +320,7 @@ impl Evaluator for IrEvaluator {
       // A component nothing mounts is its markup and nothing else: no island
       // wrapper to claim, no props script to carry, no module for the browser
       // to load. The islands inside it reach the document's own scan.
-      if !component.hydrate {
+      if component.hydrated_by.is_none() {
         let mut nodes = rendered_nodes(&rendered);
         return Ok(Chunk::Node(if nodes.len() == 1 { nodes.pop().unwrap() } else { Node::Seq(nodes) }));
       }

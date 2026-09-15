@@ -28,6 +28,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [Clients](#clients)
   * [Schemas](#schemas)
   * [Extensions](#extensions)
+  * [Elements](#elements)
   * [Routes](#routes)
   * [Ids](#ids)
   * [Modules](#modules)
@@ -68,7 +69,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### fsr build
 
 * `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
-* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.sexp`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
+* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.sexp`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
 * The bundle follows the generation because it compiles the island registry the generation writes. `--public-path` defaults to `/static/js/app` or `<at>/static/js/app` for a site; `--snapfirec` defaults to `$SNAPFIREC`, else beside this binary, else `PATH`.
 * Exit 0 on success, 1 on any `BuildError`, 2 on a usage error.
 * The typecheck prints one `typecheck <row>` line, a `recorded` line when it wrote the version into the configuration and nothing at all when no checker is installed beyond a note on stderr.
@@ -156,7 +157,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String> }`
 * `browser_routes` are the route modules the browser mounts, as files relative to the app: every route module that is not `static`, which is all of `routes/` a bundle compiles.
-* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `<types>/foreign.d.ts` when a source or a placement is a component in a language the build does not read, declaring `*.<ext>` for the typechecker; `write` removes a `generated/foreign.d.ts` left by an earlier build.
+* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `<types>/foreign.d.ts` when a source or a placement is a component in a language the build does not read, declaring `*.<ext>` for the typechecker; `write` removes a `generated/foreign.d.ts` left by an earlier build.
 * `generated/native.d.ts` is read off the Rust rather than the contract: `native::read` walks the crate's `src/`, the sibling of the app directory, with `syn` and takes every `#[native]` `impl` block's `pub` methods plus the structs they name. It reads rather than expands, so `build.rs` can run it before the crate compiles. A method the reader saw as `fn` is typed as its value and an `async fn` as a promise; a Rust type outside the value model reads as `unknown`.
 
 ### write
@@ -215,6 +216,15 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * Loaders, metas, stores, actions, handlers and middleware are lowered through the same `ComponentSet`, so a body follows the imports it calls; a name the build cannot follow is the residue the lowerer gives, at the line.
 * A `body` extension on a component's render path fails the build with the lowerer's `Reach` error, never a `client` row.
 
+### Elements
+
+* Every `app/elements/<tag>.tsx`, sorted by name, is a custom element's shadow template: its default export renders with the element's attributes as its props. The file name is the tag; one that is not lowercase, starting with a letter and holding a hyphen is `BuildError::ElementName`.
+* Each template is lowered before any route and must be static. State or a handler is `BuildError::ElementTemplate`, since an element's behaviour is its class's. It is lowered without hoisting, so it has no `Report.hoisted` row and no rewrite under `.fsr-bundle/`.
+* A template whose root is a `<template shadowrootmode>` declares the element's shadow root. `ShadowRoot::take` reads it into the component's `shadow` and the template's children become its render, so the plan carries `(shadow closed delegatesfocus)` in place of the element. A root template it refuses is `BuildError::ElementTemplate` with the refusal as the reason.
+* A placement of that tag anywhere carries `render::SHADOW_ATTR` naming the template's module. The server writes the template inside the element as a declarative shadow root before its light children. The wrapper is `<template shadowrootmode="open">` unless the template declares its own root. A non-scalar attribute reaches the template without being written on the host.
+* `elements/**/*` is in the generated `tsconfig.json`, so the templates typecheck. Nothing under `elements/` is compiled for the browser.
+* `generated/elements.d.ts` is `types::element_declarations`: each template's tag typed as the template's props over the host's attributes, plus any other attribute. With `react` in the import map it augments `React.JSX.IntrinsicElements` and adds a `` `${string}-${string}` `` entry for a tag with no template. Without it, it fills `ElementTemplates` in `@snapfire/fsr-authoring/template`. The dialect's `JSX.IntrinsicElements` is `Intrinsic & ElementTemplates`, so a template's tag takes its type from its entry alone.
+
 ### Routes
 
 * A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. A `layout.tsx` in any directory on the way from `routes/` to a route wraps that route's page, outermost first. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
@@ -250,6 +260,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `not_found` is the same chain around the not-found module, inside the root layout when there is one, with the routes-level error module and no source, present only when the module is; the host renders it with status 404 and `params.path` set to the path asked for.
 * Sources and actions are emitted with `RowOwner::Lowered` and their bodies. No other owner is produced.
 * An action whose `action<T>` names a type the contract lacks is `UnknownInput`; an action row carries `input` when it names one.
+* `frameworks` holds `react` and the exact version `vendor/.fsr-vendor.json` records for it. An import map serving `react` with nothing recorded is `ReactUnrecorded`. A major other than 18 or 19 is `ReactMajor`.
 
 ### Generated files
 
@@ -337,7 +348,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * The queue is `@snapfire/fsr-authoring`, `@snapfire/fsr-client`, then `import_map_packages`. A package whose directory exists is kept unless `refresh`; the fsr packages are written from declarations embedded in the binary; any other `@snapfire/*` is `missing`. Under xwpm, `xwpm restore` and `xwpm types` run first and every other package is `missing` with that reason. Otherwise, the npm registry: the abbreviated packument chooses the highest release sharing the vendored major, else `latest`; the version document's `types` or `typings` names the entry and its tarball's `.d.ts`, `.d.mts`, `.d.cts` and `package.json` files are unpacked under `<types>/<package>/`; without one, `@types/<name>` (`@scope/name` as `@types/scope__name`) the same way with `index.d.ts` as the entry; its `dependencies` are queued under their package names. A package with neither is `missing`.
 * `pub struct TypesReport { pub fetched: Vec<(String, String, String)>, pub kept: Vec<String>, pub missing: Vec<(String, String)>, pub delegated: Vec<String>, pub written: Vec<String> }`: package, version and source; kept packages; package and reason; xwpm commands run; the shim and the tsconfig written, as paths relative to the app.
 * `pub const types::FOREIGN_SHIM: &str = "foreign.d.ts"`, the shim's name under `<types>/`.
-* `pub fn types::source_dirs(app: &Path) -> Vec<&'static str>`: of `src`, `ext`, `routes`, `schemas` and `tests`, the ones the application has.
+* `pub fn types::source_dirs(app: &Path) -> Vec<&'static str>`: of `src`, `ext`, `elements`, `routes`, `schemas` and `tests`, the ones the application has.
 * `pub fn types::foreign_shim(app: &Path, placed: &[String]) -> Option<String>`: `declare module "*.<ext>"` for every extension of a `.vue` file under the source directories and of every module in `placed`, the foreign components a build's templates import; `None` when there are none. The `vue` declaration types the default export as a function of loose props; any other extension as `unknown`.
 * `pub fn types::write_foreign_shim(app: &Path, layout: &Layout, placed: &[String]) -> Result<Option<String>, BuildError>`: writes the shim to `<types>/foreign.d.ts`, creating the directory; answers the path relative to the app; with nothing foreign it removes a shim that is there and answers `None`.
 * `types::definitely_typed(package) -> String`, `types::is_ambient(entry: &str) -> bool` (contains `declare module "` or `declare module '`).
@@ -349,6 +360,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `pub fn types::tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, BuildError>`: `target` es2022, `module` esnext, `moduleResolution` bundler, `jsx` react-jsx, `jsxImportSource` `@snapfire/fsr-authoring` when the import map has no `react`, `strict`, `noEmit`, `skipLibCheck`; `paths` with `@snapfire/fsr` to `./generated/fsr`, then per present package `<name>` to `./<types>/<name>/<entry>` unless ambient and `<name>/*` to `./<types>/<name>/*`; `include` of `<dir>/**/*` for each of `source_dirs`, `generated/**/*` when `generated`, `<types>/foreign.d.ts` when `shim` and each ambient entry. The build passes `generated` as true, since it is writing the directory; `fsr types` passes whether it is there.
 * `pub fn types::tsconfig_build(app: &Path, route_files: &[String]) -> String`: `target` es2022, `outDir` dist, `rootDir` `.`, `sourceMap`, `jsx` react-jsx; `include` of `src/**/*`, `ext/**/*` when present, each of `route_files`, `generated/islands.ts` and `generated/client.ts`. A static template is not among `route_files`, so it is never compiled and never asks the import map for a JSX runtime.
+* `pub fn types::element_declarations(app: &Path, layout: &Layout, elements: &[(String, String)]) -> Result<String, BuildError>`: `generated/elements.d.ts` for the tags and modules under `elements/`. Each entry is `Placed<typeof TemplateN>`, the template's props over `Host` with any other attribute allowed. `Host` is React's `DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>` when the import map has `react`, else the dialect's `Attributes`. A dialect application with no template gets `export {};`.
 
 ### Manifests
 
@@ -372,6 +384,10 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
 * `UnknownComponent { module: String }`, an island whose extension no framework claims.
 * `IslandImports { module: String, adapter: String, missing: String }`, the first registered module whose adapter the import map cannot supply, with the specifiers it lacks.
+* `ReactUnrecorded { manifest: String, app: String, version: String }`, an import map serving `react` with no `react` entry in the vendor manifest; the message names the `fsr add` command that records it.
+* `ReactMajor { version: String, supported: String }`, a vendored React whose major the renderer has no rules for.
+* `ElementName { file: String }`, a file under `elements/` whose name is not a custom element tag.
+* `ElementTemplate { module: String, reason: String }`, an element template with state or a handler or a root `<template>` that cannot be its shadow root; `reason` says which.
 * `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
 * `Http(String, String)`, the URL and the failure.
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.

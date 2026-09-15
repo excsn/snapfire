@@ -12,15 +12,26 @@ use std::sync::Arc;
 
 use snapfire_fsr_core::{Value, ValueMap};
 
-use crate::ast::{Component, Entry, Stmt, Tmpl};
+use crate::ast::{Component, Entry, ShadowMode, ShadowRoot, Stmt, Tmpl};
 use crate::interp::{Env, Fail, Hoists, Interpreter, Step, stringify, truthy};
+
+mod markup;
+mod react;
+mod react18;
+mod react19;
+
+pub use markup::Frameworks;
+pub(crate) use markup::Markup;
+use react::is_custom_element;
+pub use react::ReactMajor;
 
 /// Every lowered component by module id, so one may render another.
 pub type Components = HashMap<String, Arc<Component>>;
 
 const VOID: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"];
 
-/// Attributes that are present or absent rather than valued.
+/// Attributes that are present or absent rather than valued under every React
+/// major. React 19 adds `inert`.
 const BOOLEAN: &[&str] = &["disabled", "checked", "selected", "readonly", "required", "hidden", "multiple", "open", "autofocus", "autoplay", "controls", "loop", "muted", "novalidate", "defer", "async"];
 
 fn escape_into(input: &str, out: &mut String, quotes: bool) {
@@ -347,6 +358,8 @@ fn call(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> Result<(), Fail
 
 fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let depth = env.scope.len();
+  let caller = env.markup;
+  env.markup = Markup::of(component.hydrated_by, env.frameworks, caller);
   let overrides = env.state.take();
   for stmt in &component.body {
     let Stmt::Let { name, expr } = stmt else {
@@ -363,6 +376,7 @@ fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Co
   }
   render(env, &component.render, library, slots, out)?;
   env.scope.truncate(depth);
+  env.markup = caller;
   Ok(())
 }
 
@@ -456,9 +470,11 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Baked { open, tag, children } => {
       out.markup(open);
       if let Some(tag) = tag {
+        let context = enter(env, tag);
         for child in children {
           render(env, child, library, slots, out)?;
         }
+        (env.in_svg, env.in_noscript) = context;
         out.close_tag(tag);
       }
     }
@@ -496,7 +512,19 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
   open.push_str(tag);
   let mut bound = Vec::new();
   let mut raw: Option<String> = None;
-  for (name, value) in entries(env, attrs, true)? {
+  let markup = env.markup;
+  let evaluated = entries(env, attrs, true)?;
+  if markup.may_hoist(tag) && !env.server_mode && !env.in_svg && !env.in_noscript && markup.hoists(tag, &evaluated) {
+    return Err(hoisted_in_place(env, tag));
+  }
+  let shadow = match evaluated.iter().find(|(name, _)| name.as_ref() == SHADOW_ATTR) {
+    Some((_, module)) => Some((stringify(module)?, evaluated.iter().filter(|(name, _)| !name.starts_with('$')).map(|(name, value)| (name.to_string(), value.clone())).collect::<ValueMap>())),
+    None => None,
+  };
+  for (name, value) in evaluated {
+    if shadow.is_some() && !is_scalar(&value) {
+      continue;
+    }
     if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
       if env.server_mode {
         bound.push(format!("{event}:{}", stringify(&value)?));
@@ -505,7 +533,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
     }
     if name == KEY_ATTR {
       if env.server_mode {
-        attribute("data-sf-key", &value, &mut open)?;
+        attribute(markup, tag, "data-sf-key", &value, &mut open)?;
       }
       continue;
     }
@@ -519,10 +547,10 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
     if skipped_attr(&name) {
       continue;
     }
-    attribute(&name, &value, &mut open)?;
+    attribute(markup, tag, &name, &value, &mut open)?;
   }
   if !bound.is_empty() {
-    attribute("data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
+    attribute(markup, tag, "data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
   }
   if VOID.contains(&tag) {
     open.push_str("/>");
@@ -531,6 +559,10 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
   }
   open.push('>');
   out.markup(&open);
+  if let Some((module, props)) = shadow {
+    render_shadow(env, &module, props, library, slots, out)?;
+  }
+  let context = enter(env, tag);
   match chunk_id(attrs) {
     Some(id) => {
       let mut inner = Out::default();
@@ -557,8 +589,75 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
       }
     },
   }
+  (env.in_svg, env.in_noscript) = context;
   out.close_tag(tag);
   Ok(())
+}
+
+/// Enters `tag` for the context React 19 reads before moving `<title>`,
+/// `<meta>` and `<link>` into the head. Returns the context it replaced.
+fn enter(env: &mut Env, tag: &str) -> (bool, bool) {
+  let held = (env.in_svg, env.in_noscript);
+  match tag {
+    "svg" => env.in_svg = true,
+    "foreignObject" => env.in_svg = false,
+    "noscript" => env.in_noscript = true,
+    _ => {}
+  }
+  held
+}
+
+/// React 19 moves this element into the document head, so the markup the
+/// server wrote and the tree the browser builds would not agree.
+fn hoisted_in_place(env: &Env, tag: &str) -> Fail {
+  let writer = match env.hoists.as_ref().map(|h| h.module.as_str()) {
+    Some(module) if !module.is_empty() => format!("`{module}`"),
+    _ => "a component".to_owned(),
+  };
+  Fail::internal(format!("{writer} writes `<{tag}>` in markup the browser hydrates; React 19 moves it into the document head, so it belongs in a loader's `meta` export"))
+}
+
+/// A custom element's shadow template, written as a declarative shadow root
+/// at the start of the element. It renders with the element's attributes as
+/// its props and under plain markup, since the parser takes the shadow root
+/// and no framework sees it. The caller writes the light children after it,
+/// so a `{children}` in the template is nothing: `<slot>` shows them. Nothing
+/// in it is recorded among an island's hoisted values, since the island's
+/// browser half never renders a shadow root.
+fn render_shadow<'a>(env: &mut Env, module: &str, props: ValueMap, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+  let depth = env.scope.len();
+  let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props))]));
+  let hoists = env.hoists.take();
+  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false });
+  let markup = std::mem::replace(&mut env.markup, Markup::Plain);
+  shadow_open(component.shadow.unwrap_or_default(), out);
+  let result = in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
+  env.markup = markup;
+  env.hoists = hoists;
+  slots.pop();
+  env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
+  env.scope.truncate(depth);
+  result?;
+  out.close_tag("template");
+  Ok(())
+}
+
+fn shadow_open(shadow: ShadowRoot, out: &mut Out) {
+  out.markup(match shadow.mode {
+    ShadowMode::Open => "<template shadowrootmode=\"open\"",
+    ShadowMode::Closed => "<template shadowrootmode=\"closed\"",
+  });
+  if shadow.delegates_focus {
+    out.markup(" shadowrootdelegatesfocus");
+  }
+  if shadow.clonable {
+    out.markup(" shadowrootclonable");
+  }
+  if shadow.serializable {
+    out.markup(" shadowrootserializable");
+  }
+  out.markup(">");
 }
 
 fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], body: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
@@ -732,7 +831,7 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
 /// when a component is put into a [`Components`] library and an element it
 /// cannot bake is left exactly as it was.
 pub fn prepare(component: &Component) -> Component {
-  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), handlers: component.handlers.clone(), hydrate: component.hydrate }
+  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), handlers: component.handlers.clone(), hydrated_by: component.hydrated_by, shadow: component.shadow }
 }
 
 fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
@@ -757,10 +856,15 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
   }
 }
 
-/// The open tag of an element whose attributes are all literals and none of
-/// them is a marker the renderer answers for. `None` keeps the element on the
-/// evaluating path, which is never a different answer.
+/// The open tag of an element whose attributes are all literals, none of them
+/// a marker the renderer answers for, that every set of markup rules prints
+/// alike: a component is baked once and renders under whichever rules its
+/// caller is under. `None` keeps the element on the evaluating path, which is
+/// never a different answer.
 fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
+  if Markup::every().any(|markup| markup.may_hoist(tag)) {
+    return None;
+  }
   let mut open = String::with_capacity(tag.len() + 16);
   open.push('<');
   open.push_str(tag);
@@ -785,7 +889,17 @@ fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
       crate::ast::Lit::Float(f) => Value::F64(*f),
       crate::ast::Lit::Str(text) => Value::str(text.as_str()),
     };
-    attribute(name, &value, &mut open).ok()?;
+    let mut agreed: Option<String> = None;
+    for markup in Markup::every() {
+      let mut piece = String::new();
+      attribute(markup, tag, name, &value, &mut piece).ok()?;
+      match &agreed {
+        Some(first) if *first != piece => return None,
+        Some(_) => {}
+        None => agreed = Some(piece),
+      }
+    }
+    open.push_str(&agreed.unwrap_or_default());
   }
   match VOID.contains(&tag) {
     true => open.push_str("/>"),
@@ -806,6 +920,11 @@ pub const CHUNK_ATTR: &str = "$chunk";
 /// Its string is written to the document as it stands, so whoever produced it
 /// answers for it; the element's children never render.
 pub const RAW_ATTR: &str = "$html";
+
+/// A placement of a custom element whose shadow template sits under
+/// `elements/`, holding the template's module. The server writes the
+/// template as the element's declarative shadow root.
+pub const SHADOW_ATTR: &str = "$shadow";
 
 /// The prefix of an attribute binding a handler to its element: `$on:click`
 /// holding the handler's index. Printed as `data-sf-on="click:0"` in server
@@ -918,10 +1037,6 @@ fn interpolate(value: &Value, out: &mut Out) -> Result<(), Fail> {
   }
 }
 
-/// An attribute the way React's server renderer prints one: `null`,
-/// `undefined` and `false` omit it, `true` on a boolean attribute writes
-/// `name=""`, a `style` with nothing in it is omitted, anything else is
-/// stringified.
 /// Whether `name` may be written into a tag. A name is printed as it stands,
 /// and a `{...spread}` or a computed key takes one from a runtime value, so a
 /// name carrying a space or a quote would close the attribute and start
@@ -935,11 +1050,34 @@ fn writable_attr_name(name: &str) -> bool {
     })
 }
 
-fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
-  if matches!(value, Value::Null | Value::Bool(false)) {
+/// ` name="text"`, the text escaped.
+fn write_attr(name: &str, text: &str, out: &mut String) {
+  out.push(' ');
+  out.push_str(name);
+  out.push_str("=\"");
+  escape_attr(text, out);
+  out.push('"');
+}
+
+/// An attribute of `tag` the way `markup`'s rules print one: `null` omits it.
+/// Under React a custom element's attribute follows that major's own rules.
+/// Under plain markup a custom element takes a scalar like any element and
+/// refuses anything else, since nothing will set it as a property. On every
+/// other element `false` omits it, `true` on a boolean attribute writes
+/// `name=""`, a `style` with nothing in it is omitted and anything else is
+/// stringified.
+fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
+  if matches!(value, Value::Null) || !writable_attr_name(name) {
     return Ok(());
   }
-  if !writable_attr_name(name) {
+  if name != "style" && is_custom_element(tag) {
+    match markup {
+      Markup::React(major) => return major.custom_attribute(name, value, out),
+      Markup::Plain if !is_scalar(value) => return Err(unset_property(tag, name, value)),
+      Markup::Plain => {}
+    }
+  }
+  if matches!(value, Value::Bool(false)) {
     return Ok(());
   }
   if name == "style" {
@@ -955,20 +1093,30 @@ fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
     out.push('"');
     return Ok(());
   }
-  if BOOLEAN.contains(&name) {
+  if markup.is_boolean(name) {
     if truthy(value) {
-      out.push(' ');
-      out.push_str(name);
-      out.push_str("=\"\"");
+      write_attr(name, "", out);
     }
     return Ok(());
   }
-  out.push(' ');
-  out.push_str(name);
-  out.push_str("=\"");
-  escape_attr(&crate::interp::scalar_str(value)?, out);
-  out.push('"');
+  if matches!(value, Value::Bool(true)) && markup.drops_true(name) {
+    return Ok(());
+  }
+  if matches!(value, Value::Str(text) if text.is_empty()) && markup.drops_empty(tag, name) {
+    return Ok(());
+  }
+  write_attr(name, &crate::interp::scalar_str(value)?, out);
   Ok(())
+}
+
+fn is_scalar(value: &Value) -> bool {
+  matches!(value, Value::Null | Value::Bool(_) | Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) | Value::Str(_))
+}
+
+/// A non-scalar on a custom element in markup no framework hydrates. Nothing
+/// in the browser will set it as a property, so the render names it.
+fn unset_property(tag: &str, name: &str, value: &Value) -> Fail {
+  Fail::internal(format!("`{name}` on `<{tag}>` holds a value of kind `{}` and nothing hydrates this markup to set it as a property; pass a string or give the element a template under `elements/`", crate::bind::kind_name(value)))
 }
 
 #[cfg(test)]
@@ -1020,7 +1168,8 @@ mod tests {
       },
       state: Vec::new(),
       handlers: Vec::new(),
-      hydrate: true,
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
     };
     let html = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html;
     assert_eq!(html, "<path marker-end=\"url(#a)\" stroke-width=\"2\" viewBox=\"0 0 8 8\"></path>");
@@ -1033,7 +1182,8 @@ mod tests {
       render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("md")), Entry::Field(RAW_ATTR.to_owned(), html)], children },
       state: Vec::new(),
       handlers: Vec::new(),
-      hydrate: true,
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
     };
     let render = |component: &Component, props: &ValueMap| Interpreter::default().render(component, props, &Components::new()).unwrap().html;
 
@@ -1055,7 +1205,7 @@ mod tests {
         tag: "p".to_owned(),
         attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("count")), Entry::Field("hidden".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("title".to_owned(), Expr::Lit(Lit::Null))],
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
-      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+      }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let html = (Interpreter::default().render(&component, &props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap().html;
     assert_eq!(html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
@@ -1081,7 +1231,7 @@ mod tests {
             }),
           }),
         }],
-      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+      }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let lines = Value::seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
     let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap().html;
@@ -1099,12 +1249,12 @@ mod tests {
           tag: "span".to_owned(),
           attrs: vec![Entry::Field("title".to_owned(), Expr::Template(vec![Expr::Builtin { name: Builtin::ToFixed, args: vec![p("rating"), Expr::Lit(Lit::Float(1.0))] }, Expr::lit_str(" out of 5")]))],
           children: vec![Tmpl::Expr(Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::Builtin { name: Builtin::Repeat, args: vec![Expr::lit_str("★"), Expr::var("full")] }), Box::new(Expr::Builtin { name: Builtin::Repeat, args: vec![Expr::lit_str("☆"), Expr::Arith(crate::ast::ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(5.0))), Box::new(Expr::var("full")))] })))],
-        }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+        }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
       }),
     );
     let page = Component {
       body: Vec::new(),
-      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0, keyed: false }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0, keyed: false }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
     let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap().html;
@@ -1122,12 +1272,12 @@ mod tests {
           tag: "main".to_owned(),
           attrs: vec![Entry::Field("class".to_owned(), p("className"))],
           children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())], id: 0, keyed: false }],
-        }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+        }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
       }),
     );
     library.insert(
       "src/ui/Card.tsx#Card".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] }, state: Vec::new(), handlers: Vec::new(), hydrate: true }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None }),
     );
     let page = Component {
       body: vec![Stmt::Let { name: "header".to_owned(), expr: Expr::Object(vec![Entry::Field("title".to_owned(), Expr::lit_str("Picks")), Entry::Field("className".to_owned(), Expr::lit_str("wrong"))]) }],
@@ -1141,7 +1291,7 @@ mod tests {
         }],
         id: 0,
         keyed: false,
-      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+      }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let mut attrs = ValueMap::default();
     attrs.insert("className".to_owned(), Value::str("ignored"));
@@ -1162,7 +1312,7 @@ mod tests {
         Tmpl::Element { tag: "br".to_owned(), attrs: Vec::new(), children: Vec::new() },
         Tmpl::Expr(Expr::Lit(Lit::Bool(true))),
         Tmpl::Expr(Expr::Lit(Lit::Null)),
-      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      ]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
     assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
@@ -1171,7 +1321,7 @@ mod tests {
   #[test]
   fn a_store_read_takes_the_seed_and_falls_back_without_one() {
     let read = Expr::Coalesce(Box::new(Expr::Store("cart/count".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0))));
-    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] }, state: Vec::new(), handlers: Vec::new(), hydrate: true };
+    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None };
     let mut library = Components::new();
     library.insert("src/ui/Badge.tsx#Badge".to_owned(), Arc::new(inner));
     let outer = Component {
@@ -1179,7 +1329,7 @@ mod tests {
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(Expr::var("n")),
         Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), id: 0, keyed: false },
-      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      ]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
     assert_eq!(render(ValueMap::default()), "0<b>0</b>", "no seed leaves both reads on the fallback");
@@ -1195,7 +1345,7 @@ mod tests {
     let filled = Expr::Builtin { name: Builtin::Includes, args: vec![Expr::Coalesce(Box::new(Expr::Var("$props".to_owned()).field("$slots")), Box::new(Expr::Array(Vec::new()))), Expr::lit_str("modal")] };
     let component = Component {
       body: Vec::new(),
-      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let render = |props: ValueMap| Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
     assert_eq!(render(ValueMap::default()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
@@ -1221,7 +1371,7 @@ mod tests {
       (Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(3.0))] }), Box::new(Expr::lambda(&["_", "i"], Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var("i")), Box::new(Expr::Lit(Lit::Float(1.0))))))), "1<!-- -->2<!-- -->3"),
     ];
     for (expr, expected) in cases {
-      let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), handlers: Vec::new(), hydrate: true };
+      let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None };
       let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
       assert_eq!(html, expected, "{expr:?}");
     }
@@ -1256,7 +1406,7 @@ mod hoist_tests {
             body: Box::new(Tmpl::Expr(hoist(1, fixed(Expr::Arith(crate::ast::ArithOp::Mul, Box::new(Expr::var("p")), Box::new(Expr::var("t"))))))),
           }),
         },
-      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      ]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let mut props = ValueMap::default();
     props.insert("total".to_owned(), Value::F64(2.5));
@@ -1275,7 +1425,7 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Price.tsx#Price".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None }),
     );
     let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new(), id: 0, keyed: false };
     let page = Component {
@@ -1284,7 +1434,7 @@ mod hoist_tests {
         price(Expr::Lit(Lit::Float(1.0))),
         Tmpl::For { over: Expr::var("$props").field("items"), params: vec!["it".to_owned()], body: Box::new(price(Expr::var("it"))) },
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(9.0))))),
-      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      ]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(2.0), Value::F64(3.0)]));
@@ -1294,7 +1444,7 @@ mod hoist_tests {
     assert_eq!(keys, ["src/ui/Price.tsx#Price|0", "src/ui/Price.tsx#Price|0@0", "src/ui/Price.tsx#Price|0@1", "routes/index/page.tsx#default|0"]);
     assert_eq!(rendered.hoisted["src/ui/Price.tsx#Price|0@1"], Value::str("3.0"));
 
-    let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), handlers: Vec::new(), hydrate: true };
+    let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &twice, &ValueMap::default(), &library).unwrap();
     assert!(rendered.hoisted.is_empty(), "Price placed three times outside a loop shares one key: 1.0 twice agrees, 2.0 drops it: {:?}", rendered.hoisted);
   }
@@ -1315,7 +1465,7 @@ mod hoist_tests {
             children: vec![Tmpl::Expr(hoist(1, fixed(Expr::var("it"))))],
           }),
         }],
-      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+      }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
@@ -1330,14 +1480,14 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None }),
     );
     let page = Component {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(1.0))))),
         Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9, define: false },
-      ]), state: Vec::new(), handlers: Vec::new(), hydrate: true
+      ]), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
@@ -1347,6 +1497,42 @@ mod hoist_tests {
     assert_eq!(mount.get("n"), Some(&Value::F64(2.0)));
     let Some(Value::Map(table)) = mount.get(HOISTED_PROP) else { panic!("{mount:?}") };
     assert_eq!(table["src/ui/Help.tsx#Help|0"], Value::str("2.0"));
+  }
+
+  #[test]
+  fn a_shadow_root_inside_an_island_records_nothing_in_the_islands_table() {
+    let mut library = Components::new();
+    library.insert(
+      "elements/x-box.tsx#default".to_owned(),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), handlers: Vec::new(), hydrated_by: None, shadow: None }),
+    );
+    library.insert(
+      "src/ui/Help.tsx#Help".to_owned(),
+      Arc::new(Component {
+        body: Vec::new(),
+        render: Tmpl::Element {
+          tag: "x-box".to_owned(),
+          attrs: vec![Entry::Field(SHADOW_ATTR.to_owned(), Expr::lit_str("elements/x-box.tsx#default")), Entry::Field("n".to_owned(), Expr::var("$props").field("n"))],
+          children: Vec::new(),
+        },
+        state: Vec::new(),
+        handlers: Vec::new(),
+        hydrated_by: Some(crate::ast::HydratedBy::React),
+        shadow: None,
+      }),
+    );
+    let page = Component {
+      body: Vec::new(),
+      render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9, define: false },
+      state: Vec::new(),
+      handlers: Vec::new(),
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
+    };
+    let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    let island = &rendered.islands[0].body;
+    assert!(island.html.contains("<template shadowrootmode=\"open\">2.0</template>"), "{}", island.html);
+    assert!(island.hoisted.is_empty(), "the template's hoist 0 is not Help's: {:?}", island.hoisted);
   }
 }
 
@@ -1367,7 +1553,8 @@ mod server_tests {
       render: Tmpl::Element { tag: "section".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("label")), button, list] },
       state: vec!["open".to_owned()],
       handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("open".to_owned(), Expr::Not(Box::new(Expr::var("open"))))]))] }],
-      hydrate: true,
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
     }
   }
 
@@ -1375,7 +1562,7 @@ mod server_tests {
   fn handler_markers_and_keys_print_only_in_server_mode() {
     let mut library = Components::new();
     library.insert("src/ui/Help.tsx#Help".to_owned(), Arc::new(help()));
-    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9, define: false }, state: Vec::new(), handlers: Vec::new(), hydrate: true };
+    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9, define: false }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None };
     let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::default(), &library).unwrap();
     assert_eq!(browser.islands[0].body.html, "<section>order 7<button>Show</button></section>");
     assert!(browser.islands[0].mode.is_none() && !browser.islands[0].mount_props().contains_key(STATE_PROP));
@@ -1442,7 +1629,7 @@ mod island_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Body.tsx#Body".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), handlers: Vec::new(), hydrate: true }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None }),
     );
     let page = Component {
       body: Vec::new(),
@@ -1453,7 +1640,8 @@ mod island_tests {
       },
       state: Vec::new(),
       handlers: Vec::new(),
-      hydrate: true,
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
     };
     let mut props = ValueMap::default();
     props.insert("blips".to_owned(), Value::seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
@@ -1586,7 +1774,7 @@ mod island_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] }, state: Vec::new(), handlers: Vec::new(), hydrate: true }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None }),
     );
     let page = Component {
       body: Vec::new(),
@@ -1598,7 +1786,7 @@ mod island_tests {
           Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 9, define: false },
           Tmpl::Text("after".to_owned()),
         ],
-      }, state: Vec::new(), handlers: Vec::new(), hydrate: true
+      }, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None
     };
     let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::int(7i64));
@@ -1618,5 +1806,117 @@ mod island_tests {
     assert_eq!(**body, Node::raw("<p>help <!-- -->7</p>"));
     assert_eq!(nodes[3], Node::raw("</sf-s>"));
     assert_eq!(nodes[4], Node::raw("after</main>"));
+  }
+}
+
+#[cfg(test)]
+mod markup_tests {
+  use super::*;
+  use crate::ast::{Entry, Expr, Lit, Tmpl};
+
+  fn props(entries: &[(&str, Value)]) -> ValueMap {
+    entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect()
+  }
+
+  fn p(name: &str) -> Expr {
+    Expr::var("$props").field(name)
+  }
+
+  const BY_REACT: Option<crate::ast::HydratedBy> = Some(crate::ast::HydratedBy::React);
+
+  fn element(tag: &str, attrs: Vec<(&str, Expr)>, children: Vec<Tmpl>) -> Tmpl {
+    Tmpl::Element { tag: tag.to_owned(), attrs: attrs.into_iter().map(|(name, expr)| Entry::Field(name.to_owned(), expr)).collect(), children }
+  }
+
+  fn render_under(react: Option<ReactMajor>, hydrated_by: Option<crate::ast::HydratedBy>, render: Tmpl, props: &ValueMap, library: &Components) -> Result<String, Fail> {
+    let component = Component { body: Vec::new(), render, state: Vec::new(), handlers: Vec::new(), hydrated_by, shadow: None };
+    Interpreter::default().with_frameworks(Frameworks { react }).render(&component, props, library).map(|rendered| rendered.html)
+  }
+
+  #[test]
+  fn a_custom_element_attribute_is_written_the_way_the_react_hydrating_it_writes_it() {
+    let tree = element("x-el", vec![("rows", p("rows")), ("obj", p("obj")), ("on", p("on")), ("off", p("off")), ("className", Expr::lit_str("c"))], Vec::new());
+    let values = props(&[("rows", Value::seq(vec![Value::int(1i64), Value::Null, Value::int(2i64)])), ("obj", Value::Map(props(&[("a", Value::int(1i64))]))), ("on", Value::Bool(true)), ("off", Value::Bool(false))]);
+    let html = |react| render_under(react, BY_REACT, tree.clone(), &values, &Components::new()).unwrap();
+    assert_eq!(html(Some(ReactMajor::V18)), "<x-el rows=\"1,,2\" obj=\"[object Object]\" on=\"true\" off=\"false\" class=\"c\"></x-el>", "React 18 coerces every prop the way '' + value does");
+    assert_eq!(html(Some(ReactMajor::V19)), "<x-el on=\"\" class=\"c\"></x-el>", "React 19 leaves an object to the client and writes true as present");
+  }
+
+  #[test]
+  fn a_non_scalar_on_a_custom_element_nothing_hydrates_is_refused_by_name() {
+    let tree = element("x-grid", vec![("rows", p("rows")), ("count", p("count"))], Vec::new());
+    let values = props(&[("rows", Value::seq(vec![Value::int(1i64)])), ("count", Value::int(3i64))]);
+    let fail = render_under(Some(ReactMajor::V19), None, tree.clone(), &values, &Components::new()).unwrap_err();
+    assert!(fail.message.contains("`rows` on `<x-grid>`") && fail.message.contains("`array`"), "{}", fail.message);
+    let scalar = props(&[("rows", Value::str("1")), ("count", Value::int(3i64))]);
+    assert_eq!(render_under(None, BY_REACT, tree, &scalar, &Components::new()).unwrap(), "<x-grid rows=\"1\" count=\"3\"></x-grid>", "a React component with no React vendored is plain markup, which takes a scalar");
+  }
+
+  #[test]
+  fn inert_and_an_empty_url_follow_the_major() {
+    let tree = Tmpl::Fragment(vec![
+      element("div", vec![("inert", Expr::Lit(Lit::Bool(true)))], Vec::new()),
+      element("img", vec![("src", Expr::lit_str(""))], Vec::new()),
+      element("a", vec![("href", Expr::lit_str(""))], Vec::new()),
+    ]);
+    let html = |react| render_under(react, BY_REACT, tree.clone(), &ValueMap::default(), &Components::new()).unwrap();
+    assert_eq!(html(Some(ReactMajor::V18)), "<div></div><img src=\"\"/><a href=\"\"></a>");
+    assert_eq!(html(Some(ReactMajor::V19)), "<div inert=\"\"></div><img/><a href=\"\"></a>");
+    assert_eq!(html(None), "<div inert=\"true\"></div><img src=\"\"/><a href=\"\"></a>");
+  }
+
+  #[test]
+  fn react_19_refuses_a_head_tag_it_would_move_out_of_hydrated_markup() {
+    let title = element("title", Vec::new(), vec![Tmpl::Text("Tools".to_owned())]);
+    let fail = render_under(Some(ReactMajor::V19), BY_REACT, title.clone(), &ValueMap::default(), &Components::new()).unwrap_err();
+    assert!(fail.message.contains("`<title>`") && fail.message.contains("`meta` export"), "{}", fail.message);
+    assert_eq!(render_under(Some(ReactMajor::V18), BY_REACT, title.clone(), &ValueMap::default(), &Components::new()).unwrap(), "<title>Tools</title>");
+    assert_eq!(render_under(Some(ReactMajor::V19), None, title.clone(), &ValueMap::default(), &Components::new()).unwrap(), "<title>Tools</title>", "markup nothing hydrates keeps it in place");
+    let in_svg = element("svg", Vec::new(), vec![title]);
+    assert_eq!(render_under(Some(ReactMajor::V19), BY_REACT, in_svg, &ValueMap::default(), &Components::new()).unwrap(), "<svg><title>Tools</title></svg>", "an SVG title is the drawing's own");
+  }
+
+  #[test]
+  fn a_bake_keeps_only_an_open_tag_every_markup_prints_alike() {
+    let component = Component::new(Vec::new(), Tmpl::Fragment(vec![
+      element("p", vec![("class", Expr::lit_str("a"))], Vec::new()),
+      element("x-el", vec![("flag", Expr::Lit(Lit::Bool(true)))], Vec::new()),
+      element("title", Vec::new(), vec![Tmpl::Text("t".to_owned())]),
+    ]));
+    let Tmpl::Fragment(children) = prepare(&component).render else { panic!("a fragment stays a fragment") };
+    assert!(matches!(&children[0], Tmpl::Baked { open, .. } if open == "<p class=\"a\">"), "{:?}", children[0]);
+    assert!(matches!(children[1], Tmpl::Element { .. }), "React 18 writes flag=\"true\" and 19 flag=\"\": {:?}", children[1]);
+    assert!(matches!(children[2], Tmpl::Element { .. }), "a head tag React 19 may move stays where a render sees it: {:?}", children[2]);
+  }
+
+  #[test]
+  fn an_element_template_renders_as_the_elements_declarative_shadow_root() {
+    let mut library = Components::new();
+    library.insert(
+      "elements/x-grid.tsx#default".to_owned(),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Fragment(vec![element("b", Vec::new(), vec![Tmpl::Expr(p("title"))]), Tmpl::Expr(Expr::Length(Box::new(p("rows"))))]), state: Vec::new(), handlers: Vec::new(), hydrated_by: None, shadow: None }),
+    );
+    let page = element("x-grid", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-grid.tsx#default")), ("title", Expr::lit_str("t")), ("rows", p("rows"))], vec![Tmpl::Text("light".to_owned())]);
+    let values = props(&[("rows", Value::seq(vec![Value::int(1i64), Value::int(2i64)]))]);
+    for react in [None, Some(ReactMajor::V18), Some(ReactMajor::V19)] {
+      assert_eq!(render_under(react, BY_REACT, page.clone(), &values, &library).unwrap(), "<x-grid title=\"t\"><template shadowrootmode=\"open\"><b>t</b>2</template>light</x-grid>", "under {react:?} the array reaches the template and never the host");
+    }
+  }
+
+  #[test]
+  fn an_element_template_writes_the_shadow_root_it_declares() {
+    let closed = ShadowRoot { mode: ShadowMode::Closed, delegates_focus: true, clonable: true, serializable: true };
+    for (shadow, open) in [
+      (closed, "<template shadowrootmode=\"closed\" shadowrootdelegatesfocus shadowrootclonable shadowrootserializable>"),
+      (ShadowRoot::default(), "<template shadowrootmode=\"open\">"),
+    ] {
+      let mut library = Components::new();
+      library.insert(
+        "elements/x-box.tsx#default".to_owned(),
+        Arc::new(Component { body: Vec::new(), render: Tmpl::Text("in".to_owned()), state: Vec::new(), handlers: Vec::new(), hydrated_by: None, shadow: Some(shadow) }),
+      );
+      let page = element("x-box", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-box.tsx#default"))], Vec::new());
+      assert_eq!(render_under(None, BY_REACT, page, &ValueMap::default(), &library).unwrap(), format!("<x-box>{open}in</template></x-box>"));
+    }
   }
 }

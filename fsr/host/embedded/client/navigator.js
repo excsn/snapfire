@@ -38,11 +38,16 @@ function discardRegion(region) {
         if (n instanceof Element) discard(n);
     }
 }
+function writeMarkup(el, html) {
+    const unsafe = el.setHTMLUnsafe;
+    if (typeof unsafe === "function") unsafe.call(el, html);
+    else el.innerHTML = html;
+}
 function replaceRegion(region, html) {
     const parent = region.start.parentNode;
     if (!(parent instanceof Element)) return false;
     const template = document.createElement("template");
-    template.innerHTML = html;
+    writeMarkup(template, html);
     parent.insertBefore(template.content, region.start);
     discardRegion(region);
     const range = document.createRange();
@@ -56,7 +61,7 @@ function fillSlot(slot, node, key) {
     if (!el) return;
     const template = document.createElement("template");
     const html = nodeToHtml(node, ids);
-    template.innerHTML = key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`;
+    writeMarkup(template, key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`);
     discard(el);
     el.replaceWith(template.content);
 }
@@ -93,7 +98,7 @@ function removeChild(old) {
         }
         if (parent instanceof Element && parent.hasAttribute("data-sf-name")) {
             discard(parent);
-            parent.innerHTML = fallbacks.get(parent) ?? "";
+            writeMarkup(parent, fallbacks.get(parent) ?? "");
         }
         return true;
     }
@@ -131,7 +136,7 @@ function replaceChild(old, html) {
     const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
     if (!el) return false;
     const template = document.createElement("template");
-    template.innerHTML = html;
+    writeMarkup(template, html);
     discard(el);
     el.replaceWith(template.content);
     return true;
@@ -210,9 +215,9 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
             if (newChild.s !== undefined) {
                 const pending = pendingOf(newNode, newChild.s);
                 if (!pending) return false;
-                slot.innerHTML = nodeToHtml(pending, ids);
+                writeMarkup(slot, nodeToHtml(pending, ids));
             } else {
-                slot.innerHTML = renderSegment(subtreeAt(newNode, newChild.p ?? []), newChild, ids);
+                writeMarkup(slot, renderSegment(subtreeAt(newNode, newChild.p ?? []), newChild, ids));
             }
             continue;
         }
@@ -255,7 +260,7 @@ function morphStatic(key, node, seg) {
     const parent = region.start.parentNode;
     if (!(parent instanceof Element)) return false;
     const template = document.createElement("template");
-    template.innerHTML = renderSegment(node, seg, ids);
+    writeMarkup(template, renderSegment(node, seg, ids));
     const kept = islandRegionsIn(region);
     const sources = regionSources(node, ids);
     const old = [];

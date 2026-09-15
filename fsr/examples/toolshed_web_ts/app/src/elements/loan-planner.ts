@@ -1,11 +1,13 @@
-/** A loan length picker inside a declarative shadow root the server wrote. The parser attaches the root on a full page; after a swap the element attaches it itself. Form-associated, so the length inside the shadow root is posted with the reservation. */
+import { shadowOf } from "@snapfire/fsr-client/elements";
+
+/** A loan length picker inside the shadow root the server writes from `elements/loan-planner.tsx`. Form-associated, so the length inside the shadow root is posted with the reservation. */
 class LoanPlanner extends HTMLElement {
   static formAssociated = true;
   #internals = this.attachInternals();
   #stop: (() => void) | null = null;
 
   connectedCallback(): void {
-    const root = this.shadowRoot ?? this.#attach();
+    const root = shadowOf(this, this.#internals);
     if (!root) return;
     const range = root.querySelector<HTMLInputElement>("input[name=days]");
     const out = root.querySelector("output");
@@ -26,15 +28,6 @@ class LoanPlanner extends HTMLElement {
   disconnectedCallback(): void {
     this.#stop?.();
     this.#stop = null;
-  }
-
-  #attach(): ShadowRoot | null {
-    const template = this.querySelector<HTMLTemplateElement>("template[shadowrootmode]");
-    if (!template) return null;
-    const root = this.attachShadow({ mode: "open" });
-    root.append(template.content.cloneNode(true));
-    template.remove();
-    return root;
   }
 }
 

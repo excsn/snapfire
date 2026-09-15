@@ -9,6 +9,7 @@ use crate::catalog::Catalogs;
 use crate::ext::{Ambient, Extensions};
 use crate::ast::{ArithOp, Body, Builtin, CompareOp, Consts, Entry, Expr, Lit, LogicOp, Stmt};
 use crate::bind::kind_name;
+use crate::render::{Frameworks, Markup};
 
 pub use snapfire_fsr_core::ext::Fail;
 
@@ -38,17 +39,30 @@ pub struct Interpreter {
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
   consts: Option<Arc<Consts>>,
+  frameworks: Frameworks,
 }
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None }
+    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, frameworks: Frameworks::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None }
+    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, frameworks: Frameworks::default() }
+  }
+
+  /// The frameworks the application vendors. A component one of them
+  /// hydrates is written the way that framework's server renderer writes it;
+  /// with none set, every component is written as plain markup.
+  pub fn with_frameworks(mut self, frameworks: Frameworks) -> Self {
+    self.frameworks = frameworks;
+    self
+  }
+
+  pub fn frameworks(&self) -> Frameworks {
+    self.frameworks
   }
 
   /// The message catalogs `i18n.t` reads; none by default, where every key answers as itself.
@@ -109,6 +123,10 @@ impl Interpreter {
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
+      frameworks: self.frameworks,
+      markup: Markup::Plain,
+      in_svg: false,
+      in_noscript: false,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -189,6 +207,14 @@ pub(crate) struct Env {
   pub(crate) acts: Vec<(String, Value)>,
   /// Components entered and not yet left, which bounds a render that recurses.
   pub(crate) calls: usize,
+  /// The frameworks the application vendors, read on entering each component.
+  pub(crate) frameworks: Frameworks,
+  /// The rules the markup being written is under.
+  pub(crate) markup: Markup,
+  /// Inside `<svg>` short of a `<foreignObject>`, where React 19 leaves those tags in place.
+  pub(crate) in_svg: bool,
+  /// Inside `<noscript>`, where React 19 leaves them in place too.
+  pub(crate) in_noscript: bool,
 }
 
 /// One step of the path a key is taken under.
@@ -295,6 +321,10 @@ impl Env {
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
+      frameworks: interpreter.frameworks,
+      markup: Markup::Plain,
+      in_svg: false,
+      in_noscript: false,
     }
   }
 
@@ -412,6 +442,10 @@ impl Env {
       server_mode: false,
       acts: Vec::new(),
       calls: self.calls,
+      frameworks: self.frameworks,
+      markup: self.markup,
+      in_svg: self.in_svg,
+      in_noscript: self.in_noscript,
     }
   }
 

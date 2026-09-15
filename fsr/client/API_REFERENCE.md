@@ -98,7 +98,8 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [vueUnmounter](#vueunmounter)
   * [Mount (Vue)](#mount-vue)
   * [useStore (Vue)](#usestore-vue)
-* [12. Binding htmx](#12-binding-htmx)
+* [12. Custom Elements and htmx](#12-custom-elements-and-htmx)
+  * [shadowOf](#shadowof)
   * [HtmxProcessor](#htmxprocessor)
   * [bindHtmx](#bindhtmx)
 * [13. The Standard Library](#13-the-standard-library)
@@ -135,7 +136,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 
 ## 1. Entry Points
 
-Five ES module entry points, resolved through an import map. There is no package manifest and no default export.
+Six ES module entry points, resolved through an import map. There is no package manifest and no default export.
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
@@ -144,6 +145,7 @@ Five ES module entry points, resolved through an import map. There is no package
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
+| `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React.
 
@@ -835,9 +837,15 @@ The counterpart of the React `Mount` in a Vue tree: it writes the island marker 
 
 A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
 
-## 12. Binding htmx
+## 12. Custom Elements and htmx
 
-`@snapfire/fsr-client/htmx`: its own entry point, importing nothing outside the package. htmx itself is the application's, passed in, so this module works with whatever version the import map names.
+`@snapfire/fsr-client/elements` and `@snapfire/fsr-client/htmx`: two entry points for markup nothing mounts, each importing nothing outside the package. htmx itself is the application's, passed in, so the binding works with whatever version the import map names.
+
+### shadowOf
+
+* `function shadowOf(element: HTMLElement, internals?: ElementInternals): ShadowRoot | null`
+
+The shadow root of a custom element whose template the server wrote. The root the parser attached is returned as it is; a closed one is reached through `internals`. When there is none and the element has a `<template shadowrootmode>` child, which is what markup written through `innerHTML` leaves, a root is attached with that template's mode and with `delegatesFocus`, `clonable` and `serializable` from its `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` attributes. The template's content is cloned into it and the template removed. `null` when the element has neither, which is also what a closed root the parser attached gives without `internals`.
 
 ### HtmxProcessor
 
@@ -977,7 +985,7 @@ The request an action runs under when a rendered page calls it or a route loads.
 * `renderHook(hook, options?: { initialProps?; ctx?; wrapper? }): Promise<{ result: { current: Result }; rerender(props?): Promise<void>; unmount(): void }>`
 * `act(body: () => T | Promise<T>): Promise<T>`; `cleanup(): void`
 
-`render` of a page the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
+`render` of a page the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
 
 ### load
 

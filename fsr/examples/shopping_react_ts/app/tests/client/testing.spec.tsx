@@ -249,6 +249,21 @@ test("an attribute name on an HTML element is matched in any case, the way a bro
   expect(document.querySelector("svg")?.getAttribute("viewBox"), "an SVG element's name is taken as written").toEqual("0 0 1 1");
 });
 
+test("markup written the way the parser writes it attaches its declarative shadow roots and hands a closed one to the element's internals", () => {
+  class Shut extends HTMLElement {
+    internals = this.attachInternals();
+  }
+  customElements.define("x-shut", Shut);
+  document.body.setHTMLUnsafe('<x-open><template shadowrootmode="open"><b>in</b></template>light</x-open><x-shut><template shadowrootmode="closed"><i>shut</i></template></x-shut>');
+  const open = document.querySelector("x-open")!;
+  expect(open.shadowRoot?.querySelector("b")?.textContent, "the template is the root").toEqual("in");
+  expect(open.querySelector("template"), "and no longer a child").toEqual(null);
+  expect(open.textContent, "the light children stay where they were").toEqual("light");
+  const shut = document.querySelector("x-shut") as Shut;
+  expect(shut.shadowRoot, "a closed root is hidden from the page").toEqual(null);
+  expect(shut.internals.shadowRoot?.querySelector("i")?.textContent, "and handed to the element's internals").toEqual("shut");
+});
+
 test("a button carries its value and a control names the form it belongs to", () => {
   document.body.innerHTML = '<form id="f"><button value="Friday" name="answer">Fri</button><input name="q"></form><select form="f"></select><textarea></textarea>';
   const form = document.getElementById("f");

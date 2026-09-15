@@ -4059,7 +4059,8 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
     render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] },
     state: Vec::new(),
     handlers: Vec::new(),
-    hydrate: true,
+    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    shadow: None,
   };
   let evaluator = IrEvaluator::new([("src/Frame.tsx#Frame".to_owned(), frame)]);
   let Err((status, json)) = snapfire_fsr_host::island_step(Some(&evaluator), "src/Frame.tsx#Frame", br#"{"props":{},"state":{},"handler":null,"event":null}"#, "en") else {

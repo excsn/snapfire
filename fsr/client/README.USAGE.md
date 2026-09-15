@@ -13,6 +13,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Registering an Island](#registering-an-island)
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
 * [Defining an Element When It Is Needed](#defining-an-element-when-it-is-needed)
+* [Adopting a Shadow Root the Server Wrote](#adopting-a-shadow-root-the-server-wrote)
 * [Placing an Island of Another Framework](#placing-an-island-of-another-framework)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
@@ -227,6 +228,26 @@ A custom element has no mount: the browser upgrades it the moment `customElement
 The child is an element rather than a component, its markup is the server's, with nothing mounted over it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports the module at the timing asked for, at which point the elements inside upgrade themselves. A definition module must be a module: give it an `export` so it can be imported dynamically.
 
 Without this the definition runs when the entry module does, which is right for an element the first paint needs, such as a masthead's, but wasteful for one below the fold.
+
+## Adopting a Shadow Root the Server Wrote
+
+The server writes a custom element's shadow template as a `<template shadowrootmode>` inside the element, open unless the template declares its own root. The parser attaches it before any script runs. Markup that arrives through `innerHTML` keeps the template as an ordinary child instead, which is what an htmx swap does. `shadowOf` answers both:
+
+```ts
+import { shadowOf } from "@snapfire/fsr-client/elements";
+
+class LoanPlanner extends HTMLElement {
+  static formAssociated = true;
+  #internals = this.attachInternals();
+
+  connectedCallback(): void {
+    const range = shadowOf(this, this.#internals)?.querySelector<HTMLInputElement>("input[name=days]");
+    range?.addEventListener("input", () => this.#internals.setFormValue(range.value));
+  }
+}
+```
+
+It returns the root the parser attached. With none, it attaches one from the template child with the mode and options that template carries, takes the template out and returns that. A closed root is reached through the element's `ElementInternals`, so pass them when the template says `shadowrootmode="closed"`. Without them `shadowOf` cannot tell a closed root from none and returns `null`. The navigator writes what it applies with `setHTMLUnsafe` where the browser has it, so a page reached by a link keeps its shadow roots without this.
 
 ## Placing an Island of Another Framework
 

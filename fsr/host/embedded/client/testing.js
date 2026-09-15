@@ -430,7 +430,9 @@ export async function render(element, options = {}) {
     let hydrated = null;
     if (rendered !== null) {
         const { html, hoisted } = JSON.parse(rendered);
-        container.innerHTML = html;
+        const unsafe = container.setHTMLUnsafe;
+        if (typeof unsafe === "function") unsafe.call(container, html);
+        else container.innerHTML = html;
         root = hydrateRoot(container, withHoisted(decodeValue(hoisted), element));
         hydrated = module;
     } else {

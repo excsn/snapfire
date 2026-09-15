@@ -2,7 +2,6 @@ import { actions, type Product } from "@generated/client";
 import { categoryLabel } from "./categories";
 import { addedToCart, failed } from "./feedback";
 import { money, percentOff } from "./money";
-import { Stars } from "./Stars";
 import { Thumb } from "./Thumb";
 
 export function stockLine(stock: bigint | number): { text: string; className: string } {
@@ -38,7 +37,7 @@ export function ProductCard({ product }: { product: Product }) {
         <h2 className="card-title">
           <a href={href}>{product.name}</a>
         </h2>
-        <Stars rating={product.rating} reviews={product.reviews} />
+        <shop-rating rating={product.rating} reviews={product.reviews} />
         <p className="price-line">
           <span className="price">{money(product.price_cents)}</span>
           {off > 0 && product.list_price_cents != null ? (

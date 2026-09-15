@@ -68,6 +68,7 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::services(self, services: Arc<Services>) -> Self`: default is an empty registry.
 * `AppBuilder::contract(self, contract: Contract) -> Self`: required when any lowered action names an input type.
 * `AppBuilder::bearer_services(self, services: impl IntoIterator<Item = String>) -> Self`: the services whose calls carry the session's token; a body calling one depends on the identity the way one reading `identity` does, for `prerenderable_anonymous`.
+* `AppBuilder::frameworks(self, frameworks: snapfire_fsr_ir::Frameworks) -> Self`: the frameworks the application vendors, for a host that builds its routes by hand. `from_manifest` reads them from the plan's `frameworks`. With none set, every lowered component is written as plain markup.
 * `AppBuilder::cache(self, cache: Arc<dyn NodeCache>) -> Self`
 * `AppBuilder::loads(self, loads: Arc<dyn LoadCache>) -> Self`: where a `warmable` source's load is answered from once something has put it there. Without one nothing is memoized, whatever `warmable` says.
 * `AppBuilder::extension<F>(self, name, reach: Reach, f: F) -> Self` where `F: Fn(&Ambient, &[Value]) -> Result<Value, Fail> + Send + Sync + 'static`, the types from `snapfire_fsr_core::ext`, which this crate re-exports at its root with the module itself as `ext`: the Rust half of a native pair under `name`, `module.member`, the name its `native(..)` declaration under `ext/` gives, with the reach that declaration says. Replaces a standard member of the same name. `AppBuilder::extensions(&self) -> &Extensions` reads what is bound so far, the standard library included.
@@ -153,3 +154,4 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 * `UnboundHandler(String)`: a handler row with no body that no Rust handler answers.
 * `MiddlewareClaimed`: middleware lowered by the file and bound in Rust without an override.
 * `MiddlewareOverridesNothing`
+* `React { version }`: the plan names a React whose major this fsr writes no markup for.

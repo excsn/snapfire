@@ -1,6 +1,6 @@
 //! Statements and whole components, both directions.
 
-use crate::ast::{Body, Component, Handler, Stmt, Tmpl};
+use crate::ast::{Body, Component, Handler, ShadowMode, ShadowRoot, Stmt, Tmpl};
 
 use super::atoms::*;
 use super::expr::{expr_from_sx, expr_to_sx};
@@ -54,8 +54,17 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
 /// between the head and these.
 pub fn component_sections(component: &Component) -> Vec<Sx> {
   let mut rest = Vec::new();
-  if !component.hydrate {
+  if component.hydrated_by.is_none() {
     rest.push(form("static", Vec::new()));
+  }
+  if let Some(shadow) = &component.shadow {
+    let mut terms = vec![Sx::sym(shadow.mode.as_str())];
+    for (on, option) in [(shadow.delegates_focus, "delegatesfocus"), (shadow.clonable, "clonable"), (shadow.serializable, "serializable")] {
+      if on {
+        terms.push(Sx::sym(option));
+      }
+    }
+    rest.push(form("shadow", terms));
   }
   if !component.state.is_empty() {
     rest.push(form("state", component.state.iter().map(|s| Sx::Sym(s.clone())).collect()));
@@ -144,12 +153,27 @@ pub fn component_from_sx(sx: &Sx) -> Res<Component> {
 }
 
 pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
-  let mut out = Component { body: Vec::new(), render: Tmpl::Fragment(Vec::new()), state: Vec::new(), handlers: Vec::new(), hydrate: true };
+  let mut out = Component { body: Vec::new(), render: Tmpl::Fragment(Vec::new()), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None };
   let mut rendered = false;
   for section in items {
     let inner = section.as_list()?;
     match section.head() {
-      Some("static") => out.hydrate = false,
+      Some("static") => out.hydrated_by = None,
+      Some("shadow") => {
+        let a = at_least(inner, "shadow", 1)?;
+        let mode = sym_of(&a[0])?;
+        let mode = ShadowMode::of(&mode).ok_or_else(|| SexprError::shape(format!("`{mode}` is not a shadow root mode")))?;
+        let mut shadow = ShadowRoot { mode, ..ShadowRoot::default() };
+        for option in &a[1..] {
+          match sym_of(option)?.as_str() {
+            "delegatesfocus" => shadow.delegates_focus = true,
+            "clonable" => shadow.clonable = true,
+            "serializable" => shadow.serializable = true,
+            other => return Err(SexprError::shape(format!("`{other}` is not a shadow root option"))),
+          }
+        }
+        out.shadow = Some(shadow);
+      }
       Some("state") => out.state = inner[1..].iter().map(sym_of).collect::<Res<_>>()?,
       Some("body") => out.body = body_from_sx(&inner[1..])?,
       Some("render") => {

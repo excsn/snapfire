@@ -1,0 +1,22 @@
+export function shadowOf(element, internals) {
+    const attached = element.shadowRoot ?? internals?.shadowRoot ?? null;
+    if (attached) return attached;
+    let template = null;
+    for (const child of Array.from(element.children)){
+        if (child instanceof HTMLTemplateElement && child.hasAttribute("shadowrootmode")) {
+            template = child;
+            break;
+        }
+    }
+    if (!template) return null;
+    const root = element.attachShadow({
+        mode: template.getAttribute("shadowrootmode") === "closed" ? "closed" : "open",
+        delegatesFocus: template.hasAttribute("shadowrootdelegatesfocus"),
+        clonable: template.hasAttribute("shadowrootclonable"),
+        serializable: template.hasAttribute("shadowrootserializable")
+    });
+    root.append(template.content.cloneNode(true));
+    template.remove();
+    return root;
+}
+//# sourceMappingURL=elements.js.map

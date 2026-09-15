@@ -19,6 +19,7 @@ pub const MEDIA_TYPE: &str = "text/javascript; charset=utf-8";
 pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.js")),
   ("boot.js", include_str!("../embedded/client/boot.js")),
+  ("elements.js", include_str!("../embedded/client/elements.js")),
   ("events.js", include_str!("../embedded/client/events.js")),
   ("expect.js", include_str!("../embedded/client/expect.js")),
   ("harness.js", include_str!("../embedded/client/harness.js")),
@@ -47,6 +48,7 @@ pub const FILES: &[(&str, &str)] = &[
 pub const TYPES: &[(&str, &str)] = &[
   ("actions.d.ts", include_str!("../embedded/client/actions.d.ts")),
   ("boot.d.ts", include_str!("../embedded/client/boot.d.ts")),
+  ("elements.d.ts", include_str!("../embedded/client/elements.d.ts")),
   ("events.d.ts", include_str!("../embedded/client/events.d.ts")),
   ("expect.d.ts", include_str!("../embedded/client/expect.d.ts")),
   ("harness.d.ts", include_str!("../embedded/client/harness.d.ts")),

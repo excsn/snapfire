@@ -71,11 +71,20 @@ pub struct ComponentSet {
   /// a cycle before its verdict is in counts as keyed, which both halves
   /// agree on since the flag is decided once.
   keys: HashMap<String, bool>,
+  /// Custom element tags with a shadow template, to the template's module. A
+  /// placement of one is marked, so the server writes the template inside it.
+  elements: Rc<HashMap<String, String>>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+  }
+
+  /// The custom elements whose shadow template the build lowers, by tag.
+  pub fn with_elements(mut self, elements: HashMap<String, String>) -> Self {
+    self.elements = Rc::new(elements);
+    self
   }
 
   /// A module the set resolves and reads from `source` rather than from disk.
@@ -222,12 +231,12 @@ impl ComponentSet {
   /// component read as impure only keeps a subtree out of a chunk.
   fn settle(&mut self) {
     loop {
-      let rising: Vec<usize> = (0..self.components.len()).filter(|&i| !self.components[i].1.hydrate && self.inline_hydrates(&self.components[i].1.render)).collect();
+      let rising: Vec<usize> = (0..self.components.len()).filter(|&i| self.components[i].1.hydrated_by.is_none() && self.inline_hydrates(&self.components[i].1.render)).collect();
       if rising.is_empty() {
         break;
       }
       for i in rising {
-        self.components[i].1.hydrate = true;
+        self.components[i].1.hydrated_by = Some(snapfire_fsr_ir::HydratedBy::React);
       }
     }
     let mut pure = self.stateless.clone();
@@ -280,6 +289,9 @@ impl ComponentSet {
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let module = format!("{file}#{export}");
+    // An element template has no browser half, so nothing would read what
+    // hoisting records or rewrites.
+    let element_template = self.elements.values().any(|m| *m == module);
     let ((component, refs), hoisting) = loop {
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
@@ -288,10 +300,10 @@ impl ComponentSet {
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
         lowerer.natives = self.natives.clone();
-        lowerer.hoisting = Some(Candidates::default());
+        lowerer.hoisting = (!element_template).then(Candidates::default);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone() };
         let result = cl.component(&function);
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
         let result = match result {
@@ -339,8 +351,8 @@ impl ComponentSet {
     // it renders inline is part of its markup, so that component's state and
     // handlers are its own to hydrate; an island's are the island's.
     let render = rewrite_modules(component.render, &modules, &islands);
-    let hydrate = !component.state.is_empty() || !component.handlers.is_empty() || self.inline_hydrates(&render);
-    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, hydrate };
+    let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || self.inline_hydrates(&render);
+    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, hydrated_by: hydrates.then_some(snapfire_fsr_ir::HydratedBy::React), shadow: component.shadow };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
       return Err(LowerError::Residue(Residue {
@@ -386,7 +398,7 @@ impl ComponentSet {
   fn inline_hydrates(&self, tmpl: &Tmpl) -> bool {
     match tmpl {
       Tmpl::Component { module, children, .. } => {
-        self.components.iter().any(|(m, c)| m == module && c.hydrate) || children.iter().any(|c| self.inline_hydrates(c))
+        self.components.iter().any(|(m, c)| m == module && c.hydrated_by.is_some()) || children.iter().any(|c| self.inline_hydrates(c))
       }
       Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n.starts_with(HANDLER_ATTR) || n == UNLOWERED_ATTR)) || children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
@@ -1143,6 +1155,8 @@ struct ComponentLowerer<'a, 'p> {
   handler_fns: HashMap<String, (Vec<js::Pat>, FunctionBody<'p>)>,
   /// The handlers lowered so far; an element's `$on:` marker holds an index into it.
   lowered_handlers: Vec<Handler>,
+  /// Custom element tags with a shadow template, to the template's module.
+  elements: Rc<HashMap<String, String>>,
 }
 
 impl ComponentLowerer<'_, '_> {
@@ -1277,7 +1291,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers), hydrate: true }, std::mem::take(&mut self.refs)))
+    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers), hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React), shadow: None }, std::mem::take(&mut self.refs)))
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
@@ -1615,6 +1629,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let open = self.lowerer.parsed.range(el.opening.span);
         attrs.push(candidates.chunk(range, open, as_child));
       }
+    }
+    if let Some(module) = self.elements.get(&name) {
+      attrs.push(Entry::Field(snapfire_fsr_ir::render::SHADOW_ATTR.to_owned(), Expr::lit_str(module.clone())));
     }
     Ok(Tmpl::Element { tag: name, attrs, children })
   }

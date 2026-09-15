@@ -231,15 +231,27 @@ fn body() -> BoxedStrategy<Body> {
   .boxed()
 }
 
+fn shadow_root() -> BoxedStrategy<snapfire_fsr_ir::ShadowRoot> {
+  (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>())
+    .prop_map(|(closed, delegates_focus, clonable, serializable)| snapfire_fsr_ir::ShadowRoot {
+      mode: if closed { snapfire_fsr_ir::ShadowMode::Closed } else { snapfire_fsr_ir::ShadowMode::Open },
+      delegates_focus,
+      clonable,
+      serializable,
+    })
+  .boxed()
+}
+
 fn component() -> BoxedStrategy<Component> {
   (body(), tmpl(), prop::collection::vec(text(), 0..3),
-   prop::collection::vec((text(), body()), 0..3), any::<bool>())
-    .prop_map(|(body, render, state, handlers, hydrate)| Component {
+   prop::collection::vec((text(), body()), 0..3), any::<bool>(), prop::option::of(shadow_root()))
+    .prop_map(|(body, render, state, handlers, hydrate, shadow)| Component {
       body,
       render,
       state,
       handlers: handlers.into_iter().map(|(event, body)| Handler { event, body }).collect(),
-      hydrate,
+      hydrated_by: hydrate.then_some(snapfire_fsr_ir::HydratedBy::React),
+      shadow,
     })
   .boxed()
 }

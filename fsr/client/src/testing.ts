@@ -569,7 +569,9 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
   let hydrated: string | null = null;
   if (rendered !== null) {
     const { html, hoisted } = JSON.parse(rendered) as { html: string; hoisted: SfValue };
-    container.innerHTML = html;
+    const unsafe = (container as HTMLElement & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
+    if (typeof unsafe === "function") unsafe.call(container, html);
+    else container.innerHTML = html;
     root = hydrateRoot(container, withHoisted(decodeValue(hoisted) as Hoisted, element));
     hydrated = module;
   } else {

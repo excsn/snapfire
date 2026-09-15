@@ -22,6 +22,9 @@ use crate::{
 /// them, then the components, in the order a reader wants to meet them.
 pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
   let mut out = vec![form("plan", vec![sym(manifest.version.to_string())])];
+  for (package, version) in &manifest.frameworks {
+    out.push(form("framework", vec![sym(package.clone()), sym(version.clone())]));
+  }
   for route in &manifest.routes {
     out.push(form("route", vec![sym(route.pattern.clone()), node_to_sx(&route.plan)]));
   }
@@ -60,6 +63,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     handlers: Vec::new(),
     middleware: None,
     intercepts: Vec::new(),
+    frameworks: Default::default(),
   };
   let mut versioned = false;
   for sx in forms {
@@ -70,6 +74,12 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           .parse()
           .map_err(|_| err("a plan version is a number"))?;
         versioned = true;
+      }
+      "framework" => {
+        if items.len() != 3 {
+          return Err(err("a framework is `(framework package version)`"));
+        }
+        manifest.frameworks.insert(as_sym(&items[1])?, as_sym(&items[2])?);
       }
       "route" | "intercept" => {
         if items.len() != 3 {

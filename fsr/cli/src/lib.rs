@@ -60,6 +60,14 @@ pub enum BuildError {
   UnknownComponent { module: String },
   #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}")]
   IslandImports { module: String, adapter: String, missing: String },
+  #[error("the import map serves `react`, but {manifest} does not say which React it is; `fsr add {app} react@{version}` records it")]
+  ReactUnrecorded { manifest: String, app: String, version: String },
+  #[error("react@{version} is vendored, but this fsr renders for React {supported} only")]
+  ReactMajor { version: String, supported: String },
+  #[error("elements/{file}: an element template is named after its tag, which is lowercase, starts with a letter and holds a hyphen")]
+  ElementName { file: String },
+  #[error("`{module}` is an element template, which is markup the server writes: {reason}")]
+  ElementTemplate { module: String, reason: String },
   #[error("the contract does not hold together: {0}")]
   Contract(#[from] ContractError),
   #[error("action `{action}` names input type `{name}`, which no schema under schemas/ declares")]
@@ -441,10 +449,20 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   contracts.push((format!("{CONTRACTS_DIR}/schemas.json"), schemas));
   contract.validate()?;
 
-  let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS);
+  let elements = element_templates(app)?;
+  let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect());
   for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
     let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
     report.extensions.extend(set.lower_extensions(&rel)?);
+  }
+  for (_, module) in &elements {
+    set.lower(module)?;
+    let refused = |reason: String| BuildError::ElementTemplate { module: module.clone(), reason };
+    let Some((_, component)) = set.components.iter_mut().find(|(m, _)| m == module) else { continue };
+    if component.hydrated_by.is_some() {
+      return Err(refused("it holds state or a handler, which belong in the element's class".to_owned()));
+    }
+    component.shadow = snapfire_fsr_ir::ShadowRoot::take(&mut component.render).map_err(|e| refused(e.to_string()))?;
   }
 
   let mut routes = Vec::new();
@@ -737,9 +755,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   // no framework at all.
   let mut static_modules: Vec<String> = Vec::new();
   for (module, component) in std::mem::take(&mut set.components) {
-    let detail = if component.hydrate { String::new() } else { "static".to_owned() };
+    let detail = if component.hydrated_by.is_some() { String::new() } else { "static".to_owned() };
     report.components.push((module.clone(), "lowered".to_owned(), detail));
-    if !component.hydrate {
+    if component.hydrated_by.is_none() {
       static_modules.push(module.clone());
     }
     for (placed, define) in island_modules(&component.render) {
@@ -781,7 +799,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let prefix = options.prefix();
   let config = public_of(app);
   let client = client_module(&contract, session_type, &routes, &layout_ids, &sources, &actions, &prefix, &set.consts, &config);
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone());
+  let shell = match options.site.as_ref().and_then(|site| site.shell.as_ref()) {
+    Some(path) => Some((path, ShellContract::read(path)?)),
+    None => None,
+  };
+  let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(_, contract)| contract))?;
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks);
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
@@ -798,10 +821,6 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
-  let shell = match options.site.as_ref().and_then(|site| site.shell.as_ref()) {
-    Some(path) => Some((path, ShellContract::read(path)?)),
-    None => None,
-  };
   match &options.site {
     None => {
       let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config)?;
@@ -833,6 +852,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   files.extend([
     ("generated/native.d.ts".to_owned(), native::declarations(&natives)),
     ("generated/services.d.ts".to_owned(), declarations),
+    ("generated/elements.d.ts".to_owned(), types::element_declarations(app, &layout, &elements)?),
     ("generated/head.ts".to_owned(), HEAD_HELPERS.to_owned()),
     ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref(), &config)),
     ("generated/islands.ts".to_owned(), registry),
@@ -1458,13 +1478,9 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
 /// app's map and, for a site, the shell's. An app with no readable map has
 /// nothing to check against.
 fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String]) -> Result<(), BuildError> {
-  let Some(map) = std::fs::read_to_string(app.join(&layout.importmap)).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok()) else {
+  let Some(served) = served_specifiers(app, layout, shell) else {
     return Ok(());
   };
-  let scopes = map.get("scopes").and_then(|scopes| scopes.as_object()).into_iter().flat_map(|scopes| scopes.values());
-  let mut served: Vec<String> = map.get("imports").into_iter().chain(scopes).filter_map(|table| table.as_object()).flat_map(|table| table.keys().cloned()).collect();
-  served.extend(shell.into_iter().flat_map(|contract| contract.imports.keys().cloned()));
-  let resolves = |specifier: &str| served.iter().any(|key| key == specifier || (key.ends_with('/') && specifier.starts_with(key.as_str())));
   let mut checked: Vec<&str> = Vec::new();
   for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
     let adapter = adapter_for(module)?;
@@ -1472,7 +1488,7 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
       continue;
     }
     checked.push(adapter.module);
-    let missing: Vec<String> = std::iter::once(adapter.module).chain(adapter.needs.iter().copied()).filter(|specifier| !resolves(specifier)).map(|specifier| format!("`{specifier}`")).collect();
+    let missing: Vec<String> = std::iter::once(adapter.module).chain(adapter.needs.iter().copied()).filter(|specifier| !resolves(&served, specifier)).map(|specifier| format!("`{specifier}`")).collect();
     if let Some((last, rest)) = missing.split_last() {
       let missing = match rest.is_empty() {
         true => last.clone(),
@@ -1482,6 +1498,68 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
     }
   }
   Ok(())
+}
+
+/// Every specifier the app's import map serves, its scopes included, plus the
+/// shell's for a site. `None` when the app has no readable map.
+fn served_specifiers(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>) -> Option<Vec<String>> {
+  let map = std::fs::read_to_string(app.join(&layout.importmap)).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())?;
+  let scopes = map.get("scopes").and_then(|scopes| scopes.as_object()).into_iter().flat_map(|scopes| scopes.values());
+  let mut served: Vec<String> = map.get("imports").into_iter().chain(scopes).filter_map(|table| table.as_object()).flat_map(|table| table.keys().cloned()).collect();
+  served.extend(shell.into_iter().flat_map(|contract| contract.imports.keys().cloned()));
+  Some(served)
+}
+
+/// Whether `specifier` is a key of `served` or sits under one ending in `/`.
+fn resolves(served: &[String], specifier: &str) -> bool {
+  served.iter().any(|key| key == specifier || (key.ends_with('/') && specifier.starts_with(key.as_str())))
+}
+
+/// The exact version of each vendored framework whose server markup the
+/// renderer matches, read from the vendor manifest. An import map serving
+/// `react` with no version recorded is refused. So is a major the renderer
+/// has no rules for.
+fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {
+  let vendored = crate::vendor::VendorManifest::read(app, layout)?;
+  let mut frameworks = std::collections::BTreeMap::new();
+  match vendored.packages.get("react") {
+    Some(package) if snapfire_fsr_ir::ReactMajor::of(&package.version).is_none() => {
+      let majors: Vec<String> = snapfire_fsr_ir::ReactMajor::ALL.iter().map(|major| major.number().to_string()).collect();
+      let supported = match majors.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => majors.concat(),
+      };
+      return Err(BuildError::ReactMajor { version: package.version.clone(), supported });
+    }
+    Some(package) => {
+      frameworks.insert("react".to_owned(), package.version.clone());
+    }
+    None if served_specifiers(app, layout, shell).is_some_and(|served| resolves(&served, "react")) => {
+      let manifest = app.join(&layout.vendor).join(crate::vendor::VENDOR_MANIFEST);
+      return Err(BuildError::ReactUnrecorded { manifest: format!("`{}`", manifest.display()), app: app.display().to_string(), version: crate::new::REACT.to_owned() });
+    }
+    None => {}
+  }
+  Ok(frameworks)
+}
+
+/// Where an application keeps its custom elements' shadow templates.
+pub const ELEMENTS_DIR: &str = "elements";
+
+/// `elements/<tag>.tsx`, each the default export of a custom element's shadow
+/// template, as the tag and the template's module.
+fn element_templates(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
+  let mut out = Vec::new();
+  for file in sorted_files(&app.join(ELEMENTS_DIR), ".tsx")? {
+    let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let tag = name.trim_end_matches(".tsx");
+    let valid = tag.starts_with(|c: char| c.is_ascii_lowercase()) && tag.contains('-') && tag.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '.' | '_'));
+    if !valid {
+      return Err(BuildError::ElementName { file: name });
+    }
+    out.push((tag.to_owned(), format!("{ELEMENTS_DIR}/{name}#default")));
+  }
+  Ok(out)
 }
 
 pub(crate) fn sorted_files(dir: &Path, suffix: &str) -> Result<Vec<PathBuf>, BuildError> {

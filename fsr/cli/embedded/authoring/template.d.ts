@@ -315,14 +315,24 @@ export interface MetaAttributes extends Attributes {
   property?: string;
 }
 
-/** SVG as a template writes it: React's camel-cased spellings, which the renderer prints in SVG's own. Any attribute goes, since SVG has hundreds. */
+/**
+ * What an attribute the dialect does not declare may hold. TypeScript checks
+ * every attribute of the element against it, `children` and `style` included,
+ * so it is as wide as those two need. It refuses an array of objects and an
+ * object that holds an object. An array of scalars and a flat object still
+ * pass the typecheck. Under React they are written the way React writes them;
+ * in markup nothing hydrates they are refused at render.
+ */
+export type LooseAttribute = Children | StyleValue | { __html: string } | Handler<never>;
+
+/** SVG as a template writes it: React's camel-cased spellings, which the renderer prints in SVG's own. Any attribute name goes, since SVG has hundreds. */
 export interface SvgAttributes extends Attributes {
-  [attribute: string]: unknown;
+  [attribute: string]: LooseAttribute;
 }
 
-/** A custom element's attributes are its own; the dialect checks only the ones every element has. */
+/** A custom element's attributes are its own; the dialect checks the ones every element has and holds the rest to `LooseAttribute`. */
 export interface CustomElementAttributes extends Attributes {
-  [attribute: string]: unknown;
+  [attribute: string]: LooseAttribute;
 }
 
 export interface TemplateAttributes extends Attributes {
@@ -331,6 +341,9 @@ export interface TemplateAttributes extends Attributes {
   shadowrootclonable?: boolean;
   shadowrootserializable?: boolean;
 }
+
+/** The custom elements with a template under `elements/`, each typed with its template's props. The build's `generated/elements.d.ts` fills it in. */
+export interface ElementTemplates {}
 
 /** The elements a template may write. A tag not listed here is a typo the checker catches, unless it carries a hyphen, which makes it a custom element the browser defines. */
 export interface Intrinsic {
