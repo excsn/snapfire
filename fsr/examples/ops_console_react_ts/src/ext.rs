@@ -1,8 +1,7 @@
 //! The Rust half of the pairs `app/ext/fleet.ts` declares.
 
 use snapfire_fsr_core::Value;
-use snapfire_fsr_host::HostBuilder;
-use snapfire_fsr_ir::{Ambient, Fail, Reach};
+use snapfire_fsr_host::{Ambient, Fail, FailureKind, HostBuilder, Reach};
 
 pub fn queue_label(depth: f64) -> String {
   if depth == 0.0 {
@@ -20,7 +19,7 @@ fn queue_label_ext(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(Value::UInt(n)) => *n as f64,
     Some(Value::F64(f)) => *f,
     Some(Value::F32(f)) => *f as f64,
-    other => return Err(Fail::new(snapfire_fsr_runtime::FailureKind::Internal, format!("fleet.queueLabel takes a number, got {other:?}"))),
+    other => return Err(Fail::new(FailureKind::Internal, format!("fleet.queueLabel takes a number, got {other:?}"))),
   };
   Ok(Value::str(queue_label(depth)))
 }

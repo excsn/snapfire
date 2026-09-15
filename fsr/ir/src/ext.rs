@@ -7,45 +7,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use snapfire_fsr_core::Value;
+pub use snapfire_fsr_core::ext::{number, option, text, text_opt, Ambient, Reach};
 
 use crate::interp::Fail;
-
-/// Where an extension may run. `Render`: pure, both sides, callable from
-/// every site. `Body`: server only, callable from a loader, an action, a
-/// handler or middleware, refused on a component's render path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reach {
-  Render,
-  Body,
-}
-
-impl Reach {
-  pub fn as_str(&self) -> &'static str {
-    match self {
-      Reach::Render => "render",
-      Reach::Body => "body",
-    }
-  }
-}
-
-/// What a call runs under: the request's locale in the application's
-/// spelling, empty when nothing set one and the clock.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Ambient {
-  pub locale: String,
-  pub now: i128,
-  /// The message catalogs the host loaded, which `i18n.t` reads; `None`
-  /// when the application has none.
-  pub catalogs: Option<Arc<crate::catalog::Catalogs>>,
-}
-
-impl Ambient {
-  /// The locale as BCP 47, `fr-FR` for `fr_FR`; `en` when none is set. The
-  /// browser half converts the same way.
-  pub fn bcp47(&self) -> String {
-    if self.locale.is_empty() { "en".to_owned() } else { self.locale.replace('_', "-") }
-  }
-}
 
 pub type ExtFn = dyn Fn(&Ambient, &[Value]) -> Result<Value, Fail> + Send + Sync;
 
@@ -136,46 +100,5 @@ impl Extensions {
 impl std::fmt::Debug for Extensions {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_list().entries(self.map.iter().map(|(name, e)| format!("{name} ({})", e.reach.as_str()))).finish()
-  }
-}
-
-/// A number argument as `f64`; `Int` and `UInt` included, since a BigInt
-/// reaches an extension the way it reaches a builtin.
-pub fn number(what: &str, args: &[Value], i: usize) -> Result<f64, Fail> {
-  match args.get(i) {
-    Some(Value::Int(n)) => Ok(*n as f64),
-    Some(Value::UInt(n)) => Ok(*n as f64),
-    Some(Value::F32(f)) => Ok(*f as f64),
-    Some(Value::F64(f)) => Ok(*f),
-    Some(other) => Err(crate::interp::type_error(what, "a number", other)),
-    None => Err(Fail::internal(format!("{what} takes a number as argument {}", i + 1))),
-  }
-}
-
-/// A string argument.
-pub fn text<'a>(what: &str, args: &'a [Value], i: usize) -> Result<&'a str, Fail> {
-  match args.get(i) {
-    Some(Value::Str(s)) => Ok(s),
-    Some(other) => Err(crate::interp::type_error(what, "a string", other)),
-    None => Err(Fail::internal(format!("{what} takes a string as argument {}", i + 1))),
-  }
-}
-
-/// An optional string argument: absent or `null` is `None`.
-pub fn text_opt<'a>(what: &str, args: &'a [Value], i: usize) -> Result<Option<&'a str>, Fail> {
-  match args.get(i) {
-    None | Some(Value::Null) => Ok(None),
-    Some(Value::Str(s)) => Ok(Some(s)),
-    Some(other) => Err(crate::interp::type_error(what, "a string", other)),
-  }
-}
-
-/// A field of an optional options object: `None` when the object or the
-/// field is absent.
-pub fn option<'a>(what: &str, args: &'a [Value], i: usize, field: &str) -> Result<Option<&'a Value>, Fail> {
-  match args.get(i) {
-    None | Some(Value::Null) => Ok(None),
-    Some(Value::Map(map)) => Ok(map.get(field).filter(|v| !matches!(v, Value::Null))),
-    Some(other) => Err(crate::interp::type_error(what, "an options object", other)),
   }
 }

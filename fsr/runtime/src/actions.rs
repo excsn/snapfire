@@ -7,44 +7,7 @@ use snapfire_fsr_core::Value;
 
 use crate::ctx::RequestCtx;
 
-/// The failure shapes a UI has to render, so no application re-invents the
-/// mapping. Kinds correspond to HTTP statuses at the transport edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureKind {
-  Unauthorized,
-  NotFound,
-  Invalid,
-  Conflict,
-  Timeout,
-  Unavailable,
-  Internal,
-}
-
-impl FailureKind {
-  pub fn as_str(&self) -> &'static str {
-    match self {
-      Self::Unauthorized => "unauthorized",
-      Self::NotFound => "not_found",
-      Self::Invalid => "invalid",
-      Self::Conflict => "conflict",
-      Self::Timeout => "timeout",
-      Self::Unavailable => "unavailable",
-      Self::Internal => "internal",
-    }
-  }
-
-  pub fn http_status(&self) -> u16 {
-    match self {
-      Self::Unauthorized => 401,
-      Self::NotFound => 404,
-      Self::Invalid => 400,
-      Self::Conflict => 409,
-      Self::Timeout => 504,
-      Self::Unavailable => 503,
-      Self::Internal => 500,
-    }
-  }
-}
+pub use snapfire_fsr_core::ext::FailureKind;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("action failed ({}): {message}", kind.as_str())]

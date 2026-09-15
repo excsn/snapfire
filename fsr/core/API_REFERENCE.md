@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_core
 
-Vocabulary types for SnapFire FSR: the value model, the payload tree, the render plan, module identity and canonical fingerprinting.
+Vocabulary types for SnapFire FSR: the value model, the payload tree, the render plan, module identity, canonical fingerprinting and the extension contract.
 
 ## Contents
 
@@ -27,7 +27,15 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
    * [ModuleId](#moduleid)
 6. [Fingerprinting](#6-fingerprinting)
    * [Fingerprint](#fingerprint)
-7. [Error Handling](#7-error-handling)
+7. [Extensions](#7-extensions)
+   * [Reach](#reach)
+   * [Ambient](#ambient)
+   * [Table](#table)
+   * [Catalogs](#catalogs)
+   * [Argument Helpers](#argument-helpers)
+8. [Error Handling](#8-error-handling)
+   * [FailureKind](#failurekind)
+   * [Fail](#fail)
    * [ParseModuleIdError](#parsemoduleiderror)
 
 ## 1. Type Aliases
@@ -235,11 +243,84 @@ Canonical rules, each of which a caller can violate silently by assuming otherwi
 * **`NodeId` is inside a plan's digest** and `SlotId` is inside a `Pending` node's digest, so renumbering changes a fingerprint even when nothing else did.
 * Multi-byte integers are little-endian throughout. The digest is not portable to a big-endian target.
 
-## 7. Error Handling
+## 7. Extensions
+
+The contract the Rust half of a native extension is written against, in `snapfire_fsr_core::ext`. The registry that holds extensions and the standard library are `snapfire_fsr_ir`'s. `snapfire_fsr_host` and `snapfire_fsr` re-export the module as `ext` and its types at their roots.
+
+### Reach
+
+Where an extension may run.
+
+* `Render` - pure and run on both sides of a render, callable from every site. Must answer byte for byte what its browser half answers.
+* `Body` - server only, callable from a loader, an action, a handler or middleware. Refused on a component's render path.
+* `pub fn as_str(&self) -> &'static str` - `render` or `body`.
+* Derives `Debug`, `Clone`, `Copy`, `PartialEq` and `Eq`.
+
+### Ambient
+
+What a call runs under.
+
+* `pub locale: String` - the request's locale in the application's spelling, `fr_FR`; empty when nothing set one.
+* `pub now: i128` - milliseconds since the Unix epoch, the clock `ctx.now` reads.
+* `pub catalogs: Option<Arc<Catalogs>>` - the catalogs the host loaded, which `i18n.t` reads; `None` when the application has none.
+* `pub fn bcp47(&self) -> String` - the locale as BCP 47, `fr-FR` for `fr_FR`; `en` when the locale is empty. The browser half converts the same way.
+* Derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Default`.
+
+### Table
+
+* `pub type Table = BTreeMap<String, String>` - one locale's messages by dotted key.
+
+### Catalogs
+
+Message catalogs, one table per locale, each held merged over the default locale's so a key a locale lacks reads as the default's.
+
+* `pub fn from_tables(default: impl Into<String>, tables: BTreeMap<String, Table>) -> Catalogs` - `tables` by locale tag as the application spells it; `default` names the table that fills in for every other. Each merged table's JSON is written here, once.
+* `pub fn is_empty(&self) -> bool`
+* `pub fn default_tag(&self) -> &str`
+* `pub fn rows(&self) -> Vec<(String, usize)>` - every locale and how many keys its own table held, sorted by tag.
+* `pub fn table(&self, tag: &str) -> Option<&Arc<Table>>` - the merged table for `tag`; the default's when `tag` has none.
+* `pub fn json(&self, tag: &str) -> Option<Arc<str>>` - `table` as JSON, the text a document or a payload carries.
+* `pub fn lookup(&self, tag: &str, key: &str) -> Option<&str>`
+* Derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Default`.
+
+### Argument Helpers
+
+Read an extension's arguments. A wrong kind fails as `Internal` with `what wants <wanted>, got <kind>`; a missing required argument fails as `Internal` with `what takes <a number|a string> as argument N`, counting from 1.
+
+* `pub fn number(what: &str, args: &[Value], i: usize) -> Result<f64, Fail>` - `Int`, `UInt`, `F32` or `F64`, as `f64`.
+* `pub fn text<'a>(what: &str, args: &'a [Value], i: usize) -> Result<&'a str, Fail>`
+* `pub fn text_opt<'a>(what: &str, args: &'a [Value], i: usize) -> Result<Option<&'a str>, Fail>` - absent or `Null` is `None`.
+* `pub fn option<'a>(what: &str, args: &'a [Value], i: usize, field: &str) -> Result<Option<&'a Value>, Fail>` - a field of an optional options object; `None` when the object or the field is absent or `Null`.
+* `pub fn type_error(what: &str, wanted: &str, got: &Value) -> Fail` - the wrong-kind failure itself.
+* `pub fn kind_name(value: &Value) -> &'static str` - `null`, `bool`, `int`, `uint`, `float`, `string`, `bytes`, `typed array`, `array`, `object`, `variant` or `ref`.
+
+## 8. Error Handling
+
+### FailureKind
+
+The failure shapes a UI has to render. Kinds correspond to HTTP statuses at the transport edge.
+
+* `Unauthorized`, `NotFound`, `Invalid`, `Conflict`, `Timeout`, `Unavailable`, `Internal`
+* `pub fn as_str(&self) -> &'static str` - `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` or `internal`.
+* `pub fn http_status(&self) -> u16` - 401, 404, 400, 409, 504, 503 or 500, in variant order.
+* Derives `Debug`, `Clone`, `Copy`, `PartialEq` and `Eq`.
+* Reached at `snapfire_fsr_core::ext::FailureKind`. `snapfire_fsr_runtime` re-exports it at its root.
+
+### Fail
+
+What an extension call and the argument helpers fail with.
+
+* `pub kind: FailureKind`
+* `pub message: String`
+* `pub fn new(kind: FailureKind, message: impl Into<String>) -> Fail`
+* `pub fn internal(message: impl Into<String>) -> Fail` - kind `Internal`.
+* `impl fmt::Display` - `kind: message`, the kind spelled as `as_str` spells it.
+* `impl std::error::Error` - no `source`.
+* Derives `Debug`, `Clone` and `PartialEq`.
 
 ### ParseModuleIdError
 
-The crate's only error type. Everything else is total: constructors cannot fail and fingerprinting cannot fail.
+Returned by module id parsing. Everything outside `ext` is total: constructors cannot fail and fingerprinting cannot fail.
 
 * `pub struct ParseModuleIdError` - a unit struct carrying no data.
 * Returned by `<ModuleId as FromStr>::from_str` when the string has no `#`, an empty path or an empty export.

@@ -10,22 +10,7 @@ use crate::ext::{Ambient, Extensions};
 use crate::ast::{ArithOp, Body, Builtin, CompareOp, Consts, Entry, Expr, Lit, LogicOp, Stmt};
 use crate::bind::kind_name;
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[error("{}: {message}", kind.as_str())]
-pub struct Fail {
-  pub kind: FailureKind,
-  pub message: String,
-}
-
-impl Fail {
-  pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
-    Self { kind, message: message.into() }
-  }
-
-  pub(crate) fn internal(message: impl Into<String>) -> Self {
-    Self::new(FailureKind::Internal, message)
-  }
-}
+pub use snapfire_fsr_core::ext::Fail;
 
 pub struct Outcome {
   pub value: Value,
@@ -1138,9 +1123,7 @@ fn parse_kind(name: &str) -> Option<FailureKind> {
   })
 }
 
-pub(crate) fn type_error(what: &str, wanted: &str, got: &Value) -> Fail {
-  Fail::internal(format!("{what} wants {wanted}, got {}", kind_name(got)))
-}
+pub(crate) use snapfire_fsr_core::ext::type_error;
 
 pub(crate) fn truthy(value: &Value) -> bool {
   match value {

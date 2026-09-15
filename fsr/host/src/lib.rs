@@ -37,7 +37,7 @@ use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap}
 use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner, renumber};
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
-  ActionError, AssembleError, DataSource, Evaluator, FailureKind, FibreCache, Head, Identity, LoadError, Locale,
+  ActionError, AssembleError, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
   Chunk, IslandEvent, Matcher, Metadata, RequestCtx, Resolver, SessionCell, WarmLoads, assemble, html_stream,
   parse_query, wire_stream,
 };
@@ -54,6 +54,7 @@ pub use config::{
 };
 pub use locale::{Locales, LocalesSection, Resolution};
 pub use remote::{ServiceProvider, ServiceSessionStore};
+pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
 /// The encodings a payload request may name in `enc`; the wire's `V` row
 /// names the one it got.
@@ -658,7 +659,7 @@ struct Tables {
   /// here so a warm pass swaps its contents in before it renders anything.
   warm: Arc<WarmLoads>,
   locales: Locales,
-  catalogs: Arc<snapfire_fsr_ir::Catalogs>,
+  catalogs: Arc<Catalogs>,
   auth: Option<Mounted>,
   /// The mounted sites, longest prefix first.
   sites: Vec<SiteTables>,
@@ -941,7 +942,7 @@ impl Host {
   }
 
   /// The message catalogs loaded from `locales/`, when the application has any.
-  pub fn catalogs(&self) -> Option<Arc<snapfire_fsr_ir::Catalogs>> {
+  pub fn catalogs(&self) -> Option<Arc<Catalogs>> {
     let catalogs = &self.tables().catalogs;
     (!catalogs.is_empty()).then(|| catalogs.clone())
   }
@@ -3473,9 +3474,9 @@ impl HostBuilder {
   /// The Rust half of a native pair: `name` is `module.member`, the name its
   /// `native(..)` declaration under `ext/` gives and `reach` what that
   /// declaration says. A plan calling a name nothing registers refuses to build.
-  pub fn extension<F>(mut self, name: impl Into<String>, reach: snapfire_fsr_ir::Reach, f: F) -> Self
+  pub fn extension<F>(mut self, name: impl Into<String>, reach: Reach, f: F) -> Self
   where
-    F: Fn(&snapfire_fsr_ir::Ambient, &[Value]) -> Result<Value, snapfire_fsr_ir::Fail> + Send + Sync + 'static,
+    F: Fn(&Ambient, &[Value]) -> Result<Value, Fail> + Send + Sync + 'static,
   {
     let name = name.into();
     self.app_mut(move |app| app.extension(name, reach, f));

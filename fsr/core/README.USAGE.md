@@ -25,6 +25,7 @@ This guide covers building values in the FSR value model, assembling a payload `
   * [Fingerprinting a Node or a Plan](#fingerprinting-a-node-or-a-plan)
   * [Composing a Cache Key](#composing-a-cache-key)
 * [Comparing Values](#comparing-values)
+* [Writing the Rust Half of an Extension](#writing-the-rust-half-of-an-extension)
 * [Why the Model Is Shaped This Way](#why-the-model-is-shaped-this-way)
 * [Error Handling](#error-handling)
 
@@ -46,6 +47,8 @@ This guide covers building values in the FSR value model, assembling a payload `
 * **Deferral** - `PlanNode::deferred`, declared in the plan rather than discovered mid-render, which is what makes streaming plannable.
 * **`ModuleId`** - Source path plus export name, `components/ServerChart.tsx#default`. The content hash lives in the build manifest, never here.
 * **Fingerprint** - A canonical xxh3-64 content hash. Equal values hash equal regardless of construction history, map insertion order or NaN bit pattern.
+* **Extension** - A named function page code calls. Its TypeScript declaration lives under `ext/` and its Rust half is written against the `ext` module.
+* **Reach** - Where an extension may run: `Render` on both sides of a render, `Body` on the server only.
 
 ## Quick Start
 
@@ -455,6 +458,33 @@ assert_eq!(a.fingerprint(), b.fingerprint());
 
 Compare fingerprints when the question is "same content", which is what caching and change detection are asking. Use `PartialEq` only where IEEE equality is what you want. `Value` implements neither `Eq` nor `Hash`, so it cannot be a `HashMap` key; key on its fingerprint instead.
 
+## Writing the Rust Half of an Extension
+
+An extension is a function page code calls by a name its TypeScript declares with `native(..)` under `ext/`. Its Rust half takes the `Ambient` the call runs under and the arguments. It answers a `Value` or a `Fail`. The helpers in `ext` read the arguments.
+
+```rust
+use snapfire_fsr_core::ext::{self, Ambient, Fail};
+use snapfire_fsr_core::Value;
+
+fn queue_label(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let depth = ext::number("fleet.queueLabel", args, 0)?;
+  Ok(Value::str(if depth == 0.0 { "idle".to_owned() } else { format!("{depth} queued") }))
+}
+
+fn greeting(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let name = ext::text("site.greeting", args, 0)?;
+  Ok(Value::str(format!("{name} ({})", ambient.bcp47())))
+}
+```
+
+`snapfire_fsr_host` registers each one with `HostBuilder::extension` under its name and a `Reach`: `Reach::Render` runs on both sides of a render and must answer what its browser half answers, `Reach::Body` runs on the server only. The host re-exports `ext`, so an application can import all of it from there.
+
+An argument of the wrong kind fails as `Internal`, naming the call:
+
+```text
+internal: fleet.queueLabel wants a number, got string
+```
+
 ## Why the Model Is Shaped This Way
 
 The model decides what can exist and encodings are projections of it, ranked by how much they preserve. Admitting a type to the model is a decision about what can exist. An encoding then either carries it losslessly or degrades in a way it declares. That is why `Value` holds `i128`, `u128`, `f32` beside `f64`, raw bytes and typed arrays: JSON pays the price of tagging what it cannot spell, rather than the model shrinking to what JSON spells natively.
@@ -467,7 +497,7 @@ The fingerprint is canonical because it is a cache key. Insertion order, NaN bit
 
 ## Error Handling
 
-The crate has one fallible operation (parsing a `ModuleId`) and one error type. Everything else is total: constructors cannot fail and fingerprinting cannot fail.
+The crate has two error types. `ParseModuleIdError` comes from parsing a `ModuleId`. `Fail` is what an extension answers with. The argument helpers in `ext` return it too. Everything else is total: constructors cannot fail and fingerprinting cannot fail.
 
 `ParseModuleIdError` is a unit struct carrying no data. It implements `Debug`, `Display`, `Clone`, `PartialEq`, `Eq` and `std::error::Error`. It is returned when the string has no `#`, an empty path or an empty export.
 

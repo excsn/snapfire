@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_core/badge.svg)](https://docs.rs/snapfire_fsr_core)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. Task-by-task instructions live in the [usage guide](README.USAGE.md); every signature is in the [API reference](API_REFERENCE.md).
+The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It also holds `ext`, the contract the Rust half of a native extension is written against. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. Task-by-task instructions live in the [usage guide](README.USAGE.md); every signature is in the [API reference](API_REFERENCE.md).
 
 The value model decides what can exist. Encodings are projections of it, ranked by how much they preserve: an encoding is either lossless over the model or a degradation it declares, never a silent one. That is why `Value` is not limited to what JSON can express. It carries `i128` and `u128` integers, `f32` separately from `f64`, raw bytes, typed numeric arrays, tagged variants and references. JSON tags whatever it cannot spell natively.
 
@@ -18,6 +18,7 @@ snapfire_fsr_core = "0.5"
 | Dependency | Why |
 | :--- | :--- |
 | `indexmap` | `ValueMap` and `Params` preserve insertion order for serialization |
+| `serde_json` | The JSON each locale's message table is carried as |
 | `xxhash-rust` (`xxh3`) | The 64-bit digest behind `Fingerprint` |
 
 ## What to reach for
@@ -40,3 +41,6 @@ snapfire_fsr_core = "0.5"
 | Name the loader a segment waits on | `PlanNode::data_source` |
 | Get a stable content hash for a cache key | `Fingerprint::fingerprint` |
 | Decide whether two values mean the same thing | Compare fingerprints, not `PartialEq` |
+| Write the Rust half of a native extension | `ext::Reach`, `ext::Ambient`, `ext::Fail` |
+| Read an extension's arguments | `ext::number`, `ext::text`, `ext::text_opt`, `ext::option` |
+| Hold the message catalogs `i18n.t` reads | `ext::Catalogs` |

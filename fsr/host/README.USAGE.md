@@ -619,11 +619,10 @@ A function the application declares under `ext/` with `native("module.member", f
 
 ```rust
 use snapfire_fsr_core::Value;
-use snapfire_fsr_host::Host;
-use snapfire_fsr_ir::{Ambient, Fail, Reach};
+use snapfire_fsr_host::{ext, Ambient, Fail, Host, Reach};
 
 fn queue_label(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
-  let depth = snapfire_fsr_ir::ext::number("fleet.queueLabel", args, 0)?;
+  let depth = ext::number("fleet.queueLabel", args, 0)?;
   Ok(Value::Str(if depth == 0.0 { "idle".to_owned() } else { format!("{depth} queued") }))
 }
 

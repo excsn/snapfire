@@ -332,19 +332,4 @@ impl Evaluator for IrEvaluator {
   }
 }
 
-pub(crate) fn kind_name(value: &Value) -> &'static str {
-  match value {
-    Value::Null => "null",
-    Value::Bool(_) => "bool",
-    Value::Int(_) => "int",
-    Value::UInt(_) => "uint",
-    Value::F32(_) | Value::F64(_) => "float",
-    Value::Str(_) => "string",
-    Value::Bytes(_) => "bytes",
-    Value::TypedArray(_) => "typed array",
-    Value::Seq(_) => "array",
-    Value::Map(_) => "object",
-    Value::Variant { .. } => "variant",
-    Value::Ref { .. } => "ref",
-  }
-}
+pub(crate) use snapfire_fsr_core::ext::kind_name;

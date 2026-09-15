@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrSource, IrStore, Reach};
+use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrSource, IrStore};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Runtime, TableResolver,
@@ -19,6 +19,7 @@ use snapfire_fsr_service::{Contract, Services, Type};
 
 pub use plan::{IntoPlan, Plan};
 pub use routes::Routes;
+pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BindError {
@@ -285,7 +286,7 @@ pub struct AppBuilder {
   cache: Option<Arc<dyn NodeCache>>,
   loads: Option<Arc<dyn LoadCache>>,
   extensions: Extensions,
-  catalogs: Option<Arc<snapfire_fsr_ir::Catalogs>>,
+  catalogs: Option<Arc<Catalogs>>,
   /// The plan's named constants, which `Expr::Const` reads.
   consts: Option<Arc<snapfire_fsr_ir::ast::Consts>>,
   bearer_services: Vec<String>,
@@ -529,7 +530,7 @@ impl AppBuilder {
   /// without. Replaces a standard member of the same name.
   pub fn extension<F>(mut self, name: impl Into<String>, reach: Reach, f: F) -> Self
   where
-    F: Fn(&snapfire_fsr_ir::Ambient, &[snapfire_fsr_core::Value]) -> Result<snapfire_fsr_core::Value, snapfire_fsr_ir::Fail> + Send + Sync + 'static,
+    F: Fn(&Ambient, &[snapfire_fsr_core::Value]) -> Result<snapfire_fsr_core::Value, Fail> + Send + Sync + 'static,
   {
     self.extensions.register(name, reach, f);
     self
@@ -541,7 +542,7 @@ impl AppBuilder {
   }
 
   /// The message catalogs `t` reads, by locale; none by default.
-  pub fn catalogs(mut self, catalogs: Arc<snapfire_fsr_ir::Catalogs>) -> Self {
+  pub fn catalogs(mut self, catalogs: Arc<Catalogs>) -> Self {
     self.catalogs = Some(catalogs);
     self
   }

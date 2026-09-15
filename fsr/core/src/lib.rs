@@ -1,4 +1,5 @@
 pub mod duration;
+pub mod ext;
 mod fingerprint;
 pub mod module_id;
 pub mod node;

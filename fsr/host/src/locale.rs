@@ -389,11 +389,11 @@ mod tests {
 /// nest: `[cart]` then `empty = "…"` is the key `cart.empty`. A value that is
 /// a string, a number or a boolean is kept as text; anything else is refused
 /// naming the file and the key. No directory is no catalogs.
-pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fsr_ir::Catalogs, String> {
+pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fsr_core::ext::Catalogs, String> {
   let dir = app.join("locales");
   let mut tables = std::collections::BTreeMap::new();
   let Ok(entries) = std::fs::read_dir(&dir) else {
-    return Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables));
+    return Ok(snapfire_fsr_core::ext::Catalogs::from_tables(default, tables));
   };
   let mut files: Vec<std::path::PathBuf> = entries
     .filter_map(|e| e.ok().map(|e| e.path()))
@@ -408,7 +408,7 @@ pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fs
     flatten(&file, "", &value, &mut table)?;
     tables.insert(tag, table);
   }
-  Ok(snapfire_fsr_ir::Catalogs::from_tables(default, tables))
+  Ok(snapfire_fsr_core::ext::Catalogs::from_tables(default, tables))
 }
 
 fn flatten(
