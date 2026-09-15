@@ -189,6 +189,24 @@ fn an_element_template_whose_root_template_cannot_be_the_shadow_root_is_refused(
 }
 
 #[test]
+fn an_actions_file_in_a_directory_with_no_page_is_refused_by_directory() {
+  let action = "import { action } from \"@snapfire/fsr\";\nexport const ping = action(async () => {\n  return 1;\n});\n";
+  for (dir, beside) in [("routes/admin", None), ("routes/api", Some(("routes/api/route.ts", "export function GET() {\n  return { ok: true };\n}\n")))] {
+    let actions = format!("{dir}/actions.ts");
+    let mut files = vec![("routes/page.tsx", PAGE), (actions.as_str(), action)];
+    files.extend(beside);
+    let app_dir = app(&files);
+    let err = fails(&app_dir);
+    assert!(err.to_string().contains("holds `actions.ts` but no `page.tsx`"), "{err}");
+    match err {
+      BuildError::ActionsWithoutPage(path) => assert!(path.ends_with(dir), "{}", path.display()),
+      other => panic!("{dir}: {other}"),
+    }
+    std::fs::remove_dir_all(&app_dir).unwrap();
+  }
+}
+
+#[test]
 fn each_element_template_types_its_tag_for_the_jsx_the_templates_are_read_as() {
   let dir = app(&[("routes/page.tsx", PLACES_BOX), ("elements/x-box.tsx", GRID)]);
   let declarations = |dir: &Path| build(dir, &Options::default()).unwrap().files.into_iter().find(|(name, _)| name == "generated/elements.d.ts").map(|(_, text)| text).expect("the build declares its element templates");

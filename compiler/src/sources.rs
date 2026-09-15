@@ -163,7 +163,7 @@ impl Matcher {
       };
 
       for glob in expanded {
-        let compiled = GlobBuilder::new(&glob)
+        let compiled = GlobBuilder::new(&tsc_glob(&glob))
           .literal_separator(true)
           .build()
           .with_context(|| format!("Invalid pattern {:?}", pattern))?;
@@ -277,8 +277,27 @@ fn normalise(pattern: &str) -> String {
   pattern.trim_end_matches('/').to_string()
 }
 
+/// tsc's `include` has `*`, `?` and `**/` for wildcards and nothing else, so
+/// `routes/[id]/page.tsx` names a file.
 fn has_glob(pattern: &str) -> bool {
-  pattern.contains(['*', '?', '['])
+  pattern.contains(['*', '?'])
+}
+
+/// The pattern with the brackets and braces globset would read as syntax
+/// matched as themselves.
+fn tsc_glob(pattern: &str) -> String {
+  let mut out = String::with_capacity(pattern.len());
+  for c in pattern.chars() {
+    match c {
+      '[' | ']' | '{' | '}' => {
+        out.push('[');
+        out.push(c);
+        out.push(']');
+      }
+      _ => out.push(c),
+    }
+  }
+  out
 }
 
 fn common_root(inputs: &[&Path]) -> Option<PathBuf> {

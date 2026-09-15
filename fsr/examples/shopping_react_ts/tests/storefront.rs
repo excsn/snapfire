@@ -123,7 +123,7 @@ fn a_route_with_a_loading_module_ships_the_document_before_its_page() {
   let parts: Vec<String> = block_on(async { app.render("/product/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
 
   assert_eq!(parts.len(), 2, "the document, then one fill: {parts:?}");
-  assert!(parts[0].contains("data-sf-module=\"routes/product/[id]/loading.tsx#default\""), "the loading module holds the slot: {}", parts[0]);
+  assert!(parts[0].contains("<div data-sf-slot=\"1\"><main class=\"page product\"><div class=\"product-layout\"><div class=\"skeleton skeleton-thumb\"></div>"), "the loading module holds the slot: {}", parts[0]);
   assert!(parts[0].contains("<div class=\"skeleton skeleton-thumb\"></div>"), "rendered in Rust like any component");
   assert!(!parts[0].contains("data-sf-module=\"routes/product/[id]/page.tsx#default\""), "the page waits for its loader; the sidecar alone names it");
   assert!(parts[1].starts_with("<template data-sf-fill=\"1\">"), "{}", parts[1]);
@@ -141,7 +141,7 @@ fn a_failing_call_degrades_to_the_error_component() {
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/product/99", RenderMode::Html, SessionCell::default())).unwrap();
 
-  assert!(html.contains("routes/error.tsx#default"), "the plan's error module renders instead");
+  assert!(html.contains("<!--sf-g:routes/product/[id]/page.tsx#default?id=99--><main class=\"page failed\">"), "the plan's error module renders in the page's place: {html}");
   assert!(html.contains("no product 99"), "the failure reaches the component as a prop");
   assert!(html.contains("<!doctype html>"), "the document around it still renders");
 }
@@ -152,7 +152,7 @@ fn a_call_the_contract_rejects_never_reaches_the_backend() {
   let app = app_over(transport.clone());
 
   let html = block_on(app.render_to_string("/product/notanumber", RenderMode::Html, SessionCell::default())).unwrap();
-  assert!(html.contains("routes/error.tsx#default"));
+  assert!(html.contains("<!--sf-g:routes/product/[id]/page.tsx#default?id=notanumber--><main class=\"page failed\">"), "{html}");
   assert!(transport.calls().iter().all(|(path, _, _)| path != "shopping.getProduct"), "the loader refused before the wire: {:?}", transport.calls());
 }
 
@@ -162,7 +162,7 @@ fn an_unmatched_path_renders_the_not_found_page() {
   assert!(block_on(app.render_to_string("/nope", RenderMode::Html, SessionCell::default())).is_err());
   let chunks = block_on(app.render_not_found("/nope?x=1", RenderMode::Html, SessionCell::default())).unwrap().expect("routes/not-found.tsx is the page");
   let html = block_on(chunks.collect::<Vec<String>>()).concat();
-  assert!(html.contains("data-sf-module=\"routes/not-found.tsx#default\""), "{html}");
+  assert!(html.contains("<!--sf-g:routes/not%2Dfound.tsx#default?path=/nope&x=1--><main class=\"page failed\">"), "{html}");
   assert!(html.contains("No page at <!-- -->/nope"), "the path reaches the page as params.path: {html}");
 }
 
@@ -269,7 +269,7 @@ fn the_order_page_reads_the_placed_order_back() {
   let app = app_over(transport.clone());
 
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
-  assert!(html.contains("data-sf-module=\"routes/order/[id]/page.tsx#default\""), "{html}");
+  assert!(html.contains("<!--sf-g:routes/order/[id]/page.tsx#default?id=5001--><main class=\"page order\">"), "{html}");
   assert!(html.contains("Order #<!-- -->5001<!-- --> placed"), "the heading is rendered in Rust: {html}");
   assert!(html.contains("<a href=\"/product/1\">Filament</a>"), "each line links back to its product");
   assert!(html.contains("$48.00"));
@@ -288,12 +288,12 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
   let region = html
-    .find("<sf-s data-sf-island data-sf-region=\"routes/order/[id]/page.tsx#default|i0\" data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">")
+    .find("<sf-s data-sf-island data-sf-region=\"routes/order/[id]/page.tsx#default|i0\" data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i1\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">")
     .expect(&html);
-  let page = html.find("data-sf-module=\"routes/order/[id]/page.tsx#default\"").unwrap();
+  let page = html.find("<!--sf-g:routes/order/[id]/page.tsx#default?id=5001-->").expect(&html);
   assert!(page < region, "the island sits inside the page's markup");
   assert!(html[region..].contains("<p>Quote order #<!-- -->5001<!-- --> when you write to us.</p>"), "rendered in Rust with the page's data: {html}");
-  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i3\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false},\"$k\":\"routes/order/[id]/page.tsx#default|i0\"}</script></sf-s>"), "its own props script with the state a server island starts from and the region it names, inside the region: {html}");
+  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i1\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false},\"$k\":\"routes/order/[id]/page.tsx#default|i0\"}</script></sf-s>"), "its own props script with the state a server island starts from and the region it names, inside the region: {html}");
   let payload = block_on(app.render_to_string("/order/5001", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("[\"c\",{\"m\":\"src/ui/OrderHelp.tsx#OrderHelp\""), "a nested client node on the wire: {payload}");
 }

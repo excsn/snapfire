@@ -49,7 +49,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **Root** - The directory the compiler changes into before it does anything else. Every path on the command line resolves relative to it.
 * **`tsconfig.json`** - The project file, read as JSONC and interpreted the way `tsc` interprets it, so the same file can drive `tsc --noEmit` and your editor without the three disagreeing. Keys `snapfirec` does not use are `tsc`'s business and are left alone.
 * **Config directory** - The directory holding `tsconfig.json`. `include`, `exclude`, `files`, `outDir` and `rootDir` all resolve against it, not against the root.
-* **`include`** - Glob patterns naming the project's files. An entry with no glob character names a directory and stands for everything under it. Defaults to `**/*`.
+* **`include`** - Glob patterns naming the project's files, with `*`, `?` and `**` as the only wildcards. An entry with no glob character names a directory and stands for everything under it. Defaults to `**/*`.
 * **`exclude`** - Glob patterns removed from what `include` matched. Defaults to `node_modules`, `bower_components` and `jspm_packages`. An explicit `exclude` replaces that default rather than adding to it.
 * **`files`** - An explicit list of inputs. `exclude` does not apply to it.
 * **`rootDir`** - The directory output paths are mirrored against. Set it explicitly or let it be computed as the longest common prefix of the compilable inputs.
@@ -325,6 +325,12 @@ An entry with no glob character names a directory and stands for everything unde
 
 ```json
 { "include": ["src"] }                        // same as ["src/**/*"]
+```
+
+The wildcards are `*`, `?` and `**`, as in tsc. Every other character matches itself, so brackets in a path are part of the name:
+
+```json
+{ "include": ["routes/product/[id]/page.tsx"] }   // that one file
 ```
 
 `files` lists inputs explicitly and `exclude` does not apply to it, which is how you compile one entry point out of a directory you otherwise ignore:

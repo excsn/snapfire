@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "outDir": "dist", "rootDir": "." },
+  "include": ["routes/[id]/page.ts"]
+}

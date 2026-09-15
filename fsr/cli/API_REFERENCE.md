@@ -227,7 +227,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Routes
 
-* A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. A `layout.tsx` in any directory on the way from `routes/` to a route wraps that route's page, outermost first. One holding both is `BuildError::PageAndRoute`. Other directories contribute path segments only.
+* A directory under `routes/` is a route when it contains `page.tsx` or `page.ts` and a handler route when it contains `route.ts`. A `layout.tsx` in any directory on the way from `routes/` to a route wraps that route's page, outermost first. One holding both is `BuildError::PageAndRoute`. An `actions.ts` is read beside a page or in a slot; one in a directory with no page is `BuildError::ActionsWithoutPage`, since an action is named for its page's route id. Other directories contribute path segments only.
 * `slots/<name>/` beside a `layout.tsx` is a parallel slot of that layout, a child in the slot `<name>` of every route under it, with `page.tsx`, `page.loader.ts`, `loading.tsx` and `error.tsx` read the way a route's are and the source id `layout.<name>` (`<layout id>.<name>` for a nested layout). It is not a route: `slots/` elsewhere is `BuildError::SlotsWithoutLayout`, a slot without `page.tsx` is `SlotWithoutPage` and one with a page or handler directory beneath it is `SlotRoute`. A layout also declares every slot its template places with `<Slot name>`.
 * `page.<slot>.tsx` beside a route's `page.tsx` is an intercept: an entry under the route's pattern in the manifest's `intercepts`, holding the layouts down to the nearest one declaring `<slot>`. That layout carries the variant as its `<slot>` child, with its page and every other slot in `keep`; each layout above it carries its own slots in `keep`. The variant shares the route's source and error module and streams behind `loading.<slot>.tsx` alone. A route with several variants has one entry each, in file order. A slot no layout above declares is `SlotUndeclared`.
 * Node ids are assigned in tree order per plan, the shell at 0.
@@ -380,6 +380,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `DuplicateType { name: String, first: String, second: String }`
 * `Contract(ContractError)`, from `Contract::validate`.
 * `UnknownInput { action: String, name: String }`
+* `ActionsWithoutPage(PathBuf)`, an `actions.ts` in a directory under `routes/` with no page.
 * `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)` and `SlotUndeclared { path: PathBuf, file: String, slot: String }`, from the slot and variant rules above.
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
 * `UnknownComponent { module: String }`, an island whose extension no framework claims.

@@ -69,6 +69,16 @@ fn test_single_star_does_not_cross_directories() {
 }
 
 #[test]
+fn test_brackets_in_an_include_entry_are_literal() {
+  let fixture = Fixture::new("bracketed-include");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root())).stderr(predicate::str::contains("matched no files").not());
+
+  assert_eq!(emitted(fixture.root()), vec!["routes/[id]/page.js"]);
+}
+
+#[test]
 fn test_root_dir_is_computed_from_the_common_prefix() {
   let fixture = Fixture::new("computed-root");
 

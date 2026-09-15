@@ -242,7 +242,7 @@ The report lists slots by source id and intercepts as `<pattern> into <slot>`. A
 
 ## Writing Actions
 
-`actions.ts` exports constants built with `action`. The type argument names the input type.
+`actions.ts` exports constants built with `action`. The type argument names the input type. The file sits beside a `page.tsx` or in a slot, since an action is named for its page's route id; one anywhere else under `routes/` stops the build.
 
 ```ts
 import { action, fail } from "@snapfire/fsr";

@@ -74,6 +74,8 @@ pub enum BuildError {
   UnknownInput { action: String, name: String },
   #[error("{0}: holds both `page.tsx` and `route.ts`; a directory is a page or a handler")]
   PageAndRoute(PathBuf),
+  #[error("{0}: holds `actions.ts` but no `page.tsx`; an action is named for the page beside it")]
+  ActionsWithoutPage(PathBuf),
   #[error("{0}: `slots/` belongs beside a `layout.tsx`, and this directory has none")]
   SlotsWithoutLayout(PathBuf),
   #[error("{0}: a slot needs a `page.tsx`")]
@@ -1904,6 +1906,9 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
   let handler = dir.join("route.ts").is_file();
   if page && handler {
     return Err(BuildError::PageAndRoute(dir.to_path_buf()));
+  }
+  if !page && dir.join("actions.ts").is_file() {
+    return Err(BuildError::ActionsWithoutPage(dir.to_path_buf()));
   }
   if page || handler {
     let (pattern, id) = pattern_of(root, dir)?;
