@@ -611,10 +611,15 @@ pub fn element_declarations(app: &Path, layout: &Layout, elements: &[(String, St
   out.push_str(&format!("\ntype Host = {host};\n"));
   out.push_str("type Loose = { [attribute: string]: any };\n");
   out.push_str("type Props<F> = F extends (props: infer P) => any ? NonNullable<P> : {};\n");
-  out.push_str("type Placed<F> = Omit<Host, keyof Props<F>> & Props<F> & Loose;\n\n");
+  out.push_str("type Placed<F> = Omit<Host, keyof Props<F>> & Props<F> & Loose;\n");
+  if react {
+    let taken = (0..elements.len()).map(|i| format!("keyof Props<typeof Template{i}>")).collect::<Vec<_>>().join(" | ");
+    out.push_str(&format!("type Taken = {};\n", if taken.is_empty() { "never" } else { &taken }));
+  }
+  out.push('\n');
   let entries = |indent: &str| elements.iter().enumerate().map(|(i, (tag, _))| format!("{indent}\"{tag}\": Placed<typeof Template{i}>;\n")).collect::<String>();
   match react {
-    true => out.push_str(&format!("declare module \"react\" {{\n  namespace JSX {{\n    interface IntrinsicElements {{\n      [custom: `${{string}}-${{string}}`]: Host & Loose;\n{}    }}\n  }}\n}}\n", entries("      "))),
+    true => out.push_str(&format!("declare module \"react\" {{\n  namespace JSX {{\n    interface IntrinsicElements {{\n      [custom: `${{string}}-${{string}}`]: Omit<Host, Taken> & Loose;\n{}    }}\n  }}\n}}\n", entries("      "))),
     false => out.push_str(&format!("declare module \"@snapfire/fsr-authoring/template\" {{\n  interface ElementTemplates {{\n{}  }}\n}}\n", entries("    "))),
   }
   Ok(out)

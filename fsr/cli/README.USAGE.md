@@ -970,14 +970,14 @@ The build types each template's tag in `generated/elements.d.ts`, so a page that
 declare module "react" {
   namespace JSX {
     interface IntrinsicElements {
-      [custom: `${string}-${string}`]: Host & Loose;
+      [custom: `${string}-${string}`]: Omit<Host, Taken> & Loose;
       "loan-planner": Placed<typeof Template0>;
     }
   }
 }
 ```
 
-`Placed` is the template's props over the attributes every HTML element takes. The pattern entry lets a hyphenated tag with no template through with those attributes and any others. Without React the file fills the dialect's `ElementTemplates` instead, where a template's tag takes the arrays and objects its props name. A tag with no template still refuses them.
+`Placed` is the template's props over the attributes every HTML element takes. The pattern entry lets a hyphenated tag with no template through with those attributes and any others. `Taken` is every prop name some template declares, so a template may give `title` or `hidden` a type of its own. On a tag with no template an attribute named in `Taken` takes any value. Without React the file fills the dialect's `ElementTemplates` instead, where a template's tag takes the arrays and objects its props name. A tag with no template still refuses them.
 
 ## Placing an Island in Server Mode
 

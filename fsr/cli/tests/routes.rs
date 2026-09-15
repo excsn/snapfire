@@ -212,7 +212,7 @@ fn each_element_template_types_its_tag_for_the_jsx_the_templates_are_read_as() {
   let declarations = |dir: &Path| build(dir, &Options::default()).unwrap().files.into_iter().find(|(name, _)| name == "generated/elements.d.ts").map(|(_, text)| text).expect("the build declares its element templates");
   let react = declarations(&dir);
   assert!(react.contains("import type Template0 from \"../elements/x-box\";"), "{react}");
-  assert!(react.contains("declare module \"react\" {\n  namespace JSX {\n    interface IntrinsicElements {\n      [custom: `${string}-${string}`]: Host & Loose;\n      \"x-box\": Placed<typeof Template0>;\n"), "{react}");
+  assert!(react.contains("declare module \"react\" {\n  namespace JSX {\n    interface IntrinsicElements {\n      [custom: `${string}-${string}`]: Omit<Host, Taken> & Loose;\n      \"x-box\": Placed<typeof Template0>;\n"), "{react}");
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
   let dialect = declarations(&dir);
@@ -221,6 +221,21 @@ fn each_element_template_types_its_tag_for_the_jsx_the_templates_are_read_as() {
   assert!(!dialect.contains("react"), "{dialect}");
   std::fs::remove_file(dir.join("elements/x-box.tsx")).unwrap();
   assert!(declarations(&dir).ends_with("\n\nexport {};\n"), "a dialect app with no template declares nothing");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_tag_with_no_template_leaves_unchecked_only_the_attributes_some_template_redefines() {
+  let dir = app(&[("routes/page.tsx", PLACES_BOX), ("elements/x-box.tsx", GRID), ("elements/x-row.tsx", "export default function Row({ hidden }: { hidden: number }) {\n  return <p>{hidden}</p>;\n}\n")]);
+  let declarations = |dir: &Path| build(dir, &Options::default()).unwrap().files.into_iter().find(|(name, _)| name == "generated/elements.d.ts").map(|(_, text)| text).unwrap();
+  let two = declarations(&dir);
+  assert!(two.contains("type Taken = keyof Props<typeof Template0> | keyof Props<typeof Template1>;\n"), "{two}");
+  assert!(two.contains("[custom: `${string}-${string}`]: Omit<Host, Taken> & Loose;\n      \"x-box\": Placed<typeof Template0>;\n      \"x-row\": Placed<typeof Template1>;\n"), "{two}");
+  std::fs::remove_file(dir.join("elements/x-box.tsx")).unwrap();
+  std::fs::remove_file(dir.join("elements/x-row.tsx")).unwrap();
+  let none = declarations(&dir);
+  assert!(none.contains("type Taken = never;\n"), "{none}");
+  assert!(none.contains("[custom: `${string}-${string}`]: Omit<Host, Taken> & Loose;\n    }"), "{none}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
