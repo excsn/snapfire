@@ -102,6 +102,26 @@ fn a_route_renders_its_page_on_the_server_with_no_javascript_engine() {
 }
 
 #[test]
+fn a_rating_rendered_inside_its_shadow_root_is_not_among_the_catalogs_hoisted_values() {
+  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)])));
+  let app = app_over(transport);
+  let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
+
+  let shadow = html.find("<shop-rating rating=\"4.5\" reviews=\"10\"><template shadowrootmode=\"open\">").expect(&html);
+  assert!(html[shadow..].contains("<span class=\"stars-rating\">4.5</span>"), "Stars renders inside the shadow root: {html}");
+
+  let module = html.find(" data-sf-module=\"routes/page.tsx#default\"").expect(&html);
+  let id = &html[html[..module].rfind("id=\"").unwrap() + 4..module - 1];
+  let open = format!("data-sf-props=\"{id}\">");
+  let start = html.find(&open).expect(&html) + open.len();
+  let end = start + html[start..].find("</script>").unwrap();
+  let props: serde_json::Value = serde_json::from_str(&html[start..end]).unwrap();
+  let hoisted = props["$h"].as_object().unwrap_or_else(|| panic!("the catalog hoists values of its own: {props}"));
+  assert!(hoisted.keys().any(|key| key.starts_with("src/ui/ProductCard.tsx#ProductCard|")), "{hoisted:?}");
+  assert!(!hoisted.keys().any(|key| key.starts_with("src/ui/Stars.tsx#Stars|")), "no browser half renders the shadow root, so nothing in it is hoisted: {hoisted:?}");
+}
+
+#[test]
 fn the_payload_carries_the_widths_the_document_declared() {
   let transport = Arc::new(
     MockTransport::new().returns("shopping.getProduct", product(1, "Filament", 2400, 12)).returns("inventory.getStock", stock(1)),
