@@ -1113,8 +1113,11 @@ snapfirec --import-map ./static/importmap.json
 ```text
    Externals: 'lit', 'lodash/debounce'
 ❌ 'lodash/debounce' is not resolved by "./static/importmap.json"
+   imported by "src/search.ts"
 Error: Build failed. See the errors above.
 ```
+
+The sources that import a missing specifier are named under it, the first three by path and the rest as a count.
 
 Resolution follows the spec rather than matching keys, so a trailing-slash key covers everything beneath it and is not reported as missing:
 

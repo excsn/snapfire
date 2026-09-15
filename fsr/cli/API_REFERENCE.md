@@ -131,8 +131,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Options
 
-* `pub struct Options { pub shell: String, pub slot: String, pub mounter_module: String, pub mounter: String }`
-* `Default` is `shell#document`, `content`, `@snapfire/fsr-client/react` and `reactMounter`.
+* `pub struct Options { pub site: Option<SiteOptions>, pub shell: String, pub slot: String }`
+* `Default` is no site, `shell#document` and `content`.
 
 ### SiteOptions
 
@@ -256,7 +256,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `generated/contracts/<client>.json` is `Contract::to_json` of that document's import, types and service; `generated/contracts/schemas.json` holds the schema types. `CONTRACTS_DIR` names the directory. The build merges them with `Contract::merge` for `services.d.ts`, `client.ts` and validation, so a type two documents define fails the build naming the second; `write` empties the directory of `*.json` before writing so a removed client leaves nothing behind.
 * `generated/fsr.ts` declares `Routes` with one key per page pattern and per handler pattern, so `Ctx<"/api/cart">` types a handler's parameters, It also declares `RequestLine`, `MiddlewareCtx` and `MiddlewareResult` for `middleware.ts`, then `Meta`, `MetaCtx<Data>` and `DataOf<typeof load>` for a loader module's `meta`. `Config` has one field per `[public]` key typed from its value and is what `ctx.config` is. A loader module's exported `meta` is lowered beside `load` into the source row's `meta` and its exported `store` into the row's `store`, both functions of the data `load` returned. `generated/client.ts` types a layout's props from its loader the way it types a page's: `LayoutProps` for the root, `AccountLayoutProps` for `routes/account/layout.tsx`.
 * `generated/services.d.ts` is `snapfire_fsr_service::typescript::declarations` of it.
-* `generated/islands.ts` imports `registerIsland` and the mounter and exports `registerIslands()`, one call per module, each with `mount` and `patch` from `Options::mounter_module`: the routes-level error module, the not-found module, each layout, then each page, its error and its loading module, then every component a lowered component places as an island, its loader picking the named export, each loading `../<path>.js` relative to `generated/`.
+* `generated/islands.ts` imports `registerIsland` and each adapter a registered module needs and exports `registerIslands()`, one call per module, each with `mount`, `patch` and `unmount` from the adapter its extension names (`@snapfire/fsr-client/vue` for `.vue`, `@snapfire/fsr-client/react` for a module the build lowers): the routes-level error module, the not-found module, each layout, then each page, its error and its loading module, then every component a lowered component places as an island, its loader picking the named export, each loading `../<path>.js` relative to `generated/`.
+* An island whose extension a plugin claims (`snapfire_compiler_wire::EXTENSIONS`) but no adapter mounts is `BuildError::NoAdapter`; one whose extension nothing claims is `BuildError::UnknownComponent`. With an import map beside the app, each adapter module the registry imports and the specifiers that adapter imports (`react` and `react-dom/client` for React, `vue` for Vue) must resolve in it or, for a site, in the shell contract's `imports`. A trailing-slash key and a scope both count. Otherwise the build fails with `BuildError::IslandImports`. An app with no import map is not checked.
 * `generated/client.ts` imports `action as call` from `@snapfire/fsr-client`, prints every contract type in client flavour, one `export type <Id>Props` per route from `infer::Inferer::returns` over its loader (`{}` without one) and `export const actions`, nested by the dots of each action id, each `call("<id>") as unknown as (input: <Input>) => Promise<<returns>>`.
 * `tsconfig.json` is `types::tsconfig(app, true, shim)`; `tsconfig.build.json` is `types::tsconfig_build(app, &built.browser_routes)`. Both include `ext/**/*` beside `src/**/*` when the directory is there.
 * `.fsr-bundle/<path>` is the browser copy of every lowered component module with a hoist: the source with `hoist::apply` over it, which snapfirec reads through `--overlay` in place of the original. Not for the editor and not for `fsr test`'s Rust side; the plan carries the same decisions as `Expr::Hoist`.
@@ -368,6 +369,9 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `Contract(ContractError)`, from `Contract::validate`.
 * `UnknownInput { action: String, name: String }`
 * `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)` and `SlotUndeclared { path: PathBuf, file: String, slot: String }`, from the slot and variant rules above.
+* `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
+* `UnknownComponent { module: String }`, an island whose extension no framework claims.
+* `IslandImports { module: String, adapter: String, missing: String }`, the first registered module whose adapter the import map cannot supply, with the specifiers it lacks.
 * `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
 * `Http(String, String)`, the URL and the failure.
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.

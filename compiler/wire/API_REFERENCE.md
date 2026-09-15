@@ -6,6 +6,7 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 
 * [1. The Protocol](#1-the-protocol)
   * [PROTOCOL](#protocol)
+  * [EXTENSIONS](#extensions)
   * [Hello](#hello)
 * [2. Requests](#2-requests)
   * [Request](#request)
@@ -27,6 +28,14 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 
 * `pub const PROTOCOL: u32 = 2`
 * The version both sides speak. A `Hello` naming another is refused by the host.
+
+### EXTENSIONS
+
+* `pub const EXTENSIONS: &[&str] = &["vue", "svelte"]`
+* The extensions a plugin compiles, without dots, one framework each.
+* `claimed(ext: &str) -> Option<&'static str>`: `ext` as a static name when the list holds it.
+* `binary_for(ext: &str) -> String`: `snapfirec-<ext>`, the binary the host looks for on `PATH`.
+* `install_hint(ext: &str) -> String`: `cargo install snapfire_<ext>`, what the host prints when that binary is missing.
 
 ### Hello
 

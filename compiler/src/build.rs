@@ -56,6 +56,8 @@ pub struct Build {
   /// Bare specifiers the emitted modules carry. A browser cannot resolve these on its own, so the
   /// page has to supply an import map covering every one of them.
   pub externals: Vec<String>,
+  /// The sources that carry each external, so a map that cannot resolve one names who asked for it.
+  pub importers: BTreeMap<String, BTreeSet<String>>,
   pub graph: Graph,
   /// Every relative specifier the output carries, paired with the module that
   /// named it. Collected rather than checked in place, because whether a target
@@ -251,6 +253,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     compiler: Compiler::new(targets, jsx, aliases).with_overlay(overlay),
     claimed: HashMap::new(),
     externals: Vec::new(),
+    importers: BTreeMap::new(),
     graph: Graph::default(),
     references: Vec::new(),
     surfaces: HashMap::new(),
@@ -399,6 +402,7 @@ struct Job {
 }
 
 struct JobResult {
+  source: String,
   emit: Emit,
   log: String,
   failure: Option<String>,
@@ -895,6 +899,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
     Ok(output) => output,
     Err(e) => {
       return JobResult {
+        source: display(&job.source, &opts.root),
         emit: job.emit,
         log,
         failure: Some(format!("❌ Error compiling {:?}: {:?}", job.source, e)),
@@ -924,6 +929,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
 
   match write_variant(map_options, &job.dest, &job.asset, output) {
     Ok(()) => JobResult {
+      source: display(&job.source, &opts.root),
       emit: job.emit,
       log,
       failure: None,
@@ -935,6 +941,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       written: true,
     },
     Err(e) => JobResult {
+      source: display(&job.source, &opts.root),
       emit: job.emit,
       log,
       failure: Some(format!("❌ Error writing {}: {}", display(&job.dest, &opts.root), e)),
@@ -951,6 +958,9 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
 fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   println!("{}", result.log);
   referenced.extend(result.referenced);
+  for external in &result.externals {
+    build.importers.entry(external.clone()).or_default().insert(result.source.clone());
+  }
   build.externals.extend(result.externals);
   // A declaration is never fetched by a browser, so it is not a node in the graph a page preloads.
   if result.emit != Emit::Declaration {
@@ -1196,6 +1206,9 @@ fn check_externals(opts: &Options, build: &mut Build, path: &Path) -> Result<()>
 
     if unresolved {
       eprintln!("❌ '{}' is not resolved by {:?}", external, path);
+      if let Some(sources) = build.importers.get(external) {
+        eprintln!("   imported by {}", importers_list(sources));
+      }
       build.has_error = true;
     }
   }
@@ -1205,6 +1218,14 @@ fn check_externals(opts: &Options, build: &mut Build, path: &Path) -> Result<()>
   }
 
   Ok(())
+}
+
+fn importers_list(sources: &BTreeSet<String>) -> String {
+  let named: Vec<String> = sources.iter().take(3).cloned().collect();
+  match sources.len().saturating_sub(named.len()) {
+    0 => named.join(", "),
+    more => format!("{} and {more} more", named.join(", ")),
+  }
 }
 
 /// What this build produced, for a packager rather than for a page.

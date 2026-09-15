@@ -88,4 +88,8 @@ Open a tool, open the network panel and click "Reserve it". One POST answered 30
 
 Take the `bindHtmx(htmx)` call out of `main.ts`, rebuild, click a tool name from the shelves and reserve it. The document reloads: the form the navigator wrote was never processed by htmx, so the browser posted it natively. Put the call back.
 
-Give a page state. Add a `useState` to `routes/page.tsx` and read the report: the page stops being `static`, it appears in the registry with the React mounter and the bundle asks the import map for `react/jsx-runtime`, which this application does not have.
+Give a page state. Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
+
+```text
+`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+```

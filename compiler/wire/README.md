@@ -25,6 +25,7 @@ No features.
 | Ask for a file beside the source | `Outcome::Needs { files }`, answered through `Unit::files` |
 | Say a compile is a warning rather than a stop | `Diagnostic::warning` |
 | Refuse a host speaking another protocol | compare `Hello::protocol` with `PROTOCOL` |
+| Know which extensions go to a plugin and what each binary is called | `EXTENSIONS`, `claimed`, `binary_for`, `install_hint` |
 
 ## Status
 

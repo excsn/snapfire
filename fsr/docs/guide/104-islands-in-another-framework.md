@@ -118,6 +118,12 @@ Take `snapfirec-vue` off `PATH` and build again. The error names the binary, the
 
 Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the file and the line, the other two components compile and the build stops.
 
-Give `routes/page.tsx` a `useState`. Build: the page stops being `static`, it appears in the registry with the React mounter and the bundle asks the import map for `react/jsx-runtime`, which this application does not have. That failure is the whole reason the static rule exists. Take it back out.
+Give `routes/page.tsx` a `useState`. Build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
+
+```text
+`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+```
+
+That failure is the whole reason the static rule exists. Take it back out.
 
 Open the masthead panel in a browser, then click "Cook this tonight" on a recipe. The count moves, the button changes and the panel is still open: the layout re-rendered around its island and the island kept its state.

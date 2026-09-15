@@ -150,7 +150,8 @@ fn test_a_missing_entry_fails_the_build() {
     .arg("empty.json")
     .assert()
     .failure()
-    .stderr(predicate::str::contains("'lit' is not resolved by"));
+    .stderr(predicate::str::contains("'lit' is not resolved by"))
+    .stderr(predicate::str::contains("   imported by \"input/index.ts\""));
 }
 
 #[test]

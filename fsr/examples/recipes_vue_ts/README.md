@@ -78,4 +78,10 @@ Take `snapfirec-vue` off PATH and build. The error names the binary, `cargo inst
 
 Break a component. Put an unclosed tag in `src/ui/Scaler.vue` and build: the plugin's diagnostic comes back with the file and the line, the other two components compile and the build stops.
 
-Give a page state. Add a `useState` to `routes/page.tsx` and read the report: the page stops being `static`, it appears in the registry with the React mounter and the bundle now asks the import map for `react/jsx-runtime`, which this application does not have. That line is the whole reason the static rule exists.
+Give a page state. Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
+
+```text
+`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+```
+
+That line is the whole reason the static rule exists.

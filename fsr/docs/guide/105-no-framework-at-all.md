@@ -189,4 +189,4 @@ Ask for fragments with `curl`, as above. The page fragment starts at `<section` 
 
 Open the shelves in a browser, open the tally panel, click a tool and reserve it. The masthead was never touched and the panel is still open; the count moved because the fragment carried the seed. Then take the `sf:navigate` listener out of `main.ts`, rebuild and do it again: the document reloads on the reserve. Put it back.
 
-Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, appears in the registry with the React mounter and the bundle asks the import map for `react/jsx-runtime`, which this application does not have. The rule from chapter 104 is the same rule here.
+Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. The build stops with the error chapter 104 shows, since this import map has no React either. The rule from chapter 104 is the same rule here.

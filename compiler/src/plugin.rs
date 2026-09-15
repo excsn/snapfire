@@ -17,27 +17,8 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use anyhow::{anyhow, bail, Context, Result};
 use snapfire_compiler_wire::{Hello, Outcome, Request, Response, Unit, PROTOCOL};
 
-/// The extensions snapfirec hands to a plugin, and the binary each asks for.
-/// A name is the convention rather than a lookup: `<ext>` is compiled by
-/// `snapfirec-<ext>`.
-const KNOWN: &[&str] = &["vue", "svelte"];
-
-/// The extension as a static name when a plugin would claim it, which is what
-/// makes such a file a source rather than an asset to copy.
-pub fn claimed(ext: &str) -> Option<&'static str> {
-  KNOWN.iter().find(|known| **known == ext).copied()
-}
-
-/// The binary an extension asks for.
-pub fn binary_for(ext: &str) -> String {
-  format!("snapfirec-{ext}")
-}
-
-/// What a reader types when the binary is not there. A plugin is a crate, the
-/// way every other tool in this project is.
-pub fn install_hint(ext: &str) -> String {
-  format!("cargo install snapfire_{ext}")
-}
+/// A claimed extension makes a file a source rather than an asset to copy.
+pub use snapfire_compiler_wire::{binary_for, claimed, install_hint};
 
 struct Worker {
   child: Child,

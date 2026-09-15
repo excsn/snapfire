@@ -442,7 +442,7 @@ boot();
 enableNavigation();
 ```
 
-The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`; the mounter defaults to `reactMounter` with `reactPatcher` and `reactUnmounter`, all from `@snapfire/fsr-client/react`. `Options` sets them. A `.vue` module is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr-client/vue` whatever the default. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
+The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's extension picks its mounter: a `.vue` module is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr-client/vue` and a module the build lowers with `reactMounter`, `reactPatcher` and `reactUnmounter` from `@snapfire/fsr-client/react`. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
@@ -451,6 +451,12 @@ import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
 export function registerIslands(): void {
   registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
 }
+```
+
+The build refuses a registry the browser could not mount. A `.svelte` island stops it because the client has no Svelte adapter yet. A component whose extension no framework claims stops it too. When the app has an import map, every adapter the registry imports has to resolve in it along with what that adapter imports; a site may lean on the shell's map instead:
+
+```text
+`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
 ```
 
 A `.vue` file a template imports is a component the build does not read: it is placed as an island the server writes empty with its props and refused anywhere but inside `<Island>`. `types/foreign.d.ts` declares `*.vue` for the typechecker, written by the build and by `fsr types` alike. `snapfirec-vue` must be on `PATH` for the bundle, from `cargo install snapfire_vue`.

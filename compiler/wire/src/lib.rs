@@ -14,6 +14,26 @@ use serde::{Deserialize, Serialize};
 /// rather than failing later on a field that moved.
 pub const PROTOCOL: u32 = 2;
 
+/// The extensions a plugin compiles, one framework each. `<ext>` is compiled
+/// by `snapfirec-<ext>`, which `cargo install snapfire_<ext>` puts on PATH.
+pub const EXTENSIONS: &[&str] = &["vue", "svelte"];
+
+/// The extension as a static name when a plugin compiles it.
+pub fn claimed(ext: &str) -> Option<&'static str> {
+  EXTENSIONS.iter().find(|known| **known == ext).copied()
+}
+
+/// The binary an extension asks for.
+pub fn binary_for(ext: &str) -> String {
+  format!("snapfirec-{ext}")
+}
+
+/// What a reader types when the binary is not there. A plugin is a crate, the
+/// way every other tool in this project is.
+pub fn install_hint(ext: &str) -> String {
+  format!("cargo install snapfire_{ext}")
+}
+
 /// The first line a plugin writes, unprompted, once it is ready for work.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hello {

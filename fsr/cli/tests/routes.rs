@@ -9,7 +9,7 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let dir = std::env::temp_dir().join(format!("fsr-cli-routes-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   for (name, source) in files {
     let path = dir.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -31,6 +31,74 @@ fn fails(dir: &Path) -> BuildError {
 fn plan_json(dir: &Path) -> serde_json::Value {
   let built = build(dir, &Options::default()).unwrap();
   serde_json::from_str(&built.manifest.to_json()).unwrap()
+}
+
+const HANDLED: &str = "export default function Page() {\n  async function go(): Promise<void> {}\n  return <button onClick={() => void go()}>go</button>;\n}\n";
+
+fn placing(component: &str) -> String {
+  format!("import {{ Island }} from \"@snapfire/fsr-client/react\";\nimport Chart from \"../src/ui/{component}\";\nexport default function Page() {{\n  return <Island><Chart /></Island>;\n}}\n")
+}
+
+#[test]
+fn a_vue_island_registers_through_the_vue_adapter_without_react_in_the_map() {
+  let page = placing("Chart.vue");
+  let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.vue", "<template><p /></template>\n")]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/vue":"/v","vue":"/v"}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("import { vueMounter, vuePatcher, vueUnmounter } from \"@snapfire/fsr-client/vue\";"), "{islands}");
+  assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "{islands}");
+  assert!(!islands.contains("reactMounter"), "a page with no React island imports no React adapter: {islands}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_island_whose_framework_has_no_client_adapter_is_refused() {
+  let page = placing("Chart.svelte");
+  let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.svelte", "<p>chart</p>\n")]);
+  match fails(&dir) {
+    BuildError::NoAdapter { module, ext } => {
+      assert_eq!(module, "src/ui/Chart.svelte#default");
+      assert_eq!(ext, "svelte");
+    }
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_island_no_framework_claims_is_refused() {
+  let page = placing("Chart.astro");
+  let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.astro", "<p>chart</p>\n")]);
+  match fails(&dir) {
+    BuildError::UnknownComponent { module } => assert_eq!(module, "src/ui/Chart.astro#default"),
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_island_whose_adapter_the_import_map_cannot_supply_is_refused_by_name() {
+  let dir = app(&[("routes/page.tsx", HANDLED)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r"}}"#).unwrap();
+  assert_eq!(fails(&dir).to_string(), "`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react` or `react-dom/client`");
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/":"/fsr/","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  build(&dir, &Options::default()).expect("a trailing-slash key covers the adapter beneath it");
+  std::fs::remove_file(dir.join("importmap.json")).unwrap();
+  build(&dir, &Options::default()).expect("an app with no import map has nothing to check against");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_site_is_checked_against_the_shells_import_map_as_well_as_its_own() {
+  let dir = app(&[("routes/page.tsx", HANDLED)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  let shell = dir.join("shell.json");
+  std::fs::write(&shell, r#"{"version":1,"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  let mut options = Options::default();
+  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: Some(shell) });
+  build(&dir, &options).expect("the shell serves React, so the site need not");
+  std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

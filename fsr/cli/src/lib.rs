@@ -54,6 +54,12 @@ pub enum BuildError {
   ClaimedId { kind: String, id: String, first: String, second: String },
   #[error("`{module}` cannot be an island in server mode: {reason}")]
   ServerIsland { module: String, reason: String },
+  #[error("`{module}` is a .{ext} component, but this fsr has no client adapter that mounts one")]
+  NoAdapter { module: String, ext: String },
+  #[error("`{module}` is not a component this build can mount: no framework claims its extension")]
+  UnknownComponent { module: String },
+  #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}")]
+  IslandImports { module: String, adapter: String, missing: String },
   #[error("the contract does not hold together: {0}")]
   Contract(#[from] ContractError),
   #[error("action `{action}` names input type `{name}`, which no schema under schemas/ declares")]
@@ -246,13 +252,6 @@ pub struct Options {
   pub shell: String,
   /// The slot of the shell a page lands in.
   pub slot: String,
-  /// The module and export the generated island registry mounts pages with.
-  pub mounter_module: String,
-  pub mounter: String,
-  /// The export of the mounter module that re-renders a mounted island with new props.
-  pub patcher: String,
-  /// The export of the mounter module that ends a mounted island whose marker is leaving the document.
-  pub unmounter: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,10 +357,6 @@ impl Default for Options {
       site: None,
       shell: "shell#document".to_owned(),
       slot: "content".to_owned(),
-      mounter_module: "@snapfire/fsr-client/react".to_owned(),
-      mounter: "reactMounter".to_owned(),
-      patcher: "reactPatcher".to_owned(),
-      unmounter: "reactUnmounter".to_owned(),
     }
   }
 }
@@ -803,14 +798,17 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
+  let shell = match options.site.as_ref().and_then(|site| site.shell.as_ref()) {
+    Some(path) => Some((path, ShellContract::read(path)?)),
+    None => None,
+  };
   match &options.site {
     None => {
       let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config)?;
       files.push(("generated/shell.json".to_owned(), serde_json::to_string_pretty(&shell_contract).expect("a shell contract serializes") + "\n"));
     }
-    Some(site) => {
-      if let Some(path) = &site.shell {
-        let shell_contract = ShellContract::read(path)?;
+    Some(_) => {
+      if let Some((path, shell_contract)) = &shell {
         let own: std::collections::BTreeMap<String, String> = std::fs::read_to_string(app.join("importmap.json"))
           .ok()
           .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
@@ -830,12 +828,14 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     Some(project) => native::read(&project.join("src"))?,
     None => native::Natives::default(),
   };
+  let registry = islands_module(&islands, &static_modules, &defines, options)?;
+  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines)?;
   files.extend([
     ("generated/native.d.ts".to_owned(), native::declarations(&natives)),
     ("generated/services.d.ts".to_owned(), declarations),
     ("generated/head.ts".to_owned(), HEAD_HELPERS.to_owned()),
     ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref(), &config)),
-    ("generated/islands.ts".to_owned(), islands_module(&islands, &static_modules, &defines, options)),
+    ("generated/islands.ts".to_owned(), registry),
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some())?),
@@ -1373,14 +1373,34 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<(String, bool)> {
   out
 }
 
-/// The mounter a module is registered with: the framework its file is
-/// written for, so a `.vue` component mounts through Vue and everything else
-/// through the build's default.
-fn mounter_for(module: &str, options: &Options) -> (String, String, String, String) {
+/// A client module that mounts one framework's components: the three exports
+/// the registry names and the bare specifiers the module imports, which the
+/// page's import map has to supply.
+struct Adapter {
+  module: &'static str,
+  mounter: &'static str,
+  patcher: &'static str,
+  unmounter: &'static str,
+  needs: &'static [&'static str],
+}
+
+const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", needs: &["react", "react-dom/client"] };
+
+const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", needs: &["vue"] };
+
+/// The adapter a module is registered with. A source the lowerer reads is
+/// React's; a foreign one belongs to the framework whose plugin claims its
+/// extension, when the client has an adapter for that framework.
+fn adapter_for(module: &str) -> Result<&'static Adapter, BuildError> {
   let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
-  match Path::new(file).extension().and_then(|e| e.to_str()) {
-    Some("vue") => ("vueMounter".to_owned(), "vuePatcher".to_owned(), "vueUnmounter".to_owned(), "@snapfire/fsr-client/vue".to_owned()),
-    _ => (options.mounter.clone(), options.patcher.clone(), options.unmounter.clone(), options.mounter_module.clone()),
+  if !snapfire_fsr_lower::component::is_foreign(file) {
+    return Ok(&REACT);
+  }
+  let ext = Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+  match snapfire_compiler_wire::claimed(&ext) {
+    Some("vue") => Ok(&VUE),
+    Some(ext) => Err(BuildError::NoAdapter { module: module.to_owned(), ext: ext.to_owned() }),
+    None => Err(BuildError::UnknownComponent { module: module.to_owned() }),
   }
 }
 
@@ -1389,7 +1409,7 @@ fn mounter_for(module: &str, options: &Options) -> (String, String, String, Stri
 /// mounts exactly what the plan file refers to. A module nothing mounts is
 /// left out and a mounter nothing registers is never imported, which is what
 /// keeps a framework off a page that has no component of it.
-fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], options: &Options) -> String {
+fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], options: &Options) -> Result<String, BuildError> {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   let registered: Vec<&String> = islands.iter().filter(|m| !static_modules.contains(m)).collect();
   let defining = registered.iter().any(|m| defines.contains(m));
@@ -1401,15 +1421,15 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       let _ = writeln!(out, "import {{ registerIsland }} from \"@snapfire/fsr-client\";");
     }
   }
-  let mut imported: Vec<(String, String, String, String)> = Vec::new();
+  let mut imported: Vec<&'static Adapter> = Vec::new();
   for module in registered.iter().filter(|m| !defines.contains(**m)) {
-    let mounter = mounter_for(module, options);
-    if !imported.contains(&mounter) {
-      imported.push(mounter);
+    let adapter = adapter_for(module)?;
+    if !imported.iter().any(|seen| seen.module == adapter.module) {
+      imported.push(adapter);
     }
   }
-  for (mounter, patcher, unmounter, from) in &imported {
-    let _ = writeln!(out, "import {{ {mounter}, {patcher}, {unmounter} }} from \"{from}\";");
+  for adapter in &imported {
+    let _ = writeln!(out, "import {{ {}, {}, {} }} from \"{}\";", adapter.mounter, adapter.patcher, adapter.unmounter, adapter.module);
   }
   out.push_str("\nexport function registerIslands(): void {\n");
   let prefix = options.prefix();
@@ -1426,11 +1446,42 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\"), mount: defineMounter }});");
       continue;
     }
-    let (mounter, patcher, unmounter, _) = mounter_for(module, options);
-    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {mounter}, patch: {patcher}, unmount: {unmounter} }});");
+    let adapter = adapter_for(module)?;
+    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
   out.push_str("}\n");
-  out
+  Ok(out)
+}
+
+/// Refuses a registry the page's import map cannot supply: each adapter the
+/// registry imports and the specifiers that adapter imports, looked up in the
+/// app's map and, for a site, the shell's. An app with no readable map has
+/// nothing to check against.
+fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String]) -> Result<(), BuildError> {
+  let Some(map) = std::fs::read_to_string(app.join(&layout.importmap)).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok()) else {
+    return Ok(());
+  };
+  let scopes = map.get("scopes").and_then(|scopes| scopes.as_object()).into_iter().flat_map(|scopes| scopes.values());
+  let mut served: Vec<String> = map.get("imports").into_iter().chain(scopes).filter_map(|table| table.as_object()).flat_map(|table| table.keys().cloned()).collect();
+  served.extend(shell.into_iter().flat_map(|contract| contract.imports.keys().cloned()));
+  let resolves = |specifier: &str| served.iter().any(|key| key == specifier || (key.ends_with('/') && specifier.starts_with(key.as_str())));
+  let mut checked: Vec<&str> = Vec::new();
+  for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
+    let adapter = adapter_for(module)?;
+    if checked.contains(&adapter.module) {
+      continue;
+    }
+    checked.push(adapter.module);
+    let missing: Vec<String> = std::iter::once(adapter.module).chain(adapter.needs.iter().copied()).filter(|specifier| !resolves(specifier)).map(|specifier| format!("`{specifier}`")).collect();
+    if let Some((last, rest)) = missing.split_last() {
+      let missing = match rest.is_empty() {
+        true => last.clone(),
+        false => format!("{} or {last}", rest.join(", ")),
+      };
+      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing });
+    }
+  }
+  Ok(())
 }
 
 pub(crate) fn sorted_files(dir: &Path, suffix: &str) -> Result<Vec<PathBuf>, BuildError> {
