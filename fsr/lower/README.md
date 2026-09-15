@@ -10,7 +10,7 @@ The recogniser for SnapFire FSR. It reads a TypeScript loader or actions module 
 
 ```toml
 [dependencies]
-snapfire_fsr_lower = "0.5"
+snapfire_fsr_lower = "0.10"
 ```
 
 It depends on `snapfire_fsr_ir` for the tree it produces, on `snapfire_fsr_service` for the contract types a schema becomes and on `swc_core` with `common`, `ecma_ast` and `ecma_parser` for parsing.

@@ -625,7 +625,7 @@ The compact sidecar encoding, keys in this order: `k` the segment key, then `s` 
 
 ### `FailureKind`
 
-The failure shapes a UI has to render, shared by actions and services so no application re-invents the mapping. `Debug + Clone + Copy + PartialEq + Eq`.
+The failure shapes a UI has to render, shared by actions and services so no application re-invents the mapping. `Debug + Clone + Copy + PartialEq + Eq`. Defined in `snapfire_fsr_core::ext` and re-exported here.
 
 | Variant | `as_str()` | `http_status()` |
 | :--- | :--- | :--- |

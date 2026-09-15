@@ -35,6 +35,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 - **`snapfire_fsr_ir::Interpreter`**, runs a body against a `RequestCtx`; `evaluate` and `apply` for one expression or one lambda with no request.
 - **`IrSource`** and **`IrAction`**, a lowered body as a `DataSource` or an `ActionHandler`.
 - **`snapfire_fsr_runtime::DataSource`** and **`ActionHandler`**, the traits a Rust body implements to answer a name.
+- **`snapfire_fsr_core::ext`**, what the Rust half of a native pair is written against: `Reach`, `Ambient`, `Fail` and the helpers that read its arguments. `HostBuilder::extension` registers one; the host re-exports the module.
 
 ## I want to render
 
@@ -69,8 +70,8 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 ## I want the browser to do its part
 
-- **`@snapfire/fsr-client`**: `boot` and `registerIsland` to mount islands, hydrating over server markup; `enableNavigation`, `navigate` and `refresh` for segment-preserving navigation; `action` and `ActionFailure` for calling actions by id; `parsePayload` and `renderSegment` for the wire form.
-- **`@snapfire/fsr-client/react`**, the React mounter.
+- **`@snapfire/fsr-client`**: `boot` and `registerIsland` to mount islands, hydrating over server markup; `discard` to end the islands in a subtree before it is removed; `enableNavigation`, `navigate` and `refresh` for segment-preserving navigation; `action` and `ActionFailure` for calling actions by id; `parsePayload` and `renderSegment` for the wire form.
+- **`@snapfire/fsr-client/react`**, the React mounter, patcher and unmounter.
 - **`@snapfire/fsr-authoring`**, `Ctx`, `ActionCtx`, `action` and `fail`, the types a body is written against, projected per application into `generated/fsr.ts`.
 
 ## I want to test

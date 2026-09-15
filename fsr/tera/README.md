@@ -10,9 +10,9 @@ The Tera evaluator for SnapFire FSR. It implements `snapfire_fsr_runtime::Evalua
 
 ```toml
 [dependencies]
-snapfire_fsr_tera = "0.5"
-snapfire_fsr_runtime = "0.5"
-snapfire_fsr_core = "0.5"
+snapfire_fsr_tera = "0.7"
+snapfire_fsr_runtime = "0.7"
+snapfire_fsr_core = "0.6"
 tera = { version = "2", features = ["fast"] }
 ```
 

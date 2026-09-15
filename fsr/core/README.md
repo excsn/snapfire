@@ -12,7 +12,7 @@ The value model decides what can exist. Encodings are projections of it, ranked 
 
 ```toml
 [dependencies]
-snapfire_fsr_core = "0.5"
+snapfire_fsr_core = "0.6"
 ```
 
 | Dependency | Why |

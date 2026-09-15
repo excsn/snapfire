@@ -10,7 +10,7 @@ The binding rule of SnapFire FSR. A plan file names routes, data sources, action
 
 ```toml
 [dependencies]
-snapfire_fsr = "0.5"
+snapfire_fsr = "0.9"
 ```
 
 It depends on `snapfire_fsr_plan` to read the file, `snapfire_fsr_ir` to bind lowered rows, `snapfire_fsr_runtime` for the blocks it assembles and `snapfire_fsr_service` for the contract an action's input is checked against.

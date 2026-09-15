@@ -73,16 +73,20 @@ One module registers every island, boots them and takes over navigation:
 
 ```ts
 import { boot, enableNavigation, registerIsland } from "@snapfire/fsr-client";
-import { reactMounter } from "@snapfire/fsr-client/react";
+import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr-client/react";
 
 registerIsland("components/ServerChart.tsx#default", {
   loader: () => import("./ServerChart.js").then((m) => m.default),
   mount: reactMounter,
+  patch: reactPatcher,
+  unmount: reactUnmounter,
 });
 
 registerIsland("components/LatencyChart.tsx#default", {
   loader: () => import("./LatencyChart.js").then((m) => m.default),
   mount: reactMounter,
+  patch: reactPatcher,
+  unmount: reactUnmounter,
   when: "visible",
 });
 
@@ -318,16 +322,17 @@ The `/vue` entry is the second mounter the package ships. Register a `.vue` modu
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
-import { vueMounter, vuePatcher } from "@snapfire/fsr-client/vue";
+import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
 
 registerIsland("src/ui/Tonight.vue#default", {
   loader: () => import("../src/ui/Tonight.vue").then((m) => m.default),
   mount: vueMounter,
   patch: vuePatcher,
+  unmount: vueUnmounter,
 });
 ```
 
-`fsr build` writes exactly that registration for every `.vue` island a template places, so an application never writes it by hand. The mounter holds the island's props in a reactive object and renders the component through a one-element wrapper, which is what lets `vuePatcher` hand a mounted island new props in place rather than tearing it down. The runtime's own keys on the props, the hoisted table and the region key, never reach the component.
+`fsr build` writes exactly that registration for every `.vue` island a template places, so an application never writes it by hand. The mounter holds the island's props in a reactive object and renders the component through a one-element wrapper, which is what lets `vuePatcher` hand a mounted island new props in place rather than tearing it down. `vueUnmounter` unmounts the app when a navigation takes the marker out of the document. The runtime's own keys on the props, the hoisted table and the region key, never reach the component.
 
 Inside the component the store is a ref:
 

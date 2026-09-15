@@ -11,8 +11,8 @@ A placement carries a module id and nothing else. The server writes `<sf-i data-
 That makes mixing a property of the registry rather than a feature:
 
 ```ts
-registerIsland("js/src/ui/Watch.tsx#default", { loader: () => import("./ui/Watch.js").then((m) => m.default), mount: reactMounter, patch: reactPatcher });
-registerIsland("js/src/ui/Holdings.vue#default", { loader: () => import("./ui/Holdings.vue"), mount: vueMounter, patch: vuePatcher });
+registerIsland("js/src/ui/Watch.tsx#default", { loader: () => import("./ui/Watch.js").then((m) => m.default), mount: reactMounter, patch: reactPatcher, unmount: reactUnmounter });
+registerIsland("js/src/ui/Holdings.vue#default", { loader: () => import("./ui/Holdings.vue"), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
 ```
 
 The [`uni`](../../examples/uni/README.md) example is a page doing exactly that: a Tera layout with a React island in its masthead, a Vue island on the board beneath it and an htmx region beside them, all from one payload.

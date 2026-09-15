@@ -76,10 +76,10 @@ What comes back is a module and a stylesheet: `dist/src/ui/Tonight.js`, whose im
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
-import { vueMounter, vuePatcher } from "@snapfire/fsr-client/vue";
+import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
 
 export function registerIslands(): void {
-  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher });
+  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
 }
 ```
 

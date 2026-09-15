@@ -10,10 +10,10 @@ Auth for SnapFire FSR: the front door of the session layer, covering how an anon
 
 ```toml
 [dependencies]
-snapfire_fsr_auth = "0.5"
-snapfire_fsr_core = "0.5"
-snapfire_fsr_runtime = "0.5"
-snapfire_fsr_session = "0.5"
+snapfire_fsr_auth = "0.7"
+snapfire_fsr_core = "0.6"
+snapfire_fsr_runtime = "0.7"
+snapfire_fsr_session = "0.7"
 ```
 
 `snapfire_fsr_session` is not optional: `Auth` takes an `Opened` session on every call.

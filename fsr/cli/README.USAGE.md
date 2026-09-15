@@ -442,14 +442,14 @@ boot();
 enableNavigation();
 ```
 
-The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`; the mounter defaults to `reactMounter` from `@snapfire/fsr-client/react` and is set with `Options`. A `.vue` module is registered with `vueMounter` from `@snapfire/fsr-client/vue` whatever the default. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
+The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`; the mounter defaults to `reactMounter` with `reactPatcher` and `reactUnmounter`, all from `@snapfire/fsr-client/react`. `Options` sets them. A `.vue` module is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr-client/vue` whatever the default. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
-import { vueMounter, vuePatcher } from "@snapfire/fsr-client/vue";
+import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
 
 export function registerIslands(): void {
-  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher });
+  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
 }
 ```
 

@@ -10,7 +10,7 @@ The session layer for SnapFire FSR: it opens a request's session from the `Cooki
 
 ```toml
 [dependencies]
-snapfire_fsr_session = "0.5"
+snapfire_fsr_session = "0.7"
 ```
 
 It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `SessionCell` and `Identity`; it brings in `fibre_cache` for the in-process store, `hmac` and `sha2` for cookie signing, `rand` for id generation and `parking_lot` for the token cell's lock.

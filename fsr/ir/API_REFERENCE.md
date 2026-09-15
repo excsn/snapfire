@@ -214,15 +214,19 @@ The registry an `Expr::Ext` is answered from, by `module.member`. `Clone`, `Defa
 * `get(&self, name: &str) -> Option<&Extension>`; `Extension { reach: Reach, .. }` with `call(&self, &Ambient, &[Value]) -> Result<Value, Fail>`.
 * `contains(&self, name: &str) -> bool`; `names(&self) -> Vec<String>`, sorted.
 * `call(&self, name: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail>`: `Internal` naming the name when nothing holds it.
-* `ext::number`, `ext::text`, `ext::text_opt` and `ext::option` read an argument by index for an implementation: a number (`Int`, `UInt`, `F32` or `F64` as `f64`), a string, an optional string and a field of an optional options object, each `Internal` naming the extension on a wrong type.
+* `ext::number`, `ext::text`, `ext::text_opt` and `ext::option` read an argument by index for an implementation: a number (`Int`, `UInt`, `F32` or `F64` as `f64`), a string, an optional string and a field of an optional options object, each `Internal` naming the extension on a wrong type. They are `snapfire_fsr_core::ext`'s, re-exported here.
 
 ### Reach
+
+Re-exported from `snapfire_fsr_core::ext`. `STANDARD` and `standard_reach` are this crate's.
 
 * `pub enum Reach { Render, Body }`, `Copy`, `Eq`; `as_str` is `render` or `body`.
 * `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path.
 * `pub const STANDARD: &[(&str, &str, Reach)]`: module, member and reach of every standard member; `standard_reach(module, name) -> Option<Reach>` looks one up. The registry `Extensions::standard` builds and the lowerer's checks are both taken from it.
 
 ### Ambient
+
+Re-exported from `snapfire_fsr_core::ext`.
 
 * `pub struct Ambient { pub locale: String, pub now: i128, pub catalogs: Option<Arc<Catalogs>> }`, `Default`: what a call runs under, the request's locale as the application spells it, empty when none is set, the clock and the message catalogs the interpreter carries.
 * `bcp47(&self) -> String`: `fr-FR` for `fr_FR`, `en` when empty. The browser half converts the same way.
@@ -254,7 +258,7 @@ The locale is `Ambient::bcp47`; a tag ICU4X cannot parse falls back to `en`. `fs
 
 ### Catalogs
 
-Message tables by locale, `catalog::Catalogs`, `Clone`, `Default`, `Eq`. `pub type Table = BTreeMap<String, String>`.
+Message tables by locale, `catalog::Catalogs`, re-exported from `snapfire_fsr_core::ext` with `Table`. `Clone`, `Default`, `Eq`. `pub type Table = BTreeMap<String, String>`.
 
 * `Catalogs::from_tables(default: impl Into<String>, tables: BTreeMap<String, Table>) -> Catalogs`: holds every locale's table merged over the default locale's, so a key a locale lacks reads as the default's and each merged table as JSON.
 * `is_empty(&self) -> bool`; `default_tag(&self) -> &str`; `rows(&self) -> Vec<(String, usize)>`: each locale with how many keys its own table held.
@@ -343,8 +347,10 @@ A body answering an action id. Implements `snapfire_fsr_runtime::ActionHandler`.
 
 ### Fail
 
+Re-exported from `snapfire_fsr_core::ext`, with `FailureKind`.
+
 * `pub struct Fail { pub kind: FailureKind, pub message: String }`; derives `Debug`, `Clone`, `PartialEq`, implements `std::error::Error` and `Display` as `{kind}: {message}`.
-* `Fail::new(kind: FailureKind, message: impl Into<String>) -> Fail`
+* `Fail::new(kind: FailureKind, message: impl Into<String>) -> Fail`; `Fail::internal(message: impl Into<String>) -> Fail`, kind `Internal`.
 * A guard yields its named kind. A service error keeps its kind. `Num` and `BigInt` of unparseable input are `Invalid`. Type mismatches, unbound names, overflow and structural misuse are `Internal`.
 
 ### ParseError

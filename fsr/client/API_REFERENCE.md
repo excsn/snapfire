@@ -977,13 +977,13 @@ The request an action runs under when a rendered page calls it or a route loads.
 * `renderHook(hook, options?: { initialProps?; ctx?; wrapper? }): Promise<{ result: { current: Result }; rerender(props?): Promise<void>; unmount(): void }>`
 * `act(body: () => T | Promise<T>): Promise<T>`; `cleanup(): void`
 
-`render` of a page the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. Every query comes bound to the container. `act` runs its body and settles. `cleanup` empties the body, which the runner also does after every test.
+`render` of a page the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
 
 ### load
 
 * `load(path: string, options?: { ctx?: TestCtx }): Promise<{ status: number; path: string }>`
 
-Fetches the document the stock host renders for `path`, following up to five redirects, installs it, mounts its islands and enables navigation. Throws when the response is not a document.
+Fetches the document the stock host renders for `path`, following up to five redirects, ends the islands of the page showing until now, installs the new document, mounts its islands and enables navigation. Throws when the response is not a document.
 
 ### Queries
 
