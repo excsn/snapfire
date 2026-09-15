@@ -2,6 +2,7 @@
 class LoanPlanner extends HTMLElement {
   static formAssociated = true;
   #internals = this.attachInternals();
+  #stop: (() => void) | null = null;
 
   connectedCallback(): void {
     const root = this.shadowRoot ?? this.#attach();
@@ -19,6 +20,12 @@ class LoanPlanner extends HTMLElement {
     };
     range.addEventListener("input", show);
     show();
+    this.#stop = () => range.removeEventListener("input", show);
+  }
+
+  disconnectedCallback(): void {
+    this.#stop?.();
+    this.#stop = null;
   }
 
   #attach(): ShadowRoot | null {

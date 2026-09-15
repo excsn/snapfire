@@ -1,4 +1,4 @@
-import { subscribe } from "@snapfire/fsr-client/store";
+import { get, subscribe } from "@snapfire/fsr-client/store";
 
 import { reservedCount } from "../store.js";
 
@@ -9,14 +9,21 @@ class ShedTally extends HTMLElement {
   connectedCallback(): void {
     const button = this.querySelector<HTMLButtonElement>("button.tally");
     const panel = this.querySelector<HTMLElement>(".tally-panel");
-    if (!button || !panel || this.#stop) return;
-    button.addEventListener("click", () => {
+    if (!button || !panel) return;
+    const toggle = () => {
       panel.hidden = !panel.hidden;
       button.setAttribute("aria-expanded", String(!panel.hidden));
-    });
-    this.#stop = subscribe(reservedCount, (count) => {
+    };
+    const show = (count: unknown) => {
       if (typeof count === "number") button.textContent = `${count} reserved`;
-    });
+    };
+    button.addEventListener("click", toggle);
+    show(get(reservedCount));
+    const unsubscribe = subscribe(reservedCount, show);
+    this.#stop = () => {
+      button.removeEventListener("click", toggle);
+      unsubscribe();
+    };
   }
 
   disconnectedCallback(): void {

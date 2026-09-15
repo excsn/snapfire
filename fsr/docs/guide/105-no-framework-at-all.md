@@ -30,27 +30,43 @@ The lowerer takes a hyphenated tag as an element and its attributes as attribute
 The element's module wires what the server wrote:
 
 ```ts
-import { subscribe } from "@snapfire/fsr-client/store";
+import { get, subscribe } from "@snapfire/fsr-client/store";
 import { reservedCount } from "../store.js";
 
 class ShedTally extends HTMLElement {
+  #stop: (() => void) | null = null;
+
   connectedCallback(): void {
     const button = this.querySelector<HTMLButtonElement>("button.tally");
     const panel = this.querySelector<HTMLElement>(".tally-panel");
     if (!button || !panel) return;
-    button.addEventListener("click", () => {
+    const toggle = () => {
       panel.hidden = !panel.hidden;
-    });
-    subscribe(reservedCount, (count) => {
+    };
+    const show = (count: unknown) => {
       if (typeof count === "number") button.textContent = `${count} reserved`;
-    });
+    };
+    button.addEventListener("click", toggle);
+    show(get(reservedCount));
+    const unsubscribe = subscribe(reservedCount, show);
+    this.#stop = () => {
+      button.removeEventListener("click", toggle);
+      unsubscribe();
+    };
+  }
+
+  disconnectedCallback(): void {
+    this.#stop?.();
+    this.#stop = null;
   }
 }
 
 customElements.define("shed-tally", ShedTally);
 ```
 
-`subscribe` is the whole store adapter. React reads the store through a hook and Vue through a ref, because each framework has its own idea of a reactive value; an element has none, so it takes the callback. The layout's loader seeds the key with `export const store`, exactly as it would for a React island; the count follows the store from then on.
+`get` and `subscribe` are the whole store adapter. React reads the store through a hook and Vue through a ref, because each framework has its own idea of a reactive value; an element has none, so it reads the value once and takes a callback for the changes. The `get` comes first because `subscribe` only hears what changes after it: the server wrote this count into the button, but a property or anything else the server did not write would stay empty until the key next moved. The layout's loader seeds the key with `export const store`, exactly as it would for a React island; the count follows the store from then on.
+
+`disconnectedCallback` removes the listener and the subscription that `connectedCallback` added. A morph that moves an element disconnects it and connects it again, so without the stop a moved tally would carry two click listeners that cancel each other out; a removed one would stay subscribed and keep being written.
 
 ## A shadow root the server writes
 
