@@ -10,7 +10,7 @@ The plan file for SnapFire FSR: `generated/plan.sexp`, the artifact `fsr build` 
 
 ```toml
 [dependencies]
-snapfire_fsr_plan = "0.9"
+snapfire_fsr_plan = "0"
 ```
 
 It depends on `snapfire_fsr_core` for the vocabulary types, `snapfire_fsr_ir` for the lowered bodies and `serde_json` with `preserve_order`, so a file reads back in the order it was written.

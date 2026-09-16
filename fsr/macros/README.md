@@ -12,7 +12,7 @@ The attribute writes the dispatcher and emits the block unchanged, so the method
 
 ```toml
 [dependencies]
-snapfire_fsr_macros = "0.5"
+snapfire_fsr_macros = "0"
 ```
 
 ## Use

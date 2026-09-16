@@ -10,7 +10,7 @@ The lowered form of a loader or action body for SnapFire FSR plus the interprete
 
 ```toml
 [dependencies]
-snapfire_fsr_ir = "0.10"
+snapfire_fsr_ir = "0"
 ```
 
 It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `RequestCtx`, `ServiceHandle`, `SessionCell`, `FailureKind` and the `DataSource` and `ActionHandler` traits; it brings in `serde` and `serde_json` for the JSON form and `futures-util` for the parallel issue of independent calls.

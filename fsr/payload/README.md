@@ -10,7 +10,7 @@ The encoding layer of SnapFire FSR. It turns the `Value` and `Node` vocabulary o
 
 ```toml
 [dependencies]
-snapfire_fsr_payload = "0.6"
+snapfire_fsr_payload = "0"
 ```
 
 `serde_json` is pulled in with `preserve_order`, so the key order of a `ValueMap` survives encoding. `base64` carries the standard alphabet used for bytes and typed arrays.

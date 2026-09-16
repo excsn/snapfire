@@ -12,7 +12,7 @@ Upgrading from 0.4? SnapFire 0.5 moves to Tera 2, which changes both the Rust AP
 
 ```toml
 [dependencies]
-snapfire = "0.5"
+snapfire = "0"
 actix-web = "4"
 tera = "2"
 ```

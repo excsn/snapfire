@@ -14,7 +14,7 @@ That puts `snapfirec-vue` on `PATH`, which is all `snapfirec` needs. As a librar
 
 ```toml
 [dependencies]
-snapfire_vue = "0.1"
+snapfire_vue = "0"
 ```
 
 No features.

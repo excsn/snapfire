@@ -8,7 +8,7 @@ Upstream guide: <https://github.com/Keats/tera/blob/master/MIGRATION.md>
 
 ```toml
 [dependencies]
-snapfire = "0.5"
+snapfire = "0"
 tera = "2"
 ```
 

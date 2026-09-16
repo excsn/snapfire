@@ -23,8 +23,8 @@ Data resolves before rendering starts and deferral is declared in the plan rathe
 
 ```toml
 [dependencies]
-snapfire_fsr_runtime = "0.7"
-snapfire_fsr_core = "0.6"
+snapfire_fsr_runtime = "0"
+snapfire_fsr_core = "0"
 ```
 
 | Dependency it pulls in | Why |

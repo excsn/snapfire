@@ -10,7 +10,7 @@ Where a mounted site's artifact comes from. The stock host knows how to mount a 
 
 ```toml
 [dependencies]
-snapfire_fsr_sites = "0.10"
+snapfire_fsr_sites = "0"
 ```
 
 ## What to reach for

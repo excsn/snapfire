@@ -12,7 +12,7 @@ Nothing here runs at request time. A page renders in Rust through the IR, so the
 
 ```toml
 [dependencies]
-snapfire_fsr_engine = "0.5"
+snapfire_fsr_engine = "0"
 ```
 
 It builds QuickJS through `rquickjs`, so a build takes longer than the rest of the workspace and the binary is larger. That is the reason it is a crate of its own rather than a feature of the runner: nothing that only serves has to compile it.

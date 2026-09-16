@@ -10,7 +10,7 @@ The stock host for SnapFire FSR. It reads `config/` through c5store, so files la
 
 ```toml
 [dependencies]
-snapfire_fsr_host = "0.11"
+snapfire_fsr_host = "0"
 ```
 
 | Feature | Adds |

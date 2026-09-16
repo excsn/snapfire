@@ -12,7 +12,7 @@ The contract is a neutral data artifact speaking the FSR value model. Neither Ru
 
 ```toml
 [dependencies]
-snapfire_fsr_service = "0.7"
+snapfire_fsr_service = "0"
 ```
 
 One cargo feature, `grpc`, adds `import_proto` and `GrpcTransport` with protox, prost-reflect and tonic behind them; everything else is always compiled. The crate depends on `snapfire_fsr_core` for the value model, `snapfire_fsr_payload` for the JSON pair, `snapfire_fsr_runtime` for the `ServiceHandle` seam it fills and `snapfire_fsr_session` for `TokenCell`.

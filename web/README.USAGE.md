@@ -44,7 +44,7 @@ This guide covers building a `TeraWeb` application state, rendering Tera 2 templ
 ```toml
 # Cargo.toml
 [dependencies]
-snapfire = "0.5"
+snapfire = "0"
 actix-web = "4"
 tera = "2"
 env_logger = "0.11"

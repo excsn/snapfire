@@ -3683,7 +3683,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "snapfire"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "actix-files",
  "actix-http",
@@ -3708,7 +3708,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_compiler"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3741,7 +3741,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_compiler_wire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

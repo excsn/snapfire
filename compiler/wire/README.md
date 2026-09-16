@@ -8,7 +8,7 @@ The wire contract between `snapfirec` and a framework compiler plugin: the types
 
 ```toml
 [dependencies]
-snapfire_compiler_wire = "0.1"
+snapfire_compiler_wire = "0"
 ```
 
 No features.
