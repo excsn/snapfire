@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use snapfire_fsr_cli::{bundle, BuildError};
+use snapfire_fsr_host::config::Config;
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -109,6 +110,41 @@ fn a_static_root_outside_the_project_is_written_inside_the_output() {
   // application directory the tree carries.
   let layer = std::fs::read_to_string(out.join("config/bundle.toml")).unwrap();
   assert!(layer.contains(r#"dir = "../serve/static/js""#), "{layer}");
+}
+
+/// The seam between the two halves, which each half's own tests leave out: a
+/// tree the host cannot load is a boot panic on a deployment, so the bundle is
+/// read back through the host's own loader rather than as text.
+///
+/// `fsr bundle` moves `app/icons/` under `serve/`, so the icon links are
+/// inferred from the root serving them rather than from a directory the tree
+/// no longer has. Nothing about them is written into the configuration.
+#[test]
+fn the_host_loads_the_configuration_the_bundle_wrote() {
+  let dir = app("[server]\nhosts = [\"example.com\"]\n[document]\ntitle = \"t\"\norigin = \"https://example.com\"\n");
+  std::fs::create_dir_all(dir.join("app/icons")).unwrap();
+  std::fs::write(dir.join("app/icons/favicon.ico"), [0u8; 4]).unwrap();
+
+  let project = Config::load(&dir).expect("the host loads the project");
+  assert!(
+    project.document.head.iter().any(|row| row.get("href").is_some_and(|h| h == "/static/icons/favicon.ico")),
+    "the project inferred no icon: {:?}",
+    project.document.head
+  );
+
+  let out = dir.join("dist");
+  bundle::run(&dir, &out).expect("bundles");
+  assert!(out.join("serve/static/icons/favicon.ico").is_file(), "the icon did not move");
+
+  let layer = std::fs::read_to_string(out.join("config/bundle.toml")).unwrap();
+  assert!(!layer.contains("document.head"), "an inferred value was written into the tree: {layer}");
+
+  let bundled = Config::load(&out).expect("the host loads the tree it was handed");
+  assert_eq!(bundled.document.title, "t");
+  assert_eq!(
+    bundled.document.head, project.document.head,
+    "the tree's document differs from the project's"
+  );
 }
 
 fn walk(dir: &std::path::Path) -> Vec<PathBuf> {

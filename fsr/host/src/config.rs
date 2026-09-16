@@ -284,8 +284,8 @@ pub struct DocumentConfig {
   #[serde(default)]
   pub styles: Option<Vec<String>>,
   /// Head elements every document carries, which a segment's `meta`
-  /// overrides one identity at a time: what the host inferred from `icons/`.
-  /// Not a configuration key; the root layout's `meta` is where an
+  /// overrides one identity at a time: what the host inferred from the icons
+  /// it serves. Not a configuration key; the root layout's `meta` is where an
   /// application writes its own.
   #[serde(skip)]
   pub head: Vec<BTreeMap<String, String>>,
@@ -1125,7 +1125,16 @@ impl Config {
       Some(site) => site.under("/static/icons"),
       None => "/static/icons".to_owned(),
     };
-    if app.join("icons").is_dir() {
+    // `fsr bundle` moves `icons/` under `serve/`, so the directory answering
+    // this route is the tree's rather than the project's. Whichever root
+    // serves it is where the files are; the href is the route either way.
+    let icons_dir = statics
+      .iter()
+      .find(|s| s.route == icons_route)
+      .map(|s| app.join(&s.dir))
+      .filter(|dir| dir.is_dir())
+      .or_else(|| app.join("icons").is_dir().then(|| app.join("icons")));
+    if let Some(icons_dir) = icons_dir {
       if !statics.iter().any(|s| s.route == icons_route) {
         statics.push(StaticRoot {
           route: icons_route.clone(),
@@ -1133,7 +1142,7 @@ impl Config {
         });
         inferred.push(format!("static {icons_route} from icons/"));
       }
-      let held = |name: &str| app.join("icons").join(name).is_file();
+      let held = |name: &str| icons_dir.join(name).is_file();
       let mut linked = Vec::new();
       for (file, mut attrs) in [
         ("favicon.svg", vec![("rel", "icon"), ("type", "image/svg+xml")]),
@@ -1164,7 +1173,7 @@ impl Config {
         linked.push(file);
       }
       if !linked.is_empty() {
-        inferred.push(format!("document.head links [{}] from icons/", linked.join(", ")));
+        inferred.push(format!("document.head links [{}] from {icons_route}", linked.join(", ")));
       }
     }
     if app.join("styles").is_dir() {

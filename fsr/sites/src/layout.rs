@@ -249,7 +249,6 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   }
   layer.entry = config.document.entry.clone();
   layer.styles = config.document.styles.clone();
-  layer.head = config.document.head.clone();
 
   // `build_facts` and the leak check read this by name. It also ships inside
   // whichever static root `dist/` serves and both copies are wanted: one
@@ -347,7 +346,6 @@ struct Layer {
   import_map: Option<String>,
   entry: Option<String>,
   styles: Option<Vec<String>>,
-  head: Vec<BTreeMap<String, String>>,
   /// Client name to its document and its recorded responses when it mocks.
   clients: BTreeMap<String, (String, Option<String>)>,
   /// Route and the directory serving it, relative to the application.
@@ -376,18 +374,6 @@ impl Layer {
       document.push((
         "styles",
         Value::Array(styles.iter().map(|s| text(s)).collect()),
-      ));
-    }
-    if !self.head.is_empty() {
-      document.push((
-        "head",
-        Value::Array(
-          self
-            .head
-            .iter()
-            .map(|el| Value::Table(el.iter().map(|(k, v)| (k.clone(), text(v))).collect()))
-            .collect(),
-        ),
       ));
     }
 
