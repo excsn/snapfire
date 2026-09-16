@@ -60,7 +60,7 @@ pub struct DevOptions {
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: "/static/js/app".to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() } }
+    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() } }
   }
 }
 
@@ -69,10 +69,7 @@ impl DevOptions {
   /// it: a site's bundle is served under its prefix.
   pub fn beside(app: &Path) -> Self {
     let build = Options::beside(app);
-    let public_path = match &build.site {
-      Some(site) => format!("{}/static/js/app", site.at.trim_end_matches('/')),
-      None => "/static/js/app".to_owned(),
-    };
+    let public_path = crate::bundle_base(build.site.as_ref());
     Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app) }
   }
 }

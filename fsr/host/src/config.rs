@@ -1110,12 +1110,16 @@ impl Config {
       document.import_map = Some("importmap.json".to_owned());
       inferred.push("document.import_map from importmap.json".to_owned());
     }
-    if app.join("vendor").is_dir() && !statics.iter().any(|s| s.route == "/static/js/vendor") {
+    let vendor_route = match &site {
+      Some(site) => site.under("/static/js/vendor"),
+      None => "/static/js/vendor".to_owned(),
+    };
+    if app.join("vendor").is_dir() && !statics.iter().any(|s| s.route == vendor_route) {
       statics.push(StaticRoot {
-        route: "/static/js/vendor".to_owned(),
+        route: vendor_route.clone(),
         dir: "vendor".to_owned(),
       });
-      inferred.push("static /static/js/vendor from vendor/".to_owned());
+      inferred.push(format!("static {vendor_route} from vendor/"));
     }
     let icons_route = match &site {
       Some(site) => site.under("/static/icons"),

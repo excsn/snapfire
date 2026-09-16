@@ -20,10 +20,11 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   dir
 }
 
-/// What `fsr add` records for the React it vendored.
+/// What `fsr add` records for the React it vendored, one row per package a
+/// client adapter imports.
 fn vendor_react(dir: &Path, version: &str) {
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"react":{{"version":"{version}"}}}}}}"#)).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"react":{{"version":"{version}"}},"react-dom":{{"version":"{version}"}}}}}}"#)).unwrap();
 }
 
 const LAYOUT: &str = "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed}<Slot name=\"modal\"><p>closed</p></Slot><Slot name=\"drawer\" /></div>;\n}\n";
@@ -54,6 +55,7 @@ fn the_plan_records_the_vendored_react() {
   vendor_react(&dir, "19.3.0");
   let built = build(&dir, &Options::default()).unwrap();
   assert_eq!(built.manifest.frameworks.get("react").map(String::as_str), Some("19.3.0"));
+  assert_eq!(built.manifest.frameworks.get("react-dom").map(String::as_str), Some("19.3.0"));
   assert!(built.manifest.to_sexpr().contains("(framework react"), "{}", built.manifest.to_sexpr());
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -63,7 +65,8 @@ fn a_map_serving_react_with_no_vendored_version_is_refused() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
   std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
   match fails(&dir) {
-    BuildError::ReactUnrecorded { manifest, version, .. } => {
+    BuildError::FrameworkUnrecorded { package, manifest, version, .. } => {
+      assert_eq!(package, "react");
       assert!(manifest.contains(".fsr-vendor.json"), "{manifest}");
       assert_eq!(version, "18.3.1");
     }
@@ -92,6 +95,149 @@ fn an_app_with_no_react_records_no_framework() {
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
   assert!(build(&dir, &Options::default()).unwrap().manifest.frameworks.is_empty());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The options a site is built with, against the contract at `shell`.
+fn site_against(shell: PathBuf) -> Options {
+  let mut options = Options::default();
+  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: Some(shell) });
+  options
+}
+
+#[test]
+fn a_sites_vendored_package_is_mapped_under_its_own_prefix() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  let shell = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"sweetalert2":{"version":"11.6.15","entries":{"sweetalert2":"sweetalert2/sweetalert2.bundle.mjs"}}}}"#).unwrap();
+  let map = |url: &str| format!(r#"{{"imports":{{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","sweetalert2":"{url}"}}}}"#);
+
+  std::fs::write(dir.join("importmap.json"), map("/static/js/vendor/sweetalert2/sweetalert2.bundle.mjs")).unwrap();
+  let refused = match build(&dir, &site_against(shell.clone())) {
+    Ok(_) => panic!("{} built", dir.display()),
+    Err(e) => e.to_string(),
+  };
+  assert!(refused.contains("sweetalert2") && refused.contains("/billing/static/js/vendor/sweetalert2/sweetalert2.bundle.mjs"), "{refused}");
+
+  std::fs::write(dir.join("importmap.json"), map("/billing/static/js/vendor/sweetalert2/sweetalert2.bundle.mjs")).unwrap();
+  build(&dir, &site_against(shell)).unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_standalone_apps_vendor_urls_keep_the_default_prefix() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1","entries":{"react":"react/react.bundle.mjs"}},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/d"}}"#).unwrap();
+  build(&dir, &Options::default()).unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A shell contract on disk, as a shell's build writes it.
+fn shell_json(dir: &Path, frameworks: &str) -> PathBuf {
+  let path = dir.join("shell.json");
+  std::fs::write(&path, format!(r#"{{"version":1,"imports":{{"react":"/r","react-dom/client":"/d"}}{frameworks}}}"#)).unwrap();
+  path
+}
+
+#[test]
+fn a_shell_records_the_react_it_vendors_in_its_contract() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  vendor_react(&dir, "19.3.0");
+  let built = build(&dir, &Options::default()).unwrap();
+  let (_, contract) = built.files.iter().find(|(n, _)| n == "generated/shell.json").expect("a shell writes its contract");
+  let json: serde_json::Value = serde_json::from_str(contract).unwrap();
+  assert_eq!(json["frameworks"]["react"], "19.3.0");
+  assert_eq!(json["frameworks"]["react-dom"], "19.3.0");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_site_takes_the_react_it_renders_under_from_its_shell() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::remove_dir_all(dir.join("vendor")).unwrap();
+  let shell = shell_json(&dir, r#","frameworks":{"react":"19.3.0","react-dom":"19.3.0"}"#);
+  let built = build(&dir, &site_against(shell)).expect("the shell says which React it serves, so the site vendors none");
+  assert_eq!(built.manifest.frameworks.get("react").map(String::as_str), Some("19.3.0"));
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_site_whose_shell_does_not_say_which_react_it_serves_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::remove_dir_all(dir.join("vendor")).unwrap();
+  let shell = shell_json(&dir, "");
+  match build(&dir, &site_against(shell)) {
+    Err(BuildError::FrameworkShellUnrecorded { package, contract, version, .. }) => {
+      assert_eq!(package, "react");
+      assert!(contract.contains("shell.json"), "{contract}");
+      assert_eq!(version, "18.3.1");
+    }
+    Ok(_) => panic!("a site built against a contract naming no React version"),
+    Err(other) => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_site_vendoring_a_react_the_shell_does_not_serve_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  vendor_react(&dir, "19.3.0");
+  let path = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
+  match build(&dir, &site_against(path)) {
+    Err(BuildError::FrameworkShellMismatch { package, site, shell, manifest, contract }) => {
+      assert_eq!(package, "react");
+      assert_eq!(site, "19.3.0");
+      assert_eq!(shell, "18.3.1");
+      assert!(manifest.contains(".fsr-vendor.json"), "{manifest}");
+      assert!(contract.contains("shell.json"), "{contract}");
+    }
+    Ok(_) => panic!("a site vendoring a React the shell does not serve built"),
+    Err(other) => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_site_vendoring_the_react_its_shell_serves_builds() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  let shell = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
+  let built = build(&dir, &site_against(shell)).expect("the site and the shell agree");
+  assert_eq!(built.manifest.frameworks.get("react").map(String::as_str), Some("18.3.1"));
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_site_mapping_a_framework_specifier_away_from_its_shell_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::remove_dir_all(dir.join("vendor")).unwrap();
+  let shell = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/billing/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/d"}}"#).unwrap();
+  match build(&dir, &site_against(shell)) {
+    Err(BuildError::ShellUrl { specifier, found, want, .. }) => {
+      assert_eq!(specifier, "react");
+      assert_eq!(found, "/billing/static/js/vendor/react/react.bundle.mjs");
+      assert_eq!(want, "/r");
+    }
+    Ok(_) => panic!("a site mapping react away from its shell built"),
+    Err(other) => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_shell_contract_recording_no_react_dom_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::remove_dir_all(dir.join("vendor")).unwrap();
+  let shell = shell_json(&dir, r#","frameworks":{"react":"18.3.1"}"#);
+  match build(&dir, &site_against(shell)) {
+    Err(BuildError::FrameworkShellUnrecorded { package, specifier, .. }) => {
+      assert_eq!(package, "react-dom");
+      assert_eq!(specifier, "react-dom/client");
+    }
+    Ok(_) => panic!("a site built against a contract naming no react-dom version"),
+    Err(other) => panic!("{other}"),
+  }
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -244,6 +390,7 @@ fn a_vue_island_registers_through_the_vue_adapter_without_react_in_the_map() {
   let page = placing("Chart.vue");
   let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.vue", "<template><p /></template>\n")]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/vue":"/v","vue":"/v"}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.13"}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("import { vueMounter, vuePatcher, vueUnmounter } from \"@snapfire/fsr-client/vue\";"), "{islands}");

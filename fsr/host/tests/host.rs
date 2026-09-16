@@ -2459,6 +2459,8 @@ fn site_dir() -> PathBuf {
   std::fs::write(dir.join("generated/contracts/shop.json"), contract.to_json()).unwrap();
   std::fs::create_dir_all(dir.join("styles")).unwrap();
   std::fs::write(dir.join("styles/site.css"), "body{}").unwrap();
+  std::fs::create_dir_all(dir.join("vendor/react")).unwrap();
+  std::fs::write(dir.join("vendor/react/react.js"), "react").unwrap();
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   std::fs::write(
     dir.join("app.toml"),
@@ -2480,6 +2482,7 @@ async fn a_site_serves_standalone_under_its_prefix_with_its_ids_prefixed() {
   let report = host.report().to_string();
   assert!(report.contains("site      shop                   at /shop"), "{report}");
   assert!(report.contains("/shop/static/css"), "{report}");
+  assert!(report.contains("/shop/static/js/vendor"), "the inferred vendor root sits under the prefix: {report}");
   assert!(
     report.contains("/shop/hello/{name}") && report.contains("shop:index.bump"),
     "{report}"

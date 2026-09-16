@@ -60,10 +60,18 @@ pub enum BuildError {
   UnknownComponent { module: String },
   #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}")]
   IslandImports { module: String, adapter: String, missing: String },
-  #[error("the import map serves `react`, but {manifest} does not say which React it is; `fsr add {app} react@{version}` records it")]
-  ReactUnrecorded { manifest: String, app: String, version: String },
+  #[error("the import map serves `{specifier}`, but {manifest} does not say which {package} it is; `fsr add {app} {package}@{version}` records it")]
+  FrameworkUnrecorded { package: String, specifier: String, manifest: String, app: String, version: String },
   #[error("react@{version} is vendored, but this fsr renders for React {supported} only")]
   ReactMajor { version: String, supported: String },
+  #[error("the shell serves `{specifier}`, but {contract} does not say which {package} it is; a shell built by this fsr records it under `frameworks`. A hand-written contract needs `\"frameworks\": {{\"{package}\": \"{version}\"}}`")]
+  FrameworkShellUnrecorded { package: String, specifier: String, contract: String, version: String },
+  #[error("{package}@{site} is recorded in {manifest}, but {contract} serves {package}@{shell}; the browser loads the shell's copy")]
+  FrameworkShellMismatch { package: String, site: String, shell: String, manifest: String, contract: String },
+  #[error("{map} maps `{specifier}` to `{found}`, but {contract} serves it at `{want}`; the shell's import map overrides this one at mount, so the browser never loads `{found}`")]
+  ShellUrl { map: String, specifier: String, found: String, want: String, contract: String },
+  #[error("`{specifier}` is served by {contract}, which vendors {package}@{shell}; a site cannot pin {package}@{wanted}, since the shell's import map overrides its own at mount")]
+  ShellPinned { specifier: String, package: String, wanted: String, shell: String, contract: String },
   #[error("elements/{file}: an element template is named after its tag, which is lowercase, starts with a letter and holds a hyphen")]
   ElementName { file: String },
   #[error("`{module}` is an element template, which is markup the server writes: {reason}")]
@@ -94,6 +102,8 @@ pub enum BuildError {
   Manifest(PathBuf, String),
   #[error("`{package}` imports `{wants}`, a package outside its bundle; vendor that package and name it with --external")]
   Dependency { package: String, wants: String },
+  #[error("{map} maps `{specifier}` to `{found}`, but this application serves its vendor tree from `{base}`; write `{want}` or run `fsr add` on the package, which rewrites every vendored entry")]
+  VendorUrl { map: String, specifier: String, found: String, base: String, want: String },
   #[error("{0}")]
   Xwpm(String),
   #[error("{0}")]
@@ -276,6 +286,28 @@ impl SiteOptions {
   pub fn prefix(&self) -> String {
     format!("{}:", self.name)
   }
+
+  /// `at` joined with a path, the way the host joins a site's own routes.
+  pub fn under(&self, path: &str) -> String {
+    format!("{}{path}", self.at.trim_end_matches('/'))
+  }
+}
+
+/// Where an application's browser bundle is served from.
+pub const BUNDLE_BASE: &str = "/static/js/app";
+
+/// Where an application's vendor tree is served from.
+pub const VENDOR_BASE: &str = "/static/js/vendor";
+
+/// Where `site`'s browser bundle is served from: under its own prefix for a
+/// site, since a mount keeps only the static roots that sit under it.
+pub fn bundle_base(site: Option<&SiteOptions>) -> String {
+  site.map(|site| site.under(BUNDLE_BASE)).unwrap_or_else(|| BUNDLE_BASE.to_owned())
+}
+
+/// Where `site`'s vendor tree is served from, under the same rule.
+pub fn vendor_base(site: Option<&SiteOptions>) -> String {
+  site.map(|site| site.under(VENDOR_BASE)).unwrap_or_else(|| VENDOR_BASE.to_owned())
 }
 
 impl Options {
@@ -315,8 +347,8 @@ pub fn site_beside(app: &Path) -> Option<SiteOptions> {
 
 /// The shell contract a shell's build emits as `generated/shell.json` and a
 /// site's build reads: the store keys the shell's loaders seed with their
-/// types as the browser sees them, the import map it serves and the fsr
-/// version that wrote it.
+/// types as the browser sees them, the import map it serves, the exact
+/// version of each framework it vendors and the fsr version that wrote it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ShellContract {
   pub version: u32,
@@ -324,6 +356,11 @@ pub struct ShellContract {
   pub store: std::collections::BTreeMap<String, String>,
   #[serde(default)]
   pub imports: std::collections::BTreeMap<String, String>,
+  /// The exact version of every framework package the shell vendors, by
+  /// package: what a client adapter imports, so a site renders under the same
+  /// React and its specs fetch matching development builds.
+  #[serde(default)]
+  pub frameworks: std::collections::BTreeMap<String, String>,
   #[serde(default)]
   pub fsr: String,
 }
@@ -782,7 +819,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
   }
   report.components.sort();
-  let layout = crate::xwpm::Layout::of(app)?;
+  let layout = crate::xwpm::Layout::of_site(app, options.site.as_ref())?;
   let shim = types::foreign_shim(app, &set.foreign);
   let mut browser_route_files: Vec<String> = report
     .components
@@ -805,8 +842,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     Some(path) => Some((path, ShellContract::read(path)?)),
     None => None,
   };
-  let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(_, contract)| contract))?;
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks);
+  check_vendor_urls(app, &layout)?;
+  check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
+  let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
@@ -825,7 +864,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {
     None => {
-      let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config)?;
+      let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config, &frameworks)?;
       files.push(("generated/shell.json".to_owned(), serde_json::to_string_pretty(&shell_contract).expect("a shell contract serializes") + "\n"));
     }
     Some(_) => {
@@ -950,8 +989,9 @@ pub fn write_overlay(app: &Path, built: &Built) -> Result<(), BuildError> {
 }
 
 /// The shell contract of this build: every store key a loader's `store`
-/// export seeds, typed the way the browser reads it, plus the import map.
-fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, sources: &[SourceEntry], consts: &Consts, config: &[(String, infer::Ts)]) -> Result<ShellContract, BuildError> {
+/// export seeds, typed the way the browser reads it, plus the import map and
+/// the frameworks this build vendors.
+fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, sources: &[SourceEntry], consts: &Consts, config: &[(String, infer::Ts)], frameworks: &std::collections::BTreeMap<String, String>) -> Result<ShellContract, BuildError> {
   let mut store = std::collections::BTreeMap::new();
   for source in sources {
     let (Some(loader), Some(body)) = (&source.body, &source.store) else { continue };
@@ -969,7 +1009,7 @@ fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, source
     .and_then(|json| json.get("imports").cloned())
     .and_then(|imports| serde_json::from_value(imports).ok())
     .unwrap_or_default();
-  Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, fsr: env!("CARGO_PKG_VERSION").to_owned() })
+  Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, frameworks: frameworks.clone(), fsr: env!("CARGO_PKG_VERSION").to_owned() })
 }
 
 /// The head helpers a `meta` body imports from `@snapfire/fsr`. Plain
@@ -1410,6 +1450,31 @@ const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: 
 
 const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", needs: &["vue"] };
 
+const ADAPTERS: &[&Adapter] = &[&REACT, &VUE];
+
+/// The packages a client adapter imports at runtime. A shell records the
+/// version it vendors of each, so a site built against it renders under the
+/// same ones and its specs fetch matching development builds.
+fn framework_packages() -> Vec<String> {
+  let mut packages: Vec<String> = ADAPTERS.iter().flat_map(|adapter| adapter.needs.iter()).map(|need| crate::vendor::package_of(need)).collect();
+  packages.sort();
+  packages.dedup();
+  packages
+}
+
+/// The specifiers a client adapter imports from one framework package.
+fn framework_needs(package: &str) -> Vec<&'static str> {
+  ADAPTERS.iter().flat_map(|adapter| adapter.needs.iter().copied()).filter(|need| crate::vendor::package_of(need) == package).collect()
+}
+
+/// The version `fsr add` is suggested with for a package nothing records.
+fn suggested_version(package: &str) -> &'static str {
+  match package {
+    "react" | "react-dom" => crate::new::REACT,
+    _ => "<version>",
+  }
+}
+
 /// The adapter a module is registered with. A source the lowerer reads is
 /// React's; a foreign one belongs to the framework whose plugin claims its
 /// extension, when the client has an adapter for that framework.
@@ -1517,32 +1582,123 @@ fn resolves(served: &[String], specifier: &str) -> bool {
   served.iter().any(|key| key == specifier || (key.ends_with('/') && specifier.starts_with(key.as_str())))
 }
 
-/// The exact version of each vendored framework whose server markup the
-/// renderer matches, read from the vendor manifest. An import map serving
-/// `react` with no version recorded is refused. So is a major the renderer
-/// has no rules for.
-fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {
-  let vendored = crate::vendor::VendorManifest::read(app, layout)?;
-  let mut frameworks = std::collections::BTreeMap::new();
-  match vendored.packages.get("react") {
-    Some(package) if snapfire_fsr_ir::ReactMajor::of(&package.version).is_none() => {
-      let majors: Vec<String> = snapfire_fsr_ir::ReactMajor::ALL.iter().map(|major| major.number().to_string()).collect();
-      let supported = match majors.split_last() {
-        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
-        _ => majors.concat(),
+/// Refuses an import map entry for a vendored package that does not sit under
+/// the layout's base. A site serves its vendor tree under its own prefix, so a
+/// map written before the `[site]` section names URLs the site never answers.
+/// Only a specifier the map already carries is checked: the manifest can name a
+/// package whose files the tree no longer holds.
+fn check_vendor_urls(app: &Path, layout: &crate::xwpm::Layout) -> Result<(), BuildError> {
+  let manifest = crate::vendor::VendorManifest::read(app, layout)?;
+  if manifest.packages.is_empty() {
+    return Ok(());
+  }
+  let map = crate::vendor::read_import_map(app, layout)?;
+  let Some(imports) = map.get("imports").and_then(|imports| imports.as_object()) else {
+    return Ok(());
+  };
+  let base = layout.base.trim_end_matches('/');
+  for package in manifest.packages.values() {
+    for (specifier, rel) in &package.entries {
+      let Some(found) = imports.get(specifier).and_then(|url| url.as_str()) else {
+        continue;
       };
-      return Err(BuildError::ReactMajor { version: package.version.clone(), supported });
+      let want = format!("{base}/{rel}");
+      if found != want {
+        return Err(BuildError::VendorUrl {
+          map: format!("`{}`", app.join(&layout.importmap).display()),
+          specifier: specifier.clone(),
+          found: found.to_owned(),
+          base: base.to_owned(),
+          want,
+        });
+      }
     }
-    Some(package) => {
-      frameworks.insert("react".to_owned(), package.version.clone());
+  }
+  Ok(())
+}
+
+/// The exact version of each vendored framework whose server markup the
+/// renderer matches, one row per package a client adapter imports. A site
+/// takes each version from the shell it is built against, since the shell's
+/// import map overrides its own and the browser loads one copy; every other
+/// application reads its own vendor manifest. An import map serving a
+/// framework package with no version recorded anywhere is refused. So is a
+/// React major the renderer has no rules for.
+fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {
+  let contract = shell.map(|(_, contract)| contract);
+  let manifest = || format!("`{}`", app.join(&layout.vendor).join(crate::vendor::VENDOR_MANIFEST).display());
+  let vendored = crate::vendor::VendorManifest::read(app, layout)?;
+  let served = served_specifiers(app, layout, contract).unwrap_or_default();
+  let mut frameworks = std::collections::BTreeMap::new();
+  for package in framework_packages() {
+    let own = vendored.packages.get(&package).map(|entry| entry.version.clone());
+    let from_shell = contract.and_then(|contract| contract.frameworks.get(&package).cloned());
+    if let (Some(own), Some(from_shell), Some((path, _))) = (&own, &from_shell, shell) {
+      if own != from_shell {
+        return Err(BuildError::FrameworkShellMismatch { package, site: own.clone(), shell: from_shell.clone(), manifest: manifest(), contract: format!("`{}`", path.display()) });
+      }
     }
-    None if served_specifiers(app, layout, shell).is_some_and(|served| resolves(&served, "react")) => {
-      let manifest = app.join(&layout.vendor).join(crate::vendor::VENDOR_MANIFEST);
-      return Err(BuildError::ReactUnrecorded { manifest: format!("`{}`", manifest.display()), app: app.display().to_string(), version: crate::new::REACT.to_owned() });
+    match from_shell.or(own) {
+      Some(version) if package == "react" && snapfire_fsr_ir::ReactMajor::of(&version).is_none() => {
+        let majors: Vec<String> = snapfire_fsr_ir::ReactMajor::ALL.iter().map(|major| major.number().to_string()).collect();
+        let supported = match majors.split_last() {
+          Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+          _ => majors.concat(),
+        };
+        return Err(BuildError::ReactMajor { version, supported });
+      }
+      Some(version) => {
+        frameworks.insert(package, version);
+      }
+      None => {
+        let Some(specifier) = framework_needs(&package).into_iter().find(|need| resolves(&served, need)) else {
+          continue;
+        };
+        let version = suggested_version(&package).to_owned();
+        let served_by_shell = shell.filter(|(_, contract)| resolves(&contract.imports.keys().cloned().collect::<Vec<_>>(), specifier));
+        return match served_by_shell {
+          Some((path, _)) => Err(BuildError::FrameworkShellUnrecorded { package, specifier: specifier.to_owned(), contract: format!("`{}`", path.display()), version }),
+          None => Err(BuildError::FrameworkUnrecorded { package, specifier: specifier.to_owned(), manifest: manifest(), app: app.display().to_string(), version }),
+        };
+      }
     }
-    None => {}
   }
   Ok(frameworks)
+}
+
+/// Refuses a framework specifier the application maps somewhere other than the
+/// URL its shell serves. The shell's import map overrides the site's on a
+/// shared specifier, so the browser never fetches the site's own URL for one.
+/// A package the site vendors itself is left to `check_vendor_urls`.
+fn check_shell_urls(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<(), BuildError> {
+  let Some((path, contract)) = shell else {
+    return Ok(());
+  };
+  let vendored = crate::vendor::VendorManifest::read(app, layout)?;
+  let map = crate::vendor::read_import_map(app, layout)?;
+  let Some(imports) = map.get("imports").and_then(|imports| imports.as_object()) else {
+    return Ok(());
+  };
+  let packages = framework_packages();
+  for (specifier, url) in imports {
+    let package = crate::vendor::package_of(specifier);
+    if !packages.contains(&package) || vendored.packages.contains_key(&package) {
+      continue;
+    }
+    let (Some(found), Some(want)) = (url.as_str(), contract.imports.get(specifier)) else {
+      continue;
+    };
+    if found != want {
+      return Err(BuildError::ShellUrl {
+        map: format!("`{}`", app.join(&layout.importmap).display()),
+        specifier: specifier.clone(),
+        found: found.to_owned(),
+        want: want.clone(),
+        contract: format!("`{}`", path.display()),
+      });
+    }
+  }
+  Ok(())
 }
 
 /// Where an application keeps its custom elements' shadow templates.

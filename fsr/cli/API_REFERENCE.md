@@ -121,7 +121,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### fsr add
 
 * `fsr add <app dir> <name@version[/subpath]>... [--external <name,...>]`
-* `vendor::add` over the specs; prints `added <specifier> <file> <bytes>` per entry or `xwpm add <spec>` per delegated call. Same exit codes; a spec without a version exits 2.
+* `vendor::add` over the specs; prints `added <specifier> <file> <bytes>` per entry, `remapped <specifier> <url>` per entry moved to the layout's base or `xwpm add <spec>` per delegated call. Same exit codes; a spec without a version exits 2.
 
 ### fsr types
 
@@ -137,20 +137,21 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### SiteOptions
 
-* `pub struct SiteOptions { pub name: String, pub at: String, pub shell: Option<PathBuf> }`: the `[site]` section as the build reads it; `prefix()` is `<name>:`.
+* `pub struct SiteOptions { pub name: String, pub at: String, pub shell: Option<PathBuf> }`: the `[site]` section as the build reads it; `prefix()` is `<name>:` and `under(path)` is `at` joined with a path.
+* `BUNDLE_BASE` is `/static/js/app` and `VENDOR_BASE` is `/static/js/vendor`. `bundle_base(site: Option<&SiteOptions>) -> String` and `vendor_base(site: Option<&SiteOptions>) -> String` put each under the site's prefix, which is where a mount keeps a static root. `fsr dev`, `fsr test` and `Layout::of_site` take their paths from them.
 * `Options::beside(app: &Path) -> Options`: the defaults with `site` from the configuration beside `app` when one names that app directory. `site_beside(app: &Path) -> Option<SiteOptions>` is that lookup alone. `Options::prefix()` is the prefix on every emitted id, empty without a site.
 * `unprefixed(service: &str) -> &str`: a service name without its site prefix, which is what a test mocks it by.
 
 ### ShellContract
 
-* `pub struct ShellContract { pub version: u32, pub store: BTreeMap<String, String>, pub imports: BTreeMap<String, String>, pub fsr: String }`: `generated/shell.json`. `SHELL_CONTRACT_VERSION` is 1.
+* `pub struct ShellContract { pub version: u32, pub store: BTreeMap<String, String>, pub imports: BTreeMap<String, String>, pub frameworks: BTreeMap<String, String>, pub fsr: String }`: `generated/shell.json`. `frameworks` is the exact version the shell vendors of every framework package a client adapter imports, `react`, `react-dom` and `vue`, read from its vendor manifest: what a site built against it renders under and what a site's specs fetch development builds at. Every field but `version` defaults, so a contract written before `frameworks` existed still reads. `SHELL_CONTRACT_VERSION` is 1.
 * `ShellContract::read(path: &Path) -> Result<ShellContract, BuildError>`: refuses a version this fsr does not read.
 * `declarations(&self) -> String`: `generated/shell.d.ts`, `ShellStore` and `ShellImport`.
 
 ### build
 
 * `pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError>`
-* With `options.site` set, after every generated TypeScript is written unprefixed, the plan file is `Manifest::namespaced`, every contract file `Contract::namespaced`, the islands registry registers `<name>:<module>` and the generated call sites call `<name>:<action id>`; with `site.shell` set, `generated/shell.d.ts` is written from the shell contract. Without a site, `generated/shell.json` is written: every store key a `store` export seeds, typed by inferring the loader's return and then the store body, the app's import map and the fsr version.
+* With `options.site` set, after every generated TypeScript is written unprefixed, the plan file is `Manifest::namespaced`, every contract file `Contract::namespaced`, the islands registry registers `<name>:<module>` and the generated call sites call `<name>:<action id>`; with `site.shell` set, `generated/shell.d.ts` is written from the shell contract. Without a site, `generated/shell.json` is written: every store key a `store` export seeds, typed by inferring the loader's return and then the store body, the app's import map, the version it vendors of every framework package a client adapter imports and the fsr version.
 * Imports `app/clients`, reads `app/schemas`, validates the contract, walks `app/routes`, lowers every `page.loader.ts` and `actions.ts` and returns everything without writing. The first error in any file fails the whole build.
 
 ### Built
@@ -260,7 +261,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `not_found` is the same chain around the not-found module, inside the root layout when there is one, with the routes-level error module and no source, present only when the module is; the host renders it with status 404 and `params.path` set to the path asked for.
 * Sources and actions are emitted with `RowOwner::Lowered` and their bodies. No other owner is produced.
 * An action whose `action<T>` names a type the contract lacks is `UnknownInput`; an action row carries `input` when it names one.
-* `frameworks` holds `react` and the exact version `vendor/.fsr-vendor.json` records for it. An import map serving `react` with nothing recorded is `ReactUnrecorded`. A major other than 18 or 19 is `ReactMajor`.
+* `frameworks` holds the exact version of every package a client adapter imports: `react`, `react-dom` and `vue`. A site takes each version from the shell contract's `frameworks`, since the shell's import map overrides the site's and the browser loads one copy; every other application takes it from `vendor/.fsr-vendor.json`. The shell contract carries this same map, so the two cannot drift. A site vendoring a version its shell does not serve is `FrameworkShellMismatch`. An import map serving a framework package with no version recorded anywhere is `FrameworkShellUnrecorded` when the shell is what serves it, `FrameworkUnrecorded` otherwise. A React major other than 18 or 19 is `ReactMajor`.
 
 ### Generated files
 
@@ -322,7 +323,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### Layout
 
 * `pub struct xwpm::Layout { pub vendor: String, pub base: String, pub importmap: String, pub types: String, pub xwpm: bool }`, paths relative to the app directory.
-* `Layout::of(app: &Path) -> Result<Layout, BuildError>`: the defaults `vendor`, `/static/js/vendor`, `importmap.json`, `types` and `xwpm: false`; with `<app>/xwpm.wmf` present, its root records with `xwpm: true`.
+* `Layout::of(app: &Path) -> Result<Layout, BuildError>`: `of_site` with the `[site]` section beside `app`.
+* `Layout::of_site(app: &Path, site: Option<&SiteOptions>) -> Result<Layout, BuildError>`: the defaults `vendor`, `/static/js/vendor`, `importmap.json`, `types` and `xwpm: false`; with `<app>/xwpm.wmf` present, its root records with `xwpm: true`. For a site `base` is `<at>/static/js/vendor`, which a `base` record in the wmf overrides.
 * `Layout::from_wmf(text: &str) -> Result<Layout, String>`: root records `vendor`, `base`, `importmap` and `types` override the defaults; other records are ignored; sections are skipped; a root line that is not `key = value` is an error naming its line.
 * `xwpm::run(app: &Path, args: &[&str]) -> Result<(), BuildError>`: runs `xwpm` in the app directory; `Xwpm` when it cannot start or exits non-zero.
 * `xwpm::XWPM_FILE` is `xwpm.wmf`.
@@ -336,8 +338,9 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### add
 
 * `pub fn vendor::add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport, BuildError>`
-* Under the default layout, per spec: `GET https://esm.sh/<package>@<version>[/<subpath>]?target=es2022&bundle[&external=<externals>]`, follows every absolute path the stub names, writes each file by its base name under `<vendor>/<package>/`, rewrites same-package absolute imports to `./<name>` and fails with `Dependency` on any other; the file behind the stub's `export *` becomes the entry, written to the import map as `<base>/<package>/<name>` and to the vendor manifest. Under xwpm: `xwpm add <package>@<version>` once per distinct package and version.
-* `pub struct AddReport { pub added: Vec<(String, String, usize)>, pub delegated: Vec<String> }`: specifier, file relative to the vendor directory and bytes; or the xwpm invocations run.
+* Under the default layout, per spec: `GET https://esm.sh/<package>@<version>[/<subpath>]?target=es2022&bundle[&external=<externals>]`, follows every absolute path the stub names, writes each file by its base name under `<vendor>/<package>/`, rewrites same-package absolute imports to `./<name>` and fails with `Dependency` on any other; the file behind the stub's `export *` becomes the entry, written to the import map as `<base>/<package>/<name>` and to the vendor manifest. Every entry the manifest already records whose map URL does not sit under `base` is rewritten to it and reported as `remapped`; a specifier the map does not carry is left out, since the manifest can name a package whose files the tree no longer holds. Under xwpm: `xwpm add <package>@<version>` once per distinct package and version.
+* In a site whose shell already serves a specifier, nothing is fetched for it: the map takes the shell's URL and the specifier is reported as `from_shell`. A version other than the one the contract records for that package is `ShellPinned`, since the shell's map overrides the site's at mount.
+* `pub struct AddReport { pub added: Vec<(String, String, usize)>, pub remapped: Vec<(String, String)>, pub from_shell: Vec<(String, String)>, pub delegated: Vec<String> }`: specifier, file relative to the vendor directory and bytes; specifier and the URL it now carries; specifier and the shell's URL it took instead of vendoring; or the xwpm invocations run.
 * `vendor::read_import_map`, `vendor::write_import_map`, `vendor::import_map_packages(app, &layout)`: the `imports` table whole and its bare keys as package names (`react/jsx-runtime` is `react`, `@a/b/c` is `@a/b`).
 * `vendor::package_of(specifier: &str) -> String`.
 * `vendor::ESM_HOST` is `https://esm.sh`.
@@ -385,8 +388,12 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
 * `UnknownComponent { module: String }`, an island whose extension no framework claims.
 * `IslandImports { module: String, adapter: String, missing: String }`, the first registered module whose adapter the import map cannot supply, with the specifiers it lacks.
-* `ReactUnrecorded { manifest: String, app: String, version: String }`, an import map serving `react` with no `react` entry in the vendor manifest; the message names the `fsr add` command that records it.
+* `FrameworkUnrecorded { package: String, specifier: String, manifest: String, app: String, version: String }`, an import map serving a package a client adapter imports with no entry for it in the vendor manifest; the message names the `fsr add` command that records it.
 * `ReactMajor { version: String, supported: String }`, a vendored React whose major the renderer has no rules for.
+* `FrameworkShellUnrecorded { package: String, specifier: String, contract: String, version: String }`, a site whose shell serves a framework package with no `frameworks` entry saying which version; the message names the contract and the entry a hand-written one needs. A shell built before its contract recorded every framework package is refused here until it is rebuilt.
+* `FrameworkShellMismatch { package: String, site: String, shell: String, manifest: String, contract: String }`, a site vendoring one version of a framework package while its shell serves another, which the browser would never load.
+* `ShellUrl { map: String, specifier: String, found: String, want: String, contract: String }`, a site mapping a framework specifier somewhere other than the URL its shell serves, which the browser would never fetch.
+* `ShellPinned { specifier: String, package: String, wanted: String, shell: String, contract: String }`, an `fsr add` pinning a version of a package the site's shell already serves.
 * `ElementName { file: String }`, a file under `elements/` whose name is not a custom element tag.
 * `ElementTemplate { module: String, reason: String }`, an element template with state or a handler or a root `<template>` that cannot be its shadow root; `reason` says which.
 * `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
@@ -394,5 +401,6 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.
 * `Serve(String)`, the stock host refusing to build or the listener failing, from `fsr serve`.
 * `Dependency { package: String, wants: String }`, a vendored module importing a package outside its bundle.
+* `VendorUrl { map: String, specifier: String, found: String, base: String, want: String }`, an import map entry for a package the vendor manifest records that does not sit under the layout's base, with the URL it should carry. A site's base is its own prefix, so a map written before the `[site]` section is named here.
 * `Xwpm(String)`, an `xwpm` command that could not start or failed.
 * `Typecheck(String)`, the checker that could not be read or the diagnostics of a check that found an error, the row first.

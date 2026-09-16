@@ -41,7 +41,7 @@ The shell's middleware runs first on every path, with `request.site` naming the 
 
 ## What crosses the seam
 
-Two things, both typed, neither a runtime call. The shell's build writes `generated/shell.json`: every store key its loaders seed, typed as the browser reads it, plus the import map it serves. A site names that file with `[site] shell` and its build writes `generated/shell.d.ts`, so a site reads the shell's store with the right type and imports React from the shell's URL rather than its own copy.
+Two things, both typed, neither a runtime call. The shell's build writes `generated/shell.json`: every store key its loaders seed, typed as the browser reads it, the import map it serves and the exact version of each framework it vendors. A site names that file with `[site] shell` and its build writes `generated/shell.d.ts`, so a site reads the shell's store with the right type and imports React from the shell's URL rather than its own copy.
 
 ```ts
 import { key } from "@snapfire/fsr-client/store";
@@ -71,7 +71,9 @@ The exception is a host built with its services supplied directly rather than fr
 
 ## What the shell wins
 
-The shell owns the document, so where the two configurations disagree the shell's answer stands. Its import map overrides the site's on any shared specifier, which is what keeps one React in the page. The site's `[session]`, `[auth]` and `[cache]` are dropped, along with its `not-found.tsx`, because the shell already answers those for the whole document. A static root outside the site's own prefix is dropped rather than served, so a site cannot claim `/static/js/vendor` and shadow the shell's. Every one of those is listed under `ignored` in the boot report rather than happening quietly.
+The shell owns the document, so where the two configurations disagree the shell's answer stands. Its import map overrides the site's on any shared specifier, which is what keeps one React in the page. The site's `[session]`, `[auth]` and `[cache]` are dropped, along with its `not-found.tsx`, because the shell already answers those for the whole document. A static root outside the site's own prefix is dropped rather than served, so a site cannot claim `/static/js/vendor` and shadow the shell's. The roots the host infers are already under the prefix for a site, its `vendor/` tree along with its stylesheets and icons, so a site that vendors a package of its own is served it at `/billing/static/js/vendor`. Every one of those is listed under `ignored` in the boot report rather than happening quietly.
+
+A mounted site therefore vendors no framework of its own. Its build reads the React version it renders under out of the contract, so there is no second copy to keep in step with the shell's. A site that does vendor one must vendor the version the shell serves. The site's map still names `react` at the shell's URL. The build refuses a framework specifier pointed anywhere else, so the entry cannot drift from what the shell answers.
 
 Store keys are the exception and the only place a site and the shell can genuinely collide: nothing namespaces them, the map is flat and shared. A site prefixes its own by hand, `billing/draft` rather than `draft`, the way the shell's own keys already are.
 

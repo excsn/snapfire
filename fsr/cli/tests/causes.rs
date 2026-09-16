@@ -23,7 +23,7 @@ fn built(tag: &str, files: &[(&str, &str)]) -> Built {
   let root = root(tag);
   create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
   let app = root.join("app");
-  write(&app, "vendor/.fsr-vendor.json", r#"{"packages":{"react":{"version":"18.3.1"}}}"#);
+  write(&app, "vendor/.fsr-vendor.json", r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#);
   for (name, source) in files {
     write(&app, name, source);
   }

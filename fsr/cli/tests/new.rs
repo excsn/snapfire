@@ -29,7 +29,7 @@ fn a_scaffolded_project_builds_with_every_module_lowered() {
   };
   assert!(refused.contains("fsr add") && refused.contains("react@18.3.1"), "an offline scaffold names the React it has not vendored: {refused}");
   std::fs::create_dir_all(root.join("app/vendor")).unwrap();
-  std::fs::write(root.join("app/vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"}}}"#).unwrap();
+  std::fs::write(root.join("app/vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
 
   let built = build(&root.join("app"), &Options::beside(&root.join("app"))).unwrap();
   assert_eq!(built.report.routes.len(), 1, "{}", built.report);
@@ -60,7 +60,7 @@ fn a_body_calls_the_head_helpers_before_anything_is_generated() {
   create(&root, offline()).unwrap();
   let app = root.join("app");
   std::fs::create_dir_all(app.join("vendor")).unwrap();
-  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"}}}"#).unwrap();
+  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   std::fs::write(
     app.join("routes/page.loader.ts"),
     "import type { Ctx } from \"@snapfire/fsr\";\nimport { canonical, og } from \"@snapfire/fsr/head\";\n\nexport async function load(_ctx: Ctx<\"/\">) {\n  return { greeting: \"hi\" };\n}\n\nexport const meta = ({ data }: { data: { greeting: string } }) => ({\n  title: data.greeting,\n  head: [og(\"title\", data.greeting), canonical(\"/\")],\n});\n",

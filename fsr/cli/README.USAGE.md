@@ -72,7 +72,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `fsr.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
 * **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.
 * **Types** is `types/`, gitignored: the declarations of every package the import map names, one directory per package, written by `fsr types` and path-mapped by the generated tsconfig. Never served, never load-bearing.
-* **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; an `xwpm.wmf` in the app names its own.
+* **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; a site serves its vendor tree under its own prefix and an `xwpm.wmf` in the app names its own.
 
 ## Quick Start
 
@@ -505,6 +505,8 @@ added     react-dom/client             react-dom/client.bundle.mjs  136190 bytes
 
 A module that imports a package outside its bundle stops the command naming it; vendor that package and repeat with it in `--external`. The host serves `vendor/` at `/static/js/vendor` by convention, which is the prefix the import map entries carry.
 
+A site is the exception: its tree is served under its own prefix, `/billing/static/js/vendor`, since a mount drops a static root outside it. `fsr add` rewrites every entry the vendor manifest records to the current prefix and prints `remapped` for each one it moved, so an application that becomes a site is migrated by its next add. The build refuses a map entry for a vendored package that points anywhere else, naming the URL it expects. A package the site's shell already serves is not vendored at all: `fsr add` writes the shell's URL into the map and prints `shell` for it, since the shell's map overrides the site's at mount.
+
 The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 18.3.1)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
 
 ## Fetching Declarations
@@ -757,13 +759,15 @@ shell = "../portal/app/generated/shell.json"
 
 Nothing the site's TypeScript reads changes: `Ctx<"/invoice/{id}">` keys stay as written, `services.ledger` keeps its name, `actions.invoice.pay` keeps its nesting. What changes is the plan file and the browser bundle, where a module is `billing:routes/page.tsx#default` and an action `billing:invoice.pay`, together with the paths, which are literal: a site's links are written with the prefix (`/billing/invoice/1`) and its middleware compares against it. A body test mocks `ledger`, not `billing:ledger`; the runner strips the prefix.
 
-`fsr dev` serves a site's bundle under `<at>/static/js/app`, so bundle a site by hand with that public path:
+`fsr dev` serves a site's bundle under `<at>/static/js/app` and `fsr test` compiles its specs at the same path, so bundle a site by hand with that public path:
 
 ```sh
 snapfirec --root app --config tsconfig.build.json --source-map --public-path /billing/static/js/app --import-map importmap.json
 ```
 
 With `shell` set, the build reads the shell contract and writes `generated/shell.d.ts`: `ShellStore`, the keys the shell's loaders seed with their types and `ShellImport`, the specifiers the shell's import map serves. The report's `shell` row counts both and names any import the site maps differently, since the shell's mapping serves at mount.
+
+A mounted site vendors no framework of its own. The shell serves React at `/static/js/vendor` and its import map overrides the site's there, so the site's build reads the version it renders under out of the contract's `frameworks` rather than out of a `vendor/` directory it would have to keep in step. A site still names `react` in its own import map, which is what gives its `.tsx` files React's JSX and `fsr types` React's declarations; the URL it names is the shell's, since the shell's wins at mount. The build refuses a framework specifier the site maps anywhere else. `fsr add` on a package the shell serves writes the shell's URL rather than fetching a copy, so those entries cannot drift. A site that does vendor React must vendor the same version the shell serves; a pair that disagrees is refused, because the browser loads only the shell's copy. A package only the site uses is vendored the usual way and served under the site's own prefix, which is where a mount keeps a static root. Its specs need no vendor tree either: `fsr test` fetches React's development builds at the versions the contract records.
 
 ```ts
 import { key } from "@snapfire/fsr-client/store";
@@ -774,13 +778,14 @@ export const who = key<ShellStore["portal/who"]>("portal/who");
 
 ## Building a Shell
 
-An application without `[site]` is a shell as far as the build is concerned: it writes `generated/shell.json`, the contract a site is built against, with every store key its loaders' `store` exports seed, typed as the browser reads them, the import map it serves and the fsr version that wrote it. A shell that is not built by `fsr` or a team that wants a narrower promise than the build would state, writes the same document by hand.
+An application without `[site]` is a shell as far as the build is concerned: it writes `generated/shell.json`, the contract a site is built against, with every store key its loaders' `store` exports seed, typed as the browser reads them, the import map it serves, the exact version of each framework it vendors and the fsr version that wrote it. A shell that is not built by `fsr` or a team that wants a narrower promise than the build would state, writes the same document by hand.
 
 ```json
 {
   "version": 1,
   "store": { "portal/teams": "number", "portal/who": "string" },
   "imports": { "react": "/static/js/vendor/react/react.bundle.mjs" },
+  "frameworks": { "react": "18.3.1", "react-dom": "18.3.1" },
   "fsr": "0.1.0"
 }
 ```

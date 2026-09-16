@@ -168,7 +168,7 @@ From the app directory, each reported at boot under `inferred`:
 | the bundle's static route | `dist/.snapfire-build.json`'s `publicPath`, serving `dist` there |
 | `document.entry` | the same file's `src/main.js` entry under that path |
 | `document.import_map` | `importmap.json` in the app directory |
-| a `/static/js/vendor` root | `vendor/` in the app directory |
+| a `/static/js/vendor` root | `vendor/` in the app directory, under the site's prefix when `[site]` is set |
 | a `/static/css` root and `document.styles` | `styles/` in the app directory, every `.css` in it linked from the head in name order |
 | the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own |
 

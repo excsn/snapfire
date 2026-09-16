@@ -58,17 +58,23 @@ pub struct Prepared {
 pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
+  let site = crate::site_beside(&app);
+  let bundle = crate::bundle_base(site.as_ref());
+  let shell = match site.as_ref().and_then(|site| site.shell.as_ref()) {
+    Some(path) => Some(crate::ShellContract::read(path)?),
+    None => None,
+  };
   let test_dir = app.join(TEST_DIR);
   std::fs::create_dir_all(&test_dir).map_err(|e| BuildError::Io(test_dir.clone(), e))?;
-  let overrides = test_vendor(&app, &layout, &test_dir)?;
+  let overrides = test_vendor(&app, &layout, &test_dir, shell.as_ref())?;
   let dom = overrides.get("linkedom").cloned().expect("linkedom is vendored");
   write_config(&app, &layout, &test_dir, browser_routes)?;
-  compile(&app, &test_dir)?;
+  compile(&app, &test_dir, &bundle)?;
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
   let dist = test_dir.join("dist");
-  let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), ("/static/js/app".to_owned(), dist.clone())];
+  let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), (bundle.clone(), dist.clone())];
   roots.extend(static_roots(&app)?);
   // The host answers this prefix out of the binary rather than off disk, so
   // nothing in the application's configuration points at the client and the
@@ -365,7 +371,7 @@ struct TestVendor {
 }
 
 /// The development builds of linkedom and of the React modules the app vendors, fetched once from esm.sh into `.fsr-test/vendor`; by specifier.
-fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path) -> Result<HashMap<String, PathBuf>, BuildError> {
+fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crate::ShellContract>) -> Result<HashMap<String, PathBuf>, BuildError> {
   let dir = test_dir.join("vendor");
   let manifest_path = dir.join("manifest.json");
   let mut manifest: TestVendor = match std::fs::read_to_string(&manifest_path) {
@@ -373,22 +379,40 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path) -> Result<HashMap<S
     Err(_) => TestVendor::default(),
   };
   let vendored = VendorManifest::read(app, layout)?;
+  let served = imports_of(&vendor::read_import_map(app, layout)?);
   let mut wanted: Vec<(String, String)> = vec![("linkedom".to_owned(), format!("{ESM_HOST}/linkedom@{LINKEDOM}/worker?target=es2022&bundle&dev"))];
   for specifier in DEV_BUILDS {
     let package = vendor::package_of(specifier);
-    let Some(entry) = vendored.packages.get(&package) else { continue };
-    if !entry.entries.contains_key(*specifier) {
-      continue;
-    }
-    let mut url = format!("{ESM_HOST}/{package}@{}", entry.version);
+    let from_vendor = vendored
+      .packages
+      .get(&package)
+      .filter(|entry| entry.entries.contains_key(*specifier))
+      .map(|entry| (entry.version.clone(), entry.externals.clone()));
+    // A package the map serves at its own root is external here, so the three
+    // development builds share one React rather than carrying a copy each.
+    let from_shell = match shell {
+      Some(contract) if from_vendor.is_none() && served.contains_key(*specifier) => contract.frameworks.get(&package).map(|version| {
+        let mut externals: Vec<String> = DEV_BUILDS
+          .iter()
+          .map(|dev| vendor::package_of(dev))
+          .filter(|shared| served.contains_key(shared.as_str()) && !(shared == &package && *specifier == package))
+          .collect();
+        externals.sort();
+        externals.dedup();
+        (version.clone(), externals)
+      }),
+      _ => None,
+    };
+    let Some((version, externals)) = from_vendor.or(from_shell) else { continue };
+    let mut url = format!("{ESM_HOST}/{package}@{version}");
     if let Some(sub) = specifier.strip_prefix(&format!("{package}/")) {
       url.push('/');
       url.push_str(sub);
     }
     url.push_str("?target=es2022&bundle&dev");
-    if !entry.externals.is_empty() {
+    if !externals.is_empty() {
       url.push_str("&external=");
-      url.push_str(&entry.externals.join(","));
+      url.push_str(&externals.join(","));
     }
     wanted.push((specifier.to_string(), url));
   }
@@ -476,12 +500,12 @@ fn imports_of(map: &serde_json::Map<String, serde_json::Value>) -> serde_json::M
   map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default()
 }
 
-fn compile(app: &Path, test_dir: &Path) -> Result<(), BuildError> {
+fn compile(app: &Path, test_dir: &Path, bundle: &str) -> Result<(), BuildError> {
   let snapfirec = dev::find_snapfirec(None);
   let config = format!("{TEST_DIR}/tsconfig.json");
   let import_map = format!("{TEST_DIR}/importmap.json");
   let mut command = Command::new(&snapfirec);
-  command.current_dir(app).args(["--config", &config, "--source-map", "--public-path", "/static/js/app", "--import-map", &import_map]);
+  command.current_dir(app).args(["--config", &config, "--source-map", "--public-path", bundle, "--import-map", &import_map]);
   if app.join(dev::BUNDLE_OVERLAY).is_dir() {
     command.args(["--overlay", dev::BUNDLE_OVERLAY]);
   }

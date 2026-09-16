@@ -93,6 +93,10 @@ impl VendorManifest {
 pub struct AddReport {
   /// Specifier, file written relative to the vendor directory, bytes.
   pub added: Vec<(String, String, usize)>,
+  /// Specifier and the URL it now carries, for an entry the layout's base moved.
+  pub remapped: Vec<(String, String)>,
+  /// Specifier and the shell's URL, for a package the shell already serves.
+  pub from_shell: Vec<(String, String)>,
   /// The `xwpm add` invocations run instead, when the application is xwpm's.
   pub delegated: Vec<String>,
 }
@@ -216,7 +220,7 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
       xwpm::run(app, &["add", &arg])?;
       delegated.push(arg);
     }
-    return Ok(AddReport { added: Vec::new(), delegated });
+    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), delegated });
   }
   let client = client()?;
   let mut manifest = VendorManifest::read(app, &layout)?;
@@ -224,14 +228,47 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
   let mut imports = map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default();
   let mut added = Vec::new();
 
+  // A specifier the map does not already carry is left out rather than added:
+  // the manifest can name a package whose files this tree no longer holds.
+  let mut remapped = Vec::new();
+  for package in manifest.packages.values() {
+    for (specifier, rel) in &package.entries {
+      let want = format!("{}/{rel}", layout.base.trim_end_matches('/'));
+      if imports.get(specifier).and_then(|url| url.as_str()).is_some_and(|found| found != want) {
+        imports.insert(specifier.clone(), serde_json::Value::String(want.clone()));
+        remapped.push((specifier.clone(), want));
+      }
+    }
+  }
+
+  let shell = match crate::site_beside(app).and_then(|site| site.shell) {
+    Some(path) => Some((path.clone(), crate::ShellContract::read(&path)?)),
+    None => None,
+  };
+  let mut from_shell = Vec::new();
+  let mut wanted: Vec<&Spec> = Vec::new();
+  for spec in specs {
+    let served = shell.as_ref().and_then(|(path, contract)| contract.imports.get(&spec.specifier()).map(|url| (path, contract, url)));
+    let Some((path, contract, url)) = served else {
+      wanted.push(spec);
+      continue;
+    };
+    if contract.frameworks.get(&spec.package).is_some_and(|version| version != &spec.version) {
+      let shell = contract.frameworks[&spec.package].clone();
+      return Err(BuildError::ShellPinned { specifier: spec.specifier(), package: spec.package.clone(), wanted: spec.version.clone(), shell, contract: format!("`{}`", path.display()) });
+    }
+    imports.insert(spec.specifier(), serde_json::Value::String(url.clone()));
+    from_shell.push((spec.specifier(), url.clone()));
+  }
+
   // A package whose own root the import map answers, already or by the end of
   // this call, is shared rather than copied into every bundle that imports it.
   // A subpath alone does not share: `react-dom/client` without `react-dom` has
   // no module to point an import at.
   let mut shared: Vec<String> = manifest.packages.iter().filter(|(name, p)| p.entries.contains_key(*name)).map(|(name, _)| name.clone()).collect();
-  shared.extend(specs.iter().filter(|s| s.subpath.is_none()).map(|s| s.package.clone()));
+  shared.extend(wanted.iter().filter(|s| s.subpath.is_none()).map(|s| s.package.clone()));
 
-  for spec in specs {
+  for spec in &wanted {
     let mut external: Vec<&str> = externals.iter().map(String::as_str).collect();
     for package in &shared {
       let itself = package == &spec.package && spec.subpath.is_none();
@@ -299,7 +336,7 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   write_import_map(app, &layout, &map)?;
   manifest.write(app, &layout)?;
-  Ok(AddReport { added, delegated: Vec::new() })
+  Ok(AddReport { added, remapped, from_shell, delegated: Vec::new() })
 }
 
 #[cfg(test)]

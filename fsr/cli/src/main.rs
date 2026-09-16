@@ -600,6 +600,12 @@ fn run_add(args: Add) -> ExitCode {
       for (specifier, file, bytes) in report.added {
         println!("added     {specifier:<28} {file}  {bytes} bytes");
       }
+      for (specifier, url) in report.from_shell {
+        println!("shell     {specifier:<28} {url}");
+      }
+      for (specifier, url) in report.remapped {
+        println!("remapped  {specifier:<28} {url}");
+      }
       ExitCode::SUCCESS
     }
     Err(e) => failed(e),
