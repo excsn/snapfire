@@ -63,6 +63,9 @@ pub const PAYLOAD_ENCODINGS: &[&str] = &["json"];
 /// What a warm pass writes into the prerender directory and a boot reads back:
 /// every memoizable source's data under the key a request composes for it.
 pub const LOADS_FILE: &str = "loads.json";
+/// Beside the prerendered documents: every file the last run wrote, relative
+/// to the directory, which the next run removes before writing its own.
+pub const WRITTEN_FILE: &str = "prerendered.json";
 
 fn warm_to_json(warmed: &HashMap<String, Data>) -> String {
   let mut rows: Vec<(&String, &Data)> = warmed.iter().collect();
@@ -135,6 +138,60 @@ pub enum HostError {
   Leak(String),
   #[error("site `{0}`: {1}")]
   Mount(String, String),
+  #[error("`{0}`: paths: {1}")]
+  Paths(String, String),
+}
+
+/// `pattern` with each `{name}` or `{*name}` replaced by `set[name]`; every
+/// parameter must be present and no value may be empty.
+fn fill_pattern(pattern: &str, set: &Params) -> Result<String, HostError> {
+  let mut out = String::with_capacity(pattern.len());
+  let mut rest = pattern;
+  while let Some(open) = rest.find('{') {
+    out.push_str(&rest[..open]);
+    let Some(close) = rest[open..].find('}') else {
+      return Err(HostError::Paths(pattern.to_owned(), "an unclosed parameter in the pattern".to_owned()));
+    };
+    let name = rest[open + 1..open + close].trim_start_matches('*');
+    match set.get(name) {
+      Some(value) if !value.is_empty() => out.push_str(value),
+      Some(_) => return Err(HostError::Paths(pattern.to_owned(), format!("a set gives `{name}` an empty value"))),
+      None => return Err(HostError::Paths(pattern.to_owned(), format!("a set names no `{name}`: {}", set.keys().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", ")))),
+    }
+    rest = &rest[open + close + 1..];
+  }
+  out.push_str(rest);
+  Ok(out)
+}
+
+/// Removes every file the last prerender listed in `prerendered.json` under
+/// `out`, then the directories that emptied, then the list itself.
+fn clear_written(out: &Path) -> Result<(), HostError> {
+  let list = out.join(WRITTEN_FILE);
+  let Ok(text) = std::fs::read_to_string(&list) else {
+    return Ok(());
+  };
+  let files: Vec<String> = serde_json::from_str(&text).map_err(|e| HostError::Config(list.clone(), e.to_string()))?;
+  for rel in &files {
+    let file = out.join(rel);
+    match std::fs::remove_file(&file) {
+      Ok(()) => {}
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+      Err(e) => return Err(HostError::Io(file, e)),
+    }
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+      if d == out || std::fs::remove_dir(d).is_err() {
+        break;
+      }
+      dir = d.parent();
+    }
+  }
+  match std::fs::remove_file(&list) {
+    Ok(()) => Ok(()),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(e) => Err(HostError::Io(list, e)),
+  }
 }
 
 /// What the middleware decided for a request. `headers` join the response
@@ -403,9 +460,10 @@ impl std::fmt::Display for HostReport {
     {
       let label = if i == 0 { "prerender" } else { "" };
       let who = if anonymous { " for anonymous visitors" } else { "" };
+      let each = if self.app.paths.contains(pattern) { " per paths" } else { "" };
       match &self.prerender {
-        Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}{who}", dir.display())?,
-        None => writeln!(f, "{label:<9} {pattern:<22} not configured{who}")?,
+        Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}{who}{each}", dir.display())?,
+        None => writeln!(f, "{label:<9} {pattern:<22} not configured{who}{each}")?,
       }
     }
     for (i, source) in self.app.warmable.iter().enumerate() {
@@ -1349,15 +1407,20 @@ impl Host {
   /// per locale, anonymously, writing the document as `<out>/<path>/index.html`
   /// and the payload beside it as `index.payload`; `/` lands at the top of
   /// `out`. A locale other than the default lands under its tag,
-  /// `<out>/fr_FR/about/index.html`. Returns what was written, each path with
-  /// its prefix.
+  /// `<out>/fr_FR/about/index.html`. A route with a parameter is rendered once
+  /// per set its `paths` returns for the locale, at the path the set fills the
+  /// pattern to. Returns what was written, each path with its prefix.
   ///
   /// The warm pass runs first and its result replaces whatever an earlier one
   /// left, so a rerun writes documents from the loads it just took rather than
-  /// from the file it booted with.
+  /// from the file it booted with. Every file the last run wrote is removed
+  /// first, from the list it left in `prerendered.json`, so a path that
+  /// dropped out of `paths` is not served from a stale file; a file nothing
+  /// recorded is left alone.
   pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
     let t = self.tables();
     let mut written = Vec::new();
+    clear_written(out)?;
     let warmed = self.warm(&t).await?;
     t.warm.replace(warmed.clone());
     if !warmed.is_empty() {
@@ -1381,36 +1444,52 @@ impl Host {
         } else {
           out.join(&tag)
         };
-        let dir = root.join(pattern.trim_matches('/'));
-        std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
-        let served = if locale.is_default {
-          pattern.clone()
-        } else {
-          format!("/{tag}{}", pattern.trim_end_matches('/'))
+        let paths = match t.app.paths.get(&pattern) {
+          Some(enumerated) => {
+            let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), Params::new(), Params::new(), "/", locale.clone());
+            let sets = enumerated.paths(&ctx).await.map_err(|e| HostError::Paths(pattern.clone(), e.message))?;
+            sets.iter().map(|set| fill_pattern(&pattern, set)).collect::<Result<Vec<_>, _>>()?
+          }
+          None => vec![pattern.clone()],
         };
-        for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
-          let (plan, params) = self
-            .plan_for(&t, &pattern)
-            .ok_or_else(|| HostError::NotFound(pattern.clone()))?;
-          let chunks = self
-            .render_plan_with(
-              &t,
-              &plan,
-              params,
-              Params::new(),
-              mode,
-              Incoming::anonymous(SessionCell::default()),
-              &served,
-              &locale,
-              &t.head,
-            )
-            .await?;
-          let text: String = chunks.collect::<Vec<_>>().await.concat();
-          let file = dir.join(name);
-          std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
-          written.push((served.clone(), file));
+        for path in paths {
+          let dir = root.join(path.trim_matches('/'));
+          std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
+          let served = if locale.is_default {
+            path.clone()
+          } else {
+            format!("/{tag}{}", path.trim_end_matches('/'))
+          };
+          for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
+            let (plan, params) = self
+              .plan_for(&t, &path)
+              .ok_or_else(|| HostError::NotFound(path.clone()))?;
+            let chunks = self
+              .render_plan_with(
+                &t,
+                &plan,
+                params,
+                Params::new(),
+                mode,
+                Incoming::anonymous(SessionCell::default()),
+                &served,
+                &locale,
+                &t.head,
+              )
+              .await?;
+            let text: String = chunks.collect::<Vec<_>>().await.concat();
+            let file = dir.join(name);
+            std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
+            written.push((served.clone(), file));
+          }
         }
       }
+    }
+    if !written.is_empty() {
+      let listed: Vec<String> = written.iter().filter_map(|(_, file)| file.strip_prefix(out).ok()).map(|rel| rel.to_string_lossy().replace('\\', "/")).collect();
+      let file = out.join(WRITTEN_FILE);
+      std::fs::write(&file, serde_json::to_string_pretty(&listed).expect("a list of paths serializes")).map_err(|e| HostError::Io(file.clone(), e))?;
+      written.push((WRITTEN_FILE.to_owned(), file));
     }
     Ok(written)
   }
@@ -1464,7 +1543,8 @@ impl Host {
   }
 
   /// `anonymous` says the request carries no identity; a route prerendered
-  /// for anonymous visitors only serves its file then.
+  /// for anonymous visitors only serves its file then. The route is found by
+  /// matching, since a pattern with `paths` covers many files.
   fn prerendered_in(
     &self,
     t: &Tables,
@@ -1474,14 +1554,12 @@ impl Host {
     anonymous: bool,
   ) -> Option<String> {
     let dir = t.prerendered.as_ref()?;
-    if !anonymous
-      && t
-        .app
-        .prerenderable_anonymous
-        .iter()
-        .any(|pattern| pattern.trim_end_matches('/') == path.trim_end_matches('/'))
-    {
-      return None;
+    if !anonymous {
+      let matched = t.app.matcher.match_path(path).or_else(|| t.app.matcher.match_path(path.trim_end_matches('/')));
+      let pattern = matched.and_then(|m| t.app.patterns.get(m.entry.0 as usize));
+      if pattern.is_some_and(|pattern| t.app.prerenderable_anonymous.contains(pattern)) {
+        return None;
+      }
     }
     let root = if locale.is_default {
       dir.clone()

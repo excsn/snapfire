@@ -295,3 +295,51 @@ fn a_route_whose_only_request_reads_are_the_identity_prerenders_for_anonymous_vi
   assert_eq!(app.report.prerenderable, vec!["/posts".to_owned(), "/faq".to_owned()]);
   assert!(app.report.prerenderable_anonymous.is_empty());
 }
+
+const BLOG: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/blog", "plan": { "id": 0, "module": "routes/blog/page.tsx#default", "source": "blog" } },
+    { "pattern": "/blog/{slug}", "plan": { "id": 0, "module": "routes/blog/post/page.tsx#default", "source": "post" } }
+  ],
+  "sources": [
+    { "id": "blog", "owner": "lowered", "module": "routes/blog/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "posts", { "array": [ { "item": { "lit": { "str": "hello" } } }, { "item": { "lit": { "str": "world" } } } ] } ] } ] } } ] },
+    { "id": "post", "owner": "lowered", "module": "routes/blog/post/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "slug", { "param": "slug" } ] } ] } } ],
+      "paths": [ { "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "hello" } } ] } ] } }, { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "world" } } ] } ] } } ] } } ] }
+  ],
+  "actions": [],
+  "components": [
+    { "module": "routes/blog/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "text": "blog" } ] } } } },
+    { "module": "routes/blog/post/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "slug" ] } } ] } } } }
+  ]
+}"#;
+
+#[test]
+fn a_route_with_a_parameter_prerenders_when_its_loader_names_its_paths() {
+  let app = App::from_manifest(BLOG).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/blog".to_owned(), "/blog/{slug}".to_owned()], "{}", app.report);
+  assert_eq!(app.report.paths, vec!["/blog/{slug}".to_owned()]);
+  assert!(app.paths.contains_key("/blog/{slug}"));
+  assert_eq!(app.report.warmable, vec!["blog".to_owned()], "a source reading a parameter is rendered per set, never memoized by name");
+
+  let without = BLOG.replace(r#""paths": [ { "return""#, r#""unused": [ { "return""#);
+  let app = App::from_manifest(&without).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/blog".to_owned()], "a parameter with no paths stays live");
+  assert!(app.report.paths.is_empty());
+}
+
+#[test]
+fn a_paths_body_reading_the_request_is_refused() {
+  let reading = BLOG.replace(r#"{ "field": [ "slug", { "lit": { "str": "world" } } ] }"#, r#"{ "field": [ "slug", { "session": "last" } ] }"#);
+  let err = App::from_manifest(&reading).unwrap().build().err().expect("refused");
+  assert!(matches!(err, BindError::PathsReadRequest { ref loader } if loader == "post"), "{err}");
+}
+
+#[test]
+fn paths_on_a_route_with_no_parameter_is_refused() {
+  let fixed = BLOG.replace(r#""pattern": "/blog/{slug}""#, r#""pattern": "/blog/post""#);
+  let err = App::from_manifest(&fixed).unwrap().build().err().expect("refused");
+  assert!(matches!(err, BindError::PathsWithoutParameter { ref loader, ref pattern } if loader == "post" && pattern == "/blog/post"), "{err}");
+}

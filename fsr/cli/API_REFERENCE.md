@@ -214,7 +214,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### Extensions
 
 * Every `app/ext/*.ts`, sorted by name, is lowered with `ComponentSet::lower_extensions` before any route, so a native pair is declared before a body or a component calls it; each export is a `Report.extensions` row and one that does not lower fails the build with the lowerer's `Extension` error. `@ext/<name>` reaches the module from anywhere under the app; `ext/**/*` is in every generated tsconfig.
-* Loaders, metas, stores, actions, handlers and middleware are lowered through the same `ComponentSet`, so a body follows the imports it calls; a name the build cannot follow is the residue the lowerer gives, at the line.
+* Loaders, metas, stores, paths, actions, handlers and middleware are lowered through the same `ComponentSet`, so a body follows the imports it calls; a name the build cannot follow is the residue the lowerer gives, at the line.
 * A `body` extension on a component's render path fails the build with the lowerer's `Reach` error, never a `client` row.
 
 ### Elements
@@ -385,6 +385,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `UnknownInput { action: String, name: String }`
 * `ActionsWithoutPage(PathBuf)`, an `actions.ts` in a directory under `routes/` with no page.
 * `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)` and `SlotUndeclared { path: PathBuf, file: String, slot: String }`, from the slot and variant rules above.
+* `PathsOffPage(String)`: a `layout.loader.ts` or a slot's `page.loader.ts` exports `paths`, which only a route's page loader may. `PathsWithoutParameter { module, pattern }`: a page loader exports `paths` on a route whose pattern has no parameter.
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
 * `UnknownComponent { module: String }`, an island whose extension no framework claims.
 * `IslandImports { module: String, adapter: String, missing: String }`, the first registered module whose adapter the import map cannot supply, with the specifiers it lacks.

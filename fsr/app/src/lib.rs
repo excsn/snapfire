@@ -10,10 +10,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrSource, IrStore};
+use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, RequestCtx, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, RequestCtx, Runtime, TableResolver,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -59,6 +59,12 @@ pub enum BindError {
   MiddlewareOverridesNothing,
   #[error("the plan names react@{version}, a React whose markup this fsr does not write")]
   React { version: String },
+  #[error("`{loader}` exports `paths`, which reads the request; a parameter set is decided with nothing of a request behind it")]
+  PathsReadRequest { loader: String },
+  #[error("`{loader}` exports `paths` but its route `{pattern}` has no parameter to enumerate")]
+  PathsWithoutParameter { loader: String, pattern: String },
+  #[error("`{loader}` exports `paths` but sits on no route")]
+  PathsOffRoute { loader: String },
 }
 
 /// Who answers a name.
@@ -97,6 +103,9 @@ pub struct Report {
   /// request reads are the identity and calls that carry its token, so the
   /// host prerenders them and serves the file to visitors with no identity.
   pub prerenderable_anonymous: Vec<String>,
+  /// Patterns with a parameter whose page loader's `paths` names the sets
+  /// the host prerenders them for; each is also in one of the two lists above.
+  pub paths: Vec<String>,
   /// Sources whose load a build can run once and a request can then skip.
   pub warmable: Vec<String>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
@@ -155,14 +164,20 @@ pub struct App {
   /// The lowered components and their interpreter, for an island in server
   /// mode to step and render again; `None` when nothing was lowered.
   pub lowered: Option<Arc<IrEvaluator>>,
-  /// Patterns with no parameter whose every source is lowered and reads
-  /// nothing of the request, so one render serves every request.
+  /// Patterns whose every source is lowered and reads nothing of the request,
+  /// so one render serves every request. A pattern with a parameter is here
+  /// only when `paths` names its parameter sets.
   pub prerenderable: Vec<String>,
   /// Patterns whose only request reads are the identity, a page or layout's
   /// `identity` prop or a call through a client that carries the session's
   /// token: one anonymous render serves every anonymous request and a
   /// signed-in visitor is rendered live.
   pub prerenderable_anonymous: Vec<String>,
+  /// By pattern: the parameter sets a route with a parameter is prerendered
+  /// for, from its page loader's `paths`.
+  pub paths: HashMap<String, Arc<dyn Paths>>,
+  /// Every route's pattern, indexed by the entry the matcher answers with.
+  pub patterns: Vec<String>,
   /// Lowered sources reading nothing of the request beyond the identity, so
   /// one load answers every request (or every anonymous one). A build runs
   /// each once per locale and the memo answers from then on; which of the two
@@ -274,6 +289,8 @@ pub struct AppBuilder {
   /// By source id: metadata a Rust host describes a segment with.
   rust_metas: Vec<(String, Arc<dyn Metadata>)>,
   lowered_stores: Vec<(String, snapfire_fsr_ir::Body)>,
+  /// By source id: the page loader module's `paths` body.
+  lowered_paths: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
   lowered_components: Vec<(String, Component)>,
   contract: Option<Arc<Contract>>,
@@ -329,6 +346,7 @@ impl App {
       lowered_metas: Vec::new(),
       rust_metas: Vec::new(),
       lowered_stores: Vec::new(),
+      lowered_paths: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
       contract: None,
@@ -369,6 +387,10 @@ impl App {
       .lowered_sources()
       .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store)))
       .collect();
+    builder.lowered_paths = parsed
+      .lowered_sources()
+      .filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths)))
+      .collect();
     builder.lowered_actions = parsed
       .lowered_actions()
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
@@ -403,6 +425,7 @@ impl AppBuilder {
     self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));
     self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
     self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store))));
+    self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
     if !parsed.consts.is_empty() {
@@ -664,7 +687,7 @@ impl AppBuilder {
         None => Ok(()),
       }
     };
-    for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_stores) {
+    for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_stores).chain(&self.lowered_paths) {
       check(name, body)?;
     }
     for (id, _, body) in &self.lowered_actions {
@@ -718,7 +741,7 @@ impl AppBuilder {
     let path_readers: HashSet<String> = self
       .lowered_sources
       .iter()
-      .filter(|(_, body)| reads_path(body))
+      .filter(|(_, body)| reads_path(body) || reads_param(body))
       .map(|(name, _)| name.clone())
       .collect();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
@@ -855,6 +878,26 @@ impl AppBuilder {
     }
     let resolved = self.routes.resolved()?;
     let lowered = |name: &String| matches!(self.claimed.iter().rev().find(|(claimed, _)| claimed == name).map(|(_, o)| *o), Some(Owner::Lowered));
+    let mut paths: HashMap<String, Arc<dyn Paths>> = HashMap::new();
+    for (name, body) in std::mem::take(&mut self.lowered_paths) {
+      if !lowered(&name) {
+        continue;
+      }
+      if classify(&body, None, &self.bearer_services) != Static::Fixed {
+        return Err(BindError::PathsReadRequest { loader: name });
+      }
+      let on: Vec<&String> = resolved.iter().filter(|(_, plan, _)| declared_sources(plan).contains(&name)).map(|(pattern, _, _)| pattern).collect();
+      if on.is_empty() {
+        return Err(BindError::PathsOffRoute { loader: name });
+      }
+      let enumerated: Arc<dyn Paths> = Arc::new(IrPaths::new(name.clone(), body).with_interpreter(interpreter.clone()));
+      for pattern in on {
+        if !pattern.contains('{') {
+          return Err(BindError::PathsWithoutParameter { loader: name, pattern: pattern.clone() });
+        }
+        paths.insert(pattern.clone(), enumerated.clone());
+      }
+    }
     let warm_fixed: HashSet<String> = fixed_sources
       .iter()
       .filter(|n| lowered(n) && !path_readers.contains(*n))
@@ -870,7 +913,7 @@ impl AppBuilder {
     let prerenderable: Vec<String> = resolved
       .iter()
       .filter(|(pattern, plan, _)| {
-        !pattern.contains('{')
+        (!pattern.contains('{') || paths.contains_key(pattern))
           && declared_sources(plan).iter().all(|name| fixed_sources.contains(name) && lowered(name))
           && plan_reads_request_props(plan, &self.lowered_components) == Static::Fixed
       })
@@ -879,7 +922,7 @@ impl AppBuilder {
     let prerenderable_anonymous: Vec<String> = resolved
       .iter()
       .filter(|(pattern, plan, _)| {
-        !pattern.contains('{')
+        (!pattern.contains('{') || paths.contains_key(pattern))
           && !prerenderable.contains(pattern)
           && declared_sources(plan).iter().all(|name| anonymous_sources.contains(name) && lowered(name))
           && plan_reads_request_props(plan, &self.lowered_components) != Static::Dynamic
@@ -920,6 +963,7 @@ impl AppBuilder {
       middleware: middleware_owner,
       prerenderable: prerenderable.clone(),
       prerenderable_anonymous: prerenderable_anonymous.clone(),
+      paths: resolved.iter().map(|(p, _, _)| p).filter(|p| paths.contains_key(*p)).cloned().collect(),
       warmable: warmable.clone(),
       components,
       islands: self
@@ -933,6 +977,7 @@ impl AppBuilder {
 
     let mut matcher = MatchitMatcher::new();
     let mut resolver = TableResolver::new();
+    let patterns: Vec<String> = resolved.iter().map(|(p, _, _)| p.clone()).collect();
     for (index, (pattern, plan, _)) in resolved.into_iter().enumerate() {
       let entry = snapfire_fsr_runtime::EntryId(index as u32);
       matcher
@@ -979,6 +1024,8 @@ impl AppBuilder {
       intercepts,
       prerenderable,
       prerenderable_anonymous,
+      paths,
+      patterns,
       warmable,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
@@ -1040,6 +1087,19 @@ fn reads_path(body: &snapfire_fsr_ir::Body) -> bool {
   let mut found = false;
   body_visit(body, &mut |e| {
     if matches!(e, Expr::Path) {
+      found = true;
+    }
+  });
+  found
+}
+
+/// A body reading a route parameter. A prerender of a route with `paths`
+/// renders each parameter set once, so the classification calls that fixed;
+/// the memo is keyed by the source alone, so such a source is never memoized.
+fn reads_param(body: &snapfire_fsr_ir::Body) -> bool {
+  let mut found = false;
+  body_visit(body, &mut |e| {
+    if matches!(e, Expr::Param(_)) {
       found = true;
     }
   });
@@ -1111,8 +1171,9 @@ enum Static {
 
 /// `Static::Fixed` when the body reads nothing of the request, `Anonymous`
 /// when its only request reads are `identity` and calls through a service in
-/// `bearer`, `Dynamic` otherwise. A `meta` body's input is the loader's data,
-/// which is not the request.
+/// `bearer`, `Dynamic` otherwise. A route parameter is not a request read: a
+/// prerender supplies it and `reads_param` keeps such a source out of the
+/// memo. A `meta` body's input is the loader's data, which is not the request.
 fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, bearer: &[String]) -> Static {
   fn writes_session(body: &snapfire_fsr_ir::Body) -> bool {
     body.iter().any(|stmt| match stmt {
@@ -1126,7 +1187,7 @@ fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, 
     let mut class = Static::Fixed;
     body_visit(body, &mut |e| {
       let read = match e {
-        Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Now | Expr::Host => Static::Dynamic,
+        Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Now | Expr::Host => Static::Dynamic,
         Expr::Input if input_is_request => Static::Dynamic,
         Expr::Identity(_) => Static::Anonymous,
         Expr::Call { service, .. } if bearer.contains(service) => Static::Anonymous,

@@ -439,6 +439,17 @@ A route whose only request reads are the identity, a loader reading `identity.su
 assert_eq!(host.prerenderable_anonymous(), vec!["/posts".to_owned()]);
 ```
 
+A route with a parameter is prerendered when its page loader exports `paths`: the report says `per paths`, `prerender` runs the body once per locale and renders the route at every path the sets fill the pattern to, `/blog/hello` and `/blog/world` for `/blog/{slug}`. A path outside the set has no file and renders live. `App::paths` holds the body under the pattern and a set missing a parameter of the pattern fails the run with `HostError::Paths`.
+
+```rust
+assert!(host.prerenderable().contains(&"/blog/{slug}".to_owned()));
+host.prerender(&out).await?;
+assert!(host.prerendered("/blog/hello", RenderMode::Html).is_some());
+assert_eq!(host.prerendered("/blog/gone", RenderMode::Html), None);
+```
+
+`prerender` lists every file it wrote in `prerendered.json` at the top of the directory and removes those files and the directories they emptied before it writes again, so a set dropped from `paths` leaves no stale page behind. A file nothing recorded is left alone.
+
 `fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
 
 ## Warming the Loads a Route Cannot Prerender

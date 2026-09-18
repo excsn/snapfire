@@ -20,7 +20,7 @@ use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
 use crate::hoist::{self, Candidates, Hook, Rewrite};
-use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
+use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, lower_paths_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
 use snapfire_fsr_ir::Body;
 
 /// The cursor over one application: parsed files, finished components and the
@@ -115,6 +115,11 @@ impl ComponentSet {
   /// The loader module's `store`, when it exports one.
   pub fn lower_store(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
     self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, "store"))
+  }
+
+  /// The page loader module's `paths`, when it exports one.
+  pub fn lower_paths(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_paths_in(parsed, defaults, resolved))
   }
 
   pub fn lower_actions(&mut self, file: &str) -> Result<Vec<LoweredAction>, LowerError> {
@@ -2231,7 +2236,8 @@ mod tests {
   use super::*;
 
   fn app(files: &[(&str, &str)]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("fsr_component_{}_{}", std::process::id(), files.len() + files[0].1.len()));
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!("fsr_component_{}_{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     let _ = std::fs::remove_dir_all(&dir);
     for (name, source) in files {
       let path = dir.join(name);

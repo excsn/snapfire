@@ -575,6 +575,43 @@ fn a_loaders_store_export_lowers_beside_its_meta() {
 }
 
 #[test]
+fn a_page_loaders_paths_export_lowers_on_a_route_with_a_parameter_and_nowhere_else() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", PAGE),
+    ("routes/blog/[slug]/page.tsx", PAGE),
+    (
+      "routes/blog/[slug]/page.loader.ts",
+      "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/blog/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => [{ slug: \"hello\" }, { slug: \"world\" }];\n",
+    ),
+  ]);
+  let plan = plan_json(&dir);
+  let post = plan["sources"].as_array().unwrap().iter().find(|s| s["id"] == "blog.$slug").expect("the post is a source");
+  let first = &post["paths"][0]["return"]["array"][0]["item"]["object"][0]["field"];
+  assert_eq!(first[0], "slug", "{post}");
+  assert_eq!(first[1]["lit"]["str"], "hello", "{post}");
+  std::fs::remove_dir_all(&dir).unwrap();
+
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", PAGE),
+    ("routes/index/page.loader.ts", "export async function load() {\n  return { n: 1 };\n}\nexport const paths = () => [{}];\n"),
+  ]);
+  let err = build(&dir, &Options::default()).err().expect("refused");
+  assert!(matches!(err, BuildError::PathsWithoutParameter { ref pattern, .. } if pattern == "/index"), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
+
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/layout.loader.ts", "export async function load() {\n  return { n: 1 };\n}\nexport const paths = () => [{}];\n"),
+    ("routes/index/page.tsx", PAGE),
+  ]);
+  let err = build(&dir, &Options::default()).err().expect("refused");
+  assert!(matches!(err, BuildError::PathsOffPage(ref module) if module == "routes/layout.loader.ts"), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),

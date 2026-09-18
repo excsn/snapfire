@@ -154,6 +154,9 @@ pub struct SourceEntry {
   /// The module's `store`, seeding the browser's store from this source's data.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store: Option<Body>,
+  /// The module's `paths`, naming the parameter sets a route with a parameter prerenders.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub paths: Option<Body>,
 }
 
 impl SourceEntry {
@@ -167,6 +170,7 @@ impl SourceEntry {
       body: Some(body),
       meta: None,
       store: None,
+      paths: None,
     }
   }
 
@@ -180,8 +184,13 @@ impl SourceEntry {
     self
   }
 
+  pub fn with_paths(mut self, paths: Option<Body>) -> Self {
+    self.paths = paths;
+    self
+  }
+
   pub fn rust(id: impl Into<String>) -> Self {
-    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None }
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None, paths: None }
   }
 }
 
@@ -657,7 +666,7 @@ impl Manifest {
             row["pattern"] = serde_json::Value::String(under(at, &pattern));
           }
         }
-        for field in ["body", "meta", "store"] {
+        for field in ["body", "meta", "store", "paths"] {
           if let Some(body) = row.get_mut(field) {
             namespace_body(body, &prefix);
           }

@@ -50,6 +50,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Parallel lets](#parallel-lets)
 * [6. Runtime Adapters](#6-runtime-adapters)
   * [IrSource](#irsource)
+  * [IrPaths](#irpaths)
   * [IrAction](#iraction)
 * [7. Error Handling](#7-error-handling)
   * [Fail](#fail)
@@ -391,6 +392,14 @@ A body answering a data source id. Implements `snapfire_fsr_runtime::DataSource`
 * `IrSource::new(id: impl Into<String>, body: Body) -> IrSource`
 * `IrSource::with_interpreter(self, interpreter: Interpreter) -> IrSource`
 * `load` runs the body with no input and returns the `Value::Map` it returned as `Data`. A non-map return or a `Fail` is a `LoadError` carrying the id and the message.
+
+### IrPaths
+
+A lowered `paths` naming the parameter sets a route prerenders. Implements `snapfire_fsr_runtime::Paths`.
+
+* `IrPaths::new(source_id: impl Into<String>, body: Body) -> IrPaths`
+* `IrPaths::with_interpreter(self, interpreter: Interpreter) -> IrPaths`
+* `paths` runs the body with no input and reads the `Value::Seq` it returned as one `Params` per `Value::Map`, a string or a number per key. A non-list return, an entry that is not an object, a value of another kind or a `Fail` is a `LoadError` carrying the id and the message.
 
 ### IrAction
 

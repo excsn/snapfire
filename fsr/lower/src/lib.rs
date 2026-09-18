@@ -235,6 +235,14 @@ pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) ->
   lower_of_data(file, source, defaults, "store")
 }
 
+/// Lowers the exported `paths` of a page loader module when there is one: a
+/// function of the context returning the parameter sets the route
+/// prerenders, one object per path. `None` when the module exports no `paths`.
+pub fn lower_paths_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError> {
+  let parsed = parse(file, source)?;
+  lower_paths_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+}
+
 /// An export whose input is the loader's data, bound as `data`.
 fn lower_of_data(file: &str, source: &str, defaults: &SessionDefaults, export: &str) -> Result<Option<Body>, LowerError> {
   let parsed = parse(file, source)?;
@@ -242,14 +250,25 @@ fn lower_of_data(file: &str, source: &str, defaults: &SessionDefaults, export: &
 }
 
 pub(crate) fn lower_of_data_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved, export: &str) -> Result<Option<Body>, Unresolved> {
+  lower_optional_export_in(parsed, defaults, resolved, export, true)
+}
+
+pub(crate) fn lower_paths_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Option<Body>, Unresolved> {
+  lower_optional_export_in(parsed, defaults, resolved, "paths", false)
+}
+
+/// An optional exported function of one parameter: the loader's data as
+/// `data` when `of_data`, the context otherwise.
+fn lower_optional_export_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved, export: &str, of_data: bool) -> Result<Option<Body>, Unresolved> {
   let Some(exported) = parsed.exports().find_map(|(name, decl)| (name == export).then_some(decl)) else { return Ok(None) };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
-  lowerer.meta = true;
+  lowerer.meta = of_data;
+  let takes = if of_data { "`{ data }`" } else { "the context" };
   let result = match exported {
     Exported::Function(first, body) => lowerer.bind_ctx(first).and_then(|()| lowerer.block(body)),
     Exported::Expr(first, expr) => lowerer.bind_ctx(first).and_then(|()| lowerer.expr(expr)).map(|e| vec![Stmt::Return(e)]),
     Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`{export}` is {what}")).into(), None)),
-    Exported::Action { .. } | Exported::BadAction(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of `{{ data }}`")).into(), None)),
+    Exported::Action { .. } | Exported::BadAction(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of {takes}")).into(), None)),
   };
   result.map(Some).map_err(|r| (r.into(), lowerer.unbound.take()))
 }

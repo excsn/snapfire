@@ -15,6 +15,7 @@ pub(super) fn source_to_sx(row: &SourceEntry) -> Sx {
   rest.extend(body_form("body", &row.body));
   rest.extend(body_form("meta", &row.meta));
   rest.extend(body_form("store", &row.store));
+  rest.extend(body_form("paths", &row.paths));
   form("source", rest)
 }
 
@@ -58,6 +59,7 @@ pub(super) fn source_from_sx(items: &[Sx]) -> Res<SourceEntry> {
     body: None,
     meta: None,
     store: None,
+    paths: None,
   };
   for (head, values) in sections(items, 3)? {
     match head.as_str() {
@@ -67,6 +69,7 @@ pub(super) fn source_from_sx(items: &[Sx]) -> Res<SourceEntry> {
       "body" => row.body = Some(body_of(&values)?),
       "meta" => row.meta = Some(body_of(&values)?),
       "store" => row.store = Some(body_of(&values)?),
+      "paths" => row.paths = Some(body_of(&values)?),
       other => return Err(err(format!("`{other}` is not a source section"))),
     }
   }

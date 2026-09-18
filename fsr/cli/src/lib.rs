@@ -90,6 +90,10 @@ pub enum BuildError {
   SlotWithoutPage(PathBuf),
   #[error("{0}: a slot holds one `page.tsx` and no routes beneath it")]
   SlotRoute(PathBuf),
+  #[error("{0} exports `paths`, which only a page loader may: a layout or a slot has no parameter set of its own")]
+  PathsOffPage(String),
+  #[error("{module} exports `paths` but its route `{pattern}` has no parameter to enumerate")]
+  PathsWithoutParameter { module: String, pattern: String },
   #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
   SlotUndeclared { path: PathBuf, file: String, slot: String },
   #[error("handler `{handler}` names input type `{name}`, which no schema under schemas/ declares")]
@@ -544,6 +548,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let body = set.lower_loader(&loader_module)?;
       let meta = set.lower_meta(&loader_module)?;
       let store = set.lower_store(&loader_module)?;
+      if set.lower_paths(&loader_module)?.is_some() {
+        return Err(BuildError::PathsOffPage(loader_module));
+      }
       sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
       report.sources.push((id.clone(), loader_module));
       Some(id.clone())
@@ -571,6 +578,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         let body = set.lower_loader(&loader_module)?;
         let meta = set.lower_meta(&loader_module)?;
         let store = set.lower_store(&loader_module)?;
+        if set.lower_paths(&loader_module)?.is_some() {
+          return Err(BuildError::PathsOffPage(loader_module));
+        }
         sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
         report.sources.push((slot_id.clone(), loader_module));
         Some(slot_id.clone())
@@ -631,7 +641,11 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let body = set.lower_loader(&module)?;
       let meta = set.lower_meta(&module)?;
       let store = set.lower_store(&module)?;
-      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store));
+      let paths = set.lower_paths(&module)?;
+      if paths.is_some() && !route.pattern.contains('{') {
+        return Err(BuildError::PathsWithoutParameter { module, pattern: route.pattern.clone() });
+      }
+      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store).with_paths(paths));
       report.sources.push((route.id.clone(), module));
       Some(route.id.clone())
     } else {

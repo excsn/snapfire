@@ -34,6 +34,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Resolved`](#resolved)
   * [`Meta`](#meta)
   * [`Metadata`](#metadata)
+  * [`Paths`](#paths)
   * [`Head`](#head)
 * [7. Segments](#7-segments)
   * [`SegmentKeyer`](#segmentkeyer)
@@ -318,6 +319,12 @@ Segment information produced inside a resolution is discarded; a deferred subtre
 `pub trait Metadata: Send + Sync`. Registered on the runtime under a data source id.
 
 * `fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>>`: `data` is what that source loaded for the request.
+
+### `Paths`
+
+`pub trait Paths: Send + Sync`. The parameter sets a route with a parameter is prerendered for. The runtime holds none itself: an app registers one under the route's pattern and a host asks it once per locale, with a context that carries the locale and nothing of a request.
+
+* `fn paths(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Vec<Params>, LoadError>>`: one `Params` per path, each naming every parameter of the pattern.
 
 ### `Head`
 

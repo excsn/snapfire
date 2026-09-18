@@ -1,4 +1,5 @@
 (plan 2)
+(framework react 18.3.1)
 (route /
   (node 0
     shell#document
@@ -74,6 +75,20 @@
     (act "desk.save" next)
     (do side))
   (store
+    (let n $props)
+    (if ok ((ret "yes")))
+    (if ok ((ret "yes")) ((ret "no")))
+    (for-of row rows (do row))
+    (for-of row rows)
+    (ret out)
+    (guard missing NotFound "no such order")
+    (session-set cart ("items") next)
+    (session-set cart () next)
+    (session-del cart ("items"))
+    (session-del cart ())
+    (act "desk.save" next)
+    (do side))
+  (paths
     (let n $props)
     (if ok ((ret "yes")))
     (if ok ((ret "yes")) ((ret "no")))
@@ -208,6 +223,7 @@
 (const src/x.ts#c8 (input))
 (const src/x.ts#c9 (now))
 (component routes/page.tsx#default
+  (shadow closed delegatesfocus clonable serializable)
   (state count open)
   (body
     (let n $props)

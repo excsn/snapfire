@@ -75,6 +75,20 @@ Every segment on the route may export one and they merge outermost first, so a p
 
 The storefront's root layout seeds the cart's total and the header shows it. Nothing passes it down: the header is a component inside the layout's island, the buy button is in the page's and the number they agree on is the key. [Chapter 102](102-components-the-server-renders.md) is how a component reads and writes it.
 
+## The loader names the paths a parameter takes
+
+A route with a parameter renders per request, since nothing says which values the parameter takes. When the set is known at build, the page loader says so with a `paths` export, a function returning one object per path:
+
+```ts
+export async function load({ params }: Ctx<"/blog/{slug}">) {
+  return { post: POSTS.find((p) => p.slug === params.slug) };
+}
+
+export const paths = () => POSTS.map((p) => ({ slug: p.slug }));
+```
+
+`fsr prerender` runs it once per locale and writes the route at each path, so every post is a file and a slug outside the set still renders live. The body may read the locale and call a service, since a set can come from a backend as well as a constant; reading the request is refused at build. A `paths` belongs to a page loader on a route with a parameter and nowhere else. [Chapter 300](300-the-build-and-the-dev-loop.md) has what prerendering covers.
+
 ## The loader knows the locale
 
 With a `[locales]` section in the configuration, every request has a locale before anything runs: the path prefix, `/fr_FR/about`, then the cookie, then `Accept-Language`, then the default, which serves unprefixed. The prefix is stripped before the route matches, so no route carries a locale segment and the loader reads `locale` beside `params`. A component reads `useLocale()`, which the build lowers, so the server renders what the browser hydrates against. A link is served as written: `/fr_FR/help` is French, `/help` is whatever the request resolves to.

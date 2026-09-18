@@ -4072,3 +4072,121 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
   assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
   assert!(json["message"].as_str().unwrap_or("").contains("renders the slot `content`"), "{json}");
 }
+
+const BLOG_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/blog", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/blog/page.tsx#default", "source": "blog" } } ] } },
+    { "pattern": "/blog/{slug}", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/blog/post/page.tsx#default", "source": "post" } } ] } },
+    { "pattern": "/me/{slug}", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/me/page.tsx#default", "source": "mine" } } ] } }
+  ],
+  "sources": [
+    { "id": "blog", "owner": "lowered", "module": "routes/blog/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "posts", { "array": [ { "item": { "lit": { "str": "hello" } } }, { "item": { "lit": { "str": "world" } } } ] } ] } ] } } ] },
+    { "id": "post", "owner": "lowered", "module": "routes/blog/post/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "slug", { "param": "slug" } ] } ] } } ],
+      "paths": [ { "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "hello" } } ] } ] } }, { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "world" } } ] } ] } } ] } } ] },
+    { "id": "mine", "owner": "lowered", "module": "routes/me/page.loader.ts",
+      "body": [ { "return": { "object": [
+        { "field": [ "slug", { "param": "slug" } ] },
+        { "field": [ "who", { "coalesce": [ { "identity": [ "subject" ] }, { "lit": { "str": "anonymous" } } ] } ] } ] } } ],
+      "paths": [ { "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "a" } } ] } ] } } ] } } ] }
+  ],
+  "actions": [],
+  "components": [
+    { "module": "routes/blog/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "text": "blog" } ] } } } },
+    { "module": "routes/blog/post/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "text": "post " }, { "expr": { "field": [ { "var": "$props" }, "slug" ] } } ] } } } },
+    { "module": "routes/me/page.tsx#default", "body": { "render": { "element": { "tag": "p", "children": [ { "expr": { "field": [ { "var": "$props" }, "who" ] } }, { "text": " at " }, { "expr": { "field": [ { "var": "$props" }, "slug" ] } } ] } } } }
+  ]
+}"#;
+
+fn blog_dir() -> PathBuf {
+  let dir = identified_dir(USERS);
+  write_plan(&dir, BLOG_PLAN);
+  dir
+}
+
+#[tokio::test]
+async fn a_route_with_paths_is_prerendered_once_per_set_per_locale() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let host = Host::from(blog_dir().join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  assert_eq!(host.prerenderable(), vec!["/blog".to_owned(), "/blog/{slug}".to_owned()], "{}", host.report());
+  assert_eq!(host.prerenderable_anonymous(), vec!["/me/{slug}".to_owned()]);
+  assert!(host.report().to_string().contains("/blog/{slug}") && host.report().to_string().contains("per paths"), "{}", host.report());
+
+  let written = host.prerender(&out).await.unwrap();
+  let served: Vec<&str> = written.iter().map(|(p, _)| p.as_str()).collect();
+  for path in ["/blog", "/blog/hello", "/blog/world", "/fr_FR/blog/hello", "/fr_FR/blog/world", "/me/a"] {
+    assert_eq!(served.iter().filter(|p| **p == path).count(), 2, "a document and a payload for {path}: {served:?}");
+  }
+  assert!(!served.contains(&"/blog/{slug}"), "{served:?}");
+  assert!(out.join("blog/hello/index.html").is_file());
+  assert!(out.join("fr_FR/blog/world/index.payload").is_file());
+  assert!(out.join(snapfire_fsr_host::WRITTEN_FILE).is_file());
+  assert!(host.prerendered("/blog/world", RenderMode::Html).unwrap().contains("world</h1>"));
+  assert_eq!(host.prerendered("/blog/nope", RenderMode::Html), None, "a slug outside the set has no file");
+
+  let response = host.handle(Request::get("/blog/hello").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").unwrap(), "1");
+  assert!(body_of(response).await.contains("hello</h1>"));
+  let response = host.handle(Request::get("/blog/nope").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-prerendered").is_none(), "a slug outside the set renders live");
+  assert!(body_of(response).await.contains("nope</h1>"));
+  let _ = std::fs::remove_dir_all(&out);
+}
+
+#[tokio::test]
+async fn an_identified_visitor_on_an_expanded_anonymous_route_renders_live() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let host = Host::from(blog_dir().join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  host.prerender(&out).await.unwrap();
+  let host = Arc::new(host);
+
+  let response = host.handle(Request::get("/me/a").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").unwrap(), "1");
+  assert!(body_of(response).await.contains("anonymous"));
+
+  let response = host.handle(Request::get("/auth/login?return_to=/me/a").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let response = host
+    .handle(
+      Request::post("/auth/callback")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from("user=alice&password=wonder"))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  let response = host.handle(Request::get("/me/a").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-prerendered").is_none(), "a signed-in visitor is rendered live");
+  assert!(body_of(response).await.contains("alice"));
+  let response = host.handle(Request::get("/blog/hello").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").unwrap(), "1", "a route reading nothing serves its file to everyone");
+  let _ = std::fs::remove_dir_all(&out);
+}
+
+#[tokio::test]
+async fn a_set_dropped_from_paths_leaves_no_file_behind() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let dir = blog_dir();
+  let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  host.prerender(&out).await.unwrap();
+  assert!(out.join("blog/world/index.html").is_file());
+  std::fs::write(out.join("blog/keep.txt"), "mine").unwrap();
+
+  let mut json: serde_json::Value = serde_json::from_str(BLOG_PLAN).unwrap();
+  json["sources"][1]["paths"] = serde_json::json!([{ "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "hello" } } ] } ] } } ] } }]);
+  write_plan_value(&dir, json);
+  let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  host.prerender(&out).await.unwrap();
+  assert!(out.join("blog/hello/index.html").is_file());
+  assert!(!out.join("blog/world").exists(), "the dropped set's directory is gone");
+  assert!(!out.join("fr_FR/blog/world").exists());
+  assert_eq!(std::fs::read_to_string(out.join("blog/keep.txt")).unwrap(), "mine", "a file the run never wrote survives");
+  assert_eq!(host.prerendered("/blog/world", RenderMode::Html), None);
+  let _ = std::fs::remove_dir_all(&out);
+}

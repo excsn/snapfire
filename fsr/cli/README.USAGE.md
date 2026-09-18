@@ -10,6 +10,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Writing a Loader](#writing-a-loader)
   * [Titling the Document](#titling-the-document)
   * [Seeding the Store](#seeding-the-store)
+  * [Naming the Paths](#naming-the-paths)
 * [Writing a Layout](#writing-a-layout)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Writing Actions](#writing-actions)
@@ -170,6 +171,22 @@ export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/cou
 A body test runs it the way it runs `meta`: `const seeded = store({ data })`, then an assertion on the key.
 
 Every segment on the route may export one, merged outermost first, so a page wins a key its layout also sets. The keys are literal strings here, since a `store` body runs before any component and follows no imports. `useStore` in a component is how the browser reads and writes them and the client package's guide has the rest.
+
+### Naming the Paths
+
+A route with a parameter renders per request, since nothing says which values the parameter takes. A page loader under such a route may export `paths`, a function of the context returning one object per path, each naming every parameter of the pattern:
+
+```ts
+import { POSTS } from "../../../src/content";
+
+export async function load({ params }: Ctx<"/blog/{slug}">) {
+  return { post: POSTS.find((p) => p.slug === params.slug) };
+}
+
+export const paths = () => POSTS.map((p) => ({ slug: p.slug }));
+```
+
+`fsr prerender` runs it once per locale and renders the route at each path it returns, so `/blog/hello` and `/blog/world` are files while `/blog/anything-else` still renders live. The body may read the locale and call a service; reading `params`, `query`, `session`, `identity` or `now` is refused at build, since the set is decided with nothing of a request behind it. A `paths` on a route with no parameter or in a layout or slot loader is refused as well. `load` reading `params` keeps the route prerenderable when `paths` is beside it, because every render has a concrete set; such a loader is never memoized by name, since one name answers many paths.
 
 ## Writing a Layout
 
@@ -859,7 +876,17 @@ fsr prerender app
 fsr prerender app --out build/static
 ```
 
-A route qualifies when its pattern has no parameter and every loader on its tree is lowered and reads no `params`, `query`, `session`, `input` or `now`. Reading `locale` keeps it qualified, since the render per locale answers it. A Rust source disqualifies its route and so does a page or layout on it reading its `csrf_token` prop. Reading `identity` in a loader or as a page's prop keeps the route qualified for anonymous visitors. So does calling a client whose `bearer` is set. The report says `for anonymous visitors`, the file serves everyone with no identity and a signed-in visitor is rendered live. An editor previewing unpublished content is that: signed in, with the loader's call carrying their token.
+A route qualifies when every loader on its tree is lowered and reads no `query`, `session`, `input` or `now` and its pattern has no parameter or has one that the page loader's `paths` enumerates. Reading `locale` keeps it qualified, since the render per locale answers it. Reading `params` keeps it qualified too: a route with `paths` renders once per set and a route without one is out on its pattern alone. A Rust source disqualifies its route and so does a page or layout on it reading its `csrf_token` prop. Reading `identity` in a loader or as a page's prop keeps the route qualified for anonymous visitors. So does calling a client whose `bearer` is set. The report says `for anonymous visitors`, the file serves everyone with no identity and a signed-in visitor is rendered live. An editor previewing unpublished content is that: signed in, with the loader's call carrying their token.
+
+A blog is the shape this is for. Its index and its tag list have no parameter and prerender as they are. Its post page under `routes/blog/[slug]/` exports `paths` beside `load`, so the command renders `/blog/{slug}` at each slug the export returns and the report says so:
+
+```
+prerender /blog                  dist/prerender
+          /blog/tags             dist/prerender
+          /blog/{slug}           dist/prerender per paths
+```
+
+Every file the command wrote is listed in `prerendered.json` beside the documents and the next run removes those before it writes, so a post dropped from `paths` is not served from its old file. A file the command did not write is left where it is.
 
 The same pass also warms loads, which is what an application with no qualifying route gets out of it. One layout reading the session makes every route under it dynamic however fixed the pages are, so the command applies the test per loader as well: a loader reading nothing of the request is run once per locale and written to `loads.json` beside the documents, whatever its route does. The report lists those under `warm`, the host reads the file at boot and a request that reaches such a loader takes its data instead of calling the backend. Reading `path` disqualifies a loader here though not a route, since a layout's loader answers every route beneath it; reading `identity` warms the anonymous case alone. A request never adds to the file, so rerunning the command is what refreshes it.
 

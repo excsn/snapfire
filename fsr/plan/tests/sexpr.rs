@@ -270,6 +270,7 @@ fn every_manifest() -> Manifest {
         body: Some(body.clone()),
         meta: Some(body.clone()),
         store: Some(body.clone()),
+        paths: Some(body.clone()),
       },
       SourceEntry::rust("declared"),
     ],
@@ -462,7 +463,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
     prop::collection::vec((text(), node()), 0..3),
     prop::collection::vec(
       (text(), owner(), prop::option::of(text()), prop::option::of(text()), prop::option::of(text()),
-       prop::option::of(small_body()), prop::option::of(small_body()), prop::option::of(small_body())),
+       prop::option::of(small_body()), prop::option::of(small_body()), prop::option::of(small_body()), prop::option::of(small_body())),
       0..3,
     ),
     prop::collection::vec(
@@ -483,10 +484,10 @@ fn manifest() -> BoxedStrategy<Manifest> {
       routes: routes.into_iter().map(|(pattern, plan)| RouteEntry { pattern, plan }).collect(),
       sources: sources
         .into_iter()
-        .map(|(id, owner, module, export, reason, body, meta, store)| SourceEntry {
+        .map(|(id, owner, module, export, reason, body, meta, store, paths)| SourceEntry {
           // a `lowered` row must carry a body, which is what the reader checks
           owner: if body.is_none() && owner == RowOwner::Lowered { RowOwner::Rust } else { owner },
-          id, module, export, reason, body, meta, store,
+          id, module, export, reason, body, meta, store, paths,
         })
         .collect(),
       actions: actions

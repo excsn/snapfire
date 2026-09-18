@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use futures_util::stream;
-use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
-use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, HeadEl, LoadError, Meta, Metadata, NodeChunks, RequestCtx, Seeds};
+use snapfire_fsr_core::{Data, ModuleId, Node, Params, SlotName, Value};
+use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, HeadEl, LoadError, Meta, Metadata, NodeChunks, Paths, RequestCtx, Seeds};
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
@@ -226,6 +226,60 @@ impl Seeds for IrStore {
         Value::Map(map) => Ok(map),
         other => Err(LoadError { source_id: id, message: format!("store must return an object, got {}", kind_name(&other)) }),
       }
+    })
+  }
+}
+
+/// A lowered `paths` naming the parameter sets a route prerenders. It must
+/// return a list of objects, one per path, each holding every parameter of
+/// the route's pattern as a string or a number.
+pub struct IrPaths {
+  source_id: String,
+  body: Arc<Body>,
+  interpreter: Interpreter,
+}
+
+impl IrPaths {
+  pub fn new(source_id: impl Into<String>, body: Body) -> Self {
+    Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  }
+
+  pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
+    self.interpreter = interpreter;
+    self
+  }
+}
+
+impl Paths for IrPaths {
+  fn paths(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Vec<Params>, LoadError>> {
+    let id = self.source_id.clone();
+    let body = self.body.clone();
+    let interpreter = self.interpreter.clone();
+    let ctx = ctx.clone();
+    Box::pin(async move {
+      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+      let Value::Seq(items) = outcome.value else {
+        return Err(LoadError { source_id: id, message: format!("paths must return a list, got {}", kind_name(&outcome.value)) });
+      };
+      let fail = |message: String| LoadError { source_id: id.clone(), message };
+      let mut out = Vec::with_capacity(items.len());
+      for item in items.iter() {
+        let Value::Map(fields) = item else {
+          return Err(fail(format!("a paths entry must be an object, got {}", kind_name(item))));
+        };
+        let mut params = Params::new();
+        for (key, value) in fields.iter() {
+          let text = match value {
+            Value::Str(s) => s.to_string(),
+            Value::Int(n) => n.to_string(),
+            Value::F64(n) => n.to_string(),
+            other => return Err(fail(format!("paths `{key}` must be a string or a number, got {}", kind_name(other)))),
+          };
+          params.insert(key.clone(), text);
+        }
+        out.push(params);
+      }
+      Ok(out)
     })
   }
 }
