@@ -13,7 +13,6 @@ const TEMPLATE: &[(&str, &str)] = &[
   ("app/importmap.json", include_str!("../templates/new/app/importmap.json")),
   ("app/src/main.ts", include_str!("../templates/new/app/src/main.ts")),
   ("app/routes/layout.tsx", include_str!("../templates/new/app/routes/layout.tsx")),
-  ("app/routes/layout.react.tsx", include_str!("../templates/new/app/routes/layout.react.tsx")),
   ("app/routes/page.loader.ts", include_str!("../templates/new/app/routes/page.loader.ts")),
   ("app/routes/page.tsx", include_str!("../templates/new/app/routes/page.tsx")),
   ("app/routes/not-found.tsx", include_str!("../templates/new/app/routes/not-found.tsx")),
@@ -103,15 +102,8 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
 
   let mut created = Created::default();
 
-  let react = options.with.iter().any(|d| d == "react");
   let htmx = options.with.iter().any(|d| d == "htmx");
   for (path, contents) in TEMPLATE {
-    let path = match *path {
-      "app/routes/layout.tsx" if react => continue,
-      "app/routes/layout.react.tsx" if !react => continue,
-      "app/routes/layout.react.tsx" => "app/routes/layout.tsx",
-      other => other,
-    };
     let contents = contents
       .replace("{{name}}", &name)
       .replace("{{site}}", &site_section)

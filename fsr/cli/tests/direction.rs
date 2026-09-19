@@ -36,6 +36,9 @@ fn a_direction_writes_the_adapters_line_and_names_what_it_would_vendor() {
   let dir = bare(&[]);
   let adopted = adopt(&dir, &["vue".to_owned()], offline()).unwrap();
   assert_eq!(adopted.mapped, vec![("@snapfire/fsr-client/vue".to_owned(), "/static/js/fsr/vue.js".to_owned())]);
+  let react = adopt(&dir, &["react".to_owned()], offline()).unwrap();
+  assert_eq!(react.mapped, vec![("@snapfire/fsr-client/react".to_owned(), "/static/js/fsr/react.js".to_owned()), ("@snapfire/fsr-authoring/template".to_owned(), "/static/js/fsr/template.js".to_owned())]);
+  assert!(react.edits.is_empty(), "a portable layout needs no edit: {:?}", react.edits);
   assert_eq!(imports(&dir)["@snapfire/fsr-client/vue"], "/static/js/fsr/vue.js");
   assert_eq!(imports(&dir)["@snapfire/fsr-client/std"], "/static/js/fsr/std.js", "the other lines survive");
   assert_eq!(adopted.next, vec![format!("fsr add {} vue@3.5.13", dir.display()), format!("fsr types {}", dir.display()), format!("fsr build {}", dir.display())]);
@@ -51,7 +54,7 @@ fn adopting_twice_changes_nothing() {
   let before = std::fs::read(dir.join("importmap.json")).unwrap();
   let again = adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   assert!(again.mapped.is_empty(), "{:?}", again.mapped);
-  assert_eq!(again.present, ["@snapfire/fsr-client/react", "@snapfire/fsr-client/htmx"]);
+  assert_eq!(again.present, ["@snapfire/fsr-client/react", "@snapfire/fsr-authoring/template", "@snapfire/fsr-client/htmx"]);
   assert_eq!(again.kept, ["react", "react/jsx-runtime", "react-dom/client", "htmx.org"]);
   assert!(!again.next.iter().any(|s| s.starts_with("fsr add")), "nothing is left to vendor: {:?}", again.next);
   assert_eq!(std::fs::read(dir.join("importmap.json")).unwrap(), before);

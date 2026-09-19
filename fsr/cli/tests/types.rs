@@ -38,6 +38,8 @@ fn the_tsconfig_maps_every_typed_package_and_includes_ambient_entries() {
   assert!(ts.contains("\"@snapfire/fsr-client\": [\"./types/@snapfire/fsr-client/index.d.ts\"]"), "{ts}");
   assert!(!ts.contains("\"sweetalert2\": ["), "an ambient entry is not path-mapped: {ts}");
   assert!(ts.contains("\"types/sweetalert2/sweetalert2.d.ts\"]"), "it is included instead: {ts}");
+  assert!(ts.contains("\"@snapfire/fsr-authoring/template\": [\"./types/@snapfire/fsr-authoring/template.react\"]"), "with react served the dialect's module is typed through React: {ts}");
+  assert!(!ts.contains("jsxImportSource"), "{ts}");
   assert!(ts.contains("\"strict\": true"));
   assert!(ts.contains("\"include\": [\"generated/**/*\", \"types/sweetalert2/sweetalert2.d.ts\"]"), "only the directories the app has, plus generated when the build is writing it: {ts}");
 
@@ -73,3 +75,14 @@ fn the_foreign_shim_comes_from_the_sources_and_the_placements_and_lands_under_ty
   assert!(!dir.join("types/foreign.d.ts").exists(), "a stale shim is taken away");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn without_react_the_dialect_types_its_own_module() {
+  let dir = app();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/z"}}"#).unwrap();
+  let ts = tsconfig(&dir, true, false).unwrap();
+  assert!(ts.contains("\"jsxImportSource\": \"@snapfire/fsr-authoring\""), "{ts}");
+  assert!(!ts.contains("template.react"), "{ts}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+

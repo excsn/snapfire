@@ -185,6 +185,17 @@ impl ComponentSet {
   }
 
   /// Every file with a rewrite, with its rewritten source.
+  /// Whether `module`'s file imports a value from `source`. A `file#export`
+  /// module is asked about its file.
+  pub fn imports_value_from(&self, module: &str, source: &str) -> bool {
+    let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
+    let Some(parsed) = self.parsed.get(file) else { return false };
+    parsed.module.body.iter().any(|item| match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => !import.type_only && import.src.value.to_atom_lossy().as_ref() == source && import.specifiers.iter().any(|spec| !matches!(spec, js::ImportSpecifier::Named(named) if named.is_type_only)),
+      _ => false,
+    })
+  }
+
   pub fn rewritten(&self) -> Vec<(String, String)> {
     let mut files: Vec<&str> = Vec::new();
     for rewrite in &self.rewrites {

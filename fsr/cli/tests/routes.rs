@@ -915,3 +915,25 @@ fn a_page_tera_is_refused_by_an_fsr_built_without_the_feature() {
   assert!(matches!(err, BuildError::TemplateFeature(_)), "{err}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_mounted_page_placing_the_dialects_link_needs_the_template_module_mapped() {
+  const PAGE: &str = "import { useState } from \"react\";\nimport { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  const [n, set] = useState(0);\n  return <section><button onClick={() => set(n + 1)}>{n}</button><Link href=\"/\">home</Link></section>;\n}\n";
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  assert_eq!(fails(&dir).to_string(), "`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-authoring/template`; `fsr use <app dir> react` writes it");
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","@snapfire/fsr-authoring/template":"/t","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("registerIsland(\"routes/page.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_static_page_on_the_dialect_needs_no_template_line() {
+  const PAGE: &str = "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  return <Link href=\"/\">home</Link>;\n}\n";
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  assert!(built.report.components.iter().any(|(module, _, detail)| module == "routes/page.tsx#default" && detail == "static"), "{}", built.report);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+

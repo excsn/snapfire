@@ -222,6 +222,19 @@ async fn a_body_over_the_limit_is_refused_before_anything_reads_it() {
 }
 
 #[tokio::test]
+async fn the_client_serves_the_dialects_template_entry() {
+  let (host, _) = host();
+  let response = host
+    .handle(Request::get("/static/js/fsr/template.js").body(Bytes::new()).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  let text = std::str::from_utf8(&body).unwrap();
+  assert!(text.contains("from \"./react.js\"") && text.contains("Island") && text.contains("Link"), "{text}");
+  assert!(snapfire_fsr_host::client::TYPES.iter().any(|(name, _)| *name == "template.d.ts"));
+}
+
+#[tokio::test]
 async fn the_edge_serves_static_files_actions_and_pages_with_a_session_cookie() {
   let (host, _) = host();
 

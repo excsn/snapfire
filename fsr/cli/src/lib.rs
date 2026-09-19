@@ -946,7 +946,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     None => native::Natives::default(),
   };
   let registry = islands_module(&islands, &static_modules, &defines, options)?;
-  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines)?;
+  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &set)?;
   files.extend([
     ("generated/native.d.ts".to_owned(), native::declarations(&natives)),
     ("generated/services.d.ts".to_owned(), declarations),
@@ -1601,13 +1601,19 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
 /// registry imports and the specifiers that adapter imports, looked up in the
 /// app's map and, for a site, the shell's. An app with no readable map has
 /// nothing to check against.
-fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String]) -> Result<(), BuildError> {
+fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String], set: &ComponentSet) -> Result<(), BuildError> {
   let Some(served) = served_specifiers(app, layout, shell) else {
     return Ok(());
   };
   let mut checked: Vec<&str> = Vec::new();
   for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
     let adapter = adapter_for(module)?;
+    let remedy = || crate::direction::for_adapter(adapter.module).map(|d| format!("; `fsr use <app dir> {}` writes it", d.name)).unwrap_or_default();
+    // The dialect's placements have the React module as their runtime, so a
+    // mounted module importing them needs the map to say so.
+    if set.imports_value_from(module, TEMPLATE_SPECIFIER) && !resolves(&served, TEMPLATE_SPECIFIER) {
+      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing: format!("`{TEMPLATE_SPECIFIER}`"), remedy: remedy() });
+    }
     if checked.contains(&adapter.module) {
       continue;
     }
@@ -1618,12 +1624,15 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
         true => last.clone(),
         false => format!("{} or {last}", rest.join(", ")),
       };
-      let remedy = crate::direction::for_adapter(adapter.module).map(|d| format!("; `fsr use <app dir> {}` writes it", d.name)).unwrap_or_default();
-      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing, remedy });
+      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing, remedy: remedy() });
     }
   }
   Ok(())
 }
+
+/// The dialect's template module, whose placements a mounted module loads
+/// from the client's `template.js`.
+const TEMPLATE_SPECIFIER: &str = "@snapfire/fsr-authoring/template";
 
 /// Every specifier the app's import map serves, its scopes included, plus the
 /// shell's for a site. `None` when the app has no readable map.

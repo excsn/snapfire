@@ -37,6 +37,7 @@ const FSR_CLIENT: &[(&str, &str)] = snapfire_fsr_host::client::TYPES;
 const FSR_AUTHORING: &[(&str, &str)] = &[
   ("index.d.ts", include_str!("../embedded/authoring/index.d.ts")),
   ("template.d.ts", include_str!("../embedded/authoring/template.d.ts")),
+  ("template.react.d.ts", include_str!("../embedded/authoring/template.react.d.ts")),
   ("jsx-runtime.d.ts", include_str!("../embedded/authoring/jsx-runtime.d.ts")),
 ];
 
@@ -540,7 +541,11 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
   // Templates are JSX. An application with React reads them as React
   // components, since its browser mounts the ones with state that way; one
   // without React reads them through the dialect's own declarations.
-  let jsx_source = match serves_react(app, &layout)? {
+  let react = serves_react(app, &layout)?;
+  if react {
+    paths.push(("@snapfire/fsr-authoring/template".to_owned(), format!("./{types}/@snapfire/fsr-authoring/template.react")));
+  }
+  let jsx_source = match react {
     true => String::new(),
     false => "    \"jsxImportSource\": \"@snapfire/fsr-authoring\",\n".to_owned(),
   };

@@ -50,6 +50,7 @@ fn with_adopts_each_direction_after_the_template() {
   let created = create(&root, NewOptions { with: vec!["react".to_owned(), "htmx".to_owned()], ..offline() }).unwrap();
   let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("app/importmap.json")).unwrap()).unwrap();
   assert_eq!(map["imports"]["@snapfire/fsr-client/react"], "/static/js/fsr/react.js");
+  assert_eq!(map["imports"]["@snapfire/fsr-authoring/template"], "/static/js/fsr/template.js");
   assert_eq!(map["imports"]["@snapfire/fsr-client/htmx"], "/static/js/fsr/htmx.js");
   assert!(map["imports"].get("@snapfire/fsr-client/vue").is_none(), "{map}");
   let add = created.next.iter().find(|s| s.starts_with("fsr add")).expect("the vendoring step is named offline");
@@ -57,8 +58,7 @@ fn with_adopts_each_direction_after_the_template() {
   let main = std::fs::read_to_string(root.join("app/src/main.ts")).unwrap();
   assert!(main.contains("import htmx from \"htmx.org\";") && main.ends_with("enableNavigation();\nbindHtmx(htmx);\n"), "{main}");
   let layout = std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap();
-  assert!(layout.contains("from \"@snapfire/fsr-client/react\"") && layout.contains("ReactNode"), "a React scaffold types its layout through React: {layout}");
-  assert!(!root.join("app/routes/layout.react.tsx").exists());
+  assert!(layout.contains("from \"@snapfire/fsr-authoring/template\""), "the one layout is the portable one: {layout}");
   assert!(created.next.last().unwrap().starts_with("fsr dev"), "{:?}", created.next);
 }
 

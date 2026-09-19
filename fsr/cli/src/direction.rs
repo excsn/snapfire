@@ -16,9 +16,9 @@ pub const HTMX: &str = "2.0.10";
 
 pub struct Direction {
   pub name: &'static str,
-  /// The client entry under `@snapfire/fsr-client/` the import map names;
+  /// Specifier and the file under the client route the import map names;
   /// a direction with no browser half maps nothing.
-  pub entry: Option<&'static str>,
+  pub maps: &'static [(&'static str, &'static str)],
   pub(crate) adapter: Option<&'static Adapter>,
   /// Package, version and subpath of every module the direction vendors.
   pub vendors: &'static [(&'static str, &'static str, Option<&'static str>)],
@@ -29,27 +29,31 @@ pub struct Direction {
 }
 
 pub const DIRECTIONS: &[Direction] = &[
-  Direction { name: "react", entry: Some("react"), adapter: Some(&crate::REACT), vendors: &[("react", REACT, None), ("react", REACT, Some("jsx-runtime")), ("react-dom", REACT, Some("client"))], edits: &[("routes/layout.tsx", "import Link, Island and Slot from \"@snapfire/fsr-client/react\" and type children as ReactNode from \"react\"; the same in every route file placing them, since React's JSX types them")] },
-  Direction { name: "vue", entry: Some("vue"), adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], edits: &[] },
-  Direction { name: "elements", entry: Some("elements"), adapter: None, vendors: &[], edits: &[] },
+  Direction {
+    name: "react",
+    maps: &[("@snapfire/fsr-client/react", "react.js"), ("@snapfire/fsr-authoring/template", "template.js")],
+    adapter: Some(&crate::REACT),
+    vendors: &[("react", REACT, None), ("react", REACT, Some("jsx-runtime")), ("react-dom", REACT, Some("client"))],
+    edits: &[],
+  },
+  Direction { name: "vue", maps: &[("@snapfire/fsr-client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], edits: &[] },
+  Direction { name: "elements", maps: &[("@snapfire/fsr-client/elements", "elements.js")], adapter: None, vendors: &[], edits: &[] },
   Direction {
     name: "htmx",
-    entry: Some("htmx"),
+    maps: &[("@snapfire/fsr-client/htmx", "htmx.js")],
     adapter: None,
     vendors: &[("htmx.org", HTMX, None)],
     edits: &[("src/main.ts", "import htmx from \"htmx.org\";"), ("src/main.ts", "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";"), ("src/main.ts", "bindHtmx(htmx); after enableNavigation()")],
   },
   #[cfg(feature = "tera")]
-  Direction { name: "tera", entry: None, adapter: None, vendors: &[], edits: &[] },
+  Direction { name: "tera", maps: &[], adapter: None, vendors: &[], edits: &[] },
 ];
 
 impl Direction {
-  pub fn specifier(&self) -> Option<String> {
-    self.entry.map(|entry| format!("@snapfire/fsr-client/{entry}"))
-  }
-
-  pub fn url(&self) -> Option<String> {
-    self.entry.map(|entry| format!("{}/{entry}.js", snapfire_fsr_host::client::ROUTE))
+  /// Each import map line the direction writes: the specifier and its URL
+  /// under the host's client route.
+  pub fn lines(&self) -> Vec<(String, String)> {
+    self.maps.iter().map(|(specifier, file)| ((*specifier).to_owned(), format!("{}/{file}", snapfire_fsr_host::client::ROUTE))).collect()
   }
 
   pub fn specs(&self) -> Vec<Spec> {
@@ -204,29 +208,36 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
   Ok(adopted)
 }
 
-/// Writes `@snapfire/fsr-client/<entry>` into the map. An entry already at the
-/// host's URL is left alone; one pointing anywhere else is refused, since the
-/// adapter the build registers is the one the host serves.
+/// Writes the direction's lines into the map. A line already at the host's
+/// URL is left alone; one pointing anywhere else is refused, since the module
+/// the build registers is the one the host serves.
 fn write_map(app: &Path, layout: &Layout, direction: &Direction, adopted: &mut Adopted) -> Result<(), BuildError> {
-  let (Some(specifier), Some(want)) = (direction.specifier(), direction.url()) else {
+  let lines = direction.lines();
+  if lines.is_empty() {
     return Ok(());
-  };
+  }
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default();
-  match imports.get(&specifier).and_then(|v| v.as_str()) {
-    Some(found) if found == want => {
-      adopted.present.push(specifier);
-      return Ok(());
+  let mut written = false;
+  for (specifier, want) in lines {
+    match imports.get(&specifier).and_then(|v| v.as_str()) {
+      Some(found) if found == want => {
+        adopted.present.push(specifier);
+        continue;
+      }
+      Some(found) => {
+        return Err(BuildError::AdapterUrl { map: format!("`{}`", app.join(&layout.importmap).display()), specifier, found: found.to_owned(), want });
+      }
+      None => {}
     }
-    Some(found) => {
-      return Err(BuildError::AdapterUrl { map: format!("`{}`", app.join(&layout.importmap).display()), specifier, found: found.to_owned(), want });
-    }
-    None => {}
+    imports.insert(specifier.clone(), serde_json::Value::String(want.clone()));
+    adopted.mapped.push((specifier, want));
+    written = true;
   }
-  imports.insert(specifier.clone(), serde_json::Value::String(want.clone()));
-  map.insert("imports".to_owned(), serde_json::Value::Object(imports));
-  vendor::write_import_map(app, layout, &map)?;
-  adopted.mapped.push((specifier, want));
+  if written {
+    map.insert("imports".to_owned(), serde_json::Value::Object(imports));
+    vendor::write_import_map(app, layout, &map)?;
+  }
   Ok(())
 }
 

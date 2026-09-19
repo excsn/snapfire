@@ -136,7 +136,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 
 ## 1. Entry Points
 
-Six ES module entry points, resolved through an import map. There is no package manifest and no default export.
+Seven ES module entry points, resolved through an import map. There is no package manifest and no default export.
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
@@ -146,8 +146,9 @@ Six ES module entry points, resolved through an import map. There is no package 
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
+| `@snapfire/fsr-authoring/template` | `dist/template.js` | `Island`, `island`, `Link`, `Slot`, re-exported from the React entry | `react`, through the React entry |
 
-The core entry imports nothing outside the package, so a page that mounts no React islands never loads React.
+The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the runtime behind the dialect's placements for a page the browser mounts; the `react` direction maps the specifier to it and a page that never hydrates never loads it.
 
 `dist/` is produced by `snapfirec` from `tsconfig.json` (`target: es2022`, `rootDir: src`, `outDir: dist`, `sourceMap`, `declaration`). `importmap.json` in the package root is the map `--import-map` checks the bare imports against.
 

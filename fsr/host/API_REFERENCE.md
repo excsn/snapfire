@@ -154,7 +154,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/static/js/fsr`, unless a `StaticRoot` claims that prefix.
 
 * `pub const ROUTE: &str`, the prefix; `pub const MEDIA_TYPE: &str`, what a module is served as.
-* `pub const FILES: &[(&str, &str)]`: every module by file name, `index.js` through `values.js`. `pub const TYPES: &[(&str, &str)]`: the matching declarations, which `fsr types` writes into an application.
+* `pub const FILES: &[(&str, &str)]`: every module by file name, `index.js` through `values.js`, `template.js` among them. `pub const TYPES: &[(&str, &str)]`: the matching declarations, which `fsr types` writes into an application.
 * `pub fn get(name: &str) -> Option<&'static str>`: one module by file name. A name holding `/` or `\\` matches nothing, so the prefix is the whole of what it answers.
 * `pub fn bytes() -> usize`: what the modules come to. `pub fn write_to(dir: &Path) -> std::io::Result<Vec<PathBuf>>`: writes them into `dir`, which is what `fsr bundle` does.
 
