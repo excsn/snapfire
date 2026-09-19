@@ -779,6 +779,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   currentPath = `${url.pathname}${url.search}`;
   if (openSlot === null) {
     documentPath = currentPath;
+    markLinks();
     if (options.scroll !== false) scrollToFragment(url.hash);
   }
   announce();
@@ -788,6 +789,26 @@ export async function navigate(href: string, push = true, options: NavigateOptio
 /** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */
 export function currentDocumentPath(): string {
   return documentPath;
+}
+
+/** The mark an anchor carries on `path`, by the rule its `data-sf-link` names: `page` where its href is the page being shown, `true` where the page is under a `prefix` link, `null` where neither. The href is read as written, so one carrying a query or a fragment never matches; the path a request matched holds neither. */
+function markOf(anchor: Element, path: string): string | null {
+  const href = anchor.getAttribute("href");
+  if (href === null) return null;
+  const prefix = anchor.getAttribute("data-sf-link") === "prefix";
+  if (href === path) return prefix ? "true" : "page";
+  return prefix && path.startsWith(`${href}/`) ? "true" : null;
+}
+
+/** Brings every `<a data-sf-link>` under `root` to the page the document is showing. The server writes the mark at first paint; this keeps it right across a navigation, which re-renders the page segment and leaves the layout holding the nav alone. */
+export function markLinks(root: ParentNode = document): void {
+  const cut = documentPath.indexOf("?");
+  const path = cut === -1 ? documentPath : documentPath.slice(0, cut);
+  for (const anchor of Array.from(root.querySelectorAll("a[data-sf-link]"))) {
+    const mark = markOf(anchor, path);
+    if (mark === null) anchor.removeAttribute("aria-current");
+    else anchor.setAttribute("aria-current", mark);
+  }
 }
 
 /** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
@@ -847,7 +868,10 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   document.addEventListener("focusin", warm);
   document.addEventListener("touchstart", warm, { passive: true });
   watchLinks(document);
-  document.addEventListener("sf:fill", () => watchLinks(document));
+  document.addEventListener("sf:fill", () => {
+    watchLinks(document);
+    markLinks();
+  });
   window.addEventListener("popstate", () => {
     void navigate(window.location.pathname + window.location.search + window.location.hash, false);
   });

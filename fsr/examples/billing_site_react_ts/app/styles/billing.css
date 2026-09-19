@@ -15,7 +15,20 @@
 }
 
 .billing-nav a {
+  padding: 4px 8px;
+  border-radius: 6px;
   color: #1f6feb;
+  text-decoration: none;
+}
+
+.billing-nav a:hover {
+  background: #eef3fc;
+}
+
+.billing-nav a[aria-current] {
+  background: #1f6feb;
+  color: #fff;
+  font-weight: 600;
 }
 
 .billing-who {

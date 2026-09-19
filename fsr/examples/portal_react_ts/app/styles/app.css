@@ -68,6 +68,15 @@ code {
   color: var(--accent);
 }
 
+.topnav a[aria-current] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.topnav a[aria-current="page"] {
+  font-weight: 600;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

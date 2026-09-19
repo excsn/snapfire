@@ -657,6 +657,7 @@ export async function navigate(href, push = true, options = {}) {
     currentPath = `${url.pathname}${url.search}`;
     if (openSlot === null) {
         documentPath = currentPath;
+        markLinks();
         if (options.scroll !== false) scrollToFragment(url.hash);
     }
     announce();
@@ -664,6 +665,22 @@ export async function navigate(href, push = true, options = {}) {
 }
 export function currentDocumentPath() {
     return documentPath;
+}
+function markOf(anchor, path) {
+    const href = anchor.getAttribute("href");
+    if (href === null) return null;
+    const prefix = anchor.getAttribute("data-sf-link") === "prefix";
+    if (href === path) return prefix ? "true" : "page";
+    return prefix && path.startsWith(`${href}/`) ? "true" : null;
+}
+export function markLinks(root = document) {
+    const cut = documentPath.indexOf("?");
+    const path = cut === -1 ? documentPath : documentPath.slice(0, cut);
+    for (const anchor of Array.from(root.querySelectorAll("a[data-sf-link]"))){
+        const mark = markOf(anchor, path);
+        if (mark === null) anchor.removeAttribute("aria-current");
+        else anchor.setAttribute("aria-current", mark);
+    }
 }
 export function localePath(to, from) {
     const path = from ?? documentPath ?? "";
@@ -722,7 +739,10 @@ export function enableNavigation(options = {}) {
         passive: true
     });
     watchLinks(document);
-    document.addEventListener("sf:fill", ()=>watchLinks(document));
+    document.addEventListener("sf:fill", ()=>{
+        watchLinks(document);
+        markLinks();
+    });
     window.addEventListener("popstate", ()=>{
         void navigate(window.location.pathname + window.location.search + window.location.hash, false);
     });

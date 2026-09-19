@@ -1,6 +1,6 @@
 import { type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { MountTiming, Mounter, Patcher, type Props, type Unmounter } from "./boot.js";
-import type { PrefetchTiming } from "./navigator.js";
+import { type PrefetchTiming } from "./navigator.js";
 import { type StoreKey } from "./store.js";
 export interface IslandProps {
 	/** When the island hydrates: immediately, when scrolled into view or when the main thread is idle. Defaults to the registry's timing, else "load". */
@@ -59,9 +59,11 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 	native?: boolean;
 	/** Whether a segment whose key changed but whose module did not is morphed in place, keeping the islands its new markup places again, rather than replaced. Left out, the navigator keeps them when only the query changes. */
 	keep?: boolean;
+	/** When the link is marked `aria-current`: `"exact"`, the default, on the page its `href` names; `"prefix"` on that page and anything under it; `"none"` never. An `href` carrying a query or a fragment never matches. */
+	match?: "exact" | "prefix" | "none";
 }
-/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes. */
-export declare function Link({ full, into, prefetch, native, keep, ...rest }: LinkProps): ReactElement;
+/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes and `match` as the `data-sf-link` the navigator re-reads after each navigation. */
+export declare function Link({ full, into, prefetch, native, keep, match, ...rest }: LinkProps): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
 export type Hoisted = {
 	readonly [key: string]: unknown;

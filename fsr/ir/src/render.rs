@@ -234,6 +234,9 @@ impl Interpreter {
     if let Some(Value::Str(tag)) = props.get("locale") {
       env.ctx.locale = snapfire_fsr_runtime::Locale::new(tag.clone(), false);
     }
+    if let Some(Value::Str(path)) = props.get(snapfire_fsr_runtime::PATH_PROP) {
+      env.ctx.path = path.to_string();
+    }
     env.hoists = Some(Hoists::new(module));
     env
   }

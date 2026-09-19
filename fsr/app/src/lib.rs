@@ -1265,6 +1265,7 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
   };
   let module = node.module.to_string();
   let mut keys = Vec::new();
+  let mut path = false;
   match components.iter().find(|(name, _)| *name == module) {
     None => class = Static::Dynamic,
     Some((_, component)) => {
@@ -1275,16 +1276,19 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
       }
       let mut seen = HashSet::new();
       store_keys_read(&module, components, &mut seen, &mut keys);
+      let mut seen = HashSet::new();
+      path = renders_path(&module, components, &mut seen);
     }
   }
   for (_, child) in &node.children {
     let below = subtree_reads(child, source_class, components, reads);
     class = class.max(below.class);
     keys.extend(below.store_keys);
+    path = path || below.path;
   }
   keys.sort();
   keys.dedup();
-  let out = SubtreeReads { class, store_keys: keys };
+  let out = SubtreeReads { class, store_keys: keys, path };
   reads.insert(subtree_shape(node), out.clone());
   out
 }
@@ -1353,6 +1357,27 @@ fn store_keys_read(module: &str, components: &[(String, Component)], seen: &mut 
   for module in placed {
     store_keys_read(&module, components, seen, out);
   }
+}
+
+/// Whether `module`, or a component it places, renders the path the request
+/// matched. A `<Link>` does, to mark itself the page being shown.
+fn renders_path(module: &str, components: &[(String, Component)], seen: &mut HashSet<String>) -> bool {
+  if !seen.insert(module.to_owned()) {
+    return false;
+  }
+  let Some((_, component)) = components.iter().find(|(name, _)| name == module) else { return false };
+  let mut found = false;
+  component.visit(&mut |e| {
+    if matches!(e, Expr::Path) {
+      found = true;
+    }
+  });
+  if found {
+    return true;
+  }
+  let mut placed = Vec::new();
+  placed_modules(&component.render, &mut placed);
+  placed.iter().any(|module| renders_path(module, components, seen))
 }
 
 fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {

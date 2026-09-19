@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use snapfire_fsr_ir::ast::{Builtin, Component, Consts, Entry, Expr, Handler, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
@@ -1931,6 +1931,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// client library: an `<a>` carrying the data attributes the navigator reads.
   fn link_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     let mut attrs = Vec::new();
+    let mut href = None;
+    let mut rule = Some(Match::Exact);
+    let mut marked = false;
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -1947,7 +1950,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         attrs.push(Entry::Field("style".to_owned(), self.style(attr)?));
         continue;
       }
+      if raw == "match" {
+        rule = self.link_match(attr)?;
+        continue;
+      }
       let value = self.attr_value(attr)?;
+      if raw == "href" {
+        href = Some(value.clone());
+      }
+      if raw == "aria-current" {
+        marked = true;
+      }
       let (name, value) = match raw.as_str() {
         "full" => ("data-sf-full", value),
         "into" => ("data-sf-into", value),
@@ -1958,8 +1971,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       };
       attrs.push(Entry::Field(name.to_owned(), value));
     }
+    if let (Some(rule), Some(href), false) = (rule, href, marked) {
+      attrs.extend(active_attrs(rule, href));
+    }
     let children = self.children(&el.children)?;
     Ok(Tmpl::Element { tag: "a".to_owned(), attrs, children })
+  }
+
+  /// A `Link`'s `match`, which says when the navigator calls it the current
+  /// page. `None` is `"none"`: the link is never marked.
+  fn link_match(&mut self, attr: &'p js::JSXAttr) -> Lowered<Option<Match>> {
+    match self.attr_value(attr)? {
+      Expr::Lit(Lit::Str(rule)) if rule == "exact" => Ok(Some(Match::Exact)),
+      Expr::Lit(Lit::Str(rule)) if rule == "prefix" => Ok(Some(Match::Prefix)),
+      Expr::Lit(Lit::Str(rule)) if rule == "none" => Ok(None),
+      _ => Err(self.lowerer.residue(attr.span, "a `<Link>`'s `match` is \"exact\", \"prefix\" or \"none\", written out")),
+    }
   }
 
   fn island_timing(&self, value: Expr, span: Span) -> Lowered<String> {
@@ -3077,6 +3104,35 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
+  fn a_link_carries_the_rule_that_marks_it_current_and_the_mark_itself() {
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <p><Link href=\"/billing\">a</Link><Link href=\"/billing\" match=\"prefix\">b</Link><Link href=\"/billing\" match=\"none\">c</Link><Link href=\"/billing\" aria-current=\"page\">d</Link></p>;\n}\n")];
+    let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
+    let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
+    let attrs = |i: usize| match &children[i] {
+      Tmpl::Element { attrs, .. } => attrs.clone(),
+      other => panic!("{other:?}"),
+    };
+    let exact = attrs(0);
+    assert_eq!(exact[1], Entry::Field("data-sf-link".to_owned(), Expr::lit_str("exact")));
+    let hit = Expr::Compare(CompareOp::Eq, Box::new(Expr::Path), Box::new(Expr::lit_str("/billing")));
+    assert_eq!(exact[2], Entry::Field("aria-current".to_owned(), Expr::Ternary(Box::new(hit), Box::new(Expr::lit_str("page")), Box::new(Expr::Lit(Lit::Null)))));
+    let prefix = attrs(1);
+    assert_eq!(prefix[1], Entry::Field("data-sf-link".to_owned(), Expr::lit_str("prefix")));
+    assert!(matches!(&prefix[2], Entry::Field(name, Expr::Ternary(cond, hit, _)) if name == "aria-current" && matches!(**cond, Expr::Logic(LogicOp::Or, ..)) && **hit == Expr::lit_str("true")), "{:?}", prefix[2]);
+    assert_eq!(attrs(2).len(), 1, "`match=\"none\"` leaves the anchor alone: {:?}", attrs(2));
+    let written = attrs(3);
+    assert_eq!(written.len(), 2, "an `aria-current` the author wrote stands: {written:?}");
+    assert_eq!(written[1], Entry::Field("aria-current".to_owned(), Expr::lit_str("page")));
+  }
+
+  #[test]
+  fn a_link_with_a_computed_match_is_residue() {
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <Link href=\"/x\" match={on ? \"prefix\" : \"none\"}>a</Link>;\n}\n")];
+    let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("written out"), "{err}");
+  }
+
+  #[test]
   fn an_early_return_lowers_to_the_conditional_a_ternary_lowers_to() {
     let early = "export default function P({ live, steps }: { live: boolean; steps: number }) {\n  const count = steps + 1;\n  if (steps === 0) return null;\n  if (live) {\n    return <button>open</button>;\n  }\n  return <p>{count}</p>;\n}\n";
     let ternary = "export default function P({ live, steps }: { live: boolean; steps: number }) {\n  const count = steps + 1;\n  return steps === 0 ? null : live ? <button>open</button> : <p>{count}</p>;\n}\n";
@@ -3106,6 +3162,52 @@ export default function Order({ id }: { id: number }) {
     let err = lower(&timing, "routes/b/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("written out"), "{err}");
   }
+}
+
+/// When a `Link` points at the page being shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Match {
+  /// That path alone.
+  Exact,
+  /// That path and anything under it.
+  Prefix,
+}
+
+impl Match {
+  fn marker(self) -> &'static str {
+    match self {
+      Match::Exact => "exact",
+      Match::Prefix => "prefix",
+    }
+  }
+
+  /// The `aria-current` a hit writes. A section link takes `true` rather than
+  /// `page` so that a nav marking both the section and the page inside it
+  /// still names one page.
+  fn current(self) -> &'static str {
+    match self {
+      Match::Exact => "page",
+      Match::Prefix => "true",
+    }
+  }
+}
+
+/// The two attributes an active link carries: the rule, which the navigator
+/// reads to keep the mark right after a navigation the layout does not
+/// re-render for and `aria-current` for the page the request is on. An
+/// `href` carrying a query or a fragment never matches, since the path the
+/// request matched holds neither.
+fn active_attrs(rule: Match, href: Expr) -> [Entry; 2] {
+  let hit = Expr::Compare(CompareOp::Eq, Box::new(Expr::Path), Box::new(href.clone()));
+  let hit = match rule {
+    Match::Exact => hit,
+    Match::Prefix => {
+      let under = Expr::Builtin { name: Builtin::StartsWith, args: vec![Expr::Path, Expr::Template(vec![href, Expr::lit_str("/")])] };
+      Expr::Logic(LogicOp::Or, Box::new(hit), Box::new(under))
+    }
+  };
+  let current = Expr::Ternary(Box::new(hit), Box::new(Expr::lit_str(rule.current())), Box::new(Expr::Lit(Lit::Null)));
+  [Entry::Field("data-sf-link".to_owned(), Expr::lit_str(rule.marker())), Entry::Field("aria-current".to_owned(), current)]
 }
 
 /// A `Link`'s `keep` as the navigator reads it: `"true"` or `"false"`, since a

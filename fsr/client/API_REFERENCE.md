@@ -77,6 +77,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [setLocale](#setlocale)
   * [catalog, setCatalog and adoptCatalog](#catalog-setcatalog-and-adoptcatalog)
   * [adoptLocale](#adoptlocale)
+  * [markLinks](#marklinks)
   * [currentDocumentPath](#currentdocumentpath)
   * [localePath](#localepath)
 * [10. The React Mounter](#10-the-react-mounter)
@@ -706,6 +707,12 @@ The page the document is showing, under locale `to`: its path with the current l
 
 A path already under the current prefix has it swapped rather than stacked, so `/fr_FR/help` to `en_US` is `/en_US/help`. A query is carried. The result is always prefixed, including for the default locale, which is what remembers the choice.
 
+### markLinks
+
+* `markLinks(root?: ParentNode): void`
+
+Brings every `<a data-sf-link>` under `root`, the document by default, to the page `currentDocumentPath` names: `aria-current` set where the anchor's `href` matches by its rule and removed where it does not. `enableNavigation` calls it after each navigation that changes the page and after each slot fill, which is what keeps a nav in a layout right when only the page segment was re-rendered. Call it after writing links into the document by hand.
+
 ### currentDocumentPath
 
 * `currentDocumentPath(): string`
@@ -778,10 +785,14 @@ The document's locale, re-rendering the island when a navigation changes it. The
 
 ### Link
 
-* `function Link({ full, into, prefetch, native, keep, ...rest }: LinkProps): ReactElement`
-* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean; keep?: boolean }`
+* `function Link({ full, into, prefetch, native, keep, match, ...rest }: LinkProps): ReactElement`
+* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean; keep?: boolean; match?: "exact" | "prefix" | "none" }`
 
 An `<a>` with the rest of its props, carrying `data-sf-full="true"` when `full`, `data-sf-into` when `into`, `data-sf-prefetch` when `prefetch`, `data-sf-native="true"` when `native` and `data-sf-keep` as `"true"` or `"false"` when `keep` is given, which is what the navigator reads off a clicked or hovered anchor. The build lowers the use to the same `<a>`, spelling a computed `keep` the same way.
+
+Every link also carries `data-sf-link`, the rule by which it is called the page being shown and `aria-current` when it is: `"page"` under `match="exact"`, the default, on the path its `href` names; `"true"` under `match="prefix"` on that path and anything under it, so a section link and the page inside it do not both claim to be the page. `match="none"` leaves the anchor alone and so does an `aria-current` the author writes. The `href` is read as written, so one carrying a query or a fragment never matches: the path a request matched holds neither. `match` is written out rather than computed, since the build lowers it.
+
+The server writes the mark at first paint, from the path the request matched, so it is there before any script runs and in a prerendered document. A navigation re-renders the page segment and leaves the layout holding the nav alone, so the navigator re-reads every `data-sf-link` in the document afterwards; see `markLinks`.
 
 ### Mount
 

@@ -30,6 +30,8 @@ export declare function refresh(): Promise<void>;
 export declare function navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>;
 /** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */
 export declare function currentDocumentPath(): string;
+/** Brings every `<a data-sf-link>` under `root` to the page the document is showing. The server writes the mark at first paint; this keeps it right across a navigation, which re-renders the page segment and leaves the layout holding the nav alone. */
+export declare function markLinks(root?: ParentNode): void;
 /** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
 export declare function localePath(to: string, from?: string): string;
 /** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. */

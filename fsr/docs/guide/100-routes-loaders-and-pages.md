@@ -192,6 +192,24 @@ import { Link } from "@snapfire/fsr-client/react";
 
 The report lists each slot under `slots` by its source id and each intercept under `intercepts` as the pattern and the slot it opens in. A route may carry a variant per slot, `page.modal.tsx` and `page.drawer.tsx` side by side and the one that opens is whichever comes first in file order with a slot the live layout declares, unless a link's `into` names one. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
 
+## A nav marks the page it is showing
+
+A `<Link>` whose `href` is the path the request matched carries `aria-current="page"`, written by the server and so present before any script runs. A section link asks for `match="prefix"` and is marked `aria-current="true"` while a page under it is showing, which is a different value so that a screen reader hears one current page rather than two. `match="none"` opts out and an `aria-current` written by hand stands.
+
+```tsx
+<nav>
+  <Link href="/billing" match="prefix">Billing</Link>
+  <Link href="/billing/overdue">Overdue</Link>
+</nav>
+```
+
+```css
+nav a[aria-current] { background: #eef3fc; }
+nav a[aria-current="page"] { font-weight: 600; }
+```
+
+Nothing is passed down for this: a nav in a layout needs no prop and no state. A navigation re-renders the page segment and leaves the layout holding the nav exactly as it was, so the navigator re-reads the marked links itself once the page has changed. The portal marks `/billing` while a billing page is showing and the billing site, mounted under it from its own artifact, marks its own nav from the same request path.
+
 ## A handler answers with a value
 
 A directory may hold a `route.ts` instead of a page. Its exports named `GET`, `POST`, `PUT`, `PATCH` or `DELETE` are handlers: the host matches the method and the pattern before any page, runs the body with the same context a loader gets plus the request body as `input` and answers with the returned value as JSON. A `fail` sets the status by its kind. Written as an `action<T>`, a handler has its input checked against `T` before the body runs; written as a plain function, `input` is whatever the request carried.

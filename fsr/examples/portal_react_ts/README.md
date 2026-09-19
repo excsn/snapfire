@@ -11,6 +11,7 @@ The shell of a company site: a header, a team directory and a sign-in; under `/b
 | A navigation from the portal into the site and back that keeps the header's island | `Link` to `/billing` in `src/ui/Header.tsx`, the `E` row of the payload |
 | A deploy that is a pointer moved: the artifact table reread on `SIGHUP` or the poll, the mounted versions on `/__fsr/sites` | `[sites] poll` in `config/app.toml`, `snapfire_fsr_sites::watch` in `src/main.rs` |
 | A second site with no binary, whose fixed pages the portal's prerender renders ahead under its session-reading layout | `[sites.blog]`, `../blog_site_react_ts`, `renders.json` after `fsr prerender app` |
+| A header whose section link stays marked while a page under it is shown, across the mount | `match="prefix"` in `app/src/ui/Header.tsx`, `a[aria-current]` in `app/styles/app.css` |
 
 ## Run it
 

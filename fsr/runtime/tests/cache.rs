@@ -401,7 +401,7 @@ fn a_fixed_subtree_is_memoized_once_for_everyone_and_carries_no_visitor() {
   let evals = Arc::new(AtomicU32::new(0));
   let plan = cached_leaf(None);
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new() });
+  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new(), path: false });
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PropsEval(Arc::clone(&evals))));
   let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
@@ -415,13 +415,68 @@ fn a_fixed_subtree_is_memoized_once_for_everyone_and_carries_no_visitor() {
   assert_eq!(third.tree, first.tree);
 }
 
+struct PathEval(Arc<AtomicU32>);
+
+impl Evaluator for PathEval {
+  fn evaluate(&self, _module: &ModuleId, props: &snapfire_fsr_core::Data) -> snapfire_fsr_runtime::evaluator::NodeChunks {
+    self.0.fetch_add(1, Ordering::Relaxed);
+    let at = match props.get(snapfire_fsr_runtime::PATH_PROP) {
+      Some(Value::Str(s)) => s.to_string(),
+      _ => "-".to_owned(),
+    };
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(at)))]))
+  }
+}
+
+fn at(path: &str) -> RequestCtx {
+  RequestCtx { params: Params::new(), path: path.to_owned(), ..Default::default() }
+}
+
+#[test]
+fn a_subtree_rendering_the_path_is_memoized_per_path() {
+  use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let plan = cached_leaf(None);
+  let mut reads = Reads::new();
+  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new(), path: true });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PathEval(Arc::clone(&evals))));
+  let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
+
+  let first = block_on(assemble(&rt, &plan, &at("/billing"), &Node::raw(""))).unwrap();
+  let second = block_on(assemble(&rt, &plan, &at("/billing/overdue"), &Node::raw(""))).unwrap();
+  let again = block_on(assemble(&rt, &plan, &at("/billing"), &Node::raw(""))).unwrap();
+  assert_eq!(first.tree, Node::raw("/billing"));
+  assert_eq!(second.tree, Node::raw("/billing/overdue"), "the second path is rendered rather than served the first one's marks");
+  assert_eq!(again.tree, first.tree);
+  assert_eq!(evals.load(Ordering::Relaxed), 2, "one render per path; the repeat is a hit");
+}
+
+#[test]
+fn a_subtree_that_renders_no_path_is_memoized_across_paths() {
+  use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let plan = cached_leaf(None);
+  let mut reads = Reads::new();
+  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new(), path: false });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PathEval(Arc::clone(&evals))));
+  let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
+
+  let first = block_on(assemble(&rt, &plan, &at("/billing"), &Node::raw(""))).unwrap();
+  let second = block_on(assemble(&rt, &plan, &at("/billing/overdue"), &Node::raw(""))).unwrap();
+  assert_eq!(first.tree, Node::raw("-"), "the path is left out of the props of a subtree that renders none");
+  assert_eq!(second.tree, first.tree);
+  assert_eq!(evals.load(Ordering::Relaxed), 1, "one render serves both paths");
+}
+
 #[test]
 fn an_anonymous_subtree_is_memoized_per_subject_without_the_token() {
   use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
   let evals = Arc::new(AtomicU32::new(0));
   let plan = cached_leaf(None);
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Anonymous, store_keys: Vec::new() });
+  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Anonymous, store_keys: Vec::new(), path: false });
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PropsEval(Arc::clone(&evals))));
   let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
@@ -490,7 +545,7 @@ fn a_fixed_subtree_is_keyed_by_the_store_keys_it_reads_and_sees_only_those() {
   let shape = subtree_shape(&leaf);
   root.children.push((SlotName("content".into()), leaf));
   let mut reads = Reads::new();
-  reads.insert(shape, SubtreeReads { class: Static::Fixed, store_keys: vec!["cart/count".to_owned()] });
+  reads.insert(shape, SubtreeReads { class: Static::Fixed, store_keys: vec!["cart/count".to_owned()], path: false });
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(StoreEval(Arc::clone(&evals))));
   evaluators.register(|m: &ModuleId| m.path == "layout.tera", Arc::new(ContentShell));

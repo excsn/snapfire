@@ -14,8 +14,13 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
       </Link>
       <nav className="topnav">
         <Link href="/">Teams</Link>
-        <Link href="/billing">Billing</Link>
+        <Link href="/billing" match="prefix">
+          Billing
+        </Link>
         <Link href="/billing/overdue">Overdue</Link>
+        <Link href="/blog" match="prefix">
+          Blog
+        </Link>
       </nav>
       <span className="pill" aria-label={`${count} teams`}>
         {count} teams

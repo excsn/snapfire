@@ -32,6 +32,6 @@ pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Natives, native_arg};
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use paths::Paths;
-pub use reads::{subtree_shape, Reads, Static, SubtreeReads};
+pub use reads::{subtree_shape, Reads, Static, SubtreeReads, PATH_PROP};
 pub use store::Seeds;
 pub use stream::{FILL_SCRIPT, fragment_html, html_stream, meta_to_json, seed_to_json, segments_from_json, segments_to_json, wire_stream};

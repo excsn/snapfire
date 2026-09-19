@@ -8,6 +8,7 @@ A site: an application built with a `[site]` section, so every id it emits is pr
 | Routes, loaders, an action and middleware written with literal `/billing` paths, nothing rewritten | `app/routes/`, `app/middleware.ts` |
 | A store key the portal seeds, typed by the shell contract | `ShellStore["portal/who"]` in `app/src/store.ts`, read in `app/routes/layout.tsx` |
 | A guard that relies on a sign-in the site never implements | `app/middleware.ts` on `/billing/overdue` |
+| A nav whose current link is marked by the server and kept right by the navigator, styled by selector alone | `<Link>` in `app/routes/layout.tsx`, `a[aria-current]` in `app/styles/billing.css` |
 | A client of its own, mocked from a file, cached on the contract's say-so | `app/clients/ledger.openapi.json`, `app/clients/ledger.mock.json` |
 | Static roots the portal serves itself, kept only for running alone | the `[[static]]` root and `vendor/`, a link to the portal's, both `ignored` in the portal's report |
 

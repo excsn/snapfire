@@ -66,6 +66,40 @@ async fn one_sign_in_covers_the_site_and_its_guard() {
   assert!(html.contains("alice") && html.contains("overdue"), "the site's loader read the portal's identity: {html}");
 }
 
+/// The `<a>` for `href`, from the first `<nav>` onwards.
+fn anchor<'a>(html: &'a str, href: &str) -> &'a str {
+  let nav = html.find("<nav").expect("a nav");
+  let at = html[nav..].find(&format!("href=\"{href}\"")).map(|i| nav + i).unwrap_or_else(|| panic!("no link to {href} in {html}"));
+  let start = html[..at].rfind('<').unwrap();
+  &html[start..at + html[at..].find('>').unwrap()]
+}
+
+#[tokio::test]
+async fn the_nav_marks_the_page_being_shown_across_the_mount() {
+  let portal = portal();
+  let html = body_of(portal.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
+  assert!(anchor(&html, "/").contains("aria-current=\"page\""), "the portal's own page is the current one: {}", anchor(&html, "/"));
+  assert!(!anchor(&html, "/billing").contains("aria-current"), "{}", anchor(&html, "/billing"));
+
+  let response = portal.handle(Request::get("/login").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  portal
+    .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap())
+    .await;
+
+  let html = body_of(portal.handle(Request::get("/billing").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+  assert!(anchor(&html, "/billing").contains("aria-current=\"true\""), "a section link is marked on the page it covers: {}", anchor(&html, "/billing"));
+  assert!(!anchor(&html, "/").contains("aria-current"), "and the one it does not cover is left alone: {}", anchor(&html, "/"));
+  assert!(html.matches("aria-current=\"page\"").count() == 1, "the site's own nav marks its invoices link and nothing else does: {html}");
+
+  let html = body_of(portal.handle(Request::get("/billing/overdue").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+  assert!(anchor(&html, "/billing").contains("aria-current=\"true\""), "{}", anchor(&html, "/billing"));
+  assert!(anchor(&html, "/billing/overdue").contains("aria-current=\"page\""), "the mark moved with the page: {}", anchor(&html, "/billing/overdue"));
+
+  let again = body_of(portal.handle(Request::get("/billing").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+  assert!(!anchor(&again, "/billing/overdue").contains("aria-current"), "no render memoized under one path is served under another: {}", anchor(&again, "/billing/overdue"));
+}
+
 #[tokio::test]
 async fn the_sites_status_names_the_mount() {
   let portal = portal();

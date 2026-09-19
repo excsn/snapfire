@@ -5,7 +5,7 @@ import { islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Pro
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
-import type { PrefetchTiming } from "./navigator.js";
+import { currentDocumentPath, type PrefetchTiming } from "./navigator.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 
@@ -304,16 +304,27 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   native?: boolean;
   /** Whether a segment whose key changed but whose module did not is morphed in place, keeping the islands its new markup places again, rather than replaced. Left out, the navigator keeps them when only the query changes. */
   keep?: boolean;
+  /** When the link is marked `aria-current`: `"exact"`, the default, on the page its `href` names; `"prefix"` on that page and anything under it; `"none"` never. An `href` carrying a query or a fragment never matches. */
+  match?: "exact" | "prefix" | "none";
 }
 
-/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes. */
-export function Link({ full, into, prefetch, native, keep, ...rest }: LinkProps): ReactElement {
+/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes and `match` as the `data-sf-link` the navigator re-reads after each navigation. */
+export function Link({ full, into, prefetch, native, keep, match, ...rest }: LinkProps): ReactElement {
   const attrs: { [key: string]: unknown } = { ...rest };
   if (full) attrs["data-sf-full"] = "true";
   if (into) attrs["data-sf-into"] = into;
   if (prefetch) attrs["data-sf-prefetch"] = prefetch;
   if (native) attrs["data-sf-native"] = "true";
   if (keep !== undefined) attrs["data-sf-keep"] = keep ? "true" : "false";
+  const rule = match ?? "exact";
+  if (rule !== "none" && typeof rest.href === "string" && rest["aria-current"] === undefined) {
+    attrs["data-sf-link"] = rule;
+    const at = currentDocumentPath();
+    const cut = at.indexOf("?");
+    const path = cut === -1 ? at : at.slice(0, cut);
+    if (rest.href === path) attrs["aria-current"] = rule === "prefix" ? "true" : "page";
+    else if (rule === "prefix" && path.startsWith(`${rest.href}/`)) attrs["aria-current"] = "true";
+  }
   return createElement("a", attrs);
 }
 

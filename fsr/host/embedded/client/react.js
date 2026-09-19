@@ -4,6 +4,7 @@ import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
+import { currentDocumentPath } from "./navigator.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe } from "./store.js";
 function slotOf(el) {
@@ -250,7 +251,7 @@ export function useStore(k, initial) {
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
 }
-export function Link({ full, into, prefetch, native, keep, ...rest }) {
+export function Link({ full, into, prefetch, native, keep, match, ...rest }) {
     const attrs = {
         ...rest
     };
@@ -259,6 +260,15 @@ export function Link({ full, into, prefetch, native, keep, ...rest }) {
     if (prefetch) attrs["data-sf-prefetch"] = prefetch;
     if (native) attrs["data-sf-native"] = "true";
     if (keep !== undefined) attrs["data-sf-keep"] = keep ? "true" : "false";
+    const rule = match ?? "exact";
+    if (rule !== "none" && typeof rest.href === "string" && rest["aria-current"] === undefined) {
+        attrs["data-sf-link"] = rule;
+        const at = currentDocumentPath();
+        const cut = at.indexOf("?");
+        const path = cut === -1 ? at : at.slice(0, cut);
+        if (rest.href === path) attrs["aria-current"] = rule === "prefix" ? "true" : "page";
+        else if (rule === "prefix" && path.startsWith(`${rest.href}/`)) attrs["aria-current"] = "true";
+    }
     return createElement("a", attrs);
 }
 const HoistContext = createContext(null);

@@ -4,7 +4,7 @@ export { adopt, clear, derive, get, key, optimistic, reset, seed, set, snapshot,
 export { adoptCatalog, adoptLocale, catalog, currentLocale, setCatalog, setLocale, subscribeLocale } from "./locale.js";
 export { decodeNode, linesOf, parsePayload, parseRow } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
-export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, localePath, navigate, prefetch, refresh } from "./navigator.js";
+export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, prefetch, refresh } from "./navigator.js";
 export { live } from "./live.js";
 export { socket } from "./socket.js";
 export { applyStyles, boot, defineMounter, discard, loadEntry, patchIsland, registerIsland, registeredIslands, scan } from "./boot.js";

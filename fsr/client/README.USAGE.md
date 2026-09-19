@@ -22,6 +22,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
+* [Marking the Link to the Page Being Shown](#marking-the-link-to-the-page-being-shown)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
@@ -440,6 +441,40 @@ enableNavigation();
 ```
 
 It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments that rendered something different, so the layout's DOM, its scroll position and any island state above the changed region survive. Sameness is the digest each segment carries, not its key, which is what keeps a pane that ignores a query parameter when the URL's query moves under it. A kept island whose props changed is re-rendered in place through its patcher rather than replaced and one whose digest held is left alone entirely. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
+
+## Marking the Link to the Page Being Shown
+
+A `<Link>` is marked `aria-current` when it points at the page the document is showing, so a nav needs no state of its own and the styling is a selector:
+
+```tsx
+import { Link } from "@snapfire/fsr-client/react";
+
+export default function Layout({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <nav>
+        <Link href="/billing" match="prefix">Billing</Link>
+        <Link href="/billing/overdue">Overdue</Link>
+      </nav>
+      {children}
+    </>
+  );
+}
+```
+
+```css
+nav a[aria-current] {
+  background: #eef3fc;
+}
+
+nav a[aria-current="page"] {
+  font-weight: 600;
+}
+```
+
+On `/billing/overdue` the section link carries `aria-current="true"` and the page's own carries `aria-current="page"`, so a screen reader is told about one current page rather than two. The default rule is `match="exact"`, which marks only the path the `href` names; `match="none"` leaves the anchor alone, as does an `aria-current` you write yourself. An `href` carrying a query or a fragment never matches, since the path a request matched holds neither.
+
+The server writes the mark from the path the request matched, so it is right at first paint, in a document with no script and in a prerendered one. A navigation re-renders the page segment and leaves the layout alone, so the navigator re-reads every marked link afterwards rather than waiting for the nav to render again.
 
 ## Prefetching and the Router Cache
 
