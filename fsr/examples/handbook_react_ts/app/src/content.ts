@@ -9,7 +9,7 @@ export const cards: Card[] = [
 ];
 
 export const steps: Step[] = [
-  { command: "fsr new handbook", explains: "writes the project, fetches the client and vendors React." },
+  { command: "fsr new handbook --with react", explains: "writes the project, fetches the client and vendors React; without the flag it writes a bare application." },
   { command: "fsr dev app", explains: "watches, rebuilds and refreshes the open page." },
   { command: "fsr build app", explains: "emits the plan, the contracts and the browser bundle." },
   { command: "fsr prerender app", explains: "renders every fixed route to a file, which is all this site is." },

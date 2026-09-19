@@ -41,6 +41,7 @@ fn an_offline_scaffold_names_the_steps_it_skipped() {
   assert!(created.vendored.is_empty());
   assert!(!created.next.iter().any(|s| s.contains("fsr add")), "a bare scaffold vendors nothing: {:?}", created.next);
   assert!(created.next.iter().any(|s| s.starts_with("fsr types")), "{:?}", created.next);
+  assert!(created.next.iter().any(|s| s.starts_with("fsr use") && s.contains(" react ") && s.contains("only if")), "a bare scaffold says how React is added: {:?}", created.next);
   assert!(created.next.last().unwrap().starts_with("fsr dev"), "{:?}", created.next);
 }
 
@@ -53,6 +54,7 @@ fn with_adopts_each_direction_after_the_template() {
   assert_eq!(map["imports"]["@snapfire/fsr-authoring/template"], "/static/js/fsr/template.js");
   assert_eq!(map["imports"]["@snapfire/fsr-client/htmx"], "/static/js/fsr/htmx.js");
   assert!(map["imports"].get("@snapfire/fsr-client/vue").is_none(), "{map}");
+  assert!(!created.next.iter().any(|s| s.starts_with("fsr use")), "a scaffold with a direction is not told to add one: {:?}", created.next);
   let add = created.next.iter().find(|s| s.starts_with("fsr add")).expect("the vendoring step is named offline");
   assert!(add.contains("react@18.3.1/jsx-runtime") && add.contains("react-dom@18.3.1/client") && add.contains("htmx.org@2.0.10"), "{add}");
   let main = std::fs::read_to_string(root.join("app/src/main.ts")).unwrap();

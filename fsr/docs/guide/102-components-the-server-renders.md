@@ -4,6 +4,8 @@ The question this chapter answers: what may a page or component say so that the 
 
 **For:** app developers.
 
+The components in this chapter are React components, the storefront's, so they need a project that has React: `fsr new <dir> --with react` or `fsr use app react` on one that started bare, since a plain `fsr new` writes no framework. A bare application writes its pages and layouts in the same dialect from `@snapfire/fsr-authoring/template`; what it does without is the hooks and the islands they make, which are React's.
+
 ## A component is a function of its props
 
 The build reads a page as an exported function whose parameter is `props` or a destructuring of it, whose body is `const`s, inner functions and one `return` of JSX. That covers most of what a page is. The storefront's catalog, cart and product pages, its error page and the four components under `src/ui/` all read this way; the report lists each under `rendered` as `lowered`.

@@ -153,6 +153,9 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     created.next.push(format!("fsr types {}", app.display()));
     created.next.push(format!("fsr build {}", app.display()));
   }
+  if options.with.is_empty() {
+    created.next.push(format!("fsr use {} react      # only if the application wants React; also vue, elements, htmx or tera", app.display()));
+  }
   created.next.push(format!("fsr dev {}", app.display()));
 
   Ok(created)

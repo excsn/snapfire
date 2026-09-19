@@ -58,7 +58,7 @@ And one appendix:
 
 ## Reading paths
 
-**A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103. Chapter 003 will read like the rendering model you already have, minus the engine.
+**A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103. Chapter 003 will read like the rendering model you already have, minus the engine. Start the project with `fsr new <dir> --with react`: a plain `fsr new` is a bare application with no framework. 102 is written for React.
 
 **A frontend developer who writes Vue:** read 000, then 100 and 101 for the templates and bodies, then 104. Your components are islands and the pages around them are templates; 102 is the React reading of the same seam; 106 is what it costs to run both at once.
 

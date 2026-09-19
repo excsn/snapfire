@@ -30,7 +30,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-  /// Scaffolds a project: configuration, routes, an import map and the vendored packages.
+  /// Scaffolds a bare project: configuration, routes and an import map, no framework; --with react adds React.
   New(New),
   /// Builds and serves an application, rebuilding what changed as it changes.
   Dev(Build),
@@ -65,7 +65,7 @@ struct New {
   /// Skips vendoring packages and fetching declarations.
   #[arg(long)]
   no_fetch: bool,
-  /// A direction to adopt once the project is written; repeatable.
+  /// A direction to adopt once the project is written; repeatable. Without one the application serves no framework: pass --with react for a React project.
   #[arg(long = "with", value_name = "DIRECTION")]
   with: Vec<String>,
   /// Scaffolds a shell, which is an application that mounts sites.
