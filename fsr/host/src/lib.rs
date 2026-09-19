@@ -1020,6 +1020,21 @@ fn read_contracts(dir: &std::path::Path) -> Result<Option<Contract>, HostError> 
   Ok(Some(contract))
 }
 
+/// What one render produced: the chunks to stream and, when the route's own
+/// page loader failed, the kind, which is what sets the document's status.
+struct Rendered {
+  chunks: BoxStream<'static, String>,
+  failed: Option<FailureKind>,
+}
+
+/// The status a document answers with: the page's failure kind when its
+/// loader failed, since the entity the route names is what a crawler, a cache
+/// and a browser's history read the status for; a layout or a slot failing
+/// leaves the page and the status alone.
+fn status_of(failed: Option<FailureKind>) -> StatusCode {
+  failed.map(|kind| StatusCode::from_u16(kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)).unwrap_or(StatusCode::OK)
+}
+
 impl Host {
   /// The stock entry point: a project root holding `config/`, a `config/`
   /// directory or one configuration file. Everything else is inferred from
@@ -1216,6 +1231,7 @@ impl Host {
     self
       .render_in(&t, &visit, raw_query, mode, Incoming::anonymous(session))
       .await
+      .map(|rendered| rendered.chunks)
   }
 
   async fn render_in(
@@ -1225,7 +1241,7 @@ impl Host {
     raw_query: &str,
     mode: RenderMode,
     incoming: Incoming,
-  ) -> Result<BoxStream<'static, String>, HostError> {
+  ) -> Result<Rendered, HostError> {
     let (plan, params) = self
       .plan_for(t, &visit.path)
       .ok_or_else(|| HostError::NotFound(visit.path.clone()))?;
@@ -1282,6 +1298,7 @@ impl Host {
     self
       .render_navigation_in(&t, &visit, raw_query, from, into, Incoming::anonymous(session))
       .await
+      .map(|rendered| rendered.chunks)
   }
 
   async fn render_navigation_in(
@@ -1292,7 +1309,7 @@ impl Host {
     from: Option<&str>,
     into: Option<&str>,
     incoming: Incoming,
-  ) -> Result<BoxStream<'static, String>, HostError> {
+  ) -> Result<Rendered, HostError> {
     let from_bare = from
       .map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f))
       .map(|f| t.locales.resolve(f, None, None).path);
@@ -1329,6 +1346,7 @@ impl Host {
     self
       .render_not_found_in(&t, &visit, raw_query, mode, Incoming::anonymous(session))
       .await
+      .map(|rendered| rendered.map(|r| r.chunks))
   }
 
   async fn render_not_found_in(
@@ -1338,7 +1356,7 @@ impl Host {
     raw_query: &str,
     mode: RenderMode,
     incoming: Incoming,
-  ) -> Result<Option<BoxStream<'static, String>>, HostError> {
+  ) -> Result<Option<Rendered>, HostError> {
     let Some(plan) = &t.app.not_found else { return Ok(None) };
     let mut params = Params::new();
     params.insert("path".to_owned(), visit.path.clone());
@@ -1361,7 +1379,7 @@ impl Host {
     mode: RenderMode,
     incoming: Incoming,
     visit: &Resolution,
-  ) -> Result<BoxStream<'static, String>, HostError> {
+  ) -> Result<Rendered, HostError> {
     let mut extra = Vec::new();
     if let Some(facts) = &t.dev_bundle {
       extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts))));
@@ -1438,10 +1456,11 @@ impl Host {
     path: &str,
     locale: &Locale,
     head: &Head,
-  ) -> Result<BoxStream<'static, String>, HostError> {
+  ) -> Result<Rendered, HostError> {
     let ctx = self.ctx(t, incoming, params, query, path, locale.clone());
     let assembly = assemble(&t.app.runtime, plan, &ctx, head).await?;
-    Ok(match mode {
+    let failed = assembly.failed;
+    let chunks: BoxStream<'static, String> = match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
       RenderMode::Payload => Box::pin(wire_stream(assembly)),
       RenderMode::Fragment(slot) => {
@@ -1450,10 +1469,11 @@ impl Host {
           .ok_or_else(|| HostError::NoSlot(slot.clone().unwrap_or_default()))?;
         Box::pin(futures_util::stream::once(async move { html }))
       }
-    })
+    };
+    Ok(Rendered { chunks, failed })
   }
 
-  /// Renders to one string, for tests.
+    /// Renders to one string, for tests.
   pub async fn render_navigation_to_string(
     &self,
     path: &str,
@@ -1473,6 +1493,27 @@ impl Host {
   ) -> Result<String, HostError> {
     let chunks: Vec<String> = self.render(path, mode, session).await?.collect().await;
     Ok(chunks.concat())
+  }
+
+  /// `render_to_string` with the status `handle` would answer: the page
+  /// loader's failure kind when it failed, `200` otherwise.
+  pub async fn render_with_status(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<(StatusCode, String), HostError> {
+    let t = self.tables();
+    let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
+    let visit = t.locales.resolve(bare, None, None);
+    let rendered = self.render_in(&t, &visit, raw_query, mode, Incoming::anonymous(session)).await?;
+    let chunks: Vec<String> = rendered.chunks.collect().await;
+    Ok((status_of(rendered.failed), chunks.concat()))
+  }
+
+  /// `render_navigation_to_string` with the status `handle` would answer.
+  pub async fn render_navigation_with_status(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell) -> Result<(StatusCode, String), HostError> {
+    let t = self.tables();
+    let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
+    let visit = t.locales.resolve(bare, None, None);
+    let rendered = self.render_navigation_in(&t, &visit, raw_query, from, into, Incoming::anonymous(session)).await?;
+    let chunks: Vec<String> = rendered.chunks.collect().await;
+    Ok((status_of(rendered.failed), chunks.concat()))
   }
 
   /// The patterns one render serves for every request: no parameter, every
@@ -1575,7 +1616,7 @@ impl Host {
             let (plan, params) = self
               .plan_for(&t, &path)
               .ok_or_else(|| HostError::NotFound(path.clone()))?;
-            let chunks = self
+            let rendered = self
               .render_plan_with(
                 &t,
                 &plan,
@@ -1588,7 +1629,11 @@ impl Host {
                 &t.head,
               )
               .await?;
-            let text: String = chunks.collect::<Vec<_>>().await.concat();
+            if let Some(kind) = rendered.failed {
+              tracing::warn!(target: "fsr::host", path = %served, kind = kind.as_str(), "prerender: the page's loader failed, so no file is written for it");
+              break;
+            }
+            let text: String = rendered.chunks.collect::<Vec<_>>().await.concat();
             let file = dir.join(name);
             std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
             written.push((served.clone(), file));
@@ -2747,7 +2792,7 @@ impl Host {
         .await
     };
     let rendered = match rendered {
-      Ok(chunks) => Ok((StatusCode::OK, chunks)),
+      Ok(rendered) => Ok((status_of(rendered.failed), rendered.chunks)),
       Err(HostError::NotFound(path)) => match self
         .render_not_found_in(
           t,
@@ -2758,7 +2803,7 @@ impl Host {
         )
         .await
       {
-        Ok(Some(chunks)) => Ok((StatusCode::NOT_FOUND, chunks)),
+        Ok(Some(rendered)) => Ok((StatusCode::NOT_FOUND, rendered.chunks)),
         Ok(None) => return text_response(StatusCode::NOT_FOUND, format!("no route: {path}")),
         Err(e) => Err(e),
       },

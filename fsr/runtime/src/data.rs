@@ -1,3 +1,4 @@
+use snapfire_fsr_core::ext::FailureKind;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -12,6 +13,19 @@ use crate::ctx::RequestCtx;
 pub struct LoadError {
   pub source_id: String,
   pub message: String,
+  /// What kind of failure: the `fail` a body raised names one, anything else is `Internal`.
+  pub kind: FailureKind,
+}
+
+impl LoadError {
+  pub fn new(source_id: impl Into<String>, message: impl Into<String>) -> Self {
+    Self { source_id: source_id.into(), message: message.into(), kind: FailureKind::Internal }
+  }
+
+  pub fn with_kind(mut self, kind: FailureKind) -> Self {
+    self.kind = kind;
+    self
+  }
 }
 
 pub trait DataSource: Send + Sync {

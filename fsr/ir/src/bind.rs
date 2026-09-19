@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, SlotName, Value};
-use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, HeadEl, LoadError, Meta, Metadata, NodeChunks, Paths, RequestCtx, Seeds};
+use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, FailureKind, HeadEl, LoadError, Meta, Metadata, NodeChunks, Paths, RequestCtx, Seeds};
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
@@ -93,13 +93,10 @@ impl DataSource for IrSource {
       let outcome = interpreter
         .run(&body, &ctx, None)
         .await
-        .map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+        .map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
       match outcome.value {
         Value::Map(data) => Ok(data),
-        other => Err(LoadError {
-          source_id: id,
-          message: format!("a loader must return an object, got {}", kind_name(&other)),
-        }),
+        other => Err(LoadError::new(id, format!("a loader must return an object, got {}", kind_name(&other)))),
       }
     })
   }
@@ -133,19 +130,19 @@ impl Metadata for IrMeta {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
       let Value::Map(map) = outcome.value else {
-        return Err(LoadError { source_id: id, message: format!("meta must return an object, got {}", kind_name(&outcome.value)) });
+        return Err(LoadError::new(id, format!("meta must return an object, got {}", kind_name(&outcome.value))));
       };
       let text = |key: &str| match map.get(key) {
         Some(Value::Str(s)) => Ok(Some(s.to_string())),
         None | Some(Value::Null) => Ok(None),
-        Some(other) => Err(LoadError { source_id: id.clone(), message: format!("meta.{key} must be a string, got {}", kind_name(other)) }),
+        Some(other) => Err(LoadError { source_id: id.clone(), message: format!("meta.{key} must be a string, got {}", kind_name(other)), kind: FailureKind::Internal }),
       };
       let head = match map.get("head") {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Seq(items)) => items.iter().map(|item| head_element(&id, item)).collect::<Result<Vec<_>, _>>()?,
-        Some(other) => return Err(LoadError { source_id: id, message: format!("meta.head must be a list, got {}", kind_name(other)) }),
+        Some(other) => return Err(LoadError { source_id: id, message: format!("meta.head must be a list, got {}", kind_name(other)), kind: FailureKind::Internal }),
       };
       Ok(Meta { title: text("title")?, description: text("description")?, head })
     })
@@ -157,7 +154,7 @@ impl Metadata for IrMeta {
 /// attribute. A key whose value is null is left out, the way an absent
 /// optional argument is.
 fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
-  let fail = |message: String| LoadError { source_id: source_id.to_owned(), message };
+  let fail = |message: String| LoadError::new(source_id, message);
   let Value::Map(fields) = item else {
     return Err(fail(format!("a meta.head entry must be an object, got {}", kind_name(item))));
   };
@@ -221,10 +218,10 @@ impl Seeds for IrStore {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
       match outcome.value {
         Value::Map(map) => Ok(map),
-        other => Err(LoadError { source_id: id, message: format!("store must return an object, got {}", kind_name(&other)) }),
+        other => Err(LoadError { source_id: id, message: format!("store must return an object, got {}", kind_name(&other)), kind: FailureKind::Internal }),
       }
     })
   }
@@ -257,11 +254,11 @@ impl Paths for IrPaths {
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message })?;
+      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
       let Value::Seq(items) = outcome.value else {
-        return Err(LoadError { source_id: id, message: format!("paths must return a list, got {}", kind_name(&outcome.value)) });
+        return Err(LoadError::new(id, format!("paths must return a list, got {}", kind_name(&outcome.value))));
       };
-      let fail = |message: String| LoadError { source_id: id.clone(), message };
+      let fail = |message: String| LoadError::new(id.clone(), message);
       let mut out = Vec::with_capacity(items.len());
       for item in items.iter() {
         let Value::Map(fields) = item else {

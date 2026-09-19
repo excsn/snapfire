@@ -300,6 +300,7 @@ No key is composed at all, so neither `get` nor `put` runs, when the node has no
 ### `Assembly`
 
 * `catalog: Option<String>`: the head's `catalog`, written as the `D` row.
+* `failed: Option<FailureKind>`: the kind the route's own page loader failed with, the page being the node reached from the root along the `content` slots. A layout or a slot failing degrades its segment and leaves this `None`. A host reads it for the document's status.
 
 What one call produced. `Debug` (which prints `pending` as a count); not `Clone`. Both streaming functions consume it by value.
 
@@ -691,6 +692,8 @@ A data source failed. `Debug + Clone + thiserror::Error`, displayed as ``data so
 
 * `pub source_id: String`
 * `pub message: String`
+* `pub kind: FailureKind`: the kind a body's `fail` named, `Internal` for anything else.
+* `LoadError::new(source_id, message) -> Self`, kind `Internal`; `with_kind(self, kind) -> Self`.
 
 Raised by a `DataSource`. In assembly it degrades one segment to its error module rather than failing the request. It disqualifies the whole enclosing subtree from being cached. Its display string is the `error` prop the error module receives. It is not a hard error unless a caller converts it into `AssembleError::Load` itself.
 

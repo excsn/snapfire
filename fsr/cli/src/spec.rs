@@ -1082,12 +1082,12 @@ impl FetchHooks {
     let header = |name: &str| headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
     let (from, into) = (header("x-sf-from"), header("x-sf-into"));
     let rendered = if mode == RenderMode::Payload && (from.is_some() || into.is_some()) {
-      host.render_navigation_to_string(&target, from, into, session.clone()).await
+      host.render_navigation_with_status(&target, from, into, session.clone()).await
     } else {
-      host.render_to_string(&target, mode.clone(), session.clone()).await
+      host.render_with_status(&target, mode.clone(), session.clone()).await
     };
     match rendered {
-      Ok(body) => FetchResponse::new(200, body),
+      Ok((status, body)) => FetchResponse::new(status.as_u16(), body),
       Err(HostError::NoSlot(name)) => FetchResponse::new(404, format!("no slot named `{name}` on this route")),
       Err(HostError::NotFound(path)) => match host.render_not_found(&target, mode, session).await {
         Ok(Some(chunks)) => FetchResponse::new(404, chunks.collect::<Vec<String>>().await.concat()),

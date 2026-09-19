@@ -56,6 +56,11 @@ const PLAN: &str = r#"{
       { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
         { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "children": [
           { "slot": "content", "node": { "id": 3, "module": "routes/deck/card/page.tsx#default" } } ] } } ] } } ] } },
+    { "pattern": "/missing", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "missing" } } ] } },
+    { "pattern": "/broken", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/console/layout.tsx#default", "source": "broken.layout", "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ] } },
     { "pattern": "/console", "plan": { "id": 0, "module": "shell#document", "children": [
       { "slot": "content", "node": { "id": 1, "module": "routes/console/layout.tsx#default", "source": "console.layout", "children": [
         { "slot": "content", "node": { "id": 2, "module": "routes/console/page.tsx#default", "source": "console.page" } } ] } } ] } }
@@ -81,6 +86,10 @@ const PLAN: &str = r#"{
       "body": [ { "return": { "object": [ { "field": [ "here", "path" ] } ] } } ] },
     { "id": "console.layout", "owner": "lowered", "module": "routes/console/layout.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "density", { "coalesce": [ { "session": "density" }, { "lit": { "str": "cosy" } } ] } ] } ] } } ] },
+    { "id": "missing", "owner": "lowered", "module": "routes/missing/page.loader.ts",
+      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "not_found", "message": "no such thing" } }, { "return": { "object": [] } } ] },
+    { "id": "broken.layout", "owner": "lowered", "module": "routes/broken/layout.loader.ts",
+      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "unavailable", "message": "the frame is down" } }, { "return": { "object": [] } } ] },
     { "id": "console.page", "owner": "lowered", "module": "routes/console/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "rows", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
   ],
@@ -183,7 +192,7 @@ async fn a_route_renders_through_the_stock_shell_with_the_configured_head() {
     "{html}"
   );
   assert!(html.contains("\"a\""), "the lowered loader ran: {html}");
-  assert_eq!(host.report().app.sources.len(), 5);
+  assert_eq!(host.report().app.sources.len(), 7);
   assert!(host.report().to_string().contains("lowered"), "{}", host.report());
   assert!(host.report().to_string().contains("/static"), "{}", host.report());
 }
@@ -219,6 +228,25 @@ async fn a_body_over_the_limit_is_refused_before_anything_reads_it() {
     std::str::from_utf8(&body).unwrap().contains("server.max_body"),
     "{body:?}"
   );
+}
+
+#[tokio::test]
+async fn a_page_loaders_failure_sets_the_documents_status_and_a_layouts_does_not() {
+  let (host, _) = host();
+  let response = host.handle(Request::get("/missing").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND);
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  let html = std::str::from_utf8(&body).unwrap();
+  assert!(html.contains("<!doctype html>") && html.contains("no such thing"), "the document renders around the error segment: {html}");
+
+  let response = host.handle(Request::get("/missing?__payload").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "a navigation answers the same status");
+  assert!(response.headers().get(header::CONTENT_TYPE).unwrap().to_str().unwrap().contains("x-sf-payload"), "and still carries the payload");
+
+  let response = host.handle(Request::get("/broken").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "a layout failing degrades its segment and leaves the status alone");
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert!(std::str::from_utf8(&body).unwrap().contains("the frame is down"));
 }
 
 #[tokio::test]

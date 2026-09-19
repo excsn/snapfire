@@ -179,6 +179,7 @@ fn a_failed_deferred_loader_resolves_to_its_error_node() {
     Err(snapfire_fsr_runtime::LoadError {
       source_id: "broken".into(),
       message: "backend down".into(),
+      kind: snapfire_fsr_runtime::FailureKind::Internal,
     })
   });
 

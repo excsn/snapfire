@@ -538,7 +538,7 @@ Applying walks the old and new segment spines together. A segment whose digest b
 
 Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was and applies it as `navigate` does, row by row as it streams, with one difference: a kept leaf region that is not an island is replaced when its digest moved, or, when neither response carried one, replaced regardless. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps. `sf:navigate` is dispatched once the eager wave is applied, as `navigate` does.
 
-Falls back to `window.location.reload()` when there is no sidecar, when the response is not ok or when the payload cannot be applied.
+Falls back to `window.location.reload()` when there is no sidecar, when the response is neither ok nor a payload or when the payload cannot be applied. A `404` payload is still a payload: the host renders the error segment the page's loader failed into and the navigator applies it, so a link to an entity that does not exist lands on that route with its error page in place, as a full load would.
 
 ### live
 

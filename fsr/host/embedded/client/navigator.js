@@ -467,8 +467,9 @@ function fetchFeed(url, headers) {
             const res = await fetch(payloadUrl(url), {
                 headers
             });
-            feed.open(res.ok);
-            if (!res.ok) return;
+            const payload = res.ok || (res.headers.get("content-type") ?? "").includes("x-sf-payload");
+            feed.open(payload);
+            if (!payload) return;
             for await (const line of linesOf(res))feed.push(line);
         } catch  {} finally{
             feed.finish();

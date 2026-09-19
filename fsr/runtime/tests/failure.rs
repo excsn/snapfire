@@ -76,6 +76,7 @@ fn failing_sources() -> DataSources {
     Err(LoadError {
       source_id: "page_loader".into(),
       message: "backend down".into(),
+      kind: snapfire_fsr_runtime::FailureKind::Internal,
     })
   });
   sources
@@ -151,6 +152,7 @@ fn a_failed_subtree_is_never_cached() {
         Err(LoadError {
           source_id: "page_loader".into(),
           message: "backend down".into(),
+          kind: snapfire_fsr_runtime::FailureKind::Internal,
         })
       }
     }

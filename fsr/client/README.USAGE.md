@@ -494,7 +494,7 @@ await navigate("/product/7", true, { full: true });
 await refresh();
 ```
 
-Both request the payload form of the URL by appending `__payload` to the query string, `navigate` through the router cache; both fall back to a full load when the response is not usable.
+Both request the payload form of the URL by appending `__payload` to the query string, `navigate` through the router cache; both fall back to a full load when the response is not usable. A response with an error status is usable when it is a payload, which is what a route whose loader failed with `not_found` answers, so the navigation lands on the error page the server rendered.
 
 Both apply the payload as it streams. The eager wave, every row up to the `G` sidecar, lands as one patch: the changed segments are swapped in, a deferred one showing the fallback its `loading.tsx` renders, history moves and the window scrolls. Each `S` row then fills its slot as it arrives, with the head and store rows that follow it. The promise resolves once the payload has been applied whole. A click on a route whose loader is slow therefore shows the fallback then the fill (the way a document load does) and a click that joins a hover's fetch still in flight streams from wherever it is. A later navigation stops the rows of an earlier one from applying.
 

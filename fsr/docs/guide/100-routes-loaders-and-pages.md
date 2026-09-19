@@ -143,7 +143,7 @@ A page is an island: it is mounted in the browser and, when the build could lowe
 
 ## Errors and loading
 
-An `error.tsx` beside a route (or `routes/error.tsx` for all of them) receives `{ error: string }` when the loader fails: a service that is down, a response the contract rejected, a `fail` the body raised. The document still renders around it, so an error page is a page with a message rather than a blank tab.
+An `error.tsx` beside a route (or `routes/error.tsx` for all of them) receives `{ error: string }` when the loader fails: a service that is down, a response the contract rejected, a `fail` the body raised. The document still renders around it, so an error page is a page with a message rather than a blank tab. The status follows the page: when the route's own page loader fails, the document answers with the kind's status, `404` for `fail("not_found", ...)`, `503` for `unavailable`, since a crawler, a cache and a browser's history read the status and not the markup. A layout's loader or a slot's failing degrades that segment and leaves the status at `200`, because the page is still the page. A client navigation to such a route gets the same status with the payload, which the navigator applies as it would any other. `fsr prerender` writes no file for a path whose loader failed.
 
 A `loading.tsx` marks the route deferred: the document ships with the loading module in the page's slot and the real page streams in when the loader finishes, filling the slot in place. Streaming is a property of the plan, declared by the file's presence, not something the page or the loader has to do.
 

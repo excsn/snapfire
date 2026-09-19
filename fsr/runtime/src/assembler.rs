@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use futures_util::TryStreamExt;
 use futures_util::future::{BoxFuture, try_join_all};
+use snapfire_fsr_core::ext::FailureKind;
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, SlotId, SlotName, Value, ValueMap};
 
 use snapfire_fsr_core::Fingerprint;
@@ -240,6 +241,10 @@ pub struct Assembly {
   pub styles: Vec<String>,
   /// The head's `catalog`: the locale's message table as JSON.
   pub catalog: Option<String>,
+  /// The failure of the route's own page, when its loader failed: the node
+  /// reached from the root along the `content` slots. A layout or a slot
+  /// failing degrades its segment and leaves this `None`.
+  pub failed: Option<FailureKind>,
 }
 
 impl std::fmt::Debug for Assembly {
@@ -526,7 +531,7 @@ impl Session {
       key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
-          Ok((node, pending, _segments, meta, store, _digest)) => Resolved {
+          Ok((node, pending, _segments, meta, store, _digest, _failed)) => Resolved {
             slot,
             key: resolved_key,
             node,
@@ -550,13 +555,14 @@ impl Session {
   async fn resolve_subtree(
     self: &Arc<Self>,
     plan: &PlanNode,
-  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Data, u64), AssembleError> {
+  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Data, u64, Option<FailureKind>), AssembleError> {
     let loaded = self.load_eager(plan).await?;
     let meta = self.describe(plan, &loaded).await;
     let store = self.seed(plan, &loaded).await;
     let mut pending = Vec::new();
     let (node, children, _used_head, digest) = self.build(plan, &loaded, &mut pending, &meta, &store).await?;
-    Ok((node, pending, children, meta, store, digest))
+    let failed = loaded.failed.get(&page_of(plan).id.0).map(|e| e.kind);
+    Ok((node, pending, children, meta, store, digest, failed))
   }
 
   /// The store keys every seeding segment of `plan` settled on, an inner
@@ -976,7 +982,7 @@ pub async fn assemble(
     head: head.clone(),
     next_slot: AtomicU32::new(1),
   });
-  let (tree, pending, children, meta, store, digest) = session.resolve_subtree(plan).await?;
+  let (tree, pending, children, meta, store, digest, failed) = session.resolve_subtree(plan).await?;
   let segments = SegmentInfo {
     key: session.segment_key(plan),
     digest,
@@ -1003,5 +1009,16 @@ pub async fn assemble(
     entry: head.entry.clone(),
     styles: head.styles.clone(),
     catalog: head.catalog.clone(),
+    failed,
   })
+}
+
+/// The route's own page: the node reached from the root along the `content`
+/// slots, past the document and every layout.
+fn page_of(plan: &PlanNode) -> &PlanNode {
+  let mut node = plan;
+  while let Some((_, child)) = node.children.iter().find(|(slot, _)| slot.0 == "content") {
+    node = child;
+  }
+  node
 }

@@ -60,6 +60,7 @@ impl Seeds for Failing {
       Err(LoadError {
         source_id: "page".to_owned(),
         message: "no".to_owned(),
+        kind: snapfire_fsr_runtime::FailureKind::Internal,
       })
     })
   }
