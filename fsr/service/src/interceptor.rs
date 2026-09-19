@@ -172,6 +172,7 @@ impl Interceptor for TraceInterceptor {
       "call",
       service = call.service.as_str(),
       method = call.method.as_str(),
+      cache = "none",
       fibre.outcome = tracing::field::Empty,
     );
     let answered = next.run(call);

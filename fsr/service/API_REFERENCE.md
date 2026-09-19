@@ -300,7 +300,7 @@ A request id that survives the whole fanout. Also `Default`.
 * `fn new() -> Self` with key `x-sf-request-id` and a counter starting at 1
 * `fn key(self, key: impl Into<String>) -> Self`
 
-Writes a zero-padded 16-digit lowercase hex counter under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`.
+Writes a zero-padded 16-digit lowercase hex counter under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`. It opens the `call` span on target `fsr::trace` around the rest of the chain, with fields `service`, `method`, `cache` and `fibre.outcome`. `cache` opens as `none` and `DataCache` records `hit` or `miss` on it when a policy is consulted.
 
 ### DataCache
 
@@ -310,7 +310,7 @@ The interceptor `data_cache` installs: one `fibre_cache` per distinct `(ttl, sta
 * `fn is_empty(&self) -> bool`: no method declares `cache` and none `writes`
 * `fn policies(&self) -> Vec<(String, Freshness)>`: `service.method` and its policy, sorted
 * `fn writers(&self) -> Vec<(String, Vec<String>)>`: `service.method` and the tags it drops, sorted
-* `fn hits(&self) -> u64`; `fn misses(&self) -> u64`
+* `fn hits(&self) -> u64`; `fn misses(&self) -> u64`. The same decision is recorded as `cache` on the enclosing `call` span, so a trace says which calls the cache answered.
 * `fn invalidate_tags<I, S>(&self, tags: I)`
 * `Clone` shares the caches; `Interceptor`.
 * `pub fn cache::canonical(value: &Value, out: &mut String)`: the deterministic rendering of a value the key uses, maps by sorted key.

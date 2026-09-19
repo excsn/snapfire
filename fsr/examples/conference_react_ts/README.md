@@ -102,6 +102,8 @@ Build it and read the report: `fsr build app` names every source, action and com
 
 Read the cache policy where it lives. `app/generated/contracts/program.json` carries `getConference` and `listTalks` with their ttl and their `program` tag while the other two carry nothing, because the policy is a property of the method rather than of a call site. Deleting `[cache.data]` from `config/app.toml` turns every one of them off without touching a loader.
 
+Watch the cache work. Load `/` twice, then fetch `/__fsr/traces` and compare the two requests: the `call` span for `getConference` says `cache: miss` the first time and `cache: hit` the second, while `listAnnouncements` says `cache: none` both times because its method carries no policy.
+
 Break the contract. Rename `listTalks` in `clients/program.mock.json` and restart: the host still boots, because a mock answers what it holds, while the day's page fails on the first request with the method it could not find. Rename it in `clients/program.openapi.json` instead and the build refuses, because the loader names a method the contract does not carry.
 
 Add a route. Make `app/routes/rooms/page.tsx` returning a list, run `fsr build app`, then find it in the plan and in the report with no file edited anywhere else.

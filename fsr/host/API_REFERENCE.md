@@ -414,7 +414,7 @@ Opened by the framework, all on target `fsr::trace`.
 | `request` | `Host::handle`, the root of every trace | `method`, `path`, `status`, `fibre.outcome` of `ok` or `error` |
 | `source` | per plan node, in the assembler's parallel load | `id`, `node`, `fibre.outcome` of `ok` or `failed` |
 | `render` | per plan node, nested as the plan nests | `module`, `cache` of `hit` or `miss` when the node is memoized |
-| `call` | `TraceInterceptor`, so every transport | `service`, `method`, `fibre.outcome` being the failure kind or `ok` |
+| `call` | `TraceInterceptor`, so every transport | `service`, `method`, `cache` of `hit`, `miss` or `none`, `fibre.outcome` being the failure kind or `ok` |
 
 With no collector installed each is a relaxed atomic load and a branch.
 

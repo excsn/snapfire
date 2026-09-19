@@ -36,8 +36,8 @@ Under `fsr dev`, the host answers `GET /__fsr/traces` with the last fifty, newes
 request 19.92ms ok {"method": "GET", "path": "/agents", "status": "200"}
   source 16.25ms ok {"id": "layout", "memo": "miss", "node": "1"}
   source 16.60ms ok {"id": "agents.layout", "node": "2"}
-    call 15.99ms ok {"service": "fleet", "method": "listAlerts"}
-    call 15.54ms ok {"service": "fleet", "method": "listAgents"}
+    call 15.99ms ok {"service": "fleet", "method": "listAlerts", "cache": "none"}
+    call 15.54ms ok {"service": "fleet", "method": "listAgents", "cache": "miss"}
   render 1.37ms {"module": "shell#document"}
     render 1.16ms {"module": "routes/layout.tsx#default", "cache": "miss"}
       render 0.82ms {"module": "routes/agents/layout.tsx#default", "cache": "miss"}
@@ -46,7 +46,7 @@ request 19.92ms ok {"method": "GET", "path": "/agents", "status": "200"}
 
 The endpoint answers a JSON array. Every span carries its own `depth`, so laying it out as a tree is the reader's job; the shape of the page is in that. Two loaders ran and they ran together rather than one after the other, because both took about sixteen milliseconds inside a request that took twenty. The two service calls sit under the loader that made them, so you know which loader is waiting on which backend. Rendering the whole tree cost one and a half milliseconds against sixteen spent waiting, which tells you where to look and where not to.
 
-Two different caches report themselves in two different fields. A `source` span carries `memo: hit` or `memo: miss` when that loader is memoizable. A `render` span carries `cache: hit` or `cache: miss` when the render cache was consulted for that node. Ask for the same page again and the render subtree gets shorter rather than faster: a `cache: hit` high in the tree means the nodes beneath it were never rendered, so they have no spans at all.
+Three caches report themselves on three spans. A `source` span carries `memo: hit` or `memo: miss` when that loader is memoizable. A `call` span carries `cache: hit` or `cache: miss` when the method has a cache policy and `cache: none` when it has none, so two identical requests differ in exactly the call the data cache answered. A `render` span carries `cache: hit` or `cache: miss` when the render cache was consulted for that node. Ask for the same page again and the render subtree gets shorter rather than faster: a `cache: hit` high in the tree means the nodes beneath it were never rendered, so they have no spans at all.
 
 None of that is deducible from ten log lines.
 
@@ -58,7 +58,7 @@ The framework opens four and anything you open with `tracing` joins whichever re
 | --- | --- | --- |
 | `request` | request, the root | method, path, status and whether it succeeded |
 | `source` | plan node with a loader | the `id`, the `node`, whether it failed and `memo` when it is memoizable |
-| `call` | service method, whatever the transport | service, method and the failure kind when it failed |
+| `call` | service method, whatever the transport | service, method, `cache` when a policy was consulted and the failure kind when it failed |
 | `render` | plan node | the `module`, plus `cache` when the render cache was consulted |
 
 A failure names its kind rather than a raw status, because the failure vocabulary is what your code acts on and what a dashboard should group by. Only `request`, `source` and `call` set an outcome. A `render` span has none, so read its `cache` field instead of looking for `ok` on it.
@@ -85,4 +85,4 @@ Start the ops console and load `/agents`, then fetch `/__fsr/traces` and find th
 
 Now open the fleet backend and make `listAlerts` sleep for half a second. Load the page again and read the trace: the request grows by roughly half a second, one `source` span grows with it and the `call` span underneath names which method did it. The other loader is unchanged, which is the parallelism showing itself.
 
-Then load the same page twice without changing anything and compare the `render` spans. The second one says `cache: hit` where the first said `cache: miss`; the spans that sat beneath it are gone.
+Then load the same page twice without changing anything and compare the `render` spans. The second one says `cache: hit` where the first said `cache: miss`; the spans that sat beneath it are gone. The `call` spans say the same thing about the data cache: a method with a policy goes from `cache: miss` to `cache: hit` and its transport is never reached the second time.

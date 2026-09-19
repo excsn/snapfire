@@ -145,6 +145,28 @@ impl Transport for Flaky {
 }
 
 #[tokio::test]
+async fn the_call_span_says_whether_the_cache_answered() {
+  use tracing::Instrument;
+  use tracing_subscriber::layer::SubscriberExt;
+  let (layer, traces) = fibre_tracing::layer();
+  let _guard = tracing::subscriber::set_default(tracing_subscriber::registry().with(layer));
+  let transport = mock();
+  let services = Services::builder().contract(contract()).default_transport(transport).intercept(Arc::new(snapfire_fsr_service::TraceInterceptor::new())).data_cache(100).build();
+  let root = tracing::info_span!("request", fibre.root = true);
+  let anon = services.bind_anonymous();
+  async {
+    anon.call("catalog", "plain", ValueMap::default()).await.unwrap();
+    anon.call("catalog", "list", args(None)).await.unwrap();
+    anon.call("catalog", "list", args(None)).await.unwrap();
+  }
+  .instrument(root)
+  .await;
+  let trace = traces.recent(1).pop().expect("a finished trace");
+  let cache: Vec<String> = trace.named("call").map(|span| span.fields["cache"].to_string()).collect();
+  assert_eq!(cache, ["none", "miss", "hit"]);
+}
+
+#[tokio::test]
 async fn a_failure_is_never_cached() {
   let flaky = Arc::new(Flaky { calls: AtomicU64::new(0), failed: Mutex::new(false) });
   let services = services(flaky.clone());

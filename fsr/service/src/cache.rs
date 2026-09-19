@@ -350,6 +350,7 @@ impl Interceptor for DataCache {
       if let Some(loaded) = cache.fetch(&key).await {
         if let Ok(value) = &loaded.0 {
           inner.hits.fetch_add(1, Ordering::Relaxed);
+          tracing::Span::current().record("cache", "hit");
           if policy.freshness.stale.is_some() {
             let _ = cache.fetch_with(&key).await;
           }
@@ -357,6 +358,7 @@ impl Interceptor for DataCache {
         }
       }
       inner.misses.fetch_add(1, Ordering::Relaxed);
+      tracing::Span::current().record("cache", "miss");
       let result = next.run(call).await;
       if let Ok(value) = &result {
         cache.insert_with_ttl(key, Loaded(Ok(value.clone())), 1, policy.ttl).await;
