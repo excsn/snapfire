@@ -27,6 +27,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
 * [5. The runtime](#5-the-runtime)
   * [`Runtime`](#runtime)
   * [`RuntimeBuilder`](#runtimebuilder)
+  * [`Static`, `SubtreeReads` and `Reads`](#static-subtreereads-and-reads)
 * [6. Assembly](#6-assembly)
   * [`assemble`](#assemble)
   * [`Assembly`](#assembly)
@@ -186,7 +187,7 @@ There is no `Pending` variant. Holes belong to the assembler.
 
 * `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: pure in the arguments. The evaluator sees no plan, no tree and no request context beyond the props the assembler composed.
 
-The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one) and `csrf_token` (a `Value::Str`, when the context carries one; the stock host mints one once the session is identified). A loader key with one of those names is replaced.
+The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one and the subtree is not `Fixed`) and `csrf_token` (a `Value::Str`, when the context carries one and the subtree is `Dynamic`; the stock host mints one once the session is identified). A loader key with one of those names is replaced. `$store` carries the whole store for a `Dynamic` subtree and the keys `SubtreeReads::store_keys` names otherwise, so what a memoized render saw is what its key covers. A node with no entry in `Runtime::reads` is `Dynamic`.
 
 An error module additionally receives `error`, a `Value::Str` holding the `LoadError` display string. A fallback module receives the three request keys only, never loader data.
 
@@ -217,6 +218,8 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub load_keyer: Arc<dyn LoadKeyer>`
 * `pub loads: Arc<dyn LoadCache>`
 * `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id, how a segment describes the document from its data.
+* `pub stores: HashMap<String, Arc<dyn Seeds>>`: by data source id, what a segment seeds the store with.
+* `pub reads: Reads`: by `subtree_shape`, what each subtree reads of the request; a subtree with no entry reads everything.
 * `pub fn builder() -> RuntimeBuilder`
 * `pub fn new(sources: DataSources, evaluators: Evaluators) -> Arc<Self>`: default keyer, no cache.
 * `pub fn with_keyer(sources: DataSources, evaluators: Evaluators, keyer: Arc<dyn SegmentKeyer>) -> Arc<Self>`: no cache.
@@ -232,9 +235,21 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn load_keyer(self, keyer: Arc<dyn LoadKeyer>) -> Self`
 * `pub fn loads(self, loads: Arc<dyn LoadCache>) -> Self`
 * `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
+* `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`
+* `pub fn reads(self, reads: Reads) -> Self`
 * `pub fn build(self) -> Arc<Runtime>`
 
-Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata.
+Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata, no seeds, an empty `Reads`.
+
+### `Static`, `SubtreeReads` and `Reads`
+
+`pub enum Static { Fixed, Anonymous, Dynamic }`. `Copy`, `Ord`, `Default` (`Dynamic`). How much of the request a body or a subtree depends on: nothing, the identity alone or more. The app crate classifies sources and subtrees with it.
+
+`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String> }`. What a subtree reads: the most any node in it reads and the store keys any component in it reads.
+
+`pub type Reads = HashMap<u64, SubtreeReads>`, keyed by `subtree_shape`.
+
+* `pub fn subtree_shape(node: &PlanNode) -> u64`: xxh3 over the module names and slot names of the subtree in plan order. Two subtrees of one shape read the same things, since a module has one loader beside it and one component, so an app records one entry per shape and the assembler finds a node's by hashing it.
 
 ## 6. Assembly
 
@@ -266,14 +281,16 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 Cache lookup and store happen per plan node that carries a `cache_key`. The composed key is:
 
 ```text
-{cache_key}|{sorted k=v params joined by &}|ident={subject}|csrf={token}|locale={tag}|{fingerprint:016x}|{store fingerprint:016x}
+{cache_key}|{sorted k=v params joined by &}|ident={subject}|csrf={token}|locale={tag}|{shape:016x}|{fingerprint:016x}|{store fingerprint:016x}
 ```
 
 * `cache_key` is `PlanNode::cache_key`, the plan's own tag.
 * The params are every entry of `ctx.params`, formatted `k=v`, sorted, joined by `&`. No params means an empty field.
-* `subject` is the subject from `ctx.session.identity()` when the session resolved one; it is `-` when it did not.
-* `token` is `ctx.csrf` when set, since it is injected into props; `-` otherwise. A token is per session, so a segment rendered with one is memoised per session; the stock host carries none for an anonymous request so those renders share the memo.
-* The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing each node id followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
+* `subject` is the subject from `ctx.session.identity()` when the session resolved one and the subtree's class is `Anonymous` or `Dynamic`; it is `-` when the session resolved none or the subtree is `Fixed`, so a fixed subtree's entry serves every visitor.
+* `token` is `ctx.csrf` when set and the subtree is `Dynamic`, since only then is it injected into props; `-` otherwise. A token is per session, so a dynamic segment rendered with one is memoised per session; the stock host carries none for an anonymous request so those renders share the memo.
+* `shape` is `subtree_shape`.
+* The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing a presence marker followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
+* The store fingerprint is over the whole store for a `Dynamic` subtree and over the keys `SubtreeReads::store_keys` names otherwise, so a key the subtree never reads changing is not a miss.
 
 No key is composed at all, so neither `get` nor `put` runs, when the node has no `cache_key`, when the subtree contains a `deferred` descendant or when any node in the subtree has a recorded load failure. A key that was composed is always looked up, but it is written back only if the subtree did not use the head slot.
 

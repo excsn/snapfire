@@ -10,10 +10,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore};
+use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore, Tmpl};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, RequestCtx, Runtime, TableResolver,
+  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, Reads, RequestCtx, Runtime, Static, SubtreeReads, TableResolver, subtree_shape,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -737,7 +737,7 @@ impl AppBuilder {
       .collect();
     let fixed_sources: Vec<String> = statics.iter().filter(|(_, class)| **class == Static::Fixed).map(|(name, _)| name.clone()).collect();
     let anonymous_sources: Vec<String> = statics.iter().filter(|(_, class)| **class != Static::Dynamic).map(|(name, _)| name.clone()).collect();
-    let reads: HashMap<String, Vec<String>> = self.lowered_sources.iter().map(|(name, body)| (name.clone(), snapfire_fsr_ir::body_params_read(body))).collect();
+    let params_read: HashMap<String, Vec<String>> = self.lowered_sources.iter().map(|(name, body)| (name.clone(), snapfire_fsr_ir::body_params_read(body))).collect();
     let path_readers: HashSet<String> = self
       .lowered_sources
       .iter()
@@ -929,6 +929,14 @@ impl AppBuilder {
       })
       .map(|(pattern, _, _)| pattern.clone())
       .collect();
+    let mut reads = Reads::new();
+    {
+      let source_class = |name: &String| if lowered(name) { statics.get(name).copied().unwrap_or(Static::Dynamic) } else { Static::Dynamic };
+      let all = resolved.iter().map(|(_, plan, _)| plan).chain(intercepts.plans.values().flatten()).chain(not_found.iter());
+      for plan in all {
+        subtree_reads(plan, &source_class, &self.lowered_components, &mut reads);
+      }
+    }
     let actions = self
       .actions
       .ids()
@@ -989,7 +997,8 @@ impl AppBuilder {
     let mut runtime = Runtime::builder()
       .sources(self.sources)
       .evaluators(self.evaluators)
-      .keyer(Arc::new(ReadsKeyer { reads }))
+      .reads(reads)
+      .keyer(Arc::new(ReadsKeyer { reads: params_read }))
       .load_keyer(Arc::new(ClassKeyer {
         fixed: warm_fixed,
         anonymous: warm_anonymous,
@@ -1160,15 +1169,6 @@ impl snapfire_fsr_runtime::SegmentKeyer for ReadsKeyer {
 /// True when a lowered page or layout on the plan reads the `identity` or
 /// `csrf_token` prop the assembler injects, which a render for nobody cannot
 /// supply.
-/// How much of the request a body or a plan depends on: nothing, the
-/// identity alone or more.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Static {
-  Fixed,
-  Anonymous,
-  Dynamic,
-}
-
 /// `Static::Fixed` when the body reads nothing of the request, `Anonymous`
 /// when its only request reads are `identity` and calls through a service in
 /// `bearer`, `Dynamic` otherwise. A route parameter is not a request read: a
@@ -1221,6 +1221,81 @@ fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(S
     class = class.max(plan_reads_request_props(child, components));
   }
   class
+}
+
+/// Records what every subtree under `node` reads of the request, by shape,
+/// and returns the root's. A node reads what its source reads and what its
+/// component reads of the `identity` and `csrf_token` props; the store keys
+/// its component, or a component it places, reads are listed rather than
+/// classed, since the memo key carries their values whoever seeds them. A
+/// module the app cannot see through reads everything.
+fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&String) -> Static, components: &[(String, Component)], reads: &mut Reads) -> SubtreeReads {
+  let mut class = match &node.data_source {
+    None => Static::Fixed,
+    Some(source) => source_class(&source.0),
+  };
+  let module = node.module.to_string();
+  let mut keys = Vec::new();
+  match components.iter().find(|(name, _)| *name == module) {
+    None => class = Static::Dynamic,
+    Some((_, component)) => {
+      if component.reads_prop("csrf_token") {
+        class = Static::Dynamic;
+      } else if component.reads_prop("identity") {
+        class = class.max(Static::Anonymous);
+      }
+      let mut seen = HashSet::new();
+      store_keys_read(&module, components, &mut seen, &mut keys);
+    }
+  }
+  for (_, child) in &node.children {
+    let below = subtree_reads(child, source_class, components, reads);
+    class = class.max(below.class);
+    keys.extend(below.store_keys);
+  }
+  keys.sort();
+  keys.dedup();
+  let out = SubtreeReads { class, store_keys: keys };
+  reads.insert(subtree_shape(node), out.clone());
+  out
+}
+
+/// The store keys `module`'s component reads, and every component it places
+/// reads, transitively.
+fn store_keys_read(module: &str, components: &[(String, Component)], seen: &mut HashSet<String>, out: &mut Vec<String>) {
+  if !seen.insert(module.to_owned()) {
+    return;
+  }
+  let Some((_, component)) = components.iter().find(|(name, _)| name == module) else { return };
+  component.visit(&mut |e| {
+    if let Expr::Store(key) = e {
+      out.push(key.clone());
+    }
+  });
+  let mut placed = Vec::new();
+  placed_modules(&component.render, &mut placed);
+  for module in placed {
+    store_keys_read(&module, components, seen, out);
+  }
+}
+
+fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
+  match tmpl {
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
+    Tmpl::If { then, r#else, .. } => {
+      placed_modules(then, out);
+      if let Some(e) = r#else {
+        placed_modules(e, out);
+      }
+    }
+    Tmpl::For { body, .. } => placed_modules(body, out),
+    Tmpl::Let { then, .. } => placed_modules(then, out),
+    Tmpl::Component { module, children, .. } | Tmpl::Island { module, children, .. } => {
+      out.push(module.clone());
+      children.iter().for_each(|c| placed_modules(c, out));
+    }
+  }
 }
 
 fn declared_sources(plan: &snapfire_fsr_core::PlanNode) -> Vec<String> {

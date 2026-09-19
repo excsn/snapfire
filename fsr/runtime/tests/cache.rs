@@ -371,3 +371,138 @@ fn invalidation_says_how_many_entries_went() {
     assert_eq!(block_on(cache.get("other|a")), Some(entry.clone()));
   }
 }
+
+struct PropsEval(Arc<AtomicU32>);
+
+impl Evaluator for PropsEval {
+  fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+    self.0.fetch_add(1, Ordering::Relaxed);
+    let who = match props.get("identity") {
+      Some(Value::Map(m)) => match m.get("subject") {
+        Some(Value::Str(s)) => format!("<{s}>"),
+        _ => "<?>".to_owned(),
+      },
+      _ => "<nobody>".to_owned(),
+    };
+    let token = if props.contains_key("csrf_token") { "<token>" } else { "" };
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("{who}{token}"))))]))
+  }
+}
+
+fn user(subject: &str) -> RequestCtx {
+  let cell = SessionCell::default();
+  cell.set_identity(Some(Identity { subject: subject.to_owned(), claims: ValueMap::default() }));
+  RequestCtx { params: Params::new(), session: cell, csrf: Some("t0k".to_owned()), ..Default::default() }
+}
+
+#[test]
+fn a_fixed_subtree_is_memoized_once_for_everyone_and_carries_no_visitor() {
+  use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let plan = cached_leaf(None);
+  let mut reads = Reads::new();
+  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new() });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PropsEval(Arc::clone(&evals))));
+  let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
+
+  let first = block_on(assemble(&rt, &plan, &user("alice"), &Node::raw(""))).unwrap();
+  let second = block_on(assemble(&rt, &plan, &user("bob"), &Node::raw(""))).unwrap();
+  let third = block_on(assemble(&rt, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  assert_eq!(evals.load(Ordering::Relaxed), 1, "alice's render serves bob and the anonymous visitor");
+  assert_eq!(first.tree, Node::raw("<nobody>"), "a fixed subtree's props name no identity and no token");
+  assert_eq!(second.tree, first.tree);
+  assert_eq!(third.tree, first.tree);
+}
+
+#[test]
+fn an_anonymous_subtree_is_memoized_per_subject_without_the_token() {
+  use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let plan = cached_leaf(None);
+  let mut reads = Reads::new();
+  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Anonymous, store_keys: Vec::new() });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PropsEval(Arc::clone(&evals))));
+  let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
+
+  let alice = block_on(assemble(&rt, &plan, &user("alice"), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &plan, &user("bob"), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &plan, &user("alice"), &Node::raw(""))).unwrap();
+  assert_eq!(evals.load(Ordering::Relaxed), 2, "alice and bob each once; alice repeats hit");
+  assert_eq!(alice.tree, Node::raw("<alice>"), "the identity is a prop, the token is not");
+
+  let dynamic = block_on(assemble(&runtime(Arc::new(AtomicU32::new(0)), DataSources::new()), &plan, &user("alice"), &Node::raw(""))).unwrap();
+  assert_eq!(dynamic.tree, Node::raw("<page>"), "the counting evaluator ignores props");
+}
+
+struct PassThrough;
+
+impl snapfire_fsr_runtime::Seeds for PassThrough {
+  fn seed(&self, _ctx: &RequestCtx, data: &Data) -> futures_util::future::BoxFuture<'static, Result<Data, snapfire_fsr_runtime::LoadError>> {
+    let data = data.clone();
+    Box::pin(async move { Ok(data) })
+  }
+}
+
+struct ContentShell;
+
+impl Evaluator for ContentShell {
+  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+    Box::pin(stream::iter([Ok(Chunk::Slot(SlotName("content".into())))]))
+  }
+}
+
+struct StoreEval(Arc<AtomicU32>);
+
+impl Evaluator for StoreEval {
+  fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+    self.0.fetch_add(1, Ordering::Relaxed);
+    let text = match props.get("$store") {
+      Some(Value::Map(store)) => format!("<{:?}>", store.keys().collect::<Vec<_>>()),
+      _ => "<no store>".to_owned(),
+    };
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(text)))]))
+  }
+}
+
+#[test]
+fn a_fixed_subtree_is_keyed_by_the_store_keys_it_reads_and_sees_only_those() {
+  use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let count = Arc::new(AtomicU32::new(1));
+  let other = Arc::new(AtomicU32::new(1));
+  let mut sources = DataSources::new();
+  let (c, o) = (Arc::clone(&count), Arc::clone(&other));
+  sources.insert_fn("seeds", move |_p| {
+    let (c, o) = (c.load(Ordering::Relaxed), o.load(Ordering::Relaxed));
+    async move {
+      let mut data = ValueMap::default();
+      data.insert("cart/count".to_owned(), Value::int(c as i64));
+      data.insert("other".to_owned(), Value::int(o as i64));
+      Ok(data)
+    }
+  });
+  let mut root = PlanNode::new(NodeId(0), ModuleId::new("layout.tera", "default"));
+  root.data_source = Some(DataSourceId("seeds".into()));
+  let mut leaf = cached_leaf(None);
+  leaf.id = NodeId(1);
+  let shape = subtree_shape(&leaf);
+  root.children.push((SlotName("content".into()), leaf));
+  let mut reads = Reads::new();
+  reads.insert(shape, SubtreeReads { class: Static::Fixed, store_keys: vec!["cart/count".to_owned()] });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(StoreEval(Arc::clone(&evals))));
+  evaluators.register(|m: &ModuleId| m.path == "layout.tera", Arc::new(ContentShell));
+  let rt = Runtime::builder().sources(sources).evaluators(evaluators).cache(Arc::new(MemoryCache::new())).store("seeds", Arc::new(PassThrough)).reads(reads).build();
+
+  let render = |rt: &Arc<Runtime>| block_on(assemble(rt, &root, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let first = render(&rt);
+  assert!(format!("{:?}", first.tree).contains("[\\\"cart/count\\\"]"), "the page sees the key it reads and not `other`: {:?}", first.tree);
+  other.store(2, Ordering::Relaxed);
+  render(&rt);
+  assert_eq!(evals.load(Ordering::Relaxed), 1, "a key the page does not read changing is a hit");
+  count.store(2, Ordering::Relaxed);
+  render(&rt);
+  assert_eq!(evals.load(Ordering::Relaxed), 2, "the key it reads changing is a miss");
+}

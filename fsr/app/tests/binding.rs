@@ -343,3 +343,60 @@ fn paths_on_a_route_with_no_parameter_is_refused() {
   let err = App::from_manifest(&fixed).unwrap().build().err().expect("refused");
   assert!(matches!(err, BindError::PathsWithoutParameter { ref loader, ref pattern } if loader == "post" && pattern == "/blog/post"), "{err}");
 }
+
+const CONSOLE: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/help", "plan": { "id": 0, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/help/page.tsx#default", "source": "help", "cache_key": "routes/help/page.tsx#default" } } ] } },
+    { "pattern": "/cart", "plan": { "id": 0, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "cache_key": "routes/cart/page.tsx#default" } } ] } },
+    { "pattern": "/promo", "plan": { "id": 0, "module": "routes/promo/layout.tsx#default", "source": "promo", "cache_key": "routes/promo/layout.tsx#default", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "cache_key": "routes/cart/page.tsx#default" } } ] } }
+  ],
+  "sources": [
+    { "id": "layout", "owner": "lowered", "module": "routes/layout.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "who", { "session": "user" } ] } ] } } ],
+      "store": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 2 } } ] } ] } } ] },
+    { "id": "help", "owner": "lowered", "module": "routes/help/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Help" } } ] } ] } } ] },
+    { "id": "promo", "owner": "lowered", "module": "routes/promo/layout.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "n", { "lit": { "int": 1 } } ] } ] } } ],
+      "store": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 0 } } ] } ] } } ] }
+  ],
+  "actions": [],
+  "components": [
+    { "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "form", "attrs": [ { "field": [ "data-token", { "field": [ { "var": "$props" }, "csrf_token" ] } ] } ], "children": [ { "slot": "content" } ] } } } },
+    { "module": "routes/promo/layout.tsx#default", "body": { "render": { "element": { "tag": "div", "children": [ { "slot": "content" } ] } } } },
+    { "module": "routes/help/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "title" ] } } ] } } } },
+    { "module": "routes/cart/page.tsx#default", "body": { "render": { "element": { "tag": "p", "children": [ { "component": { "module": "src/Badge.tsx#Badge" } } ] } } } },
+    { "module": "src/Badge.tsx#Badge", "body": { "render": { "element": { "tag": "b", "children": [ { "expr": { "store": "cart/count" } } ] } } } }
+  ]
+}"#;
+
+#[test]
+fn a_subtree_is_classed_by_what_it_reads_rather_than_by_its_route() {
+  use snapfire_fsr_runtime::{subtree_shape, Static};
+  let app = App::from_manifest(CONSOLE).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/promo".to_owned()], "the other two sit under a layout reading the request: {}", app.report);
+  let leaf = |module: &str| subtree_shape(&PlanNode::new(NodeId(0), ModuleId::new(module.split('#').next().unwrap(), "default")));
+  let reads = &app.runtime.reads;
+
+  let help = &reads[&leaf("routes/help/page.tsx#default")];
+  assert_eq!(help.class, Static::Fixed, "a page reading nothing under a layout reading the token");
+  assert!(help.store_keys.is_empty());
+
+  let mut layout = PlanNode::new(NodeId(0), ModuleId::new("routes/layout.tsx", "default"));
+  layout.children.push((SlotName("content".into()), PlanNode::new(NodeId(1), ModuleId::new("routes/help/page.tsx", "default"))));
+  assert_eq!(reads[&subtree_shape(&layout)].class, Static::Dynamic, "the layout reads its csrf_token prop and its source reads the session");
+
+  let cart = &reads[&leaf("routes/cart/page.tsx#default")];
+  assert_eq!(cart.store_keys, vec!["cart/count".to_owned()], "a key read by a component the page places");
+  assert_eq!(cart.class, Static::Fixed, "the key's value is in the memo key, so who seeds it does not class the page");
+
+  let mut promo = PlanNode::new(NodeId(0), ModuleId::new("routes/promo/layout.tsx", "default"));
+  promo.children.push((SlotName("content".into()), PlanNode::new(NodeId(1), ModuleId::new("routes/cart/page.tsx", "default"))));
+  let promo = &reads[&subtree_shape(&promo)];
+  assert_eq!(promo.class, Static::Fixed);
+  assert_eq!(promo.store_keys, vec!["cart/count".to_owned()], "a layout's subtree lists what its page reads");
+}

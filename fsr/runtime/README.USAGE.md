@@ -41,7 +41,8 @@ How to wire a request through the runtime: matching a path, resolving a plan, lo
 * **Segment**: a region of the page with its own identity, cacheability and error boundary, one per plan node reached through a slot.
 * **Segment key**: the comparable identity of a segment across two responses, produced by a `SegmentKeyer`. It says which old segment a new one is.
 * **Segment digest**: the fingerprint of what a segment rendered, its child segments elided. It says whether that segment changed, so a browser keeps a region whose digest held even when its key moved.
-* **Composed cache key**: the string the assembler builds from the plan's `cache_key`, the matched params, the identity subject and the subtree's data fingerprint.
+* **Composed cache key**: the string the assembler builds from the plan's `cache_key`, the matched params, what the subtree reads of the visitor, the locale, the subtree's shape, its data fingerprint and the fingerprint of the store keys it reads.
+* **Subtree reads** (`SubtreeReads`, in `Runtime::reads` by `subtree_shape`): how much of the request a subtree depends on (`Fixed`, `Anonymous` or `Dynamic`) and the store keys it reads. An app computes it; the assembler keys the memo and composes props by it.
 * **Request context** (`RequestCtx`): everything a loader or action may know about the request: route params, the decoded query string, the session, the CSRF token and a service handle, nothing else.
 * **Identity**: a subject string plus claims, resolved by the session layer before anything loads. Application code never sees a token.
 * **Failure kind** (`FailureKind`): the one failure vocabulary shared by actions and services, mapping to HTTP statuses at the edge.
@@ -521,19 +522,21 @@ let runtime = Runtime::builder()
   .build();
 ```
 
-The key the cache actually sees is composed by the assembler, not by the plan. It is five fields joined by `|`:
+The key the cache actually sees is composed by the assembler, not by the plan. It is eight fields joined by `|`:
 
 ```text
-{plan cache_key}|{k=v pairs, sorted, joined by &}|ident={identity subject or -}|csrf={token or -}|{16 hex digits of the subtree data fingerprint}
+{plan cache_key}|{k=v pairs, sorted, joined by &}|ident={identity subject or -}|csrf={token or -}|locale={tag}|{shape}|{16 hex digits of the subtree data fingerprint}|{16 hex digits of the store fingerprint}
 ```
 
 So a request for `/dash/servers` as `alice`, whose loader returned the fingerprint `3f2a...`, looks up:
 
 ```text
-dash_page|section=servers|ident=alice|csrf=-|3f2a9c1d40b7e558
+dash_page|section=servers|ident=alice|csrf=-|locale=en_US|9c41…|3f2a9c1d40b7e558|0000000000000000
 ```
 
-Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key, so one user's page is never handed to another; an anonymous request keys on `-`. The CSRF token is injected into props, so it is in the key too when a host sets one and `-` when none does. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
+Each field closes a way of serving the wrong bytes. Params are in the key, so `/dash/servers` and `/dash/network` are separate entries. The identity subject is in the key when the subtree reads it, so one user's page is never handed to another; an anonymous request keys on `-`. The CSRF token is injected into props for a subtree that reads it, so it is in the key too when a host sets one and `-` when none does.
+
+What a subtree reads is the app's to say, through `RuntimeBuilder::reads`: a `SubtreeReads` per `subtree_shape`, with a class and the store keys read. A `Fixed` subtree keys on `-` for both the subject and the token and gets neither as a prop, so the console's help page under a layout that reads the session is rendered once for every visitor and the layout alone is evaluated per request. An `Anonymous` subtree keys on the subject alone. The store fingerprint covers the keys the subtree reads for a fixed or anonymous subtree and the whole store for a dynamic one. `$store` in the props is cut to the same keys, so a memoized render saw exactly what its key covers. A subtree with no entry is dynamic, which is what a runtime built without `reads` gets everywhere. The fingerprint covers the whole subtree's loaded data, hashed over the plan node ids in tree order, so changed data is a miss rather than a stale hit.
 
 Three things disqualify a subtree from caching:
 

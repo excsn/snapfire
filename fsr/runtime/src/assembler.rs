@@ -13,6 +13,7 @@ use crate::ctx::RequestCtx;
 use crate::data::{DataSources, LoadError, LoadKeyer, NoLoadKey};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
+use crate::reads::{subtree_shape, Reads, Static, SubtreeReads};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 use crate::store::Seeds;
 
@@ -87,6 +88,9 @@ pub struct Runtime {
   pub metas: HashMap<String, Arc<dyn Metadata>>,
   /// By data source id: what a segment seeds the store with from its data.
   pub stores: HashMap<String, Arc<dyn Seeds>>,
+  /// What each subtree reads of the request, by its shape. A subtree with no
+  /// entry is taken to read everything.
+  pub reads: Reads,
 }
 
 pub struct RuntimeBuilder {
@@ -98,6 +102,7 @@ pub struct RuntimeBuilder {
   loads: Arc<dyn LoadCache>,
   metas: HashMap<String, Arc<dyn Metadata>>,
   stores: HashMap<String, Arc<dyn Seeds>>,
+  reads: Reads,
 }
 
 impl RuntimeBuilder {
@@ -141,6 +146,14 @@ impl RuntimeBuilder {
     self
   }
 
+  /// What each subtree reads of the request, keyed by `subtree_shape`. A
+  /// `Fixed` subtree is memoized once for everyone and its props carry no
+  /// identity and no token; an `Anonymous` one is memoized per subject.
+  pub fn reads(mut self, reads: Reads) -> Self {
+    self.reads = reads;
+    self
+  }
+
   pub fn build(self) -> Arc<Runtime> {
     Arc::new(Runtime {
       sources: self.sources,
@@ -151,6 +164,7 @@ impl RuntimeBuilder {
       loads: self.loads,
       metas: self.metas,
       stores: self.stores,
+      reads: self.reads,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
     })
   }
@@ -167,6 +181,7 @@ impl Runtime {
       loads: Arc::new(NoLoadCache),
       metas: HashMap::new(),
       stores: HashMap::new(),
+      reads: Reads::new(),
     }
   }
 
@@ -235,10 +250,26 @@ impl std::fmt::Debug for Assembly {
 /// A node's props carry the route's store seed as `$store`, which a lowered
 /// component's `Expr::Store` reads and the IR evaluator strips again before
 /// the props reach the browser.
-fn inject_store(props: &mut Data, store: &Data) {
+/// The whole store for a subtree that reads everything, the keys it was seen
+/// to read otherwise, so a memoized render depends on what its key names.
+fn inject_store(props: &mut Data, store: &Data, reads: Option<&SubtreeReads>) {
+  let store = match reads {
+    Some(reads) if reads.class != Static::Dynamic => store_read(store, &reads.store_keys),
+    _ => store.clone(),
+  };
   if !store.is_empty() {
-    props.insert("$store".to_owned(), Value::Map(store.clone()));
+    props.insert("$store".to_owned(), Value::Map(store));
   }
+}
+
+fn store_read(store: &Data, keys: &[String]) -> Data {
+  let mut out = Data::default();
+  for key in keys {
+    if let Some(value) = store.get(key) {
+      out.insert(key.clone(), value.clone());
+    }
+  }
+  out
 }
 
 fn error_node(message: &str) -> Node {
@@ -351,14 +382,6 @@ fn subtree_has_failure(node: &PlanNode, failed: &HashMap<u32, LoadError>) -> boo
 
 /// Every module and slot beneath a node, so two routes sharing a layout node
 /// with no data of its own still key their subtrees apart.
-fn subtree_shape(node: &PlanNode, h: &mut xxhash_rust::xxh3::Xxh3) {
-  h.update(node.module.to_string().as_bytes());
-  for (slot, child) in &node.children {
-    h.update(slot.0.as_bytes());
-    subtree_shape(child, h);
-  }
-}
-
 fn subtree_data_fingerprint(node: &PlanNode, data: &HashMap<u32, Data>) -> u64 {
   fn walk(node: &PlanNode, data: &HashMap<u32, Data>, h: &mut xxhash_rust::xxh3::Xxh3) {
     // A presence marker rather than the node id: the walk is already in plan
@@ -439,7 +462,7 @@ impl Session {
       return Ok(error_node(&failure.to_string()));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props);
+    self.inject_ctx_props(&mut props, Static::Dynamic);
     props.insert("error".to_owned(), Value::str(failure.to_string()));
     let chunks: Vec<Chunk> = self
       .runtime
@@ -467,8 +490,8 @@ impl Session {
       return Ok(Node::raw(""));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props);
-    inject_store(&mut props, store);
+    self.inject_ctx_props(&mut props, Static::Dynamic);
+    inject_store(&mut props, store, None);
     let chunks: Vec<Chunk> = self
       .runtime
       .evaluators
@@ -569,23 +592,32 @@ impl Session {
     meta
   }
 
-  fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, store: &Data) -> Option<String> {
+  /// The memo key of a subtree: its plan key, the parameters, what it reads
+  /// of the request, the locale, its shape, its own sources' data and the
+  /// store it reads. A `Fixed` subtree's key names no visitor, so one entry
+  /// serves everyone; an `Anonymous` one names the subject; a `Dynamic` one
+  /// names the subject, the token and the whole store.
+  fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, store: &Data, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
     let plan_key = node.cache_key.as_ref()?;
     if has_deferred_descendant(node) || subtree_has_failure(node, &loaded.failed) {
       return None;
     }
     let data = &loaded.data;
+    let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
     let mut pairs: Vec<String> = self.ctx.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
-    let subject = self
-      .ctx
-      .session
-      .identity()
-      .map(|i| i.subject)
-      .unwrap_or_else(|| "-".to_owned());
-    let csrf = self.ctx.csrf.as_deref().unwrap_or("-");
-    let mut shape = xxhash_rust::xxh3::Xxh3::new();
-    subtree_shape(node, &mut shape);
+    let subject = match class {
+      Static::Fixed => "-".to_owned(),
+      _ => self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned()),
+    };
+    let csrf = match class {
+      Static::Dynamic => self.ctx.csrf.as_deref().unwrap_or("-"),
+      _ => "-",
+    };
+    let store_fp = match (class, reads) {
+      (Static::Dynamic, _) | (_, None) => store.fingerprint(),
+      (_, Some(reads)) => store_read(store, &reads.store_keys).fingerprint(),
+    };
     Some(format!(
       "{}|{}|ident={}|csrf={}|locale={}|{:016x}|{:016x}|{:016x}",
       plan_key.0,
@@ -593,9 +625,9 @@ impl Session {
       subject,
       csrf,
       self.ctx.locale.tag,
-      shape.digest(),
+      shape,
       subtree_data_fingerprint(node, data),
-      store.fingerprint()
+      store_fp
     ))
   }
 
@@ -623,16 +655,23 @@ impl Session {
     key
   }
 
-  fn inject_ctx_props(&self, props: &mut Data) {
+  /// The request as props: the parameters and the locale always, the
+  /// identity unless the subtree is `Fixed`, the token only when it is
+  /// `Dynamic`, so a render the memo shares carries nothing of the visitor.
+  fn inject_ctx_props(&self, props: &mut Data, class: Static) {
     props.insert("params".to_owned(), params_value(&self.ctx.params));
     if !self.ctx.locale.tag.is_empty() {
       props.insert("locale".to_owned(), Value::str(self.ctx.locale.tag.clone()));
     }
-    if let Some(identity) = self.ctx.identity_value() {
-      props.insert("identity".to_owned(), identity);
+    if class != Static::Fixed {
+      if let Some(identity) = self.ctx.identity_value() {
+        props.insert("identity".to_owned(), identity);
+      }
     }
-    if let Some(csrf) = &self.ctx.csrf {
-      props.insert("csrf_token".to_owned(), Value::str(csrf.clone()));
+    if class == Static::Dynamic {
+      if let Some(csrf) = &self.ctx.csrf {
+        props.insert("csrf_token".to_owned(), Value::str(csrf.clone()));
+      }
     }
   }
 
@@ -753,9 +792,12 @@ impl Session {
         return Ok((node, Vec::new(), false, digest));
       }
       let data = &loaded.data;
+      let shape = subtree_shape(node);
+      let reads = self.runtime.reads.get(&shape);
+      let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
       let cache_key = match self.runtime.head_users.lock().contains(&node.id.0) {
         true => None,
-        false => self.cache_key_for(node, loaded, store),
+        false => self.cache_key_for(node, loaded, store, shape, reads),
       };
       let render = tracing::info_span!(target: "fsr::trace", "render", module = %node.module, cache = tracing::field::Empty);
       let _rendering = render.enter();
@@ -770,8 +812,8 @@ impl Session {
       }
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
-      self.inject_ctx_props(&mut props);
-      inject_store(&mut props, store);
+      self.inject_ctx_props(&mut props, class);
+      inject_store(&mut props, store, reads);
       if !node.children.is_empty() || !node.keep.is_empty() {
         let slots = node
           .children
