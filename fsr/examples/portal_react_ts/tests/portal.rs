@@ -26,7 +26,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   let report = portal.report().to_string();
   assert!(report.contains("sites     billing                at /billing from"), "{report}");
   assert!(report.contains("/billing/invoice/{id}") && report.contains("billing:$root") && report.contains("billing:ledger         mock"), "{report}");
-  assert!(report.contains("ignored [static /static/js/fsr, static /static/js/vendor, session]"), "{report}");
+  assert!(report.contains("billing                ignored [session], the shell's"), "{report}");
 
   let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
@@ -34,7 +34,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   assert_eq!(response.headers().get("x-billing").unwrap(), "invoices", "the site's middleware ran after it");
   let html = body_of(response).await;
   assert!(html.contains("class=\"brand\"") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
-  assert!(html.contains("Northwind") && html.contains("data-sf-module=\"billing:routes/page.tsx#default\""), "{html}");
+  assert!(html.contains("Northwind") && html.contains("<!--sf-g:billing:routes/page.tsx#default-->") && html.contains("data-sf-module=\"billing:routes/layout.tsx#default\""), "{html}");
   assert!(html.contains("href=\"/billing/static/css/billing.css\""), "the site's stylesheet rides under its prefix: {html}");
 
   let response = portal.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
@@ -76,3 +76,34 @@ async fn the_sites_status_names_the_mount() {
   assert_eq!(json["sites"][0]["version"], "path");
   assert_eq!(json["sites"][0]["hash"].as_str().unwrap().len(), 16);
 }
+
+#[tokio::test]
+async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
+  let portal = portal();
+  let report = portal.report().to_string();
+  assert!(report.contains("blog                   at /blog from"), "{report}");
+  assert!(report.contains("/blog/post/{slug}") && report.contains("blog:post.$slug"), "{report}");
+  assert!(report.contains("render    /billing               billing:routes/page.tsx#default not rendered") || report.contains("/blog                  blog:routes/layout.tsx#default"), "the blog's subtrees under the session-reading layout are renderable ahead: {report}");
+
+  let response = portal.handle(Request::get("/blog").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let html = body_of(response).await;
+  assert!(html.contains("href=\"/blog/post/why-a-plan-file\"") && html.contains("href=\"/blog/static/css/blog.css\""), "{html}");
+  assert!(html.contains("portal-main"), "under the portal's layout: {html}");
+
+  let response = portal.handle(Request::get("/blog/post/static-under-a-shell").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let html = body_of(response).await;
+  assert!(html.contains("<title>Static pages under a shell that reads the session · Blog</title>") && html.contains("<code>fsr prerender</code>"), "{html}");
+
+  let response = portal.handle(Request::get("/blog/post/nope").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "a slug off the blog is a 404 document");
+  assert!(body_of(response).await.contains("That did not load"), "rendered through the blog's error page");
+
+  let out = std::env::temp_dir().join(format!("portal-prerender-{}", std::process::id()));
+  let written = portal.prerender(&out).await.unwrap();
+  assert!(written.iter().any(|(name, _)| name == "renders.json"), "the blog's fixed subtrees are rendered ahead: {written:?}");
+  assert!(!written.iter().any(|(pattern, _)| pattern.starts_with("/blog")), "no document under the session-reading layout is written whole: {written:?}");
+  std::fs::remove_dir_all(&out).unwrap();
+}
+

@@ -10,6 +10,7 @@ The shell of a company site: a header, a team directory and a sign-in; under `/b
 | Store keys the portal seeds for every document, typed for the site by the shell contract | `store` in `app/routes/layout.loader.ts`, `generated/shell.json`, `ShellStore` in the site |
 | A navigation from the portal into the site and back that keeps the header's island | `Link` to `/billing` in `src/ui/Header.tsx`, the `E` row of the payload |
 | A deploy that is a pointer moved: the artifact table reread on `SIGHUP` or the poll, the mounted versions on `/__fsr/sites` | `[sites] poll` in `config/app.toml`, `snapfire_fsr_sites::watch` in `src/main.rs` |
+| A second site with no binary, whose fixed pages the portal's prerender renders ahead under its session-reading layout | `[sites.blog]`, `../blog_site_react_ts`, `renders.json` after `fsr prerender app` |
 
 ## Run it
 
@@ -17,6 +18,7 @@ The site's bundle is served under its own prefix, so build both applications fir
 
 ```sh
 cargo build -p billing_site_react_ts
+fsr build ../blog_site_react_ts/app
 cargo run -p portal_react_ts
 ```
 

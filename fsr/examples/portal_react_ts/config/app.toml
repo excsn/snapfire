@@ -26,3 +26,6 @@ artifact = "../billing_site_react_ts"
 
 [typecheck]
 version = "7.0.2"
+
+[sites.blog]
+artifact = "../blog_site_react_ts"

@@ -1,6 +1,6 @@
 # FSR examples
 
-Fourteen applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Fifteen applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read in order: each carries the part the ones before it do not reach.
 
@@ -17,6 +17,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | [chat_react_ts](chat_react_ts/README.md) | Rooms, messages and who said what | The server talking to a page nobody asked: an action keeps a message, the host publishes the room's topic and every window following it revalidates, with the topic itself behind an authorisation rule |
 | [wave_react_ts](wave_react_ts/README.md) | Google Wave: blips nested in blips, presence and everyone's typing visible before it is kept | The seam that goes the other way: a WebSocket per topic whose rows land in the store, beside actions and `live` for everything durable |
 | [conference_react_ts](conference_react_ts/README.md) | A one-day conference programme | The application with no Rust in it: routes, loaders and actions in TypeScript alone, compiled to a plan the stock host reads at boot, over a service that is an OpenAPI document and a file of canned answers |
+| [blog_site_react_ts](blog_site_react_ts/README.md) | A blog the portal mounts at `/blog`, its posts baked in at build | A static site under a shell that reads the session: the shell's `fsr prerender` renders each page ahead and splices it under the live layout, the same site prerenders its own documents when it runs alone, one per post from `paths`; a slug off the blog answers 404 and React comes from the shell contract, so nothing is vendored and there is no Rust project |
 
 ### Vue
 
@@ -52,13 +53,13 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `recipes_vue_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `blog_site_react_ts`, `recipes_vue_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
 
 ```sh
 cd shopping_react_ts && fsr dev app
 ```
 
-`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests, which is every example but the conference, the recipes, the tool shed and the noticeboard.
+`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests, which is every example but the conference, the blog, the recipes, the tool shed and the noticeboard.
 
 ## Ports
 
@@ -71,6 +72,7 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8090 to 8092 | `ops_console_react_ts` and its backends |
 | 8100 | `portal_react_ts` |
 | 8101 | `billing_site_react_ts` running alone |
+| 8102 | `blog_site_react_ts` running alone, which has no binary of its own |
 | 8110 | `handbook_react_ts`, only under `fsr dev`; the built site is files |
 | 8120 | `arrivals_react_ts` |
 | 8130 | `chat_react_ts` |
@@ -90,7 +92,7 @@ cargo build -p billing_site_react_ts
 cargo run -p portal_react_ts
 ```
 
-`http://127.0.0.1:8100/` is the portal; `/billing` is the site under the portal's header, with one sign-in covering both. `GET /__fsr/sites` lists what is mounted, with each artifact's version and content hash.
+`http://127.0.0.1:8100/` is the portal; `/billing` is the site under the portal's header, with one sign-in covering both. `/blog` is the second site, built with `fsr build blog_site_react_ts/app` rather than cargo, since it has no binary. `GET /__fsr/sites` lists what is mounted, with each artifact's version and content hash.
 
 ## What these are not
 
