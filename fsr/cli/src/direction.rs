@@ -142,7 +142,12 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
   }
 
   let manifest = VendorManifest::read(app, &layout)?;
+  let shell = match crate::site_beside(app).and_then(|site| site.shell) {
+    Some(path) => Some(crate::ShellContract::read(&path)?),
+    None => None,
+  };
   let mut wanted: Vec<Spec> = Vec::new();
+  let mut served: Vec<Spec> = Vec::new();
   for direction in &directions {
     write_map(app, &layout, direction, &mut adopted)?;
     for spec in direction.specs() {
@@ -151,9 +156,16 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
         Some(recorded) => {
           return Err(BuildError::DirectionPinned { direction: direction.name.to_owned(), package: spec.package.clone(), recorded: recorded.version.clone(), wanted: spec.version.clone(), manifest: format!("`{}`", app.join(&layout.vendor).join(vendor::VENDOR_MANIFEST).display()) });
         }
+        None if shell.as_ref().is_some_and(|contract| contract.imports.contains_key(&spec.specifier())) => served.push(spec),
         None => wanted.push(spec),
       }
     }
+  }
+  // A package the site's shell serves needs no fetch: `add` writes the
+  // shell's URL into the map from the contract alone.
+  if !served.is_empty() {
+    let report = vendor::add(app, &served, &[])?;
+    adopted.from_shell = report.from_shell;
   }
 
   if options.example {
@@ -180,7 +192,7 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
       match vendor::add(app, &wanted, &[]) {
         Ok(report) => {
           adopted.vendored = report.added;
-          adopted.from_shell = report.from_shell;
+          adopted.from_shell.extend(report.from_shell);
           adopted.delegated = report.delegated;
         }
         Err(e) => adopted.notes.push(format!("vendoring failed ({e}); run `{}`", add.as_deref().unwrap_or_default())),

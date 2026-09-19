@@ -149,3 +149,21 @@ fn a_shell_that_is_also_a_site_is_refused() {
   let refused = create(&root, options).unwrap_err().to_string();
   assert!(refused.contains("a site cannot mount sites"), "{refused}");
 }
+
+#[test]
+fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
+  let base = root("shell-direction");
+  let shell = base.join("portal");
+  let site = base.join("blog");
+  create(&shell, NewOptions { shell: true, ..offline() }).unwrap();
+  std::fs::create_dir_all(shell.join("app/generated")).unwrap();
+  std::fs::write(shell.join("app/generated/shell.json"), r#"{"version":1,"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/static/js/vendor/react/jsx-runtime.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"},"frameworks":{"react":"18.3.1","react-dom":"18.3.1"}}"#).unwrap();
+  let created = create(&site, NewOptions { with: vec!["react".to_owned()], site: Some(SiteScaffold { at: "/blog".to_owned(), name: Some("blog".to_owned()), into: Some(shell.clone()) }), ..offline() }).unwrap();
+  assert!(created.linked.is_some());
+  let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(site.join("app/importmap.json")).unwrap()).unwrap();
+  assert_eq!(map["imports"]["react"], "/static/js/vendor/react/react.bundle.mjs", "the shell's URL, taken from the contract: {map}");
+  assert_eq!(map["imports"]["@snapfire/fsr-client/react"], "/static/js/fsr/react.js");
+  assert!(created.vendored.is_empty() && !site.join("app/vendor").exists(), "nothing is vendored for a package the shell serves");
+  assert!(!created.next.iter().any(|s| s.starts_with("fsr add")), "nothing is left to fetch: {:?}", created.next);
+}
+

@@ -118,6 +118,14 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     created.written.push(path);
   }
 
+  // A direction under a site reads the shell contract for what the shell
+  // already serves, so the mount is written before any direction runs.
+  if let Some(site) = &options.site {
+    if let Some(shell) = &site.into {
+      created.linked = Some(crate::sites::link(shell, root, &site.at, site.name.as_deref())?);
+    }
+  }
+
   if !options.with.is_empty() {
     let adopted = direction::adopt(&app, &options.with, UseOptions { fetch: options.fetch, example: false })?;
     created.vendored = adopted.vendored;
@@ -144,11 +152,6 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   } else {
     created.next.push(format!("fsr types {}", app.display()));
     created.next.push(format!("fsr build {}", app.display()));
-  }
-  if let Some(site) = &options.site {
-    if let Some(shell) = &site.into {
-      created.linked = Some(crate::sites::link(shell, root, &site.at, site.name.as_deref())?);
-    }
   }
   created.next.push(format!("fsr dev {}", app.display()));
 

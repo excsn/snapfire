@@ -335,7 +335,9 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
 
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   write_import_map(app, &layout, &map)?;
-  manifest.write(app, &layout)?;
+  if !manifest.packages.is_empty() || app.join(&layout.vendor).join(VENDOR_MANIFEST).is_file() {
+    manifest.write(app, &layout)?;
+  }
   Ok(AddReport { added, remapped, from_shell, delegated: Vec::new() })
 }
 
