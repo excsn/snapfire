@@ -4,7 +4,7 @@ import { posts } from "@src/posts";
 
 export async function load({ params }: Ctx<"/post/{slug}">) {
   const matches = posts.filter((candidate) => candidate.slug === params.slug);
-  if (matches.length === 0) fail("not_found", "there is no post with that slug");
+  if (matches.length === 0) fail("not_found", `there is no post ${params.slug}`);
   const post = matches[0];
   return { post };
 }

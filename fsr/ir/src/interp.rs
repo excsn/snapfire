@@ -373,9 +373,10 @@ impl Env {
     }
   }
 
-  async fn guard(&mut self, cond: &Expr, kind: &str, message: &str) -> Result<(), Fail> {
+  async fn guard(&mut self, cond: &Expr, kind: &str, message: &Expr) -> Result<(), Fail> {
     if truthy(&self.eval(cond).await?) {
       let kind = parse_kind(kind).ok_or_else(|| Fail::internal(format!("`{kind}` is not a failure kind")))?;
+      let message = stringify(&self.eval(message).await?)?;
       return Err(Fail::new(kind, message));
     }
     Ok(())

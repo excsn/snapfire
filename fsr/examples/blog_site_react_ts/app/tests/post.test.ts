@@ -11,7 +11,7 @@ test("a post is found by its slug and titles the document", async () => {
 
 test("a slug off the blog is refused as not found", async () => {
   const c = ctx<void, "/post/{slug}">({ params: { slug: "nope" } });
-  await expect(load(c)).rejects.toMatchObject({ kind: "not_found" });
+  await expect(load(c)).rejects.toMatchObject({ kind: "not_found", message: "there is no post nope" });
 });
 
 test("paths names every post once", () => {

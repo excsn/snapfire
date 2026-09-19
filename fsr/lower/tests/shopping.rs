@@ -151,7 +151,7 @@ fn both_actions_lower_with_their_input_types() {
       Stmt::Guard {
         cond: Expr::Compare(CompareOp::Eq, Box::new(Expr::Length(Box::new(Expr::var("lines")))), Box::new(Expr::Lit(Lit::Float(0.0)))),
         kind: "invalid".into(),
-        message: "the cart is empty".into(),
+        message: Expr::Lit(Lit::Str("the cart is empty".into())),
       },
       Stmt::Let { name: "order".into(), expr: Expr::call("shopping", "placeOrder", vec![("lines", Expr::var("lines"))]) },
       Stmt::SessionSet { key: "cart".into(), path: vec![], value: Expr::Object(vec![]) },

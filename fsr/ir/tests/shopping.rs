@@ -186,7 +186,7 @@ fn checkout() -> Body {
     Stmt::Guard {
       cond: Expr::Compare(CompareOp::Eq, Box::new(Expr::Length(Box::new(Expr::var("lines")))), Box::new(Expr::Lit(Lit::Float(0.0)))),
       kind: "invalid".into(),
-      message: "the cart is empty".into(),
+      message: Expr::Lit(Lit::Str("the cart is empty".into())),
     },
     Stmt::Let { name: "order".into(), expr: Expr::call("shopping", "placeOrder", vec![("lines", Expr::var("lines"))]) },
     Stmt::SessionSet { key: "cart".into(), path: vec![], value: Expr::Object(vec![]) },
@@ -298,7 +298,7 @@ fn a_failed_body_leaves_the_session_untouched() {
   let mock = Arc::new(Mock::default());
   let body = vec![
     Stmt::SessionSet { key: "cart".into(), path: vec![], value: Expr::Object(vec![]) },
-    Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: "conflict".into(), message: "no".into() },
+    Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: "conflict".into(), message: Expr::Lit(Lit::Str("no".into())) },
   ];
   let c = ctx(mock, &[], cart_of(&[("1", 1)]));
   let fail = run(&body, &c, None).unwrap_err();
@@ -431,3 +431,20 @@ fn the_bound_source_and_action_answer_through_the_runtime_traits() {
   let err = rt.block_on(action.call(ctx(mock, &[], cart_of(&[])), Value::Null)).unwrap_err();
   assert_eq!(err.kind, FailureKind::Invalid);
 }
+
+#[test]
+fn a_guards_message_is_evaluated_when_it_fires() {
+  let mock = Mock::returning("shopping.listProducts", Value::seq(vec![]));
+  let body = vec![
+    Stmt::Guard {
+      cond: Expr::Lit(Lit::Bool(true)),
+      kind: "not_found".into(),
+      message: Expr::Template(vec![Expr::Lit(Lit::Str("no product ".into())), Expr::Param("id".into())]),
+    },
+    Stmt::Return(Expr::Lit(Lit::Bool(true))),
+  ];
+  let fail = run(&body, &ctx(mock, &[("id", "7")], ValueMap::default()), None).unwrap_err();
+  assert_eq!(fail.kind, FailureKind::NotFound);
+  assert_eq!(fail.message, "no product 7");
+}
+

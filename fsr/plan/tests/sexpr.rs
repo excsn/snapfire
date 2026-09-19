@@ -137,7 +137,7 @@ fn every_stmt() -> Vec<Stmt> {
     Stmt::Guard {
       cond: *v("missing"),
       kind: "NotFound".to_owned(),
-      message: "no such order".to_owned(),
+      message: Expr::Lit(Lit::Str("no such order".to_owned())),
     },
     Stmt::SessionSet { key: "cart".to_owned(), path: vec![s("items")], value: *v("next") },
     Stmt::SessionSet { key: "cart".to_owned(), path: Vec::new(), value: *v("next") },
@@ -415,7 +415,7 @@ fn small_body() -> BoxedStrategy<Vec<Stmt>> {
     prop_oneof![
       (text(), small_expr()).prop_map(|(name, expr)| Stmt::Let { name, expr }),
       small_expr().prop_map(Stmt::Return),
-      (small_expr(), text(), text()).prop_map(|(cond, kind, message)| Stmt::Guard { cond, kind, message }),
+      (small_expr(), text(), small_expr()).prop_map(|(cond, kind, message)| Stmt::Guard { cond, kind, message }),
     ],
     0..3,
   )

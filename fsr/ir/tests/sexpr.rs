@@ -209,7 +209,7 @@ fn stmt() -> BoxedStrategy<Stmt> {
     (text(), expr()).prop_map(|(name, e)| Stmt::Let { name, expr: e }),
     expr().prop_map(Stmt::Return),
     expr().prop_map(Stmt::Expr),
-    (expr(), text(), text()).prop_map(|(cond, kind, message)| Stmt::Guard { cond, kind, message }),
+    (expr(), text(), expr()).prop_map(|(cond, kind, message)| Stmt::Guard { cond, kind, message }),
     (text(), prop::collection::vec(expr(), 0..2), expr())
       .prop_map(|(key, path, value)| Stmt::SessionSet { key, path, value }),
     (text(), prop::collection::vec(expr(), 0..2)).prop_map(|(key, path)| Stmt::SessionDelete { key, path }),

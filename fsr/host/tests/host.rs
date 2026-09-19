@@ -87,9 +87,9 @@ const PLAN: &str = r#"{
     { "id": "console.layout", "owner": "lowered", "module": "routes/console/layout.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "density", { "coalesce": [ { "session": "density" }, { "lit": { "str": "cosy" } } ] } ] } ] } } ] },
     { "id": "missing", "owner": "lowered", "module": "routes/missing/page.loader.ts",
-      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "not_found", "message": "no such thing" } }, { "return": { "object": [] } } ] },
+      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "not_found", "message": { "lit": { "str": "no such thing" } } } }, { "return": { "object": [] } } ] },
     { "id": "broken.layout", "owner": "lowered", "module": "routes/broken/layout.loader.ts",
-      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "unavailable", "message": "the frame is down" } }, { "return": { "object": [] } } ] },
+      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "unavailable", "message": { "lit": { "str": "the frame is down" } } } }, { "return": { "object": [] } } ] },
     { "id": "console.page", "owner": "lowered", "module": "routes/console/page.loader.ts",
       "body": [ { "return": { "object": [ { "field": [ "rows", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
   ],

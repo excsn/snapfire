@@ -47,7 +47,7 @@ The typed shape is why the cart is written as `session.cart = { ...session.cart,
 if (lines.length === 0) fail("invalid", "the cart is empty");
 ```
 
-A guard that reads nothing a call has to produce runs before any call is made, so an empty cart never reaches the order service, which is an assertion the chapter 103 test states in so many words. A guard that depends on a call's result runs where it sits.
+A guard that reads nothing a call has to produce runs before any call is made, so an empty cart never reaches the order service, which is an assertion the chapter 103 test states in so many words. A guard that depends on a call's result runs where it sits. The kind is a string literal, because the build matches it. The message is any expression and is evaluated only when the guard fires, so a guard can say what it knows: `` fail("not_found", `there is no talk ${params.id}`) `` names the id the caller asked for.
 
 ## Calling an action from the browser
 

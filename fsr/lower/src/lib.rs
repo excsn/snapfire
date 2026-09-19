@@ -853,7 +853,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `fail("kind", "message")` as a statement, bare or in a one-statement block.
-  fn as_fail(&self, stmt: &js::Stmt) -> Option<(Lowered<String>, Lowered<String>)> {
+  fn as_fail(&mut self, stmt: &js::Stmt) -> Option<(Lowered<String>, Lowered<Expr>)> {
     let inner = match stmt {
       js::Stmt::Block(b) if b.stmts.len() == 1 => &b.stmts[0],
       other => other,
@@ -863,14 +863,16 @@ impl<'a> Lowerer<'a> {
     if !self.parsed.names_server(&call.callee, "fail") {
       return None;
     }
-    let arg = |i: usize| -> Lowered<String> {
-      let a = call.args.get(i).ok_or_else(|| self.residue(call.span, "`fail` takes a kind and a message"))?;
-      match &*a.expr {
-        js::Expr::Lit(js::Lit::Str(s)) => Ok(s.value.to_atom_lossy().to_string()),
-        other => Err(self.residue(other.span(), "`fail` takes string literals")),
-      }
+    let kind = match call.args.first().map(|a| &*a.expr) {
+      Some(js::Expr::Lit(js::Lit::Str(s))) => Ok(s.value.to_atom_lossy().to_string()),
+      Some(other) => Err(self.residue(other.span(), "`fail` takes its kind as a string literal, since the kind is matched at build time")),
+      None => Err(self.residue(call.span, "`fail` takes a kind and a message")),
     };
-    Some((arg(0), arg(1)))
+    let message = match call.args.get(1) {
+      Some(a) => self.expr(&a.expr),
+      None => Err(self.residue(call.span, "`fail` takes a kind and a message")),
+    };
+    Some((kind, message))
   }
 
   /// A statement that is an expression: a session write, a delete, a bare

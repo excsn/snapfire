@@ -1,6 +1,6 @@
 //! Statements and whole components, both directions.
 
-use crate::ast::{Body, Component, Handler, ShadowMode, ShadowRoot, Stmt, Tmpl};
+use crate::ast::{Body, Component, Expr, Handler, Lit, ShadowMode, ShadowRoot, Stmt, Tmpl};
 
 use super::atoms::*;
 use super::expr::{expr_from_sx, expr_to_sx};
@@ -30,7 +30,14 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
     Stmt::Return(expr) => form("ret", vec![expr_to_sx(expr)]),
     Stmt::Guard { cond, kind, message } => form(
       "guard",
-      vec![expr_to_sx(cond), Sx::Sym(kind.clone()), Sx::Str(message.clone())],
+      vec![
+        expr_to_sx(cond),
+        Sx::Sym(kind.clone()),
+        match message {
+          Expr::Lit(Lit::Str(text)) => Sx::Str(text.clone()),
+          other => expr_to_sx(other),
+        },
+      ],
     ),
     Stmt::SessionSet { key, path, value } => form(
       "session-set",
@@ -118,7 +125,14 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
     "ret" => Stmt::Return(expr_from_sx(&args(items, head, 1)?[0])?),
     "guard" => {
       let a = args(items, head, 3)?;
-      Stmt::Guard { cond: expr_from_sx(&a[0])?, kind: sym_of(&a[1])?, message: str_of(&a[2])? }
+      Stmt::Guard {
+        cond: expr_from_sx(&a[0])?,
+        kind: sym_of(&a[1])?,
+        message: match &a[2] {
+          Sx::Str(text) => Expr::Lit(Lit::Str(text.clone())),
+          other => expr_from_sx(other)?,
+        },
+      }
     }
     "session-set" => {
       let a = args(items, head, 3)?;

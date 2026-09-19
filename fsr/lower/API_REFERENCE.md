@@ -109,11 +109,11 @@ The cursor over one application: parsed files, lowered components and the resolu
 ### Statements
 
 * `const x = e` or `let x = e` with one identifier binding; a destructuring or an uninitialised binding is residue.
-* `if (c) fail("kind", "msg")`, with the call bare or in a one-statement block and no `else`, is a guard; any other `if`, with or without `else`, is a conditional whose branches are blocks or single statements.
+* `if (c) fail("kind", msg)`, with the call bare or in a one-statement block and no `else`, is a guard; the kind is a string literal, since it is matched at build time, and the message is any expression, a template naming the value that failed for one; any other `if`, with or without `else`, is a conditional whose branches are blocks or single statements.
 * `for (const x of e) body`.
 * `return e` or `return`.
 * `session.key = e`, `session.key.sub = e`, `session.key[e] = e`, plus the same through `ctx.session`; `delete session.key[e]`, `delete session.key?.[e]` and `delete session.key.sub`.
-* `fail("kind", "msg")` as a bare statement is a guard whose condition is `true`.
+* `fail("kind", msg)` as a bare statement is a guard whose condition is `true`.
 * Any other expression statement, typically an awaited call, is `Stmt::Expr`.
 * `try`, `throw`, `while`, `for`, `for...in`, `switch`, nested functions, classes, `break`, `continue`, labels and bare blocks are residue.
 

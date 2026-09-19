@@ -350,3 +350,18 @@ fn a_session_module_refuses_a_defaults_export_the_build_cannot_read() {
   let destructured = read_session_defaults("session.ts", "const both = { defaults: {} };\nexport const { defaults } = both;\n").unwrap_err().to_string();
   assert!(destructured.contains("destructuring"), "so is a destructuring export: {destructured}");
 }
+
+#[test]
+fn a_fail_message_is_any_expression_and_the_kind_stays_a_literal() {
+  let body = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) fail(\"not_found\", `there is no talk ${params.id}`);\n  return { id: params.id };\n}\n").unwrap();
+  match &body[0] {
+    Stmt::Guard { kind, message, .. } => {
+      assert_eq!(kind, "not_found");
+      assert!(matches!(message, Expr::Template(parts) if parts.len() == 2), "{message:?}");
+    }
+    other => panic!("{other:?}"),
+  }
+  let refused = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) fail(params.kind, \"no\");\n  return {};\n}\n").unwrap_err().to_string();
+  assert!(refused.contains("kind as a string literal"), "{refused}");
+}
+

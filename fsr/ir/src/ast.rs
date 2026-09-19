@@ -15,8 +15,9 @@ pub enum Stmt {
   If { cond: Expr, then: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] r#else: Body },
   ForOf { name: String, over: Expr, body: Body },
   Return(Expr),
-  /// `if (cond) fail(kind, message)`. The kind is a `FailureKind` name.
-  Guard { cond: Expr, kind: String, message: String },
+  /// `if (cond) fail(kind, message)`. The kind is a `FailureKind` name; the
+  /// message is any expression, evaluated only when the guard fires.
+  Guard { cond: Expr, kind: String, message: Expr },
   SessionSet { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr>, value: Expr },
   SessionDelete { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr> },
   /// `void save(input)` in a handler, `save` an `action("id")`: the host
@@ -350,7 +351,10 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
         over.visit(f);
         body_visit(body, f);
       }
-      Stmt::Guard { cond, .. } => cond.visit(f),
+      Stmt::Guard { cond, message, .. } => {
+        cond.visit(f);
+        message.visit(f);
+      }
       Stmt::SessionSet { path, value, .. } => {
         path.iter().for_each(|p| p.visit(f));
         value.visit(f);
@@ -669,7 +673,11 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
     for stmt in body {
       let mut exprs: Vec<&Expr> = Vec::new();
       match stmt {
-        Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) | Stmt::Guard { cond: expr, .. } => exprs.push(expr),
+        Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => exprs.push(expr),
+        Stmt::Guard { cond, message, .. } => {
+          exprs.push(cond);
+          exprs.push(message);
+        }
         Stmt::Act { input, .. } => exprs.push(input),
         Stmt::SessionSet { path, value, .. } => {
           exprs.extend(path.iter());
@@ -715,7 +723,7 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.reads_request(),
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
-    Stmt::Guard { cond, .. } => cond.reads_request(),
+    Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
     Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Act { .. } => true,
   })
 }
@@ -751,7 +759,10 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
           into.push(over);
           exprs(body, into);
         }
-        Stmt::Guard { cond, .. } => into.push(cond),
+        Stmt::Guard { cond, message, .. } => {
+          into.push(cond);
+          into.push(message);
+        }
         Stmt::SessionSet { path, value, .. } => {
           into.extend(path.iter());
           into.push(value);
