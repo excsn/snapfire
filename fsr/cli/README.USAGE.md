@@ -405,6 +405,16 @@ An operation may say how long its answer holds with `x-sf-cache` and a mutating 
 "post": { "operationId": "placeOrder", "x-sf-writes": ["catalog"] }
 ```
 
+A `.proto` says the same with method options from `snapfire/fsr.proto`, which the build resolves itself, so the file is imported and never placed:
+
+```proto
+import "snapfire/fsr.proto";
+
+rpc GetStock (StockRequest) returns (StockLevel) {
+  option (snapfire.fsr.cache) = { ttl: "30s", tags: ["catalog"], scope: SHARED };
+}
+```
+
 ## Declaring the Session and Action Inputs
 
 Schemas are plain exported interfaces in the subset the contract holds: `string`, `number`, `bigint`, `boolean`, `null`, arrays, `Record<string, T>`, named references, `?` and `| null` for optional, plus `type X = "a" | "b"` for a union of tags.

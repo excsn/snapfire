@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package snapfire.fsr;
+
+import "google/protobuf/descriptor.proto";
+
+// Who a cached answer may be served to: PRIVATE bypasses the cache for any
+// identified call, SHARED answers everyone alike, SUBJECT keeps one entry per
+// subject.
+enum Scope {
+  PRIVATE = 0;
+  SHARED = 1;
+  SUBJECT = 2;
+}
+
+// How long a method's answer holds: ttl and stale in the duration spelling
+// (30s, 5m), tags the writes that drop it, scope who may share it.
+message Cache {
+  string ttl = 1;
+  repeated string tags = 2;
+  Scope scope = 3;
+  optional string stale = 4;
+}
+
+extend google.protobuf.MethodOptions {
+  Cache cache = 50100;
+  repeated string writes = 50101;
+}

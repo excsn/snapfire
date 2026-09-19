@@ -5,10 +5,10 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, MessageDescriptor, MethodDescriptor};
+use prost_reflect::{DescriptorPool, DynamicMessage, FieldDescriptor, Kind, MessageDescriptor, MethodDescriptor, Value};
 use protox::file::{ChainFileResolver, File, FileResolver, GoogleFileResolver, IncludeFileResolver};
 
-use crate::contract::{Contract, Field, Method, Service, Type, TypeDef};
+use crate::contract::{Contract, Field, Freshness, Method, Scope, Service, Type, TypeDef};
 use crate::openapi::ImportError;
 
 /// How one contract method reaches a gRPC server: the request path and the
@@ -37,9 +37,36 @@ fn unsupported(at: impl Into<String>, what: impl Into<String>) -> ImportError {
   ImportError::Unsupported { at: at.into(), what: what.into() }
 }
 
+/// The file a `.proto` imports as `snapfire/fsr.proto` to annotate a method:
+/// `option (snapfire.fsr.cache) = { ttl: "30s", tags: ["catalog"], scope: SHARED, stale: "2m" };`
+/// and `option (snapfire.fsr.writes) = "catalog";`, the spelling `x-sf-cache`
+/// and `x-sf-writes` have on an OpenAPI operation. Every import resolves it,
+/// so no application places it.
+pub const FSR_PROTO_NAME: &str = "snapfire/fsr.proto";
+pub const FSR_PROTO: &str = include_str!("../proto/fsr.proto");
+
+/// Writes `snapfire/fsr.proto` under `dir` and answers `dir`, an include path
+/// for a build that compiles an annotated `.proto` itself, with protoc, protox
+/// or tonic: `protox::compile([file], [clients, fsr_proto_include(&out_dir)?])`.
+pub fn fsr_proto_include(dir: &Path) -> std::io::Result<std::path::PathBuf> {
+  let file = dir.join(FSR_PROTO_NAME);
+  if let Some(parent) = file.parent() {
+    std::fs::create_dir_all(parent)?;
+  }
+  std::fs::write(&file, FSR_PROTO)?;
+  Ok(dir.to_path_buf())
+}
+
+const CACHE_OPTION: &str = "snapfire.fsr.cache";
+const WRITES_OPTION: &str = "snapfire.fsr.writes";
+
 struct SourceResolver {
   name: String,
   source: String,
+}
+
+fn fsr_resolver() -> SourceResolver {
+  SourceResolver { name: FSR_PROTO_NAME.to_owned(), source: FSR_PROTO.to_owned() }
 }
 
 impl FileResolver for SourceResolver {
@@ -52,22 +79,24 @@ impl FileResolver for SourceResolver {
   }
 }
 
-/// Imports the file at `path`, resolving its imports against its directory and
-/// the well-known Google types.
+/// Imports the file at `path`, resolving its imports against its directory,
+/// `snapfire/fsr.proto` and the well-known Google types.
 pub fn import_proto(path: &Path, default_service: &str) -> Result<ImportedProto, ImportError> {
   let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
   let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
   let mut resolver = ChainFileResolver::new();
   resolver.add(IncludeFileResolver::new(dir));
+  resolver.add(fsr_resolver());
   resolver.add(GoogleFileResolver::new());
   compile(resolver, &name, default_service)
 }
 
-/// Imports proto source held in memory as `name`; only the well-known Google
-/// types can be imported from it.
+/// Imports proto source held in memory as `name`; only `snapfire/fsr.proto`
+/// and the well-known Google types can be imported from it.
 pub fn import_proto_source(name: &str, source: &str, default_service: &str) -> Result<ImportedProto, ImportError> {
   let mut resolver = ChainFileResolver::new();
   resolver.add(SourceResolver { name: name.to_owned(), source: source.to_owned() });
+  resolver.add(fsr_resolver());
   resolver.add(GoogleFileResolver::new());
   compile(resolver, name, default_service)
 }
@@ -76,8 +105,8 @@ fn compile<R: FileResolver + 'static>(resolver: R, name: &str, default_service: 
   let mut compiler = protox::Compiler::with_file_resolver(resolver);
   compiler.include_imports(true);
   compiler.open_file(name).map_err(|e| malformed(name, e.to_string()))?;
-  let set = compiler.file_descriptor_set();
-  let pool = DescriptorPool::from_file_descriptor_set(set).map_err(|e| malformed(name, e.to_string()))?;
+  let set = compiler.encode_file_descriptor_set();
+  let pool = DescriptorPool::decode(set.as_slice()).map_err(|e| malformed(name, e.to_string()))?;
   let file = pool.get_file_by_name(name).ok_or_else(|| malformed(name, "the compiler did not keep the file"))?;
 
   let mut lower = Lower { pool: pool.clone(), types: IndexMap::new(), package: file.package_name().to_owned() };
@@ -95,7 +124,15 @@ fn compile<R: FileResolver + 'static>(resolver: R, name: &str, default_service: 
       let method_name = lower_camel(method.name());
       let params = lower.params(&method, &at)?;
       let returns = lower.returns(&method, &at)?;
-      def = def.method(method_name.clone(), Method::new(params, returns));
+      let mut lowered = Method::new(params, returns);
+      if let Some(freshness) = cache_option(&pool, &method, &at)? {
+        lowered = lowered.cached(freshness);
+      }
+      let writes = writes_option(&pool, &method, &at)?;
+      if !writes.is_empty() {
+        lowered = lowered.writes(writes);
+      }
+      def = def.method(method_name.clone(), lowered);
       methods.push((
         format!("{service_name}.{method_name}"),
         GrpcMethod { path: format!("/{}/{}", service.full_name(), method.name()), input: method.input().full_name().to_owned(), output: method.output().full_name().to_owned() },
@@ -108,6 +145,60 @@ fn compile<R: FileResolver + 'static>(resolver: R, name: &str, default_service: 
   }
   contract.validate()?;
   Ok(ImportedProto { contract, pool, methods })
+}
+
+/// The value of a method option `name`, when the method carries it.
+fn method_option(pool: &DescriptorPool, method: &MethodDescriptor, name: &str) -> Option<Value> {
+  let extension = pool.get_extension_by_name(name)?;
+  let options = method.options();
+  options.has_extension(&extension).then(|| options.get_extension(&extension).into_owned())
+}
+
+/// `(snapfire.fsr.cache)` on a method as a `Freshness`.
+fn cache_option(pool: &DescriptorPool, method: &MethodDescriptor, at: &str) -> Result<Option<Freshness>, ImportError> {
+  let Some(Value::Message(cache)) = method_option(pool, method, CACHE_OPTION) else { return Ok(None) };
+  let at = format!("{at} ({CACHE_OPTION})");
+  let ttl = string_field(&cache, "ttl");
+  if ttl.is_empty() {
+    return Err(malformed(at, "a cache without a ttl"));
+  }
+  let scope = match cache.get_field_by_name("scope").as_deref() {
+    Some(Value::EnumNumber(0)) | None => Scope::Private,
+    Some(Value::EnumNumber(1)) => Scope::Shared,
+    Some(Value::EnumNumber(2)) => Scope::Subject,
+    other => return Err(malformed(at, format!("a scope of {other:?}"))),
+  };
+  let stale = cache.has_field_by_name("stale").then(|| string_field(&cache, "stale")).filter(|s| !s.is_empty());
+  Ok(Some(Freshness { ttl, tags: strings_field(&cache, "tags"), scope, stale }))
+}
+
+/// `(snapfire.fsr.writes)` on a method, empty when it carries none.
+fn writes_option(pool: &DescriptorPool, method: &MethodDescriptor, at: &str) -> Result<Vec<String>, ImportError> {
+  match method_option(pool, method, WRITES_OPTION) {
+    None => Ok(Vec::new()),
+    Some(Value::List(items)) => items
+      .into_iter()
+      .map(|item| match item {
+        Value::String(tag) => Ok(tag),
+        other => Err(malformed(format!("{at} ({WRITES_OPTION})"), format!("a tag of {other:?}"))),
+      })
+      .collect(),
+    Some(other) => Err(malformed(format!("{at} ({WRITES_OPTION})"), format!("{other:?}"))),
+  }
+}
+
+fn string_field(message: &DynamicMessage, name: &str) -> String {
+  match message.get_field_by_name(name).as_deref() {
+    Some(Value::String(s)) => s.clone(),
+    _ => String::new(),
+  }
+}
+
+fn strings_field(message: &DynamicMessage, name: &str) -> Vec<String> {
+  match message.get_field_by_name(name).as_deref() {
+    Some(Value::List(items)) => items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect(),
+    _ => Vec::new(),
+  }
 }
 
 fn lower_camel(name: &str) -> String {

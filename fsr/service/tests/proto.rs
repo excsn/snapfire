@@ -3,7 +3,7 @@
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_service::grpc::{decode_response, encode_request};
 use snapfire_fsr_service::typescript::declarations;
-use snapfire_fsr_service::{import_proto_source, ImportError, Type, TypeDef};
+use snapfire_fsr_service::{import_proto_source, Freshness, ImportError, Scope, Type, TypeDef};
 
 const INVENTORY: &str = r#"
 syntax = "proto3";
@@ -119,4 +119,55 @@ fn values_round_trip_through_the_messages() {
   assert_eq!(map.get("weight_kg"), Some(&Value::Null), "an unset optional scalar is null");
   let Some(Value::Map(by_bin)) = map.get("by_bin") else { panic!("by_bin") };
   assert_eq!(by_bin.get("a1"), Some(&Value::int(3)));
+}
+
+const ANNOTATED: &str = r#"
+syntax = "proto3";
+package shop.inventory;
+import "snapfire/fsr.proto";
+
+message StockRequest { int64 product_id = 1; }
+message StockLevel { int64 product_id = 1; int32 on_hand = 2; }
+message Adjustment { int64 product_id = 1; int32 by = 2; }
+message Adjusted { int32 on_hand = 1; }
+
+service Inventory {
+  rpc GetStock (StockRequest) returns (StockLevel) {
+    option (snapfire.fsr.cache) = { ttl: "30s", tags: ["catalog", "stock"], scope: SHARED, stale: "2m" };
+  }
+  rpc Peek (StockRequest) returns (StockLevel) {
+    option (snapfire.fsr.cache) = { ttl: "5s" };
+  }
+  rpc Adjust (Adjustment) returns (Adjusted) {
+    option (snapfire.fsr.writes) = "catalog";
+    option (snapfire.fsr.writes) = "stock";
+  }
+}
+"#;
+
+#[test]
+fn a_method_option_from_the_shipped_file_is_the_cache_policy() {
+  let imported = import_proto_source("inventory.proto", ANNOTATED, "inventory").unwrap();
+  let contract = &imported.contract;
+  let get = contract.method("inventory", "getStock").unwrap();
+  assert_eq!(get.cache, Some(Freshness { ttl: "30s".to_owned(), tags: vec!["catalog".to_owned(), "stock".to_owned()], scope: Scope::Shared, stale: Some("2m".to_owned()) }));
+  assert!(get.writes.is_empty());
+  let peek = contract.method("inventory", "peek").unwrap();
+  assert_eq!(peek.cache, Some(Freshness::ttl("5s")), "scope is private and stale absent unless said, as on an operation");
+  let adjust = contract.method("inventory", "adjust").unwrap();
+  assert_eq!(adjust.cache, None);
+  assert_eq!(adjust.writes, ["catalog", "stock"]);
+}
+
+#[test]
+fn a_cache_option_without_a_ttl_and_an_unknown_option_are_refused() {
+  let no_ttl = ANNOTATED.replace(r#"{ ttl: "5s" }"#, r#"{ tags: ["stock"] }"#);
+  let Err(ImportError::Malformed { at, what }) = import_proto_source("inventory.proto", &no_ttl, "inventory") else { panic!("imported") };
+  assert_eq!(at, "shop.inventory.Inventory.Peek (snapfire.fsr.cache)");
+  assert_eq!(what, "a cache without a ttl");
+
+  let unimported = ANNOTATED.replace("import \"snapfire/fsr.proto\";\n", "");
+  let Err(ImportError::Malformed { at, what }) = import_proto_source("inventory.proto", &unimported, "inventory") else { panic!("imported") };
+  assert_eq!(at, "inventory.proto");
+  assert!(what.contains("snapfire.fsr.cache"), "an option whose file was not imported is the compiler's error with the name: {what}");
 }

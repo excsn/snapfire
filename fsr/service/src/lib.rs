@@ -20,7 +20,7 @@ pub use contract::{Contract, Field, Freshness, Method, ScalarKind, Scope, Servic
 pub use http::{kind_for_status, HttpTransport, Route};
 pub use openapi::{import, ImportError, Imported};
 #[cfg(feature = "grpc")]
-pub use proto::{import_proto, import_proto_source, GrpcMethod, ImportedProto};
+pub use proto::{fsr_proto_include, import_proto, import_proto_source, GrpcMethod, ImportedProto, FSR_PROTO, FSR_PROTO_NAME};
 #[cfg(feature = "grpc")]
 pub use grpc::GrpcTransport;
 pub use interceptor::{

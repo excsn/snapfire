@@ -2,9 +2,13 @@ syntax = "proto3";
 
 package shop.inventory;
 
+import "snapfire/fsr.proto";
+
 // Warehouse stock, kept by a service that only speaks gRPC.
 service Inventory {
-  rpc GetStock (StockRequest) returns (StockLevel);
+  rpc GetStock (StockRequest) returns (StockLevel) {
+    option (snapfire.fsr.cache) = { ttl: "30s", tags: ["catalog"], scope: SHARED };
+  }
 }
 
 message StockRequest {

@@ -23,6 +23,7 @@ tokio-stream = { version = "0.1.19", features = ["net"] }
 
 [build-dependencies]
 snapfire_fsr_cli = { path = "../../cli" }
+snapfire_fsr_service = { path = "../../service", features = ["grpc"] }
 protox = "0.9"
 tonic-prost-build = "0.14"
 

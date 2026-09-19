@@ -694,10 +694,25 @@ let catalog = Service::new()
   .method("add", Method::new(vec![Field::new("name", Type::Str)], Type::Null).writes(["catalog"]));
 ```
 
-An OpenAPI operation says the same with `x-sf-cache` and `x-sf-writes`; a `.proto` carries no annotation yet.
+An OpenAPI operation says the same with `x-sf-cache` and `x-sf-writes`:
 
 ```json
 { "get": { "operationId": "list", "x-sf-cache": { "ttl": "30s", "tags": ["catalog"], "scope": "shared", "stale": "2m" }, "responses": { "200": { "..." : "..." } } } }
+```
+
+A `.proto` says it with two method options from `snapfire/fsr.proto`, which every import resolves without a file on disk, the way the Google well-known types are resolved. `scope` is `PRIVATE`, `SHARED` or `SUBJECT`, `PRIVATE` when left out; a cache without a `ttl` is refused with the method's name and an option on a file that did not import `snapfire/fsr.proto` is the compiler's error. A build that compiles the same `.proto` itself, for a server it hosts, gets the file from `fsr_proto_include(&out_dir)`, which writes it under the directory and answers the include path.
+
+```proto
+import "snapfire/fsr.proto";
+
+service Catalog {
+  rpc List (ListRequest) returns (ListReply) {
+    option (snapfire.fsr.cache) = { ttl: "30s", tags: ["catalog"], scope: SHARED, stale: "2m" };
+  }
+  rpc Add (AddRequest) returns (AddReply) {
+    option (snapfire.fsr.writes) = "catalog";
+  }
+}
 ```
 
 The builder turns it on with a capacity per policy:
