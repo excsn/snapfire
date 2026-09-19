@@ -121,7 +121,7 @@ Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the
 Give `routes/page.tsx` a `useState`. Build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
 
 ```text
-`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
 ```
 
 That failure is the whole reason the static rule exists. Take it back out.

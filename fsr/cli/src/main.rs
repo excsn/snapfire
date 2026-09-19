@@ -9,6 +9,7 @@ use snapfire_fsr_cli::new::{NewOptions, SiteScaffold};
 use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
+use snapfire_fsr_cli::direction::{self, UseOptions};
 use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
 
 #[derive(Parser)]
@@ -47,6 +48,8 @@ enum Command {
   Doctor(Doctor),
   /// Builds and typechecks an application, writing nothing.
   Check(Check),
+  /// Gives an application a client direction: react, vue, elements or htmx.
+  Use(Use),
   /// Vendors packages into the application and names them in its import map.
   Add(Add),
   /// Writes the declarations for every package the import map names.
@@ -62,6 +65,9 @@ struct New {
   /// Skips vendoring packages and fetching declarations.
   #[arg(long)]
   no_fetch: bool,
+  /// A direction to adopt once the project is written; repeatable.
+  #[arg(long = "with", value_name = "DIRECTION")]
+  with: Vec<String>,
   /// Scaffolds a shell, which is an application that mounts sites.
   #[arg(long)]
   shell: bool,
@@ -171,6 +177,21 @@ struct Bundle {
 struct Doctor {
   /// The application directory.
   app_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct Use {
+  /// The application directory.
+  app_dir: PathBuf,
+  /// Directions to adopt, in order: react, vue, elements or htmx.
+  #[arg(required = true)]
+  directions: Vec<String>,
+  /// Skips vendoring packages and fetching declarations.
+  #[arg(long)]
+  no_fetch: bool,
+  /// Writes one example component per direction.
+  #[arg(long)]
+  example: bool,
 }
 
 #[derive(Args)]
@@ -459,6 +480,7 @@ fn main() -> ExitCode {
       }
     },
     Command::Check(args) => run_check(args),
+    Command::Use(args) => run_use(args),
     Command::Add(args) => run_add(args),
     Command::Types(args) => match types::fetch(&args.app_dir, args.refresh) {
       Ok(report) => {
@@ -488,6 +510,7 @@ fn main() -> ExitCode {
 fn run_new(args: New) -> ExitCode {
   let mut options = NewOptions {
     fetch: !args.no_fetch,
+    with: args.with,
     shell: args.shell,
     ..NewOptions::default()
   };
@@ -569,6 +592,48 @@ fn run_check(args: Check) -> ExitCode {
         Ok(checked) => types_row(checked.as_ref()),
         Err(e) => failed(e),
       }
+    }
+    Err(e) => failed(e),
+  }
+}
+
+fn run_use(args: Use) -> ExitCode {
+  match direction::adopt(&args.app_dir, &args.directions, UseOptions { fetch: !args.no_fetch, example: args.example }) {
+    Ok(adopted) => {
+      for (specifier, url) in &adopted.mapped {
+        println!("mapped    {specifier:<28} {url}");
+      }
+      for specifier in &adopted.present {
+        println!("present   {specifier}");
+      }
+      for spec in &adopted.delegated {
+        println!("xwpm add  {spec}");
+      }
+      for (specifier, file, bytes) in &adopted.vendored {
+        println!("added     {specifier:<28} {file}  {bytes} bytes");
+      }
+      for (specifier, url) in &adopted.from_shell {
+        println!("shell     {specifier:<28} {url}");
+      }
+      for specifier in &adopted.kept {
+        println!("kept      {specifier}");
+      }
+      for (package, version, from) in &adopted.typed {
+        println!("types     {package:<28} {from} {version}");
+      }
+      for path in &adopted.written {
+        println!("wrote     {}", path.display());
+      }
+      for note in &adopted.notes {
+        eprintln!("note      {note}");
+      }
+      for (file, line) in &adopted.edits {
+        println!("edit      {file}: {line}");
+      }
+      for step in &adopted.next {
+        println!("next      {step}");
+      }
+      ExitCode::SUCCESS
     }
     Err(e) => failed(e),
   }

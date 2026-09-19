@@ -23,6 +23,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Registering the Islands](#registering-the-islands)
 * [Typing Pages and Calling Actions](#typing-pages-and-calling-actions)
 * [Vendoring a Package](#vendoring-a-package)
+* [Adopting a Direction](#adopting-a-direction)
 * [Fetching Declarations](#fetching-declarations)
 - [Checking a Deployment](#checking-a-deployment)
 - [Writing the Deploy Tree](#writing-the-deploy-tree)
@@ -526,6 +527,37 @@ A module that imports a package outside its bundle stops the command naming it; 
 A site is the exception: its tree is served under its own prefix, `/billing/static/js/vendor`, since a mount drops a static root outside it. `fsr add` rewrites every entry the vendor manifest records to the current prefix and prints `remapped` for each one it moved, so an application that becomes a site is migrated by its next add. The build refuses a map entry for a vendored package that points anywhere else, naming the URL it expects. A package the site's shell already serves is not vendored at all: `fsr add` writes the shell's URL into the map and prints `shell` for it, since the shell's map overrides the site's at mount.
 
 The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 18.3.1)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
+
+## Adopting a Direction
+
+`fsr new` writes a bare application: no framework is vendored, the import map names the client, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
+
+```sh
+fsr new shop
+fsr use shop/app vue --example
+```
+
+```
+mapped    @snapfire/fsr-client/vue     /static/js/fsr/vue.js
+added     vue                          vue/vue.bundle.mjs  117786 bytes
+types     vue                          vue 3.5.13
+wrote     shop/app/src/ui/Counter.vue
+edit      a page: import Counter from "@src/ui/Counter.vue";
+edit      a page: import { Island } from "@snapfire/fsr-authoring/template";
+edit      a page: <Island><Counter start={0} /></Island>
+```
+
+The directions are `react`, `vue`, `elements`, `htmx` and `tera`. `elements` maps the entry `shadowOf` comes from and vendors nothing, since the build discovers `elements/` on its own. `htmx` vendors `htmx.org` and prints the three lines `src/main.ts` needs, because that file is the application's and its structure is not the command's to guess. `tera` maps nothing and vendors nothing; its example is a `page.tera` beside a loader. Several directions in one run are fine, since the adapter is chosen per file.
+
+Running `fsr use` again changes nothing: a map line already there is `present`, a package already recorded at the pinned version is `kept`. A map entry for the adapter at another URL is refused naming both. So is a framework recorded at another version, since moving a pinned framework is `fsr add`'s job.
+
+`react` is the one direction that retypes what is already written. With `react` in the map the templates are typed through React's JSX, so a layout or page importing `Link`, `Island` or `Slot` from the template module has to import them from `@snapfire/fsr-client/react` and type `children` as `ReactNode`; the command prints that as an edit. `fsr new --with react` writes the layout that way from the start and `fsr new --with htmx` writes the entry module with htmx bound, so a scaffold with directions typechecks without an edit:
+
+```sh
+fsr new shop --with react --with htmx
+```
+
+`--no-fetch` on either command writes the map lines and the examples and names `fsr add`, `fsr types` and `fsr build` as the steps that reach the network.
 
 ## Fetching Declarations
 

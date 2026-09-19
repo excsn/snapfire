@@ -4,6 +4,7 @@
 //! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
 pub mod dev;
+pub mod direction;
 pub mod doctor;
 pub mod new;
 pub mod serve;
@@ -58,8 +59,16 @@ pub enum BuildError {
   NoAdapter { module: String, ext: String },
   #[error("`{module}` is not a component this build can mount: no framework claims its extension")]
   UnknownComponent { module: String },
-  #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}")]
-  IslandImports { module: String, adapter: String, missing: String },
+  #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}{remedy}")]
+  IslandImports { module: String, adapter: String, missing: String, remedy: String },
+  #[error("`{name}` is not a direction; the directions are {known}")]
+  Direction { name: String, known: String },
+  #[error("{map} maps `{specifier}` to `{found}`, but the host serves it at `{want}`; the adapter the build registers is the one the host serves")]
+  AdapterUrl { map: String, specifier: String, found: String, want: String },
+  #[error("{manifest} records {package}@{recorded}, but `{direction}` pins {package}@{wanted}; moving a vendored framework is `fsr add`, not `fsr use`")]
+  DirectionPinned { direction: String, package: String, recorded: String, wanted: String, manifest: String },
+  #[error("{0} already exists; an example is never written over a file")]
+  ExampleExists(PathBuf),
   #[error("the import map serves `{specifier}`, but {manifest} does not say which {package} it is; `fsr add {app} {package}@{version}` records it")]
   FrameworkUnrecorded { package: String, specifier: String, manifest: String, app: String, version: String },
   #[error("react@{version} is vendored, but this fsr renders for React {supported} only")]
@@ -1486,17 +1495,17 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<(String, bool)> {
 /// A client module that mounts one framework's components: the three exports
 /// the registry names and the bare specifiers the module imports, which the
 /// page's import map has to supply.
-struct Adapter {
-  module: &'static str,
+pub(crate) struct Adapter {
+  pub(crate) module: &'static str,
   mounter: &'static str,
   patcher: &'static str,
   unmounter: &'static str,
   needs: &'static [&'static str],
 }
 
-const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", needs: &["react", "react-dom/client"] };
+pub(crate) const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", needs: &["react", "react-dom/client"] };
 
-const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", needs: &["vue"] };
+pub(crate) const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", needs: &["vue"] };
 
 const ADAPTERS: &[&Adapter] = &[&REACT, &VUE];
 
@@ -1518,7 +1527,7 @@ fn framework_needs(package: &str) -> Vec<&'static str> {
 /// The version `fsr add` is suggested with for a package nothing records.
 fn suggested_version(package: &str) -> &'static str {
   match package {
-    "react" | "react-dom" => crate::new::REACT,
+    "react" | "react-dom" => crate::direction::REACT,
     _ => "<version>",
   }
 }
@@ -1609,7 +1618,8 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
         true => last.clone(),
         false => format!("{} or {last}", rest.join(", ")),
       };
-      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing });
+      let remedy = crate::direction::for_adapter(adapter.module).map(|d| format!("; `fsr use <app dir> {}` writes it", d.name)).unwrap_or_default();
+      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing, remedy });
     }
   }
   Ok(())

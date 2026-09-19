@@ -21,8 +21,9 @@ fn write(app: &Path, name: &str, source: &str) {
 /// A scaffold with `files` written over it, built.
 fn built(tag: &str, files: &[(&str, &str)]) -> Built {
   let root = root(tag);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
   let app = root.join("app");
+  write(&app, "importmap.json", r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#);
   write(&app, "vendor/.fsr-vendor.json", r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#);
   for (name, source) in files {
     write(&app, name, source);

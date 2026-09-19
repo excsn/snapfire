@@ -428,7 +428,7 @@ fn an_island_no_framework_claims_is_refused() {
 fn an_island_whose_adapter_the_import_map_cannot_supply_is_refused_by_name() {
   let dir = app(&[("routes/page.tsx", HANDLED)]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r"}}"#).unwrap();
-  assert_eq!(fails(&dir).to_string(), "`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react` or `react-dom/client`");
+  assert_eq!(fails(&dir).to_string(), "`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react` or `react-dom/client`; `fsr use <app dir> react` writes it");
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/":"/fsr/","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   build(&dir, &Options::default()).expect("a trailing-slash key covers the adapter beneath it");
   std::fs::remove_file(dir.join("importmap.json")).unwrap();

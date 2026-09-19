@@ -18,6 +18,8 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 
 | What you are doing | What to reach for |
 | --- | --- |
+| Start a bare application or one with a direction | `fsr new <dir>`, `fsr new <dir> --with react` |
+| Give an application React, Vue, custom elements, htmx or Tera | `fsr use <app> vue`, once and again for the next |
 | Emit the whole artifact: the plan, the generated types, the tsconfigs and the browser bundle | `fsr build <app>` |
 | See what a build would emit without writing | `fsr check <app>` |
 | Check a deployment for what the host will not refuse to start over | `fsr doctor <app>` |

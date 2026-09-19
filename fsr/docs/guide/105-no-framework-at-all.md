@@ -200,7 +200,7 @@ enableNavigation();
 bindHtmx(htmx);
 ```
 
-htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed, which is what that one line wires up. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one way this arrangement fails. It fails visibly.
+`fsr use app htmx` writes the map line, vendors htmx and prints those three lines for `main.ts`; `fsr new --with htmx` writes them into the scaffold's own. htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed, which is what that one line wires up. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one way this arrangement fails. It fails visibly.
 
 ## The lab
 

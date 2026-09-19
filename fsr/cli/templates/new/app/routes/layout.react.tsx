@@ -1,6 +1,7 @@
-import { Link, type Children } from "@snapfire/fsr-authoring/template";
+import type { ReactNode } from "react";
+import { Link } from "@snapfire/fsr-client/react";
 
-export default function Layout({ children }: { children: Children }) {
+export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <header className="bar">

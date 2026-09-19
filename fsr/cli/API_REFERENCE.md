@@ -6,6 +6,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
 
 * [1. The Binary](#1-the-binary)
   * [fsr new](#fsr-new)
+  * [fsr use](#fsr-use)
   * [fsr add](#fsr-add)
   * [fsr types](#fsr-types)
   * [fsr build](#fsr-build)
@@ -45,6 +46,8 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [Layout](#layout)
   * [Spec](#spec)
   * [add](#add)
+  * [Direction](#direction)
+  * [adopt](#adopt)
   * [fetch](#fetch)
   * [tsconfig](#tsconfig)
   * [Manifests](#manifests)
@@ -59,12 +62,20 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr new
 
-* `fsr new <project dir> [--no-fetch] [--shell] [--site --at <path> [--name <name>] [--into <shell dir>]]`
-* Writes `config/app.toml`, `.gitignore` and the smallest application the stock host serves under `app/`: an import map, an entry module, a root layout, an index page and its loader, a not-found page, an error page and a stylesheet. Refuses a directory that already holds `app/` or `config/`.
-* Then, unless `--no-fetch`: vendors React into `app/vendor/`, writes the declarations for every import-map package into `app/types/` and runs the generation, which writes `app/generated/` and both tsconfigs. That last step is what makes the scaffold resolve in an editor without a build first, since the routes import `@snapfire/fsr` and `@generated/client`, neither of which the template carries. The browser bundle is not built; `fsr dev` writes `dist/`.
-* `--no-fetch` writes the template alone and names `fsr add`, `fsr types` and `fsr build` as the steps to run.
+* `fsr new <project dir> [--with <direction>]... [--no-fetch] [--shell] [--site --at <path> [--name <name>] [--into <shell dir>]]`
+* Writes `config/app.toml`, `.gitignore` and the smallest application the stock host serves under `app/`: an import map naming the client, `/std` and `/store` and nothing else, an entry module, a root layout, an index page and its loader, a not-found page, an error page and a stylesheet. The application is bare: it vendors no framework, its layout imports `Link` and `Children` from `@snapfire/fsr-authoring/template` and its pages render with nothing in the serving path. Refuses a directory that already holds `app/` or `config/`.
+* `--with <direction>`, repeatable, runs `direction::adopt` over the written project for each name in order, so `fsr new shop --with react --with htmx` ends with the map lines, the vendor tree, the declarations and the generated files `fsr use` would have produced one at a time. A direction the table does not hold is refused before anything is written. The template follows the directions where a file of its own is concerned: with `react` the layout imports `Link` from `@snapfire/fsr-client/react` and types `children` as `ReactNode`; with `htmx` the entry module imports htmx and calls `bindHtmx` after `enableNavigation`. Every other direction changes nothing in the template.
+* Then, unless `--no-fetch`: writes the declarations for every import-map package into `app/types/` and runs the generation, which writes `app/generated/` and both tsconfigs. That last step is what makes the scaffold resolve in an editor without a build first, since the routes import `@snapfire/fsr` and `@generated/client`, neither of which the template carries. The browser bundle is not built; `fsr dev` writes `dist/`.
+* `--no-fetch` writes the template and the directions' map lines alone and names `fsr add` for what the directions vendor, `fsr types` and `fsr build` as the steps to run.
 * `--shell` gives the configuration a `[sites]` table. `--site` gives it a `[site]` section and needs `--at`; `--into` writes both halves of the mount through `sites::link` instead. The two are refused together.
 * Prints `wrote <path>` per file, `added <specifier> <file> <bytes>` per vendored module, `types <package> <from> <version>` per declaration set, `note <text>` on stderr for a step that failed without stopping the scaffold and `next <command>` for what to run. Exit 0 on success, 1 on a `BuildError`.
+
+### fsr use
+
+* `fsr use <app dir> <direction>... [--no-fetch] [--example]`
+* `direction::adopt` over the names, in order. Gives an existing application a client direction: `react`, `vue`, `elements`, `htmx` or `tera`. Running it again changes nothing. Prints `mapped <specifier> <url>` per import map line written, `present <specifier>` per line already there, `added <specifier> <file> <bytes>` per vendored module, `shell <specifier> <url>` per package taken from the site's shell, `kept <specifier>` per package the vendor manifest already records at the pinned version, `xwpm add <spec>` per delegated call, `types <package> <from> <version>` per declaration set, `wrote <path>` per example and generated file, `note <text>` on stderr for a step that failed without stopping the command, `edit <file>: <line>` for what the application changes by hand and `next <command>` for what to run. Exit 0 on success, 1 on a `BuildError`.
+* `--example` writes one component per direction and prints where to place it. A file already there is refused before anything is written.
+* `--no-fetch` writes the map lines and the examples alone and names `fsr add`, `fsr types` and `fsr build` as the steps to run.
 
 ### fsr build
 
@@ -345,6 +356,30 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `vendor::package_of(specifier: &str) -> String`.
 * `vendor::ESM_HOST` is `https://esm.sh`.
 
+### Direction
+
+* `pub struct direction::Direction { pub name: &'static str, pub entry: Option<&'static str>, pub vendors: &'static [(&'static str, &'static str, Option<&'static str>)], pub edits: &'static [(&'static str, &'static str)] }`: the name `fsr use` takes, the client entry under `@snapfire/fsr-client/` the import map names when the direction has a browser half, the package, version and subpath of each module it vendors and the file and line an existing application edits by hand.
+* `pub const direction::DIRECTIONS: &[Direction]`, the table. `pub fn direction::find(name: &str) -> Result<&'static Direction, BuildError>`, `Direction` on a name outside it.
+
+| Name | Maps | Vendors | Edits |
+| --- | --- | --- | --- |
+| `react` | `@snapfire/fsr-client/react` | `react@18.3.1`, `react@18.3.1/jsx-runtime`, `react-dom@18.3.1/client` | the placements and `children` in `routes/layout.tsx` and every route file, typed through React |
+| `vue` | `@snapfire/fsr-client/vue` | `vue@3.5.13` | nothing |
+| `elements` | `@snapfire/fsr-client/elements` | nothing | nothing |
+| `htmx` | `@snapfire/fsr-client/htmx` | `htmx.org@2.0.10` | `src/main.ts`: the htmx import, the `bindHtmx` import and `bindHtmx(htmx)` after `enableNavigation()` |
+| `tera` | nothing | nothing | nothing; present only under the `tera` feature |
+
+* `pub const direction::REACT`, `direction::VUE`, `direction::HTMX`: the pinned versions, stated once. The `fsr add` command a build suggests for an unrecorded React names `REACT`.
+* `Direction::specifier(&self) -> Option<String>` and `Direction::url(&self) -> Option<String>`: the map key and the URL under `snapfire_fsr_host::client::ROUTE`, `None` for a direction with no entry. `Direction::specs(&self) -> Vec<Spec>`.
+
+### adopt
+
+* `pub fn direction::adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopted, BuildError>`
+* `pub struct direction::UseOptions { pub fetch: bool, pub example: bool }`, `Default` with `fetch` true.
+* Resolves every name first, so an unknown one refuses before anything is written. With `example` it checks that no example file is already there. Then per direction: the map line through `read_import_map` and `write_import_map`, an entry already at the host's URL reported as `present` and one at another URL refused as `AdapterUrl`; the specs against `VendorManifest`, a package recorded at the pinned version reported as `kept` and one at another version refused as `DirectionPinned`; the example files. Then, with `fetch`, `vendor::add` over what is left to vendor, which under a site takes what the shell serves and under xwpm delegates, `types::fetch` and the generation `fsr new` runs, each failure a note rather than a stop; without it, `fsr add`, `fsr types` and `fsr build` as `next`. Last, the direction's edits and the examples' placements.
+* `pub struct direction::Adopted { pub mapped: Vec<(String, String)>, pub present: Vec<String>, pub vendored: Vec<(String, String, usize)>, pub kept: Vec<String>, pub from_shell: Vec<(String, String)>, pub delegated: Vec<String>, pub typed: Vec<(String, String, String)>, pub written: Vec<PathBuf>, pub notes: Vec<String>, pub edits: Vec<(String, String)>, pub next: Vec<String> }`.
+* The examples, one per direction, each building and typechecking on its own: `react` writes `src/ui/Counter.tsx`, an island with one piece of state; `vue` writes `src/ui/Counter.vue`; `elements` writes `elements/hello-tag.tsx` and `src/elements/hello-tag.ts`, the template and the class `shadowOf` joins; `htmx` writes `routes/pulse/page.loader.ts` and `routes/pulse/page.tsx`, a page a fragment request refreshes; `tera` writes `routes/hello/page.loader.ts` and `routes/hello/page.tera`. Nothing is placed into an existing page.
+
 ### fetch
 
 * `pub fn types::fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError>`
@@ -389,7 +424,11 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `PathsOffPage(String)`: a `layout.loader.ts` or a slot's `page.loader.ts` exports `paths`, which only a route's page loader may. `PathsWithoutParameter { module, pattern }`: a page loader exports `paths` on a route whose pattern has no parameter.
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
 * `UnknownComponent { module: String }`, an island whose extension no framework claims.
-* `IslandImports { module: String, adapter: String, missing: String }`, the first registered module whose adapter the import map cannot supply, with the specifiers it lacks.
+* `IslandImports { module: String, adapter: String, missing: String, remedy: String }`, the first registered module whose adapter the import map cannot supply, with the specifiers it lacks; `remedy` names the `fsr use` direction that writes the adapter's line, empty for an adapter no direction maps.
+* `Direction { name: String, known: String }`, an `fsr use` or `--with` name outside the direction table, with the table.
+* `AdapterUrl { map: String, specifier: String, found: String, want: String }`, an import map already carrying the adapter's specifier at a URL other than the one the host serves.
+* `DirectionPinned { direction: String, package: String, recorded: String, wanted: String, manifest: String }`, a vendor manifest recording a framework package at a version other than the one the direction pins; moving it is `fsr add`.
+* `ExampleExists(PathBuf)`, an `--example` file already present.
 * `FrameworkUnrecorded { package: String, specifier: String, manifest: String, app: String, version: String }`, an import map serving a package a client adapter imports with no entry for it in the vendor manifest; the message names the `fsr add` command that records it.
 * `ReactMajor { version: String, supported: String }`, a vendored React whose major the renderer has no rules for.
 * `FrameworkShellUnrecorded { package: String, specifier: String, contract: String, version: String }`, a site whose shell serves a framework package with no `frameworks` entry saying which version; the message names the contract and the entry a hand-written one needs. A shell built before its contract recorded every framework package is refused here until it is rebuilt.

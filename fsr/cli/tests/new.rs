@@ -23,15 +23,12 @@ fn a_scaffolded_project_builds_with_every_module_lowered() {
   assert!(created.written.iter().any(|p| p.ends_with("config/app.toml")), "{:?}", created.written);
   assert!(created.written.iter().any(|p| p.ends_with("app/src/main.ts")), "{:?}", created.written);
 
-  let refused = match build(&root.join("app"), &Options::beside(&root.join("app"))) {
-    Ok(_) => panic!("an offline scaffold built with no React recorded"),
-    Err(e) => e.to_string(),
-  };
-  assert!(refused.contains("fsr add") && refused.contains("react@18.3.1"), "an offline scaffold names the React it has not vendored: {refused}");
-  std::fs::create_dir_all(root.join("app/vendor")).unwrap();
-  std::fs::write(root.join("app/vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
+  let map = std::fs::read_to_string(root.join("app/importmap.json")).unwrap();
+  assert!(!map.contains("react"), "a bare scaffold serves no framework: {map}");
+  assert!(std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap().contains("@snapfire/fsr-authoring/template"));
 
   let built = build(&root.join("app"), &Options::beside(&root.join("app"))).unwrap();
+  assert!(built.manifest.frameworks.is_empty(), "{}", built.report);
   assert_eq!(built.report.routes.len(), 1, "{}", built.report);
   assert_eq!(built.report.sources, vec![("$root".to_owned(), "routes/page.loader.ts".to_owned())], "{}", built.report);
   let residue: Vec<&(String, String, String)> = built.report.components.iter().filter(|(_, how, _)| how != "lowered").collect();
@@ -39,11 +36,38 @@ fn a_scaffolded_project_builds_with_every_module_lowered() {
 }
 
 #[test]
-fn the_scaffold_names_the_react_it_did_not_fetch() {
+fn an_offline_scaffold_names_the_steps_it_skipped() {
   let created = create(&root("offline"), offline()).unwrap();
   assert!(created.vendored.is_empty());
-  assert!(created.next.iter().any(|s| s.contains("fsr add") && s.contains("react-dom@18.3.1/client")), "{:?}", created.next);
+  assert!(!created.next.iter().any(|s| s.contains("fsr add")), "a bare scaffold vendors nothing: {:?}", created.next);
+  assert!(created.next.iter().any(|s| s.starts_with("fsr types")), "{:?}", created.next);
   assert!(created.next.last().unwrap().starts_with("fsr dev"), "{:?}", created.next);
+}
+
+#[test]
+fn with_adopts_each_direction_after_the_template() {
+  let root = root("with");
+  let created = create(&root, NewOptions { with: vec!["react".to_owned(), "htmx".to_owned()], ..offline() }).unwrap();
+  let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("app/importmap.json")).unwrap()).unwrap();
+  assert_eq!(map["imports"]["@snapfire/fsr-client/react"], "/static/js/fsr/react.js");
+  assert_eq!(map["imports"]["@snapfire/fsr-client/htmx"], "/static/js/fsr/htmx.js");
+  assert!(map["imports"].get("@snapfire/fsr-client/vue").is_none(), "{map}");
+  let add = created.next.iter().find(|s| s.starts_with("fsr add")).expect("the vendoring step is named offline");
+  assert!(add.contains("react@18.3.1/jsx-runtime") && add.contains("react-dom@18.3.1/client") && add.contains("htmx.org@2.0.10"), "{add}");
+  let main = std::fs::read_to_string(root.join("app/src/main.ts")).unwrap();
+  assert!(main.contains("import htmx from \"htmx.org\";") && main.ends_with("enableNavigation();\nbindHtmx(htmx);\n"), "{main}");
+  let layout = std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap();
+  assert!(layout.contains("from \"@snapfire/fsr-client/react\"") && layout.contains("ReactNode"), "a React scaffold types its layout through React: {layout}");
+  assert!(!root.join("app/routes/layout.react.tsx").exists());
+  assert!(created.next.last().unwrap().starts_with("fsr dev"), "{:?}", created.next);
+}
+
+#[test]
+fn a_direction_outside_the_table_leaves_no_project() {
+  let root = root("direction");
+  let refused = create(&root, NewOptions { with: vec!["svelte".to_owned()], ..offline() }).unwrap_err().to_string();
+  assert!(refused.contains("`svelte` is not a direction") && refused.contains("react, vue, elements, htmx, tera"), "{refused}");
+  assert!(!root.join("config").exists(), "the refusal left a project behind");
 }
 
 #[test]

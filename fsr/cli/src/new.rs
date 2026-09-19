@@ -4,11 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::vendor::{self, Spec};
+use crate::direction::{self, UseOptions};
 use crate::{types, BuildError};
-
-/// The React runtime a scaffolded app vendors, pinned the way the examples pin it.
-pub const REACT: &str = "18.3.1";
 
 const TEMPLATE: &[(&str, &str)] = &[
   (".gitignore", include_str!("../templates/new/gitignore")),
@@ -16,6 +13,7 @@ const TEMPLATE: &[(&str, &str)] = &[
   ("app/importmap.json", include_str!("../templates/new/app/importmap.json")),
   ("app/src/main.ts", include_str!("../templates/new/app/src/main.ts")),
   ("app/routes/layout.tsx", include_str!("../templates/new/app/routes/layout.tsx")),
+  ("app/routes/layout.react.tsx", include_str!("../templates/new/app/routes/layout.react.tsx")),
   ("app/routes/page.loader.ts", include_str!("../templates/new/app/routes/page.loader.ts")),
   ("app/routes/page.tsx", include_str!("../templates/new/app/routes/page.tsx")),
   ("app/routes/not-found.tsx", include_str!("../templates/new/app/routes/not-found.tsx")),
@@ -24,8 +22,10 @@ const TEMPLATE: &[(&str, &str)] = &[
 ];
 
 pub struct NewOptions {
-  /// Vendors React and fetches editor types, both of which reach the network.
+  /// Vendors what the directions pin and fetches editor types, both of which reach the network.
   pub fetch: bool,
+  /// Directions adopted after the template is written, in order, by name.
+  pub with: Vec<String>,
   /// Scaffolds a shell: the configuration gains the `[sites]` table sites mount into.
   pub shell: bool,
   /// Scaffolds a site, mounted at a path and optionally linked into a shell.
@@ -45,7 +45,7 @@ pub struct SiteScaffold {
 
 impl Default for NewOptions {
   fn default() -> Self {
-    Self { fetch: true, shell: false, site: None }
+    Self { fetch: true, with: Vec::new(), shell: false, site: None }
   }
 }
 
@@ -75,6 +75,9 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   if options.shell && options.site.is_some() {
     return Err(BuildError::Dev("a site cannot mount sites; pass --shell or --site, not both".to_owned()));
   }
+  for direction in &options.with {
+    direction::find(direction)?;
+  }
   let name = root.file_name().and_then(|n| n.to_str()).unwrap_or("app").to_owned();
   let app = root.join("app");
 
@@ -100,8 +103,21 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
 
   let mut created = Created::default();
 
+  let react = options.with.iter().any(|d| d == "react");
+  let htmx = options.with.iter().any(|d| d == "htmx");
   for (path, contents) in TEMPLATE {
-    let contents = contents.replace("{{name}}", &name).replace("{{site}}", &site_section);
+    let path = match *path {
+      "app/routes/layout.tsx" if react => continue,
+      "app/routes/layout.react.tsx" if !react => continue,
+      "app/routes/layout.react.tsx" => "app/routes/layout.tsx",
+      other => other,
+    };
+    let contents = contents
+      .replace("{{name}}", &name)
+      .replace("{{site}}", &site_section)
+      .replace("{{htmx_import}}", if htmx { "import htmx from \"htmx.org\";\n" } else { "" })
+      .replace("{{htmx_bind_import}}", if htmx { "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";\n" } else { "" })
+      .replace("{{htmx_bind}}", if htmx { "bindHtmx(htmx);\n" } else { "" });
     let path = root.join(path);
     if let Some(parent) = path.parent() {
       std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
@@ -110,16 +126,14 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     created.written.push(path);
   }
 
-  let add = format!("fsr add {} react@{REACT} react@{REACT}/jsx-runtime react-dom@{REACT}/client", app.display());
-  if options.fetch {
-    let specs: Vec<Spec> = [format!("react@{REACT}"), format!("react@{REACT}/jsx-runtime"), format!("react-dom@{REACT}/client")]
-      .iter()
-      .map(|s| Spec::parse(s))
-      .collect::<Result<_, _>>()?;
-    match vendor::add(&app, &specs, &[]) {
-      Ok(report) => created.vendored = report.added,
-      Err(e) => created.notes.push(format!("vendoring React failed ({e}); run `{add}`")),
-    }
+  if !options.with.is_empty() {
+    let adopted = direction::adopt(&app, &options.with, UseOptions { fetch: options.fetch, example: false })?;
+    created.vendored = adopted.vendored;
+    created.typed = adopted.typed;
+    created.written.extend(adopted.written);
+    created.notes.extend(adopted.notes);
+    created.next.extend(adopted.next);
+  } else if options.fetch {
     match types::fetch(&app, false) {
       Ok(report) => {
         created.typed = report.fetched;
@@ -136,7 +150,6 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
       Err(e) => created.notes.push(format!("fetching types failed ({e}); run `fsr types {}`", app.display())),
     }
   } else {
-    created.next.push(add);
     created.next.push(format!("fsr types {}", app.display()));
     created.next.push(format!("fsr build {}", app.display()));
   }
@@ -153,7 +166,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
 /// `generated/`, `tsconfig.json` and `tsconfig.build.json`, which is what the
 /// editor resolves imports through. The bundler is not run: `dist/` is what
 /// serving needs and `fsr dev` writes it.
-fn generate(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
+pub(crate) fn generate(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let built = crate::build(app, &crate::Options::beside(app))?;
   crate::write(app, &built)
 }
