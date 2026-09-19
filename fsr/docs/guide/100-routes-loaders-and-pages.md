@@ -16,6 +16,8 @@ routes    /                      routes
           /product/{id}          routes/product/[id]
 ```
 
+A page does not have to be TSX. A directory may hold `page.tera` in place of `page.tsx` and a layout directory `layout.tera` in place of `layout.tsx`; one of each, since a directory holding both is refused naming the two files. A template is not lowered and not bundled. The stock host reads it from the file and renders it itself, with the loader's return as its context, so `page.loader.ts` and `actions.ts` sit beside it exactly as they sit beside a `page.tsx` and are lowered the same way. The report lists such a module as `template` where a TSX page is `lowered`. It needs an `fsr` built with the `tera` feature, which the published binary is; without it a `page.tera` is refused naming the feature rather than ignored. Chapter 105 has a whole application written that way.
+
 ## What a route is called
 
 Every route has a **source id** and it is the name you see in the boot report, in a trace, in the plan and in the generated types. It is the directory's segments joined with `.`, with two markers.

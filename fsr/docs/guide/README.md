@@ -29,7 +29,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [102. Components the server renders](102-components-the-server-renders.md), what a component may say, helpers and the standard library, `useState`, what stays in the browser, what the server computes for it and an island the server drives. App developers.
 - [103. Testing a body and a page](103-testing-a-body.md), `describe`, `expect` and mock functions over a replayed body, the contract checks, the trace, page tests over a DOM with hydration, queries by role, a user at the keyboard, loading a route and clicking through it, plus `fsr test`. App developers.
 - [104. Islands in another framework](104-islands-in-another-framework.md), a `.vue` file placed by a template, the plugin that compiles it with no Node, scoped styles reaching the head, why a template with no state loads no framework and the application with no React in it. App developers.
-- [105. No framework at all](105-no-framework-at-all.md), custom elements a template writes and the browser upgrades, a shadow root the server renders, the store read with no adapter, htmx regions over fragments the host renders and the two events that let a library and the navigator share a document. App developers.
+- [105. No framework at all](105-no-framework-at-all.md), custom elements a template writes and the browser upgrades, a shadow root the server renders, the store read with no adapter, htmx regions over fragments the host renders, the two events that let a library and the navigator share a document and a page written as a Tera template the host renders from the file. App developers.
 - [106. Two frameworks on one page](106-two-frameworks-on-one-page.md), module-id dispatch as the whole seam, one store under two adapters, one router over segments that differ, htmx as a third shape and what the three of them weigh. App developers, plus anyone weighing a migration.
 - [107. Moving tests from Jest or Vitest](107-moving-tests-from-jest-or-vitest.md), what carries over from a Jest, Vitest or Testing Library suite, what changes and a spec moved end to end. App developers moving a suite.
 
@@ -62,7 +62,7 @@ And one appendix:
 
 **A frontend developer who writes Vue:** read 000, then 100 and 101 for the templates and bodies, then 104. Your components are islands and the pages around them are templates; 102 is the React reading of the same seam; 106 is what it costs to run both at once.
 
-**A frontend developer who would rather have no framework:** read 000, then 100 and 101, then 105. Your pages are templates, your interactive pieces are elements the browser defines and your regions are fragments; 003 says why the server can render all of it.
+**A frontend developer who would rather have no framework:** read 000, then 100 and 101, then 105. Your pages are templates, your interactive pieces are elements the browser defines and your regions are fragments; 003 says why the server can render all of it. The end of 105 is for the developer who would rather write those pages in Tera than in TSX.
 
 **A backend developer who owns the services:** read 000, then 001 and 202. Your service's document is the entire integration. The rest of the guide is what happens on the other side of it.
 

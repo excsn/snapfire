@@ -8,7 +8,7 @@ The question this chapter answers: what does an fsr application look like with n
 
 Chapter 104 put a Vue component where a React one had been and the seam held: a template places it, the server writes its marker, a mounter takes it in the browser. The cheapest case on that spectrum has no mounter. A custom element is defined once by a module the browser runs and upgraded wherever the parser finds its tag. The server can write that tag and everything inside it, because it is markup like any other; the browser does the rest when the definition arrives.
 
-The tool library, [`toolshed_web_ts`](../../examples/toolshed_web_ts/README.md), is built that way. Every route is a template, every interactive piece is a `.ts` file under `src/elements/` calling `customElements.define`; the regions that reach the server are htmx attributes. Nothing mounts, nothing hydrates and the one line in `generated/islands.ts` registers an element definition rather than a component. The bundle is `src/**/*` and two generated files; the import map is the client, its store and htmx.
+Two examples carry this chapter. The tool library, [`toolshed_web_ts`](../../examples/toolshed_web_ts/README.md), is built that way. Every route is a template, every interactive piece is a `.ts` file under `src/elements/` calling `customElements.define`; the regions that reach the server are htmx attributes. Nothing mounts, nothing hydrates and the one line in `generated/islands.ts` registers an element definition rather than a component. The bundle is `src/**/*` and two generated files; the import map is the client, its store and htmx. The noticeboard, [`noticeboard_tera`](../../examples/noticeboard_tera/README.md), goes one step further at the end of the chapter: its pages are not TSX templates at all but Tera files the host renders from disk.
 
 ## Writing a custom element in a template
 
@@ -202,6 +202,37 @@ bindHtmx(htmx);
 
 `fsr use app htmx` writes the map line, vendors htmx and prints those three lines for `main.ts`; `fsr new --with htmx` writes them into the scaffold's own. htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed, which is what that one line wires up. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one way this arrangement fails. It fails visibly.
 
+## A page that is a Tera template
+
+The tool library's pages are TSX with no state, which the build lowers to a tree the host walks. A page can skip the lowering altogether and be a template the host renders from the file. Put `page.tera` where `page.tsx` would go and the route is the same route:
+
+```
+routes/
+  layout.tera          the frame, placing the page with {{ slot(name="content") }}
+  layout.loader.ts     what the frame's footer counts
+  page.tera            /
+  page.loader.ts       the notices
+  notice/[id]/
+    page.tera          /notice/{id}
+    page.loader.ts     one notice, plus paths for the prerender
+templates/
+  nav.tera             a partial, included by this path
+```
+
+The loader is unchanged. It is TypeScript, lowered and run by the host like every loader in this guide. What it returns is the template's context, so the index writes `{% for notice in notices %}` over the same `notices` a `page.tsx` would have taken as a prop. `params`, `identity` and `locale` reach the template through the loader, not directly. The layout places the page where a TSX layout writes `{children}`:
+
+```tera
+<div class="board">
+  <header>{% include "templates/nav.tera" %}</header>
+  <main>{{ slot(name="content") }}</main>
+  <footer>{{ notices | length }} notices, served from templates under <code>routes/</code>.</footer>
+</div>
+```
+
+Every `.tera` under `app/` is loaded into one Tera and named by its path under the app, which is why the include names `templates/nav.tera` and why a partial can sit anywhere outside `vendor/`, `dist/` and `generated/`. `extends` resolves the same way. The build has nothing to lower, bundle or typecheck for a template, so the report lists it as `template` and `tsconfig.build.json` never names it; the loader and any `actions.ts` beside it are lowered as usual and a form in the template posts to an action the way the tool library's reserve form does. A template places an island with `{{ island(module="src/ui/Thing.tsx#default") }}`; the build reads the literal and bundles that module, so an island can still sit inside a page nothing else in the application hydrates.
+
+The host reads the templates at boot and refuses a plan naming a template the tree does not hold, so a renamed file is a boot error rather than an empty page. `fsr prerender app` treats a template route like any other: the index reads nothing from the request, so it is written once. The notice page's loader exports `paths`, so one file per notice is written beside it and the host answers those from disk while rendering any other id live. There is no Rust project in the noticeboard and no `main.rs`; `fsr serve app` is the whole server. An application that owns its binary registers the same evaluator through `HostBuilder::evaluator`, which is how `uni` in chapter 106 renders its layout. A bare application takes the direction with `fsr use app tera`, whose example is a `page.tera` beside its loader.
+
 ## The lab
 
 Run `fsr build app` in the tool library and read `app/generated/islands.ts`: one registration, an element definition with `defineMounter`, no mounter imported from any framework. Read the report: every route module is `static`. View the source of `/tool/3` before the scripts run: the planner's shadow root is there inside its `<template>`, the form carries the token and the only `<sf-i>` on the page is the loans list, holding the markup its definition will upgrade.
@@ -211,3 +242,5 @@ Ask for fragments with `curl`, as above. The page fragment starts at `<section` 
 Open the shelves in a browser, open the tally panel, click a tool and reserve it. The masthead was never touched and the panel is still open; the count moved because the fragment carried the seed. Then take the `sf:navigate` listener out of `main.ts`, rebuild and do it again: the document reloads on the reserve. Put it back.
 
 Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. The build stops with the error chapter 104 shows, since this import map has no React either. The rule from chapter 104 is the same rule here.
+
+Then the noticeboard. Run `fsr build app` there and read the report: the two pages and the layout are `template`, the three loaders are `lowered` and `generated/islands.ts` registers nothing. Run `fsr prerender app` and count the files under `dist/prerender`: the index plus one per notice, from `paths`. Start `fsr serve app` and ask for `/notice/bins` with `curl -i`: the answer carries `x-sf-prerendered: 1`. Ask for `/notice/nope`: rendered live, with the template's else branch. Rename `templates/nav.tera` and start the server again: it refuses at boot naming the template the layout includes and cannot find.
