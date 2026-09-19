@@ -14,6 +14,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | Both fallback spellings for a slot | `{alerts ?? …}` in the root layout, `<Slot name="peek">…</Slot>` in the agents layout |
 | Two routes with a variant each, in slots two layouts apart | `routes/settings/page.drawer.tsx` for the root, `routes/agents/[id]/page.peek.tsx` for the agents layout |
 | The three kinds of link | `full` on an agent's name, `into="peek"` on its peek button, a plain link from an alert the server intercepts only when the origin shares the declaring layout |
+| A nav that stays on its section while a drawer is open over it | `current="document"` on the header's links: the settings drawer puts `/settings` in the address bar and `Agents` keeps its mark, while the gear, judged by the address, takes one; `tests/nav.spec.tsx` |
 | Two segments streaming behind their own fallbacks in one document | the alerts slot and an agent page, each with a `loading.tsx` |
 | An island timed on idle and one timed on visibility | `island(TipList, { when: "idle" })` on the summary, `<Island when="visible">` around the job timeline |
 | A counter held in a nested layout that survives a navigation between the two routes beneath it | `routes/state/layout.tsx`, `routes/state/one/`, `routes/state/two/` |

@@ -19,10 +19,10 @@ pub enum Static {
 pub struct SubtreeReads {
   pub class: Static,
   pub store_keys: Vec<String>,
-  /// A component in the subtree renders `ctx.path`, which a `<Link>` does to
-  /// mark itself the current page. The memo key carries the path for such a
-  /// subtree, since two routes of one shape would otherwise share a render
-  /// whose marks name one of them.
+  /// A component in the subtree renders `ctx.path` or the document's path,
+  /// which a `<Link>` does to mark itself the current page. The memo key
+  /// carries both paths for such a subtree, since two routes of one shape
+  /// would otherwise share a render whose marks name one of them.
   pub path: bool,
 }
 
@@ -30,6 +30,11 @@ pub struct SubtreeReads {
 /// rather than by the component: `Expr::Path` resolves through it, the way
 /// `Expr::Locale` resolves through `locale`.
 pub const PATH_PROP: &str = "$path";
+
+/// The prop the document's path rides in on, beside `PATH_PROP`: the origin
+/// of an intercepted navigation, else the path the request matched.
+/// `Expr::Document` resolves through it.
+pub const DOCUMENT_PROP: &str = "$document";
 
 /// Subtree reads by the key `subtree_shape` gives their root: an app
 /// computes one entry per plan node it can see through and the assembler

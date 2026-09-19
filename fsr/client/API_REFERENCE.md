@@ -87,6 +87,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [adoptLocale](#adoptlocale)
   * [markLinks](#marklinks)
   * [currentDocumentPath](#currentdocumentpath)
+  * [currentAddressPath](#currentaddresspath)
   * [localePath](#localepath)
 * [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
@@ -589,7 +590,7 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 * `navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>`
 
-Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given, then `x-sf-into` set to `into`. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default) unless `replace` is set, which replaces the current entry instead, the current path is moved to the target, then the window scrolls to the element the fragment names (by id, then by an anchor's `name`) or to the top when it names none, unless `scroll` is false or the payload was an intercept, which opens in place; `sf:navigate` is dispatched on `document` with the path in `detail`; each `S` row after it fills its slot, rescans and dispatches `sf:fill` with the slot id, each `H` row retitles and each `T` row seeds and the promise resolves once the last row has been applied. A feed that ends before `G` or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document and the rows still arriving for this one stop applying.
+Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` is given and `x-sf-into` set to `into` when it is; under `into` the origin is sent for the marks alone, since the slot is named outright. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default) unless `replace` is set, which replaces the current entry instead, the current path is moved to the target, then the window scrolls to the element the fragment names (by id, then by an anchor's `name`) or to the top when it names none, unless `scroll` is false or the payload was an intercept, which opens in place; `sf:navigate` is dispatched on `document` with the path in `detail`; each `S` row after it fills its slot, rescans and dispatches `sf:fill` with the slot id, each `H` row retitles and each `T` row seeds and the promise resolves once the last row has been applied. A feed that ends before `G` or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document and the rows still arriving for this one stop applying.
 
 Applying walks the old and new segment spines together. A segment whose digest both responses agree on rendered the same, so its region is kept and its delimiter retagged with the new key and an island in it is not re-rendered; the walk descends to its children all the same, since a digest elides them. Otherwise the first key mismatch replaces that region from the new payload and a mismatch the region cannot answer, at the root, descends when the two keys name the same module. Under `keep` a mismatch within one module is morphed instead: the new markup is patched into the region by the rules of `morph`, so an element that stands where it stood keeps its DOM and its scroll. Every mounted island it places again, by region key, keeps its DOM and its state wherever in the region it stood and takes the new props. A root nothing has mounted is patched like any other element. A segment that is itself an island is retagged and takes its new props. One whose new segment carries a slot over untouched is replaced as before. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included. Its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A region or a streaming slot whose parent is the child region of a tree root, which `treeRootOf` answers, is never written by the navigator: the node is handed to the root through `setTreeChild`, as a page for the root to render when it is a client node with no child segments and as markup with its delimiters otherwise. The promise waits on `treeSettled` before it resolves. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
 
@@ -771,13 +772,19 @@ A path already under the current prefix has it swapped rather than stacked, so `
 
 * `markLinks(root?: ParentNode): void`
 
-Brings every `<a data-sf-link>` under `root`, the document by default, to the page `currentDocumentPath` names: `aria-current` set where the anchor's `href` matches by its rule and removed where it does not. `enableNavigation` calls it after each navigation that changes the page and after each slot fill, which is what keeps a nav in a layout right when only the page segment was re-rendered. Call it after writing links into the document by hand.
+Brings every `<a data-sf-link>` under `root`, the document by default, to the page it is judged against: `currentAddressPath` for an anchor without `data-sf-current` and `currentDocumentPath` for one carrying `data-sf-current="document"`. `aria-current` is set where the anchor's `href` matches by its rule and removed where it does not. `enableNavigation` calls it after every navigation and after each slot fill, an intercepted navigation included, which is what keeps a nav in a layout right when only the page segment was re-rendered. Call it after writing links into the document by hand.
 
 ### currentDocumentPath
 
 * `currentDocumentPath(): string`
 
 The page the document is showing, which is not always what the address bar says: an intercepted navigation changes the URL and leaves the document rooted where it was. Empty before `enableNavigation` runs.
+
+### currentAddressPath
+
+* `currentAddressPath(): string`
+
+The path and search in the address bar as the navigator last set them: the target of the last navigation whether it was intercepted or not. Equal to `currentDocumentPath` except while an intercept is open. Empty before `enableNavigation` runs.
 
 ## 10. The React Mounter
 
@@ -866,14 +873,16 @@ The document's locale, re-rendering the island when a navigation changes it. The
 
 ### Link
 
-* `function Link({ full, into, prefetch, native, keep, match, ...rest }: LinkProps): ReactElement`
-* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean; keep?: boolean; match?: "exact" | "prefix" | "none" }`
+* `function Link({ full, into, prefetch, native, keep, match, current, ...rest }: LinkProps): ReactElement`
+* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean; keep?: boolean; match?: "exact" | "prefix" | "none"; current?: "url" | "document" }`
 
 An `<a>` with the rest of its props, carrying `data-sf-full="true"` when `full`, `data-sf-into` when `into`, `data-sf-prefetch` when `prefetch`, `data-sf-native="true"` when `native` and `data-sf-keep` as `"true"` or `"false"` when `keep` is given, which is what the navigator reads off a clicked or hovered anchor. The build lowers the use to the same `<a>`, spelling a computed `keep` the same way.
 
 Every link also carries `data-sf-link`, the rule by which it is called the page being shown and `aria-current` when it is: `"page"` under `match="exact"`, the default, on the path its `href` names; `"true"` under `match="prefix"` on that path and anything under it, so a section link and the page inside it do not both claim to be the page. `match="none"` leaves the anchor alone and so does an `aria-current` the author writes. The `href` is read as written, so one carrying a query or a fragment never matches: the path a request matched holds neither. `match` is written out rather than computed, since the build lowers it.
 
-The server writes the mark at first paint, from the path the request matched, so it is there before any script runs and in a prerendered document. A navigation re-renders the page segment and leaves the layout holding the nav alone, so the navigator re-reads every `data-sf-link` in the document afterwards; see `markLinks`.
+`current` says which path the mark is judged against. `"url"`, the default, is the address bar, `currentAddressPath` in the browser and the path the request matched on the server. `"document"` is the page beneath an open intercept, `currentDocumentPath` in the browser and the origin the navigator sent as `x-sf-from` on the server, which the build lowers to `Expr::Document`; the anchor then carries `data-sf-current="document"` so `markLinks` judges it the same way. The two differ only while an intercept is open. `current` is written out rather than computed, since the build lowers it.
+
+The server writes the mark at first paint, from the path the request matched or the document's, so it is there before any script runs and in a prerendered document. A navigation re-renders the page segment and leaves the layout holding the nav alone, so the navigator re-reads every `data-sf-link` in the document afterwards; see `markLinks`.
 
 ### Mount
 

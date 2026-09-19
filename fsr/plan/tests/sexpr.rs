@@ -24,6 +24,7 @@ fn every_expr() -> Vec<Expr> {
     Expr::Identity(vec!["claims".to_owned(), "sub".to_owned()]),
     Expr::Locale,
     Expr::Path,
+    Expr::Document,
     Expr::Host,
     Expr::Input,
     Expr::Now,

@@ -477,7 +477,7 @@ impl<'a> Run<'a> {
     for (key, expr) in &mock.config {
       config.insert(key.clone(), self.eval(expr).await.map_err(|f| format!("config.{key}: {}", f.message))?);
     }
-    let ctx = RequestCtx { params, query, path, session: SessionCell::new(session, identity), locale, host, config, csrf: None, services: handle, natives: Default::default() };
+    let ctx = RequestCtx { params, query, path, document: None, session: SessionCell::new(session, identity), locale, host, config, csrf: None, services: handle, natives: Default::default() };
     let mock = MockCtx { ctx, input, transport, written: Vec::new() };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);

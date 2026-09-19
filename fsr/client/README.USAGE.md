@@ -506,6 +506,18 @@ On `/billing/overdue` the section link carries `aria-current="true"` and the pag
 
 The server writes the mark from the path the request matched, so it is right at first paint, in a document with no script and in a prerendered one. A navigation re-renders the page segment and leaves the layout alone, so the navigator re-reads every marked link afterwards rather than waiting for the nav to render again.
 
+An intercepted navigation changes the address and leaves the page beneath in place. A link is judged by the address: a modal's link to its own full page is marked while the modal is open and a nav item whose section the target is outside goes dark until it closes. A nav that describes the page beneath says `current="document"` and is judged by that page instead, on the server and in the browser alike:
+
+```tsx
+<nav>
+  <Link href="/agents" match="prefix" current="document">Agents</Link>
+  <Link href="/help" current="document">Help</Link>
+</nav>
+<Link href="/settings" into="drawer" aria-label="Settings">⚙</Link>
+```
+
+Open the drawer from the agent list and `Agents` keeps its mark while the gear takes one. `current="url"` is the default and the two agree whenever no intercept is open. On a plain anchor the same is `data-sf-current="document"` beside `data-sf-link`.
+
 ## Prefetching and the Router Cache
 
 A link's payload is fetched when the pointer moves over it, when it takes focus or when it is touched, then held for thirty seconds. The click that follows applies the held payload with no round trip. So does a back or forward that lands on a route fetched inside the window. `enableNavigation` takes the document's timing and the lifetime:

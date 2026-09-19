@@ -136,6 +136,10 @@ pub struct RequestCtx {
   /// Every source on a plan reads the same one, which is what lets a layout
   /// or a parallel segment build a link that keeps the page open beside it.
   pub path: String,
+  /// The path of the page the document is showing when this render is an
+  /// intercept: the origin the navigator sent as `x-sf-from`, locale prefix
+  /// stripped. `None` on any other request, where it is `path`.
+  pub document: Option<String>,
   pub session: SessionCell,
   pub locale: Locale,
   /// The host the request named, already matched against `[server] hosts`.
@@ -158,6 +162,7 @@ impl RequestCtx {
       params,
       query: Params::new(),
       path: String::new(),
+      document: None,
       session: SessionCell::default(),
       locale: Locale::default(),
       host: None,

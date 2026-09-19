@@ -1117,14 +1117,14 @@ impl ActionHandler for CheckedInput {
   }
 }
 
-/// A body reading `Expr::Path`. A prerendered route has one path, so the
+/// A body reading `Expr::Path` or `Expr::Document`. A prerendered route has one path, so the
 /// classification calls that fixed; a memo is keyed by the source rather than
 /// the route and one layout source answers every path beneath it, so a
 /// source reading the path is never memoized.
 fn reads_path(body: &snapfire_fsr_ir::Body) -> bool {
   let mut found = false;
   body_visit(body, &mut |e| {
-    if matches!(e, Expr::Path) {
+    if matches!(e, Expr::Path | Expr::Document) {
       found = true;
     }
   });
@@ -1368,7 +1368,7 @@ fn renders_path(module: &str, components: &[(String, Component)], seen: &mut Has
   let Some((_, component)) = components.iter().find(|(name, _)| name == module) else { return false };
   let mut found = false;
   component.visit(&mut |e| {
-    if matches!(e, Expr::Path) {
+    if matches!(e, Expr::Path | Expr::Document) {
       found = true;
     }
   });

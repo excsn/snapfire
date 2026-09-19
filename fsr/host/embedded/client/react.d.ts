@@ -61,9 +61,11 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 	keep?: boolean;
 	/** When the link is marked `aria-current`: `"exact"`, the default, on the page its `href` names; `"prefix"` on that page and anything under it; `"none"` never. An `href` carrying a query or a fragment never matches. */
 	match?: "exact" | "prefix" | "none";
+	/** Which path the mark is judged against: `"url"`, the default, the address bar; `"document"`, the page beneath an open intercept, so a nav describing the section a drawer or a modal opened over stays where it was. The two differ only while an intercept is open. */
+	current?: "url" | "document";
 }
-/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes and `match` as the `data-sf-link` the navigator re-reads after each navigation. */
-export declare function Link({ full, into, prefetch, native, keep, match, ...rest }: LinkProps): ReactElement;
+/** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes, `match` as the `data-sf-link` the navigator re-reads after each navigation and `current` as `data-sf-current` when it is the document's. */
+export declare function Link({ full, into, prefetch, native, keep, match, current, ...rest }: LinkProps): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
 export type Hoisted = {
 	readonly [key: string]: unknown;

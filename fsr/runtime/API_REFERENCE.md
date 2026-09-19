@@ -248,7 +248,7 @@ Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `
 
 `pub enum Static { Fixed, Anonymous, Dynamic }`. `Copy`, `Ord`, `Default` (`Dynamic`). How much of the request a body or a subtree depends on: nothing, the identity alone or more. The app crate classifies sources and subtrees with it.
 
-`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String> }`. What a subtree reads: the most any node in it reads and the store keys any component in it reads.
+`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool }`. What a subtree reads: the most any node in it reads, the store keys any component in it reads and whether a component in it renders the request's path or the document's, which a `<Link>` does to mark itself current. For such a subtree the assembler writes `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`) into the props and keys the memo by both paths.
 
 `pub type Reads = HashMap<u64, SubtreeReads>`, keyed by `subtree_shape`.
 
@@ -504,6 +504,7 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
 * `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's. Empty too under a context nothing resolved.
+* `pub document: Option<String>`: the path of the page the document is showing when the render is an intercept, the origin the navigator sent as `x-sf-from` with its locale prefix stripped. `None` on any other request, where the document's path is `path`.
 * `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` and `path` are empty.
 * `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.

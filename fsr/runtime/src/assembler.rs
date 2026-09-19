@@ -14,7 +14,7 @@ use crate::ctx::RequestCtx;
 use crate::data::{DataSources, LoadError, LoadKeyer, NoLoadKey};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
-use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, PATH_PROP};
+use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 use crate::store::Seeds;
 
@@ -630,8 +630,8 @@ impl Session {
       (_, Some(reads)) => store_read(store, &reads.store_keys).fingerprint(),
     };
     let path = match reads {
-      Some(reads) if !reads.path => "-",
-      _ => self.ctx.path.as_str(),
+      Some(reads) if !reads.path => "-".to_owned(),
+      _ => format!("{}|doc={}", self.ctx.path, self.ctx.document.as_deref().unwrap_or("-")),
     };
     Some(format!(
       "{}|{}|ident={}|csrf={}|locale={}|path={}|{:016x}|{:016x}|{:016x}",
@@ -678,6 +678,7 @@ impl Session {
     props.insert("params".to_owned(), params_value(&self.ctx.params));
     if path {
       props.insert(PATH_PROP.to_owned(), Value::str(self.ctx.path.clone()));
+      props.insert(DOCUMENT_PROP.to_owned(), Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone())));
     }
     if !self.ctx.locale.tag.is_empty() {
       props.insert("locale".to_owned(), Value::str(self.ctx.locale.tag.clone()));

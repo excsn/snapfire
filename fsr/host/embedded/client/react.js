@@ -4,7 +4,7 @@ import { adoptTreeChild, discard, holdTreeChild, islandState, markerProps, patch
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
-import { currentDocumentPath } from "./navigator.js";
+import { currentAddressPath, currentDocumentPath } from "./navigator.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe } from "./store.js";
 function slotOf(el) {
@@ -251,7 +251,7 @@ export function useStore(k, initial) {
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
 }
-export function Link({ full, into, prefetch, native, keep, match, ...rest }) {
+export function Link({ full, into, prefetch, native, keep, match, current, ...rest }) {
     const attrs = {
         ...rest
     };
@@ -263,7 +263,8 @@ export function Link({ full, into, prefetch, native, keep, match, ...rest }) {
     const rule = match ?? "exact";
     if (rule !== "none" && typeof rest.href === "string" && rest["aria-current"] === undefined) {
         attrs["data-sf-link"] = rule;
-        const at = currentDocumentPath();
+        if (current === "document") attrs["data-sf-current"] = "document";
+        const at = current === "document" ? currentDocumentPath() : currentAddressPath();
         const cut = at.indexOf("?");
         const path = cut === -1 ? at : at.slice(0, cut);
         if (rest.href === path) attrs["aria-current"] = rule === "prefix" ? "true" : "page";

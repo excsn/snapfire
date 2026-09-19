@@ -18,6 +18,7 @@ test("a click on a product from the catalog opens it in the layout's modal slot 
   expect(screen.getByText("Today's picks"), "and its content").toBeTruthy();
   expect(modal!.textContent?.includes("Full details"), "the quick look rendered inside the modal slot").toBeTruthy();
   expect(modal!.querySelector("sf-i"), "the modal hydrates for its close and add buttons").toBeTruthy();
+  expect(screen.getByText("Full details").getAttribute("aria-current"), "a link in the modal is marked by the address, which is its own page").toEqual("page");
   expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.tsx#default"]'), "the page itself was never rendered").toBeNull();
   expect(c.trace.calls.map((call) => call.method), "the catalog and promo loaders ran for the document, the product's for the modal").toEqual(["listProducts", "listProducts", "getProduct", "getStock"]);
 

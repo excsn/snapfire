@@ -16,8 +16,10 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
         ops console
       </Link>
       <nav className="topnav">
-        <Link href="/agents">Agents</Link>
-        <Link href="/help" prefetch="none">
+        <Link href="/agents" match="prefix" current="document">
+          Agents
+        </Link>
+        <Link href="/help" prefetch="none" current="document">
           Help
         </Link>
       </nav>

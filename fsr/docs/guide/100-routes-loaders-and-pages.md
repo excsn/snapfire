@@ -212,6 +212,14 @@ nav a[aria-current="page"] { font-weight: 600; }
 
 Nothing is passed down for this: a nav in a layout needs no prop and no state. A navigation re-renders the page segment and leaves the layout holding the nav exactly as it was, so the navigator re-reads the marked links itself once the page has changed. The portal marks `/billing` while a billing page is showing and the billing site, mounted under it from its own artifact, marks its own nav from the same request path.
 
+An intercept opens a drawer or a modal over the page and puts the target's URL in the address bar. A link is judged by that address, so the modal's own link to its full page is marked while it is open and a nav item for a section the target falls outside goes dark. A nav that describes the page beneath asks to be judged by the document instead:
+
+```tsx
+<Link href="/agents" match="prefix" current="document">Agents</Link>
+```
+
+The two differ only while an intercept is open. The console's header does this: the settings drawer puts `/settings` in the address bar and `Agents` keeps its mark, while the gear that opened it, judged by the address, takes one.
+
 ## A handler answers with a value
 
 A directory may hold a `route.ts` instead of a page. Its exports named `GET`, `POST`, `PUT`, `PATCH` or `DELETE` are handlers: the host matches the method and the pattern before any page, runs the body with the same context a loader gets plus the request body as `input` and answers with the returned value as JSON. A `fail` sets the status by its kind. Written as an `action<T>`, a handler has its input checked against `T` before the body runs; written as a plain function, `input` is whatever the request carried.

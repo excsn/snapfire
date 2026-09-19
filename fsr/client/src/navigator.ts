@@ -603,7 +603,7 @@ function sessionState(): string {
 
 export type PrefetchTiming = "hover" | "viewport" | "none";
 
-/** How a navigation asks for its payload: `from` is the document's path, which lets the server intercept the target into a live layout's slot; `into` names that slot outright; neither is a full page. */
+/** How a navigation asks for its payload: `from` is the document's path, which lets the server intercept the target into a live layout's slot and marks the links inside the intercept by the page it opens over; `into` names that slot outright, with `from` sent for the marks alone; neither is a full page. */
 interface Ask {
   from: string | null;
   into: string | null;
@@ -624,7 +624,7 @@ export interface NavigateOptions {
 
 function askFor(options: NavigateOptions): Ask {
   if (options.full) return { from: null, into: null };
-  if (options.into) return { from: null, into: options.into };
+  if (options.into) return { from: documentPath, into: options.into };
   return { from: currentPath, into: null };
 }
 
@@ -811,9 +811,9 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   currentPath = `${url.pathname}${url.search}`;
   if (openSlot === null) {
     documentPath = currentPath;
-    markLinks();
     if (options.scroll !== false) scrollToFragment(url.hash);
   }
+  markLinks();
   await treeSettled();
   announce();
   await drain(rows, eager.segments, gen);
@@ -822,6 +822,18 @@ export async function navigate(href: string, push = true, options: NavigateOptio
 /** The page the document is showing, which is not always what the address bar says: an intercepted navigation puts the target's URL there while the page underneath stays. Empty before `enableNavigation` runs. */
 export function currentDocumentPath(): string {
   return documentPath;
+}
+
+/** The path and search in the address bar as the navigator last set them: the target of the last navigation, intercepted or not. Empty before `enableNavigation` runs. */
+export function currentAddressPath(): string {
+  return currentPath;
+}
+
+/** The path a marked anchor is judged against, query dropped: the document's for one carrying `data-sf-current="document"`, else the address. */
+function markedAgainst(anchor: Element): string {
+  const at = anchor.getAttribute("data-sf-current") === "document" ? documentPath : currentPath;
+  const cut = at.indexOf("?");
+  return cut === -1 ? at : at.slice(0, cut);
 }
 
 /** The mark an anchor carries on `path`, by the rule its `data-sf-link` names: `page` where its href is the page being shown, `true` where the page is under a `prefix` link, `null` where neither. The href is read as written, so one carrying a query or a fragment never matches; the path a request matched holds neither. */
@@ -833,12 +845,10 @@ function markOf(anchor: Element, path: string): string | null {
   return prefix && path.startsWith(`${href}/`) ? "true" : null;
 }
 
-/** Brings every `<a data-sf-link>` under `root` to the page the document is showing. The server writes the mark at first paint; this keeps it right across a navigation, which re-renders the page segment and leaves the layout holding the nav alone. */
+/** Brings every `<a data-sf-link>` under `root` to the page it is judged against: the address for most, the page beneath an open intercept for one that says `data-sf-current="document"`. The server writes the mark at first paint; this keeps it right across a navigation, which re-renders the page segment and leaves the layout holding the nav alone. */
 export function markLinks(root: ParentNode = document): void {
-  const cut = documentPath.indexOf("?");
-  const path = cut === -1 ? documentPath : documentPath.slice(0, cut);
   for (const anchor of Array.from(root.querySelectorAll("a[data-sf-link]"))) {
-    const mark = markOf(anchor, path);
+    const mark = markOf(anchor, markedAgainst(anchor));
     if (mark === null) anchor.removeAttribute("aria-current");
     else anchor.setAttribute("aria-current", mark);
   }

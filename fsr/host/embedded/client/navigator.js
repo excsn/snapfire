@@ -546,7 +546,7 @@ function askFor(options) {
         into: null
     };
     if (options.into) return {
-        from: null,
+        from: documentPath,
         into: options.into
     };
     return {
@@ -707,15 +707,23 @@ export async function navigate(href, push = true, options = {}) {
     currentPath = `${url.pathname}${url.search}`;
     if (openSlot === null) {
         documentPath = currentPath;
-        markLinks();
         if (options.scroll !== false) scrollToFragment(url.hash);
     }
+    markLinks();
     await treeSettled();
     announce();
     await drain(rows, eager.segments, gen);
 }
 export function currentDocumentPath() {
     return documentPath;
+}
+export function currentAddressPath() {
+    return currentPath;
+}
+function markedAgainst(anchor) {
+    const at = anchor.getAttribute("data-sf-current") === "document" ? documentPath : currentPath;
+    const cut = at.indexOf("?");
+    return cut === -1 ? at : at.slice(0, cut);
 }
 function markOf(anchor, path) {
     const href = anchor.getAttribute("href");
@@ -725,10 +733,8 @@ function markOf(anchor, path) {
     return prefix && path.startsWith(`${href}/`) ? "true" : null;
 }
 export function markLinks(root = document) {
-    const cut = documentPath.indexOf("?");
-    const path = cut === -1 ? documentPath : documentPath.slice(0, cut);
     for (const anchor of Array.from(root.querySelectorAll("a[data-sf-link]"))){
-        const mark = markOf(anchor, path);
+        const mark = markOf(anchor, markedAgainst(anchor));
         if (mark === null) anchor.removeAttribute("aria-current");
         else anchor.setAttribute("aria-current", mark);
     }

@@ -2102,6 +2102,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut href = None;
     let mut rule = Some(Match::Exact);
     let mut marked = false;
+    let mut by_document = false;
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -2122,6 +2123,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         rule = self.link_match(attr)?;
         continue;
       }
+      if raw == "current" {
+        by_document = self.link_current(attr)?;
+        continue;
+      }
       let value = self.attr_value(attr)?;
       if raw == "href" {
         href = Some(value.clone());
@@ -2140,10 +2145,24 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       attrs.push(Entry::Field(name.to_owned(), value));
     }
     if let (Some(rule), Some(href), false) = (rule, href, marked) {
-      attrs.extend(active_attrs(rule, href));
+      if by_document {
+        attrs.push(Entry::Field("data-sf-current".to_owned(), Expr::lit_str("document")));
+      }
+      attrs.extend(active_attrs(rule, href, if by_document { Expr::Document } else { Expr::Path }));
     }
     let children = self.children(&el.children)?;
     Ok(Tmpl::Element { tag: "a".to_owned(), attrs, children })
+  }
+
+  /// A `Link`'s `current`, which says which path the mark is judged
+  /// against: `"url"` is the address and `"document"` the page beneath an
+  /// open intercept. True for `"document"`.
+  fn link_current(&mut self, attr: &'p js::JSXAttr) -> Lowered<bool> {
+    match self.attr_value(attr)? {
+      Expr::Lit(Lit::Str(by)) if by == "url" => Ok(false),
+      Expr::Lit(Lit::Str(by)) if by == "document" => Ok(true),
+      _ => Err(self.lowerer.residue(attr.span, "a `<Link>`'s `current` is \"url\" or \"document\", written out")),
+    }
   }
 
   /// A `Link`'s `match`, which says when the navigator calls it the current
@@ -3402,6 +3421,28 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
+  fn a_link_marked_by_the_document_compares_the_documents_path_and_says_so() {
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <p><Link href=\"/agents\" match=\"prefix\" current=\"document\">a</Link><Link href=\"/help\" current=\"url\">b</Link><Link href=\"/help\" current=\"page\">c</Link></p>;\n}\n")];
+    let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`current` is \"url\" or \"document\""), "{err}");
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <p><Link href=\"/agents\" match=\"prefix\" current=\"document\">a</Link><Link href=\"/help\" current=\"url\">b</Link></p>;\n}\n")];
+    let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
+    let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
+    let Tmpl::Element { attrs, .. } = &children[0] else { panic!("{:?}", children[0]) };
+    assert_eq!(attrs[1], Entry::Field("data-sf-current".to_owned(), Expr::lit_str("document")));
+    assert_eq!(attrs[2], Entry::Field("data-sf-link".to_owned(), Expr::lit_str("prefix")));
+    let Entry::Field(name, Expr::Ternary(cond, ..)) = &attrs[3] else { panic!("{:?}", attrs[3]) };
+    assert_eq!(name, "aria-current");
+    let mut by_document = false;
+    cond.visit(&mut |e| by_document |= *e == Expr::Document);
+    assert!(by_document, "{cond:?}");
+    let Tmpl::Element { attrs, .. } = &children[1] else { panic!("{:?}", children[1]) };
+    assert_eq!(attrs[1], Entry::Field("data-sf-link".to_owned(), Expr::lit_str("exact")), "`url` is the default and writes nothing of its own: {attrs:?}");
+    let Entry::Field(_, Expr::Ternary(cond, ..)) = &attrs[2] else { panic!("{:?}", attrs[2]) };
+    assert_eq!(**cond, Expr::Compare(CompareOp::Eq, Box::new(Expr::Path), Box::new(Expr::lit_str("/help"))));
+  }
+
+  #[test]
   fn a_link_with_a_computed_match_is_residue() {
     let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <Link href=\"/x\" match={on ? \"prefix\" : \"none\"}>a</Link>;\n}\n")];
     let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
@@ -3530,15 +3571,15 @@ impl Match {
 
 /// The two attributes an active link carries: the rule, which the navigator
 /// reads to keep the mark right after a navigation the layout does not
-/// re-render for and `aria-current` for the page the request is on. An
-/// `href` carrying a query or a fragment never matches, since the path the
-/// request matched holds neither.
-fn active_attrs(rule: Match, href: Expr) -> [Entry; 2] {
-  let hit = Expr::Compare(CompareOp::Eq, Box::new(Expr::Path), Box::new(href.clone()));
+/// re-render for and `aria-current` for the page `by` names, the request's
+/// path or the document's. An `href` carrying a query or a fragment never
+/// matches, since the path the request matched holds neither.
+fn active_attrs(rule: Match, href: Expr, by: Expr) -> [Entry; 2] {
+  let hit = Expr::Compare(CompareOp::Eq, Box::new(by.clone()), Box::new(href.clone()));
   let hit = match rule {
     Match::Exact => hit,
     Match::Prefix => {
-      let under = Expr::Builtin { name: Builtin::StartsWith, args: vec![Expr::Path, Expr::Template(vec![href, Expr::lit_str("/")])] };
+      let under = Expr::Builtin { name: Builtin::StartsWith, args: vec![by, Expr::Template(vec![href, Expr::lit_str("/")])] };
       Expr::Logic(LogicOp::Or, Box::new(hit), Box::new(under))
     }
   };

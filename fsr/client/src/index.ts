@@ -8,7 +8,7 @@ export type { StoreKey, StoreListener } from "./store.js";
 export { decodeNode, linesOf, parsePayload, parseRow } from "./reader.js";
 export type { Head, Payload, Row, Segment, SfNode } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
-export { applyHead, clearRouterCache, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, prefetch, refresh } from "./navigator.js";
+export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, prefetch, refresh } from "./navigator.js";
 export { live, type LiveOptions } from "./live.js";
 export { socket, type Socket, type SocketOptions } from "./socket.js";
 export type { NavigateOptions, NavigationOptions, PrefetchTiming } from "./navigator.js";

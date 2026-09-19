@@ -278,6 +278,9 @@ impl Interpreter {
     if let Some(Value::Str(path)) = props.get(snapfire_fsr_runtime::PATH_PROP) {
       env.ctx.path = path.to_string();
     }
+    if let Some(Value::Str(document)) = props.get(snapfire_fsr_runtime::DOCUMENT_PROP) {
+      env.ctx.document = Some(document.to_string());
+    }
     env.hoists = Some(Hoists::new(module));
     env
   }

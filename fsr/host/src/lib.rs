@@ -948,6 +948,9 @@ struct Incoming {
   held_catalog: Option<String>,
   /// The request's `Host`, already matched against `server.hosts`.
   host: Option<String>,
+  /// The page the document is showing, for an intercepted render: the
+  /// origin the navigator sent, with its locale prefix stripped.
+  document: Option<String>,
 }
 
 impl Incoming {
@@ -958,6 +961,7 @@ impl Incoming {
       credentials: Arc::new(NoCredentials),
       held_catalog: None,
       host: None,
+      document: None,
     }
   }
 }
@@ -1316,6 +1320,8 @@ impl Host {
       .map(|f| t.locales.resolve(f, None, None).path);
     match self.intercept_in(t, &visit.path, from_bare.as_deref(), into) {
       Some((plan, params)) => {
+        let mut incoming = incoming;
+        incoming.document = from_bare;
         self
           .render_plan(
             t,
@@ -2104,6 +2110,7 @@ impl Host {
       params,
       query,
       path: path.to_owned(),
+      document: incoming.document,
       session: incoming.session,
       locale,
       host: incoming.host,
@@ -2142,6 +2149,7 @@ impl Host {
       credentials: Arc::new(opened.tokens.clone()),
       held_catalog: None,
       host,
+      document: None,
     }
   }
 
