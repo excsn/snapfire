@@ -1,8 +1,10 @@
 # FSR examples
 
-Fourteen applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Fourteen applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
-Read them in this order. Each has a `README.md` saying what it shows and where.
+Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read in order: each carries the part the ones before it do not reach.
+
+### React
 
 | | What it is | Read it for |
 | --- | --- | --- |
@@ -15,10 +17,30 @@ Read them in this order. Each has a `README.md` saying what it shows and where.
 | [chat_react_ts](chat_react_ts/README.md) | Rooms, messages and who said what | The server talking to a page nobody asked: an action keeps a message, the host publishes the room's topic and every window following it revalidates, with the topic itself behind an authorisation rule |
 | [wave_react_ts](wave_react_ts/README.md) | Google Wave: blips nested in blips, presence and everyone's typing visible before it is kept | The seam that goes the other way: a WebSocket per topic whose rows land in the store, beside actions and `live` for everything durable |
 | [conference_react_ts](conference_react_ts/README.md) | A one-day conference programme | The application with no Rust in it: routes, loaders and actions in TypeScript alone, compiled to a plan the stock host reads at boot, over a service that is an OpenAPI document and a file of canned answers |
+
+### Vue
+
+| | What it is | Read it for |
+| --- | --- | --- |
 | [recipes_vue_ts](recipes_vue_ts/README.md) | A household recipe box | A second framework on the same seam: every interactive piece a `.vue` file compiled by `snapfirec-vue` and mounted by Vue, the pages static templates that load no framework, no React anywhere in the application |
-| [toolshed_web_ts](toolshed_web_ts/README.md) | A street's tool library | No framework at all: custom elements the browser upgrades where the server wrote their markup, one inside a shadow root the server wrote, plus htmx regions swapping fragments the host renders, one segment of a route at a time |
+
+### No framework
+
+| | What it is | Read it for |
+| --- | --- | --- |
+| [toolshed_web_ts](toolshed_web_ts/README.md) | A street's tool library | Custom elements the browser upgrades where the server wrote their markup, one inside a shadow root the server wrote, plus htmx regions swapping fragments the host renders, one segment of a route at a time |
+
+### Tera
+
+| | What it is | Read it for |
+| --- | --- | --- |
 | [noticeboard_tera](noticeboard_tera/README.md) | A building's noticeboard, every page a Tera template | A template route on the stock host with no Rust project: `page.tera` and `layout.tera` under `routes/`, loaders lowered beside them, a partial included by its path, `fsr serve app` as the whole server |
 | [advanced_tera_app](advanced_tera_app/) | A Rust application rendering Tera templates on the stock host | The framework with no TypeScript at all: routes, loaders and actions bound in Rust, form-encoded actions for a page with no JavaScript, rendering through the `Evaluator` seam |
+
+### Mixed
+
+| | What it is | Read it for |
+| --- | --- | --- |
 | [uni](uni/README.md) | A desk board under a Tera layout | Three interaction models on one page: a React island, a Vue island and an htmx region, one store between the two runtimes, one router replacing a Vue segment with a React one, plus the measured weight of all three |
 
 ## Running one
@@ -30,13 +52,13 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `recipes_vue_ts` and `toolshed_web_ts` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `recipes_vue_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
 
 ```sh
 cd shopping_react_ts && fsr dev app
 ```
 
-`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests, which is every example but the conference, the recipes and the tool shed.
+`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests, which is every example but the conference, the recipes, the tool shed and the noticeboard.
 
 ## Ports
 
