@@ -548,8 +548,11 @@ mod tests {
     }
   }
 
+  static STUBS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
   fn engine() -> Engine {
-    let dom = std::env::temp_dir().join(format!("fsr_engine_stub_{}.mjs", std::process::id()));
+    let n = STUBS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dom = std::env::temp_dir().join(format!("fsr_engine_stub_{}_{n}.mjs", std::process::id()));
     std::fs::write(&dom, "export function parseHTML() { return { document: { body: {} } }; }\nexport class Element {}\nexport class HTMLElement extends Element {}\nexport class Event { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } }\n").unwrap();
     Engine::new(Resolution::default(), &dom, Rc::new(NoHooks), JsCalls::new()).unwrap()
   }
