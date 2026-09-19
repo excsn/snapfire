@@ -395,7 +395,7 @@ impl ComponentSet {
       island_ids(&component.render, &mut islands);
       let placed: Vec<u32> = candidates.island_sites.iter().map(|(id, ..)| *id).collect();
       let mut keyed = Vec::new();
-      mark_keyed(&mut component.render, &placed, &|callee| self.keys.get(callee).copied().unwrap_or(true), &mut keyed);
+      mark_keyed(&mut component.render, &placed, &|callee| self.keys.get(callee).copied().unwrap_or(true), &|callee| !self.pure.get(callee).copied().unwrap_or(false), &mut keyed);
       let rewrite = candidates.rewrite(&kept, &chunks, &islands, &keyed, file, &module, hook);
       self.keys.insert(module.clone(), rewrite.is_some());
       if let Some(rewrite) = rewrite {
@@ -576,8 +576,12 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
 /// Marks each placement in `placed` whose component `keys` as keyed and
 /// collects its id. A placement with no site stays unkeyed, since the
 /// rewrite could not wrap it to match. So does one inside a kept chunk: the
-/// browser takes the chunk's markup whole and a chunk holds no island.
-fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, out: &mut Vec<u32>) {
+/// browser takes the chunk's markup whole and a chunk holds no island. A
+/// placement whose component is `stateful` is keyed on the server's side
+/// alone, which gives each instance inside a server island the address its
+/// state and handlers ride under; nothing hoists below it, so the browser's
+/// path needs no step there.
+fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stateful: &dyn Fn(&str) -> bool, out: &mut Vec<u32>) {
   match tmpl {
     Tmpl::Baked { .. } => {}
     Tmpl::Element { attrs, .. } if attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == hoist::CHUNK_ATTR)) => {}
@@ -585,18 +589,20 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, out:
       if placed.contains(id) && keys(module) {
         *keyed = true;
         out.push(*id);
+      } else if stateful(module) {
+        *keyed = true;
       }
-      children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, out));
+      children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, stateful, out));
     }
-    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, out)),
+    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, stateful, out)),
     Tmpl::If { then, r#else, .. } => {
-      mark_keyed(then, placed, keys, out);
+      mark_keyed(then, placed, keys, stateful, out);
       if let Some(other) = r#else {
-        mark_keyed(other, placed, keys, out);
+        mark_keyed(other, placed, keys, stateful, out);
       }
     }
-    Tmpl::For { body, .. } => mark_keyed(body, placed, keys, out),
-    Tmpl::Let { then, .. } => mark_keyed(then, placed, keys, out),
+    Tmpl::For { body, .. } => mark_keyed(body, placed, keys, stateful, out),
+    Tmpl::Let { then, .. } => mark_keyed(then, placed, keys, stateful, out),
     Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }

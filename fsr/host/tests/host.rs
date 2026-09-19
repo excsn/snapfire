@@ -4161,6 +4161,58 @@ fn a_lowered_island_step_runs_a_handler_branch_both_ways() {
   assert!(opened.html.contains(">3<"), "{}", opened.html);
 }
 
+/// A handler token naming a component inside the island reaches that
+/// component's handler and its state under the address.
+#[test]
+fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
+  use snapfire_fsr_ir::ast::Handler;
+  use snapfire_fsr_ir::{Component, Entry, Expr, IrEvaluator, Lit, Stmt, Tmpl};
+  let bump = |name: &str| Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(name.to_owned(), Expr::Arith(snapfire_fsr_ir::ArithOp::Add, Box::new(Expr::var(name)), Box::new(Expr::Lit(Lit::Int(1)))))]))] };
+  let inner = Component {
+    body: vec![Stmt::Let { name: "x".to_owned(), expr: Expr::var("$props").field("start") }],
+    render: Tmpl::Element { tag: "i".to_owned(), attrs: vec![Entry::Field("$on:click".to_owned(), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("x"))] },
+    state: vec!["x".to_owned()],
+    handlers: vec![bump("x")],
+    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    shadow: None,
+  };
+  let widget = Component {
+    body: vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Int(1)) }],
+    render: Tmpl::Element {
+      tag: "div".to_owned(),
+      attrs: Vec::new(),
+      children: vec![Tmpl::Component { module: "src/Inner.tsx#Inner".to_owned(), props: vec![Entry::Field("start".to_owned(), Expr::var("n"))], children: Vec::new(), id: 1, keyed: true }],
+    },
+    state: vec!["n".to_owned()],
+    handlers: vec![bump("n")],
+    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    shadow: None,
+  };
+  let evaluator = IrEvaluator::new([("src/Widget.tsx#Widget".to_owned(), widget), ("src/Inner.tsx#Inner".to_owned(), inner)]);
+  let step = |body: &str| snapfire_fsr_host::island_step(Some(&evaluator), "src/Widget.tsx#Widget", body.as_bytes(), "en");
+  let stepped = step(r#"{"props":{},"state":{"n":1,"c1/x":1},"handler":"c1/0","event":null}"#).unwrap_or_else(|(status, json)| panic!("{status} {json}"));
+  let number = |value: Option<&Value>| match value {
+    Some(Value::Int(i)) => *i as f64,
+    Some(Value::F64(f)) => *f,
+    other => panic!("{other:?}"),
+  };
+  assert_eq!(number(stepped.state.get("c1/x")), 2.0);
+  assert_eq!(number(stepped.state.get("n")), 1.0);
+  assert!(stepped.html.contains("<i data-sf-on=\"click:c1/0\">2</i>"), "{}", stepped.html);
+  let refused = |body: &str| match step(body) {
+    Err((status, json)) => (status, json),
+    Ok(_) => panic!("stepped"),
+  };
+  let (status, json) = refused(r#"{"props":{},"state":{},"handler":"c9/0","event":null}"#);
+  assert_eq!(status, StatusCode::NOT_FOUND, "{json}");
+  let (status, json) = refused(r#"{"props":{},"state":{},"handler":"c1/x","event":null}"#);
+  assert_eq!(status, StatusCode::BAD_REQUEST, "{json}");
+  let (status, json) = refused(r#"{"props":{},"state":{"y":1},"handler":null,"event":null}"#);
+  assert_eq!(status, StatusCode::BAD_REQUEST, "a bare key the island lacks is still refused: {json}");
+  let carried = step(r#"{"props":{},"state":{"c1/x":5},"handler":null,"event":null}"#).unwrap_or_else(|(status, json)| panic!("{status} {json}"));
+  assert_eq!(number(carried.state.get("c1/x")), 5.0, "an addressed key passes the check and the render reads it");
+}
+
 const BLOG_PLAN: &str = r#"{
   "version": 2,
   "routes": [

@@ -37,6 +37,7 @@ use http_body_util::{BodyExt, StreamBody};
 use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
 use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap};
+use snapfire_fsr_ir::HandlerRef;
 use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner, renumber};
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
@@ -3491,7 +3492,7 @@ pub fn island_step(
       ));
     }
   };
-  if let Some(unknown) = state.keys().find(|k| !component.state.contains(k)) {
+  if let Some(unknown) = state.keys().find(|k| !k.contains('/') && !component.state.contains(k)) {
     return Err((
       StatusCode::BAD_REQUEST,
       serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }),
@@ -3499,19 +3500,20 @@ pub fn island_step(
   }
   let handler = match &posted.handler {
     Value::Null => None,
-    Value::Int(i) if *i >= 0 => Some(*i as usize),
-    Value::F64(f) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
+    Value::Int(i) if *i >= 0 => Some(HandlerRef::own(*i as usize)),
+    Value::F64(f) if *f >= 0.0 && f.fract() == 0.0 => Some(HandlerRef::own(*f as usize)),
+    Value::Str(token) if HandlerRef::parse(token.as_str()).is_some() => HandlerRef::parse(token.as_str()),
     _ => {
       return Err((
         StatusCode::BAD_REQUEST,
-        serde_json::json!({ "kind": "invalid", "message": "a lowered component's handler is an index" }),
+        serde_json::json!({ "kind": "invalid", "message": "a lowered component's handler is an index or `<path>/<index>` for a component inside it" }),
       ));
     }
   };
-  if handler.is_some_and(|h| h >= component.handlers.len()) {
+  if let Some(own) = handler.as_ref().filter(|h| h.path.is_empty() && h.index >= component.handlers.len()) {
     return Err((
       StatusCode::NOT_FOUND,
-      serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", handler.unwrap_or(0)) }),
+      serde_json::json!({ "kind": "not_found", "message": format!("`{module}` has no handler {}", own.index) }),
     ));
   }
   match evaluator

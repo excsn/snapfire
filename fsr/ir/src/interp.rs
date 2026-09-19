@@ -120,6 +120,7 @@ impl Interpreter {
       store: ValueMap::default(),
       hoists: None,
       state: None,
+      probe: None,
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
@@ -197,8 +198,11 @@ pub(crate) struct Env {
   /// Where a render records hoisted values; `None` in a body, which hoists nothing.
   pub(crate) hoists: Option<Hoists>,
   /// Values that stand in for a component's state `let`s, when an island in
-  /// server mode renders after a handler ran.
+  /// server mode renders after a handler ran: the island's own by name, a
+  /// component rendered inside it by `<path>/<name>`.
   pub(crate) state: Option<ValueMap>,
+  /// A step's search for the component a handler token addresses.
+  pub(crate) probe: Option<Probe>,
   /// Rendering an island in server mode: handler markers print as attributes
   /// the browser binds, which a browser-mode render must never show React.
   pub(crate) server_mode: bool,
@@ -230,6 +234,14 @@ pub enum Step {
 /// the path enclosing it, `module|id@i.j` with `c<id>` for a keyed placement.
 /// A key recorded twice with different values is dead: the browser computes
 /// it instead.
+/// The path a handler token names and, once a render reached the component
+/// there, its module and the props it was given.
+#[derive(Debug)]
+pub(crate) struct Probe {
+  pub(crate) path: String,
+  pub(crate) found: Option<(String, ValueMap)>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Hoists {
   pub module: String,
@@ -265,21 +277,35 @@ impl Hoists {
     key.push_str(id);
     if !self.path.is_empty() {
       key.push('@');
-      for (i, step) in self.path.iter().enumerate() {
-        if i > 0 {
-          key.push('.');
-        }
-        let mut digits = itoa::Buffer::new();
-        match step {
-          Step::Iteration(index) => key.push_str(digits.format(*index)),
-          Step::Placement(id) => {
-            key.push('c');
-            key.push_str(digits.format(*id));
-          }
+      self.write_path(&mut key);
+    }
+    key
+  }
+
+  /// The path alone, which addresses a component rendered inside an island
+  /// in server mode: the steps joined by `.`, `c<id>` for a keyed placement,
+  /// empty at the island's own component. Its state rides in the island's
+  /// map as `<path>/<name>` and its handlers bind as `<path>/<index>`.
+  pub fn path_key(&self) -> String {
+    let mut key = String::with_capacity(self.path.len() * 3);
+    self.write_path(&mut key);
+    key
+  }
+
+  fn write_path(&self, key: &mut String) {
+    for (i, step) in self.path.iter().enumerate() {
+      if i > 0 {
+        key.push('.');
+      }
+      let mut digits = itoa::Buffer::new();
+      match step {
+        Step::Iteration(index) => key.push_str(digits.format(*index)),
+        Step::Placement(id) => {
+          key.push('c');
+          key.push_str(digits.format(*id));
         }
       }
     }
-    key
   }
 
   pub fn record(&mut self, id: u32, value: Value) {
@@ -318,6 +344,7 @@ impl Env {
       consts: interpreter.consts.clone(),
       hoists: None,
       state: None,
+      probe: None,
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
@@ -440,6 +467,7 @@ impl Env {
       consts: self.consts.clone(),
       hoists: None,
       state: None,
+      probe: None,
       server_mode: false,
       acts: Vec::new(),
       calls: self.calls,

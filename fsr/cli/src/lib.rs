@@ -820,14 +820,37 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         );
         return Err(BuildError::ServerIsland { module: placed.clone(), reason });
       }
-      if let Some(nested) = nested_components(&inner.render).into_iter().find(|m| !set.pure.get(m).copied().unwrap_or(false)) {
-        return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but `{nested}` inside it has state or handlers of its own, which only the island's own component may hold") });
+      let mut nested = nested_components(&inner.render);
+      let mut i = 0;
+      while i < nested.len() {
+        if let Some((_, component)) = set.components.iter().find(|(m, _)| *m == nested[i]) {
+          for below in nested_components(&component.render) {
+            if !nested.contains(&below) {
+              nested.push(below);
+            }
+          }
+        }
+        i += 1;
+      }
+      let mut handlers = inner.handlers.len();
+      for within in &nested {
+        let Some((_, component)) = set.components.iter().find(|(m, _)| m == within) else { continue };
+        if let Some(reason) = unlowered_handler(&component.render) {
+          return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but a handler of `{within}` inside it did not lower: {reason}") });
+        }
+        if let Some((name, index)) = captured_by_handler(component) {
+          let reason = format!(
+            "{module} places it there, but handler {index} of `{within}` inside it reads `{name}`, which the markup around it bound: a handler runs with the props, the state and the event, so put the value on the element and read it from `e.target`"
+          );
+          return Err(BuildError::ServerIsland { module: placed.clone(), reason });
+        }
+        handlers += component.handlers.len();
       }
       if let Some(slot) = first_slot(&inner.render) {
         let what = if slot == "content" { "`children`".to_owned() } else { format!("the slot `{slot}`") };
         return Err(BuildError::ServerIsland { module: placed.clone(), reason: format!("{module} places it there, but it renders {what}, which a step would drop: a server island's markup is its own component's and nothing else fills a part of it") });
       }
-      let row = (format!("{}{placed}", options.prefix()), inner.handlers.len());
+      let row = (format!("{}{placed}", options.prefix()), handlers);
       if !report.islands.contains(&row) {
         report.islands.push(row);
       }

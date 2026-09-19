@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { ContactHours } from "@src/ui/ContactHours";
+
 export function OrderHelp({ orderId }: { orderId: bigint | number }) {
   const [open, setOpen] = useState(false);
   const [asked, setAsked] = useState(0);
@@ -21,7 +23,7 @@ export function OrderHelp({ orderId }: { orderId: bigint | number }) {
           <li>
             <a href="mailto:help@snapfire.shop">help@snapfire.shop</a>
           </li>
-          <li>Chat, weekdays 9 to 5</li>
+          <ContactHours />
         </ul>
       ) : null}
       {asked > 1 ? <p className="asked-often">Opened {asked} times. Chat is the fastest way to reach us.</p> : null}

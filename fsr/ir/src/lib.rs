@@ -18,4 +18,4 @@ pub use bind::{rendered_nodes, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource,
 pub use catalog::Catalogs;
 pub use ext::{standard_reach, Ambient, Extension, Extensions, Reach, STANDARD};
 pub use interp::{Clock, Fail, Interpreter, Outcome};
-pub use render::{Frameworks, ReactMajor};
+pub use render::{Frameworks, HandlerRef, ReactMajor};

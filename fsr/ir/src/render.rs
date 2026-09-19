@@ -12,8 +12,10 @@ use std::sync::Arc;
 
 use snapfire_fsr_core::{Value, ValueMap};
 
+use snapfire_fsr_runtime::FailureKind;
+
 use crate::ast::{Component, Entry, ShadowMode, ShadowRoot, Stmt, Tmpl};
-use crate::interp::{Env, Fail, Hoists, Interpreter, Step, stringify, truthy};
+use crate::interp::{Env, Fail, Hoists, Interpreter, Probe, Step, stringify, truthy};
 
 mod markup;
 mod react;
@@ -154,6 +156,45 @@ pub struct Stepped {
   pub acts: Vec<(String, Value)>,
 }
 
+/// The handler a step runs: an index into the handlers of the component at
+/// `path`, which is empty for the island's own component and otherwise the
+/// address a nested component's markers carry, `c1` or `0.c2`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandlerRef {
+  pub path: String,
+  pub index: usize,
+}
+
+impl HandlerRef {
+  pub fn own(index: usize) -> Self {
+    Self { path: String::new(), index }
+  }
+
+  /// A token as an element binds it: `2` for the island's own handler,
+  /// `c1/2` for one of a component inside it. `None` for anything else.
+  pub fn parse(token: &str) -> Option<Self> {
+    let (path, index) = token.rsplit_once('/').unwrap_or(("", token));
+    if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+      return None;
+    }
+    Some(Self { path: path.to_owned(), index: index.parse().ok()? })
+  }
+}
+
+/// The key a component's state binding takes in an island's state map: the
+/// name at the island's own component, `<path>/<name>` inside it.
+fn state_key(path: &str, name: &str) -> String {
+  if path.is_empty() {
+    name.to_owned()
+  } else {
+    let mut key = String::with_capacity(path.len() + name.len() + 1);
+    key.push_str(path);
+    key.push('/');
+    key.push_str(name);
+    key
+  }
+}
+
 /// The start of an island's place in the markup: `ISLAND_MARK`, the island's
 /// index in decimal, then a NUL.
 pub const ISLAND_MARK: &str = "\u{0}sf-island:";
@@ -245,42 +286,68 @@ impl Interpreter {
   /// `state` standing in for its state bindings, `handler` runs with
   /// `$props`, `$state` and `$event` bound and the object it returns is
   /// merged into the state, then the component renders from that state with
-  /// handler markers printed. `None` for `handler` renders without a step.
-  pub fn island_step(&self, module: &str, component: &Component, props: &ValueMap, state: &ValueMap, handler: Option<usize>, event: &Value, library: &Components) -> Result<Stepped, Fail> {
+  /// handler markers printed. `None` for `handler` renders without a step. A
+  /// handler of a component rendered inside the island is found by rendering
+  /// once to the path its token names, which gives the component there the
+  /// props the island's render gave it; its state is the map's entries under
+  /// that path. The answered state is what the render consumed, so a
+  /// component the render no longer places leaves no state behind.
+  pub fn island_step(&self, module: &str, component: &Component, props: &ValueMap, state: &ValueMap, handler: Option<HandlerRef>, event: &Value, library: &Components) -> Result<Stepped, Fail> {
     let mut env = self.env_for(module, props);
     env.server_mode = true;
     let mut state = state.clone();
-    if let Some(index) = handler {
-      let handler = component.handlers.get(index).ok_or_else(|| Fail::internal(format!("`{module}` has no handler {index}")))?;
+    if let Some(handler) = handler {
+      let (target, own_props, path): (&Component, Option<ValueMap>, String) = if handler.path.is_empty() {
+        (component, None, String::new())
+      } else {
+        env.state = Some(state.clone());
+        env.probe = Some(Probe { path: handler.path.clone(), found: None });
+        let mut scratch = Out::default();
+        let mut slots = Vec::new();
+        render_component(&mut env, component, library, &mut slots, &mut scratch)?;
+        env.hoists = Some(Hoists::new(module));
+        let Some((found, found_props)) = env.probe.take().and_then(|p| p.found) else {
+          return Err(Fail::new(FailureKind::NotFound, format!("`{module}` renders nothing at `{}`", handler.path)));
+        };
+        let target = library.get(&found).ok_or_else(|| Fail::internal(format!("`{found}` is not a lowered component")))?;
+        (target.as_ref(), Some(found_props), handler.path.clone())
+      };
+      let Some(body) = target.handlers.get(handler.index) else {
+        return Err(Fail::new(FailureKind::NotFound, format!("`{module}` has no handler {} at `{}`", handler.index, handler.path)));
+      };
       env.state = Some(state.clone());
       let depth = env.scope.len();
-      for stmt in &component.body {
+      if let Some(own) = own_props {
+        env.scope.push(("$props".to_owned(), Value::Map(own)));
+      }
+      for stmt in &target.body {
         let Stmt::Let { name, expr } = stmt else { continue };
-        let value = match env.state.as_ref().and_then(|s| s.get(name)) {
+        let value = match state.get(&state_key(&path, name)) {
           Some(held) => held.clone(),
           None => env.eval_sync(expr)?,
         };
         env.scope.push((name.clone(), value));
       }
-      env.scope.push(("$state".to_owned(), Value::Map(state.clone())));
+      let own_state = if path.is_empty() { state.clone() } else { target.state.iter().filter_map(|name| state.get(&state_key(&path, name)).map(|value| (name.clone(), value.clone()))).collect() };
+      env.scope.push(("$state".to_owned(), Value::Map(own_state)));
       env.scope.push(("$event".to_owned(), event.clone()));
-      let patch = eval_body_sync(&mut env, &handler.body)?;
+      let patch = eval_body_sync(&mut env, &body.body)?;
       env.scope.truncate(depth);
       if let Value::Map(patch) = patch {
         for (name, value) in patch {
-          if component.state.contains(&name) {
-            state.insert(name, value);
+          if target.state.contains(&name) {
+            state.insert(state_key(&path, &name), value);
           }
         }
       }
     }
-    env.state = Some(state.clone());
+    env.state = Some(state);
     let mut out = Out::default();
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
-    Ok(Stepped { state, rendered: Rendered { html: out.html, islands: out.islands, hoisted }, acts })
+    Ok(Stepped { state: out.state, rendered: Rendered { html: out.html, islands: out.islands, hoisted }, acts })
   }
 }
 
@@ -363,17 +430,28 @@ fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Co
   let depth = env.scope.len();
   let caller = env.markup;
   env.markup = Markup::of(component.hydrated_by, env.frameworks, caller);
-  let overrides = env.state.take();
+  let path = env.hoists.as_ref().map(|h| h.path_key()).unwrap_or_default();
+  if env.probe.as_ref().is_some_and(|probe| probe.found.is_none() && probe.path == path) {
+    let module = env.hoists.as_ref().map(|h| h.module.clone()).unwrap_or_default();
+    let props = env.scope.iter().rev().find(|(name, _)| name == "$props").and_then(|(_, value)| match value {
+      Value::Map(map) => Some(map.clone()),
+      _ => None,
+    });
+    if let Some(probe) = &mut env.probe {
+      probe.found = Some((module, props.unwrap_or_default()));
+    }
+  }
   for stmt in &component.body {
     let Stmt::Let { name, expr } = stmt else {
       return Err(Fail::internal("a component body is `let`s only"));
     };
-    let value = match overrides.as_ref().and_then(|s| s.get(name)) {
-      Some(held) => held.clone(),
+    let held = if component.state.contains(name) { env.state.as_ref().and_then(|s| s.get(&state_key(&path, name))).cloned() } else { None };
+    let value = match held {
+      Some(held) => held,
       None => env.eval_sync(expr)?,
     };
     if component.state.contains(name) {
-      out.state.insert(name.clone(), value.clone());
+      out.state.insert(state_key(&path, name), value.clone());
     }
     env.scope.push((name.clone(), value));
   }
@@ -530,7 +608,8 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
     }
     if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
       if env.server_mode {
-        bound.push(format!("{event}:{}", stringify(&value)?));
+        let path = env.hoists.as_ref().map(|h| h.path_key()).unwrap_or_default();
+        bound.push(if path.is_empty() { format!("{event}:{}", stringify(&value)?) } else { format!("{event}:{path}/{}", stringify(&value)?) });
       }
       continue;
     }
@@ -732,7 +811,9 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
   let mut inner = Out::default();
   let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
+  let outer_state = env.state.take();
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
+  env.state = outer_state;
   env.server_mode = outer_mode;
   let hoisted = std::mem::replace(&mut env.hoists, outer_hoists).map(|h| h.table).unwrap_or_default();
   slots.pop();
@@ -1585,15 +1666,15 @@ mod server_tests {
     let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::Int(7));
     let state = ValueMap::from_iter([("open".to_owned(), Value::Bool(false))]);
-    let stepped = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(0), &Value::Null, &library).unwrap();
+    let stepped = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
     assert_eq!(stepped.state, ValueMap::from_iter([("open".to_owned(), Value::Bool(true))]));
     assert_eq!(stepped.rendered.html, "<section>order 7<button data-sf-key=\"toggle\" data-sf-on=\"click:0\">Hide</button><ul>mail</ul></section>");
-    let again = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &stepped.state, Some(0), &Value::Null, &library).unwrap();
+    let again = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &stepped.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
     assert_eq!(again.state["open"], Value::Bool(false));
     let as_is = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &stepped.state, None, &Value::Null, &library).unwrap();
     assert_eq!(as_is.state, stepped.state, "no handler renders from the state given");
     assert!(as_is.rendered.html.contains("<ul>mail</ul>"));
-    let missing = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(3), &Value::Null, &library).unwrap_err();
+    let missing = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(HandlerRef::own(3)), &Value::Null, &library).unwrap_err();
     assert!(missing.message.contains("no handler 3"), "{}", missing.message);
     assert!(stepped.acts.is_empty() && as_is.acts.is_empty());
   }
@@ -1612,7 +1693,7 @@ mod server_tests {
     let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::Int(7));
     let state = ValueMap::from_iter([("open".to_owned(), Value::Bool(false))]);
-    let stepped = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(1), &Value::Null, &library).unwrap();
+    let stepped = Interpreter::default().island_step("src/ui/Help.tsx#Help", &component, &props, &state, Some(HandlerRef::own(1)), &Value::Null, &library).unwrap();
     let input = ValueMap::from_iter([("id".to_owned(), Value::Int(7)), ("open".to_owned(), Value::Bool(false))]);
     assert_eq!(stepped.acts, vec![("desk.save".to_owned(), Value::Map(input))], "the input reads the props and the state as they were when the handler ran");
     assert_eq!(stepped.state["open"], Value::Bool(true), "and the patch still applies");
@@ -1921,5 +2002,61 @@ mod markup_tests {
       let page = element("x-box", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-box.tsx#default"))], Vec::new());
       assert_eq!(render_under(None, BY_REACT, page, &ValueMap::default(), &library).unwrap(), format!("<x-box>{open}in</template></x-box>"));
     }
+  }
+
+  /// A component rendered inside the island keeps state of its own under its
+  /// address: `<path>/<name>` in the map, `<path>/<index>` on its markers,
+  /// one instance per keyed placement and per iteration.
+  #[test]
+  fn a_component_inside_the_island_keeps_state_under_its_address() {
+    use crate::ast::Handler;
+    let bump = |name: &str| Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(name.to_owned(), Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var(name)), Box::new(Expr::Lit(Lit::Int(1)))))]))] };
+    let inner = Component {
+      body: vec![Stmt::Let { name: "x".to_owned(), expr: Expr::var("$props").field("start") }],
+      render: Tmpl::Element { tag: "i".to_owned(), attrs: vec![Entry::Field(format!("{HANDLER_ATTR}click"), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("x"))] },
+      state: vec!["x".to_owned()],
+      handlers: vec![bump("x")],
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
+    };
+    let place = |id: u32, start: Expr| Tmpl::Component { module: "src/Inner.tsx#Inner".to_owned(), props: vec![Entry::Field("start".to_owned(), start)], children: Vec::new(), id, keyed: true };
+    let widget = Component {
+      body: vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Int(1)) }],
+      render: Tmpl::Element {
+        tag: "div".to_owned(),
+        attrs: Vec::new(),
+        children: vec![
+          Tmpl::Element { tag: "button".to_owned(), attrs: vec![Entry::Field(format!("{HANDLER_ATTR}click"), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("n"))] },
+          place(1, Expr::var("n")),
+          Tmpl::For { over: Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Int(10))), Entry::Item(Expr::Lit(Lit::Int(20)))]), params: vec!["s".to_owned()], body: Box::new(place(2, Expr::var("s"))) },
+        ],
+      },
+      state: vec!["n".to_owned()],
+      handlers: vec![bump("n")],
+      hydrated_by: Some(crate::ast::HydratedBy::React),
+      shadow: None,
+    };
+    let mut library = Components::new();
+    library.insert("src/Inner.tsx#Inner".to_owned(), Arc::new(inner));
+    let props = ValueMap::default();
+    let step = |state: &ValueMap, handler: Option<HandlerRef>| Interpreter::default().island_step("src/Widget.tsx#Widget", &widget, &props, state, handler, &Value::Null, &library);
+    let spell = |state: &ValueMap| state.iter().map(|(k, v)| format!("{k}={}", stringify(v).unwrap())).collect::<Vec<_>>().join(" ");
+
+    let first = step(&ValueMap::default(), None).unwrap();
+    assert_eq!(first.rendered.html, "<div><button data-sf-on=\"click:0\">1</button><i data-sf-on=\"click:c1/0\">1</i><i data-sf-on=\"click:0.c2/0\">10</i><i data-sf-on=\"click:1.c2/0\">20</i></div>");
+    assert_eq!(spell(&first.state), "n=1 c1/x=1 0.c2/x=10 1.c2/x=20", "every instance's state is in the map under its address");
+
+    let second = step(&first.state, HandlerRef::parse("1.c2/0")).unwrap();
+    assert_eq!(spell(&second.state), "n=1 c1/x=1 0.c2/x=10 1.c2/x=21", "the addressed instance stepped and nothing else moved");
+    assert!(second.rendered.html.contains("<i data-sf-on=\"click:1.c2/0\">21</i>"), "{}", second.rendered.html);
+
+    let third = step(&second.state, Some(HandlerRef::own(0))).unwrap();
+    assert_eq!(spell(&third.state), "n=2 c1/x=1 0.c2/x=10 1.c2/x=21", "the island's own step keeps the nested state the browser carried, whatever the props now say");
+
+    let missing = step(&third.state, HandlerRef::parse("c9/0")).unwrap_err();
+    assert_eq!(missing.kind, FailureKind::NotFound, "{}", missing.message);
+    let none = step(&third.state, HandlerRef::parse("c1/4")).unwrap_err();
+    assert_eq!(none.kind, FailureKind::NotFound, "{}", none.message);
+    assert!(HandlerRef::parse("c1/").is_none() && HandlerRef::parse("x").is_none() && HandlerRef::parse("2") == Some(HandlerRef::own(2)));
   }
 }

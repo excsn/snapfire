@@ -787,12 +787,22 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
     ("src/Widget.tsx", "import { useState } from \"react\";\nimport { Inner } from \"./Inner\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(n + 1)}>{n}</button><Inner /></div>;\n}\n"),
     ("src/Inner.tsx", "import { useState } from \"react\";\nexport function Inner() {\n  const [x, setX] = useState(0);\n  return <i onClick={() => setX(x + 1)}>{x}</i>;\n}\n"),
   ]);
-  let err = match build(&nested, &Options::default()) {
+  let built = build(&nested, &Options::default()).unwrap();
+  assert_eq!(built.report.islands, vec![("src/Widget.tsx#Widget".to_owned(), 2)], "a component inside the island holds state and handlers of its own, counted with the island's: {}", built.report);
+  std::fs::remove_dir_all(&nested).unwrap();
+
+  let nested_unlowered = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nimport { Inner } from \"./Inner\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(n + 1)}>{n}</button><Inner /></div>;\n}\n"),
+    ("src/Inner.tsx", "import { useState } from \"react\";\nexport function Inner() {\n  const [x, setX] = useState(0);\n  return <i onClick={() => alert(x)}>{x}</i>;\n}\n"),
+  ]);
+  let err = match build(&nested_unlowered, &Options::default()) {
     Err(e) => e.to_string(),
     Ok(_) => panic!("built"),
   };
-  assert!(err.contains("`src/Inner.tsx#Inner` inside it has state or handlers of its own"), "{err}");
-  std::fs::remove_dir_all(&nested).unwrap();
+  assert!(err.contains("a handler of `src/Inner.tsx#Inner` inside it did not lower") && err.contains("`alert`"), "{err}");
+  std::fs::remove_dir_all(&nested_unlowered).unwrap();
 
   let fine = app(&[
     ("routes/layout.tsx", LAYOUT),

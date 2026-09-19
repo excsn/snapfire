@@ -254,7 +254,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * Action id: `<source id>.<export>` for each export `lower_actions` returns.
 * Layout id: `layout` for `routes/layout.tsx`, `<segments joined with .>.layout` deeper, parameters marked the same way; it names the layout's loader as a source.
 * Two rows deriving one id stop the build with `ClaimedId`, naming the kind, the id and both files. Route, source, action, handler and props-type names are each checked. The marker keeps ids apart but `props_name` drops it, so `routes/a/x` beside `routes/a/[x]` builds two distinct ids and one type name and is refused on that.
-* A component placed as an island in server mode stops the build with `ServerIsland { module, reason }` in two cases: a handler that did not lower, naming the placing module, the line and why; or a component it renders that has state or handlers of its own, naming that component.
+* A component placed as an island in server mode stops the build with `ServerIsland { module, reason }` in two cases: a handler that did not lower, in the island's component or in one it renders, naming the placing module, the component, the line and why; or a handler that reads a name the markup around it bound. The components the island renders are walked to any depth and their handlers count in the report's row.
 * Handler id: `<route id>.<METHOD>` for each export of `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; the row also carries the method and the pattern. An `action<T>` export names `T` as its input, which must be a schema type or the build fails with `UnknownHandlerInput`.
 
 ### Modules

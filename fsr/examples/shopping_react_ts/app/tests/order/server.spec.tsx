@@ -34,3 +34,21 @@ test("a branch in the handler runs on the host: the count moves only on the clic
   expect(document.querySelector(".asked-often")?.textContent).toEqual("Opened 2 times. Chat is the fastest way to reach us.");
   expect(screen.getByText("help@snapfire.shop"), "the set after the branch still ran").toBeTruthy();
 });
+
+test("a component inside the island keeps state of its own, addressed under the island's", async () => {
+  await load("/order/5001", { ctx: ctx({ services: { shopping: { getOrder: () => order, listProducts: () => [] } } }) });
+  const island = document.querySelector('sf-i[data-sf-module="src/ui/OrderHelp.tsx#OrderHelp"]')!;
+  const own = () => island.querySelector('button[data-sf-on="click:0"]') as HTMLButtonElement;
+  const hours = () => island.querySelector(".contact-hours")!;
+  await fireEvent.click(own());
+  expect(hours().textContent).toContain("Weekdays 9 to 5");
+  const toggle = hours().querySelector("button[data-sf-on]")!;
+  expect(toggle.getAttribute("data-sf-on")?.startsWith("click:c"), `the nested handler binds under its address: ${toggle.getAttribute("data-sf-on")}`).toBeTruthy();
+  await fireEvent.click(toggle);
+  expect(hours().textContent).toContain("Saturday 10 to 2");
+  expect(screen.getByText("help@snapfire.shop"), "the island's own state stayed open").toBeTruthy();
+  await fireEvent.click(own());
+  expect(document.querySelector(".contact-hours")).toBeNull();
+  await fireEvent.click(own());
+  expect(hours().textContent, "a component the render stopped placing starts afresh when it returns").toContain("Weekdays 9 to 5");
+});
