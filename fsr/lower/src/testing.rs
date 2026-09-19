@@ -26,6 +26,8 @@ pub enum Target {
   Meta { file: String },
   /// The `store` of a loader module, run over the data the same way.
   Store { file: String },
+  /// The `paths` of a page loader, run over the ctx bound above the call.
+  Paths { file: String },
   Action { file: String, export: String },
   Handler { file: String, export: String },
   Middleware { file: String },
@@ -329,10 +331,11 @@ fn imports_of(file: &str, parsed: &Parsed) -> Result<(Vec<(String, Target)>, Vec
         ("page.loader" | "layout.loader", "load") => Target::Loader { file: target_file },
         ("page.loader" | "layout.loader", "meta") => Target::Meta { file: target_file },
         ("page.loader" | "layout.loader", "store") => Target::Store { file: target_file },
+        ("page.loader", "paths") => Target::Paths { file: target_file },
         ("actions", export) => Target::Action { file: target_file, export: export.to_owned() },
         ("route", method) if crate::HANDLER_METHODS.contains(&method) => Target::Handler { file: target_file, export: method.to_owned() },
         ("middleware", "middleware") => Target::Middleware { file: target_file },
-        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load`, `meta` or `store` from a `page.loader` or a `layout.loader`, an action from its `actions` or a method from its `route`")).into()),
+        _ => return Err(parsed.residue(named.span, format!("`{imported}` from `{source}`; a test imports `load`, `meta` or `store` from a `page.loader` or a `layout.loader`, `paths` from a `page.loader`, an action from its `actions` or a method from its `route`")).into()),
       };
       imports.push((local, target));
     }
@@ -850,6 +853,12 @@ impl<'a> TestLowerer<'a> {
       let data = self.data_arg(call, export)?;
       let ctx = self.mocks.last().cloned().ok_or_else(|| self.lowerer.residue(call.span, format!("a `{export}(...)` runs against the `ctx(...)` bound above it; this test binds none")))?;
       return Ok(Some((target.clone(), ctx, Some(data))));
+    }
+    if let Target::Paths { .. } = target {
+      if call.args.is_empty() {
+        let ctx = self.mocks.last().cloned().ok_or_else(|| self.lowerer.residue(call.span, "a `paths()` runs against the `ctx(...)` bound above it; this test binds none"))?;
+        return Ok(Some((target.clone(), ctx, None)));
+      }
     }
     let ctx = self.ctx_arg(call)?;
     Ok(Some((target.clone(), ctx, None)))

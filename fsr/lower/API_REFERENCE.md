@@ -222,7 +222,7 @@ A service method that names a mock function or a `let` is in `mock_fns` as `(ser
 
 ### Target
 
-* `pub enum Target { Loader { file }, Meta { file }, Store { file }, Action { file, export }, Handler { file, export }, Middleware { file } }`
+* `pub enum Target { Loader { file }, Meta { file }, Store { file }, Paths { file }, Action { file, export }, Handler { file, export }, Middleware { file } }`; `Paths` comes from `paths` imported from a `page.loader` and a `paths()` call with no argument runs against the ctx bound above it.
 
 What a run names: a loader module, its `meta` or its `store`, an action export, a route handler's method or the middleware, each path relative to the app.
 

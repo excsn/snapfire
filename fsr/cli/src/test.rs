@@ -13,9 +13,10 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
+use snapfire_fsr_ir::ast::Consts;
 use snapfire_fsr_ir::{Body, Expr, Fail, Interpreter};
 use snapfire_fsr_lower::testing::{lower_tests, Answer, Assertion, Binding, Matcher, Mock, Mode, Pattern, Step, Subject, Target, TestCase, TestFile, EXPECT_MARK};
-use snapfire_fsr_lower::{LowerError, SessionDefaults, lower_actions_with, lower_handlers_with, lower_loader_with, lower_meta_with, lower_middleware_with, lower_store_with};
+use snapfire_fsr_plan::Manifest;
 use snapfire_fsr_runtime::{FailureKind, Identity, RequestCtx, ServiceError, SessionCell};
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
@@ -92,7 +93,13 @@ pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summar
     let rel = path.strip_prefix(app).unwrap_or(&path).to_string_lossy().replace('\\', "/");
     let source = std::fs::read_to_string(&path).map_err(|e| BuildError::Io(path.clone(), e))?;
     let file = lower_tests(&rel, &source)?;
-    let mut targets = Targets { app: app.to_path_buf(), defaults: built.defaults.clone(), loaders: HashMap::new(), actions: HashMap::new() };
+    let mut targets = Targets {
+      manifest: Arc::new(built.manifest.clone()),
+      prefix: options.site.as_ref().map(|site| site.prefix()).unwrap_or_default(),
+      consts: Some(Arc::new(built.manifest.consts.clone())),
+      loaders: HashMap::new(),
+      actions: HashMap::new(),
+    };
     let mut entered: Vec<Entered<'_>> = Vec::new();
     let chosen = |name: &str| !filter.is_some_and(|f| !name.contains(f) && !rel.contains(f));
     for case in &file.tests {
@@ -106,7 +113,7 @@ pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summar
         }
         Mode::Run => {}
       }
-      let expansions = match runtime.block_on(expansions(&file, case, &contract)) {
+      let expansions = match runtime.block_on(expansions(&file, case, &contract, &targets.consts)) {
         Ok(expansions) => expansions,
         Err(failure) => {
           if chosen(&written) {
@@ -148,41 +155,52 @@ fn discover(app: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildE
   Ok(())
 }
 
-/// The bodies a file's tests run, lowered once each.
+/// The bodies a file's tests run: the ones the build lowered, so an import the
+/// build follows is followed here too. A site's manifest carries its prefix on
+/// every module, which the lookup strips.
 struct Targets {
-  app: PathBuf,
-  defaults: SessionDefaults,
+  manifest: Arc<Manifest>,
+  prefix: String,
+  consts: Option<Arc<Consts>>,
   loaders: HashMap<String, Arc<Body>>,
   actions: HashMap<String, Arc<Body>>,
 }
 
 impl Targets {
+  fn module_is(&self, module: Option<&str>, file: &str) -> bool {
+    module.map(|m| m.strip_prefix(&self.prefix).unwrap_or(m)) == Some(file)
+  }
+
+  fn source(&self, file: &str) -> Result<&snapfire_fsr_plan::SourceEntry, String> {
+    self.manifest.sources.iter().find(|s| self.module_is(s.module.as_deref(), file)).ok_or_else(|| format!("{file}: not a loader the build lowered"))
+  }
+
   fn body(&mut self, target: &Target) -> Result<Arc<Body>, String> {
     match target {
       Target::Loader { file } => {
         if let Some(body) = self.loaders.get(file) {
           return Ok(body.clone());
         }
-        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        let body = Arc::new(lower_loader_with(file, &source, &self.defaults).map_err(|e| e.to_string())?);
+        let body = Arc::new(self.source(file)?.body.clone().ok_or_else(|| format!("{file}: the build did not lower `load`"))?);
         self.loaders.insert(file.clone(), body.clone());
         Ok(body)
       }
-      Target::Meta { file } | Target::Store { file } => {
+      Target::Meta { file } | Target::Store { file } | Target::Paths { file } => {
         let export = match target {
           Target::Store { .. } => "store",
+          Target::Paths { .. } => "paths",
           _ => "meta",
         };
         let key = format!("{file}#{export}");
         if let Some(body) = self.loaders.get(&key) {
           return Ok(body.clone());
         }
-        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
+        let source = self.source(file)?;
         let lowered = match export {
-          "store" => lower_store_with(file, &source, &self.defaults),
-          _ => lower_meta_with(file, &source, &self.defaults),
-        }
-        .map_err(|e| e.to_string())?;
+          "store" => source.store.clone(),
+          "paths" => source.paths.clone(),
+          _ => source.meta.clone(),
+        };
         let body = Arc::new(lowered.ok_or_else(|| format!("{file} exports no `{export}`"))?);
         self.loaders.insert(key, body.clone());
         Ok(body)
@@ -191,8 +209,7 @@ impl Targets {
         if let Some(body) = self.loaders.get(file) {
           return Ok(body.clone());
         }
-        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        let body = Arc::new(lower_middleware_with(file, &source, &self.defaults).map_err(|e| e.to_string())?);
+        let body = Arc::new(self.manifest.middleware.clone().ok_or_else(|| format!("{file}: the build did not lower `middleware`"))?);
         self.loaders.insert(file.clone(), body.clone());
         Ok(body)
       }
@@ -201,24 +218,20 @@ impl Targets {
         if let Some(body) = self.actions.get(&key) {
           return Ok(body.clone());
         }
-        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        let lowered = lower_handlers_with(file, &source, &self.defaults).map_err(|e| e.to_string())?;
-        for handler in lowered {
-          self.actions.insert(format!("{file}#{}", handler.method), Arc::new(handler.body));
-        }
-        self.actions.get(&key).cloned().ok_or_else(|| LowerError::MissingExport { file: file.clone(), export: export.clone() }.to_string())
+        let found = self.manifest.handlers.iter().find(|h| self.module_is(h.module.as_deref(), file) && h.method.eq_ignore_ascii_case(export));
+        let body = Arc::new(found.and_then(|h| h.body.clone()).ok_or_else(|| format!("{file} exports no `{export}` the build lowered"))?);
+        self.actions.insert(key, body.clone());
+        Ok(body)
       }
       Target::Action { file, export } => {
         let key = format!("{file}#{export}");
         if let Some(body) = self.actions.get(&key) {
           return Ok(body.clone());
         }
-        let source = std::fs::read_to_string(self.app.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        let lowered = lower_actions_with(file, &source, &self.defaults).map_err(|e| e.to_string())?;
-        for action in lowered {
-          self.actions.insert(format!("{file}#{}", action.export), Arc::new(action.body));
-        }
-        self.actions.get(&key).cloned().ok_or_else(|| LowerError::MissingExport { file: file.clone(), export: export.clone() }.to_string())
+        let found = self.manifest.actions.iter().find(|a| self.module_is(a.module.as_deref(), file) && a.export.as_deref() == Some(export));
+        let body = Arc::new(found.and_then(|a| a.body.clone()).ok_or_else(|| format!("{file} exports no `{export}` the build lowered"))?);
+        self.actions.insert(key, body.clone());
+        Ok(body)
       }
     }
   }
@@ -371,8 +384,8 @@ struct Run<'a> {
 }
 
 impl<'a> Run<'a> {
-  fn new(contract: &'a Arc<Contract>) -> Self {
-    Self { interpreter: Interpreter::default(), contract, scope: Vec::new(), mocks: HashMap::new(), fns: Arc::new(Mutex::new(HashMap::new())) }
+  fn new(contract: &'a Arc<Contract>, consts: &Option<Arc<Consts>>) -> Self {
+    Self { interpreter: Interpreter::default().with_consts(consts.clone()), contract, scope: Vec::new(), mocks: HashMap::new(), fns: Arc::new(Mutex::new(HashMap::new())) }
   }
 
   async fn eval(&self, expr: &Expr) -> Result<Value, Fail> {
@@ -518,9 +531,9 @@ struct Expansion {
   bindings: Vec<Vec<(String, Value)>>,
 }
 
-async fn expansions(file: &TestFile, case: &TestCase, contract: &Arc<Contract>) -> Result<Vec<Expansion>, String> {
+async fn expansions(file: &TestFile, case: &TestCase, contract: &Arc<Contract>, consts: &Option<Arc<Consts>>) -> Result<Vec<Expansion>, String> {
   let chain = file.chain(case.block);
-  let run = Run::new(contract);
+  let run = Run::new(contract, consts);
   let mut combos = vec![Expansion { name: String::new(), rows: Vec::new(), bindings: Vec::new() }];
   for level in 0..=chain.len() {
     let (label, each) = match chain.get(level) {
@@ -684,7 +697,7 @@ async fn run_case<'c>(file: &TestFile, case: &TestCase, expansion: &Expansion, t
       base = Some(held.run.clone());
       continue;
     }
-    let mut run = base.clone().unwrap_or_else(|| Run::new(contract));
+    let mut run = base.clone().unwrap_or_else(|| Run::new(contract, &targets.consts));
     for (name, value) in &expansion.bindings[depth] {
       run.bind(name, value.clone());
     }
@@ -704,7 +717,7 @@ async fn run_case<'c>(file: &TestFile, case: &TestCase, expansion: &Expansion, t
   if let Some(failure) = failure {
     return Outcome::Failed(failure);
   }
-  let mut run = base.unwrap_or_else(|| Run::new(contract));
+  let mut run = base.unwrap_or_else(|| Run::new(contract, &targets.consts));
   for (name, value) in expansion.bindings.last().into_iter().flatten() {
     run.bind(name, value.clone());
   }
@@ -1251,6 +1264,7 @@ fn describe(target: &Target) -> String {
     Target::Loader { .. } => "`load`".to_owned(),
     Target::Meta { .. } => "`meta`".to_owned(),
     Target::Store { .. } => "`store`".to_owned(),
+    Target::Paths { .. } => "`paths`".to_owned(),
     Target::Middleware { .. } => "`middleware`".to_owned(),
     Target::Action { export, .. } | Target::Handler { export, .. } => format!("`{export}`"),
   }
