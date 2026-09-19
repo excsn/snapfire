@@ -833,18 +833,28 @@ function linkOf(target: EventTarget | null): Element | null {
   return anchor;
 }
 
-/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. */
+/** The document the navigator is wired to. The sidecar it holds is the document's first paint, stale after any applied payload, so a second call on the same document keeps the spine the last navigation installed rather than reading it again. */
+let wired: Document | null = null;
+
+/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. A second call on the same document, which a mounted site's entry module makes when a payload imports it, keeps the spine, the paths and the listeners the first one installed and changes only the options it names. */
 export function enableNavigation(options: NavigationOptions = {}): void {
   const g = globalThis as { __sf?: Record<string, unknown> };
   g.__sf = Object.assign(g.__sf ?? {}, { refresh });
-  const sidecar = document.querySelector("script[data-sf-segments]");
-  if (sidecar?.textContent) {
-    current = JSON.parse(sidecar.textContent);
+  if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
+  if (wired === document) {
+    if (options.prefetch !== undefined && options.prefetch !== fallbackPrefetch) {
+      fallbackPrefetch = options.prefetch;
+      resetViewport();
+      watchLinks(document);
+    }
+    return;
   }
+  wired = document;
+  const sidecar = document.querySelector("script[data-sf-segments]");
+  current = sidecar?.textContent ? JSON.parse(sidecar.textContent) : null;
   openSlot = null;
   currentPath = `${window.location.pathname}${window.location.search}`;
   documentPath = currentPath;
-  if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;

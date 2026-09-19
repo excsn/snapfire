@@ -440,6 +440,8 @@ import { enableNavigation } from "@snapfire/fsr-client";
 enableNavigation();
 ```
 
+It wires the document once. A mounted site's entry module calls it again when a navigation imports the site's islands, and that call keeps the page the navigation installed, the spine the navigator holds and the listeners already on the document; only an option it names, `prefetch` or `cacheMs`, changes.
+
 It also hangs `refresh` on `window.__sf`, which is how the stock host's development script refreshes an open page in place after a change. A click is left alone when it is already default-prevented, is not the primary button, carries a modifier key, has no enclosing `a[href]` or points at another origin. Everything else fetches the route's payload and patches only the segments that rendered something different, so the layout's DOM, its scroll position and any island state above the changed region survive. Sameness is the digest each segment carries, not its key, which is what keeps a pane that ignores a query parameter when the URL's query moves under it. A kept island whose props changed is re-rendered in place through its patcher rather than replaced and one whose digest held is left alone entirely. When the sidecar is missing or a segment's region cannot be found in the DOM, the navigator falls back to a full load rather than guessing.
 
 ## Marking the Link to the Page Being Shown

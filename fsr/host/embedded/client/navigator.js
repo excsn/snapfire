@@ -701,19 +701,27 @@ function linkOf(target) {
     if (!anchor || anchor.hasAttribute("data-sf-native")) return null;
     return anchor;
 }
+let wired = null;
 export function enableNavigation(options = {}) {
     const g = globalThis;
     g.__sf = Object.assign(g.__sf ?? {}, {
         refresh
     });
-    const sidecar = document.querySelector("script[data-sf-segments]");
-    if (sidecar?.textContent) {
-        current = JSON.parse(sidecar.textContent);
+    if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
+    if (wired === document) {
+        if (options.prefetch !== undefined && options.prefetch !== fallbackPrefetch) {
+            fallbackPrefetch = options.prefetch;
+            resetViewport();
+            watchLinks(document);
+        }
+        return;
     }
+    wired = document;
+    const sidecar = document.querySelector("script[data-sf-segments]");
+    current = sidecar?.textContent ? JSON.parse(sidecar.textContent) : null;
     openSlot = null;
     currentPath = `${window.location.pathname}${window.location.search}`;
     documentPath = currentPath;
-    if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
     document.addEventListener("click", (event)=>{
         if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
             return;

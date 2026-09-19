@@ -34,5 +34,5 @@ export declare function currentDocumentPath(): string;
 export declare function markLinks(root?: ParentNode): void;
 /** The page the document is showing, under another locale: its path with the current locale's prefix replaced by `to`. Nothing else is rewritten and a path given explicitly is used as it stands. This is what a language switcher links to, so choosing a language keeps the reader where they are instead of sending them wherever the switcher happens to live. */
 export declare function localePath(to: string, from?: string): string;
-/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. */
+/** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. A second call on the same document, which a mounted site's entry module makes when a payload imports it, keeps the spine, the paths and the listeners the first one installed and changes only the options it names. */
 export declare function enableNavigation(options?: NavigationOptions): void;
