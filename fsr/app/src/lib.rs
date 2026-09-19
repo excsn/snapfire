@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore, Tmpl};
+use snapfire_fsr_ir::{body_visit, Component, Entry, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore, Tmpl};
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, Reads, RequestCtx, Runtime, Static, SubtreeReads, TableResolver, subtree_shape,
@@ -108,6 +108,9 @@ pub struct Report {
   pub paths: Vec<String>,
   /// Sources whose load a build can run once and a request can then skip.
   pub warmable: Vec<String>,
+  /// Subtrees a build can render once and a request can then splice in, as
+  /// the route's pattern and the subtree's root module.
+  pub renderable: Vec<(String, String)>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
   /// Islands a template renders, with the handlers each answers: `<module> <name>`.
@@ -178,6 +181,11 @@ pub struct App {
   pub paths: HashMap<String, Arc<dyn Paths>>,
   /// Every route's pattern, indexed by the entry the matcher answers with.
   pub patterns: Vec<String>,
+  /// The subtrees a build can render ahead of any request, by the pattern of
+  /// the route each sits on: the outermost fixed subtrees of every route that
+  /// is not itself written as a document, each with a memo key and reading no
+  /// store key a source outside it seeds.
+  pub renderable: Vec<(String, PlanNode)>,
   /// Lowered sources reading nothing of the request beyond the identity, so
   /// one load answers every request (or every anonymous one). A build runs
   /// each once per locale and the memo answers from then on; which of the two
@@ -937,6 +945,15 @@ impl AppBuilder {
         subtree_reads(plan, &source_class, &self.lowered_components, &mut reads);
       }
     }
+    let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body)| (name.clone(), seeded_keys(body))).collect();
+    let mut renderable: Vec<(String, PlanNode)> = Vec::new();
+    for (pattern, plan, _) in &resolved {
+      if prerenderable.contains(pattern) || (pattern.contains('{') && !paths.contains_key(pattern)) {
+        continue;
+      }
+      let on_route = declared_sources(plan);
+      renderable_subtrees(plan, pattern, &on_route, &seeders, &reads, &mut renderable);
+    }
     let actions = self
       .actions
       .ids()
@@ -973,6 +990,7 @@ impl AppBuilder {
       prerenderable_anonymous: prerenderable_anonymous.clone(),
       paths: resolved.iter().map(|(p, _, _)| p).filter(|p| paths.contains_key(*p)).cloned().collect(),
       warmable: warmable.clone(),
+      renderable: renderable.iter().map(|(pattern, node)| (pattern.clone(), node.module.to_string())).collect(),
       components,
       islands: self
         .islands
@@ -1035,6 +1053,7 @@ impl AppBuilder {
       prerenderable_anonymous,
       paths,
       patterns,
+      renderable,
       warmable,
       runtime: runtime.build(),
       services: self.services.unwrap_or_else(|| Services::builder().build()),
@@ -1258,6 +1277,53 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
   let out = SubtreeReads { class, store_keys: keys };
   reads.insert(subtree_shape(node), out.clone());
   out
+}
+
+/// The outermost subtrees under `node` a build can render ahead of a request:
+/// one with a memo key, a `Fixed` class, no deferred descendant and no store
+/// key read that a source outside it seeds, since the build renders it with
+/// its own seeds alone and the key must match a request's.
+fn renderable_subtrees(node: &PlanNode, pattern: &str, on_route: &[String], seeders: &HashMap<String, Option<Vec<String>>>, reads: &Reads, out: &mut Vec<(String, PlanNode)>) {
+  fn has_deferred(node: &PlanNode) -> bool {
+    node.children.iter().any(|(_, c)| c.deferred || has_deferred(c))
+  }
+  let entry = reads.get(&subtree_shape(node));
+  if node.cache_key.is_some() && entry.is_some_and(|r| r.class == Static::Fixed) && !has_deferred(node) {
+    let inside = declared_sources(node);
+    let seeded_outside = entry.unwrap().store_keys.iter().any(|key| {
+      on_route.iter().filter(|source| !inside.contains(source)).any(|source| match seeders.get(source) {
+        None => false,
+        Some(None) => true,
+        Some(Some(keys)) => keys.contains(key),
+      })
+    });
+    if !seeded_outside {
+      out.push((pattern.to_owned(), node.clone()));
+      return;
+    }
+  }
+  for (_, child) in &node.children {
+    renderable_subtrees(child, pattern, on_route, seeders, reads, out);
+  }
+}
+
+/// The keys a `store` body seeds, when the build can read them: every field
+/// of every object literal in it. `None` for a computed key or a spread,
+/// which may seed anything.
+fn seeded_keys(body: &snapfire_fsr_ir::Body) -> Option<Vec<String>> {
+  let mut keys = Vec::new();
+  let mut unknown = false;
+  body_visit(body, &mut |e| {
+    if let Expr::Object(entries) = e {
+      for entry in entries {
+        match entry {
+          Entry::Field(name, _) => keys.push(name.clone()),
+          _ => unknown = true,
+        }
+      }
+    }
+  });
+  if unknown { None } else { Some(keys) }
 }
 
 /// The store keys `module`'s component reads, and every component it places

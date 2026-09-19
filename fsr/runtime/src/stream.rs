@@ -55,6 +55,43 @@ pub fn segments_to_json(info: &SegmentInfo) -> Json {
   Json::Object(obj)
 }
 
+/// What `segments_to_json` wrote, read back. A `d` that is not sixteen hex
+/// digits, a `p` that is not a list of numbers or a missing `k` is an error
+/// naming the field.
+pub fn segments_from_json(json: &Json) -> Result<SegmentInfo, snapfire_fsr_payload::DecodeError> {
+  let err = |m: &str| snapfire_fsr_payload::DecodeError(m.to_owned());
+  let obj = json.as_object().ok_or_else(|| err("a segment must be an object"))?;
+  let key = obj.get("k").and_then(Json::as_str).ok_or_else(|| err("a segment needs `k`"))?.to_owned();
+  let digest = match obj.get("d") {
+    None => 0,
+    Some(d) => u64::from_str_radix(d.as_str().ok_or_else(|| err("`d` must be a string"))?, 16).map_err(|_| err("`d` must be sixteen hex digits"))?,
+  };
+  let name = obj.get("n").and_then(Json::as_str).unwrap_or("").to_owned();
+  let slot = match obj.get("s") {
+    None => None,
+    Some(s) => Some(s.as_u64().ok_or_else(|| err("`s` must be a number"))? as u32),
+  };
+  let mut path = Vec::new();
+  if let Some(p) = obj.get("p") {
+    for item in p.as_array().ok_or_else(|| err("`p` must be a list"))? {
+      path.push(item.as_u64().ok_or_else(|| err("`p` must hold numbers"))? as u32);
+    }
+  }
+  let mut children = Vec::new();
+  if let Some(c) = obj.get("c") {
+    for item in c.as_array().ok_or_else(|| err("`c` must be a list"))? {
+      children.push(segments_from_json(item)?);
+    }
+  }
+  let mut keep = Vec::new();
+  if let Some(k) = obj.get("keep") {
+    for item in k.as_array().ok_or_else(|| err("`keep` must be a list"))? {
+      keep.push(item.as_str().ok_or_else(|| err("`keep` must hold strings"))?.to_owned());
+    }
+  }
+  Ok(SegmentInfo { key, digest, name, path, slot, children, keep })
+}
+
 /// `-` and `%` are escaped so a key can never contain `--` and close the
 /// HTML comment that delimits its region.
 fn escape_key(key: &str) -> String {

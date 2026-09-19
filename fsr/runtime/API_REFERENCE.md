@@ -50,6 +50,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`LoadCache`](#loadcache)
   * [`NoLoadCache`](#noloadcache)
   * [`WarmLoads`](#warmloads)
+  * [`WarmRenders`](#warmrenders)
   * [`MemoryLoadCache`](#memoryloadcache)
 * [9. Request context](#9-request-context)
   * [`Identity`](#identity)
@@ -72,6 +73,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`html_stream`](#html_stream)
   * [`fragment_html`](#fragment_html)
   * [`segments_to_json`](#segments_to_json)
+  * [`segments_from_json`](#segments_from_json)
   * [`FILL_SCRIPT`](#fill_script)
 * [13. Error handling](#13-error-handling)
   * [`FailureKind`](#failurekind)
@@ -442,6 +444,16 @@ What a build warmed. A request never writes to it, so a source the build did not
 * `pub fn len(&self) -> usize`, `pub fn is_empty(&self) -> bool`
 * `put` is a no-op; `replace` is the only way in.
 
+### `WarmRenders`
+
+A `NodeCache` holding what a build rendered, in front of a live one. A request's `get` is answered from the build's entries first and from `live` after; its `put` and an `invalidate` reach `live` alone, so nothing a request does changes what the build wrote. While `record` is on, every `get` misses and every `put` lands in the build's entries, which is how a render pass fills it: each subtree is rendered afresh and kept under the key a request will compose.
+
+* `pub fn new(entries: HashMap<String, CacheEntry>, live: Arc<dyn NodeCache>) -> Self`
+* `pub fn replace(&self, entries: HashMap<String, CacheEntry>)`: swaps the whole map, which a render pass does before recording so a stale entry never survives a rebuild.
+* `pub fn record(&self, on: bool)`
+* `pub fn entries(&self) -> HashMap<String, CacheEntry>`: a copy, for writing out.
+* `pub fn len(&self) -> usize`, `pub fn is_empty(&self) -> bool`
+
 ### `MemoryLoadCache`
 
 `HashMap` behind a `parking_lot::Mutex`, read and written in process. Unbounded, no expiry. `Default`.
@@ -640,6 +652,14 @@ pub fn segments_to_json(info: &SegmentInfo) -> serde_json::Value
 ```
 
 The compact sidecar encoding, keys in this order: `k` the segment key, then `s` the slot id when the segment is deferred or `p` the path when it is not, then `c` the children.
+
+### `segments_from_json`
+
+```rust
+pub fn segments_from_json(json: &serde_json::Value) -> Result<SegmentInfo, snapfire_fsr_payload::DecodeError>
+```
+
+What `segments_to_json` wrote, read back, for a memo entry a build stored beside its node. A missing `k`, a `d` that is not hex or a `p` that is not a list of numbers is a `DecodeError` naming the field; an absent `d`, `n`, `s`, `p`, `c` or `keep` is its empty value.
 
 ### `FILL_SCRIPT`
 

@@ -328,6 +328,74 @@ impl LoadCache for WarmLoads {
   }
 }
 
+/// What a build rendered: memo entries under the keys a request composes,
+/// read at boot and never written by a request. A build fills it by turning
+/// `record` on, which sends every `put` here and answers every `get` with
+/// nothing so each subtree is rendered afresh; off, a `get` is answered here
+/// first and `live` after, and a `put` or an `invalidate` reaches `live`
+/// alone. `replace` swaps the whole map in, the way `WarmLoads::replace`
+/// does, so a build starts from nothing.
+pub struct WarmRenders {
+  entries: parking_lot::RwLock<HashMap<String, CacheEntry>>,
+  live: Arc<dyn NodeCache>,
+  recording: std::sync::atomic::AtomicBool,
+}
+
+impl WarmRenders {
+  pub fn new(entries: HashMap<String, CacheEntry>, live: Arc<dyn NodeCache>) -> Self {
+    Self { entries: parking_lot::RwLock::new(entries), live, recording: std::sync::atomic::AtomicBool::new(false) }
+  }
+
+  pub fn replace(&self, entries: HashMap<String, CacheEntry>) {
+    *self.entries.write() = entries;
+  }
+
+  /// While on, every `put` lands here and every `get` misses.
+  pub fn record(&self, on: bool) {
+    self.recording.store(on, std::sync::atomic::Ordering::SeqCst);
+  }
+
+  pub fn entries(&self) -> HashMap<String, CacheEntry> {
+    self.entries.read().clone()
+  }
+
+  pub fn len(&self) -> usize {
+    self.entries.read().len()
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.entries.read().is_empty()
+  }
+
+  fn recording(&self) -> bool {
+    self.recording.load(std::sync::atomic::Ordering::SeqCst)
+  }
+}
+
+impl NodeCache for WarmRenders {
+  fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>> {
+    if self.recording() {
+      return Box::pin(ready(None));
+    }
+    if let Some(entry) = self.entries.read().get(key).cloned() {
+      return Box::pin(ready(Some(entry)));
+    }
+    self.live.get(key)
+  }
+
+  fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()> {
+    if self.recording() {
+      self.entries.write().insert(key, entry);
+      return Box::pin(ready(()));
+    }
+    self.live.put(key, entry)
+  }
+
+  fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize> {
+    self.live.invalidate(cache_key)
+  }
+}
+
 /// Read and written in process, unbounded and never expiring. For a warm pass
 /// filling it and for a Rust host that knows its keyed sources are few; an
 /// application serving unbounded keys wants a bounded cache instead.

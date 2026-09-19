@@ -506,3 +506,27 @@ fn a_fixed_subtree_is_keyed_by_the_store_keys_it_reads_and_sees_only_those() {
   render(&rt);
   assert_eq!(evals.load(Ordering::Relaxed), 2, "the key it reads changing is a miss");
 }
+
+#[test]
+fn warm_renders_record_a_build_and_answer_before_the_live_cache() {
+  use snapfire_fsr_runtime::WarmRenders;
+  let live = Arc::new(MemoryCache::new());
+  let warm = WarmRenders::new(std::collections::HashMap::new(), live.clone());
+  let entry = |text: &str| CacheEntry { node: Node::raw(text), segments: Vec::new(), digest: 1 };
+
+  block_on(live.put("k|a".to_owned(), entry("live")));
+  assert_eq!(block_on(warm.get("k|a")).map(|e| e.node), Some(Node::raw("live")), "nothing warm, the live cache answers");
+
+  warm.record(true);
+  assert_eq!(block_on(warm.get("k|a")), None, "while recording every lookup misses");
+  block_on(warm.put("k|a".to_owned(), entry("built")));
+  warm.record(false);
+  assert_eq!(block_on(warm.get("k|a")).map(|e| e.node), Some(Node::raw("built")), "the build's entry answers before the live one");
+  assert_eq!(warm.len(), 1);
+
+  block_on(warm.put("k|b".to_owned(), entry("request")));
+  assert_eq!(warm.len(), 1, "a request's put reaches the live cache alone");
+  assert_eq!(block_on(live.get("k|b")).map(|e| e.node), Some(Node::raw("request")));
+  assert_eq!(block_on(warm.invalidate("k")), 2, "invalidation reaches the live cache alone");
+  assert_eq!(block_on(warm.get("k|a")).map(|e| e.node), Some(Node::raw("built")));
+}

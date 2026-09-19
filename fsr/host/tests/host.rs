@@ -4190,3 +4190,55 @@ async fn a_set_dropped_from_paths_leaves_no_file_behind() {
   assert_eq!(host.prerendered("/blog/world", RenderMode::Html), None);
   let _ = std::fs::remove_dir_all(&out);
 }
+
+const CONSOLE_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/help", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
+        { "slot": "content", "node": { "id": 2, "module": "routes/help/page.tsx#default", "source": "help", "cache_key": "routes/help/page.tsx#default" } } ] } } ] } }
+  ],
+  "sources": [
+    { "id": "layout", "owner": "lowered", "module": "routes/layout.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "who", { "coalesce": [ { "session": "user" }, { "lit": { "str": "nobody" } } ] } ] } ] } } ] },
+    { "id": "help", "owner": "lowered", "module": "routes/help/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Help" } } ] } ] } } ] }
+  ],
+  "actions": [],
+  "components": [
+    { "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "div", "attrs": [ { "field": [ "data-who", { "field": [ { "var": "$props" }, "who" ] } ] } ], "children": [ { "slot": "content" } ] } } } },
+    { "module": "routes/help/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "title" ] } } ] } } } }
+  ]
+}"#;
+
+#[tokio::test]
+async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_serves_it() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let dir = identified_dir(USERS);
+  write_plan(&dir, CONSOLE_PLAN);
+  let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  assert!(host.prerenderable().is_empty(), "the layout reads the session: {}", host.report());
+  let report = host.report().to_string();
+  assert!(report.contains("render    /help") && report.contains("routes/help/page.tsx#default not rendered"), "{report}");
+
+  let written = host.prerender(&out).await.unwrap();
+  assert!(written.iter().any(|(name, _)| name == snapfire_fsr_host::RENDERS_FILE), "{written:?}");
+  let renders = std::fs::read_to_string(out.join(snapfire_fsr_host::RENDERS_FILE)).unwrap();
+  assert!(renders.contains("routes/help/page.tsx#default|") && renders.contains("ident=-|csrf=-|"), "keyed for everyone: {renders}");
+
+  let mut json: serde_json::Value = serde_json::from_str(CONSOLE_PLAN).unwrap();
+  json["sources"][1]["body"][0]["return"]["object"][0]["field"][1]["lit"]["str"] = serde_json::json!("Help");
+  json["components"][1]["body"]["render"]["element"]["tag"] = serde_json::json!("h2");
+  write_plan_value(&dir, json);
+  let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  assert_eq!(host.report().rendered, 2, "one entry per locale: {}", host.report());
+  let response = host.handle(Request::get("/help").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-prerendered").is_none(), "the document is rendered live");
+  let html = body_of(response).await;
+  assert!(html.contains("<h1>Help</h1>") && html.contains("data-who=\"nobody\""), "the page comes from the build's render inside the live layout: {html}");
+
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  let html = body_of(host.handle(Request::get("/help").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("<h2>Help</h2>"), "without the directory the page renders live: {html}");
+  let _ = std::fs::remove_dir_all(&out);
+}

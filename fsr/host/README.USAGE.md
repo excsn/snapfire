@@ -469,6 +469,14 @@ A source reading a parameter, the query, the session or the clock is never warme
 
 The memo is only ever filled by a build. A request never writes to it, so a source the build did not reach costs a load every time and nothing grows without bound; a rebuild is what refreshes it, the same contract the documents keep. Rerunning `prerender` takes fresh loads before it renders anything, so a second pass never writes a document from the first pass's data. Without `server.prerender` configured or with the file deleted, every load runs per request.
 
+The render is treated the same way. Under the console's layout the help page reads nothing, so the render memo keys it for everyone and the boot report lists it under `render`:
+
+```
+render    /help                  routes/help/page.tsx#default not rendered
+```
+
+`prerender` renders each such subtree once per locale after it has written the documents and writes the entries to `renders.json` beside `loads.json`. At boot the host reads the file into the render memo, in front of the `[cache]` section's cache when there is one and alone when there is not, so a request for `/help` evaluates the shell and the layout and splices the page in from the build. The subtrees listed are the outermost ones on each route that is not itself a document: they carry a memo key, read nothing of the visitor and read no store key a source outside them seeds. A request never writes to that part of the memo and an invalidation never touches it; the next `prerender` is what refreshes it. Until then a component changed under a listed subtree is served as the build rendered it.
+
 ```rust
 assert_eq!(host.report().app.warmable, vec!["layout.promo".to_owned(), "widths".to_owned()]);
 assert_eq!(host.report().warmed, 2);

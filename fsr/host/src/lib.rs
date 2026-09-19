@@ -38,7 +38,7 @@ use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, Rout
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
   ActionError, AssembleError, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
-  Chunk, IslandEvent, Matcher, Metadata, RequestCtx, Resolver, SessionCell, WarmLoads, assemble, html_stream,
+  CacheEntry, Chunk, IslandEvent, Matcher, Metadata, NoCache, NodeCache, RequestCtx, Resolver, SessionCell, WarmLoads, WarmRenders, assemble, html_stream,
   parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
@@ -66,6 +66,62 @@ pub const LOADS_FILE: &str = "loads.json";
 /// Beside the prerendered documents: every file the last run wrote, relative
 /// to the directory, which the next run removes before writing its own.
 pub const WRITTEN_FILE: &str = "prerendered.json";
+/// Beside `loads.json`: every subtree a build rendered ahead of a request,
+/// under the memo key a request composes for it, which a boot reads into the
+/// render memo in front of whatever `[cache]` configured.
+pub const RENDERS_FILE: &str = "renders.json";
+
+fn renders_to_json(entries: &HashMap<String, CacheEntry>) -> String {
+  let mut rows: Vec<(&String, &CacheEntry)> = entries.iter().collect();
+  rows.sort_by(|a, b| a.0.cmp(b.0));
+  let obj: serde_json::Map<String, serde_json::Value> = rows
+    .into_iter()
+    .map(|(key, entry)| {
+      (
+        key.clone(),
+        serde_json::json!({
+          "node": snapfire_fsr_payload::node_to_row_json(&entry.node),
+          "segments": entry.segments.iter().map(snapfire_fsr_runtime::segments_to_json).collect::<Vec<_>>(),
+          "digest": format!("{:016x}", entry.digest),
+        }),
+      )
+    })
+    .collect();
+  serde_json::to_string(&serde_json::Value::Object(obj)).expect("a render map serializes")
+}
+
+/// What a build rendered or nothing when the file is absent or unreadable: a
+/// render pass is an optimization, so a bad entry costs a render rather than
+/// a boot.
+fn renders_from_file(path: &Path) -> HashMap<String, CacheEntry> {
+  let Ok(text) = std::fs::read_to_string(path) else {
+    return HashMap::new();
+  };
+  let Ok(serde_json::Value::Object(obj)) = serde_json::from_str::<serde_json::Value>(&text) else {
+    tracing::warn!(target: "fsr::cache", file = %path.display(), "warmed renders are not an object");
+    return HashMap::new();
+  };
+  let mut out = HashMap::new();
+  for (key, json) in obj {
+    let read = || -> Result<CacheEntry, snapfire_fsr_payload::DecodeError> {
+      let fail = |m: &str| snapfire_fsr_payload::DecodeError(m.to_owned());
+      let node = snapfire_fsr_payload::row_json_to_node(json.get("node").ok_or_else(|| fail("a render needs `node`"))?)?;
+      let mut segments = Vec::new();
+      for item in json.get("segments").and_then(|s| s.as_array()).ok_or_else(|| fail("a render needs `segments`"))? {
+        segments.push(snapfire_fsr_runtime::segments_from_json(item)?);
+      }
+      let digest = json.get("digest").and_then(|d| d.as_str()).and_then(|d| u64::from_str_radix(d, 16).ok()).ok_or_else(|| fail("a render needs a hex `digest`"))?;
+      Ok(CacheEntry { node, segments, digest })
+    };
+    match read() {
+      Ok(entry) => {
+        out.insert(key, entry);
+      }
+      Err(e) => tracing::warn!(target: "fsr::cache", key = %key, error = %e, "warmed render is unreadable"),
+    }
+  }
+  out
+}
 
 fn warm_to_json(warmed: &HashMap<String, Data>) -> String {
   let mut rows: Vec<(&String, &Data)> = warmed.iter().collect();
@@ -358,6 +414,9 @@ pub struct HostReport {
   /// How many of `app.warmable`'s keys the prerender directory answered at
   /// boot. Zero with sources listed means the warm pass has not run.
   pub warmed: usize,
+  /// How many memo entries the prerender directory's renders file answered
+  /// at boot. Zero with subtrees listed means the render pass has not run.
+  pub rendered: usize,
   /// The render memo's capacity and lifetime, when configured.
   pub cache: Option<(u64, String)>,
   /// Whether the document carries the live-refresh script and the host
@@ -471,6 +530,14 @@ impl std::fmt::Display for HostReport {
         (0, 0) => writeln!(f, "{:<9} {source:<22} not warmed", "warm")?,
         (0, n) => writeln!(f, "{:<9} {source:<22} {n} loads memoized", "warm")?,
         _ => writeln!(f, "{:<9} {source}", "")?,
+      }
+    }
+    for (i, (pattern, module)) in self.app.renderable.iter().enumerate() {
+      let label = if i == 0 { "render" } else { "" };
+      match (i, self.rendered) {
+        (0, 0) => writeln!(f, "{label:<9} {pattern:<22} {module} not rendered")?,
+        (0, n) => writeln!(f, "{label:<9} {pattern:<22} {module} {n} renders memoized")?,
+        _ => writeln!(f, "{label:<9} {pattern:<22} {module}")?,
       }
     }
     if let Some((capacity, ttl)) = &self.cache {
@@ -716,6 +783,9 @@ struct Tables {
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
   warm: Arc<WarmLoads>,
+  /// The render memo, with what a build rendered in front of the live cache;
+  /// a render pass records into it.
+  renders: Arc<WarmRenders>,
   locales: Locales,
   catalogs: Arc<Catalogs>,
   auth: Option<Mounted>,
@@ -1483,6 +1553,38 @@ impl Host {
             written.push((served.clone(), file));
           }
         }
+      }
+    }
+    if !t.app.renderable.is_empty() {
+      t.renders.replace(HashMap::new());
+      t.renders.record(true);
+      for (pattern, subtree) in &t.app.renderable {
+        for tag in t.locales.supported.clone() {
+          let locale = t.locales.locale(&tag);
+          let paths = match t.app.paths.get(pattern) {
+            Some(enumerated) => {
+              let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), Params::new(), Params::new(), "/", locale.clone());
+              let sets = enumerated.paths(&ctx).await.map_err(|e| HostError::Paths(pattern.clone(), e.message))?;
+              sets.iter().map(|set| fill_pattern(pattern, set)).collect::<Result<Vec<_>, _>>()?
+            }
+            None => vec![pattern.clone()],
+          };
+          for path in paths {
+            let Some((_, params)) = self.plan_for(&t, &path) else { continue };
+            let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), params, Params::new(), &path, locale.clone());
+            if let Err(e) = assemble(&t.app.runtime, subtree, &ctx, &t.head).await {
+              tracing::warn!(target: "fsr::cache", pattern = %pattern, module = %subtree.module, error = %e, "warm render failed");
+            }
+          }
+        }
+      }
+      t.renders.record(false);
+      let entries = t.renders.entries();
+      if !entries.is_empty() {
+        std::fs::create_dir_all(out).map_err(|e| HostError::Io(out.to_path_buf(), e))?;
+        let file = out.join(RENDERS_FILE);
+        std::fs::write(&file, renders_to_json(&entries)).map_err(|e| HostError::Io(file.clone(), e))?;
+        written.push((RENDERS_FILE.to_owned(), file));
       }
     }
     if !written.is_empty() {
@@ -4076,12 +4178,9 @@ impl HostBuilder {
     if let Some(contract) = app_contract {
       app = app.contract(contract);
     }
-    let cache_row = match (config.cache_ttl()?, &config.cache) {
-      (Some(ttl), Some(section)) => {
-        app = app.cache(Arc::new(FibreCache::bounded(section.capacity, ttl)));
-        Some((section.capacity, section.ttl.clone()))
-      }
-      _ => None,
+    let (live, cache_row): (Arc<dyn NodeCache>, Option<(u64, String)>) = match (config.cache_ttl()?, &config.cache) {
+      (Some(ttl), Some(section)) => (Arc::new(FibreCache::bounded(section.capacity, ttl)), Some((section.capacity, section.ttl.clone()))),
+      _ => (Arc::new(NoCache), None),
     };
     let locales = match &config.locales {
       Some(section) => Locales::from_section(section).map_err(|e| {
@@ -4112,6 +4211,15 @@ impl HostBuilder {
     ));
     let warmed_count = warm.len();
     app = app.loads(warm.clone());
+    let renders = Arc::new(WarmRenders::new(
+      prerendered
+        .as_ref()
+        .map(|dir| renders_from_file(&dir.join(RENDERS_FILE)))
+        .unwrap_or_default(),
+      live,
+    ));
+    let rendered_count = renders.len();
+    app = app.cache(renders.clone());
     let extension_rows: Vec<String> = app
       .extensions()
       .names()
@@ -4264,6 +4372,7 @@ impl HostBuilder {
       client: serve_client.then(|| (client::ROUTE, client::FILES.len(), client::bytes())),
       prerender: prerendered.clone(),
       warmed: warmed_count,
+      rendered: rendered_count,
       cache: cache_row,
       dev,
       locales: locale_rows,
@@ -4290,6 +4399,7 @@ impl HostBuilder {
         client: serve_client,
         prerendered,
         warm,
+        renders,
         locales,
         catalogs,
         auth,

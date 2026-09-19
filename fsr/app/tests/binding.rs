@@ -400,3 +400,13 @@ fn a_subtree_is_classed_by_what_it_reads_rather_than_by_its_route() {
   assert_eq!(promo.class, Static::Fixed);
   assert_eq!(promo.store_keys, vec!["cart/count".to_owned()], "a layout's subtree lists what its page reads");
 }
+
+#[test]
+fn a_build_renders_ahead_the_outermost_fixed_subtrees_of_a_route_it_cannot_write_whole() {
+  let app = App::from_manifest(CONSOLE).unwrap().build().unwrap();
+  let picked: Vec<(&str, String)> = app.renderable.iter().map(|(p, n)| (p.as_str(), n.module.to_string())).collect();
+  assert_eq!(picked, vec![("/help", "routes/help/page.tsx#default".to_owned())], "{}", app.report);
+  assert_eq!(app.report.renderable, vec![("/help".to_owned(), "routes/help/page.tsx#default".to_owned())]);
+  assert!(!picked.iter().any(|(p, _)| *p == "/cart"), "the cart page reads a key the layout outside it seeds");
+  assert!(!picked.iter().any(|(p, _)| *p == "/promo"), "a route written as a document has nothing to render ahead");
+}
