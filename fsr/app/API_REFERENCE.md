@@ -33,6 +33,7 @@ Everything a request needs, plus what was bound to produce it.
 The intercept trees from the plan file, matched on their route's pattern. Whether one applies to a navigation is the host's call.
 
 * `pub struct Intercepts`, `Default`.
+* `Intercepts::all(&self) -> impl Iterator<Item = &PlanNode>`: every intercept plan, in no particular order.
 * `Intercepts::plans_for(&self, path: &str) -> Option<(Vec<PlanNode>, Params)>`: every intercept of the route `path` matches, in file order, with the matched params; `None` when no intercept matches.
 
 ### Handlers
@@ -65,6 +66,7 @@ Every method takes and returns the builder. Registration order is the evaluators
 * `AppBuilder::middleware<F, Fut>(self, f: F) -> Self` with the same bounds as `action`: Rust middleware; `build` refuses it as `MiddlewareClaimed` when the plan lowers one.
 * `AppBuilder::middleware_override<F, Fut>(self, f: F) -> Self`: replaces the lowered middleware; `MiddlewareOverridesNothing` when there is none.
 * `AppBuilder::evaluator<P>(self, predicate: P, evaluator: Arc<dyn Evaluator>) -> Self` where `P: Fn(&ModuleId) -> bool + Send + Sync + 'static`
+* `AppBuilder::covers(&self, module: &ModuleId) -> bool`: whether an evaluator registered so far answers the module, for a host deciding whether to register its own.
 * `AppBuilder::services(self, services: Arc<Services>) -> Self`: default is an empty registry.
 * `AppBuilder::contract(self, contract: Contract) -> Self`: required when any lowered action names an input type.
 * `AppBuilder::bearer_services(self, services: impl IntoIterator<Item = String>) -> Self`: the services whose calls carry the session's token; a body calling one depends on the identity the way one reading `identity` does, for `prerenderable_anonymous`.

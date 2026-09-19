@@ -90,6 +90,12 @@ pub enum BuildError {
   SlotWithoutPage(PathBuf),
   #[error("{0}: a slot holds one `page.tsx` and no routes beneath it")]
   SlotRoute(PathBuf),
+  #[error("{dir}: holds both `{first}` and `{second}`; a directory has one page file and one layout file")]
+  PageAndTemplate { dir: PathBuf, first: String, second: String },
+  #[error("{0}: a template route needs an fsr built with the `tera` feature")]
+  TemplateFeature(PathBuf),
+  #[error("{file}:{line}: `island(` whose `module` is not a string literal; the build bundles only a module it can name")]
+  TemplateIsland { file: PathBuf, line: usize },
   #[error("{0} exports `paths`, which only a page loader may: a layout or a slot has no parameter set of its own")]
   PathsOffPage(String),
   #[error("{module} exports `paths` but its route `{pattern}` has no parameter to enumerate")]
@@ -528,6 +534,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut sources = Vec::new();
   let mut actions = Vec::new();
   let mut islands: Vec<String> = Vec::new();
+  let mut templates: Vec<PathBuf> = Vec::new();
   for module in [&error_module, &not_found_module].into_iter().flatten() {
     islands.push(module.clone());
   }
@@ -535,13 +542,14 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut layouts: Vec<LayoutInfo> = Vec::new();
   let mut layout_ids: Vec<String> = Vec::new();
   for dir in routes.iter().chain(handler_routes.iter()).flat_map(|r| r.dir.ancestors().map(Path::to_path_buf).collect::<Vec<_>>()) {
-    if !dir.starts_with(&routes_dir) || !dir.join("layout.tsx").is_file() || layouts.iter().any(|l| l.dir == dir) {
+    if !dir.starts_with(&routes_dir) || layouts.iter().any(|l| l.dir == dir) {
       continue;
     }
+    let Some(layout_file) = layout_file(&dir)? else { continue };
     let rel = dir.strip_prefix(app).unwrap_or(&dir).to_string_lossy().replace('\\', "/");
     let (prefix, dir_id) = pattern_of(&routes_dir, &dir)?;
     let id = if dir == routes_dir { "layout".to_owned() } else { format!("{dir_id}.layout") };
-    let module = format!("{rel}/layout.tsx#default");
+    let module = format!("{rel}/{layout_file}#default");
     let loader = dir.join("layout.loader.ts");
     let source = if loader.is_file() {
       let loader_module = format!("{rel}/layout.loader.ts");
@@ -558,20 +566,27 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       None
     };
     report.layouts.push((prefix, module.clone()));
-    islands.push(module.clone());
+    if is_template(&module) {
+      report.components.push((module.clone(), "template".to_owned(), String::new()));
+      templates.push(dir.join(&layout_file));
+    } else {
+      islands.push(module.clone());
+    }
     layout_ids.push(id.clone());
     let mut slots = Vec::new();
     for slot_dir in sorted_dirs(&dir.join("slots"))? {
       let name = slot_dir.file_name().unwrap_or_default().to_string_lossy().to_string();
-      if !slot_dir.join("page.tsx").is_file() {
+      let Some(slot_page) = page_file(&slot_dir)? else {
         return Err(BuildError::SlotWithoutPage(slot_dir));
-      }
-      if sorted_dirs(&slot_dir)?.iter().any(|d| d.join("page.tsx").is_file() || d.join("route.ts").is_file()) {
-        return Err(BuildError::SlotRoute(slot_dir));
+      };
+      for d in sorted_dirs(&slot_dir)? {
+        if page_file(&d)?.is_some() || d.join("route.ts").is_file() {
+          return Err(BuildError::SlotRoute(slot_dir));
+        }
       }
       let slot_rel = format!("{rel}/slots/{name}");
       let slot_id = format!("{id}.{name}");
-      let page = format!("{slot_rel}/page.tsx#default");
+      let page = format!("{slot_rel}/{slot_page}#default");
       let loader = slot_dir.join("page.loader.ts");
       let source = if loader.is_file() {
         let loader_module = format!("{slot_rel}/page.loader.ts");
@@ -608,7 +623,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       let loading = ["loading.tsx", "loading.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
       let error = ["error.tsx", "error.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
       for module in [Some(&page), loading.as_ref(), error.as_ref()].into_iter().flatten() {
-        islands.push(module.clone());
+        if is_template(module) {
+          report.components.push((module.clone(), "template".to_owned(), String::new()));
+          templates.push(slot_dir.join(&slot_page));
+        } else {
+          islands.push(module.clone());
+        }
       }
       report.slots.push((slot_id.clone(), page.clone()));
       layout_ids.push(slot_id);
@@ -618,9 +638,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   layouts.sort_by(|a, b| a.dir.cmp(&b.dir));
 
-  set.layouts = layouts.iter().map(|l| l.module.clone()).collect();
-  set.slots = layouts.iter().map(|l| (l.module.clone(), l.slots.iter().map(|s| s.name.clone()).collect())).collect();
+  set.layouts = layouts.iter().filter(|l| !is_template(&l.module)).map(|l| l.module.clone()).collect();
+  set.slots = layouts.iter().filter(|l| !is_template(&l.module)).map(|l| (l.module.clone(), l.slots.iter().map(|s| s.name.clone()).collect())).collect();
   for layout in &mut layouts {
+    if is_template(&layout.module) {
+      continue;
+    }
     lower_into(&mut set, &layout.module, &mut report)?;
     if let Some((_, component)) = set.components.iter().find(|(m, _)| *m == layout.module) {
       layout.placed = slots_placed(&component.render);
@@ -631,7 +654,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   for route in &routes {
     let rel = route.dir.strip_prefix(app).unwrap_or(&route.dir);
     let rel = rel.to_string_lossy().replace('\\', "/");
-    let page = format!("{rel}/page.tsx#default");
+    let page_file = page_file(&route.dir)?.expect("a discovered route has a page file");
+    let page = format!("{rel}/{page_file}#default");
     report.routes.push((route.pattern.clone(), rel.clone()));
 
     let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| route.dir.starts_with(&l.dir)).collect();
@@ -680,7 +704,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       .map(|f| format!("{rel}/{f}#default"));
 
     for module in [Some(&page), local_error.as_ref(), loading.as_ref()].into_iter().flatten() {
-      if !islands.contains(module) {
+      if is_template(module) {
+        report.components.push((module.clone(), "template".to_owned(), String::new()));
+        templates.push(route.dir.join(&page_file));
+      } else if !islands.contains(module) {
         islands.push(module.clone());
       }
     }
@@ -762,6 +789,13 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     renumber(plan, &mut 0);
   }
 
+  for file in &templates {
+    for placed in template_islands(file)? {
+      if !islands.contains(&placed) {
+        islands.push(placed);
+      }
+    }
+  }
   for module in &islands {
     lower_into(&mut set, module, &mut report)?;
   }
@@ -2072,7 +2106,7 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
     .collect();
   children.sort();
 
-  let page = dir.join("page.tsx").is_file() || dir.join("page.ts").is_file();
+  let page = page_file(dir)?.is_some();
   let handler = dir.join("route.ts").is_file();
   if page && handler {
     return Err(BuildError::PageAndRoute(dir.to_path_buf()));
@@ -2091,7 +2125,7 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
   }
   for child in children {
     if child.file_name().is_some_and(|n| n == "slots") {
-      if !dir.join("layout.tsx").is_file() {
+      if layout_file(dir)?.is_none() {
         return Err(BuildError::SlotsWithoutLayout(child));
       }
       continue;
@@ -2099,6 +2133,65 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
     discover(root, &child, out, handlers)?;
   }
   Ok(())
+}
+
+/// The one page file in `dir`: `page.tsx`, `page.ts` or a `page.<ext>` for an
+/// extension in `TEMPLATE_EXTENSIONS`. Two of them is a refusal naming both,
+/// and a template is a refusal when this fsr was built without its feature,
+/// so a template never becomes a silent 404.
+fn page_file(dir: &Path) -> Result<Option<String>, BuildError> {
+  route_file(dir, &["page.tsx", "page.ts"], "page")
+}
+
+/// The one layout file in `dir`, `layout.tsx` or a `layout.<ext>` for a
+/// template extension, under the same rules as `page_file`.
+fn layout_file(dir: &Path) -> Result<Option<String>, BuildError> {
+  route_file(dir, &["layout.tsx"], "layout")
+}
+
+fn route_file(dir: &Path, sources: &[&str], stem: &str) -> Result<Option<String>, BuildError> {
+  let templates: Vec<String> = snapfire_fsr_host::TEMPLATE_EXTENSIONS.iter().map(|ext| format!("{stem}.{ext}")).collect();
+  let present: Vec<String> = sources.iter().map(|s| (*s).to_owned()).chain(templates.iter().cloned()).filter(|f| dir.join(f).is_file()).collect();
+  match present.as_slice() {
+    [] => Ok(None),
+    [one] => {
+      if templates.contains(one) && !cfg!(feature = "tera") {
+        return Err(BuildError::TemplateFeature(dir.join(one)));
+      }
+      Ok(Some(one.clone()))
+    }
+    [first, second, ..] => Err(BuildError::PageAndTemplate { dir: dir.to_path_buf(), first: first.clone(), second: second.clone() }),
+  }
+}
+
+/// The modules a template places as islands, `island(module="...")` with a
+/// string literal, so they are bundled, registered and, for server mode,
+/// lowered the way a TSX placement's are. An `island(` whose `module` is not
+/// a literal is refused naming the line, since the build cannot bundle a
+/// module it cannot name.
+fn template_islands(file: &Path) -> Result<Vec<String>, BuildError> {
+  let text = std::fs::read_to_string(file).map_err(|e| BuildError::Io(file.to_path_buf(), e))?;
+  let call = regex::Regex::new(r#"\bisland\s*\("#).expect("a literal pattern");
+  let literal = regex::Regex::new(r#"\bmodule\s*=\s*(?:"([^"]+)"|'([^']+)')"#).expect("a literal pattern");
+  let mut out = Vec::new();
+  for found in call.find_iter(&text) {
+    let rest = &text[found.end()..];
+    let args = &rest[..rest.find(')').unwrap_or(rest.len())];
+    match literal.captures(args).and_then(|c| c.get(1).or_else(|| c.get(2))) {
+      Some(m) => out.push(m.as_str().to_owned()),
+      None => {
+        let line = text[..found.start()].matches('\n').count() + 1;
+        return Err(BuildError::TemplateIsland { file: file.to_path_buf(), line });
+      }
+    }
+  }
+  Ok(out)
+}
+
+/// Whether a module id names a template file rather than a component.
+fn is_template(module: &str) -> bool {
+  let path = module.split('#').next().unwrap_or(module);
+  snapfire_fsr_host::TEMPLATE_EXTENSIONS.iter().any(|ext| path.ends_with(&format!(".{ext}")))
 }
 
 /// `routes/index` is `/`; `routes/product/[id]` is `/product/{id}`;

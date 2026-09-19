@@ -34,6 +34,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Building a Site](#building-a-site)
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
+* [Rendering a Route with Tera](#rendering-a-route-with-tera)
 * [Serving Locales](#serving-locales)
 * [Prerendering](#prerendering)
 * [Hoisting Render-Path Calls](#hoisting-render-path-calls)
@@ -838,6 +839,33 @@ To serve with no backend at all, an overlay names a client's transport as `mock`
 [clients.fleet]
 transport = "mock"
 ```
+
+## Rendering a Route with Tera
+
+A route directory may hold `page.tera` instead of `page.tsx` and a layout directory `layout.tera` instead of `layout.tsx`. The walk finds either; a directory holding both is refused naming the two files. A template is rendered by the stock host from the file itself, so nothing is lowered, bundled or typechecked for it; the loader beside it is lowered exactly as beside a `page.tsx` and what it returns is the template's context.
+
+```
+routes/
+  layout.tera          {{ slot(name="content") }} where the page goes
+  layout.loader.ts     its data, reachable in the layout's context
+  page.tera            /
+  page.loader.ts
+  notice/[id]/
+    page.tera          /notice/{id}
+    page.loader.ts     load({ params }), paths for the prerender
+templates/
+  nav.tera             a partial, included by its path under the app
+```
+
+```tera
+{% include "templates/nav.tera" %}
+<h1>{{ notice.title }}</h1>
+{{ island(module="src/ui/Comments.tsx#default", props=dict(id=notice.id), when="visible") }}
+```
+
+`fsr serve` reads every `.tera` under the app at boot, outside `vendor/`, `dist/`, `generated/`, `node_modules/`, `tests/` and `types/`, names each by its path and refuses to start when a plan names a template the tree does not hold. An `island(` whose `module` is a string literal is bundled and registered from the literal, the way a `<Island>` in TSX is; a `module` the build cannot read is refused with the line. `actions.ts` beside a `page.tera` lowers unchanged and the template posts to the action's URL. `fsr test` tests such a route over HTTP, since there is no component to render; `fsr dev` rebuilds on a template edit like any other file under the app. A `page.<slot>.tsx` variant under a `layout.tera` is refused, since the build cannot read which slots a template places.
+
+The feature is `tera`, on by default in the CLI and off in the host crate, so an application embedding the host as a library takes it when it wants it and a Rust project that registers its own `TeraEvaluator` through `HostBuilder::evaluator` keeps it: the stock evaluator steps aside when one already answers `.tera`. The `noticeboard_tera` example is this chapter as an application.
 
 ## Serving Locales
 

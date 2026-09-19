@@ -4242,3 +4242,47 @@ async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_
   assert!(html.contains("<h2>Help</h2>"), "without the directory the page renders live: {html}");
   let _ = std::fs::remove_dir_all(&out);
 }
+
+const BOARD_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/board", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/board/page.tera#default", "source": "board" } } ] } }
+  ],
+  "sources": [
+    { "id": "board", "owner": "lowered", "module": "routes/board/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Board" } } ] }, { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
+  ],
+  "actions": [],
+  "components": []
+}"#;
+
+#[cfg(feature = "tera")]
+#[tokio::test]
+async fn a_template_route_is_rendered_by_the_stock_host_from_the_file_under_the_app() {
+  let dir = app_dir();
+  write_plan(&dir, BOARD_PLAN);
+  std::fs::create_dir_all(dir.join("routes/board")).unwrap();
+  std::fs::create_dir_all(dir.join("templates")).unwrap();
+  std::fs::write(dir.join("templates/nav.tera"), "<nav>{{ title }}</nav>").unwrap();
+  std::fs::write(dir.join("routes/board/page.tera"), "{% include \"templates/nav.tera\" %}<h1>{{ title }}</h1><ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>").unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  let response = host.handle(Request::get("/board").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let html = body_of(response).await;
+  assert!(html.contains("<nav>Board</nav><h1>Board</h1><ul><li>a</li><li>b</li></ul>"), "the loader's object is the template's context and a partial resolves by its path: {html}");
+
+  std::fs::remove_file(dir.join("routes/board/page.tera")).unwrap();
+  let err = Host::from(dir.join("app.toml")).unwrap().build().err().expect("refused");
+  assert!(matches!(err, snapfire_fsr_host::HostError::TemplateMissing(ref m) if m == "routes/board/page.tera#default"), "{err}");
+}
+
+#[cfg(not(feature = "tera"))]
+#[tokio::test]
+async fn a_plan_naming_a_template_is_refused_without_the_feature() {
+  let dir = app_dir();
+  write_plan(&dir, BOARD_PLAN);
+  let err = Host::from(dir.join("app.toml")).unwrap().build().err().expect("refused");
+  assert!(matches!(err, snapfire_fsr_host::HostError::Uncovered(ref m) if m == "routes/board/page.tera#default"), "{err}");
+}

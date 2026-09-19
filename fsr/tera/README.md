@@ -29,3 +29,6 @@ A `Tera` instance is built by the application and handed over, so an application
 | Leave a hole for a plan child's subtree | `slot(name="...")` in the template |
 | Place the document head the assembler computed | `head()` in the template |
 | Detect a marker token in a rendered string | `MARKER` |
+| Ask whether a template was added | `TeraEvaluator::has(name)` |
+
+An application on the stock host needs none of this. With the host's `tera` feature, which `fsr serve` carries by default, a `page.tera` or `layout.tera` under `routes/` is a route the build discovers, every `.tera` under the app is read at boot and named by its path and this evaluator renders the module with the loader's data as its context. The API below is for a Rust host that builds its own `Tera`.

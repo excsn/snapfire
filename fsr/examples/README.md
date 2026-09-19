@@ -1,6 +1,6 @@
 # FSR examples
 
-Thirteen applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Fourteen applications, each carrying the part of FSR the ones before it do not reach. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Read them in this order. Each has a `README.md` saying what it shows and where.
 
@@ -17,6 +17,7 @@ Read them in this order. Each has a `README.md` saying what it shows and where.
 | [conference_react_ts](conference_react_ts/README.md) | A one-day conference programme | The application with no Rust in it: routes, loaders and actions in TypeScript alone, compiled to a plan the stock host reads at boot, over a service that is an OpenAPI document and a file of canned answers |
 | [recipes_vue_ts](recipes_vue_ts/README.md) | A household recipe box | A second framework on the same seam: every interactive piece a `.vue` file compiled by `snapfirec-vue` and mounted by Vue, the pages static templates that load no framework, no React anywhere in the application |
 | [toolshed_web_ts](toolshed_web_ts/README.md) | A street's tool library | No framework at all: custom elements the browser upgrades where the server wrote their markup, one inside a shadow root the server wrote, plus htmx regions swapping fragments the host renders, one segment of a route at a time |
+| [noticeboard_tera](noticeboard_tera/README.md) | A building's noticeboard, every page a Tera template | A template route on the stock host with no Rust project: `page.tera` and `layout.tera` under `routes/`, loaders lowered beside them, a partial included by its path, `fsr serve app` as the whole server |
 | [advanced_tera_app](advanced_tera_app/) | A Rust application rendering Tera templates on the stock host | The framework with no TypeScript at all: routes, loaders and actions bound in Rust, form-encoded actions for a page with no JavaScript, rendering through the `Evaluator` seam |
 | [uni](uni/README.md) | A desk board under a Tera layout | Three interaction models on one page: a React island, a Vue island and an htmx region, one store between the two runtimes, one router replacing a Vue segment with a React one, plus the measured weight of all three |
 
@@ -56,6 +57,7 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8160 | `recipes_vue_ts`, which has no binary of its own |
 | 8170 | `toolshed_web_ts`, which has no binary of its own |
 | 8180 | `uni` |
+| 8190 | `noticeboard_tera`, which has no binary of its own |
 
 ## The portal and the site together
 

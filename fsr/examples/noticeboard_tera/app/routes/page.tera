@@ -1,0 +1,6 @@
+<h1>Notices</h1>
+<ul>
+{% for notice in notices %}
+  <li><a href="/notice/{{ notice.id }}">{{ notice.title }}</a> <time>{{ notice.posted }}</time></li>
+{% endfor %}
+</ul>

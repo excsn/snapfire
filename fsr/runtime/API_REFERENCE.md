@@ -205,6 +205,7 @@ Module-to-evaluator dispatch. `Default`, which is no rules.
 
 * `pub fn new() -> Self`
 * `pub fn register(&mut self, applies: impl Fn(&ModuleId) -> bool + Send + Sync + 'static, evaluator: Arc<dyn Evaluator>)`
+* `pub fn covers(&self, module: &ModuleId) -> bool`: whether a registered rule, rather than the null evaluator, answers the module.
 * `pub fn select(&self, module: &ModuleId) -> &dyn Evaluator`: the first registered rule whose predicate returns true, in registration order. With no match it returns the built-in `NullEvaluator`, so `select` never fails.
 
 ## 5. The runtime

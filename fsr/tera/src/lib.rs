@@ -116,6 +116,11 @@ impl TeraEvaluator {
     Self { tera }
   }
 
+  /// Whether a template of that name was added.
+  pub fn has(&self, name: &str) -> bool {
+    self.tera.contains_template(name)
+  }
+
   /// The chunks one `island(...)` becomes: the `<sf-s data-sf-island>` region
   /// around it when the placement asked for a timing or for server mode, which
   /// is where the browser reads both, else the client node alone.

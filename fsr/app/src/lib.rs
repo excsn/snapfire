@@ -225,6 +225,11 @@ pub struct Intercepts {
 }
 
 impl Intercepts {
+  /// Every intercept plan, in no particular order.
+  pub fn all(&self) -> impl Iterator<Item = &PlanNode> {
+    self.plans.values().flatten()
+  }
+
   /// Every intercept of the route `path` matches, with the matched params.
   pub fn plans_for(&self, path: &str) -> Option<(Vec<PlanNode>, Params)> {
     let matched = self.matcher.match_path(path)?;
@@ -505,6 +510,11 @@ impl AppBuilder {
   {
     self.evaluators.register(predicate, evaluator);
     self
+  }
+
+  /// Whether an evaluator registered so far answers `module`.
+  pub fn covers(&self, module: &ModuleId) -> bool {
+    self.evaluators.covers(module)
   }
 
   /// One handler of an island a template renders, answering with the state to

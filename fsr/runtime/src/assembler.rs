@@ -68,6 +68,11 @@ impl Evaluators {
     }
     &self.null
   }
+
+  /// Whether a registered evaluator, rather than the null one, answers `module`.
+  pub fn covers(&self, module: &ModuleId) -> bool {
+    self.rules.iter().any(|(applies, _)| applies(module))
+  }
 }
 
 pub struct Runtime {

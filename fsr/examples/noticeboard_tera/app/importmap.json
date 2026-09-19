@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "@snapfire/fsr-client": "/static/js/fsr/index.js",
+    "@snapfire/fsr-client/std": "/static/js/fsr/std.js",
+    "@snapfire/fsr-client/store": "/static/js/fsr/store.js"
+  }
+}

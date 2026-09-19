@@ -23,6 +23,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Middleware in Rust](#middleware-in-rust)
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
 * [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
+* [Rendering a Template Route](#rendering-a-template-route)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
@@ -480,6 +481,23 @@ render    /help                  routes/help/page.tsx#default not rendered
 ```rust
 assert_eq!(host.report().app.warmable, vec!["layout.promo".to_owned(), "widths".to_owned()]);
 assert_eq!(host.report().warmed, 2);
+```
+
+## Rendering a Template Route
+
+A plan may name `routes/board/page.tera#default` where it would name a `page.tsx`, which is what `fsr build` writes for a `page.tera` under `routes/`. With the `tera` feature the host reads every `.tera` under the app at boot, outside `vendor/`, `dist/`, `generated/`, `node_modules/`, `tests/` and `types/`, into one `Tera` with the island, slot and head markers registered, each template named by its path under the app. It renders such a module from it with the loader's returned object as the context. A partial is any template under the app, included by that same name.
+
+```toml
+[dependencies]
+snapfire_fsr_host = { version = "0", features = ["tera"] }
+```
+
+The feature is off in this crate and on in the CLI, so `fsr serve` answers a template route with nothing to configure and a library embedding the host takes the feature when it wants it. A plan naming a template module the host cannot render is a boot error rather than a 404: `Uncovered` without the feature and with no evaluator registered for it, `TemplateMissing` when the tree under the app has no template of that name. An application that builds its own `Tera`, with its own filters or templates named its own way, registers it through `evaluator` and the stock one steps aside:
+
+```rust
+let host = Host::from("config")?
+  .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
+  .build()?;
 ```
 
 ## Serving Locales

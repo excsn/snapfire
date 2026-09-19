@@ -1,0 +1,10 @@
+{% if notice %}
+<article>
+  <h1>{{ notice.title }}</h1>
+  <p><time>{{ notice.posted }}</time></p>
+  <p>{{ notice.body }}</p>
+</article>
+{% else %}
+<p>No such notice.</p>
+{% endif %}
+<p><a href="/">Back to the board</a></p>

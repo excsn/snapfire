@@ -18,8 +18,10 @@ name = "fsr"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["tera"]
 tls = ["snapfire_fsr_host/tls"]
+# A `page.tera` or `layout.tera` under `routes/`, served by the stock host.
+tera = ["snapfire_fsr_host/tera"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

@@ -856,3 +856,62 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert!(err.contains("ext/bad.ts:2:") && err.contains("must lower"), "{err}");
   std::fs::remove_dir_all(&unlowerable).unwrap();
 }
+
+#[cfg(feature = "tera")]
+#[test]
+fn a_page_tera_is_a_route_the_plan_names_and_nothing_lowers() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", PAGE),
+    ("routes/board/page.tera", "<h1>{{ title }}</h1>\n"),
+    ("routes/board/page.loader.ts", "export async function load() {\n  return { title: \"Board\" };\n}\n"),
+    ("routes/board/actions.ts", "import { action } from \"@snapfire/fsr\";\nexport const poke = action(async () => 1);\n"),
+    ("routes/wall/layout.tera", "<section>{{ slot(name=\"content\") }}{{ island(module=\"src/Tips.tsx#TipList\", props=dict(cents=7), when=\"visible\") }}</section>\n"),
+    ("routes/wall/page.tsx", PAGE),
+    ("src/Tips.tsx", "import { useState } from \"react\";\nexport function TipList({ cents = 5 }: { cents?: number }) {\n  const [n, setN] = useState(cents);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let plan = plan_json(&dir);
+  let board = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/board").expect("the template is a route");
+  let leaf = &board["plan"]["children"][0]["node"]["children"][0]["node"];
+  assert_eq!(leaf["module"], "routes/board/page.tera#default", "{board}");
+  assert_eq!(leaf["source"], "board");
+  assert!(plan["components"].as_array().unwrap().iter().all(|c| !c["module"].as_str().unwrap().ends_with(".tera#default")), "no component is lowered for a template");
+  assert!(plan["actions"].as_array().unwrap().iter().any(|a| a["id"] == "board.poke"), "actions beside a template page lower as beside a page.tsx");
+  let wall = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/wall").unwrap();
+  assert_eq!(wall["plan"]["children"][0]["node"]["children"][0]["node"]["module"], "routes/wall/layout.tera#default", "a template layout wraps its pages");
+  let report = built.report.to_string();
+  assert!(report.contains("routes/board/page.tera#default") && report.contains("template"), "{report}");
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).expect("the islands registry is written");
+  assert!(!islands.contains(".tera"), "a template is never bundled: {islands}");
+  assert!(islands.contains("src/Tips.tsx"), "an island a template places is registered: {islands}");
+  assert!(plan["components"].as_array().unwrap().iter().any(|c| c["module"] == "src/Tips.tsx#TipList"), "and lowered");
+  std::fs::remove_dir_all(&dir).unwrap();
+
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", PAGE),
+    ("routes/board/page.tera", "<p>x</p>\n{{ island(module=which) }}\n"),
+  ]);
+  let err = build(&dir, &Options::default()).err().expect("refused");
+  assert!(matches!(err, BuildError::TemplateIsland { line: 2, .. }), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
+
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", PAGE),
+    ("routes/index/page.tera", "<p>two</p>\n"),
+  ]);
+  let err = build(&dir, &Options::default()).err().expect("refused");
+  assert!(matches!(err, BuildError::PageAndTemplate { ref first, ref second, .. } if first == "page.tsx" && second == "page.tera"), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[cfg(not(feature = "tera"))]
+#[test]
+fn a_page_tera_is_refused_by_an_fsr_built_without_the_feature() {
+  let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/board/page.tera", "<h1>hi</h1>\n")]);
+  let err = build(&dir, &Options::default()).err().expect("refused");
+  assert!(matches!(err, BuildError::TemplateFeature(_)), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

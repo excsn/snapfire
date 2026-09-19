@@ -18,6 +18,9 @@ pub mod tls;
 #[cfg(feature = "ws")]
 pub mod socket;
 
+#[cfg(feature = "tera")]
+pub mod tera;
+
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -66,6 +69,18 @@ pub const LOADS_FILE: &str = "loads.json";
 /// Beside the prerendered documents: every file the last run wrote, relative
 /// to the directory, which the next run removes before writing its own.
 pub const WRITTEN_FILE: &str = "prerendered.json";
+/// The extensions of a route or layout file the host renders through a
+/// template evaluator rather than the lowered tree: `routes/board/page.tera`
+/// is the module `routes/board/page.tera#default` and no component is lowered
+/// for it. The CLI discovers such files by this list and the host refuses a
+/// plan naming one no evaluator answers.
+pub const TEMPLATE_EXTENSIONS: &[&str] = &["tera"];
+
+/// Whether a module's path ends in one of `TEMPLATE_EXTENSIONS`.
+pub fn is_template_module(module: &ModuleId) -> bool {
+  TEMPLATE_EXTENSIONS.iter().any(|ext| module.path.ends_with(&format!(".{ext}")))
+}
+
 /// Beside `loads.json`: every subtree a build rendered ahead of a request,
 /// under the memo key a request composes for it, which a boot reads into the
 /// render memo in front of whatever `[cache]` configured.
@@ -196,6 +211,32 @@ pub enum HostError {
   Mount(String, String),
   #[error("`{0}`: paths: {1}")]
   Paths(String, String),
+  #[error("the plan names `{0}`, a template no evaluator answers; build with the `tera` feature or register one with `HostBuilder::evaluator`")]
+  Uncovered(String),
+  #[error("the plan names `{0}` and no such template is under the app")]
+  TemplateMissing(String),
+  #[error("templates under {0}: {1}")]
+  Template(PathBuf, String),
+}
+
+/// Refuses a plan node naming a template module nothing renders: one no
+/// evaluator covers, or one the stock evaluator covers with no template of
+/// that name under the app.
+fn templates_answered(plan: &PlanNode, evaluators: &snapfire_fsr_runtime::Evaluators, stock: Option<&[String]>) -> Result<(), HostError> {
+  if is_template_module(&plan.module) {
+    if !evaluators.covers(&plan.module) {
+      return Err(HostError::Uncovered(plan.module.to_string()));
+    }
+    if let Some(names) = stock {
+      if !names.iter().any(|n| *n == plan.module.path) {
+        return Err(HostError::TemplateMissing(plan.module.to_string()));
+      }
+    }
+  }
+  for (_, child) in &plan.children {
+    templates_answered(child, evaluators, stock)?;
+  }
+  Ok(())
 }
 
 /// `pattern` with each `{name}` or `{*name}` replaced by `set[name]`; every
@@ -4230,10 +4271,22 @@ impl HostBuilder {
           .any(|(m, n, _)| format!("{m}.{n}") == *name)
       })
       .collect();
-    let app = app
-      .services(services)
-      .evaluator(move |m: &ModuleId| m.path == shell_path, shell)
-      .build()?;
+    let app = app.services(services);
+    #[cfg(not(feature = "tera"))]
+    let stock_templates: Option<Vec<String>> = None;
+    #[cfg(feature = "tera")]
+    let (app, stock_templates) = match tera::evaluator(&config.app)? {
+      Some((evaluator, names)) if !app.covers(&ModuleId::new("probe.tera", "default")) => (app.evaluator(is_template_module, Arc::new(evaluator)), Some(names)),
+      _ => (app, None),
+    };
+    let app = app.evaluator(move |m: &ModuleId| m.path == shell_path, shell).build()?;
+    for (index, _) in app.patterns.iter().enumerate() {
+      let Some(plan) = app.resolver.resolve(snapfire_fsr_runtime::EntryId(index as u32), &Params::new()) else { continue };
+      templates_answered(&plan, &app.runtime.evaluators, stock_templates.as_deref())?;
+    }
+    for plan in app.intercepts.all().chain(app.not_found.iter()) {
+      templates_answered(plan, &app.runtime.evaluators, stock_templates.as_deref())?;
+    }
 
     let styles = config.document.styles.clone().unwrap_or_default();
     let mut head = shell::head(

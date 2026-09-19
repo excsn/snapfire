@@ -20,6 +20,8 @@ tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
 ws = ["dep:tokio-tungstenite"]
 # `POST /__fsr/sites/reload`, an administrative route the host does not guard.
 sites_reload = []
+# A `.tera` route or layout under the app, rendered by the Tera evaluator.
+tera = ["dep:snapfire_fsr_tera", "dep:tera"]
 
 [dependencies]
 fibre = "0.6"
@@ -32,6 +34,8 @@ snapfire_fsr_ir.workspace = true
 snapfire_fsr_auth.workspace = true
 snapfire_fsr_core.workspace = true
 snapfire_fsr_payload.workspace = true
+snapfire_fsr_tera = { workspace = true, optional = true }
+tera = { version = "2", features = ["fast", "preserve_order"], optional = true }
 snapfire_fsr_plan.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc"] }

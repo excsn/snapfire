@@ -1,0 +1,5 @@
+<div class="board">
+  <header>{% include "templates/nav.tera" %}</header>
+  <main>{{ slot(name="content") }}</main>
+  <footer>{{ notices | length }} notices, served from templates under <code>routes/</code>.</footer>
+</div>
