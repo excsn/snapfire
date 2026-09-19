@@ -19,6 +19,16 @@ function rawPropsFor(root, id) {
 function propsFor(root, id) {
     return decodeValue(rawPropsFor(root, id));
 }
+export function markerProps(marker) {
+    const next = marker.nextElementSibling;
+    const script = next?.tagName === "SCRIPT" && next.getAttribute("data-sf-props") === marker.id ? next : null;
+    const encoded = script?.textContent ? JSON.parse(script.textContent) : {};
+    return {
+        script,
+        props: decodeValue(encoded),
+        encoded
+    };
+}
 export const defineMounter = ()=>undefined;
 export function serverRendered(el) {
     return Array.from(el.childNodes).some((node)=>!(node instanceof Element && node.tagName === "SF-S"));
@@ -37,7 +47,8 @@ function mountNow(entry, moduleId, el, props) {
         gone: false,
         props,
         regions: null,
-        children: null
+        children: null,
+        child: null
     };
     island.handle = entry.loader().then((mod)=>island.gone ? undefined : entry.mount(mod, props, el, hydrate)).then((value)=>{
         if (island.gone) return undefined;
@@ -68,8 +79,87 @@ export function islandState(el) {
     return island ? {
         props: island.props,
         regions: island.regions,
-        children: island.children
+        children: island.children,
+        child: island.child
     } : null;
+}
+export function treeRootOf(node) {
+    const slot = node?.parentNode;
+    if (!(slot instanceof Element) || slot.tagName !== "SF-S" || slot.hasAttribute("data-sf-island") || slot.hasAttribute("data-sf-name") || slot.hasAttribute("data-sf-children")) return null;
+    const root = slot.parentElement?.closest("sf-i");
+    if (!root) return null;
+    const entry = islands.get(root.getAttribute("data-sf-module") ?? "");
+    return entry?.claims ? root : null;
+}
+export function adoptTreeChild(marker, root) {
+    const moduleId = marker.getAttribute("data-sf-module") ?? "";
+    const page = islands.get(moduleId);
+    const tree = mounted.get(root);
+    if (!page || !tree?.child || mounted.has(marker)) return;
+    const entry = {
+        loader: page.loader,
+        mount: ()=>undefined,
+        patch: (_handle, _module, props, el)=>{
+            const state = mounted.get(el);
+            const child = mounted.get(root)?.child;
+            if (!state || !child) return;
+            child.props = props;
+            child.regions = state.regions;
+            child.children = state.children;
+            child.gen += 1;
+            void rerender(root);
+        },
+        unmount: ()=>undefined
+    };
+    mounted.set(marker, {
+        entry,
+        moduleId,
+        handle: Promise.resolve(root),
+        root,
+        gone: false,
+        props: tree.child.props,
+        regions: tree.child.regions,
+        children: tree.child.children,
+        child: null
+    });
+    marker.setAttribute(SCHEDULED, "");
+    marker.setAttribute(MOUNTED, "");
+}
+async function rerender(root) {
+    const island = mounted.get(root);
+    if (!island?.entry.patch) return false;
+    const handle = await island.handle;
+    if (handle === undefined) return false;
+    const mod = await island.entry.loader();
+    island.entry.patch(handle, mod, island.props, root);
+    return true;
+}
+const landing = new Set();
+export function treeSettled() {
+    return Promise.all(landing).then(()=>undefined);
+}
+export function setTreeChild(root, child) {
+    const work = (async ()=>{
+        const island = mounted.get(root);
+        if (!island) return false;
+        const handle = await island.handle;
+        if (handle === undefined || island.gone) return false;
+        const page = child.module === null ? undefined : islands.get(child.module);
+        if (page) child.component = await page.loader();
+        child.instance = (island.child?.instance ?? 0) + 1;
+        for (const slot of Array.from(root.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-name]):not([data-sf-children])"))){
+            if (slot.parentElement?.closest("sf-i") === root) discard(slot);
+        }
+        island.child = child;
+        return rerender(root);
+    })();
+    landing.add(work);
+    void work.finally(()=>landing.delete(work));
+    return work;
+}
+export function holdTreeChild(root, child) {
+    const island = mounted.get(root);
+    if (island) island.child = child;
 }
 export async function patchIsland(el, props, regions = null, children = null, encoded) {
     if (isServerIsland(el)) return patchServer(el, props, encoded);
@@ -133,6 +223,11 @@ export function scan(root) {
             el.setAttribute(SCHEDULED, "");
             el.setAttribute(MOUNTED, "");
             mountServer(el, moduleId, rawPropsFor(root, el.id));
+            continue;
+        }
+        const tree = treeRootOf(el);
+        if (tree && islands.get(tree.getAttribute("data-sf-module") ?? "")?.claims?.(el)) {
+            el.setAttribute(SCHEDULED, "");
             continue;
         }
         const entry = islands.get(moduleId);

@@ -244,13 +244,17 @@ fn shadow_root() -> BoxedStrategy<snapfire_fsr_ir::ShadowRoot> {
 
 fn component() -> BoxedStrategy<Component> {
   (body(), tmpl(), prop::collection::vec(text(), 0..3),
-   prop::collection::vec((text(), body()), 0..3), any::<bool>(), prop::option::of(shadow_root()))
+   prop::collection::vec((text(), body()), 0..3), 0u8..3, prop::option::of(shadow_root()))
     .prop_map(|(body, render, state, handlers, hydrate, shadow)| Component {
       body,
       render,
       state,
       handlers: handlers.into_iter().map(|(event, body)| Handler { event, body }).collect(),
-      hydrated_by: hydrate.then_some(snapfire_fsr_ir::HydratedBy::React),
+      hydrated_by: match hydrate {
+        0 => None,
+        1 => Some(snapfire_fsr_ir::HydratedBy::React),
+        _ => Some(snapfire_fsr_ir::HydratedBy::ReactTree),
+      },
       shadow,
     })
   .boxed()
@@ -431,6 +435,21 @@ fn malformed_templates_and_statements_are_refused() {
     let err = stmt_from_sx(form).expect_err(&format!("`{src}` must not read")).to_string();
     assert!(err.contains(want), "`{src}`: wanted `{want}`, got `{err}`");
   }
+}
+
+#[test]
+fn a_tree_root_is_its_own_section() {
+  let component = Component { hydrated_by: Some(snapfire_fsr_ir::HydratedBy::ReactTree), ..Component::new(Vec::new(), Tmpl::Text("x".to_owned())) };
+  let text = print(std::slice::from_ref(&component_to_sx(&component)));
+  assert!(text.contains("(tree)"), "{text}");
+  assert!(!text.contains("(static)"), "{text}");
+  assert_eq!(component_from_sx(&parse(&text).unwrap()[0]).unwrap(), component);
+  let json = serde_json::to_string(&component).unwrap();
+  assert!(json.contains("\"hydrate\":\"tree\""), "{json}");
+  assert_eq!(serde_json::from_str::<Component>(&json).unwrap(), component);
+  assert!(!serde_json::to_string(&Component::new(Vec::new(), Tmpl::Text("x".to_owned()))).unwrap().contains("hydrate"), "React alone is the default and is left out");
+  let err = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"},\"hydrate\":\"vine\"}").unwrap_err().to_string();
+  assert!(err.contains("boolean or \"tree\""), "{err}");
 }
 
 #[test]

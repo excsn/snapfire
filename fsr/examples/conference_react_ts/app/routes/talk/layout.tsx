@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link, tree } from "@snapfire/fsr-client/react";
 
-export default function TalkLayout({ children }: { children: ReactNode }) {
+/** The talk renders inside this layout's React root: a click to another talk renders the new page from its props under the same crumbs. */
+function TalkLayout({ children }: { children: ReactNode }) {
   return (
     <section className="talk-shell">
       <p className="crumbs">
@@ -13,3 +14,5 @@ export default function TalkLayout({ children }: { children: ReactNode }) {
     </section>
   );
 }
+
+export default tree(TalkLayout);

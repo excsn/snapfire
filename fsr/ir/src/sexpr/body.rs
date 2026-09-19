@@ -61,8 +61,10 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
 /// between the head and these.
 pub fn component_sections(component: &Component) -> Vec<Sx> {
   let mut rest = Vec::new();
-  if component.hydrated_by.is_none() {
-    rest.push(form("static", Vec::new()));
+  match component.hydrated_by {
+    None => rest.push(form("static", Vec::new())),
+    Some(crate::ast::HydratedBy::ReactTree) => rest.push(form(crate::ast::HydratedBy::TREE, Vec::new())),
+    Some(crate::ast::HydratedBy::React) => {}
   }
   if let Some(shadow) = &component.shadow {
     let mut terms = vec![Sx::sym(shadow.mode.as_str())];
@@ -173,6 +175,7 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
     let inner = section.as_list()?;
     match section.head() {
       Some("static") => out.hydrated_by = None,
+      Some("tree") => out.hydrated_by = Some(crate::ast::HydratedBy::ReactTree),
       Some("shadow") => {
         let a = at_least(inner, "shadow", 1)?;
         let mode = sym_of(&a[0])?;

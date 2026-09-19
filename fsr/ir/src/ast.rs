@@ -256,9 +256,17 @@ impl ShadowMode {
 
 /// What mounts a component over the server's markup. React is the only one:
 /// a template is TSX, which runs as React when it needs the browser.
+/// `ReactTree` is a layout the React adapter renders as one root with the
+/// page inside it, declared as `export default tree(Layout)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HydratedBy {
   React,
+  ReactTree,
+}
+
+impl HydratedBy {
+  /// The word the plan's `(tree)` section and the JSON `hydrate` field use.
+  pub const TREE: &'static str = "tree";
 }
 
 fn by_react() -> Option<HydratedBy> {
@@ -269,19 +277,33 @@ fn is_by_react(by: &Option<HydratedBy>) -> bool {
   *by == Some(HydratedBy::React)
 }
 
-/// `hydrated_by` in the JSON plan as the `hydrate` flag it replaced, which
-/// says everything while React is the one framework that hydrates.
+/// `hydrated_by` in the JSON plan as the `hydrate` flag it replaced: `false`
+/// for nothing, `true` for React and `"tree"` for a React tree root.
 mod hydrated_as_flag {
   use serde::{Deserialize, Deserializer, Serializer};
 
   use super::HydratedBy;
 
+  #[derive(Deserialize)]
+  #[serde(untagged)]
+  enum Flag {
+    Bool(bool),
+    Word(String),
+  }
+
   pub fn serialize<S: Serializer>(by: &Option<HydratedBy>, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_bool(by.is_some())
+    match by {
+      Some(HydratedBy::ReactTree) => s.serialize_str(HydratedBy::TREE),
+      other => s.serialize_bool(other.is_some()),
+    }
   }
 
   pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<HydratedBy>, D::Error> {
-    Ok(bool::deserialize(d)?.then_some(HydratedBy::React))
+    match Flag::deserialize(d)? {
+      Flag::Bool(on) => Ok(on.then_some(HydratedBy::React)),
+      Flag::Word(word) if word == HydratedBy::TREE => Ok(Some(HydratedBy::ReactTree)),
+      Flag::Word(word) => Err(serde::de::Error::custom(format!("`hydrate` is a boolean or \"tree\", not \"{word}\""))),
+    }
   }
 }
 

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { Island, Link } from "@snapfire/fsr-client/react";
+import { Island, Link, tree } from "@snapfire/fsr-client/react";
 
 import Saved from "@src/ui/Saved";
 import type { Conference } from "@generated/services";
 
-export default function ConferenceLayout({
+/** One React root with the page inside it: a navigation renders the new page from its props under the live masthead rather than in a root of its own. */
+function ConferenceLayout({
   children,
   announcements,
   sponsors,
@@ -47,3 +48,5 @@ export default function ConferenceLayout({
     </div>
   );
 }
+
+export default tree(ConferenceLayout);

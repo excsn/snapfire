@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { island, Island, Link } from "@snapfire/fsr-client/react";
 
 import type { TalkIdProps } from "@generated/client";
@@ -8,6 +9,7 @@ import SaveTalk from "@src/ui/SaveTalk";
 const WhenSeen = island(Feedback, { when: "visible" });
 
 export default function TalkPage({ talk, alongside, saved }: TalkIdProps) {
+  const [clashes, setClashes] = useState(true);
   return (
     <article className="page talk">
       <p className="when">
@@ -20,8 +22,13 @@ export default function TalkPage({ talk, alongside, saved }: TalkIdProps) {
       </Island>
       <p className="abstract">{talk.abstract}</p>
       <section className="alongside">
-        <h3>At the same time</h3>
-        {alongside.length === 0 ? (
+        <h3>
+          At the same time
+          <button className="btn btn-small" onClick={() => setClashes(!clashes)}>
+            {clashes ? "Hide" : "Show"}
+          </button>
+        </h3>
+        {!clashes ? null : alongside.length === 0 ? (
           <p className="quiet">Nothing else is on.</p>
         ) : (
           <ul>

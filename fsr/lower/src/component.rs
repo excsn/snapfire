@@ -308,7 +308,11 @@ impl ComponentSet {
     // An element template has no browser half, so nothing would read what
     // hoisting records or rewrites.
     let element_template = self.elements.values().any(|m| *m == module);
-    let ((component, refs), hoisting) = loop {
+    let tree = match tree_target(&self.parsed[file].clone()) {
+      Ok(found) => found.filter(|_| export == "default"),
+      Err((span, message)) => return Err(self.parsed[file].residue(span, message).into()),
+    };
+    let ((component, refs, providers), hoisting) = loop {
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
         let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
@@ -319,8 +323,9 @@ impl ComponentSet {
         lowerer.hoisting = (!element_template).then(Candidates::default);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new() };
         let result = cl.component(&function);
+        let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
         let result = match result {
           Err(residue) if cl.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
@@ -366,9 +371,22 @@ impl ComponentSet {
     // it has no browser twin and pulls no framework into the page. A component
     // it renders inline is part of its markup, so that component's state and
     // handlers are its own to hydrate; an island's are the island's.
+    let provides = !providers.is_empty();
+    for (name, (line, column)) in providers {
+      if !self.context_binding(file, &name)? {
+        return Err(LowerError::Residue(Residue { file: file.to_owned(), line, column, message: format!("`<{name}.Provider>`: `{name}` is not a `createContext` value this file declares or imports"), hint: None, via: Vec::new() }));
+      }
+    }
     let render = rewrite_modules(component.render, &modules, &islands);
-    let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || self.inline_hydrates(&render);
-    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, hydrated_by: hydrates.then_some(snapfire_fsr_ir::HydratedBy::React), shadow: component.shadow };
+    // A provider is React state the page's islands read, so the component
+    // is a root even when nothing else in it needs the browser.
+    let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || self.inline_hydrates(&render);
+    let hydrated_by = match tree {
+      Some((_, span)) if !self.layouts.iter().any(|m| *m == module) => return Err(self.parsed[file].residue(span, "`tree(...)` marks a layout; this module is not one").into()),
+      Some(_) => Some(snapfire_fsr_ir::HydratedBy::ReactTree),
+      None => hydrates.then_some(snapfire_fsr_ir::HydratedBy::React),
+    };
+    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, hydrated_by, shadow: component.shadow };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
       return Err(LowerError::Residue(Residue {
@@ -473,6 +491,20 @@ impl ComponentSet {
   /// A module-level name as an expression: a `const` inlined, a function as a
   /// lambda, an import resolved in its own file. `None` when the file has no
   /// such name.
+  /// Whether `name` in `file` is a module-level `createContext(...)` from
+  /// `react`, followed through imports.
+  fn context_binding(&mut self, file: &str, name: &str) -> Result<bool, LowerError> {
+    let parsed = self.parsed[file].clone();
+    if let Some((source, imported)) = find_import(&parsed, name) {
+      let Some(target) = self.resolve_import(file, &source) else { return Ok(false) };
+      self.load(&target)?;
+      return self.context_binding(&target, &imported);
+    }
+    let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return Ok(false) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(false) };
+    Ok(imported_callee(&parsed, callee).is_some_and(|(source, imported)| source == "react" && imported == "createContext"))
+  }
+
   fn global(&mut self, file: &str, name: &str) -> Result<Option<(Expr, String)>, LowerError> {
     let key = format!("{file}#{name}");
     if self.resolving.iter().any(|m| *m == key) {
@@ -796,6 +828,11 @@ fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match &*e.expr {
         js::Expr::Arrow(arrow) => return Some(Found::Arrow(arrow)),
         js::Expr::Ident(id) => return find_function(parsed, id.sym.as_ref()),
+        js::Expr::Call(_) => {
+          if let Ok(Some((name, _))) = tree_target(parsed) {
+            return find_function(parsed, &name);
+          }
+        }
         _ => {}
       },
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => {
@@ -829,6 +866,24 @@ fn default_function_name(parsed: &Parsed) -> Option<&str> {
     },
     _ => None,
   })
+}
+
+/// `export default tree(Layout)` with `tree` from the React adapter: the
+/// component's name and the call's span. `None` for any other default export.
+fn tree_target(parsed: &Parsed) -> Result<Option<(String, Span)>, (Span, String)> {
+  for item in &parsed.module.body {
+    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) = item else { continue };
+    let js::Expr::Call(call) = &*e.expr else { return Ok(None) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    if imported_callee(parsed, callee).filter(|(source, _)| is_template_source(source)).map(|(_, name)| name).as_deref() != Some("tree") {
+      return Ok(None);
+    }
+    return match (call.args.first().map(|a| &*a.expr), call.args.len()) {
+      (Some(js::Expr::Ident(target)), 1) => Ok(Some((target.sym.to_string(), call.span))),
+      _ => Err((call.span, "`tree(...)` takes the layout's component name and nothing else".to_owned())),
+    };
+  }
+  Ok(None)
 }
 
 fn decl_function<'a>(decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
@@ -1236,6 +1291,9 @@ struct ComponentLowerer<'a, 'p> {
   lowered_handlers: Vec<Handler>,
   /// Custom element tags with a shadow template, to the template's module.
   elements: Rc<HashMap<String, String>>,
+  /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
+  /// set after to be `createContext` values.
+  providers: Vec<(String, (usize, usize))>,
 }
 
 impl ComponentLowerer<'_, '_> {
@@ -1643,6 +1701,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       },
       js::JSXElementName::JSXNamespacedName(n) => return Err(self.lowerer.residue(n.span, "a namespaced tag")),
     };
+    if let js::JSXElementName::JSXMemberExpr(m) = &el.opening.name {
+      if let (js::JSXObject::Ident(obj), "Provider") = (&m.obj, m.prop.sym.as_ref()) {
+        if find_namespace_import(self.lowerer.parsed, obj.sym.as_ref()).is_none() {
+          let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
+          self.providers.push((obj.sym.to_string(), (loc.line, loc.col_display + 1)));
+          return Ok(Tmpl::Fragment(self.children(&el.children)?));
+        }
+      }
+    }
     let is_component = member || name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
     if is_component {
       return self.component_ref(&name, el, as_child);
@@ -3371,6 +3438,66 @@ export default function Order({ id }: { id: number }) {
     let err = lower(&timing, "routes/b/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("written out"), "{err}");
   }
+
+  #[test]
+  fn a_provider_tag_lowers_to_its_children_and_the_component_hydrates() {
+    let files = [
+      ("src/theme.ts", "import { createContext } from \"react\";\nexport const Theme = createContext(\"light\");\n"),
+      (
+        "routes/layout.tsx",
+        "import { Theme } from \"../src/theme\";\nexport default function Layout({ children, mode }: { children: unknown; mode: string }) {\n  return <Theme.Provider value={mode}><div class=\"shell\">{children}</div></Theme.Provider>;\n}\n",
+      ),
+    ];
+    let mut set = ComponentSet::new(&app(&files));
+    set.layouts.push("routes/layout.tsx#default".to_owned());
+    set.lower("routes/layout.tsx#default").unwrap();
+    let layout = &set.components[0].1;
+    let Tmpl::Fragment(items) = &layout.render else { panic!("{:?}", layout.render) };
+    let Tmpl::Element { tag, children, .. } = &items[0] else { panic!("{:?}", items[0]) };
+    assert_eq!(tag, "div");
+    assert_eq!(children[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
+    assert_eq!(layout.hydrated_by, Some(snapfire_fsr_ir::HydratedBy::React), "a provider only exists in the browser, so the layout is a root");
+  }
+
+  #[test]
+  fn a_provider_whose_object_is_not_a_context_is_residue() {
+    let files = [("routes/a/page.tsx", "const Theme = { Provider: (p: { children: unknown }) => p.children };\nexport default function A() {\n  return <Theme.Provider><p>x</p></Theme.Provider>;\n}\n")];
+    let err = lower(&files, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`Theme` is not a `createContext` value"), "{err}");
+  }
+
+  #[test]
+  fn tree_marks_a_layout_as_one_react_tree_and_is_refused_elsewhere() {
+    let layout = "import type { ReactNode } from \"react\";\nimport { tree } from \"@snapfire/fsr-client/react\";\nfunction Layout({ children }: { children: ReactNode }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n";
+    let mut set = ComponentSet::new(&app(&[("routes/layout.tsx", layout)]));
+    set.layouts.push("routes/layout.tsx#default".to_owned());
+    set.lower("routes/layout.tsx#default").unwrap();
+    assert_eq!(set.components[0].1.hydrated_by, Some(snapfire_fsr_ir::HydratedBy::ReactTree));
+    let Tmpl::Element { children, .. } = &set.components[0].1.render else { panic!() };
+    assert_eq!(children[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
+
+    let page = [("routes/a/page.tsx", "import { tree } from \"@snapfire/fsr-client/react\";\nfunction A() {\n  return <p>x</p>;\n}\nexport default tree(A);\n")];
+    let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("marks a layout"), "{err}");
+
+    let odd = [("routes/layout.tsx", "import { tree } from \"@snapfire/fsr-client/react\";\nexport default tree(() => <p>x</p>);\n")];
+    let mut set = ComponentSet::new(&app(&odd));
+    set.layouts.push("routes/layout.tsx#default".to_owned());
+    let err = set.lower("routes/layout.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("takes the layout's component name"), "{err}");
+  }
+
+}
+
+/// Where copying a constant into every body that reads it starts to cost more
+/// than a table entry and an indirection.
+const CONST_WEIGHT: usize = 32;
+
+/// How many nodes an expression is.
+fn weight(expr: &Expr) -> usize {
+  let mut n = 0;
+  expr.visit(&mut |_| n += 1);
+  n
 }
 
 /// When a `Link` points at the page being shown.
@@ -3427,15 +3554,5 @@ fn keep_value(value: Expr) -> Expr {
     Expr::Lit(Lit::Bool(keep)) => Expr::lit_str(if keep { "true" } else { "false" }),
     value => Expr::Ternary(Box::new(value), Box::new(Expr::lit_str("true")), Box::new(Expr::lit_str("false"))),
   }
-}
 
-/// Where copying a constant into every body that reads it starts to cost more
-/// than a table entry and an indirection.
-const CONST_WEIGHT: usize = 32;
-
-/// How many nodes an expression is.
-fn weight(expr: &Expr) -> usize {
-  let mut n = 0;
-  expr.visit(&mut |_| n += 1);
-  n
 }

@@ -90,6 +90,14 @@ export interface HoistReader {
 export declare function useHoisted(module: string): HoistReader;
 /** `element` under the hoisted table `table`, the way the mounter places an island under the table its props carried. */
 export declare function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement;
+/** `component` as the layout the React adapter mounts as one tree with its page: `export default tree(Layout)`. The build registers the layout with the tree mounter, so the page renders inside the layout's root and React context set in the layout reaches it. In the browser the layout is the component itself. */
+export declare function tree<P extends object>(component: ComponentType<P>): ComponentType<P>;
+/** Whether a tree root renders `marker`, the island in its child region, itself: a page whose module the registry mounts with React. A layout under it, which holds a slot region, is a root of its own, as is anything another framework mounts or nothing registered. */
+export declare function reactTreeClaims(marker: Element): boolean;
 export declare const reactMounter: Mounter;
 export declare const reactPatcher: Patcher;
+/** Mounts a layout declared `tree(Layout)` as one root with its page: the page's module is loaded first, its marker and props read out of the child region and the whole hydrated at once. A child region holding anything else is adopted, as `reactMounter` adopts it. */
+export declare const reactTreeMounter: Mounter;
+/** Re-renders a tree root: with its own new props, with the page's new props or with the child the navigator handed it. */
+export declare const reactTreePatcher: Patcher;
 export declare const reactUnmounter: Unmounter;

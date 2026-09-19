@@ -22,9 +22,9 @@ The programme is on <http://127.0.0.1:8150/>.
 | `clients/program.mock.json` | what those four methods answer, `listSponsors` with a failure |
 | `schemas/session.ts` | the session's shape and its defaults, which is what makes `session.saved` typed |
 | `schemas/program.ts` | the action's input type, named in the contract the build emits |
-| `routes/layout.tsx` | the masthead, the nav and the two panels, over `layout.loader.ts` |
+| `routes/layout.tsx` | the masthead, the nav and the two panels, over `layout.loader.ts`, declared `tree` so the page renders in its React root |
 | `routes/page.tsx` | the day, filtered by `?track=` |
-| `routes/talk/layout.tsx` | a second layout between the masthead and the talk |
+| `routes/talk/layout.tsx` | a second layout between the masthead and the talk, a tree too, so a click to another talk renders it under the same crumbs |
 | `routes/talk/[id]/` | the talk, its actions and the boundary that catches an id off the programme |
 | `routes/saved/` | the session read back as a page, cached by nothing |
 | `routes/slots/announcements/` | a parallel segment with its own loader and fallback |
@@ -67,6 +67,7 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | A cached segment plus an uncached one | `listTalks` and `getConference` carry `x-sf-cache`, `listAnnouncements` and `listSponsors` do not |
 | Metadata from loader data | `export const meta` in the talk loader and the saved loader |
 | Client navigation preserving layout state | open the masthead panel, click a talk: the page region is replaced and the panel stays open |
+| One React tree for a layout and its page | both layouts are `tree(...)`: the talk hydrates in the talk layout's root with its props script consumed and a click to another talk renders the new page from its props inside the live layout; `tests/tree.spec.tsx` |
 
 The island timings are the one thing the test suite cannot tell apart, since the spec harness reports every observed element as in view. Scroll the talk page in a browser instead: the pace control hydrates when it comes into view and not before.
 

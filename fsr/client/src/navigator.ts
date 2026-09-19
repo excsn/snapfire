@@ -1,4 +1,4 @@
-import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, scan, setTreeChild, treeRootOf, treeSettled, type TreeChild } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -70,24 +70,41 @@ function replaceRegion(region: Region, html: string): boolean {
 }
 
 /** Fills a streamed slot with its content, delimited as the region its segment key names, so a later navigation can diff it. */
-function fillSlot(slot: number, node: SfNode, key: string | null): void {
+function fillSlot(slot: number, node: SfNode, seg: Segment | null): void {
   const el = document.querySelector(`[data-sf-slot="${slot}"]`);
   if (!el) return;
+  const root = treeRootOf(el);
+  if (root) {
+    treeChild(root, node, seg);
+    return;
+  }
   const template = document.createElement("template");
   const html = nodeToHtml(node, ids);
-  writeMarkup(template, key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`);
+  writeMarkup(template, seg === null ? html : `<!--sf-g:${escapeKey(seg.k)}-->${html}<!--/sf-g-->`);
   discard(el);
   el.replaceWith(template.content);
 }
 
-/** The key of the segment a slot id resolves, from a sidecar. */
-function keyOfSlot(seg: Segment, slot: number): string | null {
-  if (seg.s === slot) return seg.k;
+/** The segment a slot id resolves, from a sidecar. */
+function segmentOfSlot(seg: Segment, slot: number): Segment | null {
+  if (seg.s === slot) return seg;
   for (const child of seg.c) {
-    const found = keyOfSlot(child, slot);
+    const found = segmentOfSlot(child, slot);
     if (found !== null) return found;
   }
   return null;
+}
+
+/** Hands a tree root what its child region shows now. A page, which is a client node with no child segments, is described for the root to render; anything else is markup for it to adopt, delimited the way the region was. */
+function treeChild(root: Element, node: SfNode, seg: Segment | null): void {
+  const key = seg === null ? null : escapeKey(seg.k);
+  const html = seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
+  const adopted: TreeChild = { module: null, props: {}, regions: null, children: null, html, rendered: true, instance: 0, gen: 0, marker: null, key };
+  const child: TreeChild =
+    node.kind === "client" && seg !== null && seg.c.length === 0
+      ? { module: node.module, props: node.props, encoded: node.encoded, regions: regionSources(node, ids), children: childrenOf(node, ids), html, rendered: node.ssr !== null || node.children.length > 0, instance: 0, gen: 0, marker: null, key }
+      : adopted;
+  void setTreeChild(root, child);
 }
 
 /** The pending node a slot id names, anywhere under `node`. */
@@ -152,15 +169,28 @@ function namedSlotOf(region: Region, name: string): Element | null {
   return null;
 }
 
-/** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. */
-function replaceChild(old: Segment, html: string): boolean {
+/** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. `seg` is the segment `node` renders as, null for a pending node written bare. Under a tree root the node is handed to the root instead, which renders or adopts it. */
+function replaceChild(old: Segment, node: SfNode, seg: Segment | null): boolean {
+  const html = () => (seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
   const region = findRegion(old.k);
-  if (region) return replaceRegion(region, html);
+  if (region) {
+    const root = treeRootOf(region.start);
+    if (root) {
+      treeChild(root, node, seg);
+      return true;
+    }
+    return replaceRegion(region, html());
+  }
   if (old.s === undefined) return false;
   const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
   if (!el) return false;
+  const root = treeRootOf(el);
+  if (root) {
+    treeChild(root, node, seg);
+    return true;
+  }
   const template = document.createElement("template");
-  writeMarkup(template, html);
+  writeMarkup(template, html());
   discard(el);
   el.replaceWith(template.content);
   return true;
@@ -192,7 +222,7 @@ function patchProps(region: Region, node: SfNode): void {
 
 /** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. With `keep`, a mismatch of the same module is morphed in place instead, so every island its new markup places again keeps its DOM and its state, unless the new segment carries a slot over untouched, which its markup does not hold. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
 function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean, keep: boolean): boolean {
-  const swap = () => replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
+  const swap = () => replaceChild(oldSeg, newNode, newSeg);
   const paired = moduleOf(oldSeg.k) === moduleOf(newSeg.k);
   const same = paired && oldSeg.d !== undefined && oldSeg.d === newSeg.d;
   const morphs = keep && paired && (newNode.kind === "client" || !newSeg.keep?.length);
@@ -204,7 +234,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean,
     // demanding a full load.
     if (!same && morphs && newNode.kind !== "client" && morphStatic(oldSeg.k, newNode, newSeg)) return true;
     if (!same && !morphs) {
-      if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
+      if (replaceChild(oldSeg, newNode, newSeg)) return true;
       if (!paired) return false;
     }
     const region = findRegion(oldSeg.k);
@@ -256,7 +286,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean,
       // Streaming again: the old child's place takes the slot with its
       // fallback; the resolution fills it with the delimited content.
       const pending = pendingOf(newNode, newChild.s);
-      if (!pending || !replaceChild(oldChild, nodeToHtml(pending, ids))) return false;
+      if (!pending || !replaceChild(oldChild, pending, null)) return false;
       continue;
     }
     if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force, keep)) return false;
@@ -457,7 +487,8 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
       if (gen !== generation) return;
       const row = parseRow(line);
       if (row.tag === "S") {
-        fillSlot(row.slot, row.node, keyOfSlot(segments, row.slot));
+        fillSlot(row.slot, row.node, segmentOfSlot(segments, row.slot));
+        await treeSettled();
         scan(document);
         watchLinks(document);
         document.dispatchEvent(new CustomEvent("sf:fill", { detail: row.slot }));
@@ -714,6 +745,7 @@ export async function refresh(): Promise<void> {
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager || !patch(eager, true, false)) return bail();
+  await treeSettled();
   announce();
   await drain(rows, eager.segments, gen);
 }
@@ -782,6 +814,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
     markLinks();
     if (options.scroll !== false) scrollToFragment(url.hash);
   }
+  await treeSettled();
   announce();
   await drain(rows, eager.segments, gen);
 }

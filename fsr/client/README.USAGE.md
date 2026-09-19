@@ -18,6 +18,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
+* [Rendering the Page in the Layout's Tree](#rendering-the-page-in-the-layouts-tree)
 * [Mounting Vue Components](#mounting-vue-components)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
@@ -177,7 +178,7 @@ registerIsland("components/ServerChart.tsx#default", {
 });
 ```
 
-The key must be the exact `data-sf-module` string the server wrote. A layout is registered like any island; `reactMounter` recognises the `<sf-s>` in its markup and hands the component a child element it never reconciles, so the page inside hydrates in its own root and a navigation swaps it under the live layout. A marker whose module id is not registered is left server-rendered and logged:
+The key must be the exact `data-sf-module` string the server wrote. A layout is registered like any island; `reactMounter` recognises the `<sf-s>` in its markup and hands the component a child element it never reconciles, so the page inside hydrates in its own root and a navigation swaps it under the live layout. A layout declared with `tree` is registered with `reactTreeMounter` instead and renders the page in its own root, as the chapter on the layout's tree shows. A marker whose module id is not registered is left server-rendered and logged:
 
 ```
 sf: no island registered for components/ServerChart.tsx#default
@@ -337,6 +338,33 @@ import { navigate } from "@snapfire/fsr-client";
 void navigate(`/wave/${id}?at=${step}`, true, { replace: true, scroll: false });
 void navigate("/?category=printing", true, { keep: false });
 ```
+
+## Rendering the Page in the Layout's Tree
+
+A layout and its page are two React roots by default: the layout adopts the region the page sits in and never reconciles it, so a page under a React layout can be anything. A layout that wants one tree, so that context and providers set in it reach the page, says so with `tree`:
+
+```tsx
+import type { ReactNode } from "react";
+import { tree } from "@snapfire/fsr-client/react";
+import { Theme } from "@src/theme";
+
+function Layout({ children, mode }: { children: ReactNode; mode: string }) {
+  return (
+    <Theme.Provider value={mode}>
+      <header className="masthead">…</header>
+      <main>{children}</main>
+    </Theme.Provider>
+  );
+}
+
+export default tree(Layout);
+```
+
+The build registers such a layout with `reactTreeMounter`, `reactTreePatcher` and `reactTreeClaims`; in the browser `tree` returns the component as it is. The server's markup does not change: the page is still an `<sf-i>` with a props script inside the layout's `<sf-s>`, between the region's delimiters. What changes is who mounts it. The scan leaves the page's marker to the layout, the tree mounter loads the page's module, reads its props off the script and hydrates one root over layout and page together, rendering `<sf-s>` and `<sf-i>` the way the server wrote them. The page's own islands, its hoisted table and its regions stay its own, under its marker.
+
+A navigation to another page under the layout hands the layout the new page rather than writing markup: the navigator sees the region's parent is a tree root's child region and calls `setTreeChild`, which loads the module, ends the islands the old page placed and re-renders the layout with the new page as a fresh instance. The layout's DOM and its state stay. So does anything the layout provides. A revalidation or a navigation that changes only the query reaches the same page as a props patch, so the page keeps its instance and its state. A `<Theme.Provider>` in a layout lowers as its children, so the layout still renders on the server; a page that reads the context with `useContext` is residue, rendered in the browser only. A tree renders such a page after it has hydrated.
+
+The tree reaches one level: the page directly under the layout. A layout below a tree layout is a root of its own, mounted by the scan as before. So is a page of another framework, a page the build left static or one whose module the registry does not hold yet, each adopted as markup. A named slot and an intercept are adopted regions under either kind of layout. The conference example's two layouts are both trees, so a click from one talk to another renders the new talk under the same crumbs and the same masthead.
 
 ## Mounting Vue Components
 

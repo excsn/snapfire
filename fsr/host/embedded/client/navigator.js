@@ -1,4 +1,4 @@
-import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, scan, setTreeChild, treeRootOf, treeSettled } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
@@ -56,22 +56,57 @@ function replaceRegion(region, html) {
     range.deleteContents();
     return true;
 }
-function fillSlot(slot, node, key) {
+function fillSlot(slot, node, seg) {
     const el = document.querySelector(`[data-sf-slot="${slot}"]`);
     if (!el) return;
+    const root = treeRootOf(el);
+    if (root) {
+        treeChild(root, node, seg);
+        return;
+    }
     const template = document.createElement("template");
     const html = nodeToHtml(node, ids);
-    writeMarkup(template, key === null ? html : `<!--sf-g:${escapeKey(key)}-->${html}<!--/sf-g-->`);
+    writeMarkup(template, seg === null ? html : `<!--sf-g:${escapeKey(seg.k)}-->${html}<!--/sf-g-->`);
     discard(el);
     el.replaceWith(template.content);
 }
-function keyOfSlot(seg, slot) {
-    if (seg.s === slot) return seg.k;
+function segmentOfSlot(seg, slot) {
+    if (seg.s === slot) return seg;
     for (const child of seg.c){
-        const found = keyOfSlot(child, slot);
+        const found = segmentOfSlot(child, slot);
         if (found !== null) return found;
     }
     return null;
+}
+function treeChild(root, node, seg) {
+    const key = seg === null ? null : escapeKey(seg.k);
+    const html = seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
+    const adopted = {
+        module: null,
+        props: {},
+        regions: null,
+        children: null,
+        html,
+        rendered: true,
+        instance: 0,
+        gen: 0,
+        marker: null,
+        key
+    };
+    const child = node.kind === "client" && seg !== null && seg.c.length === 0 ? {
+        module: node.module,
+        props: node.props,
+        encoded: node.encoded,
+        regions: regionSources(node, ids),
+        children: childrenOf(node, ids),
+        html,
+        rendered: node.ssr !== null || node.children.length > 0,
+        instance: 0,
+        gen: 0,
+        marker: null,
+        key
+    } : adopted;
+    void setTreeChild(root, child);
 }
 function pendingOf(node, slot) {
     if (node.kind === "pending") return node.slot === slot ? node : null;
@@ -129,14 +164,27 @@ function namedSlotOf(region, name) {
     }
     return null;
 }
-function replaceChild(old, html) {
+function replaceChild(old, node, seg) {
+    const html = ()=>seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
     const region = findRegion(old.k);
-    if (region) return replaceRegion(region, html);
+    if (region) {
+        const root = treeRootOf(region.start);
+        if (root) {
+            treeChild(root, node, seg);
+            return true;
+        }
+        return replaceRegion(region, html());
+    }
     if (old.s === undefined) return false;
     const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
     if (!el) return false;
+    const root = treeRootOf(el);
+    if (root) {
+        treeChild(root, node, seg);
+        return true;
+    }
     const template = document.createElement("template");
-    writeMarkup(template, html);
+    writeMarkup(template, html());
     discard(el);
     el.replaceWith(template.content);
     return true;
@@ -165,7 +213,7 @@ function patchProps(region, node) {
     void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded);
 }
 function diff(oldSeg, newSeg, newNode, force, keep) {
-    const swap = ()=>replaceChild(oldSeg, renderSegment(newNode, newSeg, ids));
+    const swap = ()=>replaceChild(oldSeg, newNode, newSeg);
     const paired = moduleOf(oldSeg.k) === moduleOf(newSeg.k);
     const same = paired && oldSeg.d !== undefined && oldSeg.d === newSeg.d;
     const morphs = keep && paired && (newNode.kind === "client" || !newSeg.keep?.length);
@@ -173,7 +221,7 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
     if (oldSeg.k !== newSeg.k) {
         if (!same && morphs && newNode.kind !== "client" && morphStatic(oldSeg.k, newNode, newSeg)) return true;
         if (!same && !morphs) {
-            if (replaceChild(oldSeg, renderSegment(newNode, newSeg, ids))) return true;
+            if (replaceChild(oldSeg, newNode, newSeg)) return true;
             if (!paired) return false;
         }
         const region = findRegion(oldSeg.k);
@@ -223,7 +271,7 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
         }
         if (newChild.s !== undefined) {
             const pending = pendingOf(newNode, newChild.s);
-            if (!pending || !replaceChild(oldChild, nodeToHtml(pending, ids))) return false;
+            if (!pending || !replaceChild(oldChild, pending, null)) return false;
             continue;
         }
         if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force, keep)) return false;
@@ -398,7 +446,8 @@ async function drain(rows, segments, gen) {
             if (gen !== generation) return;
             const row = parseRow(line);
             if (row.tag === "S") {
-                fillSlot(row.slot, row.node, keyOfSlot(segments, row.slot));
+                fillSlot(row.slot, row.node, segmentOfSlot(segments, row.slot));
+                await treeSettled();
                 scan(document);
                 watchLinks(document);
                 document.dispatchEvent(new CustomEvent("sf:fill", {
@@ -598,6 +647,7 @@ export async function refresh() {
     if (eager) await applyStyles(eager.styles);
     if (gen !== generation) return;
     if (!eager || !patch(eager, true, false)) return bail();
+    await treeSettled();
     announce();
     await drain(rows, eager.segments, gen);
 }
@@ -660,6 +710,7 @@ export async function navigate(href, push = true, options = {}) {
         markLinks();
         if (options.scroll !== false) scrollToFragment(url.hash);
     }
+    await treeSettled();
     announce();
     await drain(rows, eager.segments, gen);
 }

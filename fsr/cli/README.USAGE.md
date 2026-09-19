@@ -461,7 +461,7 @@ Every integer width is `bigint`, because a body runs over the value model where 
 
 ## Registering the Islands
 
-`generated/islands.ts` registers every module the browser mounts, so the browser mounts exactly what the plan refers to: the pages, layouts and boundaries with state or handlers plus every component a template places as an island. A template with neither and nothing inline that has them is `static`: nothing mounts it, so it is not registered and not compiled. `main.ts` calls the registration and registers only what the build cannot know, such as the component of a route added in Rust.
+`generated/islands.ts` registers every module the browser mounts, so the browser mounts exactly what the plan refers to: the pages, layouts and boundaries with state or handlers plus every component a template places as an island. A template with neither and nothing inline that has them is `static`: nothing mounts it, so it is not registered and not compiled. A layout declared `export default tree(Layout)` is registered with the React adapter's tree mounter and `claims`, reported as `tree`, so the page under it renders in the layout's root. `main.ts` calls the registration and registers only what the build cannot know, such as the component of a route added in Rust.
 
 ```ts
 import { boot, enableNavigation } from "@snapfire/fsr-client";

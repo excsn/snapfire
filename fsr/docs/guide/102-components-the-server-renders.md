@@ -39,6 +39,7 @@ Three things in a component are the browser's and the build drops them rather th
 - **Event handlers.** Any `on*` attribute. The server writes the markup; the browser attaches the behaviour when it hydrates.
 - **Inner functions.** The `add` and `search` functions the handlers call and a `const` holding an arrow. Dropped by name; a reference to one outside a handler is residue.
 - **Hooks.** `const [quantity, setQuantity] = useState(1)` reads as `const quantity = 1`, which is exactly what a first render sees in the browser too. The setter is a handler. `useMemo(() => e)` reads as `e`, `useRef(x)` as `{ current: x }`, `useCallback` as a handler. `useEffect` and its layout and insertion variants are dropped whole, since the server never runs an effect and neither does React's own server renderer.
+- **Providers.** `<Theme.Provider value={mode}>` where `Theme` is a `createContext` value the file declares or imports reads as its children, the value dropped, since the server renders nothing from it. The component then hydrates, because the context exists only in the browser.
 
 Markup an application produced is ordinary too. `<div dangerouslySetInnerHTML={{ __html: body }} />` writes that string into the document as markup and renders no children, the same on the server as in React, so a page whose loader returns rendered markdown is readable before the bundle runs. Nothing escapes or sanitises it: whoever produced the string answers for it, which is the contract the spelling has always carried.
 

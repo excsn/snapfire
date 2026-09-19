@@ -104,6 +104,8 @@ The cursor over one application: parsed files, lowered components and the resolu
 
 * The context parameter is the first parameter of the body: an identifier or an object pattern whose keys are `params`, `query`, `session`, `services`, `identity`, `input` or `now`, each optionally renamed with `key: local`. Any other key, a nested pattern or a rest element is residue.
 * Imports, type declarations and non-action exports are ignored.
+* `<X.Provider>` where `X` is a module-level `const` bound to `createContext(...)` from `react`, in the file or followed through its imports, lowers to `Tmpl::Fragment` of its children with the `value` dropped and makes the component hydrate; `X` bound to anything else is residue naming the tag. `useContext` and `X.Consumer` stay residue.
+* `export default tree(Layout)` with `tree` from `@snapfire/fsr-client/react` lowers `Layout` as the default export and sets `hydrated_by` to `HydratedBy::ReactTree`, whatever the layout holds. The module must be one of `ComponentSet::layouts`; on any other module the call is residue, as is a call with anything but one identifier.
 * In a component, `<Island when="visible">` with `Island` imported from `@snapfire/fsr-client/react` places its one component child as `Tmpl::Island`; a module-level `const Lazy = island(Chart, { when })` with `island` from the same module makes `<Lazy … />` the same. `when` must be written out as `"load"`, `"visible"` or `"idle"`; `<Island>` around an element, with any other attribute or with more than one child is residue.
 
 ### Statements

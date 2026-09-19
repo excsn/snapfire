@@ -229,6 +229,7 @@ fn every_manifest() -> Manifest {
     hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
     shadow: Some(snapfire_fsr_ir::ShadowRoot { mode: snapfire_fsr_ir::ShadowMode::Closed, delegates_focus: true, clonable: true, serializable: true }),
   };
+  let tree = Component { hydrated_by: Some(snapfire_fsr_ir::HydratedBy::ReactTree), ..Component::new(Vec::new(), Tmpl::Slot("content".to_owned())) };
   let node = Node {
     id: 0,
     module: "shell#document".to_owned(),
@@ -286,7 +287,10 @@ fn every_manifest() -> Manifest {
       },
       ActionEntry::rust("cart.clear"),
     ],
-    components: vec![ComponentEntry { module: "routes/page.tsx#default".to_owned(), body: component }],
+    components: vec![
+      ComponentEntry { module: "routes/page.tsx#default".to_owned(), body: component },
+      ComponentEntry { module: "routes/layout.tsx#default".to_owned(), body: tree },
+    ],
     consts,
     not_found: Some(node.clone()),
     handlers: vec![

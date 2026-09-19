@@ -157,6 +157,8 @@ A layout is an island like a page. It hydrates in its own root and the page hydr
 
 The line between them is firm: the page cannot read the layout's data and the layout cannot read the page's. Nothing but the session and the actions crosses it. That is what keeps a page under a React layout free to be anything.
 
+A React layout can give that up for one thing: context. `export default tree(Layout)`, with `tree` from the React adapter, mounts the layout and its page as one React root, so a provider in the layout reaches the page and a navigation renders the new page from its props inside the live layout rather than in a root of its own. The server's markup is the same either way and the layout's state survives a click the same way. A provider tag lowers as its children, so the layout still renders on the server; a page reading the context with `useContext` renders in the browser only, as it always did. The tree reaches the page directly under the layout: a layout below it is a root of its own. The conference example declares both of its layouts this way.
+
 ## A layout has slots and a route can render into one
 
 Three rules cover what Next calls parallel and intercepting routes. A directory is a URL and nothing else. A layout declares its holes in code. A slot that is a route of its own lives under `slots/` beside the layout.

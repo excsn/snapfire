@@ -510,6 +510,26 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
 }
 
 #[test]
+fn a_layout_declared_tree_registers_with_the_tree_mounter_and_its_page_with_the_plain_one() {
+  let dir = app(&[
+    (
+      "routes/layout.tsx",
+      "import { tree } from \"@snapfire/fsr-client/react\";\nfunction Layout({ children }: { children: unknown }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n",
+    ),
+    ("routes/page.tsx", "import { useState } from \"react\";\nexport default function Page() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("registerIsland(\"routes/layout.tsx#default\", { loader: () => import(\"../routes/layout.js\").then((m) => m.default), mount: reactTreeMounter, patch: reactTreePatcher, unmount: reactUnmounter, claims: reactTreeClaims });"), "{islands}");
+  assert!(islands.contains("registerIsland(\"routes/page.tsx#default\", { loader: () => import(\"../routes/page.js\").then((m) => m.default), mount: reactMounter, patch: reactPatcher, unmount: reactUnmounter });"), "{islands}");
+  assert!(islands.contains("import { reactTreeMounter, reactTreePatcher, reactUnmounter, reactTreeClaims, reactMounter, reactPatcher } from \"@snapfire/fsr-client/react\";"), "one import line per adapter module: {islands}");
+  assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/layout.tsx#default" && owner == "lowered" && detail == "tree"), "{}", built.report);
+  let plan = built.files.iter().find(|(name, _)| name == "generated/plan.sexp").map(|(_, text)| text.clone()).unwrap();
+  assert!(plan.contains("(component routes/layout.tsx#default (tree)"), "{plan}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_page_with_a_handler_hydrates_and_a_component_placed_as_an_island_is_registered_whatever_it_holds() {
   let dir = app(&[
     (

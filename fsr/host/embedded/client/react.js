@@ -1,6 +1,6 @@
 import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { islandState, patchIsland, scan } from "./boot.js";
+import { adoptTreeChild, discard, holdTreeChild, islandState, markerProps, patchIsland, registeredIslands, scan, serverRendered } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -349,25 +349,139 @@ function splitHoisted(props) {
         hoisted ?? null
     ];
 }
-function withRegions(el, element, patched) {
+function withRegions(el, element, patched, sources) {
     const state = regionsOf(el);
     if (patched) {
-        state.sources = islandState(el)?.regions ?? null;
+        state.sources = sources === undefined ? islandState(el)?.regions ?? null : sources;
         state.gen += 1;
     }
     return createElement(RegionsContext.Provider, {
         value: state
     }, element);
 }
-function islandElement(component, props, el, patched) {
+function islandElement(component, props, el, patched, sources) {
     const [own, hoisted] = splitHoisted(props);
     const element = createElement(component, {
         ...own,
         ...slotPropsFor(el)
-    }, childrenFor(el));
+    }, treeChildFor(el) ?? childrenFor(el));
     return createElement(Mounting, {
         el
-    }, withRegions(el, withHoisted(hoisted, element), patched));
+    }, withRegions(el, withHoisted(hoisted, element), patched, sources));
+}
+export function tree(component) {
+    return component;
+}
+export function reactTreeClaims(marker) {
+    const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
+    if (!entry || entry.mount !== reactMounter) return false;
+    return !Array.from(marker.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-children])")).some((slot)=>slot.parentElement?.closest("sf-i") === marker);
+}
+async function hydratedChild(root) {
+    const slot = slotOf(root);
+    const marker = slot ? Array.from(slot.children).find((child)=>child.tagName === "SF-I") : undefined;
+    if (!marker || !reactTreeClaims(marker)) return null;
+    const module = marker.getAttribute("data-sf-module") ?? "";
+    const entry = registeredIslands().get(module);
+    if (!entry) return null;
+    const component = await entry.loader();
+    const { script, props, encoded } = markerProps(marker);
+    script?.remove();
+    const before = marker.previousSibling;
+    const key = before instanceof Comment && before.data.startsWith("sf-g:") ? before.data.slice("sf-g:".length) : null;
+    return {
+        module,
+        component,
+        props,
+        encoded,
+        regions: null,
+        children: null,
+        html: "",
+        rendered: serverRendered(marker),
+        instance: 0,
+        gen: 0,
+        marker,
+        key
+    };
+}
+function treeChildFor(root) {
+    const child = islandState(root)?.child;
+    if (!child) return undefined;
+    if (child.module !== null && child.component !== undefined && registeredIslands().get(child.module)?.mount === reactMounter) {
+        return createElement(TreeChild, {
+            key: `t${child.instance}`,
+            root,
+            child
+        });
+    }
+    return createElement(AdoptedChild, {
+        key: `a${child.instance}`,
+        html: child.html
+    });
+}
+let rendered = 0;
+function delimit(marker, key) {
+    const before = marker.previousSibling;
+    if (!(before instanceof Comment && before.data === `sf-g:${key}`)) marker.before(document.createComment(`sf-g:${key}`));
+    const after = marker.nextSibling;
+    if (!(after instanceof Comment && after.data === "/sf-g")) marker.after(document.createComment("/sf-g"));
+}
+function TreeChild({ root, child }) {
+    const [held] = useState(()=>({
+            el: child.marker ?? document.createElement("sf-i"),
+            id: child.marker?.id ?? `sf-t${++rendered}`
+        }));
+    const marker = useRef(null);
+    const [live, setLive] = useState(child.rendered);
+    const seen = useRef(-1);
+    const patched = seen.current !== child.gen;
+    seen.current = child.gen;
+    useEffect(()=>{
+        const el = marker.current;
+        if (!el) return;
+        adoptTreeChild(el, root);
+        if (child.key !== null) delimit(el, child.key);
+        if (!live) {
+            setLive(true);
+            return;
+        }
+        scan(el);
+    });
+    useEffect(()=>{
+        const el = marker.current;
+        return ()=>{
+            if (el) discard(el);
+        };
+    }, []);
+    const element = live ? islandElement(child.component, child.props, held.el, patched, child.regions) : null;
+    const page = createElement("sf-i", {
+        ref: marker,
+        id: held.id,
+        "data-sf-module": child.module,
+        suppressHydrationWarning: true
+    }, element);
+    return createElement("sf-s", {
+        suppressHydrationWarning: true
+    }, page);
+}
+function AdoptedChild({ html }) {
+    const region = useRef(null);
+    useEffect(()=>{
+        if (region.current) scan(region.current);
+    });
+    useEffect(()=>{
+        const el = region.current;
+        return ()=>{
+            if (el) discard(el);
+        };
+    }, []);
+    return createElement("sf-s", {
+        ref: region,
+        dangerouslySetInnerHTML: {
+            __html: html
+        },
+        suppressHydrationWarning: true
+    });
 }
 function Mounting({ el, children }) {
     useEffect(()=>{
@@ -388,6 +502,12 @@ export const reactPatcher = (handle, component, props, el)=>{
     patchChildren(el, islandState(el)?.children ?? null);
     handle.render(islandElement(component, props, el, true));
 };
+export const reactTreeMounter = async (component, props, el, hydrate)=>{
+    const child = hydrate ? await hydratedChild(el) : null;
+    if (child) holdTreeChild(el, child);
+    return reactMounter(component, props, el, hydrate);
+};
+export const reactTreePatcher = reactPatcher;
 export const reactUnmounter = (handle)=>{
     handle.unmount();
 };

@@ -41,6 +41,14 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [boot](#boot)
   * [patchIsland](#patchisland)
   * [islandState](#islandstate)
+  * [TreeChild](#treechild)
+  * [treeRootOf](#treerootof)
+  * [setTreeChild](#settreechild)
+  * [holdTreeChild](#holdtreechild)
+  * [adoptTreeChild](#adopttreechild)
+  * [treeSettled](#treesettled)
+  * [markerProps](#markerprops)
+  * [serverRendered](#serverrendered)
   * [discard](#discard)
   * [DOM Contract](#dom-contract)
   * [isServerIsland](#isserverisland)
@@ -82,6 +90,9 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [localePath](#localepath)
 * [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
+  * [reactTreeMounter](#reacttreemounter)
+  * [reactTreeClaims](#reacttreeclaims)
+  * [tree](#tree)
   * [useHoisted](#usehoisted)
   * [withHoisted](#withhoisted)
   * [Island](#island)
@@ -398,6 +409,7 @@ What a module id is registered with.
 * `when?: MountTiming`, defaulting to `"load"`. Per island, not per page.
 * `patch?: Patcher`
 * `unmount?: Unmounter`
+* `claims?: (marker: Element) => boolean`. Set on a layout its adapter mounts as one tree with its page. `scan` asks it about each marker in the layout's child region, the bare `<sf-s>` directly under the layout's marker and leaves a claimed marker to the root: it is stamped `data-sf-scheduled` and never mounted on its own. The navigator hands such a root what a payload puts in that region through `setTreeChild` rather than writing the markup itself. The React adapter's `reactTreeClaims` claims a page whose module the registry mounts with React.
 
 ### registerIsland
 
@@ -439,9 +451,57 @@ Re-renders the island mounted at `el` with `props`, in place, through the entry'
 
 ### islandState
 
-* `function islandState(el: Element): { props: Props; regions: unknown; children: string | null } | null`
+* `function islandState(el: Element): { props: Props; regions: unknown; children: string | null; child: TreeChild | null } | null`
 
-The props the island at `el` last mounted or patched with, the regions the last patch carried and the markup it gave the island's children region. Null when nothing is mounted there.
+The props the island at `el` last mounted or patched with, the regions the last patch carried, the markup it gave the island's children region and, for a tree root, what its child region shows. Null when nothing is mounted there.
+
+### TreeChild
+
+* `interface TreeChild { module: string | null; component?: unknown; props: Props; encoded?: unknown; regions: unknown; children: string | null; html: string; rendered: boolean; instance: number; gen: number; marker: Element | null; key: string | null }`
+
+What a tree root shows in its child region. `module` names the page the root renders, with `component` its export once the registry's loader has resolved it, `props` and `encoded` the page's props as decoded and as written, `regions` what the payload said about the island regions inside the page and `children` the markup it gave the page's children region. `module` is null for markup the root adopts as it stands, which `html` holds; for a page `html` is the same markup, for an adapter that adopts after all. `rendered` is false for a page the build left to the browser, which the root renders once it has hydrated. `instance` counts replacements and `gen` patches, so an adapter tells a new child from the same child with new props. `marker` is the page's marker at hydration and null for a child a payload brought; `key` is the segment key the region's delimiters carry, escaped as the comment spells it.
+
+### treeRootOf
+
+* `function treeRootOf(node: Node | null): Element | null`
+
+The tree root whose child region holds `node`: `node`'s parent must be a bare `<sf-s>`, one carrying none of `data-sf-island`, `data-sf-name` or `data-sf-children`. The island marker around that `<sf-s>` must be registered with `claims`. Null anywhere else. The navigator asks it about a region's opening delimiter and a streamed slot's element before replacing either.
+
+### setTreeChild
+
+* `function setTreeChild(root: Element, child: TreeChild): Promise<boolean>`
+
+Hands a tree root what its child region shows from now on. The page module, when `child` names one the registry holds, is loaded and put in `child.component`; `child.instance` is set past the previous child's; every island under the root's child region is ended with `discard`; then the root re-renders through its entry's `patch` with its own props unchanged, so the adapter reads the child through `islandState`. Resolves false when nothing is mounted at `root`, its mount failed or it was discarded, which leaves the caller to write the markup itself. The work is counted by `treeSettled` until it resolves.
+
+### holdTreeChild
+
+* `function holdTreeChild(root: Element, child: TreeChild): void`
+
+Records `child` as what the root's child region holds without re-rendering, for a tree mounter that has read the page out of the region before hydrating over it.
+
+### adoptTreeChild
+
+* `function adoptTreeChild(marker: Element, root: Element): void`
+
+Registers `marker`, the page a tree root renders in its child region, as mounted by that root. Afterwards `islandState(marker)` answers with the page's props and regions and `patchIsland(marker, props, regions, children)` writes them into the root's `TreeChild`, bumps its `gen` and re-renders the root, which is how a kept page takes new props through the navigator's ordinary path. `discard(marker)` forgets it and ends the islands nested in it; the root's own render is what removes the page's DOM. The marker is stamped `data-sf-scheduled` and `data-sf-mounted`. Does nothing when the marker's module is not registered, the root holds no child or the marker is already mounted.
+
+### treeSettled
+
+* `function treeSettled(): Promise<void>`
+
+Resolves once every child handed to a tree root has been rendered or refused. `navigate` and `refresh` await it after applying the eager wave and after each streamed fill, so their promises still mean the payload has been applied whole.
+
+### markerProps
+
+* `function markerProps(marker: Element): { script: Element | null; props: Props; encoded: unknown }`
+
+The props script beside an island marker, `script[data-sf-props="<marker id>"]` as its next element sibling, with the props it holds decoded and as written. An absent or empty script gives `{}`.
+
+### serverRendered
+
+* `function serverRendered(el: Element): boolean`
+
+Whether the server rendered the island's own markup, which is what decides hydrating over mounting: true when `el` holds any child node that is not an `<sf-s>` element. Slot regions do not count, since a module the server never evaluated still carries one per plan child it must offer.
 
 * `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
 
@@ -531,7 +591,7 @@ Drops every held payload and forgets every fetch in flight, whose result is then
 
 Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` or `into` is given, then `x-sf-into` set to `into`. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default) unless `replace` is set, which replaces the current entry instead, the current path is moved to the target, then the window scrolls to the element the fragment names (by id, then by an anchor's `name`) or to the top when it names none, unless `scroll` is false or the payload was an intercept, which opens in place; `sf:navigate` is dispatched on `document` with the path in `detail`; each `S` row after it fills its slot, rescans and dispatches `sf:fill` with the slot id, each `H` row retitles and each `T` row seeds and the promise resolves once the last row has been applied. A feed that ends before `G` or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document and the rows still arriving for this one stop applying.
 
-Applying walks the old and new segment spines together. A segment whose digest both responses agree on rendered the same, so its region is kept and its delimiter retagged with the new key and an island in it is not re-rendered; the walk descends to its children all the same, since a digest elides them. Otherwise the first key mismatch replaces that region from the new payload and a mismatch the region cannot answer, at the root, descends when the two keys name the same module. Under `keep` a mismatch within one module is morphed instead: the new markup is patched into the region by the rules of `morph`, so an element that stands where it stood keeps its DOM and its scroll. Every mounted island it places again, by region key, keeps its DOM and its state wherever in the region it stood and takes the new props. A root nothing has mounted is patched like any other element. A segment that is itself an island is retagged and takes its new props. One whose new segment carries a slot over untouched is replaced as before. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included. Its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
+Applying walks the old and new segment spines together. A segment whose digest both responses agree on rendered the same, so its region is kept and its delimiter retagged with the new key and an island in it is not re-rendered; the walk descends to its children all the same, since a digest elides them. Otherwise the first key mismatch replaces that region from the new payload and a mismatch the region cannot answer, at the root, descends when the two keys name the same module. Under `keep` a mismatch within one module is morphed instead: the new markup is patched into the region by the rules of `morph`, so an element that stands where it stood keeps its DOM and its scroll. Every mounted island it places again, by region key, keeps its DOM and its state wherever in the region it stood and takes the new props. A root nothing has mounted is patched like any other element. A segment that is itself an island is retagged and takes its new props. One whose new segment carries a slot over untouched is replaced as before. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included. Its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A region or a streaming slot whose parent is the child region of a tree root, which `treeRootOf` answers, is never written by the navigator: the node is handed to the root through `setTreeChild`, as a page for the root to render when it is a client node with no child segments and as markup with its delimiters otherwise. The promise waits on `treeSettled` before it resolves. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
 
 ### refresh
 
@@ -729,6 +789,27 @@ Its own entry point, so the core package never imports React.
 
 Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. The element is wrapped in a component whose effect scans `el` for islands inside the regions the render built, which is how a nested island reaches its own root when the parent was mounted rather than hydrated. Mounting, hydrating and patching all wrap it the same way, because a root whose child element changes type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. Returns the hydration root or the root. A `$h` entry in `props` is the island's hoisted table: it is lifted out before the component sees its props and provided through `withHoisted`.
 
+### reactTreeMounter
+
+* `const reactTreeMounter: Mounter`
+* `const reactTreePatcher: Patcher`
+
+The mounter the build registers for a layout declared `tree(Layout)`. When hydrating, it reads the page out of the layout's child region first: the `<sf-i>` directly inside the bare `<sf-s>`, when `reactTreeClaims` claims it, has its module loaded through the registry, its props script consumed and removed and the segment key read off the delimiter before it; the result is held through `holdTreeChild`. Then it mounts as `reactMounter` does. The layout's `children` is the page rendered in the same root rather than an adopted region: `<sf-s>` around `<sf-i id data-sf-module>` around the page component, under the page's own regions provider and hoisted table, keyed by the child's `instance` so a replacement is a fresh element and the same instance with new props keeps its state. Once committed, the page's marker is registered through `adoptTreeChild`, the delimiters are put back around it, the marker is scanned for the islands the page places and, when the page is unmounted, `discard` ends them. A page the server did not render is rendered after the tree has hydrated, in a second commit. The `sf-g` delimiters inside the region are comment nodes React's hydration skips.
+
+A child region holding anything else is adopted as `reactMounter` adopts it: a layout below the root, which is then a root of its own, a page of another framework, a page whose module the registry does not hold yet or a page the build left static. A child a navigation brings is the same either way: a page the registry mounts with React and whose segment has no children renders in the tree, keyed as a new instance; anything else is an `<sf-s>` with the markup, delimiters included, which the scan mounts. `reactTreePatcher` is `reactPatcher`, since the child is read through `islandState` on every render.
+
+### reactTreeClaims
+
+* `function reactTreeClaims(marker: Element): boolean`
+
+Whether a tree root renders `marker`, the island in its child region, itself: the marker's module must be registered with `reactMounter` and the marker must hold no slot region of its own, an `<sf-s>` without `data-sf-island` or `data-sf-children` directly under it, since that is a layout. The build sets it as the `claims` of every tree layout's entry.
+
+### tree
+
+* `function tree<P extends object>(component: ComponentType<P>): ComponentType<P>`
+
+Marks a layout for the tree mounter: `export default tree(Layout)`. The build reads the call and registers the layout with `reactTreeMounter`, `reactTreePatcher` and `reactTreeClaims`; in the browser the call returns the component itself. On a page or any other module the build refuses it. React context the layout provides reaches a page rendered in its tree. A page reading it with `useContext` is still residue, rendered in the browser only, which the tree renders after hydrating.
+
 ### useHoisted
 
 * `function useHoisted(module: string): HoistReader`
@@ -743,7 +824,7 @@ The reader the build binds at the top of every component it rewrote, keyed under
 
 `element` under `table`, the way the mounter places an island under the table its props carried. `null` makes every read compute. The testing module's `render` uses it with the table the server render produced.
 
-The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, by the `data-sf-region` key each carries, which is how an `Island` rendered under this root finds its own. The provider is built once per root and kept and it carries what the payload behind the current patch says about those regions, taken from `islandState`. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like and what an island's children region, `<sf-s data-sf-children>`, looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the region at hydration and never reconciles it. A patch that brings an island's children new markup, read from `islandState`, passes a new element holding it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root.
+The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, by the `data-sf-region` key each carries, which is how an `Island` rendered under this root finds its own. The provider is built once per root and kept and it carries what the payload behind the current patch says about those regions, taken from `islandState`. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like and what an island's children region, `<sf-s data-sf-children>`, looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the region at hydration and never reconciles it. A patch that brings an island's children new markup, read from `islandState`, passes a new element holding it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root, unless the layout was mounted by `reactTreeMounter`, which renders the page in the layout's root.
 
 ### Island
 

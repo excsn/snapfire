@@ -1,7 +1,7 @@
 import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props, type Unmounter } from "./boot.js";
+import { adoptTreeChild, discard, holdTreeChild, islandState, markerProps, MountTiming, Mounter, Patcher, patchIsland, registeredIslands, scan, serverRendered, type Props, type TreeChild, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -411,20 +411,114 @@ function splitHoisted(props: object): [object, Hoisted | null] {
   return [rest, hoisted ?? null];
 }
 
-/** `element` under this root's region state, with the regions the payload behind a patch describes taken as the current generation. */
-function withRegions(el: Element, element: ReactElement, patched: boolean): ReactElement {
+/** `element` under this root's region state, with the regions the payload behind a patch describes taken as the current generation: `sources` when the caller holds them, else what the boot runtime recorded for `el`. */
+function withRegions(el: Element, element: ReactElement, patched: boolean, sources?: Map<string, RegionSource> | null): ReactElement {
   const state = regionsOf(el);
   if (patched) {
-    state.sources = (islandState(el)?.regions as Map<string, RegionSource> | null) ?? null;
+    state.sources = sources === undefined ? ((islandState(el)?.regions as Map<string, RegionSource> | null) ?? null) : sources;
     state.gen += 1;
   }
   return createElement(RegionsContext.Provider, { value: state }, element);
 }
 
-function islandElement(component: unknown, props: object, el: Element, patched: boolean): ReactElement {
+function islandElement(component: unknown, props: object, el: Element, patched: boolean, sources?: Map<string, RegionSource> | null): ReactElement {
   const [own, hoisted] = splitHoisted(props);
-  const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, childrenFor(el));
-  return createElement(Mounting, { el }, withRegions(el, withHoisted(hoisted, element), patched));
+  const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, treeChildFor(el) ?? childrenFor(el));
+  return createElement(Mounting, { el }, withRegions(el, withHoisted(hoisted, element), patched, sources));
+}
+
+/** `component` as the layout the React adapter mounts as one tree with its page: `export default tree(Layout)`. The build registers the layout with the tree mounter, so the page renders inside the layout's root and React context set in the layout reaches it. In the browser the layout is the component itself. */
+export function tree<P extends object>(component: ComponentType<P>): ComponentType<P> {
+  return component;
+}
+
+/** Whether a tree root renders `marker`, the island in its child region, itself: a page whose module the registry mounts with React. A layout under it, which holds a slot region, is a root of its own, as is anything another framework mounts or nothing registered. */
+export function reactTreeClaims(marker: Element): boolean {
+  const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
+  if (!entry || entry.mount !== reactMounter) return false;
+  return !Array.from(marker.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-children])")).some((slot) => slot.parentElement?.closest("sf-i") === marker);
+}
+
+/** The page a tree root hydrates over, read out of its child region: its module resolved through the registry, its props script consumed and its markup left for React. Null when the region holds nothing the root renders itself, which leaves the region adopted as any layout's is. */
+async function hydratedChild(root: Element): Promise<TreeChild | null> {
+  const slot = slotOf(root);
+  const marker = slot ? Array.from(slot.children).find((child) => child.tagName === "SF-I") : undefined;
+  if (!marker || !reactTreeClaims(marker)) return null;
+  const module = marker.getAttribute("data-sf-module") ?? "";
+  const entry = registeredIslands().get(module);
+  if (!entry) return null;
+  const component = await entry.loader();
+  const { script, props, encoded } = markerProps(marker);
+  script?.remove();
+  const before = marker.previousSibling;
+  const key = before instanceof Comment && before.data.startsWith("sf-g:") ? before.data.slice("sf-g:".length) : null;
+  return { module, component, props, encoded, regions: null, children: null, html: "", rendered: serverRendered(marker), instance: 0, gen: 0, marker, key };
+}
+
+/** The element a tree root places as its `children`: the page rendered in the root's tree, keyed per instance so a replacement is a fresh element. For a child the root adopts, the markup. Undefined for a root that is not a tree or holds no child yet. */
+function treeChildFor(root: Element): ReactElement | undefined {
+  const child = islandState(root)?.child;
+  if (!child) return undefined;
+  if (child.module !== null && child.component !== undefined && registeredIslands().get(child.module)?.mount === reactMounter) {
+    return createElement(TreeChild, { key: `t${child.instance}`, root, child });
+  }
+  return createElement(AdoptedChild, { key: `a${child.instance}`, html: child.html });
+}
+
+/** Ids for the page markers a tree root renders, which no server wrote. */
+let rendered = 0;
+
+/** The delimiters the navigator finds a region by, written around `marker` inside the region React renders it in. */
+function delimit(marker: Element, key: string): void {
+  const before = marker.previousSibling;
+  if (!(before instanceof Comment && before.data === `sf-g:${key}`)) marker.before(document.createComment(`sf-g:${key}`));
+  const after = marker.nextSibling;
+  if (!(after instanceof Comment && after.data === "/sf-g")) marker.after(document.createComment("/sf-g"));
+}
+
+/** A page rendered inside its layout's root: `<sf-s>` around `<sf-i>` around the page component, the way the server wrote them, so the navigator and the boot runtime read it as any island. The page's own regions and hoisted table are its own, under its marker. A page the server did not render is rendered after the tree has hydrated. */
+function TreeChild({ root, child }: { root: Element; child: TreeChild }): ReactElement {
+  const [held] = useState(() => ({ el: child.marker ?? document.createElement("sf-i"), id: child.marker?.id ?? `sf-t${++rendered}` }));
+  const marker = useRef<Element | null>(null);
+  const [live, setLive] = useState(child.rendered);
+  const seen = useRef(-1);
+  const patched = seen.current !== child.gen;
+  seen.current = child.gen;
+  useEffect(() => {
+    const el = marker.current;
+    if (!el) return;
+    adoptTreeChild(el, root);
+    if (child.key !== null) delimit(el, child.key);
+    if (!live) {
+      setLive(true);
+      return;
+    }
+    scan(el);
+  });
+  useEffect(() => {
+    const el = marker.current;
+    return () => {
+      if (el) discard(el);
+    };
+  }, []);
+  const element = live ? islandElement(child.component, child.props, held.el, patched, child.regions as Map<string, RegionSource> | null) : null;
+  const page = createElement("sf-i", { ref: marker, id: held.id, "data-sf-module": child.module, suppressHydrationWarning: true }, element);
+  return createElement("sf-s", { suppressHydrationWarning: true }, page);
+}
+
+/** Markup a tree root adopts in its child region as it stands, delimiters included: a page of another framework, a layout below the root or a page whose module is not registered, each mounted by the scan as its own root. */
+function AdoptedChild({ html }: { html: string }): ReactElement {
+  const region = useRef<Element | null>(null);
+  useEffect(() => {
+    if (region.current) scan(region.current);
+  });
+  useEffect(() => {
+    const el = region.current;
+    return () => {
+      if (el) discard(el);
+    };
+  }, []);
+  return createElement("sf-s", { ref: region, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
 }
 
 /** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */
@@ -449,6 +543,16 @@ export const reactPatcher: Patcher = (handle, component, props, el) => {
   patchChildren(el, islandState(el)?.children ?? null);
   (handle as Root).render(islandElement(component, props, el, true));
 };
+
+/** Mounts a layout declared `tree(Layout)` as one root with its page: the page's module is loaded first, its marker and props read out of the child region and the whole hydrated at once. A child region holding anything else is adopted, as `reactMounter` adopts it. */
+export const reactTreeMounter: Mounter = async (component, props, el, hydrate) => {
+  const child = hydrate ? await hydratedChild(el) : null;
+  if (child) holdTreeChild(el, child);
+  return reactMounter(component, props, el, hydrate);
+};
+
+/** Re-renders a tree root: with its own new props, with the page's new props or with the child the navigator handed it. */
+export const reactTreePatcher: Patcher = reactPatcher;
 
 export const reactUnmounter: Unmounter = (handle) => {
   (handle as Root).unmount();

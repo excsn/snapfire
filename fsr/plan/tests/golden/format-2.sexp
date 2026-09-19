@@ -276,3 +276,4 @@
     (act "desk.save" next)
     (do side))
   (on submit))
+(component routes/layout.tsx#default (tree) (render (slot content)))

@@ -38,7 +38,7 @@ impl Markup {
   /// inside its caller's tree, so it keeps its caller's.
   pub(crate) fn of(hydrated_by: Option<HydratedBy>, frameworks: Frameworks, caller: Markup) -> Markup {
     match hydrated_by {
-      Some(HydratedBy::React) => frameworks.react.map_or(Markup::Plain, Markup::React),
+      Some(HydratedBy::React | HydratedBy::ReactTree) => frameworks.react.map_or(Markup::Plain, Markup::React),
       None => caller,
     }
   }
