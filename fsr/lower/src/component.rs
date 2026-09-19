@@ -1074,6 +1074,63 @@ fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> 
 
 /// A function body as one expression: `const`s inline into what follows and
 /// `if (c) return a;` followed by more becomes `c ? a : rest`.
+/// A handler's statements as they accumulate: the statements in order, the
+/// patch as one entry per state key and the condition the statement being
+/// lowered runs under, `None` at the top of the body. A branch's declarations
+/// are hoisted under a name of their own, since the patch is evaluated after
+/// every branch has bound.
+#[derive(Default)]
+struct HandlerWalk {
+  out: Vec<Stmt>,
+  patch: Vec<Entry>,
+  reach: Option<Expr>,
+  locals: usize,
+}
+
+impl HandlerWalk {
+  fn set(&mut self, state: String, value: Expr) {
+    let value = match &self.reach {
+      None => value,
+      Some(reach) => {
+        let prior = self
+          .patch
+          .iter()
+          .find_map(|entry| match entry {
+            Entry::Field(name, held) if *name == state => Some(held.clone()),
+            _ => None,
+          })
+          .unwrap_or_else(|| Expr::Var(state.clone()));
+        Expr::Ternary(Box::new(reach.clone()), Box::new(value), Box::new(prior))
+      }
+    };
+    self.patch.retain(|entry| !matches!(entry, Entry::Field(name, _) if *name == state));
+    self.patch.push(Entry::Field(state, value));
+  }
+
+  fn act(&mut self, action: String, input: Expr) {
+    let act = Stmt::Act { action, input };
+    match &self.reach {
+      None => self.out.push(act),
+      Some(reach) => self.out.push(Stmt::If { cond: reach.clone(), then: vec![act], r#else: Vec::new() }),
+    }
+  }
+}
+
+fn reach_under(outer: &Option<Expr>, cond: Expr) -> Expr {
+  match outer {
+    None => cond,
+    Some(outer) => Expr::Logic(LogicOp::And, Box::new(outer.clone()), Box::new(cond)),
+  }
+}
+
+fn holds_act(stmts: &[Stmt]) -> bool {
+  stmts.iter().any(|stmt| match stmt {
+    Stmt::Act { .. } => true,
+    Stmt::If { then, r#else, .. } => holds_act(then) || holds_act(r#else),
+    _ => false,
+  })
+}
+
 fn block_to_expr(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let result = block_to_expr_inner(lowerer, stmts);
@@ -1766,55 +1823,100 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn handler_fn_in(&mut self, params: &[js::Pat], body: FunctionBody<'p>, span: Span) -> Lowered<Vec<Stmt>> {
+    let mut walk = HandlerWalk::default();
+    self.handler_fn_into(params, body, &mut walk)?;
+    if walk.patch.is_empty() && !holds_act(&walk.out) {
+      return Err(self.lowerer.residue(span, "a handler that sets no state and calls no action"));
+    }
+    walk.out.push(Stmt::Return(Expr::Object(walk.patch)));
+    Ok(walk.out)
+  }
+
+  /// A handler's statements into `walk`, under the reach it holds: an inlined handler runs under the branch that called it.
+  fn handler_fn_into(&mut self, params: &[js::Pat], body: FunctionBody<'p>, walk: &mut HandlerWalk) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
     if let Some(first) = params.first() {
       let js::Pat::Ident(id) = first else { return Err(self.lowerer.residue(first.span(), "a handler's event parameter must be a name")) };
       self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var("$event".to_owned())));
     }
-    let mut out = Vec::new();
-    let mut patch: Vec<Entry> = Vec::new();
-    let result = (|| {
-      match body {
-        FunctionBody::Expr(e) => self.handler_stmt(e, &mut out, &mut patch)?,
-        FunctionBody::Block(stmts) => {
-          for stmt in stmts {
-            match stmt {
-              js::Stmt::Expr(e) => self.handler_stmt(&e.expr, &mut out, &mut patch)?,
-              js::Stmt::Decl(js::Decl::Var(var)) => {
-                for decl in &var.decls {
-                  let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
-                  let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
-                  let expr = self.lowerer.expr(init)?;
-                  let local = name.id.sym.to_string();
-                  self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
-                  out.push(Stmt::Let { name: local, expr });
-                }
+    let result = match body {
+      FunctionBody::Expr(e) => self.handler_stmt(e, walk),
+      FunctionBody::Block(stmts) => self.handler_block(stmts, walk).map(|_| ()),
+    };
+    self.lowerer.scope.truncate(depth);
+    result
+  }
+
+  /// Statements of a handler or of one of its branches. True when the block ended in a bare `return`, which makes what follows the branch reachable only when the branch was not taken.
+  fn handler_block(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<bool> {
+    for stmt in stmts {
+      match stmt {
+        js::Stmt::Expr(e) => self.handler_stmt(&e.expr, walk)?,
+        js::Stmt::Decl(js::Decl::Var(var)) => {
+          for decl in &var.decls {
+            let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
+            let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+            let expr = self.lowerer.expr(init)?;
+            let local = name.id.sym.to_string();
+            let (name, expr) = match &walk.reach {
+              None => (local.clone(), expr),
+              Some(reach) => {
+                walk.locals += 1;
+                (format!("{local}${}", walk.locals), Expr::Ternary(Box::new(reach.clone()), Box::new(expr), Box::new(Expr::Lit(Lit::Null))))
               }
-              js::Stmt::Return(r) if r.arg.is_none() => break,
-              other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, calls to state setters and calls to actions")),
-            }
+            };
+            self.lowerer.scope.push((local, Expr::Var(name.clone())));
+            walk.out.push(Stmt::Let { name, expr });
           }
         }
+        js::Stmt::Return(r) if r.arg.is_none() => return Ok(true),
+        js::Stmt::If(branch) => self.handler_if(branch, walk)?,
+        other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),
       }
-      Ok(())
-    })();
-    self.lowerer.scope.truncate(depth);
-    result?;
-    if patch.is_empty() && !out.iter().any(|stmt| matches!(stmt, Stmt::Act { .. })) {
-      return Err(self.lowerer.residue(span, "a handler that sets no state and calls no action"));
     }
-    out.push(Stmt::Return(Expr::Object(patch)));
-    Ok(out)
+    Ok(false)
+  }
+
+  /// `if`, `else` and `else if`: each branch lowers under its condition joined to the reach around it and the names it declares go out of scope with it. A branch that returns leaves the rest of the handler reachable only when the other one ran.
+  fn handler_if(&mut self, branch: &'p js::IfStmt, walk: &mut HandlerWalk) -> Lowered<()> {
+    let cond = self.lowerer.expr(&branch.test)?;
+    let outer = walk.reach.clone();
+    let depth = self.lowerer.scope.len();
+    walk.reach = Some(reach_under(&outer, cond.clone()));
+    let then_returned = self.handler_branch(&branch.cons, walk)?;
+    self.lowerer.scope.truncate(depth);
+    let mut else_returned = false;
+    if let Some(alt) = &branch.alt {
+      walk.reach = Some(reach_under(&outer, Expr::Not(Box::new(cond.clone()))));
+      else_returned = self.handler_branch(alt, walk)?;
+      self.lowerer.scope.truncate(depth);
+    }
+    walk.reach = match (then_returned, else_returned) {
+      (false, false) => outer,
+      (true, false) => Some(reach_under(&outer, Expr::Not(Box::new(cond)))),
+      (false, true) => Some(reach_under(&outer, cond)),
+      (true, true) => Some(Expr::Lit(Lit::Bool(false))),
+    };
+    Ok(())
+  }
+
+  fn handler_branch(&mut self, stmt: &'p js::Stmt, walk: &mut HandlerWalk) -> Lowered<bool> {
+    match stmt {
+      js::Stmt::Block(block) => self.handler_block(&block.stmts, walk),
+      other => self.handler_block(std::slice::from_ref(other), walk),
+    }
   }
 
   /// `setX(expr)` or `setX((prev) => expr)` adds to the patch; `e.preventDefault()`
   /// and `e.stopPropagation()` are the browser's; `void f()` or `f()` naming a
-  /// declared handler inlines it.
-  fn handler_stmt(&mut self, e: &'p js::Expr, out: &mut Vec<Stmt>, patch: &mut Vec<Entry>) -> Lowered<()> {
+  /// declared handler inlines it. Under a branch, a key's value is the branch's
+  /// where it ran and what the patch held before, or the state as it stands,
+  /// where it did not; an action call runs inside an `if` of the same reach.
+  fn handler_stmt(&mut self, e: &'p js::Expr, walk: &mut HandlerWalk) -> Lowered<()> {
     match e {
-      js::Expr::Paren(p) => self.handler_stmt(&p.expr, out, patch),
-      js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, out, patch),
-      js::Expr::Await(a) => self.handler_stmt(&a.arg, out, patch),
+      js::Expr::Paren(p) => self.handler_stmt(&p.expr, walk),
+      js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, walk),
+      js::Expr::Await(a) => self.handler_stmt(&a.arg, walk),
       js::Expr::Call(call) => {
         let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
         match &**callee {
@@ -1837,24 +1939,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 }
                 other => self.lowerer.expr(other)?,
               };
-              patch.retain(|entry| !matches!(entry, Entry::Field(n, _) if *n == state));
-              patch.push(Entry::Field(state, value));
+              walk.set(state, value);
               return Ok(());
             }
             if let Some((params, body)) = self.handler_fns.get(&name).cloned() {
-              let inner = self.handler_fn(&params, body, call.span)?;
-              for stmt in inner {
-                match stmt {
-                  Stmt::Return(Expr::Object(entries)) => {
-                    for entry in entries {
-                      if let Entry::Field(n, _) = &entry {
-                        patch.retain(|held| !matches!(held, Entry::Field(m, _) if m == n));
-                      }
-                      patch.push(entry);
-                    }
-                  }
-                  other => out.push(other),
-                }
+              let before = (walk.out.len(), walk.patch.clone());
+              let hoisting = self.lowerer.hoisting.take();
+              let result = self.handler_fn_into(&params, body, walk);
+              self.lowerer.hoisting = hoisting;
+              result?;
+              if walk.out.len() == before.0 && walk.patch == before.1 {
+                return Err(self.lowerer.residue(call.span, "a handler that sets no state and calls no action"));
               }
               return Ok(());
             }
@@ -1863,7 +1958,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 Some(arg) => self.lowerer.expr(&arg.expr)?,
                 None => Expr::Object(Vec::new()),
               };
-              out.push(Stmt::Act { action, input });
+              walk.act(action, input);
               return Ok(());
             }
             Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter, an action or a handler this component declares")))
@@ -1881,15 +1976,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 Some(arg) => self.lowerer.expr(&arg.expr)?,
                 None => Expr::Object(Vec::new()),
               };
-              out.push(Stmt::Act { action, input });
+              walk.act(action, input);
               return Ok(());
             }
-            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, calls to state setters and calls to actions")))
+            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, branches, calls to state setters and calls to actions")))
           }
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
         }
       }
-      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, calls to state setters and calls to actions")),
+      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),
     }
   }
 
@@ -2561,6 +2656,114 @@ export function Lot({ size }: { size: number }) {
       _ => None,
     });
     assert!(unlowered.is_some_and(|why| why.contains("not a state setter, an action or a handler")), "a call to something else is still residue: {attrs:?}");
+  }
+
+  #[test]
+  fn a_branch_in_a_handler_conditions_each_key_it_sets() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { Island } from "@snapfire/fsr-client/react";
+import { Gate } from "@src/Gate";
+export default function Page() {
+  return <Island mode="server"><Gate limit={3} /></Island>;
+}
+"#,
+      ),
+      (
+        "src/Gate.tsx",
+        r#"
+import { useState } from "react";
+import { action } from "@snapfire/fsr-client";
+const save = action("desk.save");
+export function Gate({ limit }: { limit: number }) {
+  const [n, setN] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  function bump() {
+    setN(n + 1);
+  }
+  return (
+    <div>
+      <button onClick={() => { if (n < limit) setN(n + 1); }}>a</button>
+      <button onClick={() => { setOpen(true); if (n >= limit) { setOpen(false); setNote("full"); } else if (n === 0) { setNote("first"); } else { const rest = limit - n; setNote(String(rest)); } }}>b</button>
+      <button onClick={() => { if (!open) return; setN(0); }}>c</button>
+      <button onClick={() => { if (open) { void save({ n }); bump(); } setNote("saved"); }}>d</button>
+      <button onClick={() => { if (n > 0) { const x = 1; setN(x); } else { const x = 2; setN(x); } }}>e</button>
+      <button onClick={(e) => { if (open) e.preventDefault(); }}>f</button>
+    </div>
+  );
+}
+"#,
+      ),
+    ];
+    let set = set(&files, "routes/index/page.tsx#default");
+    let gate = &set.components.iter().find(|(m, _)| m == "src/Gate.tsx#Gate").unwrap().1;
+    assert_eq!(gate.handlers.len(), 5, "{:?}", gate.handlers);
+    let num = |v: f64| Expr::Lit(Lit::Float(v));
+    let n = || Expr::var("n");
+    let limit = || Expr::var("$props").field("limit");
+    let cmp = |op: CompareOp, a: Expr, b: Expr| Expr::Compare(op, Box::new(a), Box::new(b));
+    let not = |e: Expr| Expr::Not(Box::new(e));
+    let and = |a: Expr, b: Expr| Expr::Logic(LogicOp::And, Box::new(a), Box::new(b));
+    let pick = |c: Expr, a: Expr, b: Expr| Expr::Ternary(Box::new(c), Box::new(a), Box::new(b));
+    let plus_one = || Expr::Arith(snapfire_fsr_ir::ArithOp::Add, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))));
+    let field = |name: &str, value: Expr| Entry::Field(name.to_owned(), value);
+
+    assert_eq!(
+      gate.handlers[0].body,
+      vec![Stmt::Return(Expr::Object(vec![field("n", pick(cmp(CompareOp::Lt, n(), limit()), plus_one(), n()))]))],
+      "a key set only inside a branch keeps the state where the branch did not run"
+    );
+
+    let full = cmp(CompareOp::Ge, n(), limit());
+    let first = cmp(CompareOp::Eq, n(), num(0.0));
+    let rest_reach = and(not(full.clone()), not(first.clone()));
+    let [Stmt::Let { name: rest, expr: rest_init }, Stmt::Return(Expr::Object(patch))] = gate.handlers[1].body.as_slice() else { panic!("{:?}", gate.handlers[1].body) };
+    assert_eq!(rest, "rest$1", "a branch's const is hoisted under its own name");
+    assert_eq!(*rest_init, pick(rest_reach.clone(), Expr::Arith(snapfire_fsr_ir::ArithOp::Sub, Box::new(limit()), Box::new(n())), Expr::Lit(Lit::Null)));
+    assert_eq!(patch[0], field("open", pick(full.clone(), Expr::Lit(Lit::Bool(false)), Expr::Lit(Lit::Bool(true)))), "a set before the branch is the prior of the set inside it");
+    let Entry::Field(name, Expr::Ternary(reach, _, prior)) = &patch[1] else { panic!("{:?}", patch[1]) };
+    assert_eq!(name, "note");
+    assert_eq!(**reach, rest_reach, "an else if chain nests its conditions");
+    assert_eq!(**prior, pick(and(not(full.clone()), first), Expr::lit_str("first"), pick(full, Expr::lit_str("full"), Expr::var("note"))));
+    assert_eq!(patch.len(), 2);
+
+    assert_eq!(
+      gate.handlers[2].body,
+      vec![Stmt::Return(Expr::Object(vec![field("n", pick(not(not(Expr::var("open"))), num(0.0), n()))]))],
+      "a bare return inside a branch leaves the rest reachable only when the branch did not run"
+    );
+
+    let open = || Expr::var("open");
+    assert_eq!(
+      gate.handlers[3].body,
+      vec![
+        Stmt::If { cond: open(), then: vec![Stmt::Act { action: "desk.save".to_owned(), input: Expr::Object(vec![field("n", n())]) }], r#else: Vec::new() },
+        Stmt::Return(Expr::Object(vec![field("n", pick(open(), plus_one(), n())), field("note", Expr::lit_str("saved"))])),
+      ],
+      "an action inside a branch runs under it and an inlined handler's set is conditioned the same way"
+    );
+
+    let positive = cmp(CompareOp::Gt, n(), num(0.0));
+    assert_eq!(
+      gate.handlers[4].body,
+      vec![
+        Stmt::Let { name: "x$1".to_owned(), expr: pick(positive.clone(), num(1.0), Expr::Lit(Lit::Null)) },
+        Stmt::Let { name: "x$2".to_owned(), expr: pick(not(positive.clone()), num(2.0), Expr::Lit(Lit::Null)) },
+        Stmt::Return(Expr::Object(vec![field("n", pick(not(positive.clone()), Expr::var("x$2"), pick(positive, Expr::var("x$1"), n())))])),
+      ],
+      "the same name declared in both branches binds twice"
+    );
+
+    let Tmpl::Element { children, .. } = &gate.render else { panic!() };
+    let Tmpl::Element { attrs, .. } = &children[5] else { panic!() };
+    let unlowered = attrs.iter().find_map(|e| match e {
+      Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == UNLOWERED_ATTR => Some(why.clone()),
+      _ => None,
+    });
+    assert!(unlowered.is_some_and(|why| why.contains("sets no state")), "a branch that sets nothing is still a handler that sets nothing: {attrs:?}");
   }
 
   #[test]

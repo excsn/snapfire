@@ -22,3 +22,15 @@ test("the order help island runs in server mode: a click round-trips and the mar
   await fireEvent.click(button);
   expect(document.querySelector(".contact-options"), "a second click closes it again from the state the browser carried").toBeNull();
 });
+
+test("a branch in the handler runs on the host: the count moves only on the clicks that open", async () => {
+  await load("/order/5001", { ctx: ctx({ services: { shopping: { getOrder: () => order, listProducts: () => [] } } }) });
+  const button = document.querySelector('sf-i[data-sf-module="src/ui/OrderHelp.tsx#OrderHelp"] button[data-sf-on]') as HTMLButtonElement;
+  await fireEvent.click(button);
+  expect(document.querySelector(".asked-often"), "one opening is not often").toBeNull();
+  await fireEvent.click(button);
+  expect(document.querySelector(".asked-often"), "closing did not count").toBeNull();
+  await fireEvent.click(button);
+  expect(document.querySelector(".asked-often")?.textContent).toEqual("Opened 2 times. Chat is the fastest way to reach us.");
+  expect(screen.getByText("help@snapfire.shop"), "the set after the branch still ran").toBeTruthy();
+});

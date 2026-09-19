@@ -4114,6 +4114,53 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
   assert!(json["message"].as_str().unwrap_or("").contains("renders the slot `content`"), "{json}");
 }
 
+/// A handler lowered with a branch: the key it sets under the branch keeps
+/// the state where the branch did not run and the action inside it is
+/// dispatched only where it did.
+#[test]
+fn a_lowered_island_step_runs_a_handler_branch_both_ways() {
+  use snapfire_fsr_ir::ast::Handler;
+  use snapfire_fsr_ir::{Component, Entry, Expr, IrEvaluator, Lit, Stmt, Tmpl};
+  let open = || Expr::var("open");
+  let n = || Expr::var("n");
+  let bumped = Expr::Arith(snapfire_fsr_ir::ArithOp::Add, Box::new(n()), Box::new(Expr::Lit(Lit::Int(1))));
+  let gate = Component {
+    body: vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Int(0)) }, Stmt::Let { name: "open".to_owned(), expr: Expr::Lit(Lit::Bool(false)) }],
+    render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(n())] },
+    state: vec!["n".to_owned(), "open".to_owned()],
+    handlers: vec![Handler {
+      event: "click".to_owned(),
+      body: vec![
+        Stmt::If { cond: open(), then: vec![Stmt::Act { action: "desk.save".to_owned(), input: Expr::Object(vec![Entry::Field("n".to_owned(), n())]) }], r#else: Vec::new() },
+        Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Ternary(Box::new(open()), Box::new(bumped), Box::new(n())))])),
+      ],
+    }],
+    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    shadow: None,
+  };
+  let evaluator = IrEvaluator::new([("src/Gate.tsx#Gate".to_owned(), gate)]);
+  let step = |state: &str| {
+    let body = format!(r#"{{"props":{{}},"state":{state},"handler":0,"event":null}}"#);
+    snapfire_fsr_host::island_step(Some(&evaluator), "src/Gate.tsx#Gate", body.as_bytes(), "en").unwrap_or_else(|(status, json)| panic!("{status} {json}"))
+  };
+  let number = |value: Option<&Value>| match value {
+    Some(Value::Int(i)) => *i as f64,
+    Some(Value::F64(f)) => *f,
+    other => panic!("{other:?}"),
+  };
+  let closed = step(r#"{"n":2,"open":false}"#);
+  assert_eq!(number(closed.state.get("n")), 2.0, "the key set only under the branch is the state as it stood");
+  assert!(closed.acts.is_empty(), "the action under the branch was not called: {:?}", closed.acts);
+  assert!(closed.html.contains(">2<"), "{}", closed.html);
+  let opened = step(r#"{"n":2,"open":true}"#);
+  assert_eq!(number(opened.state.get("n")), 3.0);
+  assert_eq!(opened.acts.len(), 1, "{:?}", opened.acts);
+  assert_eq!(opened.acts[0].0, "desk.save");
+  let Value::Map(input) = &opened.acts[0].1 else { panic!("{:?}", opened.acts) };
+  assert_eq!(number(input.get("n")), 2.0, "the input read the state before the patch");
+  assert!(opened.html.contains(">3<"), "{}", opened.html);
+}
+
 const BLOG_PLAN: &str = r#"{
   "version": 2,
   "routes": [
