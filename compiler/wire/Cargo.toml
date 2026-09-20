@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_compiler_wire"
-version = "0.1.1"
+version = "0.2.0"
 description = "The wire contract between snapfirec and a framework compiler plugin."
 
 keywords = ["snapfire", "plugin", "protocol", "build-tools"]

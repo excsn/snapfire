@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_lower"
-version = "0.12.0"
+version = "0.13.0"
 description = "The recogniser for SnapFire FSR: reads a TypeScript loader or actions module and lowers each body to the IR, naming the line that stops it."
 keywords = ["snapfire", "fsr", "typescript", "parser", "lowering"]
 categories = ["web-programming", "compilers"]
@@ -16,7 +16,7 @@ readme = "README.md"
 [dependencies]
 snapfire_fsr_ir.workspace = true
 snapfire_fsr_service.workspace = true
-snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.1" }
+snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
