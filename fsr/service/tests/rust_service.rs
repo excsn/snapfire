@@ -4,7 +4,8 @@ use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_macros::{service, Record};
 use snapfire_fsr_runtime::{FailureKind, FromNativeValue, IntoNativeValue, ServiceError};
-use snapfire_fsr_service::{Call, DeclaredService, NoCredentials, Scope, Services, Transport, Type, TypeDef};
+use snapfire_fsr_runtime::Identity;
+use snapfire_fsr_service::{Call, Caller, DeclaredService, NoCredentials, Scope, Services, Transport, Type, TypeDef};
 
 #[derive(Record, Debug, PartialEq)]
 pub struct Server {
@@ -43,6 +44,14 @@ impl ServerFleet {
 
   pub fn touch(&self) {}
 
+  pub fn mine(&self, caller: Caller, section: String) -> Result<String, ServiceError> {
+    Ok(format!("{}:{section}", caller.require()?.subject))
+  }
+
+  pub fn whoami(&self, caller: Caller) -> Option<String> {
+    caller.identity.map(|who| who.subject)
+  }
+
   fn tally(&self) -> u32 {
     2
   }
@@ -65,7 +74,9 @@ fn the_contract_is_read_off_the_signatures() {
   let contract = ServerFleet::contract();
   contract.validate().unwrap();
   let service = &contract.services["server_fleet"];
-  assert_eq!(service.methods.keys().collect::<Vec<_>>(), vec!["listServers", "count", "add", "touch"]);
+  assert_eq!(service.methods.keys().collect::<Vec<_>>(), vec!["listServers", "count", "add", "touch", "mine", "whoami"]);
+  assert_eq!(service.methods["mine"].params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["section"]);
+  assert!(service.methods["whoami"].params.is_empty());
   let list = &service.methods["listServers"];
   assert_eq!(list.params.len(), 1);
   assert_eq!((list.params[0].name.as_str(), &list.params[0].ty), ("section", &Type::Str));
@@ -130,4 +141,25 @@ fn the_registry_checks_a_call_against_the_written_contract() {
   assert!(matches!(block_on(handle.call("server_fleet", "listServers", args)).unwrap(), Value::Seq(_)));
   let err = block_on(handle.call("server_fleet", "listServers", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::Invalid);
+}
+
+#[test]
+fn a_caller_parameter_is_filled_from_the_call_and_kept_out_of_the_arguments() {
+  let fleet = ServerFleet;
+  assert_eq!(block_on(fleet.call(call("whoami", ValueMap::default()))).unwrap(), Value::Null);
+  let mut args = ValueMap::default();
+  args.insert("section".to_owned(), Value::str("web"));
+  let err = block_on(fleet.call(call("mine", args.clone()))).unwrap_err();
+  assert_eq!((err.kind, err.method.as_str(), err.message.as_str()), (FailureKind::Unauthorized, "mine", "`mine` needs an identified caller"));
+
+  let mut identified = call("mine", args);
+  identified.identity = Some(Identity { subject: "alice".to_owned(), claims: ValueMap::default() });
+  assert_eq!(block_on(fleet.call(identified)).unwrap(), Value::str("alice:web"));
+
+  let services = Services::builder().contract(ServerFleet::contract()).transport(ServerFleet::NAME, Arc::new(ServerFleet)).build();
+  let handle = services.bind(Some(Identity { subject: "bob".to_owned(), claims: ValueMap::default() }), Arc::new(NoCredentials));
+  assert_eq!(block_on(handle.call("server_fleet", "whoami", ValueMap::default())).unwrap(), Value::str("bob"));
+  let mut leaked = ValueMap::default();
+  leaked.insert("caller".to_owned(), Value::str("mallory"));
+  assert_eq!(block_on(handle.call("server_fleet", "whoami", leaked)).unwrap_err().kind, FailureKind::Invalid);
 }

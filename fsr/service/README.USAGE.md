@@ -485,6 +485,20 @@ let services = Services::builder()
   .build();
 ```
 
+A method that needs to know who is calling takes a parameter typed `Caller`. The dispatcher fills it from the call and the contract leaves it out, so TypeScript never passes it.
+
+```rust
+#[service]
+impl Orders {
+  pub fn mine(&self, caller: Caller) -> Result<Vec<Order>, ServiceError> {
+    let who = caller.require()?;
+    Ok(self.for_subject(&who.subject))
+  }
+}
+```
+
+`caller.identity` is `None` for an anonymous visitor and `require()` turns that into `FailureKind::Unauthorized`; `caller.metadata` holds what the interceptors added. The credentials stay in the transport.
+
 `#[cache(ttl = "15s", tags = ["servers"], scope = "shared", stale = "2m")]` on a method is `Method::cached` and `#[writes("servers")]` is `Method::writes`. The host takes the block whole through `HostBuilder::service`, which merges its contract with the contracts directory's and binds the transport under its name.
 
 ### A Closure per Method

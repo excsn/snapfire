@@ -7,8 +7,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use indexmap::IndexMap;
-use snapfire_fsr_runtime::ServiceError;
+use snapfire_fsr_core::ValueMap;
+use snapfire_fsr_runtime::{FailureKind, Identity, ServiceError};
 
+use crate::call::Call;
 use crate::contract::{Contract, Type};
 
 /// The contract type a Rust type crosses the boundary as. `define` adds the
@@ -115,5 +117,37 @@ impl<T: ContractType> ContractType for Result<T, ServiceError> {
 
   fn define(contract: &mut Contract) {
     T::define(contract);
+  }
+}
+
+/// Who called a `#[service]` method, as the call carries it: the identity
+/// the session resolved, `None` for an anonymous visitor, plus the metadata
+/// the interceptors added. A method takes it as a parameter typed `Caller`,
+/// filled from the call rather than from the arguments and absent from the
+/// contract. The call's credentials stay in the transport.
+#[derive(Debug, Clone)]
+pub struct Caller {
+  pub service: String,
+  pub method: String,
+  pub identity: Option<Identity>,
+  pub metadata: ValueMap,
+}
+
+impl Caller {
+  pub fn of(call: &Call) -> Self {
+    Self {
+      service: call.service.clone(),
+      method: call.method.clone(),
+      identity: call.identity.clone(),
+      metadata: call.metadata.clone(),
+    }
+  }
+
+  /// The identity; `FailureKind::Unauthorized` naming the method when the
+  /// caller is anonymous.
+  pub fn require(&self) -> Result<&Identity, ServiceError> {
+    self.identity.as_ref().ok_or_else(|| {
+      ServiceError::new(FailureKind::Unauthorized, &self.service, &self.method, format!("`{}` needs an identified caller", self.method))
+    })
   }
 }

@@ -74,6 +74,8 @@ Host::from(env!("CARGO_MANIFEST_DIR")).map(|b| b.service(Arc::new(fleet)))
 
 The attribute writes two impls. `Transport` answers a `Call` by matching its method name, decoding each argument from `call.args` under the camelCased name of the Rust parameter and encoding the answer. `DeclaredService` carries `NAME`, the type's name in snake case, together with `contract()`, the service as a `Contract`: one method per `pub` fn with its parameters as fields and its return as the type, one record per `Record` the signatures name. A method returning `Result<T, ServiceError>` declares `T` and its error travels as the call's failure; any other return type cannot fail. The types are resolved by the compiler through `snapfire_fsr_service::ContractType`, which the scalars, `String`, `Option`, `Vec`, the string-keyed maps and `Record` implement.
 
+A parameter typed `Caller` is filled from the call rather than from the arguments and never appears in the contract: `caller.identity` is the session's identity or `None` for an anonymous visitor, `caller.metadata` is what the interceptors added and `caller.require()?` answers `FailureKind::Unauthorized` when nobody is signed in. The call's credentials stay in the transport.
+
 `#[cache]` and `#[writes]` on a method are the policy `Method::cached` and `Method::writes` hold, in the spelling the proto option and `x-sf-cache` use: `ttl`, `tags`, `scope` (`private`, `shared` or `subject`) and `stale`. The attribute takes them off the method it emits.
 
 A TypeScript body calls the service as `services.fleet.list({ section })`. `fsr build` reads the block with `syn` before the crate compiles, writes its contract to `generated/contracts/rust.json` and types the call in `generated/services.d.ts`; the host merges that contract with the one `contract()` returns and refuses to boot when the two disagree, which is what a stale build looks like.
@@ -88,5 +90,6 @@ A TypeScript body calls the service as `services.fleet.list({ section })`. `fsr 
 | Only `pub` methods cross | Everything else stays private Rust for composition |
 | A service argument or return is in the value model | The contract is checked at the wire; a type outside it is a compile error at the impl `ContractType` cannot find |
 | A record's fields are named and all `pub` | A private field could not cross and the build reads only the `pub` ones |
+| A method takes `Caller` at most once | It is the one parameter the call fills rather than the caller |
 
 The declarations TypeScript sees are read from the same signatures by `snapfire_fsr_cli`, which parses the source rather than expanding these macros, so the two halves cannot drift.

@@ -206,6 +206,9 @@ fn read_service(
     for arg in &f.sig.inputs {
       let syn::FnArg::Typed(typed) = arg else { continue };
       let syn::Pat::Ident(pat) = &*typed.pat else { continue };
+      if type_name(&typed.ty).is_some_and(|t| t == "Caller") {
+        continue;
+      }
       let key = camel(&pat.ident.to_string());
       let ty = contract_type(&typed.ty, &mut wanted).map_err(|t| refused(format!("`{method_name}` takes `{key}: {t}`, which is outside the value model")))?;
       params.push(Field::new(key, ty));

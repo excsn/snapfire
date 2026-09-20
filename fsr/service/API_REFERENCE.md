@@ -57,6 +57,7 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
 * [10. Services Written in Rust](#10-services-written-in-rust)
   * [ContractType](#contracttype)
   * [DeclaredService](#declaredservice)
+  * [Caller](#caller)
 * [11. Error Handling](#11-error-handling)
   * [ContractError](#contracterror)
 
@@ -515,7 +516,19 @@ What `#[service]` and `#[derive(Record)]` from `snapfire_fsr_macros` expand agai
 
 * `pub trait DeclaredService`
 * `const NAME: &'static str`: the service name, the type's name in snake case.
-* `fn contract() -> Contract`: the service under `NAME` with one method per `pub` fn, its parameters as fields under their camelCased names, its return as the type and the policy `#[cache]` and `#[writes]` carried, plus every record the signatures name.
+* `fn contract() -> Contract`: the service under `NAME` with one method per `pub` fn, its parameters as fields under their camelCased names, its return as the type and the policy `#[cache]` and `#[writes]` carried, plus every record the signatures name. A parameter typed `Caller` is not a field.
+
+### Caller
+
+Who called a `#[service]` method, as the call carries it. `Debug`, `Clone`. A method takes it as a parameter typed `Caller`, at most once; the dispatcher fills it from the `Call` and the contract does not list it.
+
+* `pub service: String`, `pub method: String`
+* `pub identity: Option<Identity>`: the identity the session resolved, `None` for an anonymous visitor.
+* `pub metadata: ValueMap`: what the interceptors added to the call.
+* `fn of(call: &Call) -> Self`
+* `fn require(&self) -> Result<&Identity, ServiceError>`: the identity; `FailureKind::Unauthorized` naming the method when the caller is anonymous.
+
+The call's `credentials` are not on it, since a method is application code and custody stays in the transport.
 
 ## 11. Error Handling
 

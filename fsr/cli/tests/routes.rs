@@ -1009,7 +1009,7 @@ fn a_service_impl_beside_the_app_is_a_contract_the_build_writes_and_types() {
   std::fs::create_dir_all(project.join("src")).unwrap();
   std::fs::write(
     project.join("src/services.rs"),
-    "use snapfire_fsr_macros::{service, Record};\n\n#[derive(Record)]\npub struct Server {\n  pub name: String,\n  pub load_avg: f64,\n  secret: u8,\n}\n\n#[derive(Clone)]\npub struct Fleet;\n\n#[service]\nimpl Fleet {\n  #[cache(ttl = \"15s\", tags = [\"servers\"], scope = \"shared\")]\n  pub async fn list(&self, section: String) -> Result<Vec<Server>, ServiceError> {\n    todo!()\n  }\n\n  #[writes(\"servers\")]\n  pub fn add_server(&self, server: Server, note: Option<String>) -> u32 {\n    todo!()\n  }\n\n  fn tally(&self) -> u32 {\n    0\n  }\n}\n",
+    "use snapfire_fsr_macros::{service, Record};\n\n#[derive(Record)]\npub struct Server {\n  pub name: String,\n  pub load_avg: f64,\n  secret: u8,\n}\n\n#[derive(Clone)]\npub struct Fleet;\n\n#[service]\nimpl Fleet {\n  #[cache(ttl = \"15s\", tags = [\"servers\"], scope = \"shared\")]\n  pub async fn list(&self, section: String) -> Result<Vec<Server>, ServiceError> {\n    todo!()\n  }\n\n  #[writes(\"servers\")]\n  pub fn add_server(&self, caller: Caller, server: Server, note: Option<String>) -> u32 {\n    todo!()\n  }\n\n  fn tally(&self) -> u32 {\n    0\n  }\n}\n",
   )
   .unwrap();
   let built = build(&dir, &Options::default()).unwrap();
@@ -1020,7 +1020,7 @@ fn a_service_impl_beside_the_app_is_a_contract_the_build_writes_and_types() {
   for expected in ["\"fleet\"", "\"list\"", "\"addServer\"", "\"loadAvg\"", "\"ttl\": \"15s\"", "\"scope\": \"shared\"", "\"writes\": ["] {
     assert!(contract.contains(expected), "missing {expected} in {contract}");
   }
-  assert!(!contract.contains("secret") && !contract.contains("tally"), "only pub crosses: {contract}");
+  assert!(!contract.contains("secret") && !contract.contains("tally") && !contract.contains("caller"), "only pub crosses and the caller is the call's: {contract}");
   let declarations = file("generated/services.d.ts");
   for expected in ["export interface Server {\n  name: string;\n  loadAvg: number;\n}", "  fleet: {", "    list(args: { section: string; }): Promise<Server[]>;", "    addServer(args: { server: Server; note?: string | null; }): Promise<bigint>;"] {
     assert!(declarations.contains(expected), "missing {expected} in {declarations}");

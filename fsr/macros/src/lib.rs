@@ -143,6 +143,10 @@ struct ServiceMethod {
   ident: syn::Ident,
   wire: String,
   args: Vec<(syn::Ident, String, syn::Type)>,
+  /// The parameter typed `Caller`, filled from the call rather than the arguments.
+  caller: Option<syn::Ident>,
+  /// Every parameter in signature order, the caller included.
+  order: Vec<syn::Ident>,
   returns: syn::Type,
   returns_result: bool,
   is_async: bool,
@@ -183,6 +187,8 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
       continue;
     }
     let mut args = Vec::new();
+    let mut caller = None;
+    let mut order = Vec::new();
     let mut takes_self = false;
     for arg in &f.sig.inputs {
       match arg {
@@ -191,6 +197,14 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
           let Pat::Ident(pat) = &*typed.pat else {
             return err(typed, "a service method's argument must be a plain name");
           };
+          order.push(pat.ident.clone());
+          if is_named(&typed.ty, "Caller") {
+            if caller.is_some() {
+              return err(typed, "a service method takes `Caller` once");
+            }
+            caller = Some(pat.ident.clone());
+            continue;
+          }
           args.push((pat.ident.clone(), camel(&pat.ident.to_string()), (*typed.ty).clone()));
         }
       }
@@ -206,6 +220,8 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
       ident: f.sig.ident.clone(),
       wire: camel(&f.sig.ident.to_string()),
       args,
+      caller,
+      order,
       returns_result: is_result(&returns),
       returns,
       is_async: f.sig.asyncness.is_some(),
@@ -224,9 +240,20 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let arg_keys: Vec<_> = m.args.iter().map(|(_, key, _)| key.clone()).collect();
     let arg_types: Vec<_> = m.args.iter().map(|(_, _, ty)| ty.clone()).collect();
     let returns = &m.returns;
+    let params: Vec<proc_macro2::TokenStream> = m
+      .order
+      .iter()
+      .map(|ident| match m.caller.as_ref() == Some(ident) {
+        true => quote! { caller },
+        false => {
+          let ident = format_ident!("arg_{}", ident);
+          quote! { #ident }
+        }
+      })
+      .collect();
     let awaited = match m.is_async {
-      true => quote! { this.#ident(#(#arg_idents),*).await },
-      false => quote! { this.#ident(#(#arg_idents),*) },
+      true => quote! { this.#ident(#(#params),*).await },
+      false => quote! { this.#ident(#(#params),*) },
     };
     let answer = match m.returns_result {
       true => quote! { answered.map(::snapfire_fsr_runtime::IntoNativeValue::into_native_value) },
@@ -304,6 +331,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
         call: ::snapfire_fsr_service::Call,
       ) -> ::futures_util::future::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
         let this = ::std::sync::Arc::new(self.clone());
+        let caller = ::snapfire_fsr_service::Caller::of(&call);
         let args = call.args;
         match call.method.as_str() {
           #(#arms)*
@@ -386,8 +414,12 @@ fn take_policy(attrs: &mut Vec<syn::Attribute>) -> syn::Result<(Option<Cache>, V
 }
 
 fn is_result(ty: &syn::Type) -> bool {
+  is_named(ty, "Result")
+}
+
+fn is_named(ty: &syn::Type, name: &str) -> bool {
   match ty {
-    syn::Type::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == "Result"),
+    syn::Type::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == name),
     _ => false,
   }
 }

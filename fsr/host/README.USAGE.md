@@ -710,7 +710,7 @@ impl Fleet {
 let host = Host::from(env!("CARGO_MANIFEST_DIR"))?.service(Arc::new(fleet)).build()?;
 ```
 
-The service is bound under the type's name in snake case, `fleet`. Its calls go through the registry like a client's: the contract checks the arguments and the answer, the interceptors run and a method marked `#[cache(..)]` is answered from the data cache when `[cache.data]` is on. The report lists it with the Rust type:
+The service is bound under the type's name in snake case, `fleet`. Its calls go through the registry like a client's: the contract checks the arguments and the answer, the interceptors run and a method marked `#[cache(..)]` is answered from the data cache when `[cache.data]` is on. A method that takes a parameter typed `Caller` receives the request's identity and the call's metadata there, filled by the dispatcher rather than by the body; `caller.require()?` refuses an anonymous call as `unauthorized`. The report lists it with the Rust type:
 
 ```
 services  fleet                  rust        advanced_tera_app::state::Fleet

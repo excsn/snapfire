@@ -110,7 +110,7 @@ export async function load({ params, services }: Ctx<"/dash/{section}">) {
 }
 ```
 
-The difference from a native module is the boundary. The call crosses the contract, so its arguments and its answer are checked, the interceptors run, a `#[cache]` policy is honoured and a `Result<T, ServiceError>` reaches the body as the failure it names. `fsr build` reads the block the way it reads a native one and writes the contract to `generated/contracts/rust.json`, which is what types `services.fleet` in TypeScript; the host merges the contract the attribute wrote over that file and refuses a disagreement at boot, so a build that fell behind the Rust is a boot failure rather than a call that fails later.
+The difference from a native module is the boundary. The call crosses the contract, so its arguments and its answer are checked, the interceptors run, a `#[cache]` policy is honoured and a `Result<T, ServiceError>` reaches the body as the failure it names. A method that takes a parameter typed `Caller` is told who is calling, the identity the session resolved and the metadata the interceptors added, without the body passing anything and without the contract listing it; `caller.require()?` refuses an anonymous call. `fsr build` reads the block the way it reads a native one and writes the contract to `generated/contracts/rust.json`, which is what types `services.fleet` in TypeScript; the host merges the contract the attribute wrote over that file and refuses a disagreement at boot, so a build that fell behind the Rust is a boot failure rather than a call that fails later.
 
 ## The lab
 

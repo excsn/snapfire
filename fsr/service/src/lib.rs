@@ -28,5 +28,5 @@ pub use interceptor::{
   CredentialInterceptor, IdentityInterceptor, Interceptor, Next, TraceInterceptor,
 };
 pub use registry::{Services, ServicesBuilder};
-pub use rust::{ContractType, DeclaredService};
+pub use rust::{Caller, ContractType, DeclaredService};
 pub use transport::{LocalTransport, MockTransport, Transport};
