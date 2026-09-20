@@ -855,6 +855,19 @@ fn an_island_in_server_mode_is_refused_over_a_slot_it_renders() {
 }
 
 #[test]
+fn a_handler_the_browser_runs_as_written_is_a_browser_row() {
+  let page = "export default function Page() {\n  return <button onClick={() => console.log(\"hi\")}>hi</button>;\n}\n";
+  let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  assert_eq!(built.report.browser.len(), 1, "{}", built.report);
+  let (module, site) = &built.report.browser[0];
+  assert_eq!(module, "routes/index/page.tsx#default");
+  assert!(site.starts_with("routes/index/page.tsx:2:") && site.contains("`.log()` in a handler"), "{site}");
+  assert!(built.report.to_string().contains("browser   routes/index/page.tsx#default"), "{}", built.report);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlowerable_export_fails_the_build() {
   let page = "import { intl } from \"@snapfire/fsr-client/std\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{intl.number(n * grams)}</p>;\n}\n";
   let fine = app(&[

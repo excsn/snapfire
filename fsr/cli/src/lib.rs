@@ -188,7 +188,7 @@ pub struct Report {
   pub islands: Vec<(String, usize)>,
   /// Each export under `ext/` as `file#name` and whether it is `lowered`, `native render` or `native body`.
   pub extensions: Vec<(String, String)>,
-  /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`.
+  /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`, or a handler it runs as written, as `file:line:column: reason`.
   pub browser: Vec<(String, String)>,
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
@@ -865,6 +865,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let rewritten = set.rewritten();
   report.hoisted.sort();
   report.browser = set.remaining.iter().map(|(module, site)| (format!("{}{module}", options.prefix()), site.clone())).collect();
+  for (module, component) in &set.components {
+    let file = module.split('#').next().unwrap_or(module);
+    for why in unlowered_handlers(&component.render) {
+      report.browser.push((format!("{}{module}", options.prefix()), format!("{file}:{why}")));
+    }
+  }
   report.browser.sort();
   let mut components = Vec::new();
   let mut islands = islands;
@@ -2059,26 +2065,38 @@ fn server_islands(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
 
 /// The line and reason left on the first element whose handler did not lower.
 fn unlowered_handler(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
+  unlowered_handlers(tmpl).into_iter().next()
+}
+
+/// The line and reason left on every element whose handler did not lower, in
+/// document order.
+fn unlowered_handlers(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
   use snapfire_fsr_ir::Tmpl;
-  fn walk(tmpl: &Tmpl) -> Option<String> {
+  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
     match tmpl {
-      Tmpl::Baked { children, .. } => children.iter().find_map(walk),
-      Tmpl::Element { attrs, children, .. } => attrs
-        .iter()
-        .find_map(|e| match e {
+      Tmpl::Element { attrs, children, .. } => {
+        out.extend(attrs.iter().filter_map(|e| match e {
           Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == snapfire_fsr_ir::render::UNLOWERED_ATTR => Some(why.clone()),
           _ => None,
-        })
-        .or_else(|| children.iter().find_map(walk)),
-      Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().find_map(walk),
-      Tmpl::If { then, r#else, .. } => walk(then).or_else(|| r#else.as_ref().and_then(|e| walk(e))),
-      Tmpl::For { body, .. } => walk(body),
-      Tmpl::Let { then, .. } => walk(then),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
+        }));
+        children.iter().for_each(|c| walk(c, out));
+      }
+      Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, out);
+        if let Some(e) = r#else {
+          walk(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, out),
+      Tmpl::Let { then, .. } => walk(then, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
-  walk(tmpl)
+  let mut out = Vec::new();
+  walk(tmpl, &mut out);
+  out
 }
 
 /// The modules a template renders as components, islands aside.
