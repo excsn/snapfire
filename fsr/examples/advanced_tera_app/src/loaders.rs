@@ -47,11 +47,13 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
   let hydrate_renders = renders.clone();
   let page_renders = renders;
   builder
-    .source("chrome_loader", move |_ctx| {
+    .source("chrome_loader", move |ctx| {
       let renders = chrome_renders.clone();
+      let denied = ctx.query.get("error").is_some_and(|e| e == "denied");
       async move {
         let mut data = ValueMap::default();
         data.insert("renders".to_owned(), Value::int(renders.get() as i64));
+        data.insert("denied".to_owned(), Value::Bool(denied));
         Ok(data)
       }
     })
@@ -86,7 +88,7 @@ pub fn register(builder: HostBuilder, chart_delay: Duration, renders: Renders) -
     .source("servers_loader", move |ctx| {
       let renders = page_renders.clone();
       async move {
-        let servers = fetch_servers(&ctx).await.map_err(|e| LoadError { source_id: "servers_loader".into(), message: e.message })?;
+        let servers = fetch_servers(&ctx).await.map_err(|e| LoadError::new("servers_loader", e.message))?;
         let mut data = ValueMap::default();
         // The fleet card is an island the server renders and steps: what the
         // placement hands it is its whole state, since every step replaces it.

@@ -50,6 +50,10 @@ fn wrong_password_leaves_the_session_anonymous() {
   let response = post_form(&host, "/auth/callback", Some(&cookie), "user=alice&password=nope", None);
   assert_eq!(response.status(), 303);
   assert_eq!(location(&response), "/login?error=denied&return_to=%2F");
+  let login_page = text(get(&host, "/login?error=denied&return_to=%2F", Some(&cookie)));
+  assert!(login_page.contains("Unknown user or wrong password."), "the login page says why it is back: {login_page}");
+  let plain = text(get(&host, "/login", Some(&cookie)));
+  assert!(!plain.contains("Unknown user"), "a fresh visit says nothing: {plain}");
 
   let html = text(get(&host, "/dash/servers", Some(&cookie)));
   assert!(html.contains("login-link"));
