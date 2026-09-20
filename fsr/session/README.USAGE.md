@@ -14,6 +14,8 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * [Persisting at the Response](#persisting-at-the-response)
 * [Destroying a Session on Logout](#destroying-a-session-on-logout)
 * [Issuing and Verifying CSRF Tokens](#issuing-and-verifying-csrf-tokens)
+  * [The Three Schemes](#the-three-schemes)
+  * [Writing Your Own Scheme](#writing-your-own-scheme)
 * [Wiring the Layer at the HTTP Edge](#wiring-the-layer-at-the-http-edge)
 * [Configuring the Cookie](#configuring-the-cookie)
 * [Choosing and Tuning a Store](#choosing-and-tuning-a-store)
@@ -40,7 +42,7 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * **Store** is the `SessionStore` trait, three async methods over the record; `MemorySessionStore` is the in-process implementation.
 * **Codec** is the `CookieCodec` trait, encode an id to a cookie value and decode one back; `HmacCodec` is the implementation `Sessions` uses.
 * **Open** happens before route matching, **persist** when the response starts, **destroy** on logout.
-* **CSRF token** is an hmac over `csrf:{id}`, bound to one session id, stable for that session's life.
+* **CSRF scheme** is the `CsrfScheme` trait: how a token is issued, verified and rotated. `SingleUse` is the default; `PerSession` and `Derived` ship beside it and a scheme of your own is a trait implementation.
 * **Value and ValueMap** come from `snapfire_fsr_core`; `ValueMap` is an `IndexMap<String, Value>`. Both cells store their contents in one.
 
 ## Quick Start
@@ -239,26 +241,71 @@ let expire = sessions.destroy(&opened).await;
 
 ## Issuing and Verifying CSRF Tokens
 
-`csrf_token` signs `csrf:{id}` with the same key that signs the cookie. It is deterministic, so the same session gets the same token for as long as the id lives.
+`csrf_token` asks the layer's scheme for a token and `verify_csrf` asks it to check one. Under the default scheme every token is fresh and verifies once.
 
 ```rust
-let csrf = sessions.csrf_token(&opened.id);
+let csrf = sessions.csrf_token(&opened);
 ```
 
 Pass it into the render so pages can embed it in forms, then check it on the way back.
 
 ```rust
-if !sessions.verify_csrf(&opened.id, &submitted) {
+if !sessions.verify_csrf(&opened, &submitted) {
   return HttpResponse::Forbidden().body("csrf verification failed");
 }
 ```
 
-A token never validates for another session. A wrong or non-hex token returns `false` rather than panicking.
+A token never validates for another session and a wrong one returns `false` rather than panicking. A scheme keeps whatever it needs in `opened.csrf`, a cell the layer persists with the rest of the record and that nothing else reads. Call `rotate_csrf` once a session is identified, so a token learned before sign-in is worthless after; `destroy` rotates on its own.
 
 ```rust
-assert!(sessions.verify_csrf(&a, &token));
-assert!(!sessions.verify_csrf(&b, &token));
-assert!(!sessions.verify_csrf(&a, "deadbeef"));
+let token = sessions.csrf_token(&opened);
+assert!(sessions.verify_csrf(&opened, &token));
+assert!(!sessions.verify_csrf(&opened, &token), "single use");
+sessions.rotate_csrf(&opened);
+```
+
+### The Three Schemes
+
+Choose one with `with_csrf`.
+
+```rust
+use snapfire_fsr_session::{Derived, PerSession, SingleUse};
+
+let sessions = Sessions::new(store, key, config).with_csrf(Arc::new(SingleUse::new(8)));
+```
+
+`SingleUse` mints a fresh random token per issue and keeps the newest `keep` of them outstanding in the record, so that many forms may be open at once; a verify consumes the token it matched and `rotate` drops them all. `PerSession` keeps one random token per session, minted on first issue and replaced by `rotate`, so a form posts as often as it likes until sign-in or sign-out. `Derived` is `hmac(key, "csrf:" + id)`, stores nothing and never rotates, which is what the layer did before schemes existed.
+
+A scheme also answers `memo`, what the render memo keys a subtree that renders the token by: the token itself when a session's token is stable, `None` under `SingleUse`, which keeps such a subtree out of the memo since every render differs.
+
+### Writing Your Own Scheme
+
+Implement `CsrfScheme` and hand it to `with_csrf`. `random_token` and `constant_time_eq` are the two pieces the stock schemes are built from.
+
+```rust
+use snapfire_fsr_session::{constant_time_eq, random_token, CsrfScheme, Opened};
+
+struct Stamped;
+
+impl CsrfScheme for Stamped {
+  fn issue(&self, opened: &Opened) -> String {
+    let token = random_token();
+    opened.csrf.set("token", Value::str(token.clone()));
+    token
+  }
+
+  fn verify(&self, opened: &Opened, token: &str) -> bool {
+    matches!(opened.csrf.get("token"), Some(Value::Str(held)) if constant_time_eq(held.as_str(), token))
+  }
+
+  fn rotate(&self, opened: &Opened) {
+    opened.csrf.remove("token");
+  }
+
+  fn memo(&self, opened: &Opened) -> Option<String> {
+    Some(self.issue(opened))
+  }
+}
 ```
 
 ## Wiring the Layer at the HTTP Edge

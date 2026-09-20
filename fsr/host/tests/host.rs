@@ -1496,6 +1496,13 @@ fn cookie_of(response: &http::Response<snapfire_fsr_host::Body>) -> String {
   set.to_str().unwrap().split(';').next().unwrap().to_owned()
 }
 
+/// A token minted by rendering the index under `cookie`; single use is the
+/// default, so every post takes a fresh one.
+async fn fresh_token(host: &Host, cookie: &str) -> String {
+  let response = host.handle(Request::get("/").header(header::COOKIE, cookie).body(Bytes::new()).unwrap()).await;
+  field(&body_of(response).await, "csrf_token").expect("a token on the page")
+}
+
 fn field(text: &str, name: &str) -> Option<String> {
   let start = text.find(&format!("\"{name}\":\"")).map(|i| i + name.len() + 4)?;
   let end = text[start..].find('"').map(|i| start + i)?;
@@ -1838,11 +1845,10 @@ async fn a_form_posts_an_action_with_its_token_and_lands_back_on_the_referer() {
   );
 
   let response = host.handle(form(format!("word=again&_csrf={token}"))).await;
-  assert_eq!(
-    response.status(),
-    StatusCode::SEE_OTHER,
-    "the token is good for the session's life"
-  );
+  assert_eq!(response.status(), StatusCode::FORBIDDEN, "a token verifies once");
+  let token = fresh_token(&host, &cookie).await;
+  let response = host.handle(form(format!("word=again&_csrf={token}"))).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER, "a fresh token from a fresh render verifies");
 }
 
 #[tokio::test]
@@ -3928,7 +3934,7 @@ async fn a_form_posted_from_a_fragment_is_sent_back_to_a_fragment() {
   let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
   let cookie = cookie_of(&response);
   let token = field(&body_of(response).await, "csrf_token").unwrap();
-  let form = |path: &str, referer: &str| {
+  let form = |path: &str, referer: &str, token: &str| {
     Request::post(path)
       .header(header::COOKIE, &cookie)
       .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -3937,18 +3943,20 @@ async fn a_form_posted_from_a_fragment_is_sent_back_to_a_fragment() {
       .unwrap()
   };
   let response = host
-    .handle(form("/_sf/action/remember?__fragment", "http://localhost/hello/norm?from=form"))
+    .handle(form("/_sf/action/remember?__fragment", "http://localhost/hello/norm?from=form", &token))
     .await;
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
   assert_eq!(location(&response), "/hello/norm?from=form&__fragment");
 
+  let token = fresh_token(&host, &cookie).await;
   let response = host
-    .handle(form("/_sf/action/remember?__fragment=side", "http://localhost/hello/norm"))
+    .handle(form("/_sf/action/remember?__fragment=side", "http://localhost/hello/norm", &token))
     .await;
   assert_eq!(location(&response), "/hello/norm?__fragment=side");
 
+  let token = fresh_token(&host, &cookie).await;
   let response = host
-    .handle(form("/_sf/action/remember", "http://localhost/hello/norm"))
+    .handle(form("/_sf/action/remember", "http://localhost/hello/norm", &token))
     .await;
   assert_eq!(location(&response), "/hello/norm", "a form posted from a document goes back to the document");
 }
@@ -3997,6 +4005,7 @@ async fn a_written_session_stamps_a_state_cookie_the_page_can_read() {
   assert!(!header.contains("HttpOnly"), "the page reads it: {header}");
   assert!(header.contains("Path=/") && header.contains("SameSite=Lax") && header.contains("Max-Age="), "{header}");
 
+  let token = fresh_token(&host, &cookie).await;
   let response = host.handle(form(format!("word=again&_csrf={token}"))).await;
   let second = state_cookie_of(&response).unwrap();
   assert_ne!(first, second, "every write is a new generation");
@@ -4034,6 +4043,7 @@ async fn a_form_field_is_read_as_the_type_the_action_declares() {
   let body = response.into_body().collect().await.unwrap().to_bytes();
   assert_eq!(&body[..], b"5", "the form's `by` was added as the number 2, not appended as text");
 
+  let token = fresh_token(&host, &cookie).await;
   let response = host
     .handle(
       Request::post("/_sf/action/index.bump")
@@ -4481,4 +4491,120 @@ mod rust_service {
     assert!(err.to_string().contains("service `wrong_shop`: service `wrong_shop` is already defined and `host::rust_service::WrongShop` defines it again; the contracts directory and the Rust disagree, so run fsr build"), "{err}");
     std::fs::remove_dir_all(&dir).unwrap();
   }
+}
+
+mod csrf_schemes {
+  use std::sync::Arc;
+
+  use bytes::Bytes;
+  use http::{header, Request, StatusCode};
+  use snapfire_fsr_core::Value;
+  use snapfire_fsr_host::Host;
+  use snapfire_fsr_service::MockTransport;
+  use snapfire_fsr_session::PerSession;
+
+  use super::{body_of, cookie_of, field, formed_dir, fresh_token};
+
+  fn formed_with(scheme_lines: &str) -> Arc<Host> {
+    let dir = formed_dir();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("csrf = \"always\"", &format!("csrf = \"always\"\n{scheme_lines}"));
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    Arc::new(Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap())
+  }
+
+  fn post(cookie: &str, token: &str) -> Request<Bytes> {
+    Request::post("/_sf/action/index.bump")
+      .header(header::COOKIE, cookie)
+      .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+      .header(header::REFERER, "http://localhost/hello/norm")
+      .body(Bytes::from(format!("by=1&_csrf={token}")))
+      .unwrap()
+  }
+
+  #[tokio::test]
+  async fn the_derived_scheme_keeps_one_token_for_the_sessions_life() {
+    let host = formed_with("csrf_scheme = \"derived\"");
+    let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+    let cookie = cookie_of(&response);
+    let token = field(&body_of(response).await, "csrf_token").unwrap();
+    assert_eq!(fresh_token(&host, &cookie).await, token, "every render carries the same token");
+    assert_eq!(host.handle(post(&cookie, &token)).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(host.handle(post(&cookie, &token)).await.status(), StatusCode::SEE_OTHER, "not single use");
+  }
+
+  #[tokio::test]
+  async fn a_scheme_on_the_builder_wins_over_the_configuration() {
+    let dir = formed_dir();
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).csrf(Arc::new(PerSession::new())).build().unwrap();
+    let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+    let cookie = cookie_of(&response);
+    let token = field(&body_of(response).await, "csrf_token").unwrap();
+    assert_eq!(token.len(), 64);
+    assert_eq!(fresh_token(&host, &cookie).await, token, "one token per session");
+    assert_eq!(host.handle(post(&cookie, &token)).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(host.handle(post(&cookie, &token)).await.status(), StatusCode::SEE_OTHER);
+  }
+
+  #[tokio::test]
+  async fn single_use_keeps_the_configured_number_of_forms_open() {
+    let host = formed_with("csrf_outstanding = 2");
+    let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+    let cookie = cookie_of(&response);
+    let first = field(&body_of(response).await, "csrf_token").unwrap();
+    let second = fresh_token(&host, &cookie).await;
+    let third = fresh_token(&host, &cookie).await;
+    assert_eq!(host.handle(post(&cookie, &first)).await.status(), StatusCode::FORBIDDEN, "the oldest fell off");
+    assert_eq!(host.handle(post(&cookie, &second)).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(host.handle(post(&cookie, &third)).await.status(), StatusCode::SEE_OTHER);
+  }
+
+  #[test]
+  fn a_scheme_name_the_host_does_not_know_refuses_to_start() {
+    let dir = formed_dir();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("csrf = \"always\"", "csrf = \"always\"\ncsrf_scheme = \"rotating\"");
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    let err = match Host::from(dir.join("app.toml")) {
+      Ok(_) => panic!("an unknown scheme booted"),
+      Err(e) => e.to_string(),
+    };
+    assert!(err.contains("session.csrf_scheme `rotating` is not a choice; single_use, session or derived"), "{err}");
+  }
+}
+
+#[tokio::test]
+async fn signing_in_rotates_the_csrf_token() {
+  let dir = identified_dir(USERS);
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("ttl = \"10m\"", "ttl = \"10m\"\ncsrf = \"always\"");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let before = field(&body_of(response).await, "csrf_token").expect("a token before sign-in under csrf = always");
+  host.handle(Request::get("/login").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+
+  let response = host
+    .handle(
+      Request::post("/auth/callback")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from("user=alice&password=wonder"))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+  let logout = |token: &str| {
+    Request::post("/auth/logout")
+      .header(header::COOKIE, &cookie)
+      .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+      .body(Bytes::from(format!("_csrf={token}")))
+      .unwrap()
+  };
+  assert_eq!(host.handle(logout(&before)).await.status(), StatusCode::FORBIDDEN, "a token learned before sign-in is worthless after");
+  let after = fresh_token(&host, &cookie).await;
+  assert_eq!(host.handle(logout(&after)).await.status(), StatusCode::SEE_OTHER);
 }

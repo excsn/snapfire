@@ -1,9 +1,11 @@
 mod codec;
+mod csrf;
 mod sessions;
 mod store;
 mod tokens;
 
 pub use codec::{CookieCodec, HmacCodec};
+pub use csrf::{constant_time_eq, random_token, CsrfScheme, Derived, PerSession, SingleUse};
 pub use sessions::{Opened, STATE_COOKIE, SessionConfig, Sessions};
 pub use store::{MemorySessionStore, SessionRecord, SessionStore, StoreError};
 pub use tokens::TokenCell;

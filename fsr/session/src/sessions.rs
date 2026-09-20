@@ -4,6 +4,7 @@ use std::time::Duration;
 use snapfire_fsr_runtime::SessionCell;
 
 use crate::codec::{CookieCodec, HmacCodec};
+use crate::csrf::{CsrfScheme, SingleUse};
 use crate::store::{SessionRecord, SessionStore, StoreError};
 use crate::tokens::TokenCell;
 use crate::SessionId;
@@ -25,11 +26,14 @@ impl Default for SessionConfig {
 
 /// One request's session as the layer sees it. `cell` is what flows into
 /// `RequestCtx`; `tokens` never does, which is the custody boundary from
-/// AUTH.md; `fresh` means no valid cookie arrived.
+/// AUTH.md; `csrf` is the CSRF scheme's own state; `fresh` means no valid
+/// cookie arrived.
+#[derive(Clone)]
 pub struct Opened {
   pub id: SessionId,
   pub cell: SessionCell,
   pub tokens: TokenCell,
+  pub csrf: TokenCell,
   pub fresh: bool,
 }
 
@@ -38,10 +42,8 @@ pub struct Opened {
 pub struct Sessions {
   store: Arc<dyn SessionStore>,
   codec: Arc<dyn CookieCodec>,
-  /// CSRF tokens are signed with the layer's key rather than through the
-  /// codec: a token is not a cookie and an alternative codec may carry the
-  /// session id any way it likes without being asked to sign anything else.
-  signer: HmacCodec,
+  /// The CSRF scheme, `SingleUse` unless `with_csrf` chose another.
+  csrf: Arc<dyn CsrfScheme>,
   config: SessionConfig,
 }
 
@@ -58,7 +60,15 @@ impl Sessions {
     codec: Arc<dyn CookieCodec>,
     config: SessionConfig,
   ) -> Self {
-    Self { store, codec, signer: HmacCodec::new(key), config }
+    let _ = key;
+    Self { store, codec, csrf: Arc::new(SingleUse::default()), config }
+  }
+
+  /// The same layer over a CSRF scheme of the caller's own: one of the three
+  /// the crate ships or an implementation of `CsrfScheme`.
+  pub fn with_csrf(mut self, scheme: Arc<dyn CsrfScheme>) -> Self {
+    self.csrf = scheme;
+    self
   }
 
   /// The cookie's value, unquoted and percent-decoded. RFC 6265 splits pairs
@@ -86,12 +96,13 @@ impl Sessions {
           id,
           cell: SessionCell::new(record.data, record.identity),
           tokens: TokenCell::new(record.tokens),
+          csrf: TokenCell::new(record.csrf),
           fresh: false,
         };
       }
-      return Opened { id, cell: SessionCell::default(), tokens: TokenCell::default(), fresh: false };
+      return Opened { id, cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false };
     }
-    Opened { id: SessionId::generate(), cell: SessionCell::default(), tokens: TokenCell::default(), fresh: true }
+    Opened { id: SessionId::generate(), cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true }
   }
 
   fn set_cookie(&self, id: &SessionId) -> String {
@@ -109,12 +120,13 @@ impl Sessions {
   /// needs. A fresh session that stored nothing sets no cookie, so crawlers
   /// never mint sessions.
   pub async fn persist(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
-    if !opened.cell.is_dirty() && !opened.tokens.is_dirty() {
+    if !opened.cell.is_dirty() && !opened.tokens.is_dirty() && !opened.csrf.is_dirty() {
       return Ok(None);
     }
     let (data, identity) = opened.cell.snapshot();
     let tokens = opened.tokens.snapshot();
-    self.store.save(&opened.id, SessionRecord { data, identity, tokens }).await?;
+    let csrf = opened.csrf.snapshot();
+    self.store.save(&opened.id, SessionRecord { data, identity, tokens, csrf }).await?;
     Ok(opened.fresh.then(|| self.set_cookie(&opened.id)))
   }
 
@@ -140,7 +152,8 @@ impl Sessions {
   pub async fn establish(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
     let (data, identity) = opened.cell.snapshot();
     let tokens = opened.tokens.snapshot();
-    self.store.save(&opened.id, SessionRecord { data, identity, tokens }).await?;
+    let csrf = opened.csrf.snapshot();
+    self.store.save(&opened.id, SessionRecord { data, identity, tokens, csrf }).await?;
     Ok(opened.fresh.then(|| self.set_cookie(&opened.id)))
   }
 
@@ -148,6 +161,8 @@ impl Sessions {
     self.store.delete(&opened.id).await?;
     opened.cell.clear();
     opened.tokens.clear();
+    opened.csrf.clear();
+    self.csrf.rotate(opened);
     let secure = if self.config.secure { "; Secure" } else { "" };
     Ok(format!(
       "{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
@@ -155,12 +170,24 @@ impl Sessions {
     ))
   }
 
-  pub fn csrf_token(&self, id: &SessionId) -> String {
-    self.signer.sign(format!("csrf:{}", id.0).as_bytes())
+  /// A token for this request, from the scheme; a single-use scheme mints a
+  /// fresh one every time.
+  pub fn csrf_token(&self, opened: &Opened) -> String {
+    self.csrf.issue(opened)
   }
 
-  pub fn verify_csrf(&self, id: &SessionId, token: &str) -> bool {
-    self.signer.verify(format!("csrf:{}", id.0).as_bytes(), token)
+  pub fn verify_csrf(&self, opened: &Opened, token: &str) -> bool {
+    self.csrf.verify(opened, token)
+  }
+
+  /// Tells the scheme the session's standing changed, which the edge calls
+  /// once a session is identified; `destroy` calls it itself.
+  pub fn rotate_csrf(&self, opened: &Opened) {
+    self.csrf.rotate(opened);
+  }
+
+  pub fn csrf_scheme(&self) -> Arc<dyn CsrfScheme> {
+    self.csrf.clone()
   }
 }
 

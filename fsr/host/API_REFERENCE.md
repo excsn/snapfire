@@ -128,7 +128,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### SessionSection
 
-* `key: String`, required. `store` (default `memory`; `service` keeps every record behind the client `client` names, over `ServiceSessionStore`; any other value is `HostError::Value`), `client: Option<String>` (required with `service` and must be a `[clients]` entry, else `HostError::Config`), `ttl` (default `8h`), `capacity` (default 4096), `secure` (default false), `csrf` (default `identified`; `always` mints the token for every session and establishes a fresh session on its first response and any other value is `HostError::Config`).
+* `key: String`, required. `store` (default `memory`; `service` keeps every record behind the client `client` names, over `ServiceSessionStore`; any other value is `HostError::Value`), `client: Option<String>` (required with `service` and must be a `[clients]` entry, else `HostError::Config`), `ttl` (default `8h`), `capacity` (default 4096), `secure` (default false), `csrf` (default `identified`; `always` mints the token for every session and establishes a fresh session on its first response and any other value is `HostError::Config`), `csrf_scheme` (default `single_use`; `session` or `derived`; any other value is `HostError::Config`), `csrf_outstanding` (default 8, at least 1; how many single-use tokens stay valid at once).
 
 ### CacheSection
 
@@ -220,6 +220,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `services(self, services: Arc<Services>) -> Self`: a registry built elsewhere, in place of the clients and of any `service`.
 * `service<T>(self, service: Arc<T>) -> Self where T: Transport + DeclaredService + 'static`: a `#[service]` block, served in process under `T::NAME` through the same registry, interceptors and data cache a client goes through. `T::contract()` is merged with the contracts directory's through `Contract::adopt`, so a build that read the block writes the same contract and one that disagrees fails `build` with `HostError::Service`. `services_over` replaces the clients' transports and leaves this one in place. The report lists it as a `services` row of kind `rust` with the Rust type's path.
 * `session_store(self, store: Arc<dyn SessionStore>) -> Self`.
+* `csrf(self, scheme: Arc<dyn CsrfScheme>) -> Self`: the CSRF scheme, in place of the one `session.csrf_scheme` names; `snapfire_fsr_session`'s `SingleUse`, `PerSession` and `Derived` or the application's own. A builder given one is not rebuildable by a sites reload.
 * `http2(self, on: bool) -> Self`: negotiates HTTP/2 as well as HTTP/1.1 on a served connection, over `server.http2`.
 * `sockets(self, sockets: Arc<socket::Sockets>) -> Self`, the `ws` feature: the registry to serve from, for an application that must hold it before the host exists, such as one whose own transport pushes into it. Without this the host makes its own.
 * `socket<F>(self, handler: F) -> Self where F: Fn(&socket::Who, socket::On) -> socket::Reply + Send + Sync + 'static`, the `ws` feature: what the application makes of what a page sends over `/_sf/socket`. Called once when a connection joins a topic, once per row it sends and once when it leaves; whatever it answers goes out to that topic as store rows. Without one the endpoint is 404, since a socket nobody answers does nothing.

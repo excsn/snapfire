@@ -1290,11 +1290,16 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
   let module = node.module.to_string();
   let mut keys = Vec::new();
   let mut path = false;
+  let mut csrf = false;
   match components.iter().find(|(name, _)| *name == module) {
-    None => class = Static::Dynamic,
+    None => {
+      class = Static::Dynamic;
+      csrf = true;
+    }
     Some((_, component)) => {
       if component.reads_prop("csrf_token") {
         class = Static::Dynamic;
+        csrf = true;
       } else if component.reads_prop("identity") {
         class = class.max(Static::Anonymous);
       }
@@ -1309,10 +1314,11 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
     class = class.max(below.class);
     keys.extend(below.store_keys);
     path = path || below.path;
+    csrf = csrf || below.csrf;
   }
   keys.sort();
   keys.dedup();
-  let out = SubtreeReads { class, store_keys: keys, path };
+  let out = SubtreeReads { class, store_keys: keys, path, csrf };
   reads.insert(subtree_shape(node), out.clone());
   out
 }

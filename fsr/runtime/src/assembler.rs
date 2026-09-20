@@ -493,7 +493,7 @@ impl Session {
       return Ok(error_node(&failure.to_string()));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props, node.id.0, Static::Dynamic, true);
+    self.inject_ctx_props(&mut props, node.id.0, Static::Dynamic, true, true);
     props.insert("error".to_owned(), Value::str(failure.to_string()));
     let chunks: Vec<Chunk> = self
       .runtime
@@ -521,7 +521,7 @@ impl Session {
       return Ok(Node::raw(""));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props, child.id.0, Static::Dynamic, true);
+    self.inject_ctx_props(&mut props, child.id.0, Static::Dynamic, true, true);
     inject_store(&mut props, store, None);
     let chunks: Vec<Chunk> = self
       .runtime
@@ -645,8 +645,8 @@ impl Session {
       _ => self.ctx.session.identity().map(|i| i.subject).unwrap_or_else(|| "-".to_owned()),
     };
     let csrf = match class {
-      Static::Dynamic => self.ctx.csrf.as_deref().unwrap_or("-"),
-      _ => "-",
+      Static::Dynamic if reads.is_none_or(|r| r.csrf) => self.ctx.csrf.memo_key()?,
+      _ => "-".to_owned(),
     };
     let store_fp = match (class, reads) {
       (Static::Dynamic, _) | (_, None) => store.fingerprint(),
@@ -698,7 +698,7 @@ impl Session {
   /// The request as props: the parameters and the locale always, the
   /// identity unless the subtree is `Fixed`, the token only when it is
   /// `Dynamic`, so a render the memo shares carries nothing of the visitor.
-  fn inject_ctx_props(&self, props: &mut Data, node: u32, class: Static, path: bool) {
+  fn inject_ctx_props(&self, props: &mut Data, node: u32, class: Static, path: bool, csrf: bool) {
     props.insert("params".to_owned(), params_value(&self.ctx_of(node).params));
     if path {
       props.insert(PATH_PROP.to_owned(), Value::str(self.ctx.path.clone()));
@@ -712,9 +712,9 @@ impl Session {
         props.insert("identity".to_owned(), identity);
       }
     }
-    if class == Static::Dynamic {
-      if let Some(csrf) = &self.ctx.csrf {
-        props.insert("csrf_token".to_owned(), Value::str(csrf.clone()));
+    if class == Static::Dynamic && csrf {
+      if let Some(csrf) = self.ctx.csrf.get() {
+        props.insert("csrf_token".to_owned(), Value::str(csrf));
       }
     }
   }
@@ -856,7 +856,7 @@ impl Session {
       }
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
-      self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path));
+      self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path), reads.is_none_or(|r| r.csrf));
       inject_store(&mut props, store, reads);
       if !node.children.is_empty() || !node.keep.is_empty() {
         let slots = node

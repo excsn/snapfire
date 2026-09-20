@@ -24,10 +24,17 @@ The session layer for SnapFire FSR: signed cookies, the session store, token cus
   * [Set-Cookie header](#set-cookie-header)
   * [CSRF token](#csrf-token)
   * [Session record](#session-record)
-* [7. Types From Other Crates](#7-types-from-other-crates)
+* [7. The CSRF Scheme](#7-the-csrf-scheme)
+  * [CsrfScheme](#csrfscheme)
+  * [SingleUse](#singleuse)
+  * [PerSession](#persession)
+  * [Derived](#derived)
+  * [random_token](#random_token)
+  * [constant_time_eq](#constant_time_eq)
+* [8. Types From Other Crates](#8-types-from-other-crates)
   * [SessionCell](#sessioncell)
   * [Identity](#identity)
-* [8. Error Handling](#8-error-handling)
+* [9. Error Handling](#9-error-handling)
 
 ## 1. Session Identity
 
@@ -61,22 +68,26 @@ One request's session as the layer sees it.
 * `pub id: SessionId`
 * `pub cell: SessionCell` is the application-visible half and the value that goes into `RequestCtx::session`.
 * `pub tokens: TokenCell` is the custody half and never enters `RequestCtx`.
+* `pub csrf: TokenCell` is the CSRF scheme's state, read and written by the scheme alone and persisted with the record.
 * `pub fresh: bool` is `true` only when no valid cookie arrived. A cookie that verifies but whose record is gone yields `fresh == false` with empty cells.
 
-Not `Clone`. Passed by reference to `persist` and `destroy`.
+`Clone` shares the cells. Passed by reference to `persist` and `destroy`.
 
 ### Sessions
 
-The session layer facade. Holds the store, the config and an `HmacCodec` built from the key.
+The session layer facade. Holds the store, the config, an `HmacCodec` built from the key and the CSRF scheme.
 
-* `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`. Any key length is accepted.
+* `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`. Any key length is accepted. The scheme is `SingleUse::default()`.
+* `fn with_csrf(self, scheme: Arc<dyn CsrfScheme>) -> Self`: the same layer over another scheme.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
 * `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when neither `opened.cell` nor `opened.tokens` is dirty. Otherwise it saves the record and returns `Some(set_cookie)` when `opened.fresh` is `true`, `None` when it is not.
 * `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` is `true`; for a host that bound something to the id, such as a CSRF token, before the session held anything.
 * `async fn destroy(&self, opened: &Opened) -> String`. Deletes the record, clears `opened.cell` and `opened.tokens` for the rest of the request and always returns the expiring cookie.
 * `fn state_cookie(&self) -> String`. The `Set-Cookie` value for `sf_state`, the constant `STATE_COOKIE`: a fresh generation each call, the epoch nanoseconds in hex, with `Path=/`, `SameSite=Lax`, the session's `Max-Age` and `Secure` when configured; no `HttpOnly`, since the page reads it. A host sets it beside the session cookie whenever it saves a written session and again on `destroy`, so a cache in the browser keyed on the generation drops what it fetched before the write, whatever path did the writing.
-* `fn csrf_token(&self, id: &SessionId) -> String`. Deterministic for a given id and key.
-* `fn verify_csrf(&self, id: &SessionId, token: &str) -> bool`. A token signed for one id never verifies for another; a non-hex token returns `false`.
+* `fn csrf_token(&self, opened: &Opened) -> String`: the scheme's `issue`.
+* `fn verify_csrf(&self, opened: &Opened, token: &str) -> bool`: the scheme's `verify`. A token never verifies for another session.
+* `fn rotate_csrf(&self, opened: &Opened)`: the scheme's `rotate`, for the edge to call once a session is identified; `destroy` calls it itself after clearing the cells.
+* `fn csrf_scheme(&self) -> Arc<dyn CsrfScheme>`.
 
 The `Cookie` header is parsed by splitting on `;`, trimming each pair and matching `cookie_name` followed by `=`. The value is taken verbatim, with no percent-decoding and no quoted-string handling.
 
@@ -107,6 +118,7 @@ Everything held under one session id. Data, identity and tokens are saved, loade
 * `pub data: ValueMap` is the session cell's contents.
 * `pub identity: Option<Identity>`
 * `pub tokens: ValueMap` is the token cell's contents.
+* `pub csrf: ValueMap` is the CSRF scheme's state.
 * Derives `Debug`, `Clone`, `Default`.
 
 ### SessionStore
@@ -178,19 +190,53 @@ The id is thirty-two hex characters as generated; the mac is sixty-four lowercas
 
 ### CSRF token
 
-Sixty-four lowercase hex characters, the HMAC-SHA256 of the ASCII bytes:
+Sixty-four lowercase hex characters under every stock scheme. `SingleUse` and `PerSession` mint 32 random bytes; `Derived` is the HMAC-SHA256 of the ASCII bytes:
 
 ```
 csrf:{session id}
 ```
 
-The layer's signing key is used, so the token is stable for the life of the session id and is not single use.
+under the layer's signing key, stable for the life of the session id. A scheme of the application's own writes whatever it likes.
 
 ### Session record
 
 `SessionRecord` is a plain Rust struct with no encoding of its own. `MemorySessionStore` holds it as a value in memory. Any store that leaves the process must supply its own serialisation; that serialisation covers `tokens`, which is credential material.
 
-## 7. Types From Other Crates
+## 7. The CSRF Scheme
+
+### CsrfScheme
+
+* `pub trait CsrfScheme: Send + Sync`
+* `fn issue(&self, opened: &Opened) -> String`: a token for this request.
+* `fn verify(&self, opened: &Opened, token: &str) -> bool`.
+* `fn rotate(&self, opened: &Opened)`: the session's standing changed, identified or destroyed; the default does nothing.
+* `fn memo(&self, opened: &Opened) -> Option<String>`: what the render memo keys a subtree that renders the token by; `None` when every issue differs, which keeps such a subtree out of the memo.
+* A scheme keeps its state in `opened.csrf`.
+
+### SingleUse
+
+* `pub struct SingleUse`, `SingleUse::new(keep: usize)`, `Default` is `new(8)`; `keep` is at least 1.
+* `issue` mints `random_token()` and holds it first in the record's `outstanding` list, truncated to `keep`; `verify` removes the token it matched, compared in constant time, answering whether it found one; `rotate` drops the list; `memo` is `None`.
+
+### PerSession
+
+* `pub struct PerSession`, `PerSession::new()`, `Default`.
+* `issue` answers the record's `token`, minting it on the first call; `verify` compares in constant time; `rotate` replaces it; `memo` is the token.
+
+### Derived
+
+* `pub struct Derived`, `Derived::new(key: &[u8])`.
+* `issue` is the HMAC-SHA256 of `csrf:{id}` under `key` as hex; `verify` recomputes it; `rotate` does nothing; `memo` is the token. Nothing is stored.
+
+### random_token
+
+* `pub fn random_token() -> String`: 32 random bytes as 64 hex characters.
+
+### constant_time_eq
+
+* `pub fn constant_time_eq(a: &str, b: &str) -> bool`: equal without an early exit on the first differing byte.
+
+## 8. Types From Other Crates
 
 ### SessionCell
 
@@ -216,7 +262,7 @@ The layer's signing key is used, so the token is stable for the life of the sess
 
 `Value` and `ValueMap` come from `snapfire_fsr_core`, where `ValueMap` is `IndexMap<String, Value>`.
 
-## 8. Error Handling
+## 9. Error Handling
 
 The crate defines no error type; no method returns a `Result`.
 

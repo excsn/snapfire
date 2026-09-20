@@ -51,6 +51,7 @@ pub fn encode_record(record: &SessionRecord) -> String {
     },
   );
   map.insert("tokens".to_owned(), Value::Map(record.tokens.clone()));
+  map.insert("csrf".to_owned(), Value::Map(record.csrf.clone()));
   value_to_json(&Value::Map(map)).to_string()
 }
 
@@ -71,7 +72,11 @@ pub fn decode_record(text: &str) -> Option<SessionRecord> {
     Some(Value::Map(tokens)) => tokens,
     _ => ValueMap::default(),
   };
-  Some(SessionRecord { data, identity, tokens })
+  let csrf = match map.shift_remove("csrf") {
+    Some(Value::Map(csrf)) => csrf,
+    _ => ValueMap::default(),
+  };
+  Some(SessionRecord { data, identity, tokens, csrf })
 }
 
 fn identity_map(identity: &Identity) -> ValueMap {

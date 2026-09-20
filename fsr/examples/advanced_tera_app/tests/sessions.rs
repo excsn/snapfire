@@ -19,13 +19,13 @@ fn visits_count_across_the_cookie_round_trip() {
 }
 
 #[test]
-fn the_form_embeds_the_session_csrf_token() {
+fn the_form_embeds_a_fresh_csrf_token_per_render() {
   let host = app();
   let response = get(&host, "/dash/servers", None);
   let cookie = session_cookie(&response);
   let token = csrf_in(&text(response));
-  assert!(!token.is_empty());
-  assert_eq!(csrf_in(&text(get(&host, "/dash/servers", Some(&cookie)))), token, "the token is the session's");
+  assert_eq!(token.len(), 64);
+  assert_ne!(csrf_in(&text(get(&host, "/dash/servers", Some(&cookie)))), token, "single use: every render carries its own token");
 }
 
 #[test]

@@ -41,7 +41,7 @@ use snapfire_fsr_ir::HandlerRef;
 use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner, renumber};
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
-  ActionError, Address, AssembleError, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
+  ActionError, Address, AssembleError, CsrfHandle, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
   CacheEntry, Chunk, IslandEvent, Matcher, Metadata, NoCache, NodeCache, Origin, RequestCtx, Resolver, SessionCell, WarmLoads, WarmRenders, assemble, assemble_under, html_stream,
   parse_query, wire_stream,
 };
@@ -49,7 +49,7 @@ use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, DeclaredService, HttpTransport, IdentityInterceptor, MockTransport,
   NoCredentials, Services, TraceInterceptor, Transport,
 };
-use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
+use snapfire_fsr_session::{CsrfScheme, MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -943,7 +943,7 @@ impl Default for AuthFlow {
 #[derive(Clone)]
 struct Incoming {
   session: SessionCell,
-  csrf: Option<String>,
+  csrf: CsrfHandle,
   credentials: Arc<dyn Credentials>,
   /// The locale whose catalog the navigator already holds, `x-sf-catalog`,
   /// so a payload for that locale carries no `D` row.
@@ -970,7 +970,7 @@ impl Incoming {
   fn anonymous(session: SessionCell) -> Self {
     Self {
       session,
-      csrf: None,
+      csrf: CsrfHandle::default(),
       credentials: Arc::new(NoCredentials),
       held_catalog: None,
       host: None,
@@ -997,6 +997,7 @@ pub struct HostBuilder {
   app: Option<AppBuilder>,
   services: Option<Arc<Services>>,
   rust_services: Vec<RustService>,
+  csrf: Option<Arc<dyn CsrfScheme>>,
   transport_override: Option<Arc<dyn Transport>>,
   store: Option<Arc<dyn SessionStore>>,
   shell: Option<Arc<dyn Evaluator>>,
@@ -1110,6 +1111,7 @@ impl Host {
       app: Some(app),
       services: None,
       rust_services: Vec::new(),
+      csrf: None,
       transport_override: None,
       store: None,
       shell: None,
@@ -1995,6 +1997,7 @@ impl Host {
       id: flow.id.clone(),
       cell: session,
       tokens: flow.tokens.clone(),
+      csrf: TokenCell::default(),
       fresh: true,
     };
     let response = self.auth_route(mounted, &request, &opened, path, query).await?;
@@ -2183,7 +2186,14 @@ impl Host {
   }
 
   fn incoming(&self, opened: &Opened, host: Option<String>) -> Incoming {
-    let csrf = (self.csrf_always || opened.cell.identity().is_some()).then(|| self.sessions.csrf_token(&opened.id));
+    let csrf = match self.csrf_always || opened.cell.identity().is_some() {
+      true => {
+        let scheme = self.sessions.csrf_scheme();
+        let held = opened.clone();
+        CsrfHandle::new(scheme.memo(&held), move || scheme.issue(&held))
+      }
+      false => CsrfHandle::default(),
+    };
     Incoming {
       session: opened.cell.clone(),
       csrf,
@@ -2650,7 +2660,7 @@ impl Host {
             Some(Value::Str(token)) => token.to_string(),
             _ => String::new(),
           };
-          if !self.sessions.verify_csrf(&opened.id, &token) {
+          if !self.sessions.verify_csrf(opened, &token) {
             return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
           }
           let mut input = Value::Map(fields);
@@ -2711,7 +2721,7 @@ impl Host {
           Some(Value::Str(token)) => token.to_string(),
           _ => String::new(),
         };
-        if !self.sessions.verify_csrf(&opened.id, &token) {
+        if !self.sessions.verify_csrf(opened, &token) {
           return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
         }
         Value::Map(fields)
@@ -2939,7 +2949,10 @@ impl Host {
         };
         let pending = mounted.auth.pending_return_to(opened);
         let mut response = match mounted.auth.callback(opened, params).await {
-          Ok(destination) => see_other(&destination),
+          Ok(destination) => {
+            self.sessions.rotate_csrf(opened);
+            see_other(&destination)
+          }
           Err(AuthError::Denied(_)) => {
             let back: String = pending
               .map(|p| form_urlencoded::byte_serialize(p.as_bytes()).collect())
@@ -2955,7 +2968,7 @@ impl Host {
         let token = form_field(req.body(), "_csrf")
           .or_else(|| header("x-sf-csrf"))
           .unwrap_or_default();
-        if !self.sessions.verify_csrf(&opened.id, &token) {
+        if !self.sessions.verify_csrf(opened, &token) {
           return Some(text_response(
             StatusCode::FORBIDDEN,
             "csrf verification failed".to_owned(),
@@ -3777,6 +3790,14 @@ impl HostBuilder {
     self
   }
 
+  /// The CSRF scheme, in place of the one `session.csrf_scheme` names: one
+  /// of the three `snapfire_fsr_session` ships or the application's own
+  /// `CsrfScheme`.
+  pub fn csrf(mut self, scheme: Arc<dyn CsrfScheme>) -> Self {
+    self.csrf = Some(scheme);
+    self
+  }
+
   pub fn session_store(mut self, store: Arc<dyn SessionStore>) -> Self {
     self.store = Some(store);
     self
@@ -4030,6 +4051,7 @@ impl HostBuilder {
   pub fn build(mut self) -> Result<Host, HostError> {
     let traces = self.traces.take();
     let reloader = self.reloader.take();
+    let chosen_csrf = self.csrf.take();
     let sites_mounter = self.sites_mounter.take();
     // A sites reload rebuilds the shell from these three alone, so a builder
     // carrying anything else they cannot reproduce keeps none of them and the
@@ -4039,7 +4061,8 @@ impl HostBuilder {
       && self.store.is_none()
       && self.shell.is_none()
       && self.prerendered.is_none()
-      && self.identity.is_none();
+      && self.identity.is_none()
+      && chosen_csrf.is_none();
     let shell_inputs = (sites_mounter.is_some() && rebuildable).then(|| {
       Arc::new(ShellInputs {
         config: self.config.clone(),
@@ -4071,6 +4094,14 @@ impl HostBuilder {
         other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
       },
     };
+    let scheme: Arc<dyn CsrfScheme> = match chosen_csrf {
+      Some(scheme) => scheme,
+      None => match config.session.csrf_scheme.as_str() {
+        "derived" => Arc::new(snapfire_fsr_session::Derived::new(config.session.key.as_bytes())),
+        "session" => Arc::new(snapfire_fsr_session::PerSession::new()),
+        _ => Arc::new(snapfire_fsr_session::SingleUse::new(config.session.csrf_outstanding as usize)),
+      },
+    };
     let sessions = Sessions::new(
       store,
       config.session.key.as_bytes(),
@@ -4079,7 +4110,8 @@ impl HostBuilder {
         secure: config.session.secure,
         ..SessionConfig::default()
       },
-    );
+    )
+    .with_csrf(scheme);
     let changed = config.dev().then(|| Reload::new(16));
     let http2 = http2.unwrap_or(config.server.http2);
     #[cfg(not(feature = "tls"))]

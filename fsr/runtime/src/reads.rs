@@ -24,6 +24,10 @@ pub struct SubtreeReads {
   /// carries both paths for such a subtree, since two routes of one shape
   /// would otherwise share a render whose marks name one of them.
   pub path: bool,
+  /// A component in the subtree reads its `csrf_token` prop, so the render
+  /// carries the token: the memo keys it by the token and a scheme whose
+  /// token differs per render keeps it out of the memo.
+  pub csrf: bool,
 }
 
 /// The prop the path the request matched rides in on, read by the renderer

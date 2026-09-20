@@ -357,10 +357,27 @@ pub struct SessionSection {
   /// memo key, so `always` memoises every page per session.
   #[serde(default = "default_csrf")]
   pub csrf: String,
+  /// How a token is made and checked: `single_use`, a fresh token per form
+  /// good for one post; `session`, one random token per session, replaced at
+  /// sign-in; `derived`, an hmac of the session id, stable for its life.
+  #[serde(default = "default_csrf_scheme")]
+  pub csrf_scheme: String,
+  /// Under `single_use`, how many minted tokens stay valid at once, one per
+  /// open form; the oldest is dropped as newer ones are minted.
+  #[serde(default = "default_csrf_outstanding")]
+  pub csrf_outstanding: u32,
 }
 
 fn default_csrf() -> String {
   "identified".to_owned()
+}
+
+fn default_csrf_scheme() -> String {
+  "single_use".to_owned()
+}
+
+fn default_csrf_outstanding() -> u32 {
+  8
 }
 
 /// The render memo: evaluated subtrees keyed by plan node, params, identity
@@ -829,6 +846,15 @@ impl Config {
         at.clone(),
         format!("session.csrf `{}` is not a choice; identified or always", session.csrf),
       ));
+    }
+    if !matches!(session.csrf_scheme.as_str(), "single_use" | "session" | "derived") {
+      return Err(HostError::Config(
+        at.clone(),
+        format!("session.csrf_scheme `{}` is not a choice; single_use, session or derived", session.csrf_scheme),
+      ));
+    }
+    if session.csrf_outstanding == 0 {
+      return Err(HostError::Config(at.clone(), "session.csrf_outstanding is at least 1".to_owned()));
     }
     let cache: Option<CacheSection> = if store.path_exists("cache") {
       Some(store.get_into_struct("cache").map_err(fail)?)

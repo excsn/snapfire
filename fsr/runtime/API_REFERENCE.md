@@ -192,7 +192,7 @@ There is no `Pending` variant. Holes belong to the assembler.
 
 * `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: pure in the arguments. The evaluator sees no plan, no tree and no request context beyond the props the assembler composed.
 
-The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one and the subtree is not `Fixed`) and `csrf_token` (a `Value::Str`, when the context carries one and the subtree is `Dynamic`; the stock host mints one once the session is identified). A loader key with one of those names is replaced. `$store` carries the whole store for a `Dynamic` subtree and the keys `SubtreeReads::store_keys` names otherwise, so what a memoized render saw is what its key covers. A node with no entry in `Runtime::reads` is `Dynamic`.
+The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one and the subtree is not `Fixed`) and `csrf_token` (a `Value::Str`, when the context's handle is bound, the subtree is `Dynamic` and it reads the prop or has no reads entry; reading it is what mints the token, so a subtree without a form mints nothing). A loader key with one of those names is replaced. `$store` carries the whole store for a `Dynamic` subtree and the keys `SubtreeReads::store_keys` names otherwise, so what a memoized render saw is what its key covers. A node with no entry in `Runtime::reads` is `Dynamic`.
 
 An error module additionally receives `error`, a `Value::Str` holding the `LoadError` display string. A fallback module receives the three request keys only, never loader data.
 
@@ -251,7 +251,7 @@ Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `
 
 `pub enum Static { Fixed, Anonymous, Dynamic }`. `Copy`, `Ord`, `Default` (`Dynamic`). How much of the request a body or a subtree depends on: nothing, the identity alone or more. The app crate classifies sources and subtrees with it.
 
-`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool }`. What a subtree reads: the most any node in it reads, the store keys any component in it reads and whether a component in it renders the request's path or the document's, which a `<Link>` does to mark itself current. For such a subtree the assembler writes `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`) into the props and keys the memo by both paths.
+`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool, pub csrf: bool }`. What a subtree reads: the most any node in it reads, the store keys any component in it reads, whether a component in it reads its `csrf_token` prop, which is what makes the render carry the token, plus whether a component in it renders the request's path or the document's, which a `<Link>` does to mark itself current. For such a subtree the assembler writes `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`) into the props and keys the memo by both paths.
 
 `pub type Reads = HashMap<u64, SubtreeReads>`, keyed by `subtree_shape`.
 
@@ -293,7 +293,7 @@ Cache lookup and store happen per plan node that carries a `cache_key`. The comp
 * `cache_key` is `PlanNode::cache_key`, the plan's own tag.
 * The params are every entry of `ctx.params`, formatted `k=v`, sorted, joined by `&`. No params means an empty field.
 * `subject` is the subject from `ctx.session.identity()` when the session resolved one and the subtree's class is `Anonymous` or `Dynamic`; it is `-` when the session resolved none or the subtree is `Fixed`, so a fixed subtree's entry serves every visitor.
-* `token` is `ctx.csrf` when set and the subtree is `Dynamic`, since only then is it injected into props; `-` otherwise. A token is per session, so a dynamic segment rendered with one is memoised per session; the stock host carries none for an anonymous request so those renders share the memo.
+* `token` is `ctx.csrf.memo_key()` when the subtree is `Dynamic` and reads `csrf_token` (or has no reads entry), since only then is the token injected into props; `-` otherwise. A stable per-session token memoises such a segment per session; a `memo_key` of `None`, the single-use scheme's, keeps the segment out of the memo altogether, since every render carries a different token. The stock host binds no handle for an anonymous request under `csrf = "identified"`, so those renders share the memo.
 * `shape` is `subtree_shape`.
 * The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing a presence marker followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
 * The store fingerprint is over the whole store for a `Dynamic` subtree and over the keys `SubtreeReads::store_keys` names otherwise, so a key the subtree never reads changing is not a miss.
@@ -519,18 +519,18 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub params: Params`
 * `pub session: SessionCell`
 * `pub locale: Locale`: the request's locale as the host resolved it; the default `Locale` under a context nothing resolved.
-* `pub csrf: Option<String>`
+* `pub csrf: CsrfHandle`: the request's CSRF token, minted on first `get` and held for the request; `CsrfHandle::new(memo, mint)` binds one, `CsrfHandle::fixed(token)` holds a given token, `Default` is unbound and `get` answers `None`. `memo_key` is `Some("-")` unbound, `Some(memo)` when the session's token is stable and `None` when every mint differs, which keeps a subtree rendering the token out of the memo.
 * `pub services: ServiceHandle`
 * `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
 * `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's. Empty too under a context nothing resolved.
 * `pub document: Option<String>`: the path of the page the document is showing when the render is an intercept, the origin the navigator sent as `x-sf-from` with its locale prefix stripped. `None` on any other request, where the document's path is `path`.
 * `pub address: Option<Address>`: the navigation's own request when the render is an intercept, `None` otherwise; `ctx.address` in a body. On a layout the document keeps, `path`, `params` and `query` are the document's and this is the navigation's; on the variant filling the slot the two are the same request.
-* `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` and `path` are empty.
+* `pub fn anonymous(params: Params) -> Self`: empty session, no locale, an unbound CSRF handle, unbound service handle. `query` and `path` are empty.
 * `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.
 
-Cloning a context shares the session cell and the service handle; only `params`, `query`, `path`, `locale` and `csrf` are copied.
+Cloning a context shares the session cell, the service handle and the CSRF handle; only `params`, `query`, `path` and `locale` are copied.
 
 ### `Address`
 

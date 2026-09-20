@@ -112,6 +112,8 @@ title = "Shopping"
 key = "a signing key"             # required
 ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
 csrf = "identified"               # when a CSRF token is minted: once signed in, or always
+csrf_scheme = "single_use"        # or "session" (one token per session) or "derived" (an hmac of the id)
+csrf_outstanding = 8              # single_use: how many minted tokens stay valid at once, one per open form
 store = "memory"                  # or "service", with client naming the [clients] entry that holds sessions
 
 [cache]                           # optional: the render memo, nothing is cached without it
@@ -577,7 +579,7 @@ A Rust host hands in any `IdentityProvider` instead and the login page is `auth.
 let host = Host::from(".")?.identity(Arc::new(my_provider)).build()?;
 ```
 
-Once a session is identified the host mints a CSRF token for it. Every render, middleware, handler and action runs with the session's token custody bound to its services, so a loader's outbound call carries what the callback stored. Bodies see `identity` and the `csrf_token` prop and never the custody. Which client sends the token is written per client, `bearer = true` for `access_token` or a string naming another custody key; a client without it sends nothing, so a third-party API never sees a user's credential. The boot report says which:
+Once a session is identified the host mints CSRF tokens for it, under `session.csrf_scheme`: `single_use` by default, a fresh token per rendered form that verifies once, with the newest `csrf_outstanding` still valid so several forms may be open; `session` for one token per session; `derived` for the hmac of the session id. Signing in and signing out rotate whatever the scheme holds. A scheme of the application's own goes on the builder, `.csrf(Arc::new(my_scheme))`, an implementation of `snapfire_fsr_session::CsrfScheme`. A token is minted when a render reads the `csrf_token` prop and not before, so a page without a form mints nothing. Every render, middleware, handler and action runs with the session's token custody bound to its services, so a loader's outbound call carries what the callback stored. Bodies see `identity` and the `csrf_token` prop and never the custody. Which client sends the token is written per client, `bearer = true` for `access_token` or a string naming another custody key; a client without it sends nothing, so a third-party API never sees a user's credential. The boot report says which:
 
 ```
 auth      file, login page /login, routes /auth/login, /auth/callback and /auth/logout

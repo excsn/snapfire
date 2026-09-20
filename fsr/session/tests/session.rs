@@ -4,9 +4,7 @@ use std::time::Duration;
 use futures::executor::block_on;
 use snapfire_fsr_core::Value;
 use snapfire_fsr_runtime::Identity;
-use snapfire_fsr_session::{
-  CookieCodec, HmacCodec, MemorySessionStore, SessionConfig, SessionId, SessionStore, Sessions,
-};
+use snapfire_fsr_session::{CookieCodec, CsrfScheme, Derived, HmacCodec, MemorySessionStore, Opened, PerSession, SessionConfig, SessionId, SessionStore, Sessions, SingleUse, constant_time_eq};
 
 const KEY: &[u8] = b"test-signing-key-32-bytes-long!!";
 
@@ -77,15 +75,92 @@ fn identity_persists_and_destroy_forgets() {
 }
 
 #[test]
-fn csrf_tokens_bind_to_the_session() {
+fn csrf_tokens_bind_to_the_session_and_verify_once() {
   let layer = sessions();
-  let a = SessionId::generate();
-  let b = SessionId::generate();
+  let a = block_on(layer.open(None));
+  let b = block_on(layer.open(None));
 
   let token = layer.csrf_token(&a);
-  assert!(layer.verify_csrf(&a, &token));
   assert!(!layer.verify_csrf(&b, &token), "a token never validates for another session");
   assert!(!layer.verify_csrf(&a, "deadbeef"));
+  assert!(layer.verify_csrf(&a, &token));
+  assert!(!layer.verify_csrf(&a, &token), "single use is the default: a second post with the same token is refused");
+  assert!(a.csrf.is_dirty(), "the scheme's state is the session's to persist");
+}
+
+#[test]
+fn single_use_keeps_a_bounded_number_of_outstanding_tokens() {
+  let layer = sessions().with_csrf(Arc::new(SingleUse::new(2)));
+  let opened = block_on(layer.open(None));
+  let first = layer.csrf_token(&opened);
+  let second = layer.csrf_token(&opened);
+  let third = layer.csrf_token(&opened);
+  assert!(!layer.verify_csrf(&opened, &first), "the oldest was dropped when a third was minted");
+  assert!(layer.verify_csrf(&opened, &second));
+  assert!(layer.verify_csrf(&opened, &third));
+  let fourth = layer.csrf_token(&opened);
+  layer.rotate_csrf(&opened);
+  assert!(!layer.verify_csrf(&opened, &fourth), "rotation drops every outstanding token");
+  assert!(layer.csrf_scheme().memo(&opened).is_none(), "a per-render token keeps its subtree out of the render memo");
+}
+
+#[test]
+fn a_per_session_token_is_stable_until_rotated() {
+  let layer = sessions().with_csrf(Arc::new(PerSession::new()));
+  let opened = block_on(layer.open(None));
+  let token = layer.csrf_token(&opened);
+  assert_eq!(layer.csrf_token(&opened), token);
+  assert!(layer.verify_csrf(&opened, &token));
+  assert!(layer.verify_csrf(&opened, &token), "not single use");
+  assert_eq!(layer.csrf_scheme().memo(&opened).as_deref(), Some(token.as_str()));
+  layer.rotate_csrf(&opened);
+  assert!(!layer.verify_csrf(&opened, &token));
+  assert_ne!(layer.csrf_token(&opened), token);
+}
+
+#[test]
+fn a_derived_token_is_the_hmac_of_the_id_and_survives_rotation() {
+  let layer = sessions().with_csrf(Arc::new(Derived::new(b"k")));
+  let opened = block_on(layer.open(None));
+  let token = layer.csrf_token(&opened);
+  layer.rotate_csrf(&opened);
+  assert!(layer.verify_csrf(&opened, &token));
+  assert!(!opened.csrf.is_dirty(), "nothing is stored");
+  assert_eq!(layer.csrf_scheme().memo(&opened).as_deref(), Some(token.as_str()));
+}
+
+#[test]
+fn a_scheme_of_the_callers_own_is_asked_at_both_ends() {
+  struct Fixed;
+  impl CsrfScheme for Fixed {
+    fn issue(&self, _: &Opened) -> String {
+      "fixed".to_owned()
+    }
+    fn verify(&self, _: &Opened, token: &str) -> bool {
+      constant_time_eq(token, "fixed")
+    }
+    fn memo(&self, _: &Opened) -> Option<String> {
+      Some("fixed".to_owned())
+    }
+  }
+  let layer = sessions().with_csrf(Arc::new(Fixed));
+  let opened = block_on(layer.open(None));
+  assert_eq!(layer.csrf_token(&opened), "fixed");
+  assert!(layer.verify_csrf(&opened, "fixed"));
+  assert!(!layer.verify_csrf(&opened, "other"));
+}
+
+#[test]
+fn the_csrf_state_round_trips_through_the_store_and_dies_with_the_session() {
+  let layer = sessions();
+  let opened = block_on(layer.open(None));
+  let token = layer.csrf_token(&opened);
+  let header = block_on(layer.persist(&opened)).unwrap().map(|c| c.split(';').next().unwrap().to_owned()).expect("a minted token establishes the session");
+  let back = block_on(layer.open(Some(&header)));
+  assert!(layer.verify_csrf(&back, &token), "the outstanding token survived the round trip");
+  let again = layer.csrf_token(&back);
+  block_on(layer.destroy(&back)).unwrap();
+  assert!(!layer.verify_csrf(&back, &again));
 }
 
 #[test]

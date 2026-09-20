@@ -11,6 +11,8 @@ pub struct SessionRecord {
   pub data: ValueMap,
   pub identity: Option<Identity>,
   pub tokens: ValueMap,
+  /// The CSRF scheme's state, read and written by the scheme alone.
+  pub csrf: ValueMap,
 }
 
 /// Why a store could not write. A read has no error: a record that cannot be

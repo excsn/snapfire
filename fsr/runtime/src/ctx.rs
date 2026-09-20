@@ -175,7 +175,7 @@ pub struct RequestCtx {
   /// The deployment's `[public]` values, `ctx.config`. The same on every
   /// request, so a body reading only these still prerenders.
   pub config: ValueMap,
-  pub csrf: Option<String>,
+  pub csrf: CsrfHandle,
   pub services: ServiceHandle,
   /// The application's own Rust, `ctx.native`. No wire, so no contract and no
   /// interceptors; the build read its shape off the Rust signature.
@@ -194,7 +194,7 @@ impl RequestCtx {
       locale: Locale::default(),
       host: None,
       config: ValueMap::default(),
-      csrf: None,
+      csrf: CsrfHandle::default(),
       services: ServiceHandle::default(),
       natives: crate::natives::NativeHandle::default(),
     }
@@ -253,4 +253,50 @@ fn percent_decode(raw: &str) -> String {
     i += 1;
   }
   String::from_utf8_lossy(&out).into_owned()
+}
+
+struct CsrfSource {
+  mint: Box<dyn Fn() -> String + Send + Sync>,
+  memo: Option<String>,
+  token: std::sync::OnceLock<String>,
+}
+
+/// The request's CSRF token, minted on first read and held for the rest of
+/// the request, so a render that places no form mints nothing. Unbound when
+/// the edge minted no token for this request.
+#[derive(Clone, Default)]
+pub struct CsrfHandle(Option<Arc<CsrfSource>>);
+
+impl CsrfHandle {
+  /// `memo` is what the render memo keys a subtree rendering the token by:
+  /// the token when a session's token is stable, `None` when every mint
+  /// differs, which keeps such a subtree out of the memo.
+  pub fn new(memo: Option<String>, mint: impl Fn() -> String + Send + Sync + 'static) -> Self {
+    Self(Some(Arc::new(CsrfSource { mint: Box::new(mint), memo, token: std::sync::OnceLock::new() })))
+  }
+
+  /// A handle holding one token, for a test or a render outside the edge.
+  pub fn fixed(token: impl Into<String>) -> Self {
+    let token = token.into();
+    let held = token.clone();
+    Self::new(Some(token), move || held.clone())
+  }
+
+  pub fn is_bound(&self) -> bool {
+    self.0.is_some()
+  }
+
+  pub fn get(&self) -> Option<String> {
+    let source = self.0.as_ref()?;
+    Some(source.token.get_or_init(|| (source.mint)()).clone())
+  }
+
+  /// `Some("-")` unbound, `Some(memo)` when the token is stable for the
+  /// session, `None` when it is not.
+  pub fn memo_key(&self) -> Option<String> {
+    match &self.0 {
+      None => Some("-".to_owned()),
+      Some(source) => source.memo.clone(),
+    }
+  }
 }
