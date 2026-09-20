@@ -32,6 +32,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Reload the tables after a deploy | `Host::reload`, through the loader `Host::from` kept or a `reloader` |
 | Rotate the session key without signing everyone out | `session.previous_keys` and a reload; from Rust, `HostBuilder::keyring` and `Keyring::rotate` |
 | Sign or encrypt the session cookie your own way | `HostBuilder::codec` with a `CookieCodec` |
+| Keep a session alive past `session.ttl` | `ctx.session.extend` from Rust code that has the request; nothing extends on its own |
 | Serve with nothing but this crate | `Host::serve` |
 | Mount inside an axum or tower stack | `Host::service`, a `tower::Service` |
 | Serve with actix | the `actix` feature, `actix::serve` or `actix::handle` |

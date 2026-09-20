@@ -12,6 +12,7 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * [Holding Tokens in Custody](#holding-tokens-in-custody)
   * [Handing Custody to the Service Layer](#handing-custody-to-the-service-layer)
 * [Persisting at the Response](#persisting-at-the-response)
+* [Extending a Session](#extending-a-session)
 * [Destroying a Session on Logout](#destroying-a-session-on-logout)
 * [Issuing and Verifying CSRF Tokens](#issuing-and-verifying-csrf-tokens)
   * [The Three Schemes](#the-three-schemes)
@@ -38,7 +39,8 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * **Opened** is one request's session as the layer sees it: the id, both cells and whether the request arrived without a valid cookie.
 * **Fresh** means no valid cookie arrived, so this id has never been sent to a browser.
 * **Dirty** means a cell has been mutated since it was loaded; each cell tracks its own flag.
-* **Session record** is what the store holds: `data`, `identity` and `tokens` together under one id.
+* **Session record** is what the store holds: `data`, `identity`, `tokens` and the end together under one id.
+* **End** is the one moment a session is gone, seconds since the Unix epoch, set one `ttl` from open and held on the cell and the record: the cookie's `Max-Age` counts down to it and the store drops the record at it. It never slides; only `extend` moves it.
 * **Store** is the `SessionStore` trait, three async methods over the record; `MemorySessionStore` is the in-process implementation.
 * **Codec** is the `CookieCodec` trait, encode an id to a cookie value and decode one back; `HmacCodec` is the implementation `Sessions` uses.
 * **Keyring** is the ordered set of keys `HmacCodec` signs and verifies with: the first signs, every one verifies, so a key is rotated in and the old one retired after the ttl without a cookie going bad in between.
@@ -60,7 +62,7 @@ use snapfire_fsr_session::{MemorySessionStore, SessionConfig, Sessions};
 
 fn main() {
   let sessions = Sessions::new(
-    Arc::new(MemorySessionStore::new(4096, Duration::from_secs(8 * 3600))),
+    Arc::new(MemorySessionStore::new(4096)),
     b"a-32-byte-or-longer-signing-key!",
     SessionConfig::default(),
   );
@@ -215,6 +217,20 @@ assert_eq!(sessions.persist(&opened).await, None);
 ```
 
 An existing session that is dirty saves and returns `None`, because the browser already holds the right cookie.
+
+## Extending a Session
+
+A session ends one `ttl` after it opened, however often it is read, so a request that only reads writes nothing. Moving the end is the application's call: `SessionCell::extend` sets it to a duration from now and marks the cell. `persist` then saves the record and sets the cookie again with a `Max-Age` that reaches the new end, whether or not anything else changed.
+
+```rust
+let opened = block_on(sessions.open(Some(&cookie_header)));
+if opened.cell.expires() < unix_now() + 2 * 3600 {
+  opened.cell.extend(Duration::from_secs(8 * 3600));
+}
+let set_cookie = block_on(sessions.persist(&opened)).unwrap();
+```
+
+Extend where it is cheap: on sign-in, on a write the application makes anyway or once the remaining time drops under a threshold as above, so a busy session costs one store write a day rather than one a request. `unix_now` is `snapfire_fsr_runtime::unix_now`, the clock every end is read against.
 
 ## Destroying a Session on Logout
 
@@ -373,14 +389,13 @@ let config = SessionConfig {
 };
 ```
 
-`ttl` is the cookie's `Max-Age` only. The record's lifetime is the store's, so set the two together or the browser will keep sending an id whose record has gone.
+`ttl` is the length of a new session. `open` gives the cell an end one `ttl` from now, the cookie's `Max-Age` counts down to it and the record carries it, so the store needs no lifetime of its own.
 
 ```rust
-let ttl = Duration::from_secs(8 * 3600);
 let sessions = Sessions::new(
-  Arc::new(MemorySessionStore::new(4096, ttl)),
+  Arc::new(MemorySessionStore::new(4096)),
   key,
-  SessionConfig { ttl, ..SessionConfig::default() },
+  SessionConfig { ttl: Duration::from_secs(8 * 3600), ..SessionConfig::default() },
 );
 ```
 
@@ -390,10 +405,10 @@ let sessions = Sessions::new(
 
 ### The Default Store
 
-`MemorySessionStore::new` takes a capacity in entries and a time-to-idle. Idle, not absolute: an active session keeps sliding forward, an abandoned one falls out.
+`MemorySessionStore::new` takes a capacity in entries. Each record is kept until its own end, the one `open` set or `extend` moved, then dropped there.
 
 ```rust
-let store = MemorySessionStore::new(4096, Duration::from_secs(8 * 3600));
+let store = MemorySessionStore::new(4096);
 ```
 
 It is a single-process store. Two app instances behind a load balancer do not share it.
@@ -403,16 +418,16 @@ It is a single-process store. Two app instances behind a load balancer do not sh
 `sharded` adds an explicit shard count for lock contention. `fibre_cache` rounds the count up to the next power of two; its own default is derived from the CPU count.
 
 ```rust
-let store = MemorySessionStore::sharded(4096, Duration::from_secs(8 * 3600), 4);
+let store = MemorySessionStore::sharded(4096, 4);
 ```
 
 Capacity is accounted across all shards rather than divided by them, so raising the shard count trades against the fixed per-shard policy and timer structures, never against usable capacity. A store built for sixty-four entries holds sixty-four.
 
 ```rust
-let store = MemorySessionStore::new(64, Duration::from_secs(60));
+let store = MemorySessionStore::new(64);
 let ids: Vec<SessionId> = (0..64).map(|_| SessionId::generate()).collect();
 for id in &ids {
-  store.save(id, Default::default()).await;
+  store.save(id, SessionRecord { expires: unix_now() + 60, ..Default::default() }).await;
 }
 let mut resident = 0;
 for id in &ids {

@@ -6,25 +6,30 @@
 
 use std::future::ready;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use snapfire_fsr_auth::{AuthError, AuthOutcome, Begin, IdentityProvider};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
-use snapfire_fsr_runtime::{FailureKind, Identity, ServiceError};
+use snapfire_fsr_runtime::{unix_now, FailureKind, Identity, ServiceError};
 use snapfire_fsr_service::Services;
 use snapfire_fsr_session::{SessionId, SessionRecord, SessionStore, StoreError};
 
 pub struct ServiceSessionStore {
   services: Arc<Services>,
   client: String,
+  ttl: Duration,
 }
 
 impl ServiceSessionStore {
-  pub fn new(services: Arc<Services>, client: impl Into<String>) -> Self {
+  /// `ttl` is the end given to a record the service stored before records
+  /// carried one.
+  pub fn new(services: Arc<Services>, client: impl Into<String>, ttl: Duration) -> Self {
     Self {
       services,
       client: client.into(),
+      ttl,
     }
   }
 
@@ -52,10 +57,13 @@ pub fn encode_record(record: &SessionRecord) -> String {
   );
   map.insert("tokens".to_owned(), Value::Map(record.tokens.clone()));
   map.insert("csrf".to_owned(), Value::Map(record.csrf.clone()));
+  map.insert("expires".to_owned(), Value::Int(record.expires as i128));
   value_to_json(&Value::Map(map)).to_string()
 }
 
-pub fn decode_record(text: &str) -> Option<SessionRecord> {
+/// `expires_when_missing` is the end for a record encoded before records
+/// carried one.
+pub fn decode_record(text: &str, expires_when_missing: u64) -> Option<SessionRecord> {
   let json: serde_json::Value = serde_json::from_str(text).ok()?;
   let Value::Map(mut map) = json_to_value(&json).ok()? else {
     return None;
@@ -76,7 +84,12 @@ pub fn decode_record(text: &str) -> Option<SessionRecord> {
     Some(Value::Map(csrf)) => csrf,
     _ => ValueMap::default(),
   };
-  Some(SessionRecord { data, identity, tokens, csrf })
+  let expires = match map.shift_remove("expires") {
+    Some(Value::Int(at)) => u64::try_from(at).unwrap_or(0),
+    Some(Value::UInt(at)) => u64::try_from(at).unwrap_or(u64::MAX),
+    _ => expires_when_missing,
+  };
+  Some(SessionRecord { data, identity, tokens, csrf, expires })
 }
 
 fn identity_map(identity: &Identity) -> ValueMap {
@@ -101,13 +114,14 @@ fn identity_of(map: &ValueMap) -> Option<Identity> {
 impl SessionStore for ServiceSessionStore {
   fn load(&self, id: &SessionId) -> BoxFuture<'_, Option<SessionRecord>> {
     let call = self.call("getSession", id_args(id));
+    let fallback = unix_now() + self.ttl.as_secs();
     Box::pin(async move {
       match call.await {
         Ok(Value::Map(map)) => match map.get("record") {
-          Some(Value::Str(text)) => decode_record(text),
+          Some(Value::Str(text)) => decode_record(text, fallback),
           _ => None,
         },
-        Ok(Value::Str(text)) => decode_record(&text),
+        Ok(Value::Str(text)) => decode_record(&text, fallback),
         Ok(_) => None,
         Err(error) => {
           if error.kind != FailureKind::NotFound {
@@ -211,5 +225,25 @@ impl IdentityProvider for ServiceProvider {
       }
       Ok(AuthOutcome { identity, tokens })
     })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn the_end_rides_in_the_record_and_a_record_from_before_it_gets_the_fallback() {
+    let mut record = SessionRecord::default();
+    record.data.insert("who".to_owned(), Value::str("alice"));
+    record.expires = 1_800_000_000;
+    let text = encode_record(&record);
+    assert!(text.contains("\"expires\":1800000000"), "{text}");
+    assert_eq!(decode_record(&text, 7).unwrap().expires, 1_800_000_000);
+
+    let legacy = r#"{"data":{"who":"alice"},"identity":null,"tokens":{},"csrf":{}}"#;
+    let decoded = decode_record(legacy, 7).unwrap();
+    assert_eq!(decoded.expires, 7);
+    assert_eq!(decoded.data.get("who"), Some(&Value::str("alice")));
   }
 }

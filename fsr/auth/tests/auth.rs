@@ -10,7 +10,7 @@ const KEY: &[u8] = b"test-signing-key-32-bytes-long!!";
 
 fn layer() -> Sessions {
   Sessions::new(
-    Arc::new(MemorySessionStore::new(128, Duration::from_secs(60))),
+    Arc::new(MemorySessionStore::new(128)),
     KEY,
     SessionConfig::default(),
   )

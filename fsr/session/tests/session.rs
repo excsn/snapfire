@@ -3,14 +3,14 @@ use std::time::Duration;
 
 use futures::executor::block_on;
 use snapfire_fsr_core::Value;
-use snapfire_fsr_runtime::Identity;
-use snapfire_fsr_session::{CookieCodec, CsrfScheme, Derived, HmacCodec, MemorySessionStore, Opened, PerSession, SessionConfig, SessionId, SessionStore, Sessions, SingleUse, constant_time_eq};
+use snapfire_fsr_runtime::{unix_now, Identity};
+use snapfire_fsr_session::{CookieCodec, CsrfScheme, Derived, HmacCodec, MemorySessionStore, Opened, PerSession, SessionConfig, SessionId, SessionRecord, SessionStore, Sessions, SingleUse, constant_time_eq};
 
 const KEY: &[u8] = b"test-signing-key-32-bytes-long!!";
 
 fn sessions() -> Sessions {
   Sessions::new(
-    Arc::new(MemorySessionStore::new(128, Duration::from_secs(60))),
+    Arc::new(MemorySessionStore::new(128)),
     KEY,
     SessionConfig::default(),
   )
@@ -223,7 +223,7 @@ fn a_store_can_be_tuned_or_supplied_whole() {
       .unwrap(),
   );
 
-  for store in [MemorySessionStore::sharded(32, Duration::from_secs(60), 4), supplied] {
+  for store in [MemorySessionStore::sharded(32, 4), supplied] {
     let layer = Sessions::new(Arc::new(store), KEY, SessionConfig::default());
     let opened = block_on(layer.open(None));
     opened.cell.insert("visits", Value::int(1i64));
@@ -237,10 +237,11 @@ fn a_store_can_be_tuned_or_supplied_whole() {
 
 #[test]
 fn capacity_is_accounted_across_shards_not_divided_by_them() {
-  let store = MemorySessionStore::new(64, Duration::from_secs(60));
+  let store = MemorySessionStore::new(64);
   let ids: Vec<SessionId> = (0..64).map(|_| SessionId::generate()).collect();
   for id in &ids {
-    block_on(store.save(id, Default::default())).expect("the memory store saves");
+    let record = SessionRecord { expires: unix_now() + 60, ..Default::default() };
+    block_on(store.save(id, record)).expect("the memory store saves");
   }
   let resident = ids.iter().filter(|id| block_on(store.load(id)).is_some()).count();
   assert_eq!(resident, 64, "a small store under the default shard count keeps everything");
@@ -259,7 +260,7 @@ fn a_codec_of_the_caller_s_own_carries_the_session() {
     }
   }
 
-  let store = Arc::new(MemorySessionStore::new(16, Duration::from_secs(60)));
+  let store = Arc::new(MemorySessionStore::new(16));
   let layer = Sessions::with_codec(store, b"key", Arc::new(Plain), SessionConfig::default());
   let opened = block_on(layer.open(None));
   opened.cell.insert("who", Value::str("alice"));
@@ -324,7 +325,7 @@ mod keyring {
   #[test]
   fn a_cookie_under_a_previous_key_opens_stale_and_is_set_again_under_the_current_one() {
     let ring = Arc::new(Keyring::new(b"old"));
-    let store = Arc::new(MemorySessionStore::new(16, Duration::from_secs(60)));
+    let store = Arc::new(MemorySessionStore::new(16));
     let layer = Sessions::with_codec(store, b"", Arc::new(HmacCodec::over(ring.clone())), SessionConfig::default());
     let opened = block_on(layer.open(None));
     opened.cell.insert("who", Value::str("alice"));
@@ -356,5 +357,117 @@ mod keyring {
     assert_ne!(scheme.issue(&opened), token, "a fresh token is under the new key");
     ring.retire(b"old");
     assert!(!scheme.verify(&opened, &token));
+  }
+}
+
+/// DEFECTS 4.3: one end on the record, followed by the cookie and the store
+/// and moved only by `SessionCell::extend`.
+mod lifetime {
+  use super::*;
+  use std::collections::HashMap;
+  use futures::future::BoxFuture;
+  use parking_lot::Mutex;
+  use snapfire_fsr_session::StoreError;
+
+  fn max_age(cookie: &str) -> u64 {
+    cookie
+      .split(';')
+      .find_map(|part| part.trim().strip_prefix("Max-Age="))
+      .and_then(|n| n.parse().ok())
+      .expect("a Max-Age")
+  }
+
+  fn header(cookie: &str) -> String {
+    cookie.split(';').next().unwrap().to_owned()
+  }
+
+  /// Keeps every record whatever its end, so the layer's own check is what is
+  /// tested.
+  #[derive(Default)]
+  struct Keeps(Mutex<HashMap<String, SessionRecord>>);
+
+  impl SessionStore for Keeps {
+    fn load(&self, id: &SessionId) -> BoxFuture<'_, Option<SessionRecord>> {
+      let record = self.0.lock().get(&id.0).cloned();
+      Box::pin(async move { record })
+    }
+    fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>> {
+      self.0.lock().insert(id.0.clone(), record);
+      Box::pin(async { Ok(()) })
+    }
+    fn delete(&self, id: &SessionId) -> BoxFuture<'_, Result<(), StoreError>> {
+      self.0.lock().remove(&id.0);
+      Box::pin(async { Ok(()) })
+    }
+  }
+
+  #[test]
+  fn a_session_ends_one_ttl_from_open_and_the_cookie_and_the_record_count_down_to_it() {
+    let store = Arc::new(MemorySessionStore::new(16));
+    let layer = Sessions::new(store.clone(), KEY, SessionConfig { ttl: Duration::from_secs(100), ..SessionConfig::default() });
+    let before = unix_now();
+    let opened = block_on(layer.open(None));
+    assert!((before + 100..=before + 101).contains(&opened.cell.expires()));
+    opened.cell.insert("who", Value::str("alice"));
+    let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+    assert!((99..=100).contains(&max_age(&cookie)), "{cookie}");
+    let record = block_on(store.load(&opened.id)).unwrap();
+    assert_eq!(record.expires, opened.cell.expires());
+
+    let back = block_on(layer.open(Some(&header(&cookie))));
+    assert_eq!(back.cell.expires(), opened.cell.expires(), "a read leaves the end where it was");
+    assert_eq!(block_on(layer.persist(&back)).unwrap(), None, "a read writes nothing");
+  }
+
+  #[test]
+  fn an_extension_saves_and_sets_the_cookie_again_when_nothing_else_changed() {
+    let store = Arc::new(MemorySessionStore::new(16));
+    let layer = Sessions::new(store.clone(), KEY, SessionConfig { ttl: Duration::from_secs(100), ..SessionConfig::default() });
+    let opened = block_on(layer.open(None));
+    opened.cell.insert("who", Value::str("alice"));
+    let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+
+    let back = block_on(layer.open(Some(&header(&cookie))));
+    back.cell.extend(Duration::from_secs(1000));
+    assert!(!back.cell.is_dirty());
+    let again = block_on(layer.persist(&back)).unwrap().expect("an extension sets the cookie");
+    assert!((999..=1000).contains(&max_age(&again)), "{again}");
+    let record = block_on(store.load(&back.id)).unwrap();
+    assert_eq!(record.expires, back.cell.expires());
+    assert_eq!(record.data.get("who"), Some(&Value::str("alice")), "the record kept its contents");
+
+    let later = block_on(layer.open(Some(&header(&again))));
+    assert_eq!(later.cell.expires(), back.cell.expires());
+  }
+
+  #[test]
+  fn a_record_past_its_end_opens_as_gone_whatever_the_store_kept() {
+    let store = Arc::new(Keeps::default());
+    let layer = Sessions::new(store.clone(), KEY, SessionConfig::default());
+    let opened = block_on(layer.open(None));
+    opened.cell.insert("who", Value::str("alice"));
+    let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+    let mut record = block_on(store.load(&opened.id)).unwrap();
+    record.expires = unix_now() - 1;
+    block_on(store.save(&opened.id, record)).unwrap();
+
+    let back = block_on(layer.open(Some(&header(&cookie))));
+    assert_eq!(back.cell.get("who"), None);
+    assert!(!back.fresh);
+    assert!(block_on(store.load(&opened.id)).is_none(), "the expired record was deleted");
+    assert!(back.cell.expires() > unix_now(), "the request carries on with a new end");
+  }
+
+  #[test]
+  fn the_memory_store_keeps_a_record_until_its_end_and_not_past_it() {
+    let store = MemorySessionStore::new(16);
+    let live = SessionId::generate();
+    let gone = SessionId::generate();
+    block_on(store.save(&live, SessionRecord { expires: unix_now() + 1, ..Default::default() })).unwrap();
+    block_on(store.save(&gone, SessionRecord { expires: unix_now(), ..Default::default() })).unwrap();
+    assert!(block_on(store.load(&live)).is_some());
+    assert!(block_on(store.load(&gone)).is_none(), "a record already past its end is not stored");
+    std::thread::sleep(Duration::from_millis(1100));
+    assert!(block_on(store.load(&live)).is_none(), "the store drops the record at its end");
   }
 }

@@ -56,7 +56,7 @@ The inner `String` is the store key. Nothing in the crate validates its shape on
 Cookie policy for the layer.
 
 * `pub cookie_name: String` matched against the pairs of the `Cookie` header and written as the name in `Set-Cookie`. Default `"sf_session"`.
-* `pub ttl: Duration` written as `Max-Age` in seconds. Default eight hours. It bounds the cookie only; the record's lifetime belongs to the store.
+* `pub ttl: Duration` is the length of a new session. `open` gives the cell an end one `ttl` from now; the cookie's `Max-Age` counts down to that end and the record carries it. Default eight hours. Only `SessionCell::extend` moves the end.
 * `pub secure: bool` appends `; Secure`. Default `false`.
 * `SessionConfig::default() -> SessionConfig`.
 
@@ -83,8 +83,8 @@ The session layer facade. Holds the store, the config, the codec and the CSRF sc
 * `Sessions::with_codec(store, key: &[u8], codec: Arc<dyn CookieCodec>, config) -> Sessions`: over a codec of the caller's; `key` is ignored.
 * `fn with_csrf(self, scheme: Arc<dyn CsrfScheme>) -> Self`: the same layer over another scheme.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
-* `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when none of `opened.cell`, `opened.tokens` and `opened.csrf` is dirty, with `Some(set_cookie)` when `opened.stale` is set and `None` otherwise. Otherwise it saves the record and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true`, `None` when neither is.
-* `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true`; for a host that bound something to the id, such as a CSRF token, before the session held anything.
+* `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when none of `opened.cell`, `opened.tokens` and `opened.csrf` is dirty and the cell was not extended, with `Some(set_cookie)` when `opened.stale` is set and `None` otherwise. Otherwise it saves the record with the cell's end as `expires` and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true` or the cell was extended, `None` otherwise.
+* `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true` or the cell was extended; for a host that bound something to the id, such as a CSRF token, before the session held anything.
 * `async fn destroy(&self, opened: &Opened) -> String`. Deletes the record, clears `opened.cell` and `opened.tokens` for the rest of the request and always returns the expiring cookie.
 * `fn state_cookie(&self) -> String`. The `Set-Cookie` value for `sf_state`, the constant `STATE_COOKIE`: a fresh generation each call, the epoch nanoseconds in hex, with `Path=/`, `SameSite=Lax`, the session's `Max-Age` and `Secure` when configured; no `HttpOnly`, since the page reads it. A host sets it beside the session cookie whenever it saves a written session and again on `destroy`, so a cache in the browser keyed on the generation drops what it fetched before the write, whatever path did the writing.
 * `fn csrf_token(&self, opened: &Opened) -> String`: the scheme's `issue`.
@@ -116,13 +116,14 @@ Implements `Clone` and `Default`. There is no method that hands the cell to `Req
 
 ### SessionRecord
 
-Everything held under one session id. Data, identity and tokens are saved, loaded and deleted together.
+Everything held under one session id. Data, identity, tokens and the end are saved, loaded and deleted together.
 
 * `pub data: ValueMap` is the session cell's contents.
 * `pub identity: Option<Identity>`
 * `pub tokens: ValueMap` is the token cell's contents.
 * `pub csrf: ValueMap` is the CSRF scheme's state.
-* Derives `Debug`, `Clone`, `Default`.
+* `pub expires: u64` is the end, seconds since the Unix epoch. `open` treats a record past it as absent and deletes it; the cookie's `Max-Age` counts down to it; `MemorySessionStore` drops the record at it.
+* Derives `Debug`, `Clone`, `Default`. A default record has `expires: 0` and so has already expired.
 
 ### SessionStore
 
@@ -132,17 +133,17 @@ The store seam. `Send + Sync`, held as `Arc<dyn SessionStore>`.
 * `fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, ()>`
 * `fn delete(&self, id: &SessionId) -> BoxFuture<'_, ()>`
 
-`BoxFuture` is `futures_util::future::BoxFuture`. `save` and `delete` return no result, so an implementation reports a backend failure by its own means, not through these signatures. Record expiry is the implementation's responsibility; the layer never asks for it.
+`BoxFuture` is `futures_util::future::BoxFuture`. `save` and `delete` return no result, so an implementation reports a backend failure by its own means, not through these signatures. The record carries its end in `expires`; the layer treats a record past it as absent and deletes it, so a store may drop a record at its end or keep it until asked, whichever is cheaper.
 
 ### MemorySessionStore
 
 In-process store over a `fibre_cache::Cache<String, SessionRecord>` keyed by `SessionId`'s inner string. Single process only.
 
-* `MemorySessionStore::new(capacity: u64, ttl: Duration) -> MemorySessionStore` builds a cache with that capacity and `time_to_idle(ttl)`, leaving the shard count at the `fibre_cache` default, which is derived from the CPU count.
-* `MemorySessionStore::sharded(capacity: u64, ttl: Duration, shards: usize) -> MemorySessionStore` adds an explicit shard count. `fibre_cache` rounds it up to the next power of two. Capacity is accounted across all shards rather than divided by them, so the shard count trades lock contention against the fixed per-shard policy and timer structures, never against usable capacity.
+* `MemorySessionStore::new(capacity: u64) -> MemorySessionStore` builds a cache with that capacity and no lifetime policy of its own, leaving the shard count at the `fibre_cache` default, which is derived from the CPU count.
+* `MemorySessionStore::sharded(capacity: u64, shards: usize) -> MemorySessionStore` adds an explicit shard count. `fibre_cache` rounds it up to the next power of two. Capacity is accounted across all shards rather than divided by them, so the shard count trades lock contention against the fixed per-shard policy and timer structures, never against usable capacity.
 * `MemorySessionStore::with_cache(cache: fibre_cache::Cache<String, SessionRecord>) -> MemorySessionStore` takes a cache built any way the caller likes.
 
-`new` and `sharded` panic if `fibre_cache::CacheBuilder::build` fails. `with_cache` cannot panic. Every record is inserted with a cost of 1, so capacity counts sessions rather than bytes. The `ttl` is time to idle, so an active session slides forward and an untouched one expires.
+`new` and `sharded` panic if `fibre_cache::CacheBuilder::build` fails. `with_cache` cannot panic. Every record is inserted with a cost of 1 and a per-entry time to live of `expires` minus now, so capacity counts sessions rather than bytes and a record is gone at its end; a record saved at or past its end is dropped rather than stored.
 
 ## 5. The Cookie Codec
 
@@ -191,10 +192,10 @@ The id is thirty-two hex characters as generated; the mac is sixty-four lowercas
 
 ### Set-Cookie header
 
-`persist` returns, for a fresh session only:
+`persist` returns, for a fresh, stale or extended session:
 
 ```
-{cookie_name}={cookie value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={ttl seconds}[; Secure]
+{cookie_name}={cookie value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={seconds to the end}[; Secure]
 ```
 
 `destroy` returns, always:
@@ -268,6 +269,10 @@ under the layer's signing key, stable for the life of the session id. A scheme o
 * `fn clear(&self)` drops data and identity in one dirty write.
 * `fn is_dirty(&self) -> bool`
 * `fn snapshot(&self) -> (ValueMap, Option<Identity>)`
+* `fn expiring(self, at: u64) -> Self` sets the end without marking anything; `open` uses it.
+* `fn expires(&self) -> u64` is the end, seconds since the Unix epoch.
+* `fn extend(&self, by: Duration)` moves the end to `by` from now and marks the cell extended; `persist` then saves and sets the cookie again.
+* `fn is_extended(&self) -> bool`
 
 ### Identity
 

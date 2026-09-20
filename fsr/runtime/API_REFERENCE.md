@@ -509,8 +509,14 @@ The request's session, shared by every loader and action on it. `Clone + Default
 * `pub fn clear(&self)`: drops data and identity in one dirty write.
 * `pub fn is_dirty(&self) -> bool`
 * `pub fn snapshot(&self) -> (ValueMap, Option<Identity>)`
+* `pub fn expiring(self, at: u64) -> Self`: sets the end, seconds since the Unix epoch, without marking anything; the session layer's `open` uses it.
+* `pub fn expires(&self) -> u64`: the end.
+* `pub fn extend(&self, by: Duration)`: moves the end to `by` from now and marks the cell extended, which has the session layer save the record and set the cookie again. The end never moves otherwise.
+* `pub fn is_extended(&self) -> bool`
 
-Every mutator takes `&self`. Dirtiness is one-way within a request: nothing clears the flag.
+Every mutator takes `&self`. Dirtiness and extension are one-way within a request: nothing clears either flag.
+
+`pub fn unix_now() -> u64` is seconds since the Unix epoch, the clock every end is read against.
 
 ### `RequestCtx`
 

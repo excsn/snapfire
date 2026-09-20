@@ -27,6 +27,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
+* [Extending a Session](#extending-a-session)
 * [Rotating the Session Key](#rotating-the-session-key)
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Caching Service Answers](#caching-service-answers)
@@ -648,6 +649,24 @@ auth      service via identity, login page /login, routes /auth/login, /auth/cal
 ```
 
 A `getSession` that fails for a reason other than `404` is logged and the request runs anonymous; a `putSession` that fails is logged and the response still goes out. `HostBuilder::session_store` still wins over the section for a Rust host. Under `fsr test` sessions stay in memory whatever the section says, since a spec's mocks cannot hold them.
+
+The blob carries the session's end as `expires`, seconds since the Unix epoch, so a service that wants to sweep records knows when each one is gone without a lifetime of its own. A record stored before the field existed reads back with an end one `ttl` from the read.
+
+## Extending a Session
+
+A session ends one `ttl` after it opened, however often it is read; the cookie's `Max-Age` counts down to the same moment and the store drops the record there. Nothing moves the end on its own, so a request that only reads a session writes nothing. Extending is the application's call, from Rust code that has the request context and it costs one store write and one `Set-Cookie` each time:
+
+```rust
+HostBuilder::from(config)
+  .action_override("account.touch", |ctx, _input| async move {
+    if ctx.session.expires() < unix_now() + 2 * 3600 {
+      ctx.session.extend(Duration::from_secs(8 * 3600));
+    }
+    Ok(Value::Null)
+  })
+```
+
+Extend where it is cheap: on sign-in, on a write the application makes anyway or once the remaining time drops under a threshold as above. A busy session then costs one write a day rather than one a request. `unix_now` and `SessionCell` are `snapfire_fsr_runtime`'s.
 
 ## Rotating the Session Key
 

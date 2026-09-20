@@ -32,4 +32,5 @@ It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runti
 | Keep sessions in Redis, Postgres or anything else | implement `SessionStore` |
 | Sign and verify the cookie value | `HmacCodec` or your own `CookieCodec` |
 | Rotate the signing key without signing everyone out | `Keyring`: `rotate` a new key in, `retire` the old one after the ttl |
+| Keep a session alive past its end | `SessionCell::extend` where the application decides, then `persist` |
 | Name the thing the cookie carries | `SessionId` |

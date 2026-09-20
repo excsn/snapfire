@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
@@ -18,10 +19,14 @@ struct SessionState {
   data: ValueMap,
   identity: Option<Identity>,
   dirty: bool,
+  expires: u64,
+  extended: bool,
 }
 
 /// The request's session, shared across loaders and actions. Mutation marks it
 /// dirty; the session layer persists a dirty cell when the response starts.
+/// `expires` is the one end the record, the cookie and the store follow, in
+/// seconds since the Unix epoch; it moves only through `extend`.
 #[derive(Clone, Default)]
 pub struct SessionCell(Arc<Mutex<SessionState>>);
 
@@ -31,7 +36,35 @@ impl SessionCell {
       data,
       identity,
       dirty: false,
+      expires: 0,
+      extended: false,
     })))
+  }
+
+  /// The same cell with its end set, for the session layer at open; not an
+  /// extension.
+  pub fn expiring(self, at: u64) -> Self {
+    self.0.lock().expires = at;
+    self
+  }
+
+  /// Seconds since the Unix epoch after which the session is gone.
+  pub fn expires(&self) -> u64 {
+    self.0.lock().expires
+  }
+
+  /// Moves the end to `by` from now. The session layer then saves the record
+  /// and sets the cookie again with the new `Max-Age`, whether or not anything
+  /// else changed, so an application extends as seldom as it likes and a
+  /// request that only reads writes nothing.
+  pub fn extend(&self, by: Duration) {
+    let mut state = self.0.lock();
+    state.expires = unix_now() + by.as_secs();
+    state.extended = true;
+  }
+
+  pub fn is_extended(&self) -> bool {
+    self.0.lock().extended
   }
 
   pub fn get(&self, key: &str) -> Option<Value> {
@@ -79,6 +112,14 @@ impl SessionCell {
     let state = self.0.lock();
     (state.data.clone(), state.identity.clone())
   }
+}
+
+/// Seconds since the Unix epoch, the clock every session end is read against.
+pub fn unix_now() -> u64 {
+  std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_secs())
+    .unwrap_or(0)
 }
 
 /// The request's locale as the application spells it, `fr_FR` or `fr`,

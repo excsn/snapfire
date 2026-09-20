@@ -4158,14 +4158,14 @@ impl HostBuilder {
     let store: Arc<dyn SessionStore> = match store {
       Some(store) => store,
       None => match config.session.store.as_str() {
-        "memory" => Arc::new(MemorySessionStore::new(config.session.capacity, ttl)),
+        "memory" => Arc::new(MemorySessionStore::new(config.session.capacity)),
         "service" => {
           let client = format!(
             "{}{}",
             config.site.as_ref().map(SiteSection::prefix).unwrap_or_default(),
             config.session.client.clone().unwrap_or_default()
           );
-          Arc::new(ServiceSessionStore::new(tables.app.services.clone(), client))
+          Arc::new(ServiceSessionStore::new(tables.app.services.clone(), client, ttl))
         }
         other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
       },

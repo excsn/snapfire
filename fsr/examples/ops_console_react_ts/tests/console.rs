@@ -63,7 +63,7 @@ fn signed(subject: &str, role: &str) -> Value {
 /// `config/app.toml`; a canned transport cannot hold them, so these tests keep
 /// them in memory and `tests/identity.rs` drives the service itself.
 fn console(transport: Arc<MockTransport>) -> Host {
-  let store = Arc::new(MemorySessionStore::new(64, std::time::Duration::from_secs(600)));
+  let store = Arc::new(MemorySessionStore::new(64));
   let mut config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
   if let Some(cache) = config.cache.as_mut() {
     cache.data = None;

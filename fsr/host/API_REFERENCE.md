@@ -142,7 +142,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### SessionSection
 
-* `key: String`, required; `previous_keys: Vec<String>` (default empty), keys that still verify a cookie signed before `key` replaced them, in order. Together they fill the `Keyring` the stock codec and a `derived` scheme sign with, `key` first. `store` (default `memory`; `service` keeps every record behind the client `client` names, over `ServiceSessionStore`; any other value is `HostError::Value`), `client: Option<String>` (required with `service` and must be a `[clients]` entry, else `HostError::Config`), `ttl` (default `8h`), `capacity` (default 4096), `secure` (default false), `csrf` (default `identified`; `always` mints the token for every session and establishes a fresh session on its first response and any other value is `HostError::Config`), `csrf_scheme` (default `single_use`; `session` or `derived`; any other value is `HostError::Config`), `csrf_outstanding` (default 8, at least 1; how many single-use tokens stay valid at once).
+* `key: String`, required; `previous_keys: Vec<String>` (default empty), keys that still verify a cookie signed before `key` replaced them, in order. Together they fill the `Keyring` the stock codec and a `derived` scheme sign with, `key` first. `store` (default `memory`; `service` keeps every record behind the client `client` names, over `ServiceSessionStore`; any other value is `HostError::Value`), `client: Option<String>` (required with `service` and must be a `[clients]` entry, else `HostError::Config`), `ttl` (default `8h`, the length of a new session; only `SessionCell::extend` moves the end), `capacity` (default 4096), `secure` (default false), `csrf` (default `identified`; `always` mints the token for every session and establishes a fresh session on its first response and any other value is `HostError::Config`), `csrf_scheme` (default `single_use`; `session` or `derived`; any other value is `HostError::Config`), `csrf_outstanding` (default 8, at least 1; how many single-use tokens stay valid at once).
 
 ### CacheSection
 
@@ -378,8 +378,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### ServiceSessionStore
 
-* `pub struct ServiceSessionStore`, a `SessionStore` over a client: `new(services: Arc<Services>, client: impl Into<String>) -> Self`. `load` calls `getSession { id }` and reads `record` from the answer, `None` on a `not_found` failure and, logged, on any other; `save` calls `putSession { id, record }`; `delete` calls `deleteSession { id }`. The record is `encode_record`'s string.
-* `pub fn encode_record(record: &SessionRecord) -> String` and `pub fn decode_record(text: &str) -> Option<SessionRecord>`: the record as one JSON string in the payload encoding, `{ data, identity, tokens }` with `identity` as `{ subject, claims }` or `null`.
+* `pub struct ServiceSessionStore`, a `SessionStore` over a client: `new(services: Arc<Services>, client: impl Into<String>, ttl: Duration) -> Self`, `ttl` being the end given to a record the service stored before records carried one. `load` calls `getSession { id }` and reads `record` from the answer, `None` on a `not_found` failure and, logged, on any other; `save` calls `putSession { id, record }`; `delete` calls `deleteSession { id }`. The record is `encode_record`'s string.
+* `pub fn encode_record(record: &SessionRecord) -> String` and `pub fn decode_record(text: &str, expires_when_missing: u64) -> Option<SessionRecord>`: the record as one JSON string in the payload encoding, `{ data, identity, tokens, csrf, expires }` with `identity` as `{ subject, claims }` or `null` and `expires` an integer, seconds since the Unix epoch; a string without `expires` decodes with `expires_when_missing`.
 
 ### ServiceProvider
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use snapfire_fsr_runtime::SessionCell;
+use snapfire_fsr_runtime::{unix_now, SessionCell};
 
 use crate::codec::{CookieCodec, HmacCodec};
 use crate::csrf::{CsrfScheme, SingleUse};
@@ -96,44 +96,63 @@ impl Sessions {
     {
       let stale = !self.codec.current(&value);
       if let Some(record) = self.store.load(&id).await {
-        return Opened {
-          id,
-          cell: SessionCell::new(record.data, record.identity),
-          tokens: TokenCell::new(record.tokens),
-          csrf: TokenCell::new(record.csrf),
-          fresh: false,
-          stale,
-        };
+        if record.expires > unix_now() {
+          return Opened {
+            id,
+            cell: SessionCell::new(record.data, record.identity).expiring(record.expires),
+            tokens: TokenCell::new(record.tokens),
+            csrf: TokenCell::new(record.csrf),
+            fresh: false,
+            stale,
+          };
+        }
+        let _ = self.store.delete(&id).await;
       }
-      return Opened { id, cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
+      return Opened { id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
     }
-    Opened { id: SessionId::generate(), cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
+    Opened { id: SessionId::generate(), cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
   }
 
-  fn set_cookie(&self, id: &SessionId) -> String {
+  /// An empty cell ending one `ttl` from now.
+  fn new_cell(&self) -> SessionCell {
+    SessionCell::default().expiring(unix_now() + self.config.ttl.as_secs())
+  }
+
+  /// `Max-Age` counts down to the cell's end.
+  fn set_cookie(&self, opened: &Opened) -> String {
     let secure = if self.config.secure { "; Secure" } else { "" };
     format!(
       "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
       self.config.cookie_name,
-      self.codec.encode(id),
-      self.config.ttl.as_secs(),
+      self.codec.encode(&opened.id),
+      opened.cell.expires().saturating_sub(unix_now()),
       secure
     )
   }
 
-  /// Saves a dirty cell and returns the `Set-Cookie` value a fresh session
-  /// needs. A stale session gets its cookie written again under the current
-  /// key whether or not anything was saved. A fresh session that stored
-  /// nothing sets no cookie, so crawlers never mint sessions.
-  pub async fn persist(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
-    if !opened.cell.is_dirty() && !opened.tokens.is_dirty() && !opened.csrf.is_dirty() {
-      return Ok(opened.stale.then(|| self.set_cookie(&opened.id)));
-    }
+  fn record(opened: &Opened) -> SessionRecord {
     let (data, identity) = opened.cell.snapshot();
-    let tokens = opened.tokens.snapshot();
-    let csrf = opened.csrf.snapshot();
-    self.store.save(&opened.id, SessionRecord { data, identity, tokens, csrf }).await?;
-    Ok((opened.fresh || opened.stale).then(|| self.set_cookie(&opened.id)))
+    SessionRecord {
+      data,
+      identity,
+      tokens: opened.tokens.snapshot(),
+      csrf: opened.csrf.snapshot(),
+      expires: opened.cell.expires(),
+    }
+  }
+
+  /// Saves a dirty or extended cell and returns the `Set-Cookie` value a
+  /// fresh, stale or extended session needs: fresh so the browser has the
+  /// id, stale so the cookie moves to the current key, extended so its
+  /// `Max-Age` reaches the new end. A fresh session that stored nothing sets
+  /// no cookie, so crawlers never mint sessions.
+  pub async fn persist(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
+    let extended = opened.cell.is_extended();
+    if !opened.cell.is_dirty() && !opened.tokens.is_dirty() && !opened.csrf.is_dirty() && !extended {
+      return Ok(opened.stale.then(|| self.set_cookie(opened)));
+    }
+    self.store.save(&opened.id, Self::record(opened)).await?;
+    Ok((opened.fresh || opened.stale || extended).then(|| self.set_cookie(opened)))
   }
 
   /// The `Set-Cookie` that tells the page its session moved: `sf_state` with
@@ -156,11 +175,8 @@ impl Sessions {
   /// that bound something to the id, such as a CSRF token, before the
   /// session held anything.
   pub async fn establish(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
-    let (data, identity) = opened.cell.snapshot();
-    let tokens = opened.tokens.snapshot();
-    let csrf = opened.csrf.snapshot();
-    self.store.save(&opened.id, SessionRecord { data, identity, tokens, csrf }).await?;
-    Ok((opened.fresh || opened.stale).then(|| self.set_cookie(&opened.id)))
+    self.store.save(&opened.id, Self::record(opened)).await?;
+    Ok((opened.fresh || opened.stale || opened.cell.is_extended()).then(|| self.set_cookie(opened)))
   }
 
   pub async fn destroy(&self, opened: &Opened) -> Result<String, StoreError> {

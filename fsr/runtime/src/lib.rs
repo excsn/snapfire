@@ -21,7 +21,7 @@ pub use assembler::{
   AssembleError, Assembly, Evaluators, Origin, PendingResolution, Resolved, Runtime, RuntimeBuilder, assemble, assemble_under,
 };
 pub use cache::{CacheEntry, FibreCache, LoadCache, MemoryCache, MemoryLoadCache, NoCache, NoLoadCache, NodeCache, WarmLoads, WarmRenders};
-pub use ctx::{Address, CsrfHandle, Identity, Locale, RequestCtx, SessionCell, parse_query};
+pub use ctx::{Address, CsrfHandle, Identity, Locale, RequestCtx, SessionCell, unix_now, parse_query};
 pub use data::{DataSource, DataSources, LoadError, LoadKeyer, NoLoadKey};
 pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use islands::{IslandEvent, IslandHandler, IslandRegistry, island_data};
