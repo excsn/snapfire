@@ -26,11 +26,11 @@ fn write_str(h: &mut Xxh3, s: &str) {
   h.update(s.as_bytes());
 }
 
-fn canonical_f64_bits(v: f64) -> u64 {
+pub(crate) fn canonical_f64_bits(v: f64) -> u64 {
   if v.is_nan() { 0x7ff8_0000_0000_0000 } else { v.to_bits() }
 }
 
-fn canonical_f32_bits(v: f32) -> u32 {
+pub(crate) fn canonical_f32_bits(v: f32) -> u32 {
   if v.is_nan() { 0x7fc0_0000 } else { v.to_bits() }
 }
 

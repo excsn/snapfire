@@ -3,7 +3,7 @@
 
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
-use snapfire_fsr_core::{parse_duration, Value, ValueMap, ValueSeq};
+use snapfire_fsr_core::{parse_duration, Fingerprint, Value, ValueMap, ValueSeq};
 
 fn text() -> BoxedStrategy<String> {
   prop_oneof![
@@ -35,6 +35,34 @@ fn value() -> BoxedStrategy<Value> {
       ]
     })
     .boxed()
+}
+
+fn scalar() -> BoxedStrategy<Value> {
+  prop_oneof![
+    Just(Value::Null),
+    any::<bool>().prop_map(Value::Bool),
+    any::<i128>().prop_map(Value::Int),
+    (-4i128..4).prop_map(Value::Int),
+    any::<u128>().prop_map(Value::UInt),
+    (0u128..4).prop_map(Value::UInt),
+    any::<f64>().prop_map(Value::F64),
+    prop_oneof![Just(0.0f64), Just(-0.0), Just(f64::NAN), Just(-f64::NAN), Just(f64::INFINITY), Just(1.5)].prop_map(Value::F64),
+    any::<f32>().prop_map(Value::F32),
+    prop_oneof![Just(0.0f32), Just(-0.0), Just(f32::NAN), Just(1.5)].prop_map(Value::F32),
+    text().prop_map(Value::str),
+  ]
+  .boxed()
+}
+
+/// `v` written another way that means the same thing or `v` itself when there is none.
+fn respelled(v: &Value) -> Value {
+  match v {
+    Value::Int(n) if *n >= 0 => Value::UInt(*n as u128),
+    Value::UInt(n) => i128::try_from(*n).map(Value::Int).unwrap_or(Value::UInt(*n)),
+    Value::F64(x) if x.is_nan() => Value::F64(f64::from_bits(0x7ff8_0000_dead_beef)),
+    Value::F32(x) if x.is_nan() => Value::F32(f32::from_bits(0x7fc0_beef)),
+    other => other.clone(),
+  }
 }
 
 fn map_of(pairs: Vec<(String, Value)>) -> ValueMap {
@@ -106,6 +134,20 @@ proptest! {
   #[test]
   fn a_value_equals_its_clone(v in value()) {
     prop_assert_eq!(v.clone(), v);
+  }
+
+  /// A scalar equals itself and its respelling: every NaN is one value and an unsigned value that fits is its signed form.
+  #[test]
+  fn a_scalar_equals_itself_and_its_respelling(v in scalar()) {
+    prop_assert_eq!(&v, &v);
+    prop_assert_eq!(&respelled(&v), &v);
+  }
+
+  /// Two scalars are equal exactly when they fingerprint equal, which is what the memo keys and the segment digests rest on.
+  #[test]
+  fn equality_and_the_fingerprint_agree(a in scalar(), b in scalar(), same in any::<bool>()) {
+    let b = if same { respelled(&a) } else { b };
+    prop_assert_eq!(a == b, a.fingerprint() == b.fingerprint(), "{:?} against {:?}", a, b);
   }
 
   /// A duration is answered or refused, never a panic and never a wrap. A

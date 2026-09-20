@@ -1,5 +1,7 @@
 use indexmap::IndexMap;
 
+use crate::fingerprint::{canonical_f32_bits, canonical_f64_bits};
+
 /// Keys reach a `ValueMap` from a request body through
 /// `snapfire_fsr_payload::json_to_value`, so the hasher is seeded per instance
 /// and a caller must not swap in a fixed-state one.
@@ -285,7 +287,11 @@ impl Extend<(String, Value)> for ValueMap {
   }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// Equal values fingerprint equal and unequal values fingerprint apart. A
+/// float compares by its canonical bits, so every NaN is one value and `0.0`
+/// is not `-0.0`. An unsigned value that fits `i128` equals its signed form
+/// however it was constructed.
+#[derive(Debug, Clone)]
 pub enum Value {
   Null,
   Bool(bool),
@@ -304,13 +310,35 @@ pub enum Value {
   Ref { kind: RefKind, id: String },
 }
 
+impl PartialEq for Value {
+  fn eq(&self, other: &Self) -> bool {
+    match (self, other) {
+      (Value::Null, Value::Null) => true,
+      (Value::Bool(a), Value::Bool(b)) => a == b,
+      (Value::Int(a), Value::Int(b)) => a == b,
+      (Value::UInt(a), Value::UInt(b)) => a == b,
+      (Value::Int(a), Value::UInt(b)) | (Value::UInt(b), Value::Int(a)) => i128::try_from(*b).is_ok_and(|b| b == *a),
+      (Value::F32(a), Value::F32(b)) => canonical_f32_bits(*a) == canonical_f32_bits(*b),
+      (Value::F64(a), Value::F64(b)) => canonical_f64_bits(*a) == canonical_f64_bits(*b),
+      (Value::Str(a), Value::Str(b)) => a == b,
+      (Value::Bytes(a), Value::Bytes(b)) => a == b,
+      (Value::TypedArray(a), Value::TypedArray(b)) => a == b,
+      (Value::Seq(a), Value::Seq(b)) => a == b,
+      (Value::Map(a), Value::Map(b)) => a == b,
+      (Value::Variant { tag: a, payload: p }, Value::Variant { tag: b, payload: q }) => a == b && p == q,
+      (Value::Ref { kind: a, id: i }, Value::Ref { kind: b, id: j }) => a == b && i == j,
+      _ => false,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefKind {
   Action,
   Module,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum TypedArray {
   I8(Vec<i8>),
   U8(Vec<u8>),
@@ -322,6 +350,24 @@ pub enum TypedArray {
   U64(Vec<u64>),
   F32(Vec<f32>),
   F64(Vec<f64>),
+}
+
+impl PartialEq for TypedArray {
+  fn eq(&self, other: &Self) -> bool {
+    match (self, other) {
+      (TypedArray::I8(a), TypedArray::I8(b)) => a == b,
+      (TypedArray::U8(a), TypedArray::U8(b)) => a == b,
+      (TypedArray::I16(a), TypedArray::I16(b)) => a == b,
+      (TypedArray::U16(a), TypedArray::U16(b)) => a == b,
+      (TypedArray::I32(a), TypedArray::I32(b)) => a == b,
+      (TypedArray::U32(a), TypedArray::U32(b)) => a == b,
+      (TypedArray::I64(a), TypedArray::I64(b)) => a == b,
+      (TypedArray::U64(a), TypedArray::U64(b)) => a == b,
+      (TypedArray::F32(a), TypedArray::F32(b)) => a.len() == b.len() && a.iter().zip(b).all(|(x, y)| canonical_f32_bits(*x) == canonical_f32_bits(*y)),
+      (TypedArray::F64(a), TypedArray::F64(b)) => a.len() == b.len() && a.iter().zip(b).all(|(x, y)| canonical_f64_bits(*x) == canonical_f64_bits(*y)),
+      _ => false,
+    }
+  }
 }
 
 impl Value {
