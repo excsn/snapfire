@@ -41,6 +41,7 @@ How to open, read, write, persist and destroy a session, where credentials are a
 * **Session record** is what the store holds: `data`, `identity` and `tokens` together under one id.
 * **Store** is the `SessionStore` trait, three async methods over the record; `MemorySessionStore` is the in-process implementation.
 * **Codec** is the `CookieCodec` trait, encode an id to a cookie value and decode one back; `HmacCodec` is the implementation `Sessions` uses.
+* **Keyring** is the ordered set of keys `HmacCodec` signs and verifies with: the first signs, every one verifies, so a key is rotated in and the old one retired after the ttl without a cookie going bad in between.
 * **Open** happens before route matching, **persist** when the response starts, **destroy** on logout.
 * **CSRF scheme** is the `CsrfScheme` trait: how a token is issued, verified and rotated. `SingleUse` is the default; `PerSession` and `Derived` ship beside it and a scheme of your own is a trait implementation.
 * **Value and ValueMap** come from `snapfire_fsr_core`; `ValueMap` is an `IndexMap<String, Value>`. Both cells store their contents in one.
@@ -493,13 +494,30 @@ assert_eq!(codec.decode("not-signed"), None);
 assert_eq!(HmacCodec::new(b"a-different-key").decode(&value), None);
 ```
 
-`CookieCodec` is a trait, so an alternative signing scheme can implement it. `Sessions::new` builds an `HmacCodec` from the key it is given rather than accepting a codec, so a different implementation is used by calling it directly, not by passing it to `Sessions`.
+`CookieCodec` is a trait, so an alternative signing scheme implements it and goes to `Sessions::with_codec` in place of the stock one.
 
 ```rust
-let signed = my_codec.encode(&opened.id);
+let layer = Sessions::with_codec(store, b"", Arc::new(my_codec), SessionConfig::default());
 ```
 
-Changing the key invalidates every cookie signed with the old one; those requests open fresh.
+### Rotating the key
+
+`HmacCodec::new` is a ring of one key. `HmacCodec::over` takes a `Keyring` the caller holds: the first key signs, every key verifies. A rotation puts a new key in front while the old one keeps verifying; the old one is retired once every cookie signed under it has expired.
+
+```rust
+use snapfire_fsr_session::{HmacCodec, Keyring};
+
+let ring = Arc::new(Keyring::new(b"the key until now"));
+let layer = Sessions::with_codec(store, b"", Arc::new(HmacCodec::over(ring.clone())), SessionConfig::default());
+
+ring.rotate(b"the key from now on");
+// ... one ttl later ...
+ring.retire(b"the key until now");
+```
+
+A cookie that verifies under a key other than the first opens with `stale` set and `persist` writes it again under the current key, whether or not the session changed, so every session seen during the grace period has moved before the old key is retired. `Derived::over(ring)` puts a derived CSRF token on the same ring. A codec of your own reports the same through `CookieCodec::current`, which defaults to `true`.
+
+Changing the key with no ring invalidates every cookie signed under it, as does retiring a key while such a cookie is still out; the request opens fresh.
 
 ## Why Two Cells
 

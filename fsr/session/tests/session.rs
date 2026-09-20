@@ -296,3 +296,65 @@ fn a_cookie_is_read_by_name_unquoted_and_decoded() {
   let wrong = block_on(layer.open(Some(&format!("sf_session_old={value}"))));
   assert!(wrong.fresh, "a longer name must not answer for this one");
 }
+
+mod keyring {
+  use super::*;
+  use snapfire_fsr_session::Keyring;
+
+  #[test]
+  fn the_first_key_signs_and_every_key_verifies_until_retired() {
+    let ring = Keyring::from_keys([b"new".as_slice(), b"old".as_slice()]);
+    let under_old = Keyring::new(b"old").sign(b"x");
+    assert_eq!(ring.verify(b"x", &under_old), Some(1));
+    assert_eq!(ring.verify(b"x", &ring.sign(b"x")), Some(0));
+    assert_eq!(ring.verify(b"x", "zz"), None);
+    ring.retire(b"old");
+    assert_eq!(ring.verify(b"x", &under_old), None);
+    ring.rotate(b"newer");
+    assert!(ring.is_current(b"newer"));
+    assert_eq!(ring.len(), 2);
+    ring.rotate(b"new");
+    assert!(ring.is_current(b"new"), "a key already held moves to the front");
+    assert_eq!(ring.len(), 2);
+    ring.replace([b"only".as_slice()]);
+    assert_eq!(ring.len(), 1);
+    assert_eq!(Keyring::from_keys(Vec::<&[u8]>::new()).sign(b"x"), "");
+  }
+
+  #[test]
+  fn a_cookie_under_a_previous_key_opens_stale_and_is_set_again_under_the_current_one() {
+    let ring = Arc::new(Keyring::new(b"old"));
+    let store = Arc::new(MemorySessionStore::new(16, Duration::from_secs(60)));
+    let layer = Sessions::with_codec(store, b"", Arc::new(HmacCodec::over(ring.clone())), SessionConfig::default());
+    let opened = block_on(layer.open(None));
+    opened.cell.insert("who", Value::str("alice"));
+    let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+    let header = cookie.split(';').next().unwrap().to_owned();
+    assert!(!block_on(layer.open(Some(&header))).stale);
+
+    ring.rotate(b"new");
+    let back = block_on(layer.open(Some(&header)));
+    assert!(!back.fresh && back.stale);
+    assert_eq!(back.cell.get("who"), Some(Value::str("alice")));
+    let reset = block_on(layer.persist(&back)).unwrap().expect("a stale cookie is set again with nothing written");
+    let current = HmacCodec::new(b"new").encode(&back.id);
+    assert!(reset.starts_with(&format!("sf_session={current};")), "{reset}");
+    assert!(!block_on(layer.open(Some(reset.split(';').next().unwrap()))).stale);
+
+    ring.retire(b"old");
+    assert!(block_on(layer.open(Some(&header))).fresh, "a retired key no longer verifies");
+  }
+
+  #[test]
+  fn a_derived_token_over_the_ring_survives_a_rotation_until_the_key_retires() {
+    let ring = Arc::new(Keyring::new(b"old"));
+    let scheme = Derived::over(ring.clone());
+    let opened = block_on(sessions().open(None));
+    let token = scheme.issue(&opened);
+    ring.rotate(b"new");
+    assert!(scheme.verify(&opened, &token));
+    assert_ne!(scheme.issue(&opened), token, "a fresh token is under the new key");
+    ring.retire(b"old");
+    assert!(!scheme.verify(&opened, &token));
+  }
+}

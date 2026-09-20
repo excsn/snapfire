@@ -27,6 +27,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
+* [Rotating the Session Key](#rotating-the-session-key)
 * [Caching Rendered Segments](#caching-rendered-segments)
 * [Caching Service Answers](#caching-service-answers)
 * [Reloading the Application in Place](#reloading-the-application-in-place)
@@ -112,6 +113,7 @@ title = "Shopping"
 
 [session]
 key = "a signing key"             # required
+previous_keys = []                # keys that still verify a cookie signed before `key` replaced them
 ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
 csrf = "identified"               # when a CSRF token is minted: once signed in, or always
 csrf_scheme = "single_use"        # or "session" (one token per session) or "derived" (an hmac of the id)
@@ -647,6 +649,32 @@ auth      service via identity, login page /login, routes /auth/login, /auth/cal
 
 A `getSession` that fails for a reason other than `404` is logged and the request runs anonymous; a `putSession` that fails is logged and the response still goes out. `HostBuilder::session_store` still wins over the section for a Rust host. Under `fsr test` sessions stay in memory whatever the section says, since a spec's mocks cannot hold them.
 
+## Rotating the Session Key
+
+The cookie is the session id signed under `session.key`. The host signs with `key` and verifies with `key` and every entry of `previous_keys`, so a rotation is two edits and a wait:
+
+```toml
+[session]
+key = "the key from now on"
+previous_keys = ["the key until now"]
+```
+
+A reload applies it; nothing else in `[session]` may change on a reload, since the store outlives it, but the keys are what a rotation is. A cookie signed under the old key still opens and the response sets it again under the new one, so every session seen during the grace period has moved. After one `ttl` every cookie still out under the old key has expired; remove it from `previous_keys` and reload again. Each key can be a `.c5encval`. A `derived` CSRF scheme signs with the same ring, so a token minted before the rotation verifies through the same period.
+
+A Rust host that rotates on its own schedule, from a KMS or a file, hands the builder a ring it holds and rotates that:
+
+```rust
+use snapfire_fsr_session::Keyring;
+
+let ring = Arc::new(Keyring::new(current_key()));
+let host = Host::from(".")?.keyring(ring.clone()).build()?;
+// later, from a task of your own
+ring.rotate(next_key());
+ring.retire(old_key());
+```
+
+The configuration's keys are then not read and a reload leaves the ring alone. A host that signs or encrypts the cookie its own way implements `snapfire_fsr_session::CookieCodec` and hands it to `HostBuilder::codec`; `key` and `previous_keys` then feed only a `derived` CSRF scheme.
+
 ## Caching Rendered Segments
 
 Every page and layout the build lowers carries its module name as its plan `cache_key`. With a `[cache]` section the host installs a bounded `FibreCache` and the runtime memoizes each rendered subtree under that key, the matched params, the identity subject, the CSRF token when a host sets one and a fingerprint of the subtree's loaded data. Loaders still run on every request, since data resolves before render; what a hit skips is evaluation. A changed answer is a different fingerprint and so a miss, never a stale hit, which is why nothing in the application declares a lifetime: `ttl` only bounds how long an entry nobody asks for again is kept.
@@ -814,7 +842,7 @@ services  fleet                  mock        clients/fleet.mock.json
 
 ## Reloading the Application in Place
 
-Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone.
+Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone. The keys are the exception: a changed `key` or `previous_keys` is a rotation, which a reload applies to the running ring.
 
 A host built from a configuration alone reloads by reading its artifact again through the loader `Host::from` kept, sites mounter included:
 

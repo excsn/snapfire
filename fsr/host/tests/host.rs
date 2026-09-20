@@ -2409,7 +2409,7 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
     .await;
   assert_eq!(body_of(response).await, "5", "the session outlived the reload");
 
-  std::fs::write(dir.join("app.toml"), toml.replace("test-key", "another-key")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("ttl = \"10m\"", "ttl = \"11m\"")).unwrap();
   let refused = host.reload().unwrap_err().to_string();
   assert!(
     refused.contains("`session`") && refused.contains("restart"),
@@ -4707,5 +4707,115 @@ mod reload_paths {
     let host = Host::from_config(config).unwrap().build().unwrap();
     let e = host.reload().unwrap_err().to_string();
     assert!(e.contains("in memory") && e.contains("reloader"), "{e}");
+  }
+}
+
+mod key_rotation {
+  use super::*;
+  use snapfire_fsr_session::{CookieCodec, HmacCodec, Keyring, SessionId};
+
+  fn cookie_under(key: &[u8], id: &str) -> String {
+    format!("sf_session={}", HmacCodec::new(key).encode(&SessionId(id.to_owned())))
+  }
+
+  fn session_cookie_of(response: &http::Response<snapfire_fsr_host::Body>) -> Option<String> {
+    response
+      .headers()
+      .get_all(header::SET_COOKIE)
+      .iter()
+      .filter_map(|v| v.to_str().ok())
+      .find_map(|v| v.strip_prefix("sf_session=").map(|rest| rest.split(';').next().unwrap_or(rest).to_owned()))
+  }
+
+  fn with_session(dir: &std::path::Path, session: &str) {
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("key = \"test-key\"", session)).unwrap();
+  }
+
+  async fn get_with(host: &Host, cookie: &str) -> http::Response<snapfire_fsr_host::Body> {
+    host.handle(Request::get("/hello/x").header(header::COOKIE, cookie).body(Bytes::new()).unwrap()).await
+  }
+
+  #[tokio::test]
+  async fn a_cookie_under_a_previous_key_is_accepted_and_set_again_under_the_current_one() {
+    let dir = app_dir();
+    with_session(&dir, "key = \"new-key\"\nprevious_keys = [\"test-key\"]");
+    let host = host_at(&dir).unwrap();
+    let response = get_with(&host, &cookie_under(b"test-key", "s1")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let reset = session_cookie_of(&response).expect("set again under the current key");
+    assert_eq!(HmacCodec::new(b"new-key").decode(&reset), Some(SessionId("s1".to_owned())));
+    let response = get_with(&host, &format!("sf_session={reset}")).await;
+    assert!(session_cookie_of(&response).is_none(), "a current cookie is left alone");
+    let response = get_with(&host, &cookie_under(b"unknown", "s1")).await;
+    assert!(session_cookie_of(&response).is_none(), "a foreign cookie opens fresh and a read sets nothing");
+  }
+
+  #[tokio::test]
+  async fn a_reload_rotates_the_keys_and_retires_one_removed_from_the_list() {
+    let dir = app_dir();
+    with_session(&dir, "key = \"a\"");
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    let reload_from = dir.clone();
+    let reload_with = transport.clone();
+    let host = Host::from(dir.join("app.toml"))
+      .unwrap()
+      .services_over(transport)
+      .reloader(move || Host::from(reload_from.join("app.toml")).map(|b| b.services_over(reload_with.clone())))
+      .build()
+      .unwrap();
+    assert!(session_cookie_of(&get_with(&host, &cookie_under(b"a", "s1")).await).is_none());
+
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("key = \"a\"", "key = \"b\"\nprevious_keys = [\"a\"]")).unwrap();
+    host.reload().expect("a changed key list is a rotation, not a refused reload");
+    let reset = session_cookie_of(&get_with(&host, &cookie_under(b"a", "s1")).await).expect("moved to b");
+    assert_eq!(HmacCodec::new(b"b").decode(&reset), Some(SessionId("s1".to_owned())));
+
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("previous_keys = [\"a\"]\n", "")).unwrap();
+    host.reload().unwrap();
+    assert!(session_cookie_of(&get_with(&host, &cookie_under(b"a", "s1")).await).is_none(), "a retired key opens fresh");
+    assert!(session_cookie_of(&get_with(&host, &format!("sf_session={reset}")).await).is_none(), "b is current");
+
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("ttl = \"10m\"", "ttl = \"11m\"")).unwrap();
+    let e = host.reload().unwrap_err().to_string();
+    assert!(e.contains("session"), "the rest of [session] still refuses a reload: {e}");
+  }
+
+  #[tokio::test]
+  async fn a_keyring_the_application_holds_rotates_without_a_reload() {
+    let dir = app_dir();
+    let ring = Arc::new(Keyring::new(b"k1"));
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).keyring(ring.clone()).build().unwrap();
+    assert!(session_cookie_of(&get_with(&host, &cookie_under(b"k1", "s1")).await).is_none());
+    assert!(session_cookie_of(&get_with(&host, &cookie_under(b"test-key", "s1")).await).is_none(), "the configured key is not on the ring");
+    ring.rotate(b"k2");
+    let reset = session_cookie_of(&get_with(&host, &cookie_under(b"k1", "s1")).await).expect("moved to k2");
+    assert_eq!(HmacCodec::new(b"k2").decode(&reset), Some(SessionId("s1".to_owned())));
+  }
+
+  #[tokio::test]
+  async fn a_codec_of_the_applications_own_signs_and_reads_the_cookie() {
+    struct Plain;
+    impl CookieCodec for Plain {
+      fn encode(&self, id: &SessionId) -> String {
+        format!("plain:{}", id.0)
+      }
+      fn decode(&self, value: &str) -> Option<SessionId> {
+        value.strip_prefix("plain:").map(|id| SessionId(id.to_owned()))
+      }
+    }
+    let dir = app_dir();
+    with_session(&dir, "key = \"test-key\"\ncsrf = \"always\"");
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).codec(Arc::new(Plain)).build().unwrap();
+    let response = host.handle(Request::get("/hello/x").body(Bytes::new()).unwrap()).await;
+    let minted = session_cookie_of(&response).expect("csrf = always establishes the fresh session");
+    assert!(minted.starts_with("plain:"), "{minted}");
+    assert!(session_cookie_of(&get_with(&host, &format!("sf_session={minted}")).await).is_none(), "read back through the codec");
+    assert!(session_cookie_of(&get_with(&host, &cookie_under(b"test-key", "s1")).await).is_some(), "an hmac cookie is foreign to it and a fresh session is established");
   }
 }

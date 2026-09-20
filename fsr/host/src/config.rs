@@ -344,6 +344,11 @@ impl DocumentConfig {
 pub struct SessionSection {
   /// The cookie signing key. Required, so a deployment never runs on a default.
   pub key: String,
+  /// Keys that still verify a cookie signed before `key` replaced them, in
+  /// order; a rotation moves the old key here and removes it once the ttl
+  /// has passed. A reload may change both.
+  #[serde(default)]
+  pub previous_keys: Vec<String>,
   /// `memory` or `service` with `client` naming the `[clients.<name>]`
   /// entry whose contract declares `getSession`, `putSession` and
   /// `deleteSession`.

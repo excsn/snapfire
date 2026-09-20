@@ -19,6 +19,7 @@ The session layer for SnapFire FSR: signed cookies, the session store, token cus
 * [5. The Cookie Codec](#5-the-cookie-codec)
   * [CookieCodec](#cookiecodec)
   * [HmacCodec](#hmaccodec)
+  * [Keyring](#keyring)
 * [6. Wire Formats](#6-wire-formats)
   * [Cookie value](#cookie-value)
   * [Set-Cookie header](#set-cookie-header)
@@ -70,18 +71,20 @@ One request's session as the layer sees it.
 * `pub tokens: TokenCell` is the custody half and never enters `RequestCtx`.
 * `pub csrf: TokenCell` is the CSRF scheme's state, read and written by the scheme alone and persisted with the record.
 * `pub fresh: bool` is `true` only when no valid cookie arrived. A cookie that verifies but whose record is gone yields `fresh == false` with empty cells.
+* `pub stale: bool` is `true` when the cookie decoded but `CookieCodec::current` said it is not what `encode` writes now, a value signed under a key that is no longer the ring's first; `persist` and `establish` then return a `Set-Cookie` whether or not anything was saved.
 
 `Clone` shares the cells. Passed by reference to `persist` and `destroy`.
 
 ### Sessions
 
-The session layer facade. Holds the store, the config, an `HmacCodec` built from the key and the CSRF scheme.
+The session layer facade. Holds the store, the config, the codec and the CSRF scheme.
 
-* `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`. Any key length is accepted. The scheme is `SingleUse::default()`.
+* `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`: over `HmacCodec::new(key)`, a ring of that one key. Any key length is accepted. The scheme is `SingleUse::default()`.
+* `Sessions::with_codec(store, key: &[u8], codec: Arc<dyn CookieCodec>, config) -> Sessions`: over a codec of the caller's; `key` is ignored.
 * `fn with_csrf(self, scheme: Arc<dyn CsrfScheme>) -> Self`: the same layer over another scheme.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
-* `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when neither `opened.cell` nor `opened.tokens` is dirty. Otherwise it saves the record and returns `Some(set_cookie)` when `opened.fresh` is `true`, `None` when it is not.
-* `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` is `true`; for a host that bound something to the id, such as a CSRF token, before the session held anything.
+* `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when none of `opened.cell`, `opened.tokens` and `opened.csrf` is dirty, with `Some(set_cookie)` when `opened.stale` is set and `None` otherwise. Otherwise it saves the record and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true`, `None` when neither is.
+* `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true`; for a host that bound something to the id, such as a CSRF token, before the session held anything.
 * `async fn destroy(&self, opened: &Opened) -> String`. Deletes the record, clears `opened.cell` and `opened.tokens` for the rest of the request and always returns the expiring cookie.
 * `fn state_cookie(&self) -> String`. The `Set-Cookie` value for `sf_state`, the constant `STATE_COOKIE`: a fresh generation each call, the epoch nanoseconds in hex, with `Path=/`, `SameSite=Lax`, the session's `Max-Age` and `Secure` when configured; no `HttpOnly`, since the page reads it. A host sets it beside the session cookie whenever it saves a written session and again on `destroy`, so a cache in the browser keyed on the generation drops what it fetched before the write, whatever path did the writing.
 * `fn csrf_token(&self, opened: &Opened) -> String`: the scheme's `issue`.
@@ -145,22 +148,36 @@ In-process store over a `fibre_cache::Cache<String, SessionRecord>` keyed by `Se
 
 ### CookieCodec
 
-The signing seam. `Send + Sync`.
+The signing seam. `Send + Sync`. An implementation goes to `Sessions::with_codec`.
 
 * `fn encode(&self, id: &SessionId) -> String`
 * `fn decode(&self, value: &str) -> Option<SessionId>`
-
-`Sessions::new` constructs an `HmacCodec` from the key it is given and does not accept a `dyn CookieCodec`, so an alternative implementation is called directly rather than installed into `Sessions`.
+* `fn current(&self, value: &str) -> bool`, default `true`: whether `value`, which `decode` accepted, is what `encode` writes now. `false` sets `Opened::stale`, so the layer writes the cookie again. A codec that never rotates leaves the default.
 
 ### HmacCodec
 
-HMAC-SHA256 over the session id.
+HMAC-SHA256 over the session id, under a `Keyring`.
 
-* `HmacCodec::new(key: &[u8]) -> HmacCodec` copies the key. Any length is accepted, including empty.
-* `fn encode(&self, id: &SessionId) -> String` produces `{id}.{hex hmac}`.
-* `fn decode(&self, value: &str) -> Option<SessionId>` splits on the first `.`, rejects an empty id and verifies the signature. Verification is constant-time through the mac.
+* `HmacCodec::new(key: &[u8]) -> HmacCodec`: a ring of that one key. Any length is accepted, including empty.
+* `HmacCodec::over(ring: Arc<Keyring>) -> HmacCodec`: over a ring the caller holds and rotates.
+* `fn keyring(&self) -> &Arc<Keyring>`.
+* `fn encode(&self, id: &SessionId) -> String` produces `{id}.{hex hmac}` under the ring's first key.
+* `fn decode(&self, value: &str) -> Option<SessionId>` splits on the last `.`, rejects an empty id and verifies the signature under each key in order. Verification is constant-time through the mac.
+* `fn current(&self, value: &str) -> bool`: whether the signature verified under the first key.
 
-`decode` returns `None` for: no `.` in the value, an empty id, a signature of odd length, a signature containing non-hex characters and any signature that does not verify under this key. Signing and verification of arbitrary byte strings are crate-internal; the only public entry points are the two trait methods and `Sessions::csrf_token` / `Sessions::verify_csrf`.
+`decode` returns `None` for: no `.` in the value, an empty id, a signature of odd length, a signature containing non-hex characters and any signature that does not verify under a key of the ring. Signing and verification of arbitrary byte strings are the ring's; the only public entry points on the codec are the trait methods.
+
+### Keyring
+
+An ordered set of keys, changed in place behind a lock so a rotation rebuilds nothing that holds it. The first key signs and every key verifies.
+
+* `Keyring::new(key: &[u8]) -> Keyring`; `Keyring::from_keys(keys: impl IntoIterator<Item = impl AsRef<[u8]>>) -> Keyring`, the first current. An empty ring signs an empty string and verifies nothing.
+* `fn rotate(&self, key: &[u8])`: a new current key; one already held moves to the front rather than being held twice.
+* `fn retire(&self, key: &[u8])`: drops the key; retiring the current one leaves the next signing.
+* `fn replace(&self, keys)`: the whole list as `from_keys` takes it.
+* `fn sign(&self, input: &[u8]) -> String`: the hex HMAC-SHA256 under the current key.
+* `fn verify(&self, input: &[u8], signature_hex: &str) -> Option<usize>`: the position of the key the signature verifies under, `0` for the current one, `None` when none does.
+* `fn is_current(&self, key: &[u8]) -> bool`, `fn len(&self) -> usize`, `fn is_empty(&self) -> bool`. `Debug` prints the count and never a key.
 
 ## 6. Wire Formats
 
@@ -225,7 +242,7 @@ under the layer's signing key, stable for the life of the session id. A scheme o
 
 ### Derived
 
-* `pub struct Derived`, `Derived::new(key: &[u8])`.
+* `pub struct Derived`, `Derived::new(key: &[u8])`, a ring of one key; `Derived::over(ring: Arc<Keyring>)`, over a ring the caller holds, so a token minted under a previous key verifies until that key is retired.
 * `issue` is the HMAC-SHA256 of `csrf:{id}` under `key` as hex; `verify` recomputes it; `rotate` does nothing; `memo` is the token. Nothing is stored.
 
 ### random_token

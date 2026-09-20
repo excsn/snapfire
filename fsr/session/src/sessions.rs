@@ -35,6 +35,9 @@ pub struct Opened {
   pub tokens: TokenCell,
   pub csrf: TokenCell,
   pub fresh: bool,
+  /// The cookie decoded under something the codec no longer writes, a
+  /// retired-in-waiting key, so `persist` sets it again under the current one.
+  pub stale: bool,
 }
 
 /// The session layer facade: `open` before matching, `persist` when the
@@ -87,10 +90,11 @@ impl Sessions {
   }
 
   pub async fn open(&self, cookie_header: Option<&str>) -> Opened {
-    if let Some(id) = cookie_header
+    if let Some((id, value)) = cookie_header
       .and_then(|h| self.cookie_value(h))
-      .and_then(|v| self.codec.decode(&v))
+      .and_then(|v| self.codec.decode(&v).map(|id| (id, v)))
     {
+      let stale = !self.codec.current(&value);
       if let Some(record) = self.store.load(&id).await {
         return Opened {
           id,
@@ -98,11 +102,12 @@ impl Sessions {
           tokens: TokenCell::new(record.tokens),
           csrf: TokenCell::new(record.csrf),
           fresh: false,
+          stale,
         };
       }
-      return Opened { id, cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false };
+      return Opened { id, cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
     }
-    Opened { id: SessionId::generate(), cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true }
+    Opened { id: SessionId::generate(), cell: SessionCell::default(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
   }
 
   fn set_cookie(&self, id: &SessionId) -> String {
@@ -117,17 +122,18 @@ impl Sessions {
   }
 
   /// Saves a dirty cell and returns the `Set-Cookie` value a fresh session
-  /// needs. A fresh session that stored nothing sets no cookie, so crawlers
-  /// never mint sessions.
+  /// needs. A stale session gets its cookie written again under the current
+  /// key whether or not anything was saved. A fresh session that stored
+  /// nothing sets no cookie, so crawlers never mint sessions.
   pub async fn persist(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
     if !opened.cell.is_dirty() && !opened.tokens.is_dirty() && !opened.csrf.is_dirty() {
-      return Ok(None);
+      return Ok(opened.stale.then(|| self.set_cookie(&opened.id)));
     }
     let (data, identity) = opened.cell.snapshot();
     let tokens = opened.tokens.snapshot();
     let csrf = opened.csrf.snapshot();
     self.store.save(&opened.id, SessionRecord { data, identity, tokens, csrf }).await?;
-    Ok(opened.fresh.then(|| self.set_cookie(&opened.id)))
+    Ok((opened.fresh || opened.stale).then(|| self.set_cookie(&opened.id)))
   }
 
   /// The `Set-Cookie` that tells the page its session moved: `sf_state` with
@@ -154,7 +160,7 @@ impl Sessions {
     let tokens = opened.tokens.snapshot();
     let csrf = opened.csrf.snapshot();
     self.store.save(&opened.id, SessionRecord { data, identity, tokens, csrf }).await?;
-    Ok(opened.fresh.then(|| self.set_cookie(&opened.id)))
+    Ok((opened.fresh || opened.stale).then(|| self.set_cookie(&opened.id)))
   }
 
   pub async fn destroy(&self, opened: &Opened) -> Result<String, StoreError> {

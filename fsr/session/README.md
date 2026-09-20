@@ -31,4 +31,5 @@ It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runti
 | Tune the store's shard count or hand it a built cache | `MemorySessionStore::sharded`, `MemorySessionStore::with_cache` |
 | Keep sessions in Redis, Postgres or anything else | implement `SessionStore` |
 | Sign and verify the cookie value | `HmacCodec` or your own `CookieCodec` |
+| Rotate the signing key without signing everyone out | `Keyring`: `rotate` a new key in, `retire` the old one after the ttl |
 | Name the thing the cookie carries | `SessionId` |

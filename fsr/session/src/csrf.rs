@@ -44,6 +44,8 @@ pub fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// The token is `hmac(key, "csrf:" + session id)`: nothing is stored, one
 /// value is valid for the session id's life and `rotate` changes nothing.
+/// Over a `Keyring`, a token minted under a previous key verifies until that
+/// key is retired.
 pub struct Derived {
   signer: HmacCodec,
 }
@@ -51,6 +53,12 @@ pub struct Derived {
 impl Derived {
   pub fn new(key: &[u8]) -> Self {
     Self { signer: HmacCodec::new(key) }
+  }
+
+  /// Over a ring the caller holds, the one the cookie codec signs with or
+  /// another.
+  pub fn over(ring: std::sync::Arc<crate::Keyring>) -> Self {
+    Self { signer: HmacCodec::over(ring) }
   }
 
   fn input(opened: &Opened) -> Vec<u8> {

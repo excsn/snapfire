@@ -49,7 +49,7 @@ use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, DeclaredService, HttpTransport, IdentityInterceptor, MockTransport,
   NoCredentials, Services, TraceInterceptor, Transport,
 };
-use snapfire_fsr_session::{CsrfScheme, MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
+use snapfire_fsr_session::{CookieCodec, CsrfScheme, HmacCodec, Keyring, MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -787,9 +787,14 @@ pub struct Host {
   /// The signal that re-reads it, `server.tls.reload`; `None` for `none`.
   #[cfg(feature = "tls")]
   tls_reload: Option<String>,
-  /// The `[session]` settings the running `Sessions` were built from; a
-  /// reload whose settings differ is refused, since the store outlives it.
+  /// The `[session]` settings the running `Sessions` were built from, the
+  /// keys aside; a reload whose settings differ is refused, since the store
+  /// outlives it.
   session_shape: String,
+  /// The ring built from `session.key` and `session.previous_keys`, which a
+  /// reload sets to the list as it now reads. Absent when the application
+  /// handed the builder its own.
+  keyring: Option<Arc<Keyring>>,
 }
 
 /// How a host rebuilds its tables on `Host::reload`: the builder for the
@@ -1006,6 +1011,8 @@ pub struct HostBuilder {
   services: Option<Arc<Services>>,
   rust_services: Vec<RustService>,
   csrf: Option<Arc<dyn CsrfScheme>>,
+  codec: Option<Arc<dyn CookieCodec>>,
+  keyring: Option<Arc<Keyring>>,
   transport_override: Option<Arc<dyn Transport>>,
   store: Option<Arc<dyn SessionStore>>,
   shell: Option<Arc<dyn Evaluator>>,
@@ -1123,6 +1130,8 @@ impl Host {
       services: None,
       rust_services: Vec::new(),
       csrf: None,
+      codec: None,
+      keyring: None,
       transport_override: None,
       store: None,
       shell: None,
@@ -1276,6 +1285,9 @@ impl Host {
         "session".to_owned(),
         "changed since the host was built; restart to apply it".to_owned(),
       ));
+    }
+    if let Some(ring) = &self.keyring {
+      ring.replace(session_keys(&config));
     }
     let report = tables.report.clone();
     *self.live.write() = Arc::new(tables);
@@ -2034,6 +2046,7 @@ impl Host {
       tokens: flow.tokens.clone(),
       csrf: TokenCell::default(),
       fresh: true,
+      stale: false,
     };
     let response = self.auth_route(mounted, &request, &opened, path, query).await?;
     let (parts, body) = response.into_parts();
@@ -3835,6 +3848,24 @@ impl HostBuilder {
     self
   }
 
+  /// The cookie codec, in place of `HmacCodec` over the configuration's keys:
+  /// the application's own signing or encryption of the session id.
+  /// `session.key` and `session.previous_keys` then feed only a `derived`
+  /// CSRF scheme. A builder given one is not rebuildable by a sites reload.
+  pub fn codec(mut self, codec: Arc<dyn CookieCodec>) -> Self {
+    self.codec = Some(codec);
+    self
+  }
+
+  /// The keyring the stock codec and a `derived` scheme sign with, held and
+  /// rotated by the application, in place of one built from `session.key`
+  /// and `session.previous_keys`; a reload leaves it alone. A builder given
+  /// one is not rebuildable by a sites reload.
+  pub fn keyring(mut self, ring: Arc<Keyring>) -> Self {
+    self.keyring = Some(ring);
+    self
+  }
+
   pub fn session_store(mut self, store: Arc<dyn SessionStore>) -> Self {
     self.store = Some(store);
     self
@@ -4096,6 +4127,8 @@ impl HostBuilder {
     let traces = self.traces.take();
     let reloader = self.reloader.take();
     let chosen_csrf = self.csrf.take();
+    let chosen_codec = self.codec.take();
+    let chosen_ring = self.keyring.take();
     let sites_mounter = self.sites_mounter.take();
     // A sites reload rebuilds the shell from these three alone, so a builder
     // carrying anything else they cannot reproduce keeps none of them and the
@@ -4107,6 +4140,8 @@ impl HostBuilder {
       && self.prerendered.is_none()
       && self.identity.is_none()
       && chosen_csrf.is_none()
+      && chosen_codec.is_none()
+      && chosen_ring.is_none()
       && !self.hand_built;
     let shell_inputs = rebuildable.then(|| Arc::new(self.artifact.clone()));
     let loader = self.loader.take();
@@ -4135,17 +4170,29 @@ impl HostBuilder {
         other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
       },
     };
+    let (ring, owned_ring) = match chosen_ring {
+      Some(ring) => (ring, None),
+      None => {
+        let ring = Arc::new(Keyring::from_keys(session_keys(&config)));
+        (ring.clone(), Some(ring))
+      }
+    };
     let scheme: Arc<dyn CsrfScheme> = match chosen_csrf {
       Some(scheme) => scheme,
       None => match config.session.csrf_scheme.as_str() {
-        "derived" => Arc::new(snapfire_fsr_session::Derived::new(config.session.key.as_bytes())),
+        "derived" => Arc::new(snapfire_fsr_session::Derived::over(ring.clone())),
         "session" => Arc::new(snapfire_fsr_session::PerSession::new()),
         _ => Arc::new(snapfire_fsr_session::SingleUse::new(config.session.csrf_outstanding as usize)),
       },
     };
-    let sessions = Sessions::new(
+    let codec: Arc<dyn CookieCodec> = match chosen_codec {
+      Some(codec) => codec,
+      None => Arc::new(HmacCodec::over(ring.clone())),
+    };
+    let sessions = Sessions::with_codec(
       store,
       config.session.key.as_bytes(),
+      codec,
       SessionConfig {
         ttl,
         secure: config.session.secure,
@@ -4199,6 +4246,7 @@ impl HostBuilder {
       sites_reload: parking_lot::Mutex::new(()),
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
+      keyring: owned_ring,
       max_body: config.server.max_body,
       hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
       origin: config.origin()?,
@@ -4693,9 +4741,17 @@ impl HostBuilder {
 fn session_shape(config: &Config) -> String {
   let s = &config.session;
   format!(
-    "{} {:?} {} {} {} {} {:?}",
-    s.store, s.client, s.key, s.ttl, s.secure, s.csrf, s.capacity
+    "{} {:?} {} {} {} {:?}",
+    s.store, s.client, s.ttl, s.secure, s.csrf, s.capacity
   )
+}
+
+/// `session.key` first, then `session.previous_keys` in order.
+fn session_keys(config: &Config) -> Vec<Vec<u8>> {
+  std::iter::once(&config.session.key)
+    .chain(config.session.previous_keys.iter())
+    .map(|k| k.as_bytes().to_vec())
+    .collect()
 }
 
 /// Refuses a bundle that carries a server module. The plan's sources,
