@@ -138,7 +138,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   crate::write_generated(&app, built)?;
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes)?;
 
-  let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)) };
+  let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let natives = native_names(&built.manifest);
   let actions: Actions = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), (a.input.clone(), Arc::new(b))))).collect();

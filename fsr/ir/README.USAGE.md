@@ -269,7 +269,7 @@ A lowered component is written the way the framework that mounts it in the brows
 ```rust
 use snapfire_fsr_ir::{Frameworks, Interpreter, ReactMajor};
 
-let interpreter = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19) });
+let interpreter = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
 let html = interpreter.render(&component, &props, &library)?.html;
 ```
 

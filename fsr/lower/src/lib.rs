@@ -6,6 +6,7 @@ pub mod component;
 pub mod hoist;
 pub mod schema;
 pub mod testing;
+pub mod vue;
 
 use component::FunctionBody;
 use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
@@ -431,6 +432,18 @@ pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, 
 }
 
 impl Parsed {
+  /// Parses `source` as one TypeScript expression written at `line` and
+  /// `column` of this file. It joins the file's own source map padded to
+  /// that position, so a residue inside it names where the expression sits.
+  pub(crate) fn parse_expr_at(&self, source: &str, line: usize, column: usize) -> Result<Box<js::Expr>, String> {
+    let padded = format!("{}{}{source}", "\n".repeat(line.saturating_sub(1)), " ".repeat(column.saturating_sub(1)));
+    let fm = self.cm.new_source_file(Lrc::new(FileName::Custom(self.file.clone())), padded);
+    let syntax = Syntax::Typescript(TsSyntax { tsx: false, decorators: false, ..Default::default() });
+    let lexer = Lexer::new(syntax, js::EsVersion::latest(), StringInput::from(&*fm), None);
+    let mut parser = Parser::new_from(lexer);
+    parser.parse_expr().map_err(|e| e.kind().msg().to_string())
+  }
+
   /// The byte range of `span` in the file's text.
   pub(crate) fn range(&self, span: Span) -> std::ops::Range<usize> {
     let lo = self.cm.lookup_byte_offset(span.lo).pos.0 as usize;
@@ -655,6 +668,9 @@ pub(crate) struct Lowerer<'a> {
   /// Lowering an event handler, which runs once wherever it runs, so a
   /// `body` extension is allowed there.
   pub(crate) in_handler: bool,
+  /// Lowering a render path with no hoist candidates kept, a Vue template
+  /// for one: the browser runs it too, so a `body` extension is refused.
+  pub(crate) render_path: bool,
   /// The last residue was a `body` extension on a render path, which the
   /// set reports as `LowerError::Reach` rather than a client downgrade.
   pub(crate) reach_violation: bool,
@@ -664,7 +680,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, reach_violation: false }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -675,7 +691,7 @@ impl<'a> Lowerer<'a> {
 
   /// True while lowering a component's render path: the browser runs it too.
   fn on_render_path(&self) -> bool {
-    self.hoisting.is_some() && !self.in_handler
+    (self.render_path || self.hoisting.is_some()) && !self.in_handler
   }
 
   /// Refuses a `body` extension on a render path.

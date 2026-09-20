@@ -32,7 +32,7 @@ export default function RecipePage({ recipe, sameCourse, planned }: RecipeIdProp
       </section>
       <div className="filler" />
       <Island when="visible">
-        <Scaler serves={recipe.serves} ingredients={recipe.ingredients} />
+        <Scaler serves={Number(recipe.serves)} ingredients={recipe.ingredients} />
       </Island>
     </article>
   );

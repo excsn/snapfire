@@ -32,7 +32,7 @@ test("an id the box does not hold renders the segment's own boundary", async () 
   expect(document.querySelector(".masthead h1")?.textContent, "the layout above it still rendered").toEqual("The Sunday Box");
 });
 
-test("a Vue island is placed empty by the server and carries its props for the mount", async () => {
+test("a Vue island carries its props beside its markup for the mount", async () => {
   await load("/recipe/1", { ctx: kitchen({ "1": true }) });
   const islands = Array.from(document.querySelectorAll(".recipe sf-i[data-sf-module$='.vue#default']"));
   expect(islands.length, "the plan control and the scaler; the masthead's is the layout's").toEqual(2);

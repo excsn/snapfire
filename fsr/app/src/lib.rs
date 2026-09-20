@@ -59,6 +59,8 @@ pub enum BindError {
   MiddlewareOverridesNothing,
   #[error("the plan names react@{version}, a React whose markup this fsr does not write")]
   React { version: String },
+  #[error("the plan names vue@{version}, a Vue whose markup this fsr does not write")]
+  Vue { version: String },
   #[error("`{loader}` exports `paths`, which reads the request; a parameter set is decided with nothing of a request behind it")]
   PathsReadRequest { loader: String },
   #[error("`{loader}` exports `paths` but its route `{pattern}` has no parameter to enumerate")]
@@ -437,6 +439,9 @@ impl App {
     builder.lowered_middleware = parsed.middleware.clone();
     if let Some(version) = parsed.frameworks.get("react") {
       builder.frameworks.react = Some(snapfire_fsr_ir::ReactMajor::of(version).ok_or_else(|| BindError::React { version: version.clone() })?);
+    }
+    if let Some(version) = parsed.frameworks.get("vue") {
+      builder.frameworks.vue = Some(snapfire_fsr_ir::VueMajor::of(version).ok_or_else(|| BindError::Vue { version: version.clone() })?);
     }
     for row in &parsed.handlers {
       match &row.body {

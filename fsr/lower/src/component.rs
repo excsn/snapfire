@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
@@ -63,6 +64,15 @@ pub struct ComponentSet {
   /// them, as `file#export`: placed as islands, mounted rather than hydrated,
   /// compiled for the browser by whichever plugin claims the extension.
   pub foreign: Vec<String>,
+  /// Foreign components the plugin described, by file, which the set lowers
+  /// through the framework's own front end instead of leaving foreign.
+  described: HashMap<String, Described>,
+  /// Described components that did not lower, with why: each stays foreign
+  /// and the report says so.
+  pub foreign_residue: Vec<(String, Residue)>,
+  /// Files the plugin refused to describe, with what it said, so a placement
+  /// of one is foreign for that reason.
+  undescribed: HashMap<String, String>,
   /// Set when a component was met while it was still being lowered. Every
   /// hydrate and purity verdict read across that cycle is provisional until
   /// [`Self::settle`].
@@ -82,13 +92,31 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
   }
 
   /// The custom elements whose shadow template the build lowers, by tag.
   pub fn with_elements(mut self, elements: HashMap<String, String>) -> Self {
     self.elements = Rc::new(elements);
     self
+  }
+
+  /// What the framework's plugin said `file` is, so a placement of it lowers
+  /// through that framework's front end rather than staying foreign.
+  pub fn describe(&mut self, file: impl Into<String>, described: Described) {
+    self.described.insert(file.into(), described);
+  }
+
+  /// The plugin refused to describe `file` and said `why`: a placement of it
+  /// stays foreign for that reason.
+  pub fn undescribed(&mut self, file: impl Into<String>, why: impl Into<String>) {
+    self.undescribed.insert(file.into(), why.into());
+  }
+
+  /// Whether `module`'s file is one the plugin described.
+  pub fn is_described(&self, module: &str) -> bool {
+    let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
+    self.described.contains_key(file)
   }
 
   /// A module the set resolves and reads from `source` rather than from disk.
@@ -235,12 +263,20 @@ impl ComponentSet {
       self.cyclic = true;
       return Ok(());
     }
-    let result = self.load(file).and_then(|()| {
-      self.resolving.push(module.to_owned());
-      let result = self.lower_loaded(file, export);
-      self.resolving.pop();
-      result
-    });
+    let result = match is_foreign(file) && self.described.contains_key(file) {
+      true => {
+        self.resolving.push(module.to_owned());
+        let result = self.lower_vue(file, export);
+        self.resolving.pop();
+        result
+      }
+      false => self.load(file).and_then(|()| {
+        self.resolving.push(module.to_owned());
+        let result = self.lower_loaded(file, export);
+        self.resolving.pop();
+        result
+      }),
+    };
     let component = match result {
       Ok(component) => component,
       Err(error) => {
@@ -379,8 +415,25 @@ impl ComponentSet {
     for (name, (line, column)) in refs {
       let (module, island) = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None, via: Vec::new() })?;
       if is_foreign(&module) {
-        if !self.foreign.contains(&module) {
+        let target = module.split_once('#').map(|(f, _)| f).unwrap_or(&module).to_owned();
+        let residue = match (self.described.contains_key(&target), self.undescribed.get(&target)) {
+          (true, _) => match self.lower(&module) {
+            Ok(()) => None,
+            Err(LowerError::Residue(residue)) => Some(residue),
+            Err(LowerError::Parse { file, message }) => Some(Residue { file, line: 1, column: 1, message, hint: None, via: Vec::new() }),
+            Err(other) => return Err(other),
+          },
+          (false, Some(why)) => Some(Residue { file: target.clone(), line: 1, column: 1, message: why.clone(), hint: None, via: Vec::new() }),
+          (false, None) => None,
+        };
+        let lowered = self.components.iter().any(|(m, _)| *m == module);
+        if !lowered && !self.foreign.contains(&module) {
           self.foreign.push(module.clone());
+        }
+        if let Some(residue) = residue {
+          if !self.foreign_residue.iter().any(|(m, _)| *m == module) {
+            self.foreign_residue.push((module.clone(), residue));
+          }
         }
       } else {
         self.lower(&module).map_err(|error| match error {
@@ -420,7 +473,7 @@ impl ComponentSet {
         file: file.to_owned(),
         line,
         column,
-        message: format!("`{name}` is a component the server cannot render, so it can only be an island; place it inside `<Island>`"),
+        message: format!("`{name}` is a component another framework mounts, so it can only be an island; place it inside `<Island>`"),
         hint: None,
         via: Vec::new(),
       }));
@@ -449,6 +502,60 @@ impl ComponentSet {
     } else {
       self.keys.insert(module.clone(), false);
     }
+    Ok(component)
+  }
+
+  /// Lowers a described `.vue` file through the Vue front end. The script
+  /// block is parsed padded to its line in the file, so every position a
+  /// residue names is the file's own.
+  fn lower_vue(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
+    if export != "default" {
+      return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
+    }
+    let module = format!("{file}#{export}");
+    let described = self.described.get(file).cloned().expect("a described file");
+    if !self.parsed.contains_key(file) {
+      let (source, line) = match &described.script {
+        Some(script) => (script.content.clone(), script.line as usize),
+        None => (String::new(), 1),
+      };
+      let padded = format!("{}{source}", "\n".repeat(line.saturating_sub(1)));
+      let parsed = parse_with(file, &padded, false)?;
+      self.parsed.insert(file.to_owned(), Rc::new(parsed));
+    }
+    let mut globals: Vec<(String, Expr)> = Vec::new();
+    let component = loop {
+      let (result, unbound) = {
+        let parsed = self.parsed[file].clone();
+        let defaults = self.defaults.clone();
+        let mut lowerer = Lowerer::new(&parsed, &defaults);
+        lowerer.globals = globals.clone();
+        lowerer.natives = self.natives.clone();
+        lowerer.render_path = true;
+        let mut vue = crate::vue::VueLowerer::new(lowerer, &described);
+        let result = vue.component();
+        let result = match result {
+          Err(residue) if vue.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
+          other => other,
+        };
+        (result, vue.lowerer.unbound.take())
+      };
+      match result {
+        Ok(component) => break component,
+        Err(residue) => {
+          let Some(name) = unbound else { return Err(residue.into()) };
+          if globals.iter().any(|(n, _)| *n == name) {
+            return Err(residue.into());
+          }
+          let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          let expr = self.name_if_large(key, expr);
+          globals.push((name, expr));
+        }
+      }
+    };
+    self.keys.insert(module.clone(), false);
+    self.pure.insert(module.clone(), false);
+    self.stateless.insert(module, component.state.is_empty());
     Ok(component)
   }
 
@@ -1117,7 +1224,7 @@ fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowered<Vec<Str
 
 /// `{ a, b = x, c: d }` over `target`: each name reads a field, a default
 /// applies when the field is null or absent.
-fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> Lowered<()> {
+pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> Lowered<()> {
   let mut taken: Vec<String> = Vec::new();
   for prop in &obj.props {
     match prop {
@@ -1219,7 +1326,7 @@ fn holds_act(stmts: &[Stmt]) -> bool {
   })
 }
 
-fn block_to_expr(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered<Expr> {
+pub(crate) fn block_to_expr(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let result = block_to_expr_inner(lowerer, stmts);
   lowerer.scope.truncate(depth);

@@ -558,6 +558,10 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
             build.plugin_cache.remove(&p.path);
             build.has_error = true;
           }
+          snapfire_compiler_wire::Outcome::Described(_) => {
+            eprintln!("❌ {}: the plugin described the component where it was asked to compile it", display(&p.path, &opts.root));
+            build.has_error = true;
+          }
           snapfire_compiler_wire::Outcome::Needs { files } => {
             if round == 1 {
               eprintln!("❌ {}: the plugin asked for {} again after being given it", display(&p.path, &opts.root), files.join(", "));

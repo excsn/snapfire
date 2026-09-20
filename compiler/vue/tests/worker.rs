@@ -28,7 +28,7 @@ impl Worker {
   }
 
   fn ask(&mut self, id: u64, units: Vec<Unit>) -> Response {
-    let request = serde_json::to_string(&Request { id, units }).expect("encodes");
+    let request = serde_json::to_string(&Request { id, kind: Default::default(), units }).expect("encodes");
     let stdin = self.stdin.as_mut().expect("the pipe is open");
     writeln!(stdin, "{request}").expect("writes");
     stdin.flush().expect("flushes");
@@ -100,6 +100,7 @@ fn a_batch_answers_one_result_per_unit_whether_or_not_each_compiled() {
     .iter()
     .map(|r| match r {
       snapfire_compiler_wire::Outcome::Ok(_) => "ok",
+      snapfire_compiler_wire::Outcome::Described(_) => "described",
       snapfire_compiler_wire::Outcome::Failed { .. } => "failed",
       snapfire_compiler_wire::Outcome::Needs { .. } => "needs",
     })

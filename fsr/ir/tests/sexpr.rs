@@ -452,7 +452,7 @@ fn a_tree_root_is_its_own_section() {
   assert_eq!(serde_json::from_str::<Component>(&json).unwrap(), component);
   assert!(!serde_json::to_string(&Component::new(Vec::new(), Tmpl::Text("x".to_owned()))).unwrap().contains("hydrate"), "React alone is the default and is left out");
   let err = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"},\"hydrate\":\"vine\"}").unwrap_err().to_string();
-  assert!(err.contains("boolean or \"tree\""), "{err}");
+  assert!(err.contains("boolean, \"tree\" or \"vue\""), "{err}");
 }
 
 #[test]

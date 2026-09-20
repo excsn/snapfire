@@ -10,6 +10,8 @@ How a framework compiler plugin speaks to `snapfirec` and what `snapfirec` promi
 * [Answering a Batch](#answering-a-batch)
 * [Reporting a Diagnostic](#reporting-a-diagnostic)
 * [Asking for a Sibling File](#asking-for-a-sibling-file)
+* [Describing a Component](#describing-a-component)
+* [Hosting a Plugin](#hosting-a-plugin)
 * [Being Found and Kept](#being-found-and-kept)
 * [Error Handling](#error-handling)
 
@@ -32,7 +34,7 @@ A worker in full: boot, announce, then answer until stdin closes.
 
 ```rust
 use std::io::{BufRead, Write};
-use snapfire_compiler_wire::{Compiled, Diagnostic, Hello, Lang, Outcome, Request, Response, PROTOCOL};
+use snapfire_compiler_wire::{Compiled, Diagnostic, Hello, Kind, Lang, Outcome, Request, Response, PROTOCOL};
 
 fn main() {
   let stdout = std::io::stdout();
@@ -49,7 +51,10 @@ fn main() {
 
   for line in std::io::stdin().lock().lines() {
     let request: Request = serde_json::from_str(&line.unwrap()).unwrap();
-    let results = request.units.iter().map(|unit| compile(unit)).collect();
+    let results = request.units.iter().map(|unit| match request.kind {
+      Kind::Compile => compile(unit),
+      Kind::Describe => Outcome::Failed { diagnostics: vec![Diagnostic::error("this plugin only compiles").at(unit.filename.clone(), None, None)] },
+    }).collect();
     writeln!(out, "{}", serde_json::to_string(&Response { id: request.id, results }).unwrap()).unwrap();
     out.flush().unwrap();
   }
@@ -111,6 +116,43 @@ let css = &unit.files["./card.css"];
 ```
 
 The host reads each file relative to the unit's `path`, sends the unit again with `files` filled and records the file as a dependency of the source, so a change to it recompiles the component. A unit that asks twice has failed. Name the specifier in `Compiled::deps` too, so the build knows what the source reached for.
+
+## Describing a Component
+
+A request whose `kind` is `Describe` asks for the component as the framework's parser reads it, before anything is compiled, for a host that lowers the component to markup of its own rather than shipping it. The answer is `Outcome::Described`: the template as a tree in the plugin's own shape, the script block with where it starts, how the template reads each name the script binds and the scope attribute of a scoped style. The refusals are the compile's, `Failed` and `Needs`.
+
+```rust
+use snapfire_compiler_wire::{Described, Lang, Outcome, Script};
+
+fn describe(unit: &snapfire_compiler_wire::Unit) -> Outcome {
+  Outcome::Described(Described {
+    template: Some(serde_json::json!({ "children": [] })),
+    script: Some(Script { content: "const n = 1;".to_owned(), lang: Lang::Js, line: 2, column: 1, setup: true, plain: false }),
+    bindings: [("n".to_owned(), "setup-const".to_owned())].into_iter().collect(),
+    scope: None,
+    deps: Vec::new(),
+    diagnostics: Vec::new(),
+  })
+}
+```
+
+The wire carries the template as JSON and does not read it: the plugin's documentation says what its nodes are and the host's front end for that framework reads them. Positions are the file's, so a host names the right line.
+
+## Hosting a Plugin
+
+`host::Worker` is the plugin as a host sees it: spawned once, greeted, then asked batch after batch until it is dropped, which closes the pipe.
+
+```rust
+use snapfire_compiler_wire::host::Worker;
+use snapfire_compiler_wire::{Options, Unit};
+
+let mut worker = Worker::start("vue")?;
+let unit = Unit { filename: "src/Card.vue".to_owned(), path: "/app/src/Card.vue".to_owned(), source, options: Options::default(), files: Default::default() };
+let described = worker.describe(vec![unit.clone()])?;
+let compiled = worker.compile(vec![unit])?;
+```
+
+A binary not on PATH is `HostError::NotFound` with the install hint; a plugin on another protocol is `HostError::Protocol`; a plugin that dies mid-answer carries what it wrote to stderr.
 
 ## Being Found and Kept
 

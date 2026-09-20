@@ -27,6 +27,7 @@ fn compile(source: &str) -> Outcome {
 fn ok(outcome: Outcome) -> snapfire_compiler_wire::Compiled {
   match outcome {
     Outcome::Ok(compiled) => compiled,
+    Outcome::Described(_) => panic!("described where a compile was asked"),
     Outcome::Failed { diagnostics } => panic!("refused: {diagnostics:?}"),
     Outcome::Needs { files } => panic!("asked for {files:?}"),
   }

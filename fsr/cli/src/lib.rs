@@ -74,6 +74,11 @@ pub enum BuildError {
   FrameworkUnrecorded { package: String, specifier: String, manifest: String, app: String, version: String },
   #[error("react@{version} is vendored, but this fsr renders for React {supported} only")]
   ReactMajor { version: String, supported: String },
+  #[error("vue@{version} is vendored, but this fsr renders for Vue {supported} only")]
+  VueMajor { version: String, supported: String },
+  /// A framework plugin that started and then failed to answer.
+  #[error("{0}")]
+  Plugin(String),
   #[error("the shell serves `{specifier}`, but {contract} does not say which {package} it is; a shell built by this fsr records it under `frameworks`. A hand-written contract needs `\"frameworks\": {{\"{package}\": \"{version}\"}}`")]
   FrameworkShellUnrecorded { package: String, specifier: String, contract: String, version: String },
   #[error("{package}@{site} is recorded in {manifest}, but {contract} serves {package}@{shell}; the browser loads the shell's copy")]
@@ -182,6 +187,11 @@ pub struct Report {
   pub components: Vec<(String, String, String)>,
   /// Why each `client` module is one, each with the pages it took down.
   pub causes: Vec<Cause>,
+  /// Why each `foreign` module the plugin described stays foreign, each with
+  /// the modules that mount in the browser for it.
+  pub foreign: Vec<Cause>,
+  /// A framework plugin the build could not start and what that leaves foreign.
+  pub plugins: Vec<String>,
   /// Module, how many of its render-path calls and how many of its static subtrees the server computes for the browser.
   pub hoisted: Vec<(String, usize, usize)>,
   /// Components placed as islands in server mode and how many handlers each answers.
@@ -232,6 +242,22 @@ impl fmt::Display for Report {
       for (module, chain) in &cause.pages {
         writeln!(f, "{:<11} {module:<32} {chain}", "")?;
       }
+    }
+    for (i, cause) in self.foreign.iter().enumerate() {
+      let label = if i == 0 { "foreign" } else { "" };
+      writeln!(f, "{label:<9} {:<34} {}", cause.at, cause.message)?;
+      if let Some(hint) = &cause.hint {
+        writeln!(f, "{:<9} {hint}", "")?;
+      }
+      let modules = cause.pages.len();
+      writeln!(f, "{:<9} {modules} component{} mount{} in the browser for it, written empty by the server", "", if modules == 1 { "" } else { "s" }, if modules == 1 { "s" } else { "" })?;
+      for (module, _) in &cause.pages {
+        writeln!(f, "{:<11} {module}", "")?;
+      }
+    }
+    for (i, line) in self.plugins.iter().enumerate() {
+      let label = if i == 0 { "plugins" } else { "" };
+      writeln!(f, "{label:<9} {line}")?;
     }
     for (i, (module, handlers)) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
@@ -535,6 +561,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let elements = element_templates(app)?;
   let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect());
+  describe_foreign(app, &mut set, &mut report)?;
   for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
     let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
     report.extensions.extend(set.lower_extensions(&rel)?);
@@ -907,9 +934,18 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut static_modules: Vec<String> = Vec::new();
   // Layouts declared `tree(Layout)`: the React adapter mounts each as one root with its page.
   let mut trees: Vec<String> = Vec::new();
+  for (module, residue) in std::mem::take(&mut set.foreign_residue) {
+    let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
+    report.components.push((module.clone(), "foreign".to_owned(), at.clone()));
+    match report.foreign.iter_mut().find(|c| c.at == at && c.message == residue.message) {
+      Some(cause) => cause.pages.push((module, String::new())),
+      None => report.foreign.push(Cause { at, message: residue.message, hint: residue.hint, pages: vec![(module, String::new())] }),
+    }
+  }
   for (module, component) in std::mem::take(&mut set.components) {
     let detail = match component.hydrated_by {
       Some(HydratedBy::ReactTree) => HydratedBy::TREE.to_owned(),
+      Some(HydratedBy::Vue) => HydratedBy::VUE.to_owned(),
       Some(HydratedBy::React) => String::new(),
       None => "static".to_owned(),
     };
@@ -935,7 +971,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let placed: Vec<String> = components.iter().flat_map(|entry| island_modules(&entry.body.render)).map(|(module, _)| module).collect();
   static_modules.retain(|module| !placed.contains(module));
   for (module, _, detail) in &mut report.components {
-    if placed.contains(module) {
+    if placed.contains(module) && detail == "static" {
       detail.clear();
     }
   }
@@ -1794,11 +1830,11 @@ fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(
     match from_shell.or(own) {
       Some(version) if package == "react" && snapfire_fsr_ir::ReactMajor::of(&version).is_none() => {
         let majors: Vec<String> = snapfire_fsr_ir::ReactMajor::ALL.iter().map(|major| major.number().to_string()).collect();
-        let supported = match majors.split_last() {
-          Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
-          _ => majors.concat(),
-        };
-        return Err(BuildError::ReactMajor { version, supported });
+        return Err(BuildError::ReactMajor { version, supported: majors_text(&majors) });
+      }
+      Some(version) if package == "vue" && snapfire_fsr_ir::VueMajor::of(&version).is_none() => {
+        let majors: Vec<String> = snapfire_fsr_ir::VueMajor::ALL.iter().map(|major| major.number().to_string()).collect();
+        return Err(BuildError::VueMajor { version, supported: majors_text(&majors) });
       }
       Some(version) => {
         frameworks.insert(package, version);
@@ -1859,6 +1895,98 @@ pub const ELEMENTS_DIR: &str = "elements";
 
 /// `elements/<tag>.tsx`, each the default export of a custom element's shadow
 /// template, as the tag and the template's module.
+/// `18 and 19` for a list of majors or the one there is.
+fn majors_text(majors: &[String]) -> String {
+  match majors.split_last() {
+    Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+    _ => majors.concat(),
+  }
+}
+
+/// Asks each framework plugin to describe the components it claims under the
+/// source directories, so the set lowers them rather than leaving them
+/// foreign. A plugin that is not on PATH leaves its components foreign and
+/// the report says so; the bundle names the same binary when it needs it.
+fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> Result<(), BuildError> {
+  use snapfire_compiler_wire::host::{HostError, Worker};
+  use snapfire_compiler_wire::{Outcome, Unit};
+  let mut by_ext: std::collections::BTreeMap<&'static str, Vec<PathBuf>> = std::collections::BTreeMap::new();
+  for dir in types::source_dirs(app) {
+    collect_plugin_files(&app.join(dir), &mut by_ext);
+  }
+  for (ext, mut files) in by_ext {
+    files.sort();
+    let mut worker = match Worker::start(ext) {
+      Ok(worker) => worker,
+      Err(HostError::NotFound { binary, hint }) => {
+        report.plugins.push(format!("`{binary}` is not on PATH, so a `.{ext}` component mounts in the browser rather than hydrating the server's markup; `{hint}` puts it there"));
+        continue;
+      }
+      Err(e) => return Err(BuildError::Plugin(e.to_string())),
+    };
+    let mut units = Vec::new();
+    for path in &files {
+      let filename = path.strip_prefix(app).unwrap_or(path).to_string_lossy().replace('\\', "/");
+      let source = std::fs::read_to_string(path).map_err(|e| BuildError::Io(path.clone(), e))?;
+      units.push(Unit { filename, path: path.to_string_lossy().into_owned(), source, options: Default::default(), files: Default::default() });
+    }
+    for round in 0..2 {
+      let outcomes = worker.describe(units.clone()).map_err(|e| BuildError::Plugin(e.to_string()))?;
+      let mut again = Vec::new();
+      for (mut unit, outcome) in units.into_iter().zip(outcomes) {
+        match outcome {
+          Outcome::Described(described) => set.describe(unit.filename, described),
+          Outcome::Failed { diagnostics } => {
+            let why = diagnostics.iter().map(|d| match (d.line, d.column) {
+              (Some(line), Some(column)) => format!("{line}:{column}: {}", d.message),
+              _ => d.message.clone(),
+            }).collect::<Vec<_>>().join("; ");
+            set.undescribed(unit.filename, why);
+          }
+          Outcome::Needs { files } => {
+            if round == 1 {
+              set.undescribed(unit.filename, format!("{} asked for {} again after being given it", worker.name(), files.join(", ")));
+              continue;
+            }
+            let base = Path::new(&unit.path).parent().map(Path::to_path_buf).unwrap_or_default();
+            let mut missing = None;
+            for specifier in files {
+              match std::fs::read_to_string(base.join(&specifier)) {
+                Ok(content) => {
+                  unit.files.insert(specifier, content);
+                }
+                Err(e) => missing = Some(format!("`{specifier}`, which the component names, could not be read: {e}")),
+              }
+            }
+            match missing {
+              Some(why) => set.undescribed(unit.filename, why),
+              None => again.push(unit),
+            }
+          }
+          Outcome::Ok(_) => return Err(BuildError::Plugin(format!("{} compiled `{}` where it was asked to describe it", worker.name(), unit.filename))),
+        }
+      }
+      units = again;
+      if units.is_empty() {
+        break;
+      }
+    }
+  }
+  Ok(())
+}
+
+fn collect_plugin_files(dir: &Path, into: &mut std::collections::BTreeMap<&'static str, Vec<PathBuf>>) {
+  let Ok(entries) = std::fs::read_dir(dir) else { return };
+  for entry in entries.flatten() {
+    let path = entry.path();
+    if path.is_dir() {
+      collect_plugin_files(&path, into);
+    } else if let Some(ext) = path.extension().and_then(|e| e.to_str()).and_then(|e| snapfire_compiler_wire::claimed(&e.to_ascii_lowercase())) {
+      into.entry(ext).or_default().push(path);
+    }
+  }
+}
+
 fn element_templates(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
   let mut out = Vec::new();
   for file in sorted_files(&app.join(ELEMENTS_DIR), ".tsx")? {

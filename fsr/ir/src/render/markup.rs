@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use snapfire_fsr_core::Value;
 
 use super::react::ReactMajor;
+use super::vue::VueMajor;
 use super::BOOLEAN;
 use crate::ast::HydratedBy;
 
@@ -16,6 +17,7 @@ use crate::ast::HydratedBy;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Frameworks {
   pub react: Option<ReactMajor>,
+  pub vue: Option<VueMajor>,
 }
 
 /// The rules a render is under at one point in the tree.
@@ -25,12 +27,13 @@ pub(crate) enum Markup {
   #[default]
   Plain,
   React(ReactMajor),
+  Vue(VueMajor),
 }
 
 impl Markup {
   /// Every set of rules, so a bake keeps only what all of them print alike.
   pub(super) fn every() -> impl Iterator<Item = Markup> {
-    std::iter::once(Markup::Plain).chain(ReactMajor::ALL.into_iter().map(Markup::React))
+    std::iter::once(Markup::Plain).chain(ReactMajor::ALL.into_iter().map(Markup::React)).chain(VueMajor::ALL.into_iter().map(Markup::Vue))
   }
 
   /// The rules a component renders under. A component a vendored framework
@@ -39,8 +42,13 @@ impl Markup {
   pub(crate) fn of(hydrated_by: Option<HydratedBy>, frameworks: Frameworks, caller: Markup) -> Markup {
     match hydrated_by {
       Some(HydratedBy::React | HydratedBy::ReactTree) => frameworks.react.map_or(Markup::Plain, Markup::React),
+      Some(HydratedBy::Vue) => frameworks.vue.map_or(Markup::Plain, Markup::Vue),
       None => caller,
     }
+  }
+
+  pub(super) fn is_vue(self) -> bool {
+    matches!(self, Markup::Vue(_))
   }
 
   /// Whether `name` is present or absent rather than valued: a truthy value writes `name=""`.
@@ -48,13 +56,14 @@ impl Markup {
     match self {
       Markup::Plain => BOOLEAN.contains(&name),
       Markup::React(major) => major.is_boolean(name),
+      Markup::Vue(_) => super::vue::is_boolean(name),
     }
   }
 
   /// Whether `true` on `name` writes nothing.
   pub(super) fn drops_true(self, name: &str) -> bool {
     match self {
-      Markup::Plain => false,
+      Markup::Plain | Markup::Vue(_) => false,
       Markup::React(major) => major.drops_true(name),
     }
   }
@@ -62,7 +71,7 @@ impl Markup {
   /// Whether an empty string on `name` of `tag` writes nothing rather than `name=""`.
   pub(super) fn drops_empty(self, tag: &str, name: &str) -> bool {
     match self {
-      Markup::Plain => false,
+      Markup::Plain | Markup::Vue(_) => false,
       Markup::React(major) => major.drops_empty(tag, name),
     }
   }
@@ -70,7 +79,7 @@ impl Markup {
   /// Whether these rules may move `tag` into the document head.
   pub(super) fn may_hoist(self, tag: &str) -> bool {
     match self {
-      Markup::Plain => false,
+      Markup::Plain | Markup::Vue(_) => false,
       Markup::React(major) => major.may_hoist(tag),
     }
   }
@@ -79,7 +88,7 @@ impl Markup {
   /// answers for where it sits: nothing inside `<svg>` or `<noscript>` moves.
   pub(super) fn hoists(self, tag: &str, attrs: &[(Cow<'_, str>, Value)]) -> bool {
     match self {
-      Markup::Plain => false,
+      Markup::Plain | Markup::Vue(_) => false,
       Markup::React(major) => major.hoists(tag, attrs),
     }
   }

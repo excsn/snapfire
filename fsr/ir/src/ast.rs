@@ -265,19 +265,23 @@ impl ShadowMode {
   }
 }
 
-/// What mounts a component over the server's markup. React is the only one:
-/// a template is TSX, which runs as React when it needs the browser.
-/// `ReactTree` is a layout the React adapter renders as one root with the
-/// page inside it, declared as `export default tree(Layout)`.
+/// What mounts a component over the server's markup. A template is TSX,
+/// which runs as React when it needs the browser. `ReactTree` is a layout
+/// the React adapter renders as one root with the page inside it, declared
+/// as `export default tree(Layout)`. `Vue` is a single-file component the
+/// build lowered, which the Vue adapter hydrates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HydratedBy {
   React,
   ReactTree,
+  Vue,
 }
 
 impl HydratedBy {
   /// The word the plan's `(tree)` section and the JSON `hydrate` field use.
   pub const TREE: &'static str = "tree";
+  /// The word the plan's `(vue)` section and the JSON `hydrate` field use.
+  pub const VUE: &'static str = "vue";
 }
 
 fn by_react() -> Option<HydratedBy> {
@@ -305,6 +309,7 @@ mod hydrated_as_flag {
   pub fn serialize<S: Serializer>(by: &Option<HydratedBy>, s: S) -> Result<S::Ok, S::Error> {
     match by {
       Some(HydratedBy::ReactTree) => s.serialize_str(HydratedBy::TREE),
+      Some(HydratedBy::Vue) => s.serialize_str(HydratedBy::VUE),
       other => s.serialize_bool(other.is_some()),
     }
   }
@@ -313,7 +318,8 @@ mod hydrated_as_flag {
     match Flag::deserialize(d)? {
       Flag::Bool(on) => Ok(on.then_some(HydratedBy::React)),
       Flag::Word(word) if word == HydratedBy::TREE => Ok(Some(HydratedBy::ReactTree)),
-      Flag::Word(word) => Err(serde::de::Error::custom(format!("`hydrate` is a boolean or \"tree\", not \"{word}\""))),
+      Flag::Word(word) if word == HydratedBy::VUE => Ok(Some(HydratedBy::Vue)),
+      Flag::Word(word) => Err(serde::de::Error::custom(format!("`hydrate` is a boolean, \"tree\" or \"vue\", not \"{word}\""))),
     }
   }
 }

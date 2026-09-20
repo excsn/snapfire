@@ -141,6 +141,7 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 `#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]`
 
 * `Plan(PlanError)`: the plan file did not read.
+* `React { version }` and `Vue { version }`: the plan names a framework at a major the renderer has no rules for.
 * `Claimed(String)`: a source or a route pattern claimed by the plan file and by Rust without an override.
 * `ActionClaimed(String)`: an action lowered by the file and bound in Rust without an override.
 * `ActionOverridesNothing { id }`, `OverridesNothing { name }`: an override the file has nothing for.

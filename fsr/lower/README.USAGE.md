@@ -16,6 +16,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 * [Reading a Schema](#reading-a-schema)
 * [Folding Session Defaults](#folding-session-defaults)
 * [Reading Residue](#reading-residue)
+* [Lowering a Vue Component](#lowering-a-vue-component)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -187,6 +188,41 @@ match lower_loader("routes/x/page.loader.ts", source) {
 ```
 routes/x/page.loader.ts:5:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
 ```
+
+## Lowering a Vue Component
+
+A `.vue` file is lowered from what `snapfirec-vue` says it is rather than from its text: ask the plugin to describe it, hand the description to the set and lower the placement. The component comes out marked for the Vue adapter and renders under Vue's markup rules.
+
+```rust
+use snapfire_compiler_wire::{Options, Outcome};
+use snapfire_fsr_lower::component::ComponentSet;
+use snapfire_vue::Compiler;
+
+let compiler = Compiler::new()?;
+let source = std::fs::read_to_string(app.join("src/ui/Tonight.vue"))?;
+let Outcome::Described(described) = compiler.describe("src/ui/Tonight.vue", &source, &Options::default(), &Default::default())? else { panic!("refused") };
+
+let mut set = ComponentSet::new(&app);
+set.describe("src/ui/Tonight.vue", described);
+set.lower("routes/layout.tsx#default")?;
+assert!(set.components.iter().any(|(m, _)| m == "src/ui/Tonight.vue#default"));
+```
+
+A described component that holds what the front end does not read does not take the page with it: the page lowers, the component stays in `foreign` and `foreign_residue` says why, with the `.vue` file's own line.
+
+```rust
+set.lower("routes/page.tsx#default")?;
+for (module, residue) in &set.foreign_residue {
+  println!("{module} mounts in the browser: {residue}");
+}
+```
+
+```text
+src/ui/Box.vue#default mounts in the browser: src/ui/Box.vue:5:18: `v-model`
+  bind `:value` for the markup and handle the input event in the browser; two-way binding is not lowered
+```
+
+The crate's `tests/vue.rs` renders each fixture in Rust and through Vue's own server renderer in the plugin's QuickJS and compares the bytes, which is where a new rule is checked.
 
 ## Error Handling
 

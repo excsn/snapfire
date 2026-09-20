@@ -12,8 +12,9 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
-use rquickjs::{Context, Function, Module, Runtime};
-use snapfire_compiler_wire::{Compiled, Diagnostic, Lang, Options, Outcome, Severity};
+use rquickjs::loader::{BuiltinLoader, BuiltinResolver};
+use rquickjs::{Context, Function, Module, Promise, Runtime};
+use snapfire_compiler_wire::{Compiled, Described, Diagnostic, Lang, Options, Outcome, Severity};
 
 /// Vue's browser build, as published. Never edited here.
 const COMPILER: &str = include_str!("../vendor/compiler-sfc.esm-browser.js");
@@ -40,6 +41,9 @@ pub enum VueError {
 enum Ask {
   Version(Sender<Result<String, VueError>>),
   Compile { filename: String, source: String, options: Options, files: BTreeMap<String, String>, reply: Sender<Result<Outcome, VueError>> },
+  Describe { filename: String, source: String, options: Options, files: BTreeMap<String, String>, reply: Sender<Result<Outcome, VueError>> },
+  SsrModule { filename: String, source: String, options: Options, files: BTreeMap<String, String>, reply: Sender<Result<Outcome, VueError>> },
+  Render { js: String, props: String, children: Option<String>, modules: BTreeMap<String, String>, reply: Sender<Result<String, VueError>> },
 }
 
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
@@ -83,6 +87,47 @@ impl Compiler {
       .map_err(|_| gone())?;
     answer.recv().map_err(|_| gone())?
   }
+
+  /// One component as Vue's parser reads it, for a host that lowers it:
+  /// [`Outcome::Described`] or a refusal the way `compile` refuses. The
+  /// template tree is the shape `describeNode` in the driver writes.
+  pub fn describe(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
+    let (reply, answer) = channel();
+    self
+      .asks
+      .send(Ask::Describe { filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), files: files.clone(), reply })
+      .map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
+  }
+
+  /// One component as a module for Vue's own server renderer: the script
+  /// plus `ssrRender`, the way `compile` answers with `render`. The module is
+  /// in the script's language, so one written in TypeScript is handed on
+  /// typed, for the caller to strip before running it.
+  pub fn ssr_module(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
+    let (reply, answer) = channel();
+    self
+      .asks
+      .send(Ask::SsrModule { filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), files: files.clone(), reply })
+      .map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
+  }
+
+  /// The markup Vue's own server renderer writes for a component module
+  /// `js`, as `ssr_module` answers it and stripped to JavaScript, given
+  /// `props` as JSON and the caller's `children` as markup for the default
+  /// slot. `modules` are the sources the component may import by bare
+  /// specifier: `vue` and `vue/server-renderer` among them, since the plugin
+  /// carries a compiler and no runtime. The component renders under the root
+  /// the client's Vue mounter uses, so the children sit in the same region.
+  pub fn render_module(&self, js: &str, props: &str, children: Option<&str>, modules: &BTreeMap<String, String>) -> Result<String, VueError> {
+    let (reply, answer) = channel();
+    self
+      .asks
+      .send(Ask::Render { js: js.to_owned(), props: props.to_owned(), children: children.map(str::to_owned), modules: modules.clone(), reply })
+      .map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
+  }
 }
 
 impl Drop for Compiler {
@@ -120,15 +165,24 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), VueError>>) {
       Ask::Compile { filename, source, options, files, reply } => {
         let _ = reply.send(engine.compile(&filename, &source, &options, &files));
       }
+      Ask::Describe { filename, source, options, files, reply } => {
+        let _ = reply.send(engine.describe(&filename, &source, &options, &files));
+      }
+      Ask::SsrModule { filename, source, options, files, reply } => {
+        let _ = reply.send(engine.ssr_module(&filename, &source, &options, &files));
+      }
+      Ask::Render { js, props, children, modules, reply } => {
+        let _ = reply.send(engine.render_module(&js, &props, children.as_deref(), &modules));
+      }
     }
   }
 }
 
 struct Engine {
   context: Context,
-  /// A `Context` keeps the runtime alive itself; naming it here keeps the
-  /// ownership legible rather than implied.
-  _runtime: Runtime,
+  runtime: Runtime,
+  /// Component modules declared for a render so far, so each takes a name of its own.
+  rendered: std::cell::Cell<u64>,
 }
 
 impl Engine {
@@ -141,7 +195,7 @@ impl Engine {
       declare(&ctx, "__driver__", DRIVER)?;
       Ok(())
     })?;
-    Ok(Self { context, _runtime: runtime })
+    Ok(Self { context, runtime, rendered: std::cell::Cell::new(0) })
   }
 
   fn version(&self) -> Result<String, VueError> {
@@ -152,15 +206,49 @@ impl Engine {
   }
 
   fn compile(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
-    let answer = self.context.with(|ctx| -> Result<String, VueError> {
-      let compile: Function = ctx.globals().get("__vue_compile").map_err(|e| threw(&ctx, e))?;
+    let answer = self.drive("__vue_compile", filename, source, options, files)?;
+    decode(&answer, filename)
+  }
+
+  fn describe(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
+    let answer = self.drive("__vue_describe", filename, source, options, files)?;
+    decode(&answer, filename)
+  }
+
+  /// Calls one of the driver's entry points with the unit's parts as JSON values.
+  fn drive(&self, entry: &str, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<String, VueError> {
+    self.context.with(|ctx| -> Result<String, VueError> {
+      let function: Function = ctx.globals().get(entry).map_err(|e| threw(&ctx, e))?;
       let options = serde_json::to_string(options).map_err(|e| VueError::Js(e.to_string()))?;
       let options = ctx.json_parse(options).map_err(|e| threw(&ctx, e))?;
       let files = serde_json::to_string(files).map_err(|e| VueError::Js(e.to_string()))?;
       let files = ctx.json_parse(files).map_err(|e| threw(&ctx, e))?;
-      compile.call((filename, source, options, files)).map_err(|e| threw(&ctx, e))
-    })?;
+      function.call((filename, source, options, files)).map_err(|e| threw(&ctx, e))
+    })
+  }
+
+  fn ssr_module(&self, filename: &str, source: &str, options: &Options, files: &BTreeMap<String, String>) -> Result<Outcome, VueError> {
+    let answer = self.drive("__vue_ssr_module", filename, source, options, files)?;
     decode(&answer, filename)
+  }
+
+  fn render_module(&self, js: &str, props: &str, children: Option<&str>, modules: &BTreeMap<String, String>) -> Result<String, VueError> {
+    let n = self.rendered.get() + 1;
+    self.rendered.set(n);
+    let name = format!("component-{n}.vue");
+    let mut resolver = BuiltinResolver::default().with_module(name.clone());
+    let mut loader = BuiltinLoader::default().with_module(name.clone(), js.to_owned());
+    for (specifier, source) in modules {
+      resolver = resolver.with_module(specifier.clone());
+      loader = loader.with_module(specifier.clone(), source.clone());
+    }
+    self.runtime.set_loader(resolver, loader);
+    self.context.with(|ctx| -> Result<String, VueError> {
+      let render: Function = ctx.globals().get("__vue_render").map_err(|e| threw(&ctx, e))?;
+      let props = ctx.json_parse(props).map_err(|e| threw(&ctx, e))?;
+      let promise: Promise = render.call((name.as_str(), props, children)).map_err(|e| threw(&ctx, e))?;
+      promise.finish::<String>().map_err(|e| threw(&ctx, e))
+    })
   }
 }
 
@@ -182,10 +270,19 @@ fn decode(answer: &str, filename: &str) -> Result<Outcome, VueError> {
     diagnostics: Vec<Diagnostic>,
     #[serde(default)]
     files: Vec<String>,
+    #[serde(default)]
+    template: Option<serde_json::Value>,
+    #[serde(default)]
+    script: Option<snapfire_compiler_wire::Script>,
+    #[serde(default)]
+    bindings: BTreeMap<String, String>,
+    #[serde(default)]
+    scope: Option<String>,
   }
   let answer: Answer = serde_json::from_str(answer).map_err(|e| VueError::Js(format!("{filename}: the driver answered {e}")))?;
   match answer.status.as_str() {
     "needs" => Ok(Outcome::Needs { files: answer.files }),
+    "described" => Ok(Outcome::Described(Described { template: answer.template, script: answer.script, bindings: answer.bindings, scope: answer.scope, deps: answer.deps, diagnostics: answer.diagnostics })),
     "ok" => Ok(Outcome::Ok(Compiled {
       js: answer.js,
       lang: answer.lang,

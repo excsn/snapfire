@@ -33,13 +33,27 @@ export default function BoxLayout({ children, planned }: { children: Children; p
 }
 ```
 
-The build reads the import and stops there: a file in a language it does not read is a component the server has no body for. It is placed as an island, its props are lowered like any other placement and the server writes an empty `<sf-i>` with the props script beside it. The browser sees no server markup and mounts rather than hydrates. Place the same component outside `Island` and the build refuses, naming the tag: a component the server cannot render can only be an island.
+The build reads the import and asks `snapfirec-vue` to describe the file: the template as Vue's own parser reads it, the `<script setup>` block and how the template reads each name the script binds. It lowers the component the way it lowers a TSX template, to the same render tree and places it as an island with its props lowered like any other placement. The server writes the component's markup inside the `<sf-i>`, spelled the way Vue's own server renderer spells it, with the props script beside it. The browser hydrates over that markup rather than mounting fresh. Place the same component outside `Island` and the build refuses, naming the tag: a component Vue mounts can only be an island, since Vue's root is the island's.
+
+A component the build cannot read stays foreign: the server writes the `<sf-i>` empty with its props and Vue mounts it fresh, which is what every `.vue` file got before the build read them. The report says which and why, with the line:
+
+```text
+rendered  src/ui/Box.vue#default             foreign     src/ui/Box.vue:5:18
+foreign   src/ui/Box.vue:5:18                `v-model`
+          bind `:value` for the markup and handle the input event in the browser; two-way binding is not lowered
+          1 component mounts in the browser for it, written empty by the server
+            src/ui/Box.vue#default
+```
+
+What lowers is the subset a server can evaluate. In `<script setup>`: `defineProps`, with `withDefaults` around it, `ref`, `shallowRef`, `computed` of an arrow, `reactive`, `useStore` from `@snapfire/fsr-client/vue`, a `const` bound to an expression the build reads and functions, which are the browser's. Lifecycle and watch calls are the browser's too and are passed over. In the template: interpolation, `v-if`, `v-else-if` and `v-else`, `v-for` over a list with an item and an index, a bound attribute, `:class` as a string, an array or an object, `:style`, `v-show`, `v-html`, `v-text` and a plain `<slot />`. Outside that is residue: `v-model`, `v-bind` of a whole object, a named or a scoped slot, a component placed inside the template, `v-slot`, `inject`, a `<script>` without `setup`. The residue names its line in the `.vue` file.
+
+A number deserves a word. An integer a contract types as `bigint` reaches the server as an integer and a Vue component that multiplies it by a literal fails the render, the way chapter 100 says a loader must convert one before arithmetic. The recipe page passes `serves={Number(recipe.serves)}` for that reason; the browser never saw a difference, the server does.
 
 `Island`, `island`, `Link` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. A page on the template module that hydrates loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type at all. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
 
 ## The component itself
 
-`Tonight.vue` is an ordinary single-file component: a `<script setup lang="ts">`, a `<template>` and a `<style scoped>`.
+`Tonight.vue` is an ordinary single-file component: a `<script setup lang="ts">`, a `<template>` and a `<style scoped>`. Nothing in it is written for the server: the build reads it as it stands.
 
 ```vue
 <script setup lang="ts">
@@ -61,11 +75,19 @@ const open = ref(false);
 </style>
 ```
 
-`useStore` from `@snapfire/fsr-client/vue` is the store as a Vue ref: the same keyed store the layout's loader seeds and a React island reads with its own `useStore`, so a Vue masthead and a React panel would show the same number. The plan control in the example calls `actions.recipe.$id.plan(...)` from the generated client and writes the store optimistically, the same way the storefront's React button does.
+`useStore` from `@snapfire/fsr-client/vue` is the store as a Vue ref: the same keyed store the layout's loader seeds and a React island reads with its own `useStore`, so a Vue masthead and a React panel would show the same number. On the server it reads the store the loader seeded, so the count is in the markup. The plan control in the example calls `actions.recipe.$id.plan(...)` from the generated client and writes the store optimistically, the same way the storefront's React button does.
+
+The server writes what Vue's server renderer would write for the same component and props, anchors included: `<!---->` where the panel's `v-if` rendered nothing, `<!--[-->` and `<!--]-->` around a list or a fragment and the `data-v-` stamp of a scoped style on every element. That is what Vue's client walks when it hydrates. It is checked byte for byte against `@vue/server-renderer` in the lowerer's own tests:
+
+```html
+<sf-i id="sf-i0" data-sf-module="src/ui/Tonight.vue#default"><div class="tonight" data-v-8ee200ee><button class="tonight-count" aria-label="tonight" data-v-8ee200ee>0 for tonight</button><!----></div><template data-sf-children>Kept in the session cookie. <a href="/tonight">See them</a>.</template></sf-i>
+```
+
+The `<template data-sf-children>` after the markup is the island's children. The panel is closed, so the template placed no `<slot />` this render and the server had nowhere to write them; an inert template after the markup carries them instead, which the parser never shows and the scan never reaches. The mounter reads it before Vue hydrates and takes it out of the document, so the slot has its content the moment the panel opens. When the template does place the slot, the children sit inside it in an `<sf-s data-sf-children>` region, which Vue hydrates as an element it rendered.
 
 ## What the build does with it
 
-`snapfirec` does not compile Vue. When it meets a `.vue` file it looks for `snapfirec-vue` on `PATH` and hands every `.vue` file of the project to that one process in a batch, before anything else is planned. The plugin carries Vue's own compiler, run in QuickJS, so no Node is involved; `cargo install snapfire_vue` is the whole install. Without it the build stops:
+Neither `fsr` nor `snapfirec` compiles Vue. `fsr build` looks for `snapfirec-vue` on `PATH` and asks it to describe every `.vue` file under the source directories in one batch before any route is lowered; `snapfirec` finds the same binary again when it bundles and hands it the same files to compile. The plugin carries Vue's own compiler, run in QuickJS, so no Node is involved; `cargo install snapfire_vue` is the whole install. Without it `fsr build` leaves every `.vue` component foreign and says so in a `plugins` row; the bundle then stops:
 
 ```text
 ❌ `snapfirec-vue` is not on PATH; `cargo install snapfire_vue` puts it there
@@ -112,9 +134,11 @@ Navigation still keeps a static layout's DOM. A segment carries a digest of its 
 
 ## The lab
 
-Run `fsr build app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static`. View the source of a recipe page before the scripts run: the plan control is an empty `<sf-i>` followed by its props. The three component stylesheets are linked in the head after `box.css`.
+Run `fsr build app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
 
-Take `snapfirec-vue` off `PATH` and build again. The error names the binary, the install command and the three files.
+Take `snapfirec-vue` off `PATH` and build again. The report says the plugin is not on PATH and the three components mount in the browser instead; the bundle then stops with the binary, the install command and the three files.
+
+Give `Tonight.vue` a `v-model` on an input. The report keeps the page `static`, marks the component `foreign` with the line and the bundle compiles it as before: the panel mounts fresh and everything else on the page is as it was.
 
 Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the file and the line, the other two components compile and the build stops.
 

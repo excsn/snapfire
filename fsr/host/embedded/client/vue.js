@@ -19,7 +19,7 @@ function ownProps(props) {
 }
 const childrenHeld = new WeakMap();
 function childrenRegion(el) {
-    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`))){
+    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))){
         if (region.parentElement?.closest("sf-i") === el) return region;
     }
     return null;
@@ -38,6 +38,10 @@ const Children = defineComponent({
         const write = ()=>{
             const el = region.value;
             if (!el || written === props.html) return;
+            if (written === null && el.childNodes.length > 0) {
+                written = props.html;
+                return;
+            }
             if (written === null) {
                 const template = document.createElement("template");
                 template.innerHTML = props.html;
@@ -62,6 +66,7 @@ function rootFor(component, props, el) {
     const state = reactive(ownProps(props));
     const region = childrenRegion(el);
     const children = ref(region ? region.innerHTML : null);
+    if (region?.tagName === "TEMPLATE") region.remove();
     const root = defineComponent({
         name: "SfIsland",
         setup () {

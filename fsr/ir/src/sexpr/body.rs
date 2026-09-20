@@ -65,6 +65,7 @@ pub fn component_sections(component: &Component) -> Vec<Sx> {
   match component.hydrated_by {
     None => rest.push(form("static", Vec::new())),
     Some(crate::ast::HydratedBy::ReactTree) => rest.push(form(crate::ast::HydratedBy::TREE, Vec::new())),
+    Some(crate::ast::HydratedBy::Vue) => rest.push(form(crate::ast::HydratedBy::VUE, Vec::new())),
     Some(crate::ast::HydratedBy::React) => {}
   }
   if let Some(shadow) = &component.shadow {
@@ -178,6 +179,7 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
     match section.head() {
       Some("static") => out.hydrated_by = None,
       Some("tree") => out.hydrated_by = Some(crate::ast::HydratedBy::ReactTree),
+      Some("vue") => out.hydrated_by = Some(crate::ast::HydratedBy::Vue),
       Some("shadow") => {
         let a = at_least(inner, "shadow", 1)?;
         let mode = sym_of(&a[0])?;

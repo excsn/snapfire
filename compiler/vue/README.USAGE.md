@@ -11,6 +11,8 @@ Compiling Vue single-file components through `snapfirec` and the same compile fr
 * [Writing a Component It Reads](#writing-a-component-it-reads)
 * [Linking a Block to a File](#linking-a-block-to-a-file)
 * [Reading What Comes Out](#reading-what-comes-out)
+* [Describing a Component](#describing-a-component)
+* [Rendering With Vue's Server Renderer](#rendering-with-vues-server-renderer)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -132,6 +134,38 @@ let Outcome::Ok(compiled) = outcome else { unreachable!() };
 assert!(compiled.js.contains("export default _sfc_main"));
 assert!(compiled.css.as_deref().unwrap_or("").contains("[data-v-"));
 ```
+
+## Describing a Component
+
+`describe` answers with the component as Vue's parser reads it, for a host that lowers it to markup of its own: `fsr build` asks for this before any route is lowered. The template comes back as a tree, the script block as written with where it starts and, per name the script binds, how the template reads it.
+
+```rust
+let Outcome::Described(described) = compiler.describe("src/Card.vue", &source, &Options::default(), &Default::default())? else { panic!("refused") };
+let script = described.script.unwrap();
+assert!(script.setup);
+assert_eq!(described.bindings["title"], "props");
+let root = &described.template.unwrap()["children"][0];
+assert_eq!(root["tag"], "div");
+```
+
+The tree is what `describeNode` in the driver writes: an `element` with its `tag`, `kind` (Vue's `ElementTypes`: element 0, component 1, slot 2, template 3), `props` and `children`; a `text` with its `content`; an `interpolation` with its expression as `content`; anything else as `other` with Vue's node `type`. A prop is an `attribute` with `name` and `value` or a `directive` with `name`, `arg`, `argStatic`, `exp` and `modifiers`, still on its element: `v-if` is a directive named `if`, not a branch node. Every node and prop carries its `line` and `column` in the file; a directive also carries `expLine` and `expColumn` for its expression. Comments are not in the tree. The compiled module leaves them out too, so the two agree.
+
+## Rendering With Vue's Server Renderer
+
+The plugin carries a compiler and no runtime, so rendering is two steps: `ssr_module` compiles the component with `ssrRender` bound in place of `render`; `render_module` runs that module under Vue's server renderer, given the runtime as modules the component may import by bare specifier. A typed script comes back typed; strip it before running it.
+
+```rust
+use std::collections::BTreeMap;
+
+let Outcome::Ok(module) = compiler.ssr_module("src/Card.vue", &source, &Options::default(), &Default::default())? else { panic!("refused") };
+let modules = BTreeMap::from([
+  ("vue".to_owned(), std::fs::read_to_string("vue.runtime.esm-browser.prod.js")?),
+  ("vue/server-renderer".to_owned(), std::fs::read_to_string("server-renderer.esm-browser.prod.js")?),
+]);
+let html = compiler.render_module(&module.js, r#"{"title":"Tea"}"#, Some("<b>child</b>"), &modules)?;
+```
+
+The component renders under the root the client's Vue mounter uses, a wrapper rendering nothing of its own with the children as the default slot in an `<sf-s data-sf-children>` region, so the markup is what the browser would hydrate. This is the oracle `snapfire_fsr_lower` checks its Vue front end against.
 
 ## Error Handling
 

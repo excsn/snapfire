@@ -8,7 +8,7 @@
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
 
-use snapfire_compiler_wire::{Diagnostic, Hello, Outcome, Request, Response, PROTOCOL};
+use snapfire_compiler_wire::{Diagnostic, Hello, Kind, Outcome, Request, Response, PROTOCOL};
 use snapfire_vue::Compiler;
 
 const NAME: &str = "vue";
@@ -85,14 +85,20 @@ fn serve() -> ExitCode {
     let results = request
       .units
       .iter()
-      .map(|unit| match compiler.compile(&unit.filename, &unit.source, &unit.options, &unit.files) {
-        Ok(outcome) => outcome,
-        // A thrown value is the plugin's fault rather than the component's, and
-        // it stops this unit rather than the worker: the next file may be fine
-        // and a build that dies here loses every diagnostic it had gathered.
-        Err(e) => Outcome::Failed {
-          diagnostics: vec![Diagnostic::error(e.to_string()).at(unit.filename.clone(), None, None)],
-        },
+      .map(|unit| {
+        let answered = match request.kind {
+          Kind::Compile => compiler.compile(&unit.filename, &unit.source, &unit.options, &unit.files),
+          Kind::Describe => compiler.describe(&unit.filename, &unit.source, &unit.options, &unit.files),
+        };
+        match answered {
+          Ok(outcome) => outcome,
+          // A thrown value is the plugin's fault rather than the component's, and
+          // it stops this unit rather than the worker: the next file may be fine
+          // and a build that dies here loses every diagnostic it had gathered.
+          Err(e) => Outcome::Failed {
+            diagnostics: vec![Diagnostic::error(e.to_string()).at(unit.filename.clone(), None, None)],
+          },
+        }
       })
       .collect();
     if !say(&mut out, &Response { id: request.id, results }) {

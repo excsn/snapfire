@@ -368,7 +368,7 @@ The tree reaches one level: the page directly under the layout. A layout below a
 
 ## Mounting Vue Components
 
-The `/vue` entry is the second mounter the package ships. Register a `.vue` module with it and Vue mounts the component in the marker, creating the app over the server's markup when there is any and fresh when there is none, which is the case for a component the server has no body for:
+The `/vue` entry is the second mounter the package ships. Register a `.vue` module with it and Vue mounts the component in the marker, creating the app over the server's markup when there is any, which is what the build writes for a component it lowered. It creates the app fresh when there is none, which is what a component the build could not read gets:
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
@@ -383,6 +383,8 @@ registerIsland("src/ui/Tonight.vue#default", {
 ```
 
 `fsr build` writes exactly that registration for every `.vue` island a template places, so an application never writes it by hand. The mounter holds the island's props in a reactive object and renders the component through a one-element wrapper, which is what lets `vuePatcher` hand a mounted island new props in place rather than tearing it down. `vueUnmounter` unmounts the app when a navigation takes the marker out of the document. The runtime's own keys on the props, the hoisted table and the region key, never reach the component.
+
+The island's children are its default slot. The server writes them in an `<sf-s data-sf-children>` region where the template placed its `<slot />`, which Vue hydrates as an element the wrapper rendered and whose content is adopted as it stands, nested islands included. When the template placed no slot this render, a panel behind a closed `v-if` for one, the server writes them after the markup in an inert `<template data-sf-children>`; the mounter reads it before Vue hydrates and takes it out of the document, so the slot has its content when the template opens.
 
 Inside the component the store is a ref:
 

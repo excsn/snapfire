@@ -10,105 +10,14 @@
 //! components and a boot costs tens of milliseconds.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use anyhow::{anyhow, bail, Context, Result};
-use snapfire_compiler_wire::{Hello, Outcome, Request, Response, Unit, PROTOCOL};
+use anyhow::{bail, Result};
+use snapfire_compiler_wire::host::Worker;
+use snapfire_compiler_wire::{Hello, Outcome, Unit};
 
 /// A claimed extension makes a file a source rather than an asset to copy.
-pub use snapfire_compiler_wire::{binary_for, claimed, install_hint};
-
-struct Worker {
-  child: Child,
-  stdin: ChildStdin,
-  stdout: BufReader<ChildStdout>,
-  hello: Hello,
-  next: u64,
-}
-
-impl Worker {
-  fn start(ext: &str) -> Result<Self> {
-    let binary = binary_for(ext);
-    let mut child = Command::new(&binary)
-      .stdin(Stdio::piped())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped())
-      .spawn()
-      .map_err(|e| match e.kind() {
-        // The kind is the whole of what a reader needs, and the os error under
-        // it only repeats the sentence above in worse words.
-        std::io::ErrorKind::NotFound => anyhow!("`{binary}` is not on PATH; `{}` puts it there", install_hint(ext)),
-        _ => anyhow!("`{binary}` would not start: {e}"),
-      })?;
-    let stdin = child.stdin.take().ok_or_else(|| anyhow!("{binary}: no stdin"))?;
-    let mut stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("{binary}: no stdout"))?);
-
-    let mut line = String::new();
-    if stdout.read_line(&mut line).unwrap_or(0) == 0 {
-      bail!("{binary}: exited before it said anything{}", stderr_of(&mut child));
-    }
-    let hello: Hello = serde_json::from_str(&line).with_context(|| format!("{binary}: its greeting did not parse: {line}"))?;
-    if hello.protocol != PROTOCOL {
-      bail!(
-        "{binary} speaks plugin protocol {} and this snapfirec speaks {PROTOCOL}; update whichever is older",
-        hello.protocol
-      );
-    }
-    Ok(Self { child, stdin, stdout, hello, next: 1 })
-  }
-
-  fn compile(&mut self, units: Vec<Unit>) -> Result<Vec<Outcome>> {
-    let id = self.next;
-    self.next += 1;
-    let wanted = units.len();
-    let request = serde_json::to_string(&Request { id, units })?;
-    writeln!(self.stdin, "{request}")
-      .and_then(|()| self.stdin.flush())
-      .with_context(|| format!("{}: the plugin closed its pipe{}", self.name(), stderr_of(&mut self.child)))?;
-
-    let mut line = String::new();
-    if self.stdout.read_line(&mut line).unwrap_or(0) == 0 {
-      bail!("{}: died while compiling{}", self.name(), stderr_of(&mut self.child));
-    }
-    let response: Response = serde_json::from_str(&line).with_context(|| format!("{}: its answer did not parse", self.name()))?;
-    if response.id != id {
-      bail!("{}: answered batch {} when asked for {id}", self.name(), response.id);
-    }
-    if response.results.len() != wanted {
-      bail!("{}: answered {} results for {wanted} units", self.name(), response.results.len());
-    }
-    Ok(response.results)
-  }
-
-  fn name(&self) -> String {
-    binary_for(&self.hello.name)
-  }
-}
-
-impl Drop for Worker {
-  fn drop(&mut self) {
-    // Closing the pipe is how a plugin is told the build is over; killing it is
-    // only for one that did not take the hint.
-    let _ = self.child.kill();
-    let _ = self.child.wait();
-  }
-}
-
-/// Whatever the plugin printed before it stopped, as a suffix for the error
-/// that is about to be raised. A crash the build reports without it is a
-/// mystery the developer cannot act on.
-fn stderr_of(child: &mut Child) -> String {
-  let Some(mut err) = child.stderr.take() else { return String::new() };
-  let mut text = String::new();
-  use std::io::Read;
-  let _ = err.read_to_string(&mut text);
-  match text.trim().is_empty() {
-    true => String::new(),
-    false => format!(":\n{}", text.trim()),
-  }
-}
+pub use snapfire_compiler_wire::claimed;
 
 /// The workers this build has, one per extension, started on first use.
 #[derive(Default)]
@@ -136,20 +45,20 @@ impl Plugins {
           self.workers.insert(ext.to_owned(), worker);
         }
         Err(e) => {
-          let why = format!("{e:#}");
+          let why = e.to_string();
           self.refused.insert(ext.to_owned(), why.clone());
           bail!("{why}");
         }
       }
     }
-    Ok(self.workers[ext].hello.clone())
+    Ok(self.workers[ext].hello().clone())
   }
 
   /// Compiles every unit of one extension in a single batch, which is what the
   /// long-lived worker is for.
   pub fn compile(&mut self, ext: &str, units: Vec<Unit>) -> Result<Vec<Outcome>> {
     self.hello(ext)?;
-    self.workers.get_mut(ext).expect("just started").compile(units)
+    Ok(self.workers.get_mut(ext).expect("just started").compile(units)?)
   }
 
   /// What each worker said it was, for the build's banner.
@@ -157,7 +66,7 @@ impl Plugins {
     self
       .workers
       .values()
-      .map(|w| format!("{} {} ({})", w.name(), w.hello.version, w.hello.compiler))
+      .map(|w| format!("{} {} ({})", w.name(), w.hello().version, w.hello().compiler))
       .collect()
   }
 }

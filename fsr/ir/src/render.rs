@@ -21,11 +21,13 @@ mod markup;
 mod react;
 mod react18;
 mod react19;
+mod vue;
 
 pub use markup::Frameworks;
 pub(crate) use markup::Markup;
 use react::is_custom_element;
 pub use react::ReactMajor;
+pub use vue::VueMajor;
 
 /// Every lowered component by module id, so one may render another.
 pub type Components = HashMap<String, Arc<Component>>;
@@ -200,8 +202,15 @@ fn state_key(path: &str, name: &str) -> String {
 pub const ISLAND_MARK: &str = "\u{0}sf-island:";
 
 impl Out {
-  fn text(&mut self, text: &str) {
+  /// Text under `markup`'s rules: React separates two adjacent runs with an
+  /// empty comment and escapes three characters; Vue joins them and escapes
+  /// five.
+  fn text(&mut self, text: &str, markup: Markup) {
     if text.is_empty() {
+      return;
+    }
+    if markup.is_vue() {
+      vue::escape(text, &mut self.html);
       return;
     }
     if self.text_open {
@@ -243,11 +252,20 @@ struct Slot<'a> {
   /// An island's children, which are the server's markup inside the island
   /// rather than part of its render: see `render_children`.
   island: bool,
+  /// Whether the callee placed the slot: a lowered island whose template
+  /// did not carries its children apart, see `CHILDREN_HELD_OPEN`.
+  placed: bool,
 }
 
 /// The region an island's children render in, which the mounter hands the
 /// component as its `children` and never renders itself.
 pub const CHILDREN_OPEN: &str = "<sf-s data-sf-children>";
+
+/// Where a lowered Vue island's children go when its template did not place
+/// its slot this render, a closed panel for one: an inert template after the
+/// island's markup, which the parser never shows, the scan never reaches and
+/// the mounter reads so the slot has its content when the template opens.
+pub const CHILDREN_HELD_OPEN: &str = "<template data-sf-children>";
 
 impl Interpreter {
   /// Renders `component` with `props` bound as `$props`. A `$store` prop and
@@ -458,9 +476,44 @@ fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Co
     }
     env.scope.push((name.clone(), value));
   }
+  let fragment = env.markup.is_vue() && vue_root_fragment(&component.render);
+  if fragment {
+    out.markup(vue::FRAGMENT_OPEN);
+  }
   render(env, &component.render, library, slots, out)?;
+  if fragment {
+    out.markup(vue::FRAGMENT_CLOSE);
+  }
   env.scope.truncate(depth);
   env.markup = caller;
+  Ok(())
+}
+
+/// Whether Vue writes a component's root as a fragment: more than one root
+/// node, at least one of them not text.
+fn vue_root_fragment(render: &Tmpl) -> bool {
+  match render {
+    Tmpl::Fragment(children) => children.len() > 1 && children.iter().any(|c| !matches!(c, Tmpl::Text(_) | Tmpl::Expr(_))),
+    _ => false,
+  }
+}
+
+/// Whether Vue wraps a branch or a loop body in fragment anchors: anything
+/// other than exactly one element.
+fn vue_wraps(tmpl: &Tmpl) -> bool {
+  !matches!(tmpl, Tmpl::Element { .. } | Tmpl::Baked { .. } | Tmpl::For { .. } | Tmpl::If { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_))
+}
+
+/// Renders `tmpl` inside fragment anchors when Vue's rules call for them.
+fn render_vue_wrapped<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let wrapped = env.markup.is_vue() && vue_wraps(tmpl);
+  if wrapped {
+    out.markup(vue::FRAGMENT_OPEN);
+  }
+  render(env, tmpl, library, slots, out)?;
+  if wrapped {
+    out.markup(vue::FRAGMENT_CLOSE);
+  }
   Ok(())
 }
 
@@ -545,10 +598,10 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
 /// frame, so an arm inline here costs its stack at every level.
 fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   match tmpl {
-    Tmpl::Text(text) => out.text(text),
+    Tmpl::Text(text) => out.text(text, env.markup),
     Tmpl::Expr(expr) => {
       let value = env.eval_sync(expr)?;
-      interpolate(&value, out)?;
+      interpolate(&value, out, env.markup)?;
     }
     Tmpl::Element { tag, attrs, children } => render_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
@@ -570,9 +623,11 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::If { cond, then, r#else } => {
       let value = env.eval_sync(cond)?;
       if truthy(&value) {
-        render(env, then, library, slots, out)?;
+        render_vue_wrapped(env, then, library, slots, out)?;
       } else if let Some(other) = r#else {
-        render(env, other, library, slots, out)?;
+        render_vue_wrapped(env, other, library, slots, out)?;
+      } else if env.markup.is_vue() {
+        out.markup(vue::EMPTY);
       }
     }
     Tmpl::For { over, params, body } => render_for(env, over, params, body, library, slots, out)?,
@@ -597,7 +652,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
   let mut bound = Vec::new();
   let mut raw: Option<String> = None;
   let markup = env.markup;
-  let evaluated = entries(env, attrs, true)?;
+  let evaluated = entries(env, attrs, !markup.is_vue())?;
   if markup.may_hoist(tag) && !env.server_mode && !env.in_svg && !env.in_noscript && markup.hoists(tag, &evaluated) {
     return Err(hoisted_in_place(env, tag));
   }
@@ -638,7 +693,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
     attribute(markup, tag, "data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
   }
   if VOID.contains(&tag) {
-    open.push_str("/>");
+    open.push_str(if markup.is_vue() { ">" } else { "/>" });
     out.markup(&open);
     return Ok(());
   }
@@ -714,7 +769,7 @@ fn render_shadow<'a>(env: &mut Env, module: &str, props: ValueMap, library: &'a 
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props))]));
   let hoists = env.hoists.take();
-  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false });
+  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false, placed: false });
   let markup = std::mem::replace(&mut env.markup, Markup::Plain);
   shadow_open(component.shadow.unwrap_or_default(), out);
   let result = in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
@@ -751,12 +806,19 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
     other => return Err(crate::interp::type_error("map", "an array", &other)),
   };
   let depth = env.scope.len();
+  let list = env.markup.is_vue();
+  if list {
+    out.markup(vue::FRAGMENT_OPEN);
+  }
   for i in 0..items.len() {
     env.scope.truncate(depth);
     for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
       env.scope.push((param.clone(), value));
     }
-    in_step(env, Step::Iteration(i), |env| render(env, body, library, slots, out))?;
+    in_step(env, Step::Iteration(i), |env| render_vue_wrapped(env, body, library, slots, out))?;
+  }
+  if list {
+    out.markup(vue::FRAGMENT_CLOSE);
   }
   env.scope.truncate(depth);
   Ok(())
@@ -769,7 +831,7 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false });
   let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   slots.pop();
@@ -801,7 +863,7 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
   let Some(component) = library.get(module) else {
     let mut inner = Out::default();
     if !children.is_empty() {
-      render_children(env, children, keys.as_ref(), library, slots, &mut inner)?;
+      render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
     let index = out.islands.len();
     out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() } });
@@ -810,12 +872,17 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
   };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: true });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys: keys.clone(), island: true, placed: false });
   let mut inner = Out::default();
   let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
   let outer_state = env.state.take();
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
+  let held = result.is_ok() && !children.is_empty() && component.hydrated_by == Some(crate::ast::HydratedBy::Vue) && slots.last().is_some_and(|slot| slot.island && !slot.placed);
+  let result = match held {
+    true => render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_HELD_OPEN, "template"),
+    false => result,
+  };
   env.state = outer_state;
   env.server_mode = outer_mode;
   let hoisted = std::mem::replace(&mut env.hoists, outer_hoists).map(|h| h.table).unwrap_or_default();
@@ -834,9 +901,20 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
     out.html.push_str(&slot_mark(name));
     return Ok(());
   };
+  if env.markup.is_vue() {
+    out.markup(vue::FRAGMENT_OPEN);
+    let result = render_slot_content(env, slot, library, slots, out);
+    out.markup(vue::FRAGMENT_CLOSE);
+    return result;
+  }
+  render_slot_content(env, slot, library, slots, out)
+}
+
+fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  slot.placed = true;
   let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
   let result = match slot.island {
-    true => render_children(env, slot.children, slot.keys.as_ref(), library, slots, out),
+    true => render_children(env, slot.children, slot.keys.as_ref(), library, slots, out, CHILDREN_OPEN, "sf-s"),
     false => {
       let callee_keys = match (&slot.keys, &mut env.hoists) {
         (Some((module, path)), Some(h)) => Some((std::mem::replace(&mut h.module, module.clone()), std::mem::replace(&mut h.path, path.clone()))),
@@ -861,17 +939,20 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
   result
 }
 
-/// An island's children, in a `CHILDREN_OPEN` region. The browser adopts the
-/// region's markup and never renders the children. Nothing they hoist is kept
-/// and an island among them keys under `keys`, the caller that wrote them.
-fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(String, Vec<Step>)>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+/// An island's children, in a region opened by `open` and closed as `tag`:
+/// `CHILDREN_OPEN` where the template places them, `CHILDREN_HELD_OPEN`
+/// where it did not. The browser adopts the region's markup and never renders
+/// the children. Nothing they hoist is kept and an island among them keys
+/// under `keys`, the caller that wrote them.
+#[allow(clippy::too_many_arguments)]
+fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(String, Vec<Step>)>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out, open: &str, tag: &str) -> Result<(), Fail> {
   let caller = keys.map(|(module, path)| {
     let mut hoists = Hoists::new(module.clone());
     hoists.path = path.clone();
     hoists
   });
   let held = std::mem::replace(&mut env.hoists, caller);
-  out.markup(CHILDREN_OPEN);
+  out.markup(open);
   let mut result = Ok(());
   for child in children {
     result = render(env, child, library, slots, out);
@@ -879,7 +960,7 @@ fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(Strin
       break;
     }
   }
-  out.close_tag("sf-s");
+  out.close_tag(tag);
   env.hoists = held;
   result
 }
@@ -949,7 +1030,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
 /// caller is under. `None` keeps the element on the evaluating path, which is
 /// never a different answer.
 fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
-  if Markup::every().any(|markup| markup.may_hoist(tag)) {
+  if Markup::every().any(|markup| markup.may_hoist(tag)) || VOID.contains(&tag) {
     return None;
   }
   let mut open = String::with_capacity(tag.len() + 16);
@@ -1107,18 +1188,24 @@ pub fn html_attr_name(name: &str) -> &str {
 }
 
 /// A child expression the way React prints one: strings and numbers as text,
-/// `null` and booleans as nothing, an array as its items in turn.
-fn interpolate(value: &Value, out: &mut Out) -> Result<(), Fail> {
+/// `null` and booleans as nothing, an array as its items in turn. Under
+/// Vue's rules it is `toDisplayString`: a boolean is its word and an array or
+/// an object its JSON.
+fn interpolate(value: &Value, out: &mut Out, markup: Markup) -> Result<(), Fail> {
+  if markup.is_vue() {
+    out.text(&vue::display(value)?, markup);
+    return Ok(());
+  }
   match value {
     Value::Null | Value::Bool(_) => Ok(()),
     Value::Seq(items) => {
       for item in items {
-        interpolate(item, out)?;
+        interpolate(item, out, markup)?;
       }
       Ok(())
     }
     other => {
-      out.text(&crate::interp::scalar_str(other)?);
+      out.text(&crate::interp::scalar_str(other)?, markup);
       Ok(())
     }
   }
@@ -1154,14 +1241,20 @@ fn write_attr(name: &str, text: &str, out: &mut String) {
 /// `name=""`, a `style` with nothing in it is omitted and anything else is
 /// stringified.
 fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
-  if matches!(value, Value::Null) || !writable_attr_name(name) {
+  if !writable_attr_name(name) {
+    return Ok(());
+  }
+  if markup.is_vue() {
+    return vue::attribute(name, value, out);
+  }
+  if matches!(value, Value::Null) {
     return Ok(());
   }
   if name != "style" && is_custom_element(tag) {
     match markup {
       Markup::React(major) => return major.custom_attribute(name, value, out),
       Markup::Plain if !is_scalar(value) => return Err(unset_property(tag, name, value)),
-      Markup::Plain => {}
+      Markup::Plain | Markup::Vue(_) => {}
     }
   }
   if matches!(value, Value::Bool(false)) {
@@ -1917,7 +2010,7 @@ mod markup_tests {
 
   fn render_under(react: Option<ReactMajor>, hydrated_by: Option<crate::ast::HydratedBy>, render: Tmpl, props: &ValueMap, library: &Components) -> Result<String, Fail> {
     let component = Component { body: Vec::new(), render, state: Vec::new(), handlers: Vec::new(), hydrated_by, shadow: None };
-    Interpreter::default().with_frameworks(Frameworks { react }).render(&component, props, library).map(|rendered| rendered.html)
+    Interpreter::default().with_frameworks(Frameworks { react, vue: None }).render(&component, props, library).map(|rendered| rendered.html)
   }
 
   #[test]

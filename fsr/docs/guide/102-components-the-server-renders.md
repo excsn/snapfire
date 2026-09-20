@@ -112,7 +112,7 @@ import { Island } from "@snapfire/fsr-client/react";
 
 The build lowers the use: the server renders `OrderHelp` with its props as a nested island in a region of the page's markup, the page's root adopts that region and never reconciles it and the browser mounts `OrderHelp` in its own root when it scrolls into view. `island(OrderHelp, { when: "visible" })` at module level is the same thing as a component. The storefront's order page does this for its help section, which is why the checklist's island timed on visibility is there.
 
-The child need not be React. A `.vue` file imported by a template and placed the same way is an island the server has no body for: it is placed empty with its props and Vue mounts it. Chapter 104 is that path, with the plugin that compiles the file and the application that has no React in it.
+The child need not be React. A `.vue` file imported by a template and placed the same way is an island the build lowers through Vue's own parser: the server writes what Vue's server renderer would and Vue hydrates it or mounts it fresh where the file holds what the build does not read. Chapter 104 is that path, with the plugin that reads and compiles the file and the application that has no React in it.
 
 ## State two islands share
 

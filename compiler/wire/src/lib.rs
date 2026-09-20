@@ -10,9 +10,11 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod host;
+
 /// The wire version. A plugin announcing another number is refused by name
 /// rather than failing later on a field that moved.
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 
 /// The extensions a plugin compiles, one framework each. `<ext>` is compiled
 /// by `snapfirec-<ext>`, which `cargo install snapfire_<ext>` puts on PATH.
@@ -53,7 +55,28 @@ pub struct Hello {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
   pub id: u64,
+  /// What the host wants of each unit. Absent, a compile.
+  #[serde(default, skip_serializing_if = "Kind::is_compile")]
+  pub kind: Kind,
   pub units: Vec<Unit>,
+}
+
+/// What a request asks of a plugin.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+  /// The unit as a module for the browser: [`Outcome::Ok`].
+  #[default]
+  Compile,
+  /// The unit as the framework's own parser reads it, for a host that lowers
+  /// the component rather than shipping it: [`Outcome::Described`].
+  Describe,
+}
+
+impl Kind {
+  fn is_compile(&self) -> bool {
+    *self == Kind::Compile
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +119,8 @@ pub struct Response {
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Outcome {
   Ok(Compiled),
+  /// The answer to a [`Kind::Describe`] request.
+  Described(Described),
   /// The unit did not compile. `diagnostics` says why and is never empty.
   Failed { diagnostics: Vec<Diagnostic> },
   /// The unit names files beside it, a `<style src>` among them, that the
@@ -130,6 +155,52 @@ pub struct Compiled {
   pub diagnostics: Vec<Diagnostic>,
 }
 
+/// A component as its framework's parser reads it, before anything is
+/// compiled: what a host needs to lower the component to markup of its own
+/// instead of mounting it empty.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Described {
+  /// The template as a tree in the plugin's own shape. The wire carries it
+  /// as JSON and the host's front end for that framework reads it; the
+  /// plugin's documentation says what the nodes are.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub template: Option<serde_json::Value>,
+  /// The component's script, when it has one.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub script: Option<Script>,
+  /// Per name the script binds, how the template reads it, in the
+  /// framework's own words.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub bindings: std::collections::BTreeMap<String, String>,
+  /// The attribute a scoped style selects on, when any style is scoped.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub scope: Option<String>,
+  /// Specifiers the plugin found that the source does not contain.
+  #[serde(default)]
+  pub deps: Vec<String>,
+  #[serde(default)]
+  pub diagnostics: Vec<Diagnostic>,
+}
+
+/// A script block as written, with where it starts in the file so a
+/// diagnostic against it names the right line.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Script {
+  pub content: String,
+  #[serde(default)]
+  pub lang: Lang,
+  /// The one-based line the content starts on.
+  pub line: u32,
+  /// The one-based column the content starts at on that line.
+  pub column: u32,
+  /// Whether the block is the framework's setup form rather than a plain script.
+  #[serde(default)]
+  pub setup: bool,
+  /// Whether a plain script stands beside the setup block.
+  #[serde(default)]
+  pub plain: bool,
+}
+
 /// Structured rather than formatted, so build output does not read like three
 /// tools stapled together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +233,10 @@ pub enum Severity {
 impl Diagnostic {
   pub fn error(message: impl Into<String>) -> Self {
     Self { severity: Severity::Error, message: message.into(), file: None, line: None, column: None }
+  }
+
+  pub fn warning(message: impl Into<String>) -> Self {
+    Self { severity: Severity::Warning, message: message.into(), file: None, line: None, column: None }
   }
 
   pub fn at(mut self, file: impl Into<String>, line: Option<u32>, column: Option<u32>) -> Self {

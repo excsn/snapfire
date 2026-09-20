@@ -23,15 +23,15 @@ function ownProps(props: Props): Record<string, unknown> {
 /** The markup of each island's children region, which a patch morphs in place. */
 const childrenHeld = new WeakMap<Element, Ref<string | null>>();
 
-/** The region `el`'s children render in: the `<sf-s data-sf-children>` under it that is not inside a nested island. */
+/** The region `el`'s children render in: the `<sf-s data-sf-children>` under it that is not inside a nested island or the inert `<template data-sf-children>` the server writes after a lowered island's markup when its template did not place the slot. */
 function childrenRegion(el: Element): Element | null {
-  for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`))) {
+  for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))) {
     if (region.parentElement?.closest("sf-i") === el) return region;
   }
   return null;
 }
 
-/** An island's children as its default slot: an `<sf-s data-sf-children>` Vue renders empty and never patches, whose markup is written from what the server sent and then scanned for islands. A patch morphs it, so an island nested in it keeps its DOM and its state. */
+/** An island's children as its default slot: an `<sf-s data-sf-children>` Vue renders empty and never patches, whose markup is written from what the server sent and then scanned for islands. A patch morphs it, so an island nested in it keeps its DOM and its state. Hydrating over a region the server wrote adopts what is in it: the document's scan has already reached the islands inside, so writing it again would tear them down. */
 const Children = defineComponent({
   name: "SfChildren",
   props: { html: { type: String, required: true } },
@@ -41,6 +41,10 @@ const Children = defineComponent({
     const write = () => {
       const el = region.value;
       if (!el || written === props.html) return;
+      if (written === null && el.childNodes.length > 0) {
+        written = props.html;
+        return;
+      }
       if (written === null) {
         const template = document.createElement("template");
         template.innerHTML = props.html;
@@ -68,6 +72,7 @@ function rootFor(component: Component, props: Props, el: Element): { root: Compo
   const state = reactive(ownProps(props));
   const region = childrenRegion(el);
   const children = ref<string | null>(region ? region.innerHTML : null);
+  if (region?.tagName === "TEMPLATE") region.remove();
   const root = defineComponent({
     name: "SfIsland",
     setup() {
