@@ -18,6 +18,9 @@ pub struct Outcome {
   /// Session keys the body wrote or deleted, in order, committed before this
   /// was returned.
   pub written: Vec<String>,
+  /// Seconds from now the body moved the session's end to, already applied
+  /// to the cell; `None` when it did not extend.
+  pub extended: Option<u64>,
 }
 
 /// What `ctx.now` reads. Milliseconds since the Unix epoch, as `Value::Int`.
@@ -137,6 +140,7 @@ impl Interpreter {
       }),
       session: data,
       written: Vec::new(),
+      extend: None,
       scope: Vec::new(),
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
@@ -154,7 +158,7 @@ impl Interpreter {
           }
         }
         Stmt::Let { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
-        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Act { .. } => break,
+        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => break,
       }
     }
 
@@ -163,7 +167,10 @@ impl Interpreter {
       Flow::Next => Value::Null,
     };
     commit(&ctx.session, &env.session, &env.written);
-    Ok(Outcome { value, written: env.written })
+    if let Some(seconds) = env.extend {
+      ctx.session.extend(std::time::Duration::from_secs(seconds));
+    }
+    Ok(Outcome { value, written: env.written, extended: env.extend })
   }
 }
 
@@ -189,6 +196,8 @@ pub(crate) struct Env {
   identity: Option<Value>,
   session: ValueMap,
   written: Vec<String>,
+  /// The last `SessionExtend` the body ran, applied with the draft on success.
+  extend: Option<u64>,
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
   clock: Arc<dyn Clock>,
@@ -336,6 +345,7 @@ impl Env {
       identity: None,
       session: ValueMap::default(),
       written: Vec::new(),
+      extend: None,
       scope,
       store: ValueMap::default(),
       clock: interpreter.clock.clone(),
@@ -459,6 +469,7 @@ impl Env {
       identity: self.identity.clone(),
       session: self.session.clone(),
       written: Vec::new(),
+      extend: None,
       scope: self.scope.clone(),
       store: self.store.clone(),
       clock: self.clock.clone(),
@@ -531,6 +542,14 @@ impl Env {
           delete_path(root, &steps)?;
         }
         self.touch(key);
+      }
+      Stmt::SessionExtend { seconds } => {
+        let seconds = match self.eval(seconds).await? {
+          Value::Int(n) if n > 0 => n as u64,
+          Value::F64(f) if f.fract() == 0.0 && f > 0.0 && f <= SAFE_INTEGER => f as u64,
+          other => return Err(type_error("session extend", "a positive whole number of seconds", &other)),
+        };
+        self.extend = Some(seconds);
       }
       Stmt::Act { action, .. } => return Err(Fail::internal(format!("a body cannot dispatch `{action}`; an action is dispatched from a handler"))),
       Stmt::Expr(expr) => {

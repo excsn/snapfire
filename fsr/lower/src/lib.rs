@@ -296,6 +296,7 @@ pub(crate) fn lower_actions_in(parsed: &Parsed, defaults: &SessionDefaults, reso
       _ => continue,
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+    lowerer.extends = true;
     let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
     out.push(LoweredAction { export: name.to_owned(), input, body });
   }
@@ -364,6 +365,7 @@ pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, r
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
   lowerer.middleware = true;
+  lowerer.extends = true;
   let result = lower_function(&mut lowerer, first, body);
   result.map_err(|r| (r.into(), lowerer.unbound.take()))
 }
@@ -636,6 +638,9 @@ pub(crate) struct Lowerer<'a> {
   middleware: bool,
   /// A meta body reads its loader's data as `data`, which is its input.
   meta: bool,
+  /// An action or middleware body may call `session.extend`; a loader runs on
+  /// every navigation, so it may not.
+  extends: bool,
   pub(crate) scope: Vec<(String, Expr)>,
   /// Module-level names a component lowerer has resolved, read after the scope.
   pub(crate) globals: Vec<(String, Expr)>,
@@ -658,7 +663,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, hoisting: None, natives: Vec::new(), in_handler: false, reach_violation: false }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, reach_violation: false }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -908,7 +913,37 @@ impl<'a> Lowerer<'a> {
         let (kind, message) = self.as_fail(&stmt).expect("checked");
         Ok(Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: kind?, message: message? })
       }
+      js::Expr::Call(call) if self.is_session_extend(call) => {
+        if !self.extends {
+          return Err(self.residue_with(
+            call.span,
+            "`session.extend` outside an action or middleware",
+            "a loader runs on every navigation, so extending there is a store write per page view; extend from an action or from middleware, which can decide when",
+          ));
+        }
+        let [arg] = call.args.as_slice() else {
+          return Err(self.residue(call.span, "`session.extend` takes seconds, one number"));
+        };
+        Ok(Stmt::SessionExtend { seconds: self.expr(&arg.expr)? })
+      }
       other => Ok(Stmt::Expr(self.expr(other)?)),
+    }
+  }
+
+  /// `session.extend(...)` or `ctx.session.extend(...)`.
+  fn is_session_extend(&self, call: &js::CallExpr) -> bool {
+    let js::Callee::Expr(callee) = &call.callee else { return false };
+    let js::Expr::Member(member) = &**callee else { return false };
+    if self.member_name(member).as_deref() != Some("extend") {
+      return false;
+    }
+    match &*member.obj {
+      js::Expr::Ident(id) => self.root_of(id) == Some(Root::Session),
+      js::Expr::Member(via) => {
+        let js::Expr::Ident(id) = &*via.obj else { return false };
+        self.root_of(id) == Some(Root::Ctx) && self.member_name(via).as_deref() == Some("session")
+      }
+      _ => false,
     }
   }
 

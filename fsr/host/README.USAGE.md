@@ -654,7 +654,16 @@ The blob carries the session's end as `expires`, seconds since the Unix epoch, s
 
 ## Extending a Session
 
-A session ends one `ttl` after it opened, however often it is read; the cookie's `Max-Age` counts down to the same moment and the store drops the record there. Nothing moves the end on its own, so a request that only reads a session writes nothing. Extending is the application's call, from Rust code that has the request context and it costs one store write and one `Set-Cookie` each time:
+A session ends one `ttl` after it opened, however often it is read; the cookie's `Max-Age` counts down to the same moment and the store drops the record there. Nothing moves the end on its own, so a request that only reads a session writes nothing. Extending is the application's call and it costs one store write and one `Set-Cookie` each time. An action or middleware written in TypeScript calls it on the session:
+
+```ts
+export const touch = action(async ({ session }) => {
+  session.extend(8 * 3600);
+  return null;
+});
+```
+
+A loader cannot; the build refuses it there, since a loader runs on every navigation. Rust code that has the request context does the same through the cell and can read the current end first:
 
 ```rust
 HostBuilder::from(config)

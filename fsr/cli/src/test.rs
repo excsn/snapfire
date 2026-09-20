@@ -352,6 +352,7 @@ struct MockCtx {
   input: Option<Value>,
   transport: Arc<LambdaTransport>,
   written: Vec<String>,
+  extended: Option<u64>,
 }
 
 impl MockCtx {
@@ -369,6 +370,7 @@ impl MockCtx {
     trace.insert("calls".to_owned(), Value::seq(self.transport.calls.lock().clone()));
     let mut session_trace = ValueMap::default();
     session_trace.insert("written".to_owned(), Value::Seq(self.written.iter().map(Value::str).collect()));
+    session_trace.insert("extended".to_owned(), self.extended.map(Value::int).unwrap_or(Value::Null));
     trace.insert("session".to_owned(), Value::Map(session_trace));
     map.insert("trace".to_owned(), Value::Map(trace));
     Value::Map(map)
@@ -480,7 +482,7 @@ impl<'a> Run<'a> {
       config.insert(key.clone(), self.eval(expr).await.map_err(|f| format!("config.{key}: {}", f.message))?);
     }
     let ctx = RequestCtx { params, query, path, document: None, address: None, session: SessionCell::new(session, identity), locale, host, config, csrf: snapfire_fsr_runtime::CsrfHandle::default(), services: handle, natives: Default::default() };
-    let mock = MockCtx { ctx, input, transport, written: Vec::new() };
+    let mock = MockCtx { ctx, input, transport, written: Vec::new(), extended: None };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);
     Ok(())
@@ -506,6 +508,7 @@ impl<'a> Run<'a> {
     let result = match outcome {
       Ok(outcome) => {
         mock.written = outcome.written;
+        mock.extended = outcome.extended;
         Ok(outcome.value)
       }
       Err(fail) => Err(fail),

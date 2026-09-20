@@ -3,7 +3,7 @@
 
 use snapfire_fsr_ir::ast::{ArithOp, CompareOp, Entry, Lit, Stmt};
 use snapfire_fsr_ir::Expr;
-use snapfire_fsr_lower::{lower_actions, lower_loader, LowerError, Residue};
+use snapfire_fsr_lower::{lower_actions, lower_loader, lower_middleware, LowerError, Residue};
 
 const CATALOG: &str = r#"
 import type { Ctx } from "../../generated/ctx";
@@ -358,4 +358,37 @@ export async function load(ctx: Ctx) {
     snapfire_fsr_ir::body_reads_request(&body),
     "two configured hosts are two answers, so the route is not prerenderable"
   );
+}
+
+#[test]
+fn an_action_or_middleware_extends_the_session_and_a_loader_may_not() {
+  let src = r#"
+export const touch = action(async ({ session }) => {
+  session.extend(3600);
+  return null;
+});
+export const via = action(async (ctx) => {
+  ctx.session.extend(7200);
+  return null;
+});
+"#;
+  let actions = lower_actions("actions.ts", src).unwrap();
+  assert_eq!(actions[0].body[0], Stmt::SessionExtend { seconds: Expr::Lit(Lit::Float(3600.0)) }, "{:?}", actions[0].body);
+  assert_eq!(actions[1].body[0], Stmt::SessionExtend { seconds: Expr::Lit(Lit::Float(7200.0)) }, "{:?}", actions[1].body);
+
+  let middleware = lower_middleware(
+    "middleware.ts",
+    "export const middleware = ({ session, now }) => {\n  if (session.touched == null || now - session.touched > 6n * 3600n) {\n    session.touched = now;\n    session.extend(24 * 3600);\n  }\n  return {};\n};\n",
+  )
+  .unwrap();
+  let Stmt::If { then, .. } = &middleware[0] else { panic!("{middleware:?}") };
+  assert_eq!(then[1], Stmt::SessionExtend { seconds: Expr::Arith(ArithOp::Mul, Box::new(Expr::Lit(Lit::Float(24.0))), Box::new(Expr::Lit(Lit::Float(3600.0)))) }, "{then:?}");
+
+  let r = residue(lower_loader("page.loader.ts", "export async function load({ session }) {\n  session.extend(3600);\n  return {};\n}\n").unwrap_err());
+  assert_eq!(r.line, 2, "{r}");
+  assert!(r.message.contains("outside an action or middleware"), "{r}");
+  assert!(r.hint.as_deref().unwrap_or("").contains("every navigation"), "{r}");
+
+  let r = residue(lower_actions("actions.ts", "export const touch = action(async ({ session }) => {\n  session.extend();\n  return null;\n});\n").unwrap_err());
+  assert!(r.message.contains("one number"), "{r}");
 }

@@ -104,7 +104,9 @@ const PLAN: &str = r#"{
       "body": [
         { "session_set": { "key": "count", "value": { "arith": [ "add", { "coalesce": [ { "session": "count" }, { "lit": { "int": 0 } } ] }, { "field": [ "input", "by" ] } ] } } },
         { "return": { "session": "count" } }
-      ] }
+      ] },
+    { "id": "index.stay", "owner": "lowered", "module": "routes/index/actions.ts",
+      "body": [ { "session_extend": { "seconds": { "lit": { "int": 7200 } } } }, { "return": "locale" } ] }
   ]
 }"#;
 
@@ -4818,4 +4820,47 @@ mod key_rotation {
     assert!(session_cookie_of(&get_with(&host, &format!("sf_session={minted}")).await).is_none(), "read back through the codec");
     assert!(session_cookie_of(&get_with(&host, &cookie_under(b"test-key", "s1")).await).is_some(), "an hmac cookie is foreign to it and a fresh session is established");
   }
+}
+
+#[tokio::test]
+async fn an_action_that_extends_the_session_sets_the_cookie_to_the_new_end_and_a_read_sets_nothing() {
+  let (host, _) = host();
+  let session_cookie = |response: &http::Response<_>| {
+    response
+      .headers()
+      .get_all(header::SET_COOKIE)
+      .iter()
+      .filter_map(|v| v.to_str().ok())
+      .find(|v| v.starts_with("sf_session="))
+      .map(str::to_owned)
+  };
+  let max_age = |cookie: &str| -> u64 {
+    cookie
+      .split(';')
+      .map(str::trim)
+      .find_map(|part| part.strip_prefix("Max-Age="))
+      .unwrap_or_else(|| panic!("no Max-Age: {cookie}"))
+      .parse()
+      .unwrap()
+  };
+
+  let response = host
+    .handle(Request::post("/_sf/action/index.bump").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(r#"{"by": 1}"#)).unwrap())
+    .await;
+  let opened = session_cookie(&response).expect("a fresh session sets its cookie");
+  assert!((590..=600).contains(&max_age(&opened)), "a new session ends one ttl from open: {opened}");
+  let cookie_value = opened.split(';').next().unwrap().to_owned();
+
+  let response = host
+    .handle(Request::post("/_sf/action/index.stay").header(header::COOKIE, &cookie_value).body(Bytes::from("{}")).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let extended = session_cookie(&response).expect("an extension sets the cookie again");
+  assert!((7190..=7200).contains(&max_age(&extended)), "the cookie counts down to the new end: {extended}");
+
+  let response = host
+    .handle(Request::post("/_sf/action/index.where").header(header::COOKIE, &cookie_value).body(Bytes::from("{}")).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(session_cookie(&response).is_none(), "a request that only reads the session writes nothing");
 }

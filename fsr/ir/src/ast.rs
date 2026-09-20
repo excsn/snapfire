@@ -20,6 +20,10 @@ pub enum Stmt {
   Guard { cond: Expr, kind: String, message: Expr },
   SessionSet { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr>, value: Expr },
   SessionDelete { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr> },
+  /// `session.extend(seconds)`: the session ends `seconds` from now once the
+  /// body commits. Only an action or middleware holds one; the lowerer
+  /// refuses it in a loader.
+  SessionExtend { seconds: Expr },
   /// `void save(input)` in a handler, `save` an `action("id")`: the host
   /// dispatches the action when the handler runs in server mode. Only a
   /// handler holds one; a body cannot dispatch an action.
@@ -389,6 +393,7 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
         value.visit(f);
       }
       Stmt::SessionDelete { path, .. } => path.iter().for_each(|p| p.visit(f)),
+      Stmt::SessionExtend { seconds } => seconds.visit(f),
       Stmt::Act { input, .. } => input.visit(f),
     }
   }
@@ -713,6 +718,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
           exprs.push(value);
         }
         Stmt::SessionDelete { path, .. } => exprs.extend(path.iter()),
+        Stmt::SessionExtend { seconds } => exprs.push(seconds),
         Stmt::If { cond, .. } | Stmt::ForOf { over: cond, .. } => exprs.push(cond),
       }
       for expr in exprs {
@@ -753,7 +759,7 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
     Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
-    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::Act { .. } => true,
+    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => true,
   })
 }
 
@@ -797,6 +803,7 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
           into.push(value);
         }
         Stmt::SessionDelete { path, .. } => into.extend(path.iter()),
+        Stmt::SessionExtend { seconds } => into.push(seconds),
         Stmt::Act { input, .. } => into.push(input),
       }
     }

@@ -12,7 +12,7 @@ use snapfire_fsr_ir::ast::{ArithOp, CompareOp, Entry, Lit, Stmt};
 use snapfire_fsr_ir::{Body, Expr, Interpreter, IrAction, IrSource};
 use snapfire_fsr_runtime::{
   ActionHandler, DataSource, FailureKind, Identity, RequestCtx, ServiceCaller, ServiceError,
-  ServiceHandle, SessionCell,
+  ServiceHandle, SessionCell, unix_now,
 };
 
 #[derive(Default)]
@@ -73,7 +73,7 @@ fn ctx(mock: Arc<Mock>, params: &[(&str, &str)], session: ValueMap) -> RequestCt
     locale: Default::default(),
     host: None,
     config: Default::default(),
-    csrf: None,
+    csrf: Default::default(),
     services: ServiceHandle::new(mock), natives: Default::default() 
   }
 }
@@ -369,7 +369,7 @@ fn identity_and_now_are_reads() {
     locale: Default::default(),
     host: None,
     config: Default::default(),
-    csrf: None,
+    csrf: Default::default(),
     services: ServiceHandle::default(), natives: Default::default() 
   };
   let body = vec![Stmt::Return(Expr::object(vec![
@@ -452,3 +452,30 @@ fn a_guards_message_is_evaluated_when_it_fires() {
   assert_eq!(fail.message, "no product 7");
 }
 
+
+#[test]
+fn an_extension_moves_the_end_when_the_body_commits_and_not_when_it_fails() {
+  let mock = Arc::new(Mock::default());
+  let body = vec![Stmt::SessionExtend { seconds: Expr::lit_int(7200) }];
+  let c = ctx(mock.clone(), &[], ValueMap::default());
+  let outcome = tokio::runtime::Runtime::new().unwrap().block_on(Interpreter::default().run(&body, &c, None)).unwrap();
+  assert_eq!(outcome.extended, Some(7200));
+  assert!(c.session.is_extended());
+  let end = c.session.expires();
+  assert!(end > unix_now() + 7190 && end <= unix_now() + 7200, "{end}");
+  assert!(!c.session.is_dirty(), "an extension is not a data write");
+
+  let body = vec![
+    Stmt::SessionExtend { seconds: Expr::Lit(Lit::Float(3600.0)) },
+    Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: "conflict".into(), message: Expr::Lit(Lit::Str("no".into())) },
+  ];
+  let c = ctx(mock.clone(), &[], ValueMap::default());
+  assert_eq!(run(&body, &c, None).unwrap_err().kind, FailureKind::Conflict);
+  assert!(!c.session.is_extended(), "a failed body leaves the end where it was");
+
+  let body = vec![Stmt::SessionExtend { seconds: Expr::Lit(Lit::Str("soon".into())) }];
+  let c = ctx(mock, &[], ValueMap::default());
+  let fail = run(&body, &c, None).unwrap_err();
+  assert!(fail.message.contains("session extend"), "{fail:?}");
+  assert!(!c.session.is_extended());
+}

@@ -76,6 +76,7 @@ One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`
 * `Guard { cond: Expr, kind: String, message: String }` fails the body with `kind` when `cond` is truthy; `kind` is a `FailureKind` name.
 * `SessionSet { key: String, path: Vec<Expr>, value: Expr }`; `path` is omitted from JSON when empty.
 * `SessionDelete { key: String, path: Vec<Expr> }`; `path` is omitted from JSON when empty.
+* `SessionExtend { seconds: Expr }` moves the session's end to `seconds` from now once the body commits. Only an action or middleware holds one; the lowerer refuses it in a loader.
 * `Act { action: String, input: Expr }` asks for the action `action` to be dispatched with `input`. Only a handler holds one: `island_step` evaluates the input and collects the pair in `Stepped::acts` for the host to dispatch; a body reaching one fails with `Internal`.
 * `Expr(Expr)` evaluates for effect and discards the value.
 
@@ -221,13 +222,14 @@ Runs a body. `Clone`; the default carries the system clock and the standard libr
 * `Interpreter::island_step(&self, module, component, props, state, handler: Option<HandlerRef>, event: &Value, library) -> Result<Stepped, Fail>`: one round trip of an island in server mode. The body's `let`s run with `state` standing in for the component's state bindings, the handler at `handler` runs with `$props`, `$state` and `$event` bound and the object it returns is merged into the state for the keys the component names, then the component renders from that state in server mode: `$on:` markers print as `data-sf-on="click:0 change:1"` and `$key` as `data-sf-key`, neither of which prints in a browser-mode render. `None` for `handler` renders as is. A component rendered inside the island through a keyed placement has an address, its `path_key`: its state bindings ride in the same map as `<address>/<name>`, its markers print as `<address>/<index>` and a `HandlerRef` naming it is found by rendering once to that path, which gives its handler the props the island's render gave it; `NotFound` when the render reaches no such path or the component there has no such index. The answered `state` is what the render consumed, so an instance the render no longer places leaves no entry behind. `Stepped { state, rendered, acts }`: `acts` is every `Act` the handler ran, in order, as `(action id, input)` with the input evaluated where the statement stood, so it reads the props and the state as they were at that point; the interpreter dispatches nothing itself. A missing handler index is `Internal`.
 * A `Tmpl::Island` in server mode renders its component the same way and `RenderedIsland { mode, state, .. }` carries the mode and the values the state `let`s took; `mount_props` adds them under `render::STATE_PROP` (`$s`) and `rendered_nodes` writes `data-sf-mode="server"` on the region.
 * `render::ROOT_SLOT`: what a root component's own `Slot` writes into the markup, since it has no caller. `IrEvaluator` splits the markup there and emits a `Client` node whose `children` carry the pieces around a `Node::Slot("content")`, which is how a layout places its page.
-* `Interpreter::run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`. `input` is `None` for a loader; a body reads `Expr::Input` as `Value::Null` then. Session writes go to a draft copied from `ctx.session` at entry and are committed to the cell, key by key, only on success.
+* `Interpreter::run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`. `input` is `None` for a loader; a body reads `Expr::Input` as `Value::Null` then. Session writes go to a draft copied from `ctx.session` at entry and are committed to the cell, key by key, only on success. A `SessionExtend` is applied to the cell after the draft, on success only.
 
 ### Outcome
 
-* `pub struct Outcome { pub value: Value, pub written: Vec<String> }`
+* `pub struct Outcome { pub value: Value, pub written: Vec<String>, pub extended: Option<u64> }`
 * `value` is `Value::Null` when the body ends without a `return`.
 * `written` lists every session key set or deleted, in first-touch order, already committed.
+* `extended` is the seconds the last `SessionExtend` named, already applied to the cell through `SessionCell::extend`; `None` when the body ran none.
 
 ### Clock
 
@@ -372,10 +374,11 @@ The frameworks an application vendors, each at the major whose server markup the
 * `SessionSet` with an empty path replaces the key. With a path it walks `Map` steps by `Str` key, creating maps where a step is `Null`, plus `Seq` steps by `Int` or integral `F64` index within bounds.
 * `SessionDelete` with an empty path removes the key; with a path it removes the last step's entry from its `Map` and is a no-op where the path does not exist.
 * Both mark the key in `written`.
+* `SessionExtend` evaluates `seconds`, which must be a positive whole number, `Int` or an integral `F64`, else the body fails with `Internal`. The last one the body ran is applied to the cell after the draft commits, so a failed body leaves the end where it was. It marks no key and does not dirty the cell.
 
 ### Guards
 
-* Before the body runs, top-level guards are scanned in order. A guard whose condition reads no `Var` and contains no `Call` is evaluated immediately. The scan stops at the first `If`, `ForOf`, `SessionSet`, `SessionDelete` or `Act`.
+* Before the body runs, top-level guards are scanned in order. A guard whose condition reads no `Var` and contains no `Call` is evaluated immediately. The scan stops at the first `If`, `ForOf`, `SessionSet`, `SessionDelete`, `SessionExtend` or `Act`.
 * Every guard also runs in sequence at its own position.
 * An unknown kind name is `Internal`.
 

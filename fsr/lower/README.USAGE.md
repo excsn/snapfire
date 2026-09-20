@@ -112,7 +112,10 @@ session.cart = {};                       // Stmt::SessionSet { key: "cart", path
 session.cart[key] = wanted;              // path: [Var("key")]
 session.prefs.theme = "dark";            // path: [Lit("theme")]
 delete session.cart[key];                // Stmt::SessionDelete
+session.extend(7200);                    // Stmt::SessionExtend, action or middleware only
 ```
+
+`session.extend(seconds)` moves the session's end to that many seconds from now. An action or middleware may call it; a loader runs on every navigation, so `lower_loader` refuses it as residue.
 
 ## Guarding
 

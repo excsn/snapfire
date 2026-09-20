@@ -116,6 +116,7 @@ The cursor over one application: parsed files, lowered components and the resolu
 * `for (const x of e) body`.
 * `return e` or `return`.
 * `session.key = e`, `session.key.sub = e`, `session.key[e] = e`, plus the same through `ctx.session`; `delete session.key[e]`, `delete session.key?.[e]` and `delete session.key.sub`.
+* `session.extend(e)` or `ctx.session.extend(e)` as a statement is `Stmt::SessionExtend` in an action or middleware, `e` the seconds. In a loader or any other body it is residue naming the two, since a loader runs on every navigation; more or fewer than one argument is residue.
 * `fail("kind", msg)` as a bare statement is a guard whose condition is `true`.
 * Any other expression statement, typically an awaited call, is `Stmt::Expr`.
 * `try`, `throw`, `while`, `for`, `for...in`, `switch`, nested functions, classes, `break`, `continue`, labels and bare blocks are residue.

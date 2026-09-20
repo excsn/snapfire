@@ -34,3 +34,16 @@ fn a_body_test_runs_a_loader_over_the_module_constant_it_imports() {
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_body_test_sees_an_extension_in_the_session_trace() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\n\nexport const stay = action(async ({ session }) => {\n  session.extend(7200);\n  return null;\n});\n"),
+    ("tests/stay.test.ts", "import { stay } from \"@routes/actions\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"the action extends the session and writes no key\", async () => {\n  const c = ctx({});\n  await stay(c);\n  expect(c.trace.session.extended).toEqual(7200);\n  expect(c.trace.session.written).toEqual([]);\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

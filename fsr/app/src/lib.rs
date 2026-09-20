@@ -1230,7 +1230,7 @@ impl snapfire_fsr_runtime::SegmentKeyer for ReadsKeyer {
 fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, bearer: &[String]) -> Static {
   fn writes_session(body: &snapfire_fsr_ir::Body) -> bool {
     body.iter().any(|stmt| match stmt {
-      snapfire_fsr_ir::Stmt::SessionSet { .. } | snapfire_fsr_ir::Stmt::SessionDelete { .. } => true,
+      snapfire_fsr_ir::Stmt::SessionSet { .. } | snapfire_fsr_ir::Stmt::SessionDelete { .. } | snapfire_fsr_ir::Stmt::SessionExtend { .. } => true,
       snapfire_fsr_ir::Stmt::If { then, r#else, .. } => writes_session(then) || writes_session(r#else),
       snapfire_fsr_ir::Stmt::ForOf { body, .. } => writes_session(body),
       _ => false,

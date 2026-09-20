@@ -317,6 +317,20 @@ export async function middleware({ request, identity }: MiddlewareCtx): Promise<
 
 `identity` is read by field, `identity?.subject` here, since a body holds no whole value for it. A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`.
 
+Middleware is also where a session is kept alive. A session ends one `session.ttl` after it opened however often it is read and nothing moves that end on its own; `session.extend(seconds)` moves it to that many seconds from now and the host sets the cookie again to match. Guard it with a key the session holds, so a busy session costs one store write every few hours rather than one a request:
+
+```ts
+export async function middleware({ session, now }: MiddlewareCtx): Promise<MiddlewareResult> {
+  if (session.touched == null || now - session.touched > 6n * 3600n) {
+    session.touched = now;
+    session.extend(24 * 3600);
+  }
+  return {};
+}
+```
+
+An action may call `extend` too. A loader may not, since a loader runs on every navigation; the build refuses it there by name.
+
 ## Signing In
 
 The host owns the flow and the application owns the page. `[auth]` in `config/app.toml` names the provider and the login route; `config/auth.toml` holds the `file` provider's accounts and `bearer` on a client says its calls carry the token the callback stored.

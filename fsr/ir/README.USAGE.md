@@ -142,6 +142,8 @@ let body = vec![
 
 To replace a key outright, give an empty path: `Stmt::SessionSet { key: "cart".into(), path: vec![], value: Expr::Object(vec![]) }`.
 
+To move the session's end, `Stmt::SessionExtend { seconds: Expr::lit_int(7200) }`: the cell ends that many seconds from now once the body commits and `Outcome::extended` carries the number. A failed body leaves the end where it was.
+
 ### Guarding Before Any Call
 
 A guard fails the body with a named kind. The kind is a `FailureKind` name: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` or `internal`.
