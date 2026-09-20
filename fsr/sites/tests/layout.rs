@@ -119,8 +119,10 @@ fn a_clients_document_ships_under_a_name_the_host_reads_back() {
   assert!(layer.contains(r#"responses = "clients/stub.mock.json""#), "{layer}");
 }
 
-/// The tree has no `icons/` or `styles/` of its own, so what inference read
-/// out of the project has to be written down or it is lost.
+/// The tree has no `styles/` of its own, so what inference read out of the
+/// project has to be written down or it is lost. Icons are the exception: the
+/// layer writes the root serving `/static/icons` and the tree infers the links
+/// again from that root when it boots.
 #[test]
 fn the_layer_carries_what_inference_found_rather_than_what_was_written() {
   let at = project("inferred", "");
@@ -135,7 +137,18 @@ fn the_layer_carries_what_inference_found_rather_than_what_was_written() {
   let layer = layer(&laid);
   assert!(layer.contains(r#"entry = "/static/js/app/src/main.js""#), "{layer}");
   assert!(layer.contains(r#"styles = ["/static/css/site.css"]"#), "{layer}");
-  assert!(layer.contains("/static/icons/favicon.svg"), "{layer}");
+  assert!(layer.contains(r#"route = "/static/icons""#), "{layer}");
+  assert!(!layer.contains("favicon.svg"), "{layer}");
+
+  let tree = dir("inferred-tree");
+  for row in laid.rows().unwrap() {
+    let to = tree.join(&row.path);
+    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+    std::fs::write(&to, row.bytes().unwrap()).unwrap();
+  }
+  let booted = Config::load(&tree).unwrap();
+  let hrefs: Vec<&str> = booted.document.head.iter().filter_map(|link| link.get("href").map(String::as_str)).collect();
+  assert_eq!(hrefs, ["/static/icons/favicon.svg"], "{:?}", booted.document.head);
 }
 
 /// A tree is deployed under a `RELEASE_ENV` the bundle did not run under, so
