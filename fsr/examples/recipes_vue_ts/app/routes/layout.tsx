@@ -41,7 +41,7 @@ export default function BoxLayout({
         </aside>
       </div>
       <footer className="colophon">
-        The pages are lowered templates. Every interactive piece is a Vue single-file component, compiled by `snapfirec-vue`.
+        The pages are lowered templates. Every interactive piece is a Vue single-file component, server-rendered and hydrated by Vue, compiled for the browser by `snapfirec-vue`.
       </footer>
     </div>
   );
