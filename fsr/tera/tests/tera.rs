@@ -226,3 +226,19 @@ fn a_keyed_placement_is_a_region_the_browser_can_patch() {
   assert_eq!(props.get("$k"), Some(&Value::str("chart".to_owned())), "the key rides the props too, which is what a revalidation matches on");
   assert_eq!(props.get("n"), Some(&Value::Int(1)));
 }
+
+#[test]
+fn a_number_from_a_loader_renders_as_a_number_whatever_it_came_as() {
+  let ev = evaluator(&[("counts.tera", "<footer>passed={{ count }} whole={{ whole }} big={{ big }} half={{ half }} nested={{ nested.n }} list={{ list | length }} bytes={{ bytes }}</footer>")]);
+  let mut props = Data::default();
+  props.insert("count".to_owned(), Value::F64(2.0));
+  props.insert("whole".to_owned(), Value::Int(7));
+  props.insert("big".to_owned(), Value::Int(1 << 60));
+  props.insert("half".to_owned(), Value::F64(2.5));
+  props.insert("nested".to_owned(), Value::Map([("n".to_owned(), Value::F64(3.0))].into_iter().collect()));
+  props.insert("list".to_owned(), Value::seq(vec![Value::Int(1), Value::F64(2.0)]));
+  props.insert("bytes".to_owned(), Value::Bytes(vec![104, 105]));
+  let chunks = render(&ev, "counts.tera", props).unwrap();
+  let html: String = chunks.iter().map(raw).collect();
+  assert_eq!(html, "<footer>passed=2 whole=7 big=1152921504606846976 half=2.5 nested=3 list=2 bytes=aGk=</footer>");
+}

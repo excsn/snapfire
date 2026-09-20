@@ -115,7 +115,7 @@ The island payload is JSON with five keys: `m` is the module id string, `p` is t
 
 ## 6. Template Context
 
-Every key of the `Data` map passed to `evaluate` becomes a top-level Tera variable of the same name, converted with `snapfire_fsr_payload::value_to_json`.
+Every key of the `Data` map passed to `evaluate` becomes a top-level Tera variable of the same name, converted for the template rather than for the wire: a number is a number whatever it came as, a byte string is base64 and a map is an object whatever its keys.
 
 An island a template renders is given `state`, the state the placement declared or the last step produced, beside the props the placement passed less `$s` and `$k`.
 
@@ -131,24 +131,23 @@ Error modules additionally receive `error`, the failure message as a string. Fal
 
 A map's keys keep the order they were inserted in, through the template and out the other side into an island's props, which is why a placement may hand a component a record and a list of its keys that agree. This crate takes Tera with `preserve_order` for it; without that feature Tera's own map is a hash map and the order is arbitrary per run.
 
-`value_to_json` is lossless, not idiomatic: any value whose JSON form would be ambiguous becomes a tagged object carrying a `$` key naming the tag. A float lands in the tagged form more often than expected, since an integral `F64` such as `12.0` is tagged to keep it distinct from an integer.
+The payload encoder, `snapfire_fsr_payload::value_to_json`, is lossless rather than idiomatic: it tags a whole-number float and a large integer so the browser can tell them apart again. A template has no round trip, so the context uses a conversion of its own.
 
 | Value | Seen by the template |
 | --- | --- |
 | `Bool`, `Str`, `Null` | a plain JSON scalar |
-| `Int` or `UInt` within +/- (2^53 - 1) | a plain JSON number |
-| `Int` or `UInt` beyond that range | `{"$": "i"}` or `{"$": "u"}` with `v` a decimal string |
-| `F64` with a fractional part | a plain JSON number |
-| `F64` that is integral, infinite or NaN | `{"$": "f", "v": <number or "nan", "inf", "-inf">}` |
-| `F32` | `{"$": "f32", "v": <number or "nan", "inf", "-inf">}` |
-| `Seq`, `Map` | a JSON array or object |
-| `Bytes` | `{"$": "b", "v": "<base64>"}` |
+| `Int` or `UInt` within an `i64` or a `u64` | a plain JSON number |
+| `Int` or `UInt` beyond that | a decimal string |
+| `F64` or `F32` that is a whole number below 2^53 | a plain JSON integer, `2` for `2.0` |
+| `F64` or `F32` with a fractional part | a plain JSON number |
+| `F64` or `F32` that is infinite or NaN | `null` |
+| `Seq`, `Map` | a JSON array or object, whatever the keys |
+| `Bytes` | a base64 string |
 | `TypedArray` | `{"$": "ta", "k": "<kind>", "v": "<base64, little-endian>"}` where kind is one of `i8` `u8` `i16` `u16` `i32` `u32` `i64` `u64` `f32` `f64` |
 | `Variant` | `{"$": "var", "t": "<tag>"}` plus `p` when the variant carries a payload |
 | `Ref` | `{"$": "ref", "k": "action" or "module", "id": "<id>"}` |
-| a `Map` that already holds a `$` key | `{"$": "m", "v": [[key, value], ...]}` |
 
-A tagged value is opaque to template syntax but survives a round trip: passing one as `props` to `island` decodes it back to the original `Value`, map order included.
+The three tagged forms are the payload encoder's, since a template has no other spelling for them; passing one as `props` to `island` decodes it back to the original `Value`. A number passed to `island` arrives as a number.
 
 ## 7. Constraints
 

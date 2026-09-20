@@ -3,6 +3,7 @@ use base64::Engine as _;
 use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, SlotName, Value};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
+use serde_json::Value as Json;
 use snapfire_fsr_runtime::{Chunk, EvalError, Evaluator, NodeChunks};
 use tera::{Kwargs, State, Tera};
 
@@ -194,7 +195,7 @@ impl TeraEvaluator {
     let data = snapfire_fsr_runtime::island_data(props, &state);
     let mut context = tera::Context::new();
     for (key, value) in &data {
-      context.insert(key.clone(), &value_to_json(value));
+      context.insert(key.clone(), &context_json(value));
     }
     let rendered = self
       .tera
@@ -237,11 +238,42 @@ fn eval_err(module: &ModuleId, message: impl Into<String>) -> EvalError {
   EvalError { module: module.to_string(), message: message.into() }
 }
 
+/// A value as a template reads it. The payload encoder tags a whole-number
+/// float and a large integer so the browser can tell them apart again; a
+/// template has no round trip, so a number is a number, a byte string is
+/// base64 and a map is an object whatever its keys. A variant or a reference
+/// keeps the payload's tagged form, which is the only spelling it has.
+fn context_json(value: &Value) -> Json {
+  match value {
+    Value::Null => Json::Null,
+    Value::Bool(b) => Json::Bool(*b),
+    Value::Int(n) => i64::try_from(*n).map(Json::from).unwrap_or_else(|_| Json::String(n.to_string())),
+    Value::UInt(n) => u64::try_from(*n).map(Json::from).unwrap_or_else(|_| Json::String(n.to_string())),
+    Value::F32(f) => float_json((*f).into()),
+    Value::F64(f) => float_json(*f),
+    Value::Str(s) => Json::String(s.to_string()),
+    Value::Bytes(bytes) => Json::String(B64.encode(bytes)),
+    Value::Seq(items) => Json::Array(items.iter().map(context_json).collect()),
+    Value::Map(map) => Json::Object(map.iter().map(|(k, v)| (k.clone(), context_json(v))).collect()),
+    Value::TypedArray(_) | Value::Variant { .. } | Value::Ref { .. } => value_to_json(value),
+  }
+}
+
+/// A whole number prints as one, `2` rather than `2.0`, the way the browser
+/// shows the same value; anything else is the float. A NaN or an infinity
+/// is null, since JSON has no spelling for them.
+fn float_json(f: f64) -> Json {
+  if f.fract() == 0.0 && f.abs() < 9_007_199_254_740_992.0 {
+    return Json::from(f as i64);
+  }
+  serde_json::Number::from_f64(f).map(Json::Number).unwrap_or(Json::Null)
+}
+
 impl Evaluator for TeraEvaluator {
   fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks {
     let mut context = tera::Context::new();
     for (key, value) in props {
-      context.insert(key.clone(), &value_to_json(value));
+      context.insert(key.clone(), &context_json(value));
     }
     let result = self
       .tera
