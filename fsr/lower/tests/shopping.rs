@@ -3,7 +3,7 @@
 
 use snapfire_fsr_ir::ast::{ArithOp, CompareOp, Entry, Lit, Stmt};
 use snapfire_fsr_ir::Expr;
-use snapfire_fsr_lower::{lower_actions, lower_loader, lower_middleware, LowerError, Residue};
+use snapfire_fsr_lower::{lower_actions, lower_handlers, lower_loader, lower_middleware, LowerError, Residue};
 
 const CATALOG: &str = r#"
 import type { Ctx } from "../../generated/ctx";
@@ -386,7 +386,10 @@ export const via = action(async (ctx) => {
 
   let r = residue(lower_loader("page.loader.ts", "export async function load({ session }) {\n  session.extend(3600);\n  return {};\n}\n").unwrap_err());
   assert_eq!(r.line, 2, "{r}");
-  assert!(r.message.contains("outside an action or middleware"), "{r}");
+  assert!(r.message.contains("outside an action, a route handler or middleware"), "{r}");
+
+  let handlers = lower_handlers("route.ts", "export async function POST({ session }) {\n  session.extend(3600);\n  return {};\n}\n").unwrap();
+  assert_eq!(handlers[0].body[0], Stmt::SessionExtend { seconds: Expr::Lit(Lit::Float(3600.0)) }, "{:?}", handlers[0].body);
   assert!(r.hint.as_deref().unwrap_or("").contains("every navigation"), "{r}");
 
   let r = residue(lower_actions("actions.ts", "export const touch = action(async ({ session }) => {\n  session.extend();\n  return null;\n});\n").unwrap_err());

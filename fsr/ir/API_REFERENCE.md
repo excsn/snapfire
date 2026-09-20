@@ -76,7 +76,7 @@ One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`
 * `Guard { cond: Expr, kind: String, message: String }` fails the body with `kind` when `cond` is truthy; `kind` is a `FailureKind` name.
 * `SessionSet { key: String, path: Vec<Expr>, value: Expr }`; `path` is omitted from JSON when empty.
 * `SessionDelete { key: String, path: Vec<Expr> }`; `path` is omitted from JSON when empty.
-* `SessionExtend { seconds: Expr }` moves the session's end to `seconds` from now once the body commits. Only an action or middleware holds one; the lowerer refuses it in a loader.
+* `SessionExtend { seconds: Expr }` moves the session's end to `seconds` from now once the body commits. An action, a route handler or middleware holds one; the lowerer refuses it in a loader.
 * `Act { action: String, input: Expr }` asks for the action `action` to be dispatched with `input`. Only a handler holds one: `island_step` evaluates the input and collects the pair in `Stepped::acts` for the host to dispatch; a body reaching one fails with `Internal`.
 * `Expr(Expr)` evaluates for effect and discards the value.
 

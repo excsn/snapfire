@@ -63,7 +63,7 @@ Inside a test or a hook:
 
 A failed comparison prints both sides as TypeScript would write them, under the message when there is one.
 
-After every run the context refreshes: `c.session` is the session as the body left it, `c.trace.calls` is every service call it made with its arguments, `c.trace.session.written` names the keys it wrote and `c.trace.session.extended` is the seconds an action or middleware extended the session by, `null` when it did not. Those are the expectations that say what a body did rather than only what it returned:
+After every run the context refreshes: `c.session` is the session as the body left it, `c.trace.calls` is every service call it made with its arguments, `c.trace.session.written` names the keys it wrote and `c.trace.session.extended` is the seconds the body extended the session by, `null` when it did not. Those are the expectations that say what a body did rather than only what it returned:
 
 ```ts
 await expect(checkout(c)).rejects.toMatchObject({ kind: "invalid" });

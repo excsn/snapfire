@@ -329,7 +329,7 @@ export async function middleware({ session, now }: MiddlewareCtx): Promise<Middl
 }
 ```
 
-An action may call `extend` too. A loader may not, since a loader runs on every navigation; the build refuses it there by name.
+An action may call `extend` too and so may a `route.ts` handler, typed `HandlerCtx<"/api/cart">` in place of `Ctx`. A loader may not, since a loader runs on every navigation; the build refuses it there by name.
 
 ## Signing In
 

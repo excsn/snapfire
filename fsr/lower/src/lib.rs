@@ -331,6 +331,7 @@ pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, res
       Exported::Other(span) => return Err((parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into(), None)),
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+    lowerer.extends = true;
     let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
     out.push(LoweredHandler { method: name.to_owned(), input, body });
   }
@@ -638,8 +639,8 @@ pub(crate) struct Lowerer<'a> {
   middleware: bool,
   /// A meta body reads its loader's data as `data`, which is its input.
   meta: bool,
-  /// An action or middleware body may call `session.extend`; a loader runs on
-  /// every navigation, so it may not.
+  /// An action, a route handler or middleware may call `session.extend`; a
+  /// loader runs on every navigation, so it may not.
   extends: bool,
   pub(crate) scope: Vec<(String, Expr)>,
   /// Module-level names a component lowerer has resolved, read after the scope.
@@ -917,8 +918,8 @@ impl<'a> Lowerer<'a> {
         if !self.extends {
           return Err(self.residue_with(
             call.span,
-            "`session.extend` outside an action or middleware",
-            "a loader runs on every navigation, so extending there is a store write per page view; extend from an action or from middleware, which can decide when",
+            "`session.extend` outside an action, a route handler or middleware",
+            "a loader runs on every navigation, so extending there is a store write per page view; extend from an action, a route handler or middleware, which can decide when",
           ));
         }
         let [arg] = call.args.as_slice() else {

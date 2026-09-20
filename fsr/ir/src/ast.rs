@@ -21,8 +21,8 @@ pub enum Stmt {
   SessionSet { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr>, value: Expr },
   SessionDelete { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr> },
   /// `session.extend(seconds)`: the session ends `seconds` from now once the
-  /// body commits. Only an action or middleware holds one; the lowerer
-  /// refuses it in a loader.
+  /// body commits. An action, a route handler or middleware holds one; the
+  /// lowerer refuses it in a loader.
   SessionExtend { seconds: Expr },
   /// `void save(input)` in a handler, `save` an `action("id")`: the host
   /// dispatches the action when the handler runs in server mode. Only a

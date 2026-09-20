@@ -654,7 +654,7 @@ The blob carries the session's end as `expires`, seconds since the Unix epoch, s
 
 ## Extending a Session
 
-A session ends one `ttl` after it opened, however often it is read; the cookie's `Max-Age` counts down to the same moment and the store drops the record there. Nothing moves the end on its own, so a request that only reads a session writes nothing. Extending is the application's call and it costs one store write and one `Set-Cookie` each time. An action or middleware written in TypeScript calls it on the session:
+A session ends one `ttl` after it opened, however often it is read; the cookie's `Max-Age` counts down to the same moment and the store drops the record there. Nothing moves the end on its own, so a request that only reads a session writes nothing. Extending is the application's call and it costs one store write and one `Set-Cookie` each time. An action, a route handler or middleware written in TypeScript calls it on the session:
 
 ```ts
 export const touch = action(async ({ session }) => {
