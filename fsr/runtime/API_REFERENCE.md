@@ -30,6 +30,8 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Static`, `SubtreeReads` and `Reads`](#static-subtreereads-and-reads)
 * [6. Assembly](#6-assembly)
   * [`assemble`](#assemble)
+  * [`assemble_under`](#assemble_under)
+  * [`Origin`](#origin)
   * [`Assembly`](#assembly)
   * [`PendingResolution`](#pendingresolution)
   * [`Resolved`](#resolved)
@@ -56,6 +58,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Identity`](#identity)
   * [`SessionCell`](#sessioncell)
   * [`RequestCtx`](#requestctx)
+  * [`Address`](#address)
   * [`Locale`](#locale)
 * [10. Services](#10-services)
   * [`ServiceCaller`](#servicecaller)
@@ -297,6 +300,24 @@ Cache lookup and store happen per plan node that carries a `cache_key`. The comp
 
 No key is composed at all, so neither `get` nor `put` runs, when the node has no `cache_key`, when the subtree contains a `deferred` descendant or when any node in the subtree has a recorded load failure. A key that was composed is always looked up, but it is written back only if the subtree did not use the head slot.
 
+### `assemble_under`
+
+```rust
+pub async fn assemble_under(
+  runtime: &Arc<Runtime>,
+  plan: &PlanNode,
+  ctx: &RequestCtx,
+  head: impl Into<Head>,
+  origin: Origin,
+) -> Result<Assembly, AssembleError>
+```
+
+`assemble` for an intercepted render. The nodes `origin` names load, seed, describe, take their segment key and their `params` prop from `origin.ctx`, the document's request; every other node and every node's `$path` and `$document` come from `ctx`, the navigation's. A kept layout's data belongs to the page beneath the overlay while a link in its markup is still marked by the address.
+
+### `Origin`
+
+`pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`. The document's request and the ids of the plan nodes that render under it, which a host takes from the layouts the origin's route shares with the intercept's, from the root down to the one declaring the slot.
+
 ### `Assembly`
 
 * `catalog: Option<String>`: the head's `catalog`, written as the `D` row.
@@ -504,11 +525,18 @@ Everything a loader or action may know about the request. `Clone + Default`. Ser
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
 * `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's. Empty too under a context nothing resolved.
 * `pub document: Option<String>`: the path of the page the document is showing when the render is an intercept, the origin the navigator sent as `x-sf-from` with its locale prefix stripped. `None` on any other request, where the document's path is `path`.
+* `pub address: Option<Address>`: the navigation's own request when the render is an intercept, `None` otherwise; `ctx.address` in a body. On a layout the document keeps, `path`, `params` and `query` are the document's and this is the navigation's; on the variant filling the slot the two are the same request.
 * `pub fn anonymous(params: Params) -> Self`: empty session, no locale, no CSRF token, unbound service handle. `query` and `path` are empty.
 * `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
 * `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.
 
 Cloning a context shares the session cell and the service handle; only `params`, `query`, `path`, `locale` and `csrf` are copied.
+
+### `Address`
+
+`pub struct Address { pub path: String, pub params: Params, pub query: Params }`. `Clone`, `Debug`, `Default`, `PartialEq`. The request the browser navigated to, carried as `RequestCtx::address` on an intercepted render.
+
+* `pub fn value(&self) -> Value`: the map a body reads, `path`, `params` and `query`.
 
 ### `Locale`
 

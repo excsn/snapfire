@@ -385,3 +385,71 @@ fn a_module_the_browser_owns_still_offers_its_plan_children_a_region() {
   assert_eq!(children[1]["n"], "modal");
   assert_eq!(children[1]["p"], serde_json::json!([1, 1]));
 }
+
+struct Echo(&'static str, bool);
+
+impl Evaluator for Echo {
+  fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+    let text = |key: &str| match props.get(key) {
+      Some(Value::Str(s)) => s.to_string(),
+      _ => "-".to_owned(),
+    };
+    let id = match props.get("params") {
+      Some(Value::Map(params)) => match params.get("id") {
+        Some(Value::Str(s)) => s.to_string(),
+        _ => "-".to_owned(),
+      },
+      _ => "-".to_owned(),
+    };
+    let open = Node::raw(format!("<{} q={} path={} document={} id={}>", self.0, text("q"), text("$path"), text("$document"), id));
+    let close = Node::raw(format!("</{}>", self.0));
+    if self.1 {
+      Box::pin(stream::iter([Ok(Chunk::Node(open)), Ok(Chunk::Slot(SlotName("content".into()))), Ok(Chunk::Node(close))]))
+    } else {
+      Box::pin(stream::iter([Ok(Chunk::Node(open)), Ok(Chunk::Node(close))]))
+    }
+  }
+}
+
+#[test]
+fn a_kept_layout_loads_under_the_documents_request_and_is_marked_by_the_address() {
+  use futures_util::StreamExt;
+  use snapfire_fsr_runtime::{Address, Origin, assemble_under, html_stream};
+
+  let mut layout = PlanNode::new(NodeId(0), ModuleId::new("layout.tera", "default"));
+  layout.data_source = Some(DataSourceId("layout_loader".into()));
+  let mut page = leaf(1, "page.tera");
+  page.data_source = Some(DataSourceId("page_loader".into()));
+  layout.children.push((SlotName("content".into()), page));
+
+  let mut sources = DataSources::new();
+  for name in ["layout_loader", "page_loader"] {
+    sources.insert_fn(name, |ctx: RequestCtx| {
+      let q = ctx.query.get("q").cloned().unwrap_or_else(|| "-".to_owned());
+      async move {
+        let mut data = ValueMap::default();
+        data.insert("q".to_owned(), Value::str(q));
+        Ok(data)
+      }
+    });
+  }
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "layout.tera", Arc::new(Echo("layout", true)));
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(Echo("page", false)));
+  let runtime = Runtime::new(sources, evaluators);
+
+  let mut params = Params::new();
+  params.insert("id".to_owned(), "1".to_owned());
+  let address = Address { path: "/item/1".to_owned(), params: params.clone(), query: Params::new() };
+  let ctx = RequestCtx { params, path: "/item/1".to_owned(), document: Some("/list".to_owned()), address: Some(address), ..RequestCtx::anonymous(Params::new()) };
+  let mut query = Params::new();
+  query.insert("q".to_owned(), "old".to_owned());
+  let origin = Origin { ctx: RequestCtx { params: Params::new(), query, path: "/list".to_owned(), ..ctx.clone() }, nodes: vec![0] };
+
+  let assembly = block_on(assemble_under(&runtime, &layout, &ctx, &Node::raw(""), origin)).unwrap();
+  assert_eq!(assembly.segments.key, "layout.tera#default?q=old", "the kept layout is keyed by the document's request");
+  assert_eq!(assembly.segments.children[0].key, "page.tera#default?id=1", "the variant is keyed by the navigation's");
+  let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
+  assert!(html.contains("<layout q=old path=/item/1 document=/list id=->"), "the layout loaded under the document's query and is marked by the address: {html}");
+  assert!(html.contains("<page q=- path=/item/1 document=/list id=1>"), "the page loaded under the navigation's request: {html}");
+}

@@ -307,11 +307,31 @@ fn params_value(params: &Params) -> Value {
   Value::Map(map)
 }
 
+/// The document's request and the plan nodes that load and are keyed under
+/// it: the layouts an intercept keeps, whose data belongs to the page beneath
+/// the overlay while their markup is still marked by the address.
+pub struct Origin {
+  pub ctx: RequestCtx,
+  pub nodes: Vec<u32>,
+}
+
 struct Session {
   runtime: Arc<Runtime>,
   ctx: RequestCtx,
+  origin: Option<Origin>,
   head: Head,
   next_slot: AtomicU32,
+}
+
+impl Session {
+  /// The request node `id` loads and is keyed under: the document's for a node
+  /// the origin names, the navigation's own otherwise.
+  fn ctx_of(&self, id: u32) -> &RequestCtx {
+    match &self.origin {
+      Some(origin) if origin.nodes.contains(&id) => &origin.ctx,
+      _ => &self.ctx,
+    }
+  }
 }
 
 /// Every node of `plan` whose loaded data has metadata registered, outermost
@@ -424,7 +444,7 @@ impl Session {
       let source = self.runtime.sources.get(source_id);
       let source_name = source_id.0.clone();
       let runtime = &self.runtime;
-      let ctx = &self.ctx;
+      let ctx = self.ctx_of(node_id);
       let memo = runtime.load_keyer.key(source_id, ctx);
       let span = tracing::info_span!(target: "fsr::trace", "source", id = %source_id.0, node = node_id, memo = tracing::field::Empty, fibre.outcome = tracing::field::Empty);
       let loading = async move {
@@ -473,7 +493,7 @@ impl Session {
       return Ok(error_node(&failure.to_string()));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props, Static::Dynamic, true);
+    self.inject_ctx_props(&mut props, node.id.0, Static::Dynamic, true);
     props.insert("error".to_owned(), Value::str(failure.to_string()));
     let chunks: Vec<Chunk> = self
       .runtime
@@ -501,7 +521,7 @@ impl Session {
       return Ok(Node::raw(""));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props, Static::Dynamic, true);
+    self.inject_ctx_props(&mut props, child.id.0, Static::Dynamic, true);
     inject_store(&mut props, store, None);
     let chunks: Vec<Chunk> = self
       .runtime
@@ -578,7 +598,7 @@ impl Session {
     for node in nodes {
       let source = node.data_source.as_ref().expect("a seeding node has a source");
       match self.runtime.stores[&source.0]
-        .seed(&self.ctx, &loaded.data[&node.id.0])
+        .seed(self.ctx_of(node.id.0), &loaded.data[&node.id.0])
         .await
       {
         Ok(seeded) => out.extend(seeded),
@@ -598,7 +618,7 @@ impl Session {
     for node in nodes {
       let source = node.data_source.as_ref().expect("a describing node has a source");
       let describer = &self.runtime.metas[&source.0];
-      match describer.describe(&self.ctx, &loaded.data[&node.id.0]).await {
+      match describer.describe(self.ctx_of(node.id.0), &loaded.data[&node.id.0]).await {
         Ok(described) => meta.merge(described),
         Err(e) => tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment metadata failed"),
       }
@@ -618,7 +638,7 @@ impl Session {
     }
     let data = &loaded.data;
     let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
-    let mut pairs: Vec<String> = self.ctx.params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut pairs: Vec<String> = self.ctx_of(node.id.0).params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
     let subject = match class {
       Static::Fixed => "-".to_owned(),
@@ -669,7 +689,8 @@ impl Session {
   /// The keyer's key for a segment, marked with the locale when it is not
   /// the default one, so a locale switch swaps every segment.
   fn segment_key(&self, plan: &PlanNode) -> String {
-    let mut key = self.runtime.keyer.key(plan, &self.ctx.params, &self.ctx.query);
+    let ctx = self.ctx_of(plan.id.0);
+    let mut key = self.runtime.keyer.key(plan, &ctx.params, &ctx.query);
     key.push_str(&self.ctx.locale.key_suffix());
     key
   }
@@ -677,8 +698,8 @@ impl Session {
   /// The request as props: the parameters and the locale always, the
   /// identity unless the subtree is `Fixed`, the token only when it is
   /// `Dynamic`, so a render the memo shares carries nothing of the visitor.
-  fn inject_ctx_props(&self, props: &mut Data, class: Static, path: bool) {
-    props.insert("params".to_owned(), params_value(&self.ctx.params));
+  fn inject_ctx_props(&self, props: &mut Data, node: u32, class: Static, path: bool) {
+    props.insert("params".to_owned(), params_value(&self.ctx_of(node).params));
     if path {
       props.insert(PATH_PROP.to_owned(), Value::str(self.ctx.path.clone()));
       props.insert(DOCUMENT_PROP.to_owned(), Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone())));
@@ -835,7 +856,7 @@ impl Session {
       }
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
-      self.inject_ctx_props(&mut props, class, reads.is_none_or(|r| r.path));
+      self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path));
       inject_store(&mut props, store, reads);
       if !node.children.is_empty() || !node.keep.is_empty() {
         let slots = node
@@ -987,10 +1008,33 @@ pub async fn assemble(
   ctx: &RequestCtx,
   head: impl Into<Head>,
 ) -> Result<Assembly, AssembleError> {
-  let head: Head = head.into();
+  assemble_in(runtime, plan, ctx, head.into(), None).await
+}
+
+/// `assemble` for an intercepted render: the nodes `origin` names load, seed,
+/// describe and take their segment key and `params` prop from the document's
+/// request, while `$path` and `$document` come from `ctx` as on every node.
+pub async fn assemble_under(
+  runtime: &Arc<Runtime>,
+  plan: &PlanNode,
+  ctx: &RequestCtx,
+  head: impl Into<Head>,
+  origin: Origin,
+) -> Result<Assembly, AssembleError> {
+  assemble_in(runtime, plan, ctx, head.into(), Some(origin)).await
+}
+
+async fn assemble_in(
+  runtime: &Arc<Runtime>,
+  plan: &PlanNode,
+  ctx: &RequestCtx,
+  head: Head,
+  origin: Option<Origin>,
+) -> Result<Assembly, AssembleError> {
   let session = Arc::new(Session {
     runtime: Arc::clone(runtime),
     ctx: ctx.clone(),
+    origin,
     head: head.clone(),
     next_slot: AtomicU32::new(1),
   });

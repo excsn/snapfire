@@ -855,6 +855,21 @@ fn an_island_in_server_mode_is_refused_over_a_slot_it_renders() {
 }
 
 #[test]
+fn a_loader_reads_the_navigations_own_request_as_the_address() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/layout.loader.ts", "import type { Ctx } from \"@generated/client\";\nexport async function load({ address }: Ctx) {\n  return { peeked: address ? address.params.id : null };\n}\n"),
+    ("routes/index/page.tsx", "export default function Page() {\n  return <p>hi</p>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
+  assert!(file("generated/plan.sexp").contains("(address)"), "{}", file("generated/plan.sexp"));
+  let ctx = file("generated/fsr.ts");
+  assert!(ctx.contains("export interface Address {") && ctx.contains("  address: Address | null;"), "{ctx}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_handler_the_browser_runs_as_written_is_a_browser_row() {
   let page = "export default function Page() {\n  return <button onClick={() => console.log(\"hi\")}>hi</button>;\n}\n";
   let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page)]);

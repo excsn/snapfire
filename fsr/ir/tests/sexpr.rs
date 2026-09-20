@@ -85,6 +85,7 @@ fn expr() -> BoxedStrategy<Expr> {
     Just(Expr::Path),
     Just(Expr::Document),
     Just(Expr::Host),
+    Just(Expr::Address),
     text().prop_map(Expr::Config),
     Just(Expr::Input),
     Just(Expr::Now),

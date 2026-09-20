@@ -122,6 +122,29 @@ impl Default for Locale {
   }
 }
 
+/// The request the browser navigated to, on a render that is an intercept:
+/// its path, locale prefix included, its params and its query. A layout the
+/// document keeps loads under the document's request, so `RequestCtx::path`,
+/// `params` and `query` are the document's there and this is the navigation's;
+/// on the variant filling the slot the two are the same request.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Address {
+  pub path: String,
+  pub params: Params,
+  pub query: Params,
+}
+
+impl Address {
+  pub fn value(&self) -> Value {
+    let pairs = |params: &Params| Value::Map(params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect());
+    let mut map = ValueMap::default();
+    map.insert("path".to_owned(), Value::str(self.path.clone()));
+    map.insert("params".to_owned(), pairs(&self.params));
+    map.insert("query".to_owned(), pairs(&self.query));
+    Value::Map(map)
+  }
+}
+
 /// Everything a loader or action may know about the request: matched params,
 /// the query, the path, the session, the locale, the CSRF token the page
 /// should embed and the bound service handle. Serializable values only, per the boundary rules, plus the handle,
@@ -140,6 +163,9 @@ pub struct RequestCtx {
   /// intercept: the origin the navigator sent as `x-sf-from`, locale prefix
   /// stripped. `None` on any other request, where it is `path`.
   pub document: Option<String>,
+  /// The navigation's own request when this render is an intercept, `None`
+  /// otherwise. `ctx.address` in a body.
+  pub address: Option<Address>,
   pub session: SessionCell,
   pub locale: Locale,
   /// The host the request named, already matched against `[server] hosts`.
@@ -163,6 +189,7 @@ impl RequestCtx {
       query: Params::new(),
       path: String::new(),
       document: None,
+      address: None,
       session: SessionCell::default(),
       locale: Locale::default(),
       host: None,

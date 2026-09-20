@@ -209,6 +209,7 @@ impl<'a> Inferer<'a> {
       Expr::Now => Ts::Big,
       Expr::Path | Expr::Document => Ts::Str,
       Expr::Host => Ts::Str,
+      Expr::Address => Ts::Union(vec![Ts::Named("Address".to_owned()), Ts::Null]),
       Expr::Config(key) => self.config.iter().find(|(k, _)| k == key).map(|(_, t)| t.clone()).unwrap_or(Ts::Unknown),
       Expr::Var(name) => env.iter().rev().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or(Ts::Unknown),
       Expr::Lit(lit) => match lit {

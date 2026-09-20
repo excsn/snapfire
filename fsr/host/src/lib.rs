@@ -41,8 +41,8 @@ use snapfire_fsr_ir::HandlerRef;
 use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner, renumber};
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
-  ActionError, AssembleError, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
-  CacheEntry, Chunk, IslandEvent, Matcher, Metadata, NoCache, NodeCache, RequestCtx, Resolver, SessionCell, WarmLoads, WarmRenders, assemble, html_stream,
+  ActionError, Address, AssembleError, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
+  CacheEntry, Chunk, IslandEvent, Matcher, Metadata, NoCache, NodeCache, Origin, RequestCtx, Resolver, SessionCell, WarmLoads, WarmRenders, assemble, assemble_under, html_stream,
   parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
@@ -948,9 +948,20 @@ struct Incoming {
   held_catalog: Option<String>,
   /// The request's `Host`, already matched against `server.hosts`.
   host: Option<String>,
-  /// The page the document is showing, for an intercepted render: the
-  /// origin the navigator sent, with its locale prefix stripped.
-  document: Option<String>,
+  /// Set on an intercepted render.
+  intercept: Option<Intercept>,
+}
+
+/// An intercepted render: the page the document is showing, as the navigator
+/// sent it in `x-sf-from` with its locale prefix stripped, its params and its
+/// query, plus the plan nodes the document keeps, which load and are keyed
+/// under that request rather than the navigation's.
+#[derive(Clone)]
+struct Intercept {
+  document: String,
+  params: Params,
+  query: Params,
+  kept: Vec<u32>,
 }
 
 impl Incoming {
@@ -961,7 +972,7 @@ impl Incoming {
       credentials: Arc::new(NoCredentials),
       held_catalog: None,
       host: None,
-      document: None,
+      intercept: None,
     }
   }
 }
@@ -1315,13 +1326,18 @@ impl Host {
     into: Option<&str>,
     incoming: Incoming,
   ) -> Result<Rendered, HostError> {
-    let from_bare = from
-      .map(|f| f.split_once('?').map(|(p, _)| p).unwrap_or(f))
-      .map(|f| t.locales.resolve(f, None, None).path);
+    let (from_path, from_query) = match from.map(|f| f.split_once('?').unwrap_or((f, ""))) {
+      Some((path, query)) => (Some(path), query),
+      None => (None, ""),
+    };
+    let from_bare = from_path.map(|f| t.locales.resolve(f, None, None).path);
     match self.intercept_in(t, &visit.path, from_bare.as_deref(), into) {
       Some((plan, params)) => {
         let mut incoming = incoming;
-        incoming.document = from_bare;
+        incoming.intercept = from_bare.map(|document| {
+          let (kept, params) = self.plan_for(t, &document).map(|(from_plan, params)| (kept_spine(&plan, &from_plan), params)).unwrap_or_default();
+          Intercept { document, params, query: parse_query(from_query), kept }
+        });
         self
           .render_plan(
             t,
@@ -1464,8 +1480,15 @@ impl Host {
     locale: &Locale,
     head: &Head,
   ) -> Result<Rendered, HostError> {
+    let origin = incoming.intercept.as_ref().filter(|i| !i.kept.is_empty()).map(|i| (i.document.clone(), i.params.clone(), i.query.clone(), i.kept.clone()));
     let ctx = self.ctx(t, incoming, params, query, path, locale.clone());
-    let assembly = assemble(&t.app.runtime, plan, &ctx, head).await?;
+    let assembly = match origin {
+      Some((document, params, query, nodes)) => {
+        let under = RequestCtx { path: document, params, query, ..ctx.clone() };
+        assemble_under(&t.app.runtime, plan, &ctx, head, Origin { ctx: under, nodes }).await?
+      }
+      None => assemble(&t.app.runtime, plan, &ctx, head).await?,
+    };
     let failed = assembly.failed;
     let chunks: BoxStream<'static, String> = match mode {
       RenderMode::Html => Box::pin(html_stream(assembly)),
@@ -2106,11 +2129,16 @@ impl Host {
     locale: Locale,
   ) -> RequestCtx {
     let services = t.app.services.bind(incoming.session.identity(), incoming.credentials);
+    let (document, address) = match incoming.intercept {
+      Some(intercept) => (Some(intercept.document), Some(Address { path: path.to_owned(), params: params.clone(), query: query.clone() })),
+      None => (None, None),
+    };
     RequestCtx {
       params,
       query,
       path: path.to_owned(),
-      document: incoming.document,
+      document,
+      address,
       session: incoming.session,
       locale,
       host: incoming.host,
@@ -2149,7 +2177,7 @@ impl Host {
       credentials: Arc::new(opened.tokens.clone()),
       held_catalog: None,
       host,
-      document: None,
+      intercept: None,
     }
   }
 
@@ -3374,6 +3402,32 @@ fn intercept_slot(plan: &PlanNode) -> Option<String> {
       .map(|(name, _)| name.0.clone());
   }
   plan.children.iter().find_map(|(_, child)| intercept_slot(child))
+}
+
+/// The nodes of the intercept plan's spine the document keeps: from the root
+/// down to the layout declaring the slot, as far as each is the same module at
+/// the same depth on `from`.
+fn kept_spine(intercept: &PlanNode, from: &PlanNode) -> Vec<u32> {
+  let mut kept = Vec::new();
+  let (mut here, mut there) = (intercept, from);
+  loop {
+    if here.module != there.module {
+      return kept;
+    }
+    kept.push(here.id.0);
+    if here.keep.iter().any(|name| name.0 == "content") {
+      return kept;
+    }
+    let next = here.children.iter().find(|(name, _)| name.0 == "content");
+    let from_next = there.children.iter().find(|(name, _)| name.0 == "content");
+    match (next, from_next) {
+      (Some((_, a)), Some((_, b))) => {
+        here = a;
+        there = b;
+      }
+      _ => return kept,
+    }
+  }
 }
 
 /// True when every layout on the intercept plan's spine, down to the one
