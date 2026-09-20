@@ -10,7 +10,7 @@ Every call a body makes goes through one registry, `Services`. It holds the cont
 
 The host builds the registry from configuration. Each `[clients.<name>]` names a document and a base URL; the document's extension picks the transport: an OpenAPI document becomes `HttpTransport`, with one route per operation mapping the method's arguments into the path, the query and the body the document describes; a `.proto` becomes `GrpcTransport`, which compiles the file with no protoc, keeps the descriptors and encodes each unary call from the value model directly, so a 64-bit integer keeps its width and bytes stay bytes. The report lists each service with its kind and base URL.
 
-Two more transports exist for the cases where the network is not there. `LocalTransport` answers a service in process, method by method, which is how a Rust function can stand behind a name a body calls. `MockTransport` answers with canned values and records every call, which is what the storefront's route tests run against and what makes an application testable with no backend at all. The registry does not know the difference; a transport is a block.
+Two more transports exist for the cases where the network is not there. `LocalTransport` answers a service in process, method by method, which is how a Rust function can stand behind a name a body calls; an `impl` block marked `#[service]` is the same thing written once, the attribute deriving both the transport and the contract from the signatures. `MockTransport` answers with canned values and records every call, which is what the storefront's route tests run against and what makes an application testable with no backend at all. The registry does not know the difference; a transport is a block.
 
 ## The chain
 

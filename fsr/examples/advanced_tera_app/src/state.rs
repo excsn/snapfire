@@ -17,12 +17,12 @@ impl Fleet {
     }
   }
 
-  pub fn list(&self) -> Vec<(String, f64)> {
+  pub fn servers(&self) -> Vec<(String, f64)> {
     self.servers.lock().clone()
   }
 
   /// Errs when the name is taken; returns the new fleet size otherwise.
-  pub fn add(&self, name: String, load: f64) -> Result<usize, ()> {
+  pub fn insert(&self, name: String, load: f64) -> Result<usize, ()> {
     let mut servers = self.servers.lock();
     if servers.iter().any(|(existing, _)| *existing == name) {
       return Err(());

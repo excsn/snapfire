@@ -5,7 +5,9 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::HostBuilder;
 use snapfire_fsr_runtime::{ActionError, FailureKind, IslandEvent, RequestCtx};
 
-use crate::services::fleet;
+use snapfire_fsr_service::DeclaredService;
+
+use crate::state::Fleet;
 
 pub const MODULE: &str = "fleet.tera#default";
 
@@ -29,7 +31,7 @@ fn load_of(server: &Value) -> f64 {
 async fn servers(ctx: &RequestCtx) -> Result<Vec<Value>, ActionError> {
   let mut args = ValueMap::default();
   args.insert("section".to_owned(), Value::str(""));
-  match ctx.services.call(fleet::NAME, fleet::LIST, args).await {
+  match ctx.services.call(Fleet::NAME, "list", args).await {
     Ok(Value::Seq(rows)) => Ok(rows.to_vec()),
     Ok(_) => Ok(Vec::new()),
     Err(e) => Err(ActionError::new(FailureKind::Unavailable, e.message)),

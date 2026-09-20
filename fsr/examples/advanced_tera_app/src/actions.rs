@@ -2,7 +2,9 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::HostBuilder;
 use snapfire_fsr_runtime::{ActionError, FailureKind};
 
-use crate::services::fleet;
+use snapfire_fsr_service::DeclaredService;
+
+use crate::state::Fleet;
 
 pub fn register(builder: HostBuilder) -> HostBuilder {
   builder.action("add_server", move |ctx, input| async move {
@@ -23,6 +25,6 @@ pub fn register(builder: HostBuilder) -> HostBuilder {
     let mut args = ValueMap::default();
     args.insert("name".to_owned(), Value::Str(name));
     args.insert("load".to_owned(), Value::F64(load));
-    ctx.services.call(fleet::NAME, fleet::ADD, args).await.map_err(|e| ActionError::new(e.kind, e.message))
+    ctx.services.call(Fleet::NAME, "add", args).await.map_err(|e| ActionError::new(e.kind, e.message))
   })
 }

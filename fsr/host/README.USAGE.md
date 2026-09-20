@@ -34,6 +34,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Mounting Sites](#mounting-sites)
 * [Refreshing the Browser in Development](#refreshing-the-browser-in-development)
 * [Registering a Native Pair](#registering-a-native-pair)
+* [Serving a Service from Rust](#serving-a-service-from-rust)
 * [Taking a Name Back](#taking-a-name-back)
 * [Replacing the Shell](#replacing-the-shell)
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
@@ -676,6 +677,46 @@ natives   fleet.queueLabel       rust
 ```
 
 The same pair has to be registered wherever the host is built, a test's `Host::from_config(..)` included; the console example keeps one `ext::register(builder)` for that.
+
+## Serving a Service from Rust
+
+A service the application implements itself is an `impl` block marked `#[service]` from `snapfire_fsr_macros`. The attribute writes the transport and the contract off the signatures, so a body calls it as `ctx.services.fleet.list({ section })` and nothing else names the methods.
+
+```rust
+use snapfire_fsr_macros::{service, Record};
+use snapfire_fsr_runtime::{FailureKind, ServiceError};
+use snapfire_fsr_service::DeclaredService;
+
+#[derive(Record)]
+pub struct Server {
+  pub name: String,
+  pub load: f64,
+}
+
+#[service]
+impl Fleet {
+  pub fn list(&self, section: String) -> Result<Vec<Server>, ServiceError> {
+    if section == "down" {
+      return Err(ServiceError::new(FailureKind::Unavailable, Fleet::NAME, "list", "the servers backend is unreachable"));
+    }
+    Ok(self.servers().into_iter().map(|(name, load)| Server { name, load }).collect())
+  }
+
+  pub fn count(&self) -> u32 {
+    self.servers().len() as u32
+  }
+}
+
+let host = Host::from(env!("CARGO_MANIFEST_DIR"))?.service(Arc::new(fleet)).build()?;
+```
+
+The service is bound under the type's name in snake case, `fleet`. Its calls go through the registry like a client's: the contract checks the arguments and the answer, the interceptors run and a method marked `#[cache(..)]` is answered from the data cache when `[cache.data]` is on. The report lists it with the Rust type:
+
+```
+services  fleet                  rust        advanced_tera_app::state::Fleet
+```
+
+`fsr build` reads the same block before the crate compiles and writes its contract to `generated/contracts/rust.json`, which is what types the TypeScript call. The host merges the block's own contract over that file and refuses to boot when the two disagree, `HostError::Service`, since a stale build would type a call the Rust no longer answers. An application with no build, the tera example, has no file and the block's contract stands alone. `services_over` replaces the clients' transports and leaves a Rust service in place; `services` replaces the whole registry, Rust services included.
 
 ## Taking a Name Back
 

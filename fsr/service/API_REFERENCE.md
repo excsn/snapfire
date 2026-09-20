@@ -54,7 +54,10 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
 * [9. TypeScript Declarations](#9-typescript-declarations)
   * [declarations](#declarations)
   * [type_name](#type_name)
-* [10. Error Handling](#10-error-handling)
+* [10. Services Written in Rust](#10-services-written-in-rust)
+  * [ContractType](#contracttype)
+  * [DeclaredService](#declaredservice)
+* [11. Error Handling](#11-error-handling)
   * [ContractError](#contracterror)
 
 ## 1. The Contract Artifact
@@ -184,6 +187,7 @@ The neutral artifact. Also `Default`. Both maps are `IndexMap`s and both default
 * `fn to_json(&self) -> String` writes pretty JSON; panics only if serialisation itself fails
 * `fn from_json(source: &str) -> Result<Self, serde_json::Error>`
 * `fn merge(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: takes every type and service of `other`; a name this contract already defines is `DuplicateType` or `DuplicateService` naming `file`.
+* `fn adopt(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: `merge`, accepting a type or service `other` defines exactly as this contract already does and refusing one it defines differently with the same errors. The host merges a `#[service]` block's contract this way over what the contracts directory holds.
 * `fn method(&self, service: &str, method: &str) -> Option<&Method>`
 * `fn validate(&self) -> Result<(), ContractError>` checks that every `Named` in every record field, variant payload, parameter and return type resolves. Fails on the first unresolved reference with `ContractError::UnknownType`, whose `path` reads `Type.field`, `Service.method.param` or `Service.method()`.
 * `fn check_value(&self, ty: &Type, value: &Value, path: &str) -> Result<(), ContractError>` checks one value at a caller-supplied path. Descending appends `[i]` for a list index, `.tag` for a variant payload and `.key` for a record field or a map key.
@@ -496,7 +500,24 @@ The failure taxonomy every error at this boundary carries.
 * `pub fn typescript::type_name(ty: &Type) -> String`
 * Every integer width is `bigint`; `F32` and `F64` are `number`; `Str` is `string`; `Bytes` is `Uint8Array`; `Array(kind)` is the matching typed array; `Optional(T)` is `T | null`; `List(T)` is `T[]`, parenthesised when `T` is optional; `Map(T)` is `Record<string, T>`; `Named(n)` is `n`.
 
-## 10. Error Handling
+## 10. Services Written in Rust
+
+What `#[service]` and `#[derive(Record)]` from `snapfire_fsr_macros` expand against. A marked `impl` gains a `Transport` answering its own `pub` methods and a `DeclaredService` carrying its contract; the host takes both through `HostBuilder::service`.
+
+### ContractType
+
+* `pub trait ContractType`
+* `fn contract_type() -> Type`: the contract type a Rust type crosses the boundary as.
+* `fn define(contract: &mut Contract)`: adds the records the type mentions to a contract; the default adds nothing.
+* Implemented for `()` as `Null`, `bool`, `i8`, `i16` and `i32` as `I32`, `u8`, `u16` and `u32` as `U32`, `i64` and `isize` as `I64`, `u64` and `usize` as `U64`, `i128`, `u128`, `f32`, `f64`, `String` and `str` as `Str`, `&T`, `Option<T>` as `Optional`, `Vec<T>` as `List`, `HashMap<String, T>`, `BTreeMap<String, T>` and `IndexMap<String, T>` as `Map` and `Result<T, ServiceError>` as `T`'s type. `#[derive(Record)]` implements it for a struct as `Named` with `define` inserting the record and each field's own records.
+
+### DeclaredService
+
+* `pub trait DeclaredService`
+* `const NAME: &'static str`: the service name, the type's name in snake case.
+* `fn contract() -> Contract`: the service under `NAME` with one method per `pub` fn, its parameters as fields under their camelCased names, its return as the type and the policy `#[cache]` and `#[writes]` carried, plus every record the signatures name.
+
+## 11. Error Handling
 
 ### ContractError
 

@@ -45,7 +45,7 @@ pub fn builder(chart_delay: Duration) -> Result<HostBuilder, HostError> {
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
   let counting = renders.clone();
   let builder = Host::from_config_with(config, EMPTY_PLAN.to_owned(), None)?
-    .services(services::build(fleet))
+    .service(Arc::new(fleet))
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/dash/{section}", routes::dash_plan())
     .route("/slow/{section}", routes::slow_plan())

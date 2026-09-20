@@ -22,6 +22,8 @@ How to declare a contract, build the service registry, bind it to a request and 
   * [Turning Response Checking Off](#turning-response-checking-off)
 * [Binding a Request](#binding-a-request)
 * [Implementing a Method in Process](#implementing-a-method-in-process)
+  * [Marking an impl as a Service](#marking-an-impl-as-a-service)
+  * [A Closure per Method](#a-closure-per-method)
 * [Calling a Backend over HTTP](#calling-a-backend-over-http)
   * [Shaping the Route](#shaping-the-route)
   * [Metadata Becomes Headers](#metadata-becomes-headers)
@@ -442,6 +444,50 @@ let handle = services.bind_anonymous();
 A `ServiceHandle` clones freely and a default-constructed one is unbound: `is_bound` returns false and every call fails with `FailureKind::Unavailable` rather than pretending to succeed.
 
 ## Implementing a Method in Process
+
+A service that lives in the application's own Rust has no document to import. Either an `impl` block declares it and the contract is written from the signatures or a `LocalTransport` holds one closure per method beside a contract built by hand.
+
+### Marking an impl as a Service
+
+`#[service]` from `snapfire_fsr_macros` writes the `Transport` and a `DeclaredService` for the block, so the service is declared once, in the signatures. The type's name in snake case is the service name, each `pub` method is a contract method with its parameters under their camelCased names and a `Result<T, ServiceError>` declares `T` while its error travels as the call's failure. A struct a signature names derives `Record`.
+
+```rust
+use snapfire_fsr_macros::{service, Record};
+use snapfire_fsr_runtime::{FailureKind, ServiceError};
+use snapfire_fsr_service::{DeclaredService, Services};
+
+#[derive(Record)]
+pub struct Added {
+  pub count: u32,
+}
+
+#[derive(Clone)]
+pub struct Fleet { /* ... */ }
+
+#[service]
+impl Fleet {
+  pub fn count(&self) -> u32 {
+    self.servers().len() as u32
+  }
+
+  #[writes("servers")]
+  pub fn add(&self, name: String, load: f64) -> Result<Added, ServiceError> {
+    match self.insert(name.clone(), load) {
+      Ok(count) => Ok(Added { count: count as u32 }),
+      Err(()) => Err(ServiceError::new(FailureKind::Conflict, Fleet::NAME, "add", format!("server `{name}` already exists"))),
+    }
+  }
+}
+
+let services = Services::builder()
+  .contract(Fleet::contract())
+  .transport(Fleet::NAME, Arc::new(fleet))
+  .build();
+```
+
+`#[cache(ttl = "15s", tags = ["servers"], scope = "shared", stale = "2m")]` on a method is `Method::cached` and `#[writes("servers")]` is `Method::writes`. The host takes the block whole through `HostBuilder::service`, which merges its contract with the contracts directory's and binds the transport under its name.
+
+### A Closure per Method
 
 `LocalTransport` keys closures by `service.method`. It is the same machinery as a remote call with the network removed, so the contract still checks both directions.
 

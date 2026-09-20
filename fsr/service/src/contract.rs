@@ -317,6 +317,30 @@ impl Contract {
     }
     Ok(())
   }
+
+  /// `merge`, accepting a type or service `other` defines the same way this
+  /// contract already does and refusing one it defines differently.
+  pub fn adopt(&mut self, other: Contract, file: &str) -> Result<(), crate::ContractError> {
+    for (name, def) in other.types {
+      match self.types.get(&name) {
+        Some(held) if *held == def => {}
+        Some(_) => return Err(crate::ContractError::DuplicateType { name, file: file.to_owned() }),
+        None => {
+          self.types.insert(name, def);
+        }
+      }
+    }
+    for (name, service) in other.services {
+      match self.services.get(&name) {
+        Some(held) if *held == service => {}
+        Some(_) => return Err(crate::ContractError::DuplicateService { name, file: file.to_owned() }),
+        None => {
+          self.services.insert(name, service);
+        }
+      }
+    }
+    Ok(())
+  }
 }
 
 fn namespace_json(value: &mut serde_json::Value, prefix: &str) {

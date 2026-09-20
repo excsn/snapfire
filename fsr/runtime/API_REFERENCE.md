@@ -577,7 +577,7 @@ The handle is bound to the request before application code reaches it, so identi
 
 `#[native]` from `snapfire_fsr_macros` writes both from the `impl` block, so a method stays ordinary Rust and only what the block declares `pub` crosses.
 
-`native_arg`, `FromNativeValue` and `IntoNativeValue` are what the generated dispatcher decodes arguments and encodes answers with. `FromNativeValue` covers `Value`, `ValueMap`, `String`, `bool`, every integer width, `f64`, `Option<T>` and `Vec<T>`; `IntoNativeValue` covers the same plus `Result<T, ServiceError>`.
+`native_arg`, `FromNativeValue` and `IntoNativeValue` are what the generated dispatcher decodes arguments and encodes answers with. `FromNativeValue` covers `Value`, `ValueMap`, `String`, `bool`, every integer width, `f64`, `Option<T>` and `Vec<T>`; `IntoNativeValue` covers the same plus `()` and `Result<T, ServiceError>`. `#[derive(Record)]` from `snapfire_fsr_macros` implements both for a struct.
 
 ### `Natives`
 

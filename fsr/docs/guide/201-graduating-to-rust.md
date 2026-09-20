@@ -79,6 +79,39 @@ Three things follow from it being your Rust rather than a service. Only what the
 
 Reach for a service instead when the thing genuinely is one, something over a wire that a document already describes or when you want the cache and the interceptors that come with a call crossing a boundary.
 
+## A service written in Rust
+
+A service with no document behind it is still declared once. Mark the `impl` block `#[service]` instead of `#[native]` and the attribute writes the transport and the contract off the same signatures:
+
+```rust
+#[derive(Record)]
+pub struct Server {
+  pub name: String,
+  pub load: f64,
+}
+
+#[service]
+impl Fleet {
+  #[cache(ttl = "15s", tags = ["servers"], scope = "shared")]
+  pub fn list(&self, section: String) -> Result<Vec<Server>, ServiceError> { /* ... */ }
+
+  #[writes("servers")]
+  pub fn add(&self, name: String, load: f64) -> Result<Added, ServiceError> { /* ... */ }
+}
+```
+
+```rust
+Host::from(...).service(Arc::new(fleet))
+```
+
+```ts
+export async function load({ params, services }: Ctx<"/dash/{section}">) {
+  return { servers: await services.fleet.list({ section: params.section }) };
+}
+```
+
+The difference from a native module is the boundary. The call crosses the contract, so its arguments and its answer are checked, the interceptors run, a `#[cache]` policy is honoured and a `Result<T, ServiceError>` reaches the body as the failure it names. `fsr build` reads the block the way it reads a native one and writes the contract to `generated/contracts/rust.json`, which is what types `services.fleet` in TypeScript; the host merges the contract the attribute wrote over that file and refuses a disagreement at boot, so a build that fell behind the Rust is a boot failure rather than a call that fails later.
+
 ## The lab
 
 In the storefront's `main.rs`, add `.source("cart", |_ctx| async { Ok(Data::new()) })` before `.build()` and run it. Boot refuses: `cart` is claimed by the plan file and by Rust. Change it to `.source_override` and boot again: the report's `cart` row now reads `rust override`; the cart page renders an empty cart whatever the session holds, since your function answers the name. Then rename it to `.source_override("carts", ...)`: refused again, since the plan file lowers no such source. Remove the line.

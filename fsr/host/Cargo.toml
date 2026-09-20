@@ -65,6 +65,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["handshake"], optional = true }
 
 [dev-dependencies]
+snapfire_fsr_macros.workspace = true
 proptest = "1"
 axum = "0.8"
 futures = "0.3"

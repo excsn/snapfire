@@ -217,7 +217,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 ### HostBuilder
 
 * `services_over(self, transport: Arc<dyn Transport>) -> Self`: every client's calls go to this transport; the contract still comes from the documents.
-* `services(self, services: Arc<Services>) -> Self`: a registry built elsewhere, in place of the clients.
+* `services(self, services: Arc<Services>) -> Self`: a registry built elsewhere, in place of the clients and of any `service`.
+* `service<T>(self, service: Arc<T>) -> Self where T: Transport + DeclaredService + 'static`: a `#[service]` block, served in process under `T::NAME` through the same registry, interceptors and data cache a client goes through. `T::contract()` is merged with the contracts directory's through `Contract::adopt`, so a build that read the block writes the same contract and one that disagrees fails `build` with `HostError::Service`. `services_over` replaces the clients' transports and leaves this one in place. The report lists it as a `services` row of kind `rust` with the Rust type's path.
 * `session_store(self, store: Arc<dyn SessionStore>) -> Self`.
 * `http2(self, on: bool) -> Self`: negotiates HTTP/2 as well as HTTP/1.1 on a served connection, over `server.http2`.
 * `sockets(self, sockets: Arc<socket::Sockets>) -> Self`, the `ws` feature: the registry to serve from, for an application that must hold it before the host exists, such as one whose own transport pushes into it. Without this the host makes its own.
@@ -340,7 +341,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 ### SiteReport
 
 * `pub struct SiteReport { pub name: String, pub at: String, pub artifact: PathBuf, pub version: String, pub hash: String, pub ignored: Vec<String> }`: one mounted site; `ignored` lists the site's configuration the shell did not take, `static <route>` for a root outside the prefix or one the shell serves and `session`, `auth`, `locales`, `cache` when the site set them.
-* `Display` prints the app's report, then `services` rows as `<http, grpc or mock> <base url or responses file>`, `static` rows, `config` sources and `inferred` lines.
+* `Display` prints the app's report, then `services` rows as `<http, grpc, mock or rust> <base url, responses file or Rust type>`, `static` rows, `config` sources and `inferred` lines.
 * `prerender: Option<PathBuf>`: the prerender directory when one is configured; `Display` lists each prerenderable pattern with it (`not configured` when there is none), `for anonymous visitors` on the anonymous class and `per paths` on a pattern `Report::paths` names.
 * `rendered: usize`: how many memo entries the prerender directory's renders file answered at boot; `Display` lists each of `app.renderable`'s subtrees under `render`, the pattern and the module, the first row carrying that count or `not rendered`.
 * `warmed: usize`: how many keys the prerender directory's loads file answered at boot; `Display` lists each of `app.warmable`'s sources under `warm`, the first row carrying that count or `not warmed` when it is zero.
@@ -447,6 +448,7 @@ With no collector installed each is a relaxed atomic load and a branch.
 * `Bind(BindError)`, transparent.
 * `Import { document: String, error: ImportError }`
 * `Transport(String, String)`, the client name and why its transport could not be built.
+* `Service(String, String)`, the name of a `service` whose contract disagrees with the contracts directory and the duplicate the merge refused.
 * `Contract(PathBuf, String)`, a contract file that did not parse or defines a type or service an earlier file already defined.
 * `NotFound(String)`
 * `NoSlot(String)`: a `Fragment` named a slot the route does not have; `handle` answers it 404 with `no slot named \`<name>\` on this route`.

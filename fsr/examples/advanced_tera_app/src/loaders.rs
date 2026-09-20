@@ -6,7 +6,9 @@ use snapfire_fsr_core::{Data, TypedArray, Value, ValueMap};
 use snapfire_fsr_host::HostBuilder;
 use snapfire_fsr_runtime::{LoadError, Meta, Metadata, RequestCtx};
 
-use crate::services::fleet;
+use snapfire_fsr_service::DeclaredService;
+
+use crate::state::Fleet;
 use crate::state::Renders;
 
 fn series(points: Vec<f64>) -> Value {
@@ -18,7 +20,7 @@ fn series(points: Vec<f64>) -> Value {
 async fn fetch_servers(ctx: &RequestCtx) -> Result<Value, snapfire_fsr_runtime::ServiceError> {
   let mut args = ValueMap::default();
   args.insert("section".to_owned(), Value::str(ctx.params.get("section").cloned().unwrap_or_default()));
-  ctx.services.call(fleet::NAME, fleet::LIST, args).await
+  ctx.services.call(Fleet::NAME, "list", args).await
 }
 
 /// The document's title for a section route: the section and the fleet's
@@ -32,7 +34,7 @@ impl Metadata for SectionTitle {
     let services = ctx.services.clone();
     Box::pin(async move {
       let Some(section) = section else { return Ok(Meta::default()) };
-      let count = match services.call(fleet::NAME, fleet::COUNT, ValueMap::default()).await {
+      let count = match services.call(Fleet::NAME, "count", ValueMap::default()).await {
         Ok(Value::Int(count)) => count,
         _ => 0,
       };

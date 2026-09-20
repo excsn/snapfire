@@ -10,6 +10,7 @@ pub mod proto;
 #[cfg(feature = "grpc")]
 pub mod grpc;
 pub mod registry;
+pub mod rust;
 pub mod transport;
 pub mod typescript;
 
@@ -27,4 +28,5 @@ pub use interceptor::{
   CredentialInterceptor, IdentityInterceptor, Interceptor, Next, TraceInterceptor,
 };
 pub use registry::{Services, ServicesBuilder};
+pub use rust::{ContractType, DeclaredService};
 pub use transport::{LocalTransport, MockTransport, Transport};

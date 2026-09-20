@@ -865,7 +865,7 @@ fn a_loader_reads_the_navigations_own_request_as_the_address() {
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
   assert!(file("generated/plan.sexp").contains("(address)"), "{}", file("generated/plan.sexp"));
   let ctx = file("generated/fsr.ts");
-  assert!(ctx.contains("export interface Address {") && ctx.contains("  address: Address | null;"), "{ctx}");
+  assert_eq!((ctx.matches("export interface Address {").count(), ctx.matches("  address: Address | null;").count()), (1, 1), "{ctx}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -995,3 +995,52 @@ fn a_static_page_on_the_dialect_needs_no_template_line() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
+
+#[test]
+fn a_service_impl_beside_the_app_is_a_contract_the_build_writes_and_types() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(dir.join("routes/index")).unwrap();
+  std::fs::rename(project.join("importmap.json"), dir.join("importmap.json")).unwrap();
+  std::fs::rename(project.join("vendor"), dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("routes/layout.tsx"), LAYOUT).unwrap();
+  std::fs::write(dir.join("routes/index/page.tsx"), "export default function Page() {\n  return <p>hi</p>;\n}\n").unwrap();
+  std::fs::write(dir.join("routes/index/page.loader.ts"), "import type { Ctx } from \"@generated/client\";\nexport async function load({ services }: Ctx) {\n  return { servers: await services.fleet.list({ section: \"web\" }) };\n}\n").unwrap();
+  std::fs::create_dir_all(project.join("src")).unwrap();
+  std::fs::write(
+    project.join("src/services.rs"),
+    "use snapfire_fsr_macros::{service, Record};\n\n#[derive(Record)]\npub struct Server {\n  pub name: String,\n  pub load_avg: f64,\n  secret: u8,\n}\n\n#[derive(Clone)]\npub struct Fleet;\n\n#[service]\nimpl Fleet {\n  #[cache(ttl = \"15s\", tags = [\"servers\"], scope = \"shared\")]\n  pub async fn list(&self, section: String) -> Result<Vec<Server>, ServiceError> {\n    todo!()\n  }\n\n  #[writes(\"servers\")]\n  pub fn add_server(&self, server: Server, note: Option<String>) -> u32 {\n    todo!()\n  }\n\n  fn tally(&self) -> u32 {\n    0\n  }\n}\n",
+  )
+  .unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
+  assert_eq!(built.report.services, vec![("fleet".to_owned(), "src/services.rs".to_owned())]);
+  assert!(built.report.to_string().contains("services  fleet                  rust        src/services.rs"), "{}", built.report);
+  let contract = file("generated/contracts/rust.json");
+  for expected in ["\"fleet\"", "\"list\"", "\"addServer\"", "\"loadAvg\"", "\"ttl\": \"15s\"", "\"scope\": \"shared\"", "\"writes\": ["] {
+    assert!(contract.contains(expected), "missing {expected} in {contract}");
+  }
+  assert!(!contract.contains("secret") && !contract.contains("tally"), "only pub crosses: {contract}");
+  let declarations = file("generated/services.d.ts");
+  for expected in ["export interface Server {\n  name: string;\n  loadAvg: number;\n}", "  fleet: {", "    list(args: { section: string; }): Promise<Server[]>;", "    addServer(args: { server: Server; note?: string | null; }): Promise<bigint>;"] {
+    assert!(declarations.contains(expected), "missing {expected} in {declarations}");
+  }
+  std::fs::remove_dir_all(&project).unwrap();
+}
+
+#[test]
+fn a_service_method_naming_a_type_outside_the_value_model_fails_the_build() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(dir.join("routes/index")).unwrap();
+  std::fs::rename(project.join("importmap.json"), dir.join("importmap.json")).unwrap();
+  std::fs::rename(project.join("vendor"), dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("routes/layout.tsx"), LAYOUT).unwrap();
+  std::fs::write(dir.join("routes/index/page.tsx"), "export default function Page() {\n  return <p>hi</p>;\n}\n").unwrap();
+  std::fs::create_dir_all(project.join("src")).unwrap();
+  std::fs::write(project.join("src/fleet.rs"), "#[service]\nimpl Fleet {\n  pub fn since(&self, at: std::time::Instant) -> u32 {\n    0\n  }\n}\n").unwrap();
+  let Err(err) = build(&dir, &Options::default()) else { panic!("an Instant is outside the value model") };
+  let err = err.to_string();
+  assert!(err.contains("service `fleet`: names `Instant`, which is not a struct under `src/`"), "{err}");
+  std::fs::remove_dir_all(&project).unwrap();
+}

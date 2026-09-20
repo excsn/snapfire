@@ -1,24 +1,24 @@
 mod common;
 
-use advanced_tera_app::services::{self, fleet};
 use advanced_tera_app::state::Fleet;
 use common::{app, render};
 use futures::executor::block_on;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::FailureKind;
+use snapfire_fsr_service::DeclaredService;
 
 #[test]
 fn the_applications_contract_is_internally_valid() {
-  services::contract().validate().unwrap();
+  Fleet::contract().validate().unwrap();
 }
 
 #[test]
 fn a_loader_reaches_the_backend_through_the_bound_handle() {
-  let handle = services::build(Fleet::seed()).bind_anonymous();
+  let handle = app().services().bind_anonymous();
 
   let mut args = ValueMap::default();
   args.insert("section".to_owned(), Value::str("servers"));
-  let Value::Seq(servers) = block_on(handle.call(fleet::NAME, fleet::LIST, args)).unwrap() else {
+  let Value::Seq(servers) = block_on(handle.call(Fleet::NAME, "list", args)).unwrap() else {
     panic!("list returns a sequence")
   };
   assert_eq!(servers.len(), 2);
@@ -26,15 +26,21 @@ fn a_loader_reaches_the_backend_through_the_bound_handle() {
 
 #[test]
 fn a_call_outside_the_contract_never_reaches_the_backend() {
-  let handle = services::build(Fleet::seed()).bind_anonymous();
+  let handle = app().services().bind_anonymous();
 
-  let err = block_on(handle.call(fleet::NAME, "purge", ValueMap::default())).unwrap_err();
+  let err = block_on(handle.call(Fleet::NAME, "purge", ValueMap::default())).unwrap_err();
   assert_eq!(err.kind, FailureKind::NotFound);
 
   let mut wrong = ValueMap::default();
   wrong.insert("section".to_owned(), Value::Int(1));
-  let err = block_on(handle.call(fleet::NAME, fleet::LIST, wrong)).unwrap_err();
+  let err = block_on(handle.call(Fleet::NAME, "list", wrong)).unwrap_err();
   assert_eq!(err.kind, FailureKind::Invalid);
+}
+
+#[test]
+fn the_report_lists_the_service_as_rust() {
+  let report = app().report().to_string();
+  assert!(report.contains("services  fleet                  rust        advanced_tera_app::state::Fleet"), "{report}");
 }
 
 #[test]

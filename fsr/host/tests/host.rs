@@ -4426,3 +4426,59 @@ async fn a_plan_naming_a_template_is_refused_without_the_feature() {
   let err = Host::from(dir.join("app.toml")).unwrap().build().err().expect("refused");
   assert!(matches!(err, snapfire_fsr_host::HostError::Uncovered(ref m) if m == "routes/board/page.tera#default"), "{err}");
 }
+
+mod rust_service {
+  use std::sync::Arc;
+
+  use snapfire_fsr_host::{Host, HostError};
+  use snapfire_fsr_macros::service;
+
+  #[derive(Clone)]
+  pub struct Shop;
+
+  #[service]
+  impl Shop {
+    pub fn list(&self) -> Vec<String> {
+      vec!["a".to_owned(), "b".to_owned()]
+    }
+  }
+
+  #[derive(Clone)]
+  pub struct WrongShop;
+
+  #[service]
+  impl WrongShop {
+    pub fn list(&self) -> Vec<u32> {
+      vec![1]
+    }
+  }
+
+  #[test]
+  fn a_rust_service_agreeing_with_the_contracts_directory_serves_under_its_name() {
+    let dir = super::app_dir();
+    let host = Host::from(dir.join("app.toml")).unwrap().service(Arc::new(Shop)).build().unwrap();
+    let report = host.report().to_string();
+    assert!(report.contains("services  shop                   rust        host::rust_service::Shop"), "{report}");
+    let handle = host.services().bind_anonymous();
+    let answered = futures::executor::block_on(handle.call("shop", "list", Default::default())).unwrap();
+    assert_eq!(answered, snapfire_fsr_core::Value::seq(vec![snapfire_fsr_core::Value::str("a"), snapfire_fsr_core::Value::str("b")]));
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+
+  #[test]
+  fn a_rust_service_disagreeing_with_the_contracts_directory_refuses_to_boot() {
+    let dir = super::app_dir();
+    std::fs::write(
+      dir.join("generated/contracts/wrong_shop.json"),
+      r#"{ "services": { "wrong_shop": { "methods": { "list": { "params": [], "returns": { "list": "str" } } } } } }"#,
+    )
+    .unwrap();
+    let err = match Host::from(dir.join("app.toml")).unwrap().service(Arc::new(WrongShop)).build() {
+      Ok(_) => panic!("a differing contract boots"),
+      Err(e) => e,
+    };
+    assert!(matches!(&err, HostError::Service(name, _) if name == "wrong_shop"), "{err}");
+    assert!(err.to_string().contains("service `wrong_shop`: service `wrong_shop` is already defined and `host::rust_service::WrongShop` defines it again; the contracts directory and the Rust disagree, so run fsr build"), "{err}");
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+}

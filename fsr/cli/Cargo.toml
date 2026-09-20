@@ -27,6 +27,7 @@ tera = ["snapfire_fsr_host/tera"]
 clap = { version = "4", features = ["derive"] }
 fibre = "0.6"
 syn = { version = "2", features = ["full"] }
+quote = "1"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 flate2 = "1.1.10"

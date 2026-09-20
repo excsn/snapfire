@@ -255,7 +255,13 @@ impl fmt::Display for Report {
     }
     for (i, (service, document)) in self.services.iter().enumerate() {
       let label = if i == 0 { "services" } else { "" };
-      let kind = if document.ends_with(".proto") { "grpc" } else { "http" };
+      let kind = if document.ends_with(".proto") {
+        "grpc"
+      } else if document.ends_with(".rs") {
+        "rust"
+      } else {
+        "http"
+      };
       writeln!(f, "{label:<9} {service:<22} {kind:<11} {document}")?;
     }
     section(f, "schemas", &self.schemas, "")?;
@@ -281,6 +287,8 @@ fn section(f: &mut fmt::Formatter<'_>, label: &str, rows: &[(String, String)], o
 
 /// Where the build writes one contract file per client document plus `schemas.json`; the host merges the directory.
 pub const CONTRACTS_DIR: &str = "generated/contracts";
+/// The file under `CONTRACTS_DIR` holding every `#[service]` block's contract.
+pub const RUST_CONTRACT: &str = "rust.json";
 /// Where the build writes the plan file.
 pub const PLAN_FILE: &str = "generated/plan.sexp";
 
@@ -485,6 +493,23 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
     contract.merge(imported.contract.clone(), &format!("clients/{file}"))?;
     contracts.push((format!("{CONTRACTS_DIR}/{name}.json"), imported.contract));
+  }
+
+  // The application's own Rust sits beside `app/`, so the crate's `src/` is
+  // the sibling. Read rather than compiled, which is what lets `build.rs` run
+  // this before the crate exists.
+  let natives = match app.parent() {
+    Some(project) => native::read(&project.join("src"))?,
+    None => native::Natives::default(),
+  };
+  let mut rust = Contract::new();
+  for service in &natives.services {
+    report.services.push((service.name.clone(), service.file.clone()));
+    contract.adopt(service.contract.clone(), &service.file)?;
+    rust.adopt(service.contract.clone(), &service.file)?;
+  }
+  if !rust.services.is_empty() {
+    contracts.push((format!("{CONTRACTS_DIR}/{RUST_CONTRACT}"), rust));
   }
 
   let mut schemas = Contract::new();
@@ -977,13 +1002,6 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
     }
   }
-  // The application's own Rust sits beside `app/`, so the crate's `src/` is
-  // the sibling. Read rather than compiled, which is what lets `build.rs` run
-  // this before the crate exists.
-  let natives = match app.parent() {
-    Some(project) => native::read(&project.join("src"))?,
-    None => native::Natives::default(),
-  };
   let registry = islands_module(&islands, &static_modules, &defines, &trees, options)?;
   check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &trees, &set)?;
   files.extend([
@@ -1219,7 +1237,7 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String,
     let _ = writeln!(out, "  {key}: {};", ts.print(Flavour::Server));
   }
   out.push_str(
-    "}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  /** The path this request matched, query excluded, locale prefix included. Empty under an action, whose path is the action endpoint rather than the document's. */\n  path: string;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  /** The host the request named, when `[server] hosts` lists it; null when it does not, null whenever that key is unset. */\n  host: string | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** `[public]` from the configuration, one field per key, typed from the value written there. */\n  config: Config;\n  services: Services;\n  /** The application's own Rust, in this process. A method the build read as `fn` answers a value; an `async fn` answers a promise. */\n  native: Natives;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
+    "}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  /** The path this request matched, query excluded, locale prefix included. Empty under an action, whose path is the action endpoint rather than the document's. */\n  path: string;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  /** The host the request named, when `[server] hosts` lists it; null when it does not, null whenever that key is unset. */\n  host: string | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** `[public]` from the configuration, one field per key, typed from the value written there. */\n  config: Config;\n  services: Services;\n  /** The application's own Rust, in this process. A method the build read as `fn` answers a value; an `async fn` answers a promise. */\n  native: Natives;\n  now: bigint;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
   out.push_str("\nexport type { HeadEl } from \"./head\";\n");
   out

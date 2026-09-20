@@ -46,8 +46,8 @@ use snapfire_fsr_runtime::{
   parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
-  Contract, CredentialInterceptor, Credentials, HttpTransport, IdentityInterceptor, MockTransport, NoCredentials,
-  Services, TraceInterceptor, Transport,
+  Contract, CredentialInterceptor, Credentials, DeclaredService, HttpTransport, IdentityInterceptor, MockTransport,
+  NoCredentials, Services, TraceInterceptor, Transport,
 };
 use snapfire_fsr_session::{MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
 use tower::ServiceExt;
@@ -198,6 +198,8 @@ pub enum HostError {
   },
   #[error("clients.{0}: {1}")]
   Transport(String, String),
+  #[error("service `{0}`: {1}")]
+  Service(String, String),
   #[error("{0}: {1}")]
   Contract(PathBuf, String),
   #[error("no route matches `{0}`")]
@@ -439,7 +441,7 @@ pub struct HostReport {
   pub http2: bool,
   /// What the listener presents, when `[server.tls]` is configured.
   pub tls: Option<TlsReport>,
-  /// Service, `http`, `grpc` or `mock`, base URL or responses file.
+  /// Service, `http`, `grpc`, `mock` or `rust`, base URL, responses file or Rust type.
   pub services: Vec<(String, String, String)>,
   /// The client the sessions live behind, when the store is `service`.
   pub session: Option<String>,
@@ -977,6 +979,15 @@ impl Incoming {
   }
 }
 
+/// A `#[service]` block the builder was given: its contract, merged with
+/// what the contracts directory holds, plus the transport that answers it.
+struct RustService {
+  name: String,
+  rust_type: String,
+  contract: Contract,
+  transport: Arc<dyn Transport>,
+}
+
 pub struct HostBuilder {
   /// The trace collector, when one was installed. Served under development.
   traces: Option<trace::Traces>,
@@ -985,6 +996,7 @@ pub struct HostBuilder {
   contract: Option<Contract>,
   app: Option<AppBuilder>,
   services: Option<Arc<Services>>,
+  rust_services: Vec<RustService>,
   transport_override: Option<Arc<dyn Transport>>,
   store: Option<Arc<dyn SessionStore>>,
   shell: Option<Arc<dyn Evaluator>>,
@@ -1097,6 +1109,7 @@ impl Host {
       traces: None,
       app: Some(app),
       services: None,
+      rust_services: Vec::new(),
       transport_override: None,
       store: None,
       shell: None,
@@ -3746,6 +3759,24 @@ impl HostBuilder {
     self
   }
 
+  /// A service written in Rust, a `#[service]` block, served in process
+  /// under its own name through the same registry, interceptors and cache a
+  /// client goes through. Its contract joins the contracts directory's; a
+  /// `fsr build` that read the block writes the same contract there and one
+  /// that disagrees refuses to boot. `services_over` leaves it in place.
+  pub fn service<T>(mut self, service: Arc<T>) -> Self
+  where
+    T: Transport + DeclaredService + 'static,
+  {
+    self.rust_services.push(RustService {
+      name: T::NAME.to_owned(),
+      rust_type: std::any::type_name::<T>().to_owned(),
+      contract: T::contract(),
+      transport: service,
+    });
+    self
+  }
+
   pub fn session_store(mut self, store: Arc<dyn SessionStore>) -> Self {
     self.store = Some(store);
     self
@@ -4138,6 +4169,14 @@ impl HostBuilder {
         &mut bearer_rows,
       )?;
     }
+    let mut rust_transports: Vec<(String, Arc<dyn Transport>)> = Vec::new();
+    for rust in std::mem::take(&mut self.rust_services) {
+      contract.adopt(rust.contract, &rust.rust_type).map_err(|e| {
+        HostError::Service(rust.name.clone(), format!("{e}; the contracts directory and the Rust disagree, so run fsr build"))
+      })?;
+      service_rows.push((rust.name.clone(), "rust".to_owned(), rust.rust_type));
+      rust_transports.push((rust.name, rust.transport));
+    }
 
     let manifest =
       Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
@@ -4316,6 +4355,9 @@ impl HostBuilder {
               builder = builder.transport(name, transport);
             }
           }
+        }
+        for (name, transport) in rust_transports {
+          builder = builder.transport(name, transport);
         }
         builder
           .try_build()

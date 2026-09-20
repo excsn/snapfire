@@ -209,6 +209,12 @@ impl IntoNativeValue for ValueMap {
   }
 }
 
+impl IntoNativeValue for () {
+  fn into_native_value(self) -> Value {
+    Value::Null
+  }
+}
+
 impl IntoNativeValue for String {
   fn into_native_value(self) -> Value {
     Value::str(self)
