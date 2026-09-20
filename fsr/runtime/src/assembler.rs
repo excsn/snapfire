@@ -215,6 +215,9 @@ pub struct Resolved {
   pub slot: SlotId,
   pub key: String,
   pub node: Node,
+  /// The child segments of the resolved subtree, positioned in `node`, which
+  /// the eager sidecar could not name.
+  pub segments: Vec<SegmentInfo>,
   /// Nested deferral: a resolution may introduce new pending slots.
   pub pending: Vec<PendingResolution>,
   /// What the resolved subtree says about the document, when a segment in
@@ -529,10 +532,11 @@ impl Session {
       key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child).await {
-          Ok((node, pending, _segments, meta, store, _digest, _failed)) => Resolved {
+          Ok((node, pending, segments, meta, store, _digest, _failed)) => Resolved {
             slot,
             key: resolved_key,
             node,
+            segments,
             pending,
             meta,
             store,
@@ -541,6 +545,7 @@ impl Session {
             slot,
             key: resolved_key,
             node: error_node(&e.to_string()),
+            segments: Vec::new(),
             pending: Vec::new(),
             meta: Meta::default(),
             store: Data::default(),

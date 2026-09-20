@@ -69,7 +69,7 @@ function replaceRegion(region: Region, html: string): boolean {
   return true;
 }
 
-/** Fills a streamed slot with its content, delimited as the region its segment key names, so a later navigation can diff it. */
+/** Fills a streamed slot with its content, delimited as the region its segment key names and its child segments delimited inside it, so a later navigation can diff it. */
 function fillSlot(slot: number, node: SfNode, seg: Segment | null): void {
   const el = document.querySelector(`[data-sf-slot="${slot}"]`);
   if (!el) return;
@@ -79,8 +79,7 @@ function fillSlot(slot: number, node: SfNode, seg: Segment | null): void {
     return;
   }
   const template = document.createElement("template");
-  const html = nodeToHtml(node, ids);
-  writeMarkup(template, seg === null ? html : `<!--sf-g:${escapeKey(seg.k)}-->${html}<!--/sf-g-->`);
+  writeMarkup(template, seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
   discard(el);
   el.replaceWith(template.content);
 }
@@ -390,6 +389,8 @@ let openSlot: string | null = null;
 let currentPath = "";
 /** The path the document is rooted at, which an intercept does not change: opening a drawer over the agent list puts `/settings` in the address bar while the page underneath is still `/agents`. */
 let documentPath = "";
+/** True while `current` is the sidecar the document shipped, which the fill script rewrites as streamed segments land; false once a payload has replaced it. */
+let documentSidecar = false;
 
 /** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
@@ -465,6 +466,7 @@ function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   });
   if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
   current = eager.segments;
+  documentSidecar = false;
   openSlot = interceptSlot(eager.segments);
   for (const head of eager.heads) applyHead(head);
   if (eager.locale !== null) {
@@ -487,7 +489,9 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
       if (gen !== generation) return;
       const row = parseRow(line);
       if (row.tag === "S") {
-        fillSlot(row.slot, row.node, segmentOfSlot(segments, row.slot));
+        const seg = segmentOfSlot(segments, row.slot);
+        if (seg) seg.c = row.segments;
+        fillSlot(row.slot, row.node, seg);
         await treeSettled();
         scan(document);
         watchLinks(document);
@@ -895,6 +899,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   wired = document;
   const sidecar = document.querySelector("script[data-sf-segments]");
   current = sidecar?.textContent ? JSON.parse(sidecar.textContent) : null;
+  documentSidecar = current !== null;
   openSlot = null;
   currentPath = `${window.location.pathname}${window.location.search}`;
   documentPath = currentPath;
@@ -922,6 +927,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   document.addEventListener("touchstart", warm, { passive: true });
   watchLinks(document);
   document.addEventListener("sf:fill", () => {
+    if (documentSidecar && sidecar?.textContent) current = JSON.parse(sidecar.textContent);
     watchLinks(document);
     markLinks();
   });

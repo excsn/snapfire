@@ -185,7 +185,7 @@ The first item is the header block and the second is the resolution:
 V {"fmt":1,"enc":"json"}
 N ["q",[["r","<shell>"],["p",1,["r","<skl></skl>"]],["r","</shell>"]]]
 G {"k":"shell.tera#default","p":[],"c":[{"k":"chart.tera#default","s":1,"c":[]}]}
-S 1 ["r","<chart><late>ready</late>"]
+S 1 {"n":["r","<chart><late>ready</late>"]}
 ```
 
 ## Building a Runtime
@@ -475,7 +475,7 @@ Every later chunk has the same shape, an inert template plus the call that moves
 <template data-sf-fill="{slot}">{subtree}</template><script>__sfFill({slot})</script>
 ```
 
-`FILL_SCRIPT` is the definition of `__sfFill`, emitted once in the first chunk when `assembly.pending` is non-empty. It replaces the `data-sf-slot` element with the template's content and dispatches a `sf:fill` event carrying the slot number, which is how the boot runtime learns to rescan the inserted subtree for islands.
+The subtree carries its own delimiters and those of every segment inside it; when there are segments inside, the call is `__sfFill({slot}, [...])` with their sidecar. `FILL_SCRIPT` is the definition of `__sfFill`, emitted once in the first chunk when `assembly.pending` is non-empty. It replaces the `data-sf-slot` element with the template's content, writes the segments it was handed into the document's sidecar and dispatches a `sf:fill` event carrying the slot number, which is how the boot runtime learns to rescan the inserted subtree for islands and the navigator learns to re-read the sidecar.
 
 Island ids stay unique across the whole response because one `HtmlSession` spans every chunk: the initial tree takes `sf-i0` upward and a late slot continues the sequence rather than restarting it.
 
@@ -497,7 +497,7 @@ The first item is the eager wave in one string:
 * `H {"title":..,"description":..}`, when the document has either, only the fields it has.
 * `G <segment json>`, the segment sidecar, last: a navigator applies the tree, fallbacks in place, the moment it reads this row.
 
-Then one `S <slot> <row json>` row per resolution, in completion order rather than plan order, each followed by an `H` row when the resolved segment described the document. The sidecar encoding is compact: `k` is the segment key, `d` is the segment's digest as 16 hex digits and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
+Then one `S <slot> {"n": <row json>, "g": [...]}` row per resolution, in completion order rather than plan order, `g` present when the resolved subtree has segments of its own, each followed by an `H` row when the resolved segment described the document. The sidecar encoding is compact: `k` is the segment key, `d` is the segment's digest as 16 hex digits and `c` holds the children. The position is either `p` (the path) or `s` (the slot id, when the segment is deferred).
 
 ```rust
 use snapfire_fsr_runtime::segments_to_json;

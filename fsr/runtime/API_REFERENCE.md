@@ -324,10 +324,9 @@ A deferred slot's eventual content.
 * `pub slot: SlotId`
 * `pub key: String`
 * `pub node: Node`
+* `pub segments: Vec<SegmentInfo>`: the child segments of the resolved subtree, positioned in `node`. The deferred subtree's own identity is the slot-addressed `SegmentInfo` already in the first response; these are the segments under it, which that sidecar could not name.
 * `pub pending: Vec<PendingResolution>`: nested deferral, new slots the resolution itself introduced.
 * `pub meta: Meta`: what the resolved subtree said about the document; empty when no segment in it has metadata.
-
-Segment information produced inside a resolution is discarded; a deferred subtree's identity is the slot-addressed `SegmentInfo` already in the first response.
 
 ### `Meta`
 
@@ -609,7 +608,7 @@ The wire encoding of a streamed response. The first item is the eager wave, newl
 * `D <catalog json>`, the head's catalog, when the head holds one.
 * `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json), always and always last: it closes the eager wave, so a navigator applies the tree the moment it reads it.
 
-Then one item per resolution, `S <slot id> <node row json>\n` followed by an `H` row when `Resolved::meta` is not empty and a `T` row when `Resolved::store` is not, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+Then one item per resolution, `S <slot id> {"n": <node row json>, "g": [<segment json>...]}\n`, `g` present when the resolved subtree has child segments of its own, followed by an `H` row when `Resolved::meta` is not empty and a `T` row when `Resolved::store` is not, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
 
 ### `meta_to_json`
 
@@ -633,7 +632,7 @@ Then one item per resolution:
 <template data-sf-fill="{slot}">{subtree}</template><script>__sfFill({slot})</script>
 ```
 
-When the resolution carries metadata the script also calls `__sfHead({meta json})`, with `<` escaped as `\u003c`, so a streamed page retitles the document once it arrives.
+The subtree is wrapped in the segment's own delimiters with every child segment delimited inside it. When there are child segments the call is `__sfFill({slot}, [<segment json>...])`, so the fill script can write them into the document's sidecar. When the resolution carries metadata the script also calls `__sfHead({meta json})`, with `<` escaped as `\u003c`, so a streamed page retitles the document once it arrives.
 
 * Segment keys are escaped for the comment delimiter: `%` becomes `%25` and `-` becomes `%2D`, so a key can never contain `--`.
 * `<` in the sidecar JSON is escaped to `\u003c`, so it cannot terminate its own script tag.
@@ -666,7 +665,7 @@ What `segments_to_json` wrote, read back, for a memo entry a build stored beside
 
 ### `FILL_SCRIPT`
 
-`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n)` and `__sfHead(h)`, installed once ahead of the first fill. `__sfHead` sets `document.title` and the description meta from the fields `h` carries, creating the meta element when the head has none. It replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree.
+`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n, g)` and `__sfHead(h)`, installed once ahead of the first fill. `__sfHead` sets `document.title` and the description meta from the fields `h` carries, creating the meta element when the head has none. It replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template, writes `g`, when given, as the children of slot `n` in the `data-sf-segments` script and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree and the navigator learns to re-read the sidecar.
 
 ## 13. Error handling
 

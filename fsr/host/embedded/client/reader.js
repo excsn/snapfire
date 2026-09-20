@@ -94,10 +94,12 @@ export function parseRow(line) {
         case "S":
             {
                 const gap = line.indexOf(" ", 2);
+                const fill = JSON.parse(line.slice(gap + 1));
                 return {
                     tag,
                     slot: Number(line.slice(2, gap)),
-                    node: decodeNode(JSON.parse(line.slice(gap + 1)))
+                    node: decodeNode(fill.n),
+                    segments: fill.g ?? []
                 };
             }
         default:

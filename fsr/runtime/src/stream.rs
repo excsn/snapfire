@@ -11,7 +11,7 @@ use crate::segments::SegmentInfo;
 
 /// Installed once, ahead of the first fill. Moves a resolved template's content
 /// into its slot and wakes the boot runtime to rescan.
-pub const FILL_SCRIPT: &str = "<script>function __sfFill(n){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{g.__sfSeed=Object.assign(g.__sfSeed||{},o)}}</script>";
+pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{g.__sfSeed=Object.assign(g.__sfSeed||{},o)}}</script>";
 
 /// The `T` row's body: the store keys a route seeded, as a value map.
 pub fn seed_to_json(seed: &snapfire_fsr_core::Data) -> Json {
@@ -27,6 +27,17 @@ pub fn meta_to_json(meta: &Meta) -> Json {
   }
   if let Some(description) = &meta.description {
     obj.insert("description".to_owned(), json!(description));
+  }
+  Json::Object(obj)
+}
+
+/// The `S` row's body: the resolved node under `n` and, when the subtree has
+/// child segments, their sidecar under `g`.
+fn fill_to_row_json(node: &Node, segments: &[SegmentInfo]) -> Json {
+  let mut obj = serde_json::Map::new();
+  obj.insert("n".to_owned(), node_to_row_json(node));
+  if !segments.is_empty() {
+    obj.insert("g".to_owned(), Json::Array(segments.iter().map(segments_to_json).collect()));
   }
   Json::Object(obj)
 }
@@ -157,7 +168,7 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     for p in resolved.pending {
       state.set.push(p.future);
     }
-    let mut row = format!("S {} {}\n", resolved.slot.0, node_to_row_json(&resolved.node));
+    let mut row = format!("S {} {}\n", resolved.slot.0, fill_to_row_json(&resolved.node, &resolved.segments));
     if !resolved.meta.is_empty() {
       row.push_str(&format!("H {}\n", meta_to_json(&resolved.meta)));
     }
@@ -259,11 +270,23 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
       state.pending.set.push(p.future);
     }
     let slot = resolved.slot.0;
-    let body = state.session.serialize(&resolved.node);
-    let mut chunk = format!(
-      "<template data-sf-fill=\"{slot}\"><!--sf-g:{}-->{body}<!--/sf-g--></template><script>__sfFill({slot})",
-      escape_key(&resolved.key)
-    );
+    let info = SegmentInfo {
+      key: resolved.key,
+      digest: 0,
+      name: String::new(),
+      path: Vec::new(),
+      slot: None,
+      children: resolved.segments,
+      keep: Vec::new(),
+    };
+    let mut body = String::new();
+    write_segment(&mut state.session, &resolved.node, &info, &mut body);
+    let nested = if info.children.is_empty() {
+      String::new()
+    } else {
+      format!(",{}", Json::Array(info.children.iter().map(segments_to_json).collect()).to_string().replace('<', "\\u003c"))
+    };
+    let mut chunk = format!("<template data-sf-fill=\"{slot}\">{body}</template><script>__sfFill({slot}{nested})");
     if !resolved.meta.is_empty() {
       chunk.push_str(&format!(
         ";__sfHead({})",

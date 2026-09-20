@@ -277,3 +277,36 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
   );
   assert!(!chunks[1].contains("sf-i0\""), "no id collision across chunks");
 }
+
+#[test]
+fn a_deferred_resolution_carries_the_segments_inside_it() {
+  let mut outer = deferred_child(1, "outer.tera", None);
+  outer.children.push((SlotName("inner".into()), PlanNode::new(NodeId(2), ModuleId::new("inner.tera", "default"))));
+  let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
+  plan.children.push((SlotName("outer".into()), outer));
+  let runtime = runtime_with(
+    vec![
+      ("shell.tera", Arc::new(Shell("outer"))),
+      ("outer.tera", Arc::new(Shell("inner"))),
+      ("inner.tera", Arc::new(Leafy("<deep>"))),
+      ("loading.tera", Arc::new(Skeleton)),
+    ],
+    DataSources::new(),
+  );
+
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let rows = collect(wire_stream(assembly));
+  assert_eq!(rows.len(), 2, "{rows:?}");
+  assert!(rows[1].starts_with("S 1 {"), "{}", rows[1]);
+  assert!(rows[1].contains("\"g\":[{") && rows[1].contains("\"n\":\"inner\"") && rows[1].contains("\"p\":["), "the fill names the segment inside it with its path: {}", rows[1]);
+  assert!(rows[1].contains("<deep>"), "{}", rows[1]);
+
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let chunks = collect(html_stream(assembly));
+  assert_eq!(chunks.len(), 2, "{chunks:?}");
+  let fill = &chunks[1];
+  let outer_open = fill.find("<!--sf-g:outer.tera").expect(fill);
+  let inner_open = fill.find("<!--sf-g:inner.tera").expect(fill);
+  assert!(outer_open < inner_open && fill.ends_with("</script>"), "the inner segment is delimited inside the outer: {fill}");
+  assert!(fill.contains("__sfFill(1,[{") && fill.contains("\"n\":\"inner\""), "the fill script is handed the sidecar: {fill}");
+}

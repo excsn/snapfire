@@ -65,7 +65,7 @@ export type Row =
   | { tag: "E"; entry: string }
   | { tag: "C"; styles: string[] }
   | { tag: "D"; catalog: { [key: string]: string } }
-  | { tag: "S"; slot: number; node: SfNode };
+  | { tag: "S"; slot: number; node: SfNode; segments: Segment[] };
 
 export function decodeNode(row: unknown): SfNode {
   const arr = row as unknown[];
@@ -120,7 +120,8 @@ export function parseRow(line: string): Row {
       return { tag, catalog: JSON.parse(line.slice(2)) as { [key: string]: string } };
     case "S": {
       const gap = line.indexOf(" ", 2);
-      return { tag, slot: Number(line.slice(2, gap)), node: decodeNode(JSON.parse(line.slice(gap + 1))) };
+      const fill = JSON.parse(line.slice(gap + 1)) as { n: unknown; g?: Segment[] };
+      return { tag, slot: Number(line.slice(2, gap)), node: decodeNode(fill.n), segments: fill.g ?? [] };
     }
     default:
       throw new Error(`unknown payload row tag: ${tag}`);

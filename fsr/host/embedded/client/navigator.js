@@ -65,8 +65,7 @@ function fillSlot(slot, node, seg) {
         return;
     }
     const template = document.createElement("template");
-    const html = nodeToHtml(node, ids);
-    writeMarkup(template, seg === null ? html : `<!--sf-g:${escapeKey(seg.k)}-->${html}<!--/sf-g-->`);
+    writeMarkup(template, seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
     discard(el);
     el.replaceWith(template.content);
 }
@@ -360,6 +359,7 @@ function interceptSlot(seg) {
 let openSlot = null;
 let currentPath = "";
 let documentPath = "";
+let documentSidecar = false;
 export function applyHead(head) {
     if (head.title !== undefined) document.title = head.title;
     if (head.description !== undefined) {
@@ -428,6 +428,7 @@ function applyEager(eager, force, keep) {
     });
     if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
     current = eager.segments;
+    documentSidecar = false;
     openSlot = interceptSlot(eager.segments);
     for (const head of eager.heads)applyHead(head);
     if (eager.locale !== null) {
@@ -446,7 +447,9 @@ async function drain(rows, segments, gen) {
             if (gen !== generation) return;
             const row = parseRow(line);
             if (row.tag === "S") {
-                fillSlot(row.slot, row.node, segmentOfSlot(segments, row.slot));
+                const seg = segmentOfSlot(segments, row.slot);
+                if (seg) seg.c = row.segments;
+                fillSlot(row.slot, row.node, seg);
                 await treeSettled();
                 scan(document);
                 watchLinks(document);
@@ -776,6 +779,7 @@ export function enableNavigation(options = {}) {
     wired = document;
     const sidecar = document.querySelector("script[data-sf-segments]");
     current = sidecar?.textContent ? JSON.parse(sidecar.textContent) : null;
+    documentSidecar = current !== null;
     openSlot = null;
     currentPath = `${window.location.pathname}${window.location.search}`;
     documentPath = currentPath;
@@ -805,6 +809,7 @@ export function enableNavigation(options = {}) {
     });
     watchLinks(document);
     document.addEventListener("sf:fill", ()=>{
+        if (documentSidecar && sidecar?.textContent) current = JSON.parse(sidecar.textContent);
         watchLinks(document);
         markLinks();
     });

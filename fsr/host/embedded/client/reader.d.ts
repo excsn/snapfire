@@ -103,6 +103,7 @@ export type Row = {
 	tag: "S";
 	slot: number;
 	node: SfNode;
+	segments: Segment[];
 };
 export declare function decodeNode(row: unknown): SfNode;
 /** Reads one row: its tag, a space, then its body. Throws on a tag the grammar lacks. */
