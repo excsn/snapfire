@@ -36,6 +36,10 @@ pub struct ComponentSet {
   pub consts: Consts,
   defaults: SessionDefaults,
   pub components: Vec<(String, Component)>,
+  /// Modules that did not lower and files that did not parse, by the error
+  /// they gave, so a second page reaching one is answered without reading or
+  /// lowering it again.
+  failed: HashMap<String, LowerError>,
   resolving: Vec<String>,
   /// Modules that are layouts: their `children` is the child segment, placed
   /// inside `<sf-s>` so the browser can adopt it without reconciling it.
@@ -78,7 +82,7 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
   }
 
   /// The custom elements whose shadow template the build lowers, by tag.
@@ -215,7 +219,8 @@ impl ComponentSet {
   }
 
   /// Lowers `module` (a `path#export` under the app) and everything it
-  /// renders. A module already lowered is not read again. A module still
+  /// renders. A module already lowered is not read again and one that did
+  /// not lower answers with the same error. A module still
   /// being lowered is a component that renders itself, directly or through
   /// others: the call is the renderer's, which looks the module up by name.
   pub fn lower(&mut self, module: &str) -> Result<(), LowerError> {
@@ -223,15 +228,26 @@ impl ComponentSet {
     if self.components.iter().any(|(m, _)| m == module) {
       return Ok(());
     }
+    if let Some(error) = self.failed.get(module) {
+      return Err(error.clone());
+    }
     if self.resolving.iter().any(|m| m == module) {
       self.cyclic = true;
       return Ok(());
     }
-    self.load(file)?;
-    self.resolving.push(module.to_owned());
-    let result = self.lower_loaded(file, export);
-    self.resolving.pop();
-    let component = result?;
+    let result = self.load(file).and_then(|()| {
+      self.resolving.push(module.to_owned());
+      let result = self.lower_loaded(file, export);
+      self.resolving.pop();
+      result
+    });
+    let component = match result {
+      Ok(component) => component,
+      Err(error) => {
+        self.failed.insert(module.to_owned(), error.clone());
+        return Err(error);
+      }
+    };
     self.components.push((module.to_owned(), component));
     if self.cyclic && self.resolving.is_empty() {
       self.settle();
@@ -277,13 +293,24 @@ impl ComponentSet {
     if self.parsed.contains_key(file) {
       return Ok(());
     }
-    let source = match self.provided.get(file) {
-      Some(source) => source.clone(),
-      None => std::fs::read_to_string(self.app.join(file)).map_err(|e| LowerError::Parse { file: file.to_owned(), message: e.to_string() })?,
-    };
-    let parsed = parse_with(file, &source, file.ends_with(".tsx"))?;
-    self.parsed.insert(file.to_owned(), Rc::new(parsed));
-    Ok(())
+    if let Some(error) = self.failed.get(file) {
+      return Err(error.clone());
+    }
+    let parsed = match self.provided.get(file) {
+      Some(source) => Ok(source.clone()),
+      None => std::fs::read_to_string(self.app.join(file)).map_err(|e| LowerError::Parse { file: file.to_owned(), message: e.to_string() }),
+    }
+    .and_then(|source: String| parse_with(file, &source, file.ends_with(".tsx")));
+    match parsed {
+      Ok(parsed) => {
+        self.parsed.insert(file.to_owned(), Rc::new(parsed));
+        Ok(())
+      }
+      Err(error) => {
+        self.failed.insert(file.to_owned(), error.clone());
+        Err(error)
+      }
+    }
   }
 
   /// The file an import names relative to the app, through an alias or a
@@ -3528,6 +3555,24 @@ export default function Order({ id }: { id: number }) {
     assert!(err.contains("takes the layout's component name"), "{err}");
   }
 
+
+  #[test]
+  fn a_module_that_does_not_lower_is_answered_from_memory_the_second_time() {
+    let files = [
+      ("routes/a/page.tsx", "import { Broken } from \"@src/Broken\";\nexport default function A() {\n  return <Broken />;\n}\n"),
+      ("routes/b/page.tsx", "import { Broken } from \"@src/Broken\";\nexport default function B() {\n  return <Broken />;\n}\n"),
+      ("src/Broken.tsx", "export function Broken() {\n  return <p>{;\n}\n"),
+    ];
+    let dir = app(&files);
+    let mut set = ComponentSet::new(&dir);
+    let first = set.lower("routes/a/page.tsx#default").unwrap_err();
+    assert!(first.to_string().contains("src/Broken.tsx: 2:14"), "{first}");
+    std::fs::write(dir.join("src/Broken.tsx"), "export function Broken() {\n  return <p>fixed</p>;\n}\n").unwrap();
+    assert_eq!(set.lower("routes/a/page.tsx#default").unwrap_err(), first, "the page answers the same error without reading again");
+    let other = set.lower("routes/b/page.tsx#default").unwrap_err();
+    assert!(other.to_string().starts_with("routes/b/page.tsx:3:10: src/Broken.tsx: 2:14"), "a second page reaching the module gets the failure it gave the first: {other}");
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
 }
 
 /// Where copying a constant into every body that reads it starts to cost more
@@ -3595,5 +3640,6 @@ fn keep_value(value: Expr) -> Expr {
     Expr::Lit(Lit::Bool(keep)) => Expr::lit_str(if keep { "true" } else { "false" }),
     value => Expr::Ternary(Box::new(value), Box::new(Expr::lit_str("true")), Box::new(Expr::lit_str("false"))),
   }
+
 
 }
