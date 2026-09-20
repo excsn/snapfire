@@ -87,12 +87,16 @@ The `<template data-sf-children>` after the markup is the island's children. The
 
 ## What the build does with it
 
-Neither `fsr` nor `snapfirec` compiles Vue. `fsr build` looks for `snapfirec-vue` on `PATH` and asks it to describe every `.vue` file under the source directories in one batch before any route is lowered; `snapfirec` finds the same binary again when it bundles and hands it the same files to compile. The plugin carries Vue's own compiler, run in QuickJS, so no Node is involved; `cargo install snapfire_vue` is the whole install. Without it `fsr build` leaves every `.vue` component foreign and says so in a `plugins` row; the bundle then stops:
+Neither `fsr` nor `snapfirec` compiles Vue. `fsr build` looks for `snapfirec-vue` on `PATH` and asks it to describe every `.vue` file under the source directories in one batch before any route is lowered; `snapfirec` finds the same binary again when it bundles and hands it the same files to compile. The plugin carries Vue's own compiler, run in QuickJS, so no Node is involved; `cargo install snapfire_vue` is the whole install. Without it nothing reads the file, so the component is neither lowered nor compiled and the bundle stops on the module the registry imports. A `plugins` row in the report says which binary was missing and the report is printed even though the build failed, since the two halves only name the fix together:
 
 ```text
 ❌ `snapfirec-vue` is not on PATH; `cargo install snapfire_vue` puts it there
    needed by "src/ui/Tonight.vue"
+❌ "dist/generated/islands.js" imports '../src/ui/Tonight.js', which resolves to nothing
+plugins   `snapfirec-vue` is not on PATH, so no `.vue` component was read or compiled; `cargo install snapfire_vue` puts it there, and until it does the bundle stops on the module the registry imports
 ```
+
+That is not the `foreign` fallback. A component goes foreign when the plugin read it and the build could not lower what it found, which leaves a module to mount; a missing plugin leaves no module at all.
 
 What comes back is a module and a stylesheet: `dist/src/ui/Tonight.js`, whose imports the build resolves like any other module's, plus `dist/src/ui/Tonight.vue.css`, the component's `<style scoped>` with its `data-v-` attribute. The template's `import Tonight from "@src/ui/Tonight.vue"` is rewritten to the `.js` beside it. The island registry the build writes registers the module with the Vue mounter:
 
@@ -136,7 +140,7 @@ Navigation still keeps a static layout's DOM. A segment carries a digest of its 
 
 Run `fsr build app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
 
-Take `snapfirec-vue` off `PATH` and build again. The report says the plugin is not on PATH and the three components mount in the browser instead; the bundle then stops with the binary, the install command and the three files.
+Take `snapfirec-vue` off `PATH` and build again. The bundle stops on the modules the registry imports, and the report still prints, with a `plugins` row naming the binary and the install command. The three components are missing from `rendered` altogether rather than listed foreign, since nothing read them.
 
 Give `Tonight.vue` a `v-model` on an input. The report keeps the page `static`, marks the component `foreign` with the line and the bundle compiles it as before: the panel mounts fresh and everything else on the page is as it was.
 

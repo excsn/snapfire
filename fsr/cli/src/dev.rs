@@ -606,19 +606,31 @@ pub const BUNDLE_OVERLAY: &str = ".fsr-bundle";
 pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
   let app = App::open(app, options)?;
   let built = build(&app.dir, &app.options.build)?;
-  let written = write(&app.dir, &built)?;
-  let missing = crate::types::missing(&app.dir)?;
-  if !missing.is_empty() {
-    return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`", missing.join(", "))));
-  }
-  let checked = app.compile()?;
-  if let Some(checked) = &checked {
-    if checked.errors() > 0 {
-      let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
-      return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));
+  let rest = (|| -> Result<(Vec<PathBuf>, Option<Checked>), BuildError> {
+    let written = write(&app.dir, &built)?;
+    let missing = crate::types::missing(&app.dir)?;
+    if !missing.is_empty() {
+      return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`", missing.join(", "))));
+    }
+    let checked = app.compile()?;
+    if let Some(checked) = &checked {
+      if checked.errors() > 0 {
+        let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
+        return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));
+      }
+    }
+    Ok((written, checked))
+  })();
+  match rest {
+    Ok((written, checked)) => Ok(Emitted { built, written, checked }),
+    // The report is complete before the bundle runs and it holds the rows that
+    // say why: a missing plugin is a `plugins` row here and an unresolvable
+    // import there. Returning the error alone loses the half that names a fix.
+    Err(e) => {
+      print!("{}", built.report);
+      Err(e)
     }
   }
-  Ok(Emitted { built, written, checked })
 }
 
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {

@@ -1919,7 +1919,7 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> 
     let mut worker = match Worker::start(ext) {
       Ok(worker) => worker,
       Err(HostError::NotFound { binary, hint }) => {
-        report.plugins.push(format!("`{binary}` is not on PATH, so a `.{ext}` component mounts in the browser rather than hydrating the server's markup; `{hint}` puts it there"));
+        report.plugins.push(format!("`{binary}` is not on PATH, so no `.{ext}` component was read or compiled; `{hint}` puts it there, and until it does the bundle stops on the module the registry imports"));
         continue;
       }
       Err(e) => return Err(BuildError::Plugin(e.to_string())),
