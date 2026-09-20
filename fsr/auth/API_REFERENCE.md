@@ -38,7 +38,7 @@ The login flow over any `IdentityProvider`. Holds the provider and no other stat
 
 `callback` removes `_sf_auth` from `opened.tokens` before calling the provider, so the flow is consumed whether the attempt succeeds or fails. It returns `AuthError::Invalid("no login in progress for this session")` when that key is absent or is not a `Value::Map`. The destination comes from the state's `return_to`, defaulting to `/` when it is missing or not a `Value::Str`. On success it calls `opened.cell.set_identity(Some(outcome.identity))` then `opened.tokens.merge(outcome.tokens)`, so identity is readable by application code while tokens are not. The destination is then returned.
 
-`logout` calls `opened.cell.clear()` plus `opened.tokens.clear()`, which drops session data, identity and every token in one pair of dirty writes. It does not delete the stored record and does not produce a cookie; `Sessions::destroy` does both; the caller invokes it separately.
+`logout` calls `opened.cell.clear()` plus `opened.tokens.clear()`, which drops session data, identity and every token in one pair of dirty writes. It does not delete the stored record and does not produce a cookie; `Sessions::destroy` does both and clears the cells as well, so a host that calls `destroy` alone ends up in the same state.
 
 `_sf_auth` is reserved in the token cell. Writing to that key from application code corrupts an in-flight login and is not detected.
 

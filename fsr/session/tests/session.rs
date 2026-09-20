@@ -111,6 +111,19 @@ fn tokens_round_trip_but_never_reach_the_cell() {
 }
 
 #[test]
+fn destroy_empties_the_cells_it_was_given() {
+  let layer = sessions();
+  let opened = block_on(layer.open(None));
+  opened.cell.set_identity(Some(Identity { subject: "norm".into(), claims: Default::default() }));
+  opened.cell.insert("visits", Value::Int(3));
+  opened.tokens.set("access_token", Value::Str("secret-abc".into()));
+  block_on(layer.destroy(&opened)).unwrap();
+  assert!(opened.cell.identity().is_none(), "the identity is gone for the rest of the request");
+  assert_eq!(opened.cell.get("visits"), None);
+  assert_eq!(opened.tokens.get("access_token"), None);
+}
+
+#[test]
 fn destroy_forgets_tokens() {
   let layer = sessions();
   let opened = block_on(layer.open(None));

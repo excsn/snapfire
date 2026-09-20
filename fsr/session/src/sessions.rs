@@ -146,6 +146,8 @@ impl Sessions {
 
   pub async fn destroy(&self, opened: &Opened) -> Result<String, StoreError> {
     self.store.delete(&opened.id).await?;
+    opened.cell.clear();
+    opened.tokens.clear();
     let secure = if self.config.secure { "; Secure" } else { "" };
     Ok(format!(
       "{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
