@@ -1,6 +1,6 @@
 use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::Component;
-use snapfire_fsr_plan::{
+use snapfire_fsr_plan::{ClientEntry, 
   ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner,
   SourceEntry,
 };
@@ -298,6 +298,10 @@ fn every_manifest() -> Manifest {
       HandlerEntry::lowered("route.GET", "GET", "/api", "routes/route.ts", body.clone()),
       HandlerEntry::rust("route.POST", "POST", "/api"),
     ],
+    clients: vec![
+      ClientEntry { module: "routes/stars/page.tsx#default".to_owned(), at: "src/ui/Stars.tsx:2:17".to_owned(), message: "`.slice()`, which is not a builtin".to_owned(), hint: Some("the builtins are `map`, `filter`, ...".to_owned()) },
+      ClientEntry { module: "routes/broken/page.tsx#default".to_owned(), at: "routes/broken/page.tsx".to_owned(), message: "Expected ';'".to_owned(), hint: None },
+    ],
     middleware: Some(body),
     intercepts: vec![RouteEntry { pattern: "/modal".to_owned(), plan: node }],
     frameworks: [("react".to_owned(), "18.3.1".to_owned())].into_iter().collect(),
@@ -483,9 +487,11 @@ fn manifest() -> BoxedStrategy<Manifest> {
     prop::option::of(small_body()),
     prop::collection::vec((text(), node()), 0..2),
     prop::collection::vec((text(), small_expr()), 0..3),
+    prop::collection::vec((text(), text(), text(), prop::option::of(text())), 0..3),
   )
-    .prop_map(|(routes, sources, actions, handlers, not_found, middleware, intercepts, consts)| Manifest {
-      version: 2,
+    .prop_map(|(routes, sources, actions, handlers, not_found, middleware, intercepts, consts, clients)| Manifest {
+      version: 3,
+      clients: clients.into_iter().map(|(module, at, message, hint)| ClientEntry { module, at, message, hint }).collect(),
       routes: routes.into_iter().map(|(pattern, plan)| RouteEntry { pattern, plan }).collect(),
       sources: sources
         .into_iter()
@@ -626,30 +632,45 @@ fn malformed_plan_terms_are_refused() {
 /// The bytes themselves. Every other test here is self-consistent: it prints,
 /// reads back and compares to itself, so a change to the spelling of a form
 /// passes all of them while making every `plan.sexp` already on disk unreadable
-/// by the new code. This one pins format 2 as text.
+/// by the new code. This one pins the current format as text.
 ///
 /// The file covers every variant, since `every_manifest` holds them all. When
 /// it fails, either the change is a mistake or it is a format change and the
 /// file is regenerated with `SEXP_GOLDEN=overwrite`, alongside a bump of
-/// `FORMAT_VERSION` and a reader that still takes the old spelling.
-const GOLDEN: &str = include_str!("golden/format-2.sexp");
+/// `FORMAT_VERSION` and a reader that still takes the old spelling, which
+/// the earlier format's file below keeps pinned.
+const GOLDEN: &str = include_str!("golden/format-3.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_2_promises() {
+fn the_printed_bytes_are_the_ones_format_3_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-2.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-3.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 2");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 3");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 2 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 3 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
+}
+
+/// Format 2, as the builds before `client` rows wrote it: everything in it
+/// still reads and prints back byte for byte.
+const GOLDEN_2: &str = include_str!("golden/format-2.sexp");
+
+#[test]
+fn a_format_2_plan_still_reads_and_prints_as_written() {
+  let read = Manifest::from_sexpr(GOLDEN_2).expect("format 2 still reads");
+  let mut expected = every_manifest();
+  expected.version = 2;
+  expected.clients.clear();
+  assert_eq!(read, expected);
+  assert_eq!(read.to_sexpr(), GOLDEN_2);
 }

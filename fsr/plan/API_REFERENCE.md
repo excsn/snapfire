@@ -28,7 +28,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 ### FORMAT_VERSION
 
-* `pub const FORMAT_VERSION: u32 = 2`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows.
+* `pub const FORMAT_VERSION: u32 = 3`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows.
 * A file from version 1 up to `FORMAT_VERSION` reads; anything else is `PlanError::Version`. A format 1 file's bare action ids read as `rust` rows.
 
 ## 2. The Manifest
@@ -37,7 +37,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
@@ -128,13 +128,17 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 
 * `pub struct ComponentEntry { pub module: String, pub body: Component }`: a module lowered to a render tree, `snapfire_fsr_ir::Component`.
 
+### ClientEntry
+
+* `pub struct ClientEntry { pub module: String, pub at: String, pub message: String, pub hint: Option<String> }`: a module the build read and could not lower, so the browser renders it; `at` is the `file:line:column` of the residue that decided it, the file alone when the module did not parse, `message` what the build said about it and `hint` what it suggested, when it did. `Manifest::with_clients(self, Vec<ClientEntry>) -> Self` sets them. In the s-expression form each is `(client <module> "<at>" "<message>")` with the hint as a fourth string when there is one.
+
 ## 5. The S-Expression Form
 
 ### sexpr
 
 `snapfire_fsr_plan::sexpr` is the manifest half of the format; `snapfire_fsr_ir::sexpr` is the IR half and holds the syntax type.
 
-* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then one `(framework <package> <version>)` per vendored framework, then routes, intercepts, the not-found tree, middleware, rows, consts and components.
+* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then one `(framework <package> <version>)` per vendored framework, then routes, intercepts, the not-found tree, middleware, rows, consts, components and clients.
 * `manifest_from_sx(&[Sx]) -> Result<Manifest, SexprError>`: the same in reverse, with no version check; `Manifest::from_sexpr` adds it.
 
 ## 6. Error Handling

@@ -1044,3 +1044,27 @@ fn a_service_method_naming_a_type_outside_the_value_model_fails_the_build() {
   assert!(err.contains("service `fleet`: names `Instant`, which is not a struct under `src/`"), "{err}");
   std::fs::remove_dir_all(&project).unwrap();
 }
+
+#[test]
+fn a_page_that_does_not_lower_travels_in_the_plan_with_its_cause() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <Stars />;\n}\n"),
+    ("routes/other/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <div><Stars /></div>;\n}\n"),
+    ("src/ui/Stars.tsx", "export function Stars() {\n  return <p>{[1, 2, 3].slice(1).length}</p>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let cause = built.report.causes.iter().find(|c| c.at.starts_with("src/ui/Stars.tsx:")).unwrap_or_else(|| panic!("{}", built.report));
+  let mut clients: Vec<(&str, &str, &str, Option<&str>)> = built.manifest.clients.iter().map(|c| (c.module.as_str(), c.at.as_str(), c.message.as_str(), c.hint.as_deref())).collect();
+  clients.sort();
+  assert_eq!(
+    clients,
+    vec![
+      ("routes/index/page.tsx#default", cause.at.as_str(), cause.message.as_str(), cause.hint.as_deref()),
+      ("routes/other/page.tsx#default", cause.at.as_str(), cause.message.as_str(), cause.hint.as_deref()),
+    ]
+  );
+  let plan = built.files.iter().find(|(n, _)| n == "generated/plan.sexp").map(|(_, t)| t.clone()).unwrap();
+  assert!(plan.contains("(client routes/index/page.tsx#default") && plan.contains(&format!("\"{}\"", cause.at)), "{plan}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

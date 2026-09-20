@@ -15,7 +15,7 @@ use rows::{action_from_sx, action_to_sx, handler_from_sx, handler_to_sx, source_
 use shape::*;
 
 use crate::{
-  ComponentEntry, Manifest, RouteEntry, RowOwner, FORMAT_VERSION, OLDEST_READABLE,
+  ClientEntry, ComponentEntry, Manifest, RouteEntry, RowOwner, FORMAT_VERSION, OLDEST_READABLE,
 };
 
 /// The manifest as forms: the version, then routes, then the rows that fill
@@ -48,6 +48,13 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
     rest.extend(component_sections(&entry.body));
     out.push(form("component", rest));
   }
+  for entry in &manifest.clients {
+    let mut rest = vec![sym(entry.module.clone()), Sx::Str(entry.at.clone()), Sx::Str(entry.message.clone())];
+    if let Some(hint) = &entry.hint {
+      rest.push(Sx::Str(hint.clone()));
+    }
+    out.push(form("client", rest));
+  }
   out
 }
 
@@ -58,6 +65,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     sources: Vec::new(),
     actions: Vec::new(),
     components: Vec::new(),
+    clients: Vec::new(),
     consts: Consts::new(),
     not_found: None,
     handlers: Vec::new(),
@@ -115,6 +123,17 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         manifest.components.push(ComponentEntry {
           module: as_sym(&items[1])?,
           body: component_from_sections(&items[2..])?,
+        });
+      }
+      "client" => {
+        if !(4..=5).contains(&items.len()) {
+          return Err(err("a client is `(client module \"at\" \"message\")` with an optional hint"));
+        }
+        manifest.clients.push(ClientEntry {
+          module: as_sym(&items[1])?,
+          at: as_sym(&items[2])?,
+          message: as_sym(&items[3])?,
+          hint: items.get(4).map(as_sym).transpose()?,
         });
       }
       other => return Err(err(format!("`{other}` is not a plan form"))),

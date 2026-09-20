@@ -175,7 +175,7 @@ A leaf route reads as three keys per node; absent fields are absent.
 
 ## Format Versions
 
-`FORMAT_VERSION` is 2: the `sources` table exists and actions are rows. A format 1 file lists bare action ids that read as `rust` rows and has no sources.
+`FORMAT_VERSION` is 3: the `clients` rows exist, one per module the build could not lower, so a host can say at boot what the build said. Format 2 added the `sources` table and made actions rows. A format 1 file lists bare action ids that read as `rust` rows and has no sources. Every earlier format still reads.
 
 ```rust
 let old = r#"{ "version": 1, "routes": [], "actions": ["cart.checkout"] }"#;

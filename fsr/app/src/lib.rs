@@ -113,6 +113,9 @@ pub struct Report {
   pub renderable: Vec<(String, String)>,
   /// Modules rendered on the server, by the lowered tree or by Rust.
   pub components: Vec<(String, Owner)>,
+  /// Modules the build could not lower, so the browser renders them, each
+  /// with the residue that decided it.
+  pub clients: Vec<snapfire_fsr_plan::ClientEntry>,
   /// Islands a template renders, with the handlers each answers: `<module> <name>`.
   pub islands: Vec<String>,
 }
@@ -141,6 +144,22 @@ impl std::fmt::Display for Report {
     for (i, (module, owner)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<22} {}", owner.as_str())?;
+    }
+    for (i, client) in self.clients.iter().enumerate() {
+      let label = if i == 0 && self.components.is_empty() { "rendered" } else { "" };
+      writeln!(f, "{label:<9} {:<22} {:<11} {}", client.module, "client", client.at)?;
+    }
+    let mut stated: Vec<(&str, &str)> = Vec::new();
+    for client in &self.clients {
+      if stated.contains(&(client.at.as_str(), client.message.as_str())) {
+        continue;
+      }
+      let label = if stated.is_empty() { "client" } else { "" };
+      stated.push((&client.at, &client.message));
+      writeln!(f, "{label:<9} {:<22} {}", client.at, client.message)?;
+      if let Some(hint) = &client.hint {
+        writeln!(f, "{:<9} {hint}", "")?;
+      }
     }
     for (i, island) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
@@ -306,6 +325,7 @@ pub struct AppBuilder {
   lowered_paths: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
   lowered_components: Vec<(String, Component)>,
+  clients: Vec<snapfire_fsr_plan::ClientEntry>,
   contract: Option<Arc<Contract>>,
   sources: DataSources,
   claimed: Vec<(String, Owner)>,
@@ -362,6 +382,7 @@ impl App {
       lowered_paths: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
+      clients: Vec::new(),
       contract: None,
       sources: DataSources::new(),
       claimed: Vec::new(),
@@ -409,6 +430,7 @@ impl App {
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
       .collect();
     builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
+    builder.clients = parsed.clients.clone();
     if !parsed.consts.is_empty() {
       builder.consts = Some(Arc::new(parsed.consts.clone()));
     }
@@ -441,6 +463,7 @@ impl AppBuilder {
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
+    self.clients.extend(parsed.clients.iter().cloned());
     if !parsed.consts.is_empty() {
       let mut merged = self.consts.as_deref().cloned().unwrap_or_default();
       merged.extend(parsed.consts.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -1002,6 +1025,7 @@ impl AppBuilder {
       warmable: warmable.clone(),
       renderable: renderable.iter().map(|(pattern, node)| (pattern.clone(), node.module.to_string())).collect(),
       components,
+      clients: std::mem::take(&mut self.clients),
       islands: self
         .islands
         .modules()

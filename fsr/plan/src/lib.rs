@@ -11,7 +11,7 @@ pub mod sexpr;
 
 /// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
 /// with bare action ids and no sources, still reads.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 const OLDEST_READABLE: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -50,6 +50,10 @@ pub struct Manifest {
   /// a row mounts in the browser only.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub components: Vec<ComponentEntry>,
+  /// One row per module the build read and could not lower, with the residue
+  /// that decided it. The host prints these beside the rendered modules.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub clients: Vec<ClientEntry>,
   /// The module-level constants bodies read by name, `<file>#<name>`, held
   /// once however many bodies read them. `Expr::Const` names one.
   #[serde(default, skip_serializing_if = "Consts::is_empty")]
@@ -114,6 +118,19 @@ impl HandlerEntry {
 pub struct ComponentEntry {
   pub module: String,
   pub body: Component,
+}
+
+/// One row per module the build could not lower, so the host can say at
+/// boot what the build said: the module mounts in the browser, because of
+/// the residue at `at`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientEntry {
+  pub module: String,
+  /// `file:line:column`; the file alone when the module did not parse.
+  pub at: String,
+  pub message: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub hint: Option<String>,
 }
 
 /// Who a row says answers it. The host may replace `lowered` with a Rust
@@ -408,7 +425,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default() }
   }
 
   /// The constants bodies read by name.
@@ -468,6 +485,11 @@ impl Manifest {
 
   pub fn with_components(mut self, components: Vec<ComponentEntry>) -> Self {
     self.components = components;
+    self
+  }
+
+  pub fn with_clients(mut self, clients: Vec<ClientEntry>) -> Self {
+    self.clients = clients;
     self
   }
 
@@ -654,7 +676,7 @@ impl Manifest {
         namespace_node(not_found, &prefix, shell);
       }
     }
-    for key in ["sources", "actions", "handlers", "components"] {
+    for key in ["sources", "actions", "handlers", "components", "clients"] {
       for row in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
         for field in ["id", "module", "input"] {
           if let Some(value) = row.get_mut(field) {

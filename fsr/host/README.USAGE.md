@@ -919,6 +919,14 @@ public    analytics_id           "G-1234"
 ignored   http, not the host's; left to the application's own store
 ```
 
+A page the build could not lower is still on the report at boot, since the plan file carries the build's finding: a `rendered` row marked `client` with the residue's `file:line:column` and a `client` line stating the cause once with its hint beneath, the way `fsr build` prints them without the chain of pages.
+
+```
+rendered  routes/page.tsx#default client      src/ui/Stars.tsx:2:17
+client    src/ui/Stars.tsx:2:17  `.slice()`, which is not a builtin
+          the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
+```
+
 ## Error Handling
 
 `HostError` is what `Host::from`, `build` and `render` return. `NoConfig` is a path with no `config/` or `app.toml`, `Config` carries the source and the loading or deserialising error, `Value` names a setting that did not parse, `Bind` is the binding rule from `snapfire_fsr`, `Import` a document that did not import, `NotFound` a path no route matches, `Leak` a bundle under `dist/` carrying a loader, an actions module, a handler or the middleware or importing one, each named with its reason, `Mount` a site that could not be mounted, naming the site and why.

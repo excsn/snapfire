@@ -410,3 +410,26 @@ fn a_build_renders_ahead_the_outermost_fixed_subtrees_of_a_route_it_cannot_write
   assert!(!picked.iter().any(|(p, _)| *p == "/cart"), "the cart page reads a key the layout outside it seeds");
   assert!(!picked.iter().any(|(p, _)| *p == "/promo"), "a route written as a document has nothing to render ahead");
 }
+
+#[test]
+fn a_page_the_build_could_not_lower_is_reported_at_boot_with_its_cause() {
+  let manifest = r#"{
+    "version": 3,
+    "routes": [
+      { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
+        { "slot": "content", "node": { "id": 1, "module": "routes/page.tsx#default" } } ] } },
+      { "pattern": "/other", "plan": { "id": 0, "module": "shell#document", "children": [
+        { "slot": "content", "node": { "id": 1, "module": "routes/other/page.tsx#default" } } ] } }
+    ],
+    "clients": [
+      { "module": "routes/page.tsx#default", "at": "src/ui/Stars.tsx:2:17", "message": "`.slice()`, which is not a builtin", "hint": "the builtins are `map`, `filter`, ..." },
+      { "module": "routes/other/page.tsx#default", "at": "src/ui/Stars.tsx:2:17", "message": "`.slice()`, which is not a builtin", "hint": "the builtins are `map`, `filter`, ..." }
+    ]
+  }"#;
+  let app = App::from_manifest(manifest).unwrap().evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator)).build().unwrap();
+  assert_eq!(app.report.clients.len(), 2);
+  let printed = app.report.to_string();
+  assert!(printed.contains("rendered  routes/page.tsx#default client      src/ui/Stars.tsx:2:17\n          routes/other/page.tsx#default client      src/ui/Stars.tsx:2:17\n"), "{printed}");
+  assert!(printed.contains("client    src/ui/Stars.tsx:2:17  `.slice()`, which is not a builtin\n          the builtins are `map`, `filter`, ...\n"), "{printed}");
+  assert_eq!(printed.matches("`.slice()`").count(), 1, "one cause is stated once: {printed}");
+}

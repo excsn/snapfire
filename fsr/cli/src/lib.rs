@@ -966,7 +966,21 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   check_vendor_urls(app, &layout)?;
   check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
   let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
+  let clients: Vec<snapfire_fsr_plan::ClientEntry> = report
+    .components
+    .iter()
+    .filter(|(_, owner, _)| owner == "client")
+    .map(|(module, _, at)| {
+      let cause = report.causes.iter().find(|c| &c.at == at && c.pages.iter().any(|(page, _)| page == module));
+      snapfire_fsr_plan::ClientEntry {
+        module: module.clone(),
+        at: at.clone(),
+        message: cause.map(|c| c.message.clone()).unwrap_or_default(),
+        hint: cause.and_then(|c| c.hint.clone()),
+      }
+    })
+    .collect();
+  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
