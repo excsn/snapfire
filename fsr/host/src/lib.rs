@@ -353,11 +353,20 @@ impl Preflight {
         headers.push((name.clone(), value.to_string()));
       }
     }
+    // A number written in a body lowers to a float, so `status: 301` arrives as
+    // `F64(301.0)` rather than `Int(301)`.
     let status = match map.get("status") {
       None | Some(Value::Null) => None,
       Some(Value::Int(n)) => {
         Some(u16::try_from(*n).map_err(|_| format!("middleware `status` {n} is not an HTTP status"))?)
       }
+      Some(Value::UInt(n)) => {
+        Some(u16::try_from(*n).map_err(|_| format!("middleware `status` {n} is not an HTTP status"))?)
+      }
+      Some(Value::F64(n)) if n.fract() == 0.0 && *n >= 0.0 && *n <= f64::from(u16::MAX) => Some(*n as u16),
+      Some(Value::F32(n)) if n.fract() == 0.0 && *n >= 0.0 && *n <= f32::from(u16::MAX) => Some(*n as u16),
+      Some(Value::F64(n)) => return Err(format!("middleware `status` {n} is not an HTTP status")),
+      Some(Value::F32(n)) => return Err(format!("middleware `status` {n} is not an HTTP status")),
       Some(other) => {
         return Err(format!(
           "middleware `status` must be a number, found {}",
