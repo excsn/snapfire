@@ -54,7 +54,8 @@ use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
 pub use config::{
-  AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, MountConfig, SiteSection, SitesSection,
+  AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, Loader, MountConfig, SecretOptions, SiteSection,
+  SitesSection,
 };
 pub use locale::{Locales, LocalesSection, Resolution};
 pub use remote::{ServiceProvider, ServiceSessionStore};
@@ -749,10 +750,16 @@ pub struct Host {
   #[cfg(feature = "ws")]
   socket_handler: Option<socket::SocketHandler>,
   reloader: Option<Reloader>,
-  /// What `reload_sites` rebuilds from: the shell's own inputs as they were
+  /// How the artifact was read, for a `reload` with no reloader to read it
+  /// again. Absent when the host was built from an artifact in memory.
+  loader: Option<Loader>,
+  /// What `reload_sites` rebuilds from: the shell's own artifact as it was
   /// when the process booted, never reread. Absent when the builder carried
-  /// something a rebuild from these three cannot reproduce.
-  shell_inputs: Option<Arc<ShellInputs>>,
+  /// something a rebuild from the artifact alone cannot reproduce.
+  shell_inputs: Option<Arc<Artifact>>,
+  /// Whether the builder was given a `Mount` by hand, which a reread of the
+  /// shell's artifact would drop.
+  mounted: bool,
   /// How the mounted sites are read again, given a builder the host made from
   /// `shell_inputs`. The step takes a builder rather than making one, so
   /// nothing it does can reach the shell's files.
@@ -795,12 +802,25 @@ pub type Reloader = Box<dyn Fn() -> Result<HostBuilder, HostError> + Send + Sync
 /// shell however the step is written.
 pub type SitesMounter = Box<dyn Fn(HostBuilder) -> Result<HostBuilder, HostError> + Send + Sync>;
 
-/// The shell's own inputs, held from the boot that built the host so a sites
-/// reload rebuilds against them rather than against the disk.
-struct ShellInputs {
-  config: Config,
-  plan: String,
-  contract: Option<Contract>,
+/// A built application as the host reads it: its configuration, its plan and
+/// the contracts its build wrote. `Host::from` reads one through a `Loader`
+/// and a `Mount` carries one.
+#[derive(Debug, Clone)]
+pub struct Artifact {
+  pub config: Config,
+  pub plan: String,
+  pub contract: Option<Contract>,
+}
+
+impl Artifact {
+  /// Reads the plan file and the contracts directory `config` names, the
+  /// latter merged with `Contract::merge` file by file when it exists.
+  pub fn of(config: Config) -> Result<Self, HostError> {
+    let plan_path = config.resolve(&config.server.plan);
+    let plan = std::fs::read_to_string(&plan_path).map_err(|e| HostError::Io(plan_path, e))?;
+    let contract = read_contracts(&config.resolve(&config.server.contracts))?;
+    Ok(Artifact { config, plan, contract })
+  }
 }
 
 /// Whether this visitor may follow this topic, asked once per topic when a
@@ -868,40 +888,29 @@ impl SiteTables {
 /// `artifact`, `version` and `hash` are carried into the report.
 pub struct Mount {
   pub name: String,
-  pub artifact: PathBuf,
   pub version: String,
   pub hash: String,
   pub allow_engine: bool,
-  pub config: Config,
-  pub plan: String,
-  pub contract: Option<Contract>,
+  /// The site as read from its directory, `artifact.config.root`, by
+  /// `Loader::mount` on the shell's loader or a loader of the caller's own.
+  pub artifact: Artifact,
 }
 
 impl Mount {
-  /// Reads the artifact at `artifact`, a project directory with its `config/`
-  /// beside its app, the way `Host::from` reads one.
-  pub fn load(
+  pub fn new(
     name: impl Into<String>,
-    artifact: impl Into<PathBuf>,
     version: impl Into<String>,
     hash: impl Into<String>,
     allow_engine: bool,
-  ) -> Result<Self, HostError> {
-    let artifact = artifact.into();
-    let config = Config::load(&artifact)?;
-    let plan_path = config.resolve(&config.server.plan);
-    let plan = std::fs::read_to_string(&plan_path).map_err(|e| HostError::Io(plan_path, e))?;
-    let contract = read_contracts(&config.resolve(&config.server.contracts))?;
-    Ok(Self {
+    artifact: Artifact,
+  ) -> Self {
+    Self {
       name: name.into(),
-      artifact,
       version: version.into(),
       hash: hash.into(),
       allow_engine,
-      config,
-      plan,
-      contract,
-    })
+      artifact,
+    }
   }
 }
 
@@ -991,9 +1000,8 @@ struct RustService {
 pub struct HostBuilder {
   /// The trace collector, when one was installed. Served under development.
   traces: Option<trace::Traces>,
-  config: Config,
-  plan: String,
-  contract: Option<Contract>,
+  artifact: Artifact,
+  loader: Option<Loader>,
   app: Option<AppBuilder>,
   services: Option<Arc<Services>>,
   rust_services: Vec<RustService>,
@@ -1013,13 +1021,17 @@ pub struct HostBuilder {
   mounts: Vec<Mount>,
   /// Overrides `server.http2` for a host built in Rust.
   http2: Option<bool>,
+  /// Whether a route, source, action, handler, evaluator, extension, native
+  /// module or `#[service]` was registered on the builder, which a rebuild
+  /// from the artifact alone would drop.
+  hand_built: bool,
   pending: Option<HostError>,
 }
 
 impl std::fmt::Debug for HostBuilder {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("HostBuilder")
-      .field("root", &self.config.root)
+      .field("root", &self.artifact.config.root)
       .finish_non_exhaustive()
   }
 }
@@ -1068,9 +1080,14 @@ impl Host {
   /// The stock entry point: a project root holding `config/`, a `config/`
   /// directory or one configuration file. Everything else is inferred from
   /// the app directory it names.
-  pub fn from(path: impl AsRef<std::path::Path>) -> Result<HostBuilder, HostError> {
-    let config = Config::load(path)?;
-    Self::from_config(config)
+  ///
+  /// Takes a path or a `Loader`; a path is `Loader::at(path)`. The builder
+  /// keeps the loader, so `Host::reload` reads the artifact again the same way.
+  pub fn from(loader: impl Into<Loader>) -> Result<HostBuilder, HostError> {
+    let loader = loader.into();
+    let mut builder = Self::from_artifact(loader.load()?)?;
+    builder.loader = Some(loader);
+    Ok(builder)
   }
 
   /// `Host::from` on the current directory.
@@ -1078,24 +1095,19 @@ impl Host {
     Self::from(".")
   }
 
-  /// The files `located` names, for a binary that adds one with `Located::extra`.
-  pub fn from_located(located: config::Located) -> Result<HostBuilder, HostError> {
-    Self::from_config(Config::load_located(located)?)
-  }
-
+  /// `from_artifact` over the plan file and the contracts directory `config` names.
   pub fn from_config(config: Config) -> Result<HostBuilder, HostError> {
-    let plan_path = config.resolve(&config.server.plan);
-    let plan = std::fs::read_to_string(&plan_path).map_err(|e| HostError::Io(plan_path, e))?;
-    let contract = read_contracts(&config.resolve(&config.server.contracts))?;
-    Self::from_config_with(config, plan, contract)
+    Self::from_artifact(Artifact::of(config)?)
   }
 
-  /// `from_config` over a plan file and a contract already in memory, for a
-  /// tool that built them and never wrote them.
-  pub fn from_config_with(config: Config, plan: String, contract: Option<Contract>) -> Result<HostBuilder, HostError> {
+  /// A builder over an artifact already in memory, which is how `fsr test`
+  /// renders a route a spec loads. No loader is kept, so the host reloads
+  /// only through a reloader.
+  pub fn from_artifact(artifact: Artifact) -> Result<HostBuilder, HostError> {
+    let config = &artifact.config;
     let app = match config.server.render.as_str() {
-      "rust" => App::from_manifest(&plan)?,
-      "islands" => App::from_manifest(&plan)?.islands_only(true),
+      "rust" => App::from_manifest(&artifact.plan)?,
+      "islands" => App::from_manifest(&artifact.plan)?.islands_only(true),
       other => {
         return Err(HostError::Config(
           config.resolve(&config.server.plan),
@@ -1104,9 +1116,8 @@ impl Host {
       }
     };
     Ok(HostBuilder {
-      config,
-      plan,
-      contract,
+      artifact,
+      loader: None,
       traces: None,
       app: Some(app),
       services: None,
@@ -1126,6 +1137,7 @@ impl Host {
       socket_handler: None,
       mounts: Vec::new(),
       http2: None,
+      hand_built: false,
       pending: None,
     })
   }
@@ -1162,17 +1174,39 @@ impl Host {
     (!catalogs.is_empty()).then(|| catalogs.clone())
   }
 
-  /// Rebuilds the tables through the builder's reloader and swaps them in;
-  /// a request in flight finishes on the tables it started with. The
-  /// sessions stay: a reload that changes `[session]` is refused.
+  /// Rebuilds the tables and swaps them in; a request in flight finishes on
+  /// the tables it started with. The sessions stay: a reload that changes
+  /// `[session]` is refused.
+  ///
+  /// With a reloader, the builder it returns is the rebuild. Without one the
+  /// artifact is read again through the loader `Host::from` kept and the
+  /// sites mounter runs over it, which is enough for a host built from a
+  /// configuration alone; a host given services, a store, a scheme, an
+  /// evaluator, an identity provider, a prerendered directory or a mount by
+  /// hand needs a reloader that adds those again.
   pub fn reload(&self) -> Result<Arc<HostReport>, HostError> {
-    let reloader = self.reloader.as_ref().ok_or_else(|| {
-      HostError::Value(
-        "reload".to_owned(),
-        "no reloader; `HostBuilder::reloader` names how to rebuild".to_owned(),
-      )
+    if let Some(reloader) = &self.reloader {
+      return self.reload_with(reloader()?);
+    }
+    let refuse = |why: &str| HostError::Value("reload".to_owned(), why.to_owned());
+    let loader = self.loader.as_ref().ok_or_else(|| {
+      refuse("the host was built from an artifact in memory, so there is nothing to reread; `HostBuilder::reloader` names how to rebuild")
     })?;
-    self.reload_with(reloader()?)
+    if self.shell_inputs.is_none() {
+      return Err(refuse(
+        "the host was built with more than a configuration, so rereading the artifact cannot rebuild it; `HostBuilder::reloader` names how",
+      ));
+    }
+    if self.mounted && self.sites_mounter.is_none() {
+      return Err(refuse(
+        "the host was given a mount by hand, which rereading the artifact would drop; `HostBuilder::reloader` names how to rebuild",
+      ));
+    }
+    let mut builder = Host::from(loader.clone())?;
+    if let Some(mounter) = &self.sites_mounter {
+      builder = mounter(builder)?;
+    }
+    self.reload_with(builder)
   }
 
   /// Rebuilds the tables with the sites read again and the shell left exactly
@@ -1186,9 +1220,10 @@ impl Host {
   /// rebuild leaves the running tables serving and the swap is atomic.
   ///
   /// Needs [`HostBuilder::sites_mounter`]. A host whose builder installed
-  /// services, a session store, an evaluator, an identity provider or a
-  /// prerendered directory has none, since those cannot be rebuilt from the
-  /// shell's three inputs; such a host reloads through `reload` instead.
+  /// services, a session store, a CSRF scheme, an evaluator, an identity
+  /// provider or a prerendered directory or registered anything on the app by
+  /// hand has none, since those cannot be rebuilt from the shell's artifact;
+  /// such a host reloads through a reloader instead.
   pub fn reload_sites(&self) -> Result<Arc<HostReport>, HostError> {
     let refuse = |why: &str| HostError::Value("sites.reload".to_owned(), why.to_owned());
     let mounter = self
@@ -1200,7 +1235,7 @@ impl Host {
         "the host was built with more than a configuration, so its shell cannot be rebuilt from memory; use reload",
       )
     })?;
-    let builder = Host::from_config_with(inputs.config.clone(), inputs.plan.clone(), inputs.contract.clone())?;
+    let builder = Host::from_artifact((**inputs).clone())?;
     self.reload_with(mounter(builder)?)
   }
 
@@ -3756,6 +3791,7 @@ impl HostBuilder {
     if let Some(app) = self.app.take() {
       self.app = Some(f(app));
     }
+    self.hand_built = true;
     self
   }
 
@@ -3781,6 +3817,7 @@ impl HostBuilder {
   where
     T: Transport + DeclaredService + 'static,
   {
+    self.hand_built = true;
     self.rust_services.push(RustService {
       name: T::NAME.to_owned(),
       rust_type: std::any::type_name::<T>().to_owned(),
@@ -4023,7 +4060,14 @@ impl HostBuilder {
 
   /// The configuration this builder was made from.
   pub fn config(&self) -> &Config {
-    &self.config
+    &self.artifact.config
+  }
+
+  /// How the artifact was read, `None` for a builder made from one in memory.
+  /// A sites mounter reads each site through `Loader::mount` on it, so a
+  /// site's secrets decrypt the way the shell's do.
+  pub fn loader(&self) -> Option<&Loader> {
+    self.loader.as_ref()
   }
 
   /// How `Host::reload` rebuilds the tables: a builder for the application as
@@ -4062,14 +4106,11 @@ impl HostBuilder {
       && self.shell.is_none()
       && self.prerendered.is_none()
       && self.identity.is_none()
-      && chosen_csrf.is_none();
-    let shell_inputs = (sites_mounter.is_some() && rebuildable).then(|| {
-      Arc::new(ShellInputs {
-        config: self.config.clone(),
-        plan: self.plan.clone(),
-        contract: self.contract.clone(),
-      })
-    });
+      && chosen_csrf.is_none()
+      && !self.hand_built;
+    let shell_inputs = rebuildable.then(|| Arc::new(self.artifact.clone()));
+    let loader = self.loader.take();
+    let mounted = !self.mounts.is_empty();
     let store = self.store.take();
     let topic_rule = self.topic_rule.take();
     #[cfg(feature = "ws")]
@@ -4150,7 +4191,9 @@ impl HostBuilder {
       #[cfg(feature = "ws")]
       socket_handler,
       reloader,
+      loader,
       shell_inputs,
+      mounted,
       sites_mounter,
       #[cfg(feature = "sites_reload")]
       sites_reload: parking_lot::Mutex::new(()),
@@ -4174,8 +4217,7 @@ impl HostBuilder {
     if let Some(e) = self.pending.take() {
       return Err(e);
     }
-    let config = self.config;
-    let plan = self.plan;
+    let Artifact { config, plan, contract: mut own_contract } = self.artifact;
 
     config.session_ttl()?;
     if !matches!(config.session.store.as_str(), "memory" | "service") {
@@ -4188,7 +4230,7 @@ impl HostBuilder {
 
     let mut service_rows = Vec::new();
     let mut bearer_rows: Vec<(String, String)> = Vec::new();
-    let mut contract = self.contract.clone().unwrap_or_default();
+    let mut contract = own_contract.clone().unwrap_or_default();
     let mut transports: Vec<(String, Arc<dyn Transport>)> = Vec::new();
     let build_clients = self.services.is_none();
     if build_clients {
@@ -4233,7 +4275,7 @@ impl HostBuilder {
       None => None,
     };
     for mount in std::mem::take(&mut self.mounts) {
-      let site = mount.config.site.clone().ok_or_else(|| {
+      let site = mount.artifact.config.site.clone().ok_or_else(|| {
         HostError::Mount(
           mount.name.clone(),
           "the artifact's configuration has no [site] section".to_owned(),
@@ -4256,7 +4298,7 @@ impl HostBuilder {
         ));
       }
       let mut site_manifest =
-        Manifest::from_text(&mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+        Manifest::from_text(&mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       let engine_rows: Vec<String> = site_manifest
         .sources
         .iter()
@@ -4286,7 +4328,7 @@ impl HostBuilder {
           ),
         ));
       }
-      leaks(&mount.config, &mount.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+      leaks(&mount.artifact.config, &mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       let middleware = site_manifest.middleware.take().map(snapfire_fsr::middleware_from);
       graft(&manifest, &mut site_manifest, &shell_module);
       site_manifest.not_found = None;
@@ -4294,14 +4336,14 @@ impl HostBuilder {
       app
         .mount_manifest(&site_manifest.to_json())
         .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
-      if let Some(site_contract) = &mount.contract {
+      if let Some(site_contract) = &mount.artifact.contract {
         contract
           .merge(site_contract.clone(), &format!("site {}", mount.name))
           .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       }
       if build_clients {
         clients_of(
-          &mount.config,
+          &mount.artifact.config,
           self.transport_override.is_none(),
           &mut contract,
           &mut transports,
@@ -4311,12 +4353,12 @@ impl HostBuilder {
         .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       }
       let mut ignored = Vec::new();
-      for root in &mount.config.statics {
+      for root in &mount.artifact.config.statics {
         let route = root.route.trim_end_matches('/').to_owned();
         if route.starts_with(&site.at) && !statics.iter().any(|s| s.route == route) {
           statics.push(StaticRootResolved {
             route,
-            dir: mount.config.resolve(&root.dir),
+            dir: mount.artifact.config.resolve(&root.dir),
           });
         } else {
           ignored.push(format!("static {route}"));
@@ -4325,23 +4367,23 @@ impl HostBuilder {
       for section in ["session", "auth", "locales", "cache"] {
         let set = match section {
           "session" => true,
-          "auth" => mount.config.auth.is_some(),
-          "locales" => mount.config.locales.is_some(),
-          _ => mount.config.cache.is_some(),
+          "auth" => mount.artifact.config.auth.is_some(),
+          "locales" => mount.artifact.config.locales.is_some(),
+          _ => mount.artifact.config.cache.is_some(),
         };
         if set {
           ignored.push(section.to_owned());
         }
       }
-      if let Some(rel) = &mount.config.document.import_map {
-        let path = mount.config.resolve(rel);
+      if let Some(rel) = &mount.artifact.config.document.import_map {
+        let path = mount.artifact.config.resolve(rel);
         let theirs = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
         import_map = Some(merge_import_maps(import_map.as_deref(), &theirs));
       }
       site_reports.push(SiteReport {
         name: mount.name.clone(),
         at: site.at.clone(),
-        artifact: mount.artifact.clone(),
+        artifact: mount.artifact.config.root.clone(),
         version: mount.version.clone(),
         hash: mount.hash.clone(),
         ignored,
@@ -4350,13 +4392,13 @@ impl HostBuilder {
         name: mount.name.clone(),
         at: site.at.clone(),
         middleware,
-        styles: mount.config.document.styles.clone().unwrap_or_default(),
-        entry: mount.config.document.entry.clone(),
+        styles: mount.artifact.config.document.styles.clone().unwrap_or_default(),
+        entry: mount.artifact.config.document.entry.clone(),
       });
     }
     sites.sort_by(|a, b| b.at.len().cmp(&a.at.len()).then(a.at.cmp(&b.at)));
     let app_contract = if site_reports.is_empty() {
-      self.contract.take()
+      own_contract.take()
     } else {
       Some(contract.clone())
     };

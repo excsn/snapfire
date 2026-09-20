@@ -1,14 +1,19 @@
 //! `config/`, loaded through c5store in the order `config_paths` gives so
 //! deployment overlays layer over `app.toml` and `C5_` environment variables
-//! win, plus what the host infers from the app directory so the file only
-//! carries deployment facts.
+//! win, `.c5encval` values decrypted with the keys under `private_keys`, plus
+//! what the host infers from the app directory so the file only carries
+//! deployment facts. `Loader` is how one is read and what a reload rereads.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use c5store::error::ConfigError;
+use c5store::secrets::{Base64SecretDecryptor, EciesX25519SecretDecryptor, SecretKeyStore};
 use c5store::{C5Store, C5StoreOptions, create_c5store};
+pub use c5store::SecretOptions;
+use ecies_25519::EciesX25519;
 use serde::Deserialize;
 
 use snapfire_fsr_runtime::{HeadEl, Meta};
@@ -703,19 +708,135 @@ pub fn locate_with(path: &Path, deployment: &Deployment) -> Result<Located, Host
   Err(HostError::NoConfig(path.to_path_buf()))
 }
 
-impl Config {
-  pub fn load(path: impl AsRef<Path>) -> Result<Self, HostError> {
-    Self::load_located(locate(path.as_ref())?)
+/// The directory of secret keys, beside the configuration files: `config/private_keys` in the stock layout.
+pub const PRIVATE_KEYS: &str = "private_keys";
+
+type SecretsHook = Arc<dyn Fn(&mut SecretOptions) + Send + Sync>;
+
+/// How an artifact is read: the path to locate, the deployment whose ladder
+/// applies, any extra files and how the configuration's secrets decrypt. The
+/// host keeps the one it was built from, so `Host::reload` reads the same way.
+#[derive(Clone)]
+pub struct Loader {
+  path: PathBuf,
+  deployment: Deployment,
+  extras: Vec<PathBuf>,
+  secrets: Option<SecretsHook>,
+}
+
+impl std::fmt::Debug for Loader {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Loader")
+      .field("path", &self.path)
+      .field("deployment", &self.deployment)
+      .field("extras", &self.extras)
+      .field("secrets", &self.secrets.is_some())
+      .finish()
+  }
+}
+
+impl<P: AsRef<Path>> From<P> for Loader {
+  fn from(path: P) -> Self {
+    Loader::at(path)
+  }
+}
+
+impl Loader {
+  /// A loader for `path`, one of the four things `locate` accepts, under the deployment the environment names.
+  pub fn at(path: impl AsRef<Path>) -> Self {
+    Loader {
+      path: path.as_ref().to_path_buf(),
+      deployment: Deployment::from_env(),
+      extras: Vec::new(),
+      secrets: None,
+    }
   }
 
-  /// Loads the files `located` names, in that order, then `C5_` environment variables over them.
-  pub fn load_located(located: Located) -> Result<Self, HostError> {
+  /// The deployment whose ladder is read, over the environment's.
+  pub fn deployment(mut self, deployment: Deployment) -> Self {
+    self.deployment = deployment;
+    self
+  }
+
+  /// One more file, loaded after everything the ladder names; a relative path resolves against the configuration directory.
+  pub fn extra(mut self, path: impl AsRef<Path>) -> Self {
+    self.extras.push(path.as_ref().to_path_buf());
+    self
+  }
+
+  /// Adjusts how `.c5encval` values decrypt, after the defaults are set:
+  /// `base64` and `ecies_x25519` registered, `private_keys` beside the
+  /// configuration files as the key directory when it exists and
+  /// `C5_SECRETKEY_*` variables read as keys.
+  pub fn secrets<F>(mut self, f: F) -> Self
+  where
+    F: Fn(&mut SecretOptions) + Send + Sync + 'static,
+  {
+    self.secrets = Some(Arc::new(f));
+    self
+  }
+
+  /// A loader for an artifact mounted from `path`, reading it under this loader's deployment and secrets and none of its extra files.
+  pub fn mount(&self, path: impl AsRef<Path>) -> Self {
+    Loader {
+      path: path.as_ref().to_path_buf(),
+      deployment: self.deployment.clone(),
+      extras: Vec::new(),
+      secrets: self.secrets.clone(),
+    }
+  }
+
+  pub fn path(&self) -> &Path {
+    &self.path
+  }
+
+  /// The files this loader reads, in order.
+  pub fn locate(&self) -> Result<Located, HostError> {
+    let mut located = locate_with(&self.path, &self.deployment)?;
+    for extra in &self.extras {
+      located = located.extra(extra);
+    }
+    Ok(located)
+  }
+
+  /// The configuration alone: the located files in order, then `C5_` environment variables over them, secrets decrypted.
+  pub fn config(&self) -> Result<Config, HostError> {
+    let located = self.locate()?;
     if located.sources.is_empty() {
       return Err(HostError::NoConfig(located.root.clone()));
     }
-    let (store, _mgr) = create_c5store(located.sources.clone(), Some(C5StoreOptions::default()))
+    let mut options = C5StoreOptions::default();
+    options.secret_opts = self.secret_options(&located.dir);
+    let (store, _mgr) = create_c5store(located.sources.clone(), Some(options))
       .map_err(|e| HostError::Config(located.sources[0].clone(), e.to_string()))?;
-    Self::from_store(&store, located)
+    Config::from_store(&store, located)
+  }
+
+  /// The configuration plus the plan file and the contracts directory it names.
+  pub fn load(&self) -> Result<crate::Artifact, HostError> {
+    crate::Artifact::of(self.config()?)
+  }
+
+  fn secret_options(&self, config_dir: &Path) -> SecretOptions {
+    let mut options = SecretOptions::default();
+    options.secret_key_store_configure_fn = Some(Box::new(|store: &mut SecretKeyStore| {
+      store.set_decryptor("base64", Box::new(Base64SecretDecryptor {}));
+      store.set_decryptor("ecies_x25519", Box::new(EciesX25519SecretDecryptor::new(EciesX25519::new())));
+    }));
+    let keys = config_dir.join(PRIVATE_KEYS);
+    options.secret_keys_path = keys.is_dir().then_some(keys);
+    options.load_secret_keys_from_env = true;
+    if let Some(hook) = &self.secrets {
+      hook(&mut options);
+    }
+    options
+  }
+}
+
+impl Config {
+  /// `Loader::at(path).config()`.
+  pub fn load(path: impl AsRef<Path>) -> Result<Self, HostError> {
+    Loader::at(path).config()
   }
 
   /// The sections out of a store the caller owns, rooted at `root`, with what

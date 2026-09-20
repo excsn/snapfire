@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use snapfire_fsr_core::ModuleId;
-use snapfire_fsr_host::{Config, Host, HostBuilder, HostError};
+use snapfire_fsr_host::{Artifact, Config, Host, HostBuilder, HostError};
 use snapfire_fsr_tera::TeraEvaluator;
 
 mod actions;
@@ -36,7 +36,8 @@ fn templates() -> tera::Tera {
 
 pub fn builder(ticks: state::Ticks, tape: state::Tape) -> Result<HostBuilder, HostError> {
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
-  let builder = Host::from_config_with(config, PLAN.to_owned(), None)?
+  let artifact = Artifact { config, plan: PLAN.to_owned(), contract: None };
+  let builder = Host::from_artifact(artifact)?
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/board", routes::board_plan())
     .route("/news", routes::news_plan())

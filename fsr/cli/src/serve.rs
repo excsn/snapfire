@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use snapfire_fsr_host::config::Config;
 use snapfire_fsr_host::trace::Traces;
-use snapfire_fsr_host::{Host, HostError};
+use snapfire_fsr_host::Host;
 
 use crate::BuildError;
 
@@ -75,7 +75,8 @@ pub fn host_for(app: &Path) -> Result<Host, BuildError> {
 fn host_of(app: &Path, collect: bool) -> Result<(Host, Option<Traces>), BuildError> {
   let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let root = project_root(&given);
-  let config = Config::load(&root).map_err(|e| BuildError::Serve(e.to_string()))?;
+  let builder = Host::from(&root).map_err(|e| BuildError::Serve(e.to_string()))?;
+  let config = builder.config();
   let configured = config.app.canonicalize().unwrap_or_else(|_| config.app.clone());
   if configured != given {
     return Err(BuildError::Serve(format!("{} names {} as the app directory, not {}", root.display(), config.app.display(), given.display())));
@@ -84,12 +85,8 @@ fn host_of(app: &Path, collect: bool) -> Result<(Host, Option<Traces>), BuildErr
     true => snapfire_fsr_host::trace::install(),
     false => None,
   };
-  let builder = Host::from_config(config).map_err(|e| BuildError::Serve(e.to_string()))?;
+  let builder = snapfire_fsr_sites::mountable(builder);
   let builder = snapfire_fsr_sites::mount_all(builder).map_err(|e| BuildError::Serve(e.to_string()))?;
-  let host = builder
-    .traces(traces.clone())
-    .reloader(move || snapfire_fsr_sites::mount_all(Host::from(&root)?).map_err(|e| HostError::Value("sites".to_owned(), e.to_string())))
-    .build()
-    .map_err(|e| BuildError::Serve(e.to_string()))?;
+  let host = builder.traces(traces.clone()).build().map_err(|e| BuildError::Serve(e.to_string()))?;
   Ok((host, traces))
 }

@@ -8,16 +8,14 @@ The question this chapter answers: what changes when the application changes und
 
 The host keeps the plan, the contracts, the clients, the document head, the static roots, the locales and the identity flow in one structure a request takes once at the edge and keeps for its lifetime. Nothing a request reads can change halfway through it. The sessions are the exception: the store that holds every signed-in user lives beside the tables, not in them.
 
-That split is what makes a reload cheap. `Host::reload` rebuilds the tables through a reloader the builder was given, runs every check a boot runs, then swaps the pointer. A request in flight finishes on the tables it started with; the next one sees the new ones; a rebuild that fails leaves the old ones serving. The sessions never notice.
+That split is what makes a reload cheap. `Host::reload` reads the artifact again through the loader the host was built from, runs every check a boot runs, then swaps the pointer. A request in flight finishes on the tables it started with; the next one sees the new ones; a rebuild that fails leaves the old ones serving. The sessions never notice.
 
 ```rust
-let host = Host::from(".")?
-  .reloader(|| Host::from("."))
-  .build()?;
+let host = Host::from(".")?.build()?;
 let report = host.reload()?;
 ```
 
-The reloader is a builder for the application as it now stands on disk, with whatever the first builder added in Rust added again. `fsr serve` sets one that rereads the project; a Rust binary sets its own or hands `reload_with` a builder it made.
+That is enough for a host built from a configuration alone, which `fsr serve` is. A Rust binary that added services, a store, an evaluator or a mount by hand cannot be rebuilt by a reread, since the reread would drop them; it gives the builder a reloader, a builder for the application as it now stands with those added again. `reload_with` takes such a builder made on the spot.
 
 ## What is refused
 
@@ -37,4 +35,4 @@ Everything else a boot refuses, a reload refuses the same way: a name nothing bi
 
 ## The lab
 
-Run the portal with `fsr dev app` from `examples/portal_react_ts`, sign in, then change a line of `routes/page.tsx` and save. Watch the loop print a fresh boot report without a `dev: server started` line, reload the page and see the new text with your sign-in intact: the portal's binary sets a reloader, so the loop reloaded it in place. Then change `session.key` in `config/app.toml`: the loop prints `reload refused` and restarts and the next request is anonymous, since the old cookie no longer verifies. The ops console restarts on every generated change instead, because its binary sets no reloader; add one and it stops.
+Run the portal with `fsr dev app` from `examples/portal_react_ts`, sign in, then change a line of `routes/page.tsx` and save. Watch the loop print a fresh boot report without a `dev: server started` line, reload the page and see the new text with your sign-in intact: the portal's binary adds nothing to its configuration, so the loop had the host reread it in place. Then change `session.key` in `config/app.toml`: the loop prints `reload refused` and restarts and the next request is anonymous, since the old cookie no longer verifies. The ops console restarts on every generated change instead, because its binary registers extensions and sets no reloader; add one and it stops.

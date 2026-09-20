@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use snapfire_fsr_host::config::Config;
-use snapfire_fsr_host::{Host, HostBuilder, HostError, Mount};
+use snapfire_fsr_host::{Host, HostBuilder, HostError, Loader, Mount};
 
 pub mod artifact;
 pub mod install;
@@ -104,12 +104,18 @@ pub fn mountable(builder: HostBuilder) -> HostBuilder {
   builder.sites_mounter(|builder| mount_all(builder).map_err(|e| HostError::Value("sites".to_owned(), e.to_string())))
 }
 
-/// Mounts every site the builder's configuration names.
+/// Mounts every site the builder's configuration names, each read through
+/// `Loader::mount` on the builder's loader so its secrets decrypt the way the
+/// shell's do; `Loader::at` when the builder has none.
 pub fn mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError> {
   let resolved = resolve(builder.config())?;
   let mut builder = builder;
   for site in resolved {
-    let mount = Mount::load(&site.name, &site.artifact, &site.version, &site.hash, site.allow_engine)?;
+    let loader = match builder.loader() {
+      Some(shell) => shell.mount(&site.artifact),
+      None => Loader::at(&site.artifact),
+    };
+    let mount = Mount::new(&site.name, &site.version, &site.hash, site.allow_engine, loader.load()?);
     builder = builder.mount(mount);
   }
   Ok(builder)

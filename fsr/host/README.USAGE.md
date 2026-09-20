@@ -49,6 +49,8 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **App directory** is `[app] dir` under the project root, `app` by default; every path in the configuration and everything inferred resolves against it.
 * **Config directory** is `config/`. The host loads a fixed ladder out of it through c5store, `app.toml` first and the deployment overlays after it, later files overriding earlier ones, then `C5_` environment variables over all of them. A file the ladder does not name is not read.
 * **Deployment** is three environment variables: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (unset by default). Each names an overlay file.
+* **Loader** is how an artifact is read: the path, the deployment, extra files and how a `.c5encval` secret decrypts. `Host::from` takes one in place of a path and keeps it, so `reload` reads the same way.
+* **Artifact** is what was read: the configuration, the plan and the contracts. A `Mount` carries one and `Host::from_artifact` builds over one made in memory.
 * **Plan file** is `generated/plan.sexp`, written by `fsr build`, with routes and lowered bodies. A `plan.json` from an older build still reads: the reader tells the two apart by the file's first term.
 * **Contracts** are `generated/contracts/*.json`, the same build's output, one file per client document plus `schemas.json`; the host merges them at boot, refusing a type or service two files define, then checks a lowered action's input against the result.
 * **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document and gRPC for a `.proto`.
@@ -201,16 +203,38 @@ So `config/production.toml` is read when `APP_ENV=production` and ignored otherw
 APP_ENV=production C5_SERVER__LISTEN=0.0.0.0:80 C5_SESSION__KEY=... ./shop
 ```
 
-A file the ladder does not name, a path from a flag or a secrets file mounted elsewhere, goes on the end with `Located::extra`; a relative path resolves against the config directory.
+`Host::from` takes a path or a `Loader`, which is the path plus how to read it: the deployment whose ladder applies, extra files and how secrets decrypt. A file the ladder does not name, a path from a flag or a secrets file mounted elsewhere, goes on the end with `extra`; a relative path resolves against the config directory.
 
 ```rust
-use snapfire_fsr_host::config::locate;
+use snapfire_fsr_host::{Host, Loader};
 
-let located = locate(Path::new("."))?.extra("/run/secrets/shop.toml");
-let host = Host::from_located(located)?.build()?;
+let loader = Loader::at(".").extra("/run/secrets/shop.toml");
+let host = Host::from(loader)?.build()?;
 ```
 
-The report prints which files were read in order and what was inferred.
+The report prints which files were read in order and what was inferred. The host keeps the loader, so `reload` reads the same files the same way.
+
+### A secret in the file
+
+A value that must not sit in the clear is written as a c5store `.c5encval`, a three-element array naming the decryptor, the key and the base64 ciphertext, in any file on the ladder. `c5cli` writes one into a TOML, YAML or JSON file. The host decrypts it while loading, so `session.key` below is the plain string by the time the configuration is read:
+
+```toml
+[session]
+key = { ".c5encval" = ["ecies_x25519", "app", "iQv4jONnOQvzIXqk...=="] }
+```
+
+The key named `app` is `config/private_keys/app.pem`, the file's name less its last extension. A container that mounts no directory sets `C5_SECRETKEY_APP` to the key base64 encoded instead. `ecies_x25519` and `base64` are the decryptors registered. A value that names a key or a decryptor the host does not have decrypts to nothing and the load fails on the section that held it.
+
+A Rust host that wants a different key directory, another decryptor or no environment keys adjusts the options after those defaults are set:
+
+```rust
+let loader = Loader::at(".").secrets(|s| {
+  s.secret_keys_path = Some("/run/keys".into());
+  s.load_secret_keys_from_env = false;
+});
+```
+
+`fsr serve` reads with the defaults and has no hook, so a project served by it keeps its keys in `config/private_keys` or the environment.
 
 ## Serving with hyper
 
@@ -790,17 +814,26 @@ services  fleet                  mock        clients/fleet.mock.json
 
 ## Reloading the Application in Place
 
-Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them through the reloader the builder was given, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone.
+Everything a request reads, the plan, the contracts, the clients, the head, the static roots, the locales and the identity flow, is one set of tables the host swaps whole. `reload` rebuilds them, checks them the way a boot does and swaps them in; a request already running finishes on the tables it started with, the next one sees the new ones. The sessions are not part of the tables, so every signed-in user stays signed in across a reload and a reload whose `[session]` settings differ from the running ones is refused and leaves the tables alone.
+
+A host built from a configuration alone reloads by reading its artifact again through the loader `Host::from` kept, sites mounter included:
 
 ```rust
-let host = Host::from(".")?
-  .reloader(|| Host::from(".").map(|b| b.source_override("catalog", catalog)))
-  .build()?;
+let host = Host::from(".")?.build()?;
 let report = host.reload()?;
 print!("{report}");
 ```
 
-The reloader is a builder for the application as it now stands, with whatever the first builder added in Rust added again. `fsr serve` sets one that rereads the project and `fsr dev` asks for it after a change to the generated files instead of restarting the process. A Rust host with no reloader is reloaded with a builder it made itself, `reload_with`.
+A host given services, a session store, a CSRF scheme, an evaluator, an identity provider, a prerendered directory or a mount by hand cannot be rebuilt from the artifact, since a reread would drop them; it names a reloader, a builder for the application as it now stands with those added again:
+
+```rust
+let host = Host::from(".")?
+  .source_override("catalog", catalog.clone())
+  .reloader(move || Host::from(".").map(|b| b.source_override("catalog", catalog.clone())))
+  .build()?;
+```
+
+`fsr serve` reloads through its loader and `fsr dev` asks for it after a change to the generated files instead of restarting the process. A host built from an `Artifact` in memory has no loader and reloads only through a reloader or with a builder the caller made, `reload_with`.
 
 ## Serving a Site
 
@@ -827,13 +860,14 @@ Nothing in a site's own code knows it is one: routes are written as `routes/invo
 The host mounts a site from its artifact, the project directory a site's build leaves behind with `config/` beside `app/` and serves it under the site's prefix with the shell's root layout wrapped around it. One document, one session, one navigation across the shell and every site.
 
 ```rust
-use snapfire_fsr_host::{Host, Mount};
+use snapfire_fsr_host::{Host, Loader, Mount};
 
-let billing = Mount::load("billing", "/srv/sites/billing/1.4.2", "1.4.2", "3a098783bbb3ebc5", false)?;
-let host = Host::from(".")?.mount(billing).build()?;
+let shell = Loader::at(".");
+let billing = Mount::new("billing", "1.4.2", "3a098783bbb3ebc5", false, shell.mount("/srv/sites/billing/1.4.2").load()?);
+let host = Host::from(shell)?.mount(billing).build()?;
 ```
 
-What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default` or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash and one more naming what was ignored.
+`Loader::mount` reads the site under the shell's deployment and with the shell's secrets options, so a site's own `config/private_keys` and the same decryptors apply to it. What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default` or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash and one more naming what was ignored.
 
 A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table.
 

@@ -118,7 +118,7 @@ Module constants: `CONFIG` is `"config"`, `APP` is `"app"`, `SERVE` is `"serve"`
 
 ### mount_all
 
-* `mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError>`: `resolve` over the builder's configuration, then `Mount::load` and `HostBuilder::mount` for each.
+* `mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError>`: `resolve` over the builder's configuration, then for each site `Loader::mount` on the builder's loader (`Loader::at` when it has none), `load` and `HostBuilder::mount`.
 
 ## 5. Watching
 

@@ -27,7 +27,9 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | --- | --- |
 | Start from a project root, its `config/` or one file | `Host::from`, `Host::from_cwd` |
 | Override a setting per deployment | `config/<APP_ENV>.toml`, `config/<RELEASE_ENV>.toml`, `config/<APP_REGION>.toml` or `C5_SERVER__LISTEN` |
-| Load one more file the ladder does not name | `config::locate` then `Located::extra`, `Host::from_located` |
+| Load one more file the ladder does not name | `Loader::at(root).extra(path)`, then `Host::from(loader)` |
+| Keep `session.key` or a bearer key out of the file in the clear | a `.c5encval` value with its key under `config/private_keys` or `C5_SECRETKEY_<name>`; `Loader::secrets` to change how it decrypts |
+| Reload the tables after a deploy | `Host::reload`, through the loader `Host::from` kept or a `reloader` |
 | Serve with nothing but this crate | `Host::serve` |
 | Mount inside an axum or tower stack | `Host::service`, a `tower::Service` |
 | Serve with actix | the `actix` feature, `actix::serve` or `actix::handle` |

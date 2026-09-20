@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use snapfire_fsr_core::{ModuleId, Value};
-use snapfire_fsr_host::{Config, Host, HostBuilder, HostError};
+use snapfire_fsr_host::{Artifact, Config, Host, HostBuilder, HostError};
 use snapfire_fsr_tera::TeraEvaluator;
 
 /// No plan file: every route, source and action is bound in Rust.
@@ -44,7 +44,8 @@ pub fn builder(chart_delay: Duration) -> Result<HostBuilder, HostError> {
   let renders = state::Renders::default();
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
   let counting = renders.clone();
-  let builder = Host::from_config_with(config, EMPTY_PLAN.to_owned(), None)?
+  let artifact = Artifact { config, plan: EMPTY_PLAN.to_owned(), contract: None };
+  let builder = Host::from_artifact(artifact)?
     .service(Arc::new(fleet))
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/dash/{section}", routes::dash_plan())

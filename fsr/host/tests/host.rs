@@ -610,7 +610,7 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
 
 #[test]
 fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
-  use snapfire_fsr_host::config::{Config, Deployment, config_paths, locate_with};
+  use snapfire_fsr_host::config::{Deployment, Loader, config_paths};
 
   let root = std::env::temp_dir().join(format!("fsr-host-ladder-{}-{}", std::process::id(), rand_suffix()));
   let dir = root.join("config");
@@ -646,7 +646,7 @@ fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
     ["app.toml", "staging.toml", "local.yaml", "eu.toml", "local-eu.toml"]
   );
 
-  let config = Config::load_located(locate_with(&root, &deployment).unwrap()).unwrap();
+  let config = Loader::at(&root).deployment(deployment.clone()).config().unwrap();
   assert_eq!(
     config.document.title, "Local",
     "the app env overlay loads after the release env overlay"
@@ -654,14 +654,14 @@ fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
   assert_eq!(config.session.ttl, "4h", "the env-region file loads last");
   assert_eq!(config.sources.len(), 5);
 
-  let config = Config::load_located(locate_with(&root, &Deployment::default()).unwrap()).unwrap();
+  let config = Loader::at(&root).deployment(Deployment::default()).config().unwrap();
   assert_eq!(config.document.title, "Local");
   assert_eq!(
     config.session.ttl, "1h",
     "no region and no development.toml, so app.toml's value stands"
   );
 
-  let config = Config::load_located(locate_with(&root, &deployment).unwrap().extra("../override.toml")).unwrap();
+  let config = Loader::at(&root).deployment(deployment).extra("../override.toml").config().unwrap();
   assert_eq!(
     config.document.title, "Extra",
     "an extra file loads last, relative to the config directory"
@@ -2426,7 +2426,7 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
 
   let (plain, _) = self::host();
   let none = plain.reload().unwrap_err().to_string();
-  assert!(none.contains("no reloader"), "{none}");
+  assert!(none.contains("more than a configuration") && none.contains("reloader"), "{none}");
 }
 
 /// The route trims a trailing slash off the public path and the entry has to
@@ -2601,7 +2601,7 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
       .returns("shop.list", Value::seq(vec![Value::str("a")]))
       .returns("shop:shop.list", Value::seq(vec![Value::str("b")])),
   );
-  let mount = snapfire_fsr_host::Mount::load("shop", site, "dev", "deadbeef", false).unwrap();
+  let mount = snapfire_fsr_host::Mount::new("shop", "dev", "deadbeef", false, snapfire_fsr_host::Loader::at(site).load().unwrap());
   let host = Host::from(shell_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -2758,7 +2758,7 @@ async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middlew
 #[test]
 fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_is_a_site() {
   let site = site_dir();
-  let mount = snapfire_fsr_host::Mount::load("billing", &site, "dev", "-", false).unwrap();
+  let mount = snapfire_fsr_host::Mount::new("billing", "dev", "-", false, snapfire_fsr_host::Loader::at(&site).load().unwrap());
   let e = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .mount(mount)
@@ -2772,7 +2772,7 @@ fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_
   json["sources"][0]["owner"] = serde_json::Value::String("engine".to_owned());
   json["sources"][0]["export"] = serde_json::Value::String("load".to_owned());
   write_plan_value(&site, json);
-  let mount = snapfire_fsr_host::Mount::load("shop", &site, "dev", "-", false).unwrap();
+  let mount = snapfire_fsr_host::Mount::new("shop", "dev", "-", false, snapfire_fsr_host::Loader::at(&site).load().unwrap());
   let e = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .mount(mount)
@@ -4607,4 +4607,105 @@ async fn signing_in_rotates_the_csrf_token() {
   assert_eq!(host.handle(logout(&before)).await.status(), StatusCode::FORBIDDEN, "a token learned before sign-in is worthless after");
   let after = fresh_token(&host, &cookie).await;
   assert_eq!(host.handle(logout(&after)).await.status(), StatusCode::SEE_OTHER);
+}
+
+mod secrets {
+  use super::*;
+  use snapfire_fsr_host::Loader;
+
+  const ENCRYPTED_KEY: &str = r#"key = { ".c5encval" = ["base64", "app", "dGVzdC1rZXk="] }"#;
+
+  fn encrypted_dir() -> PathBuf {
+    let dir = app_dir();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("key = \"test-key\"", ENCRYPTED_KEY)).unwrap();
+    dir
+  }
+
+  #[test]
+  fn a_c5encval_in_the_configuration_decrypts_with_a_key_beside_it() {
+    let dir = encrypted_dir();
+    std::fs::create_dir_all(dir.join("private_keys")).unwrap();
+    std::fs::write(dir.join("private_keys/app.txt"), "unused by base64").unwrap();
+    let builder = Host::from(dir.join("app.toml")).unwrap();
+    assert_eq!(builder.config().session.key, "test-key");
+    builder.build().unwrap();
+  }
+
+  #[test]
+  fn a_value_with_no_key_to_decrypt_it_fails_the_load() {
+    let dir = encrypted_dir();
+    let err = match Host::from(dir.join("app.toml")) {
+      Ok(_) => panic!("loaded without a key"),
+      Err(e) => e.to_string(),
+    };
+    assert!(err.contains("session"), "{err}");
+  }
+
+  #[test]
+  fn the_secrets_hook_names_another_key_directory() {
+    let dir = encrypted_dir();
+    let elsewhere = dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("app.txt"), "unused by base64").unwrap();
+    let keys = elsewhere.clone();
+    let loader = Loader::at(dir.join("app.toml")).secrets(move |s| s.secret_keys_path = Some(keys.clone()));
+    assert_eq!(loader.config().unwrap().session.key, "test-key");
+    assert!(Loader::at(dir.join("app.toml")).config().is_err(), "the default key directory does not exist");
+  }
+
+  #[test]
+  fn a_mount_loader_carries_the_shell_s_secrets_and_none_of_its_extra_files() {
+    let shell = app_dir();
+    std::fs::write(shell.join("extra.toml"), "[document]\ntitle = \"Extra\"\n").unwrap();
+    let site = encrypted_dir();
+    let keys = shell.join("keys");
+    std::fs::create_dir_all(&keys).unwrap();
+    std::fs::write(keys.join("app.txt"), "unused by base64").unwrap();
+    let loader = Loader::at(shell.join("app.toml"))
+      .extra("extra.toml")
+      .secrets(move |s| s.secret_keys_path = Some(keys.clone()));
+    assert_eq!(loader.config().unwrap().document.title, "Extra");
+    let mounted = loader.mount(site.join("app.toml")).config().unwrap();
+    assert_eq!(mounted.session.key, "test-key");
+    assert_eq!(mounted.document.title, "Test <app>");
+  }
+}
+
+mod reload_paths {
+  use super::*;
+
+  #[test]
+  fn a_host_with_no_reloader_rereads_its_artifact() {
+    let dir = app_dir();
+    let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+    let patterns = |host: &Host| host.report().app.routes.iter().map(|r| r.0.clone()).collect::<Vec<_>>();
+    assert!(!patterns(&host).contains(&"/reread".to_owned()));
+    let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+    json["routes"].as_array_mut().unwrap().push(serde_json::json!(
+      { "pattern": "/reread", "plan": { "id": 0, "module": "shell#document", "children": [
+        { "slot": "content", "node": { "id": 1, "module": "routes/feed/page.tsx#default" } } ] } }
+    ));
+    write_plan_value(&dir, json);
+    host.reload().unwrap();
+    assert!(patterns(&host).contains(&"/reread".to_owned()), "{:?}", patterns(&host));
+  }
+
+  #[test]
+  fn a_host_given_services_and_no_reloader_refuses_to_reload_by_name() {
+    let dir = app_dir();
+    let transport = Arc::new(MockTransport::new());
+    let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+    let e = host.reload().unwrap_err().to_string();
+    assert!(e.contains("more than a configuration") && e.contains("reloader"), "{e}");
+  }
+
+  #[test]
+  fn a_host_from_an_artifact_in_memory_refuses_to_reload_by_name() {
+    let dir = app_dir();
+    let config = snapfire_fsr_host::Config::load(dir.join("app.toml")).unwrap();
+    let host = Host::from_config(config).unwrap().build().unwrap();
+    let e = host.reload().unwrap_err().to_string();
+    assert!(e.contains("in memory") && e.contains("reloader"), "{e}");
+  }
 }

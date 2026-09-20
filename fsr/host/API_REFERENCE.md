@@ -8,6 +8,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [Deployment](#deployment)
   * [config_paths](#config_paths)
   * [locate and Located](#locate-and-located)
+  * [Loader](#loader)
   * [Config](#config)
   * [AppSection](#appsection)
   * [ServerConfig](#serverconfig)
@@ -30,6 +31,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [SitesSection](#sitessection)
   * [parse_duration](#parse_duration)
 * [2. Building](#2-building)
+  * [Artifact](#artifact)
   * [Host::from](#hostfrom)
   * [HostBuilder](#hostbuilder)
 * [3. The Host](#3-the-host)
@@ -79,11 +81,23 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `pub struct Located { pub sources: Vec<PathBuf>, pub dir: PathBuf, pub root: PathBuf }`
 * `Located::extra(self, path: impl AsRef<Path>) -> Self` appends one file, a relative path joined onto `dir`.
 
+### Loader
+
+* `pub struct Loader { .. }`: how an artifact is read, the path to locate, the deployment whose ladder applies, extra files and how secrets decrypt. `Clone` and `Debug`. `From<P: AsRef<Path>>` is `Loader::at`, so `Host::from` takes either.
+* `Loader::at(path: impl AsRef<Path>) -> Loader`: `path` is one of the four things `locate` accepts, under `Deployment::from_env()`.
+* `deployment(self, deployment: Deployment) -> Self`: the ladder to read, over the environment's.
+* `extra(self, path: impl AsRef<Path>) -> Self`: one more file after the ladder, as `Located::extra`.
+* `secrets<F>(self, f: F) -> Self where F: Fn(&mut SecretOptions) + Send + Sync + 'static`: adjusts c5store's `SecretOptions` after the defaults are set. The defaults register the `base64` and `ecies_x25519` decryptors, set `secret_keys_path` to `private_keys` beside the configuration files when that directory exists (`config/private_keys` in the stock layout, the `PRIVATE_KEYS` constant) and turn `load_secret_keys_from_env` on, so `C5_SECRETKEY_<name>` holds a base64 key under the lowercased `<name>`. `SecretOptions` is re-exported from `config`.
+* `mount(&self, path: impl AsRef<Path>) -> Loader`: a loader for an artifact mounted from `path` under this loader's deployment and secrets, with none of its extra files. What `snapfire_fsr_sites::mount_all` reads each site through.
+* `path(&self) -> &Path`.
+* `locate(&self) -> Result<Located, HostError>`: `locate_with` under the deployment, the extras appended.
+* `config(&self) -> Result<Config, HostError>`: `NoConfig` when nothing was located; otherwise c5store over the sources in that order with the secrets options above, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `Config::from_store`. A `.c5encval` whose decryptor or key is missing decrypts to nothing, so the section holding it fails to read and the error names the section.
+* `load(&self) -> Result<Artifact, HostError>`: `config`, then `Artifact::of`.
+
 ### Config
 
 * `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub public: BTreeMap<String, PublicValue>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store.
-* `Config::load(path) -> Result<Config, HostError>`: `locate`, then `load_located`.
-* `Config::load_located(located: Located) -> Result<Config, HostError>`: `NoConfig` when `sources` is empty; otherwise c5store over the sources in that order with default options, later files overriding, then `C5_*` environment variables with `__` as the level separator, then `from_store`.
+* `Config::load(path) -> Result<Config, HostError>`: `Loader::at(path).config()`.
 * `Config::from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Config, HostError>`: the same over a store the caller loaded and a root it names, for an application running the host inside itself: `Config::from_store_at(&store.branch("fsr"), root)`. Nothing here reads the filesystem for configuration.
 * `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site`, `sites` and `public`, leaving any other top-level key alone and naming it in `ignored`, requires `session`, refuses a `public` value that is not a scalar or a `public` key that is not an identifier, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, under the site's prefix when `site` is set, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
@@ -206,13 +220,17 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ## 2. Building
 
+### Artifact
+
+* `pub struct Artifact { pub config: Config, pub plan: String, pub contract: Option<Contract> }`: a built application as the host reads it. `Clone` and `Debug`.
+* `Artifact::of(config: Config) -> Result<Artifact, HostError>`: reads the plan file and the contracts directory the configuration names, the latter merged with `Contract::merge` file by file when it exists; `Io` for a plan that does not read.
+
 ### Host::from
 
-* `Host::from(path: impl AsRef<Path>) -> Result<HostBuilder, HostError>` locates and loads the configuration per `locate`, then the plan file and the contracts directory when it exists, merged with `Contract::merge` file by file.
+* `Host::from(loader: impl Into<Loader>) -> Result<HostBuilder, HostError>`: `loader.load()`, then `from_artifact`, keeping the loader on the builder so `Host::reload` reads the artifact again the same way. A path is `Loader::at(path)`.
 * `Host::from_cwd() -> Result<HostBuilder, HostError>` is `Host::from(".")`.
-* `Host::from_located(located: config::Located) -> Result<HostBuilder, HostError>` is `Host::from_config(Config::load_located(located)?)`.
-* `Host::from_config(config: Config) -> Result<HostBuilder, HostError>`: reads the plan file and the contracts directory the configuration names, then `from_config_with`.
-* `Host::from_config_with(config: Config, plan: String, contract: Option<Contract>) -> Result<HostBuilder, HostError>`: over a plan file and a contract already in memory, which is how `fsr test` renders a route a spec loads.
+* `Host::from_config(config: Config) -> Result<HostBuilder, HostError>` is `from_artifact(Artifact::of(config)?)`.
+* `Host::from_artifact(artifact: Artifact) -> Result<HostBuilder, HostError>`: over an artifact already in memory, which is how `fsr test` renders a route a spec loads. `Config` naming the plan when `server.render` is neither `rust` nor `islands`. No loader is kept, so the host reloads only through a reloader or `reload_with`.
 
 ### HostBuilder
 
@@ -233,8 +251,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `pub fn traces(self, traces: Option<trace::Traces>) -> Self`: the collector this host serves `/__fsr/traces` from under development. What [`trace::install`](#installing) and its siblings return goes here.
 * `island_handler<F, Fut>(self, module: impl Into<String>, name: impl Into<String>, f: F) -> Self where F: Fn(RequestCtx, IslandEvent) -> Fut, Fut: Future<Output = Result<Value, ActionError>>`: one handler of an island a template renders. `module` is what the placement names and `name` what its markup binds with `data-sf-on="click:<name>"`; the handler answers with the state the module is rendered from next. The boot report lists each as an `islands` row, `<module> <name>`.
 * `route`, `route_override`, `not_found`, `handler`, `handler_override`, `middleware`, `middleware_override`, `source`, `source_override`, `source_impl`, `action`, `action_override`, `evaluator`, `native`: the `snapfire_fsr::AppBuilder` methods with the same signatures. `native(name, Arc<dyn Native>)` registers the application's own Rust under the name a body reaches it with, `ctx.native.<name>.<method>()`.
-* `mount(self, mount: Mount) -> Self`: mounts a site, see `Mount`. `config(&self) -> &Config`: the configuration the builder was made from.
-* `reloader<F>(self, f: F) -> Self where F: Fn() -> Result<HostBuilder, HostError> + Send + Sync + 'static`: how `Host::reload` rebuilds the tables, a builder for the application as it now stands on disk with whatever this builder was given added again.
+* `mount(self, mount: Mount) -> Self`: mounts a site, see `Mount`. `config(&self) -> &Config`: the configuration the builder was made from. `loader(&self) -> Option<&Loader>`: how the artifact was read, `None` for a builder made from an `Artifact` in memory.
+* `reloader<F>(self, f: F) -> Self where F: Fn() -> Result<HostBuilder, HostError> + Send + Sync + 'static`: how `Host::reload` rebuilds the tables, a builder for the application as it now stands on disk with whatever this builder was given added again. Needed only by a host that cannot be rebuilt from its artifact; see `reload`.
 * `build(self) -> Result<Host, HostError>`: with the `tera` feature, reads every `.tera` under the app outside `vendor/`, `dist/`, `generated/`, `node_modules/`, `tests/` and `types/` into one `Tera` through `tera::evaluator`, each named by its path under the app with the markers registered. It registers that for every module `is_template_module` matches unless an evaluator given to `evaluator` already answers `.tera`; after the app is built, every template module a route, intercept or not-found plan names is checked, `Uncovered` when no evaluator answers it and `TemplateMissing` when the stock one does but read no template of that name. Reads `<app>/locales/*.toml` into the app's catalogs through `locale::load_catalogs`, a file that does not read or a message that is not a string, number or boolean being `HostError::Config`; imports the clients, builds the registry with trace and identity interceptors plus one `CredentialInterceptor::bearer(key).only(clients)` per custody key the clients' `bearer` name, mounts the provider (`DevProvider::from_toml` for `file`, `HostError::Config` naming the file when it cannot be read), registers the shell for the document module and `NullEvaluator` for the rest after any evaluators given, applies the contract, builds the app under the binding rule, refuses a bundle that carries a server module (`HostError::Leak`, see below), then the session layer and the static roots. Everything but the session layer is the host's tables, swapped whole by `reload`.
 
 ## 3. The Host
@@ -244,7 +262,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `pub struct Host { .. }`: the tables a request reads, the app, the head, the static roots, the prerender directory, the locales, the identity flow and the report, behind one swappable pointer, plus the sessions, which outlive a reload. A request takes the tables once at the edge and keeps them for its lifetime.
 * `report(&self) -> Arc<HostReport>`: what the host bound, as of the last reload; `listen(&self) -> &str`, the configured address.
 * `locales(&self) -> Locales`: the locales the host serves and how it resolves a request's.
-* `reload(&self) -> Result<Arc<HostReport>, HostError>`: rebuilds the tables through the builder's `reloader`, checks them the way `build` does and swaps them in; a request in flight finishes on the tables it started with. `Value("reload", ..)` without a reloader; `Value("session", ..)` when the new configuration's `[session]` differs from the one the running sessions were built from, since the store outlives the reload and the tables are left alone. Calls `changed` on success.
+* `reload(&self) -> Result<Arc<HostReport>, HostError>`: rebuilds the tables, checks them the way `build` does and swaps them in; a request in flight finishes on the tables it started with. With a `reloader`, the builder it returns is the rebuild. Without one, the artifact is read again through the loader `Host::from` kept and the `sites_mounter` runs over the builder, which rebuilds a host given nothing but a configuration; `Value("reload", ..)` names the reloader when the host was built from an `Artifact` in memory, when its builder was given services, a session store, a CSRF scheme, an evaluator, an identity provider or a prerendered directory, when anything was registered on the app by hand and when a `Mount` was given by hand with no `sites_mounter`, since a reread would drop each of those. `Value("session", ..)` when the new configuration's `[session]` differs from the one the running sessions were built from, since the store outlives the reload and the tables are left alone. Calls `changed` on success.
 * `reload_with(&self, builder: HostBuilder) -> Result<Arc<HostReport>, HostError>`: `reload` over a builder the caller made.
 * `pub type Reloader = Box<dyn Fn() -> Result<HostBuilder, HostError> + Send + Sync>`.
 * `catalogs(&self) -> Option<Arc<Catalogs>>`: the message catalogs loaded from `locales/`, `None` when the directory holds none. A document embeds the request locale's merged table as `<script type="application/json" data-sf-i18n="<tag>">`; a payload carries it as a `D` row unless the request's `x-sf-catalog` header names that locale.
@@ -300,8 +318,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### Mount
 
-* `pub struct Mount { pub name: String, pub artifact: PathBuf, pub version: String, pub hash: String, pub allow_engine: bool, pub config: Config, pub plan: String, pub contract: Option<Contract> }`: a site's artifact as the host mounts it, its configuration read through the shell's ladder, its plan and contracts as its build wrote them. Where it came from is the caller's business; `artifact`, `version` and `hash` reach the report.
-* `Mount::load(name, artifact: impl Into<PathBuf>, version, hash, allow_engine: bool) -> Result<Mount, HostError>`: reads the artifact at `artifact`, a project directory with its `config/` beside its app, the way `Host::from` reads one.
+* `pub struct Mount { pub name: String, pub version: String, pub hash: String, pub allow_engine: bool, pub artifact: Artifact }`: a site's artifact as the host mounts it, read from its directory by `Loader::mount` on the shell's loader or a loader of the caller's own. Where it came from is the caller's business; `artifact.config.root`, `version` and `hash` reach the report.
+* `Mount::new(name, version, hash, allow_engine: bool, artifact: Artifact) -> Mount`.
 * At `build`, a mount is refused (`HostError::Mount`) when its configuration has no `[site]` or names another site, when its prefix is already served, when it carries engine-owned rows without `allow_engine` or when its bundle carries a server module. Otherwise its routes and intercepts are nested under the shell's `routes/layout.tsx#default` or under the document when the shell has none, with ids renumbered; its sources, actions, components and handlers join the shell's tables; its contract is merged; its clients register under `<name>:<client>` with their bearer keys; its static roots under its prefix are served and the rest listed as ignored, with `session` and `auth`, `locales` and `cache` when set; its import map entries the shell lacks are added; its middleware is held apart, see `handle`; its stylesheets and entry module join the head on its routes.
 
 ### Locales

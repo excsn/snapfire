@@ -16,7 +16,7 @@
 * **Layout.** Where each file of a tree goes, derived from what the file is rather than from where it sat in the project. A configured path is never joined onto the tree root, so nothing a configuration says can place a file outside it.
 * **Table.** The `[sites]` section of the shell's configuration: one `[sites.<name>]` per mounted site, a `root` versions resolve under and a `poll` interval.
 * **Hash.** xxh3 over the artifact's listing, each file's path, size and sha256 in path order. Over the listing rather than the bytes, so a manifest alone yields it. The table may pin it; a directory whose hash differs is refused.
-* **Reread.** The host rebuilds its tables through its reloader; this crate asks for it on `SIGHUP` and when a poll finds the table resolving differently from last time.
+* **Reread.** The host rebuilds its tables through the loader it was built from, mounting the sites again on the way; this crate asks for it on `SIGHUP` and when a poll finds the table resolving differently from last time.
 
 ## Quick Start
 
@@ -25,13 +25,8 @@ use std::sync::Arc;
 use snapfire_fsr_host::{Config, Host};
 
 let root = std::path::PathBuf::from(".");
-let builder = snapfire_fsr_sites::mount_all(Host::from(&root)?)?;
-let reload_root = root.clone();
-let host = Arc::new(
-  builder
-    .reloader(move || snapfire_fsr_sites::mount_all(Host::from(&reload_root)?).map_err(|e| snapfire_fsr_host::HostError::Value("sites".to_owned(), e.to_string())))
-    .build()?,
-);
+let builder = snapfire_fsr_sites::mount_all(snapfire_fsr_sites::mountable(Host::from(&root)?))?;
+let host = Arc::new(builder.build()?);
 let poll = Config::load(&root).ok().and_then(|c| snapfire_fsr_sites::poll_of(&c));
 snapfire_fsr_sites::watch(host.clone(), root, poll);
 host.serve("127.0.0.1:8100").await?;

@@ -252,7 +252,12 @@ fn page_host(
   if let Some(cache) = config.cache.as_mut() {
     cache.data = None;
   }
-  let host = Host::from_config_with(config, built.manifest.to_json(), Some((**contract).clone()))
+  let artifact = snapfire_fsr_host::Artifact {
+    config,
+    plan: built.manifest.to_json(),
+    contract: Some((**contract).clone()),
+  };
+  let host = Host::from_artifact(artifact)
     .and_then(|builder| {
       let mut builder = builder.services_over(transport);
       for name in natives {

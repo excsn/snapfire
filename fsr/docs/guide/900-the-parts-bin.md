@@ -53,7 +53,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 ## I want to serve
 
 - **`snapfire_fsr_host::Host`** and **`HostBuilder`**, configuration in, a service over HTTP types out; `route`, `source`, `action`, each with an `_override`, `evaluator`, `shell`, `services_over`, `session_store`.
-- **`snapfire_fsr_host::Config`**, **`Deployment`**, **`Located`**, the configuration ladder and what it resolved.
+- **`snapfire_fsr_host::Loader`**, **`Artifact`**, **`Config`**, **`Deployment`**, **`Located`**, how an artifact is read, what was read, the configuration ladder and what it resolved; `Loader::secrets` for how a `.c5encval` decrypts.
 - **`snapfire_fsr_host::actix::serve`**, the shim that mounts the host in actix; `Host::serve` for hyper.
 - **`snapfire_fsr::App`** and **`AppBuilder`**, the binding layer under the host, for a host of your own.
 - **`snapfire_fsr::Routes`**, plan-file routes plus Rust ones, refusing a pattern claimed twice.
