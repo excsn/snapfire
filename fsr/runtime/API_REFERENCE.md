@@ -712,7 +712,6 @@ Reaching `assemble` it becomes `AssembleError::Eval`. Inside a deferred resoluti
 What fails a request. `Debug + thiserror::Error`.
 
 * `MissingDataSource(String)`: ``no data source registered for `{0}` ``. A plan names a source the runtime never registered. Misconfiguration, not a runtime condition to degrade around.
-* `Load(LoadError)`: transparent, via `From<LoadError>`. Not produced by `assemble`, which degrades a failed loader to the segment's error node.
 * `Eval(EvalError)`: transparent, via `From<EvalError>`. An evaluator failed outside a deferred resolution.
 * `MissingSlot { node: u32, slot: String }`: ``evaluator asked for slot `{slot}` and plan node {node} has no child there``.
 * `SlotInFallback(String)`: ``fallback module `{0}` may not contain slots``. Raised for a slot marker in a `fallback` module or in an `error` module.

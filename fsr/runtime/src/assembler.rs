@@ -23,8 +23,6 @@ pub enum AssembleError {
   #[error("no data source registered for `{0}`")]
   MissingDataSource(String),
   #[error(transparent)]
-  Load(#[from] LoadError),
-  #[error(transparent)]
   Eval(#[from] EvalError),
   #[error("evaluator asked for slot `{slot}` and plan node {node} has no child there")]
   MissingSlot { node: u32, slot: String },
