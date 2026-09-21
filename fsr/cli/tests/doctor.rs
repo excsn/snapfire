@@ -50,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 14, "{out}");
+  assert_eq!(out.clean.len(), 15, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -171,7 +171,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 14 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 15 checks"), "{out}");
   assert!(!out.is_clean());
 }
 

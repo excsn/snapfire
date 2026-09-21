@@ -339,6 +339,13 @@ pub struct DocumentConfig {
   /// `minified`. `auto` follows `server.dev`.
   #[serde(default)]
   pub client: ClientBuild,
+  /// The `Content-Security-Policy` every HTML response carries. `{import_map}`
+  /// in it becomes the `script-src` source for the document's inline import
+  /// map, which is the only executable inline script a page holds and the one
+  /// thing a policy cannot name without knowing what the host emitted. Absent,
+  /// the host sends no policy and whatever sits in front of it owns the header.
+  #[serde(default)]
+  pub csp: Option<String>,
   /// Stylesheet URLs linked from the head, in order.
   #[serde(default)]
   pub styles: Option<Vec<String>>,

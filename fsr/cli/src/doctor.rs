@@ -94,6 +94,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("links", links(&config, manifest.as_ref())),
     ("tree", tree(app, &config)),
     ("sites", sites(&config)),
+    ("csp", csp(&config)),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -668,6 +669,30 @@ fn tree(app: &Path, config: &Config) -> Vec<Finding> {
     format!("a deploy tree would not carry {}", absent.join(", ")),
     "build what is missing or correct the setting that names it; the host reads each of these at boot, so a tree without one starts here and fails where it is deployed",
   )]
+}
+
+/// A page's import map is inline, so a `Content-Security-Policy` naming script
+/// sources cannot omit it and the merged map matches no file on disk. Written
+/// in front of the host, the source has to be copied by hand and goes stale
+/// silently: a blocked import map resolves no module and the page is blank.
+/// `document.csp` puts the policy where the map is, so it cannot disagree.
+fn csp(config: &Config) -> Vec<Finding> {
+  // A mounted site writes no document: its shell's head is the one that
+  // carries the import map, so the policy is the shell's to set.
+  if config.site.is_some() {
+    return Vec::new();
+  }
+  // An absent policy is a deployment's choice, not a defect: the header may be
+  // written in front of the host or wanted nowhere. The boot report says on
+  // every start whether one is being sent.
+  match &config.document.csp {
+    Some(policy) if config.document.import_map.is_some() && !policy.contains("{import_map}") => vec![Finding::new(
+      "csp",
+      "`document.csp` names no `{import_map}` while the document carries one",
+      "put `{import_map}` in the policy's `script-src`; without it the browser blocks the inline import map and no module on the page resolves",
+    )],
+    _ => Vec::new(),
+  }
 }
 
 /// The mounted sites, which a shell serves and never builds, so nothing about

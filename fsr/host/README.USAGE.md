@@ -190,6 +190,15 @@ Anything written in the file wins over the inference. `[[static]]` entries add r
 
 The binary holds two builds of those modules and `document.client` says which one the prefix answers with: `auto`, the default, is the minified build unless `server.dev` is on and `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings as `./boot.min.js`, so those names are answered too and the graph a page loads follows its entry point. The `client` row names the build. Building `snapfire_fsr_host` with `default-features = false` drops the readable set, about 215 KiB, so every name answers minified.
 
+`document.csp` is the `Content-Security-Policy` every document carries. A page's import map has to be inline, so a policy naming script sources cannot leave it out and the merged map matches no file on disk. Write `{import_map}` where the source goes and the host substitutes the hash of what it actually emitted:
+
+```toml
+[document]
+csp = "default-src 'self'; script-src 'self' {import_map}; base-uri 'none'; object-src 'none'"
+```
+
+Absent, the host sends no policy at all. Writing one in a proxy instead means copying that hash by hand and copying it again whenever an import map changes. A stale one does not degrade: the browser blocks the map, no bare specifier resolves and the page is blank. `fsr doctor` says so when the key is unset and when a policy is set without `{import_map}` while the document carries one. A payload and a fragment carry no policy, the first being data for a page that already has one and the second being written into one.
+
 `document.module_preload` puts a `<link rel="modulepreload">` in the head for every module the page fetches before the first island can mount: the entry's own static imports, whatever the import map resolves for each bare specifier the bundle declares and whatever the client reaches from those. It is off by default. A module an island pulls in with `import()` is left out, since which islands a document holds is not known until it renders. A mounted site adds links for its own bundle beside its entry script, minus whatever the shell already covers.
 
 ## Overriding per Deployment

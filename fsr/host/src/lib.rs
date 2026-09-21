@@ -502,6 +502,9 @@ pub struct HostReport {
   /// it changes whenever the map does, so it is read from a boot rather than
   /// computed from any one file on disk.
   pub import_map_csp: Option<String>,
+  /// The `Content-Security-Policy` every HTML response carries, `document.csp`
+  /// with the import map's source already substituted; `None` when none is set.
+  pub csp: Option<String>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
   /// `[public]` as key and value, what `ctx.config` answers.
@@ -573,6 +576,10 @@ impl std::fmt::Display for HostReport {
     }
     if let Some(source) = &self.import_map_csp {
       writeln!(f, "{:<9} {:<22} {source}", "csp", "import map")?;
+    }
+    match &self.csp {
+      Some(policy) => writeln!(f, "{:<9} {:<22} {policy}", "", "sent as")?,
+      None => writeln!(f, "{:<9} {:<22} no policy sent, `document.csp` is unset", "", "sent as")?,
     }
     for (i, (pattern, anonymous)) in self
       .app
@@ -874,6 +881,9 @@ struct Tables {
   /// Whether that route answers with the minified build, `document.client`
   /// resolved against `server.dev`.
   client_minified: bool,
+  /// The `Content-Security-Policy` an HTML response carries, `document.csp`
+  /// with the import map's source substituted. `None` sends no policy.
+  csp: Option<HeaderValue>,
   prerendered: Option<PathBuf>,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
@@ -2901,6 +2911,7 @@ impl Host {
               .boxed_unsync(),
           )
           .expect("a response with a valid header");
+        set_csp(t, &mode, &mut response);
         self.set_cookie(opened, &mut response).await;
         return response;
       }
@@ -2965,6 +2976,7 @@ impl Host {
           .header(header::CONTENT_TYPE, content_type)
           .body(body.boxed_unsync())
           .expect("a response with a valid header");
+        set_csp(t, &mode, &mut response);
         self.set_cookie(opened, &mut response).await;
         response
       }
@@ -4627,6 +4639,13 @@ impl HostBuilder {
 
     let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
     let client_minified = config.document.client.minified(dev);
+    let csp = config.document.csp.as_deref().and_then(|policy| {
+      let filled = match import_map.as_deref() {
+        Some(map) => policy.replace("{import_map}", &import_map_csp(map)),
+        None => policy.replace("{import_map}", "").replace("  ", " "),
+      };
+      HeaderValue::from_str(filled.trim()).ok()
+    });
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
     // Longest route first, so the most specific root answers a path whatever
     // order the file, the inference and the mounts named them in.
@@ -4768,6 +4787,7 @@ impl HostBuilder {
       site: config.site.as_ref().map(|s| (s.name.clone(), s.at.clone())),
       sites: site_reports,
       import_map_csp: import_map.as_deref().map(import_map_csp),
+      csp: csp.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
       public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
@@ -4783,6 +4803,7 @@ impl HostBuilder {
         static_cache,
         client: serve_client,
         client_minified,
+        csp,
         prerendered,
         warm,
         renders,
@@ -4864,6 +4885,17 @@ fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
     }
   }
   urls
+}
+
+/// Puts `document.csp` on a document. A payload is data for a page that already
+/// carries the policy; a fragment is written into one. Neither gets it.
+fn set_csp(t: &Tables, mode: &RenderMode, response: &mut Response<Body>) {
+  if !matches!(mode, RenderMode::Html) {
+    return;
+  }
+  if let Some(policy) = &t.csp {
+    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, policy.clone());
+  }
 }
 
 /// The CSP `script-src` source for the document's inline import map. An import
