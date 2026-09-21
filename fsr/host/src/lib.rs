@@ -908,8 +908,7 @@ struct SiteTables {
   middleware: Option<Arc<dyn ActionHandler>>,
   styles: Vec<String>,
   entry: Option<String>,
-  /// The site's own modules to preload, with whatever the shell already
-  /// preloads taken out: the shell's links are on every document anyway.
+  /// The site's own modules to preload, minus what the shell already covers.
   preload: Vec<String>,
 }
 
@@ -4863,9 +4862,6 @@ fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
       seen.push(specifier.clone());
       let Some(url) = map.get(&specifier) else { continue };
       push(&mut urls, url.clone());
-      // Only the embedded client's own graph is readable here. A vendor bundle
-      // is opaque, and what it imports the application declares as an external
-      // of its own, so the map answers for it anyway.
       if let Some(name) = url.strip_prefix(&prefix) {
         modules.push(name.to_owned());
       }
@@ -4887,8 +4883,7 @@ fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
   urls
 }
 
-/// Puts `document.csp` on a document. A payload is data for a page that already
-/// carries the policy; a fragment is written into one. Neither gets it.
+/// A payload and a fragment carry no policy: the document they belong to does.
 fn set_csp(t: &Tables, mode: &RenderMode, response: &mut Response<Body>) {
   if !matches!(mode, RenderMode::Html) {
     return;
@@ -4898,10 +4893,8 @@ fn set_csp(t: &Tables, mode: &RenderMode, response: &mut Response<Body>) {
   }
 }
 
-/// The CSP `script-src` source for the document's inline import map. An import
-/// map has to be inline, so a policy naming sources cannot omit it; every other
-/// inline script the document carries is `type="application/json"`, which is
-/// data rather than script and needs no source.
+/// The CSP `script-src` source for the document's inline import map, which is
+/// the only executable inline script a page carries.
 fn import_map_csp(text: &str) -> String {
   use base64::Engine;
   use sha2::Digest;

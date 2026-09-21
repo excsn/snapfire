@@ -107,9 +107,9 @@ pub const TYPES: &[(&str, &str)] = &[
   ("vue.d.ts", include_str!("../embedded/client/vue.d.ts")),
 ];
 
-/// The same modules minified. A minified module imports its siblings by their
-/// own `.min.js` names, so both spellings are answered and the graph a page
-/// loads is whichever one its entry came from. No `.d.ts` has a minified twin.
+/// The same modules minified, keyed by the same plain names. A minified module
+/// imports its siblings by their own `.min.js` names, which are answered too.
+/// No `.d.ts` has a minified twin.
 pub const MINIFIED: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),

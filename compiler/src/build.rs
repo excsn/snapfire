@@ -1401,8 +1401,8 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 /// Path of `to` as seen from inside `from_dir`, so a map written next to the output can point back
 /// at a source that lives outside the output tree.
 /// The name a map gives its one source. Two apps mounted into one page have the same layout, so a
-/// name relative to the output directory is byte-identical in both and a tool that keys on it reads
-/// the pair as one module loaded twice. A public path is unique per mount and settles it.
+/// name relative to the output directory is byte-identical in both. A public path is unique per
+/// mount.
 fn map_source_name(opts: &Options, build: &Build, dest: &Path, relative: &Path, source: &Path) -> String {
   match &opts.public_path {
     Some(prefix) => format!("{}/{}", prefix.trim_end_matches('/'), slashed(relative)),

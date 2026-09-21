@@ -288,8 +288,8 @@ impl Default for ServerConfig {
 
 /// Which build of the embedded client `/static/js/fsr` answers with. The
 /// minified modules are about a third smaller and import their siblings by
-/// `.min.js`, which the host answers either way, so the choice is what a page's
-/// entry point gets and the rest of the graph follows it.
+/// `.min.js`, which the host answers either way, so this picks what the entry
+/// point gets and the graph follows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ClientBuild {

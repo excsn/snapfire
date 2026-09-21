@@ -1,10 +1,10 @@
-//! `fsr doctor`: what the host would not refuse to start over.
+//! `fsr doctor`: settings that are wrong but still let the host start.
 //!
-//! The boot already errors on a declared action nothing answers, a bundle
-//! carrying a server module and a route claimed twice, so none of that belongs
-//! here. What belongs here is the middle: a deployment that starts and serves,
-//! with a setting that cannot do what it was written for. Every check answers
-//! from what a build already computed and every finding names its remedy.
+//! A boot already fails on a declared action nothing answers, a bundle carrying
+//! a server module and a route claimed twice, so those are not checked here.
+//! These checks cover the case in between: the host starts and serves, and a
+//! setting cannot do what it was written for. Each check reads what a build
+//! already computed and each finding says what to change.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -671,20 +671,13 @@ fn tree(app: &Path, config: &Config) -> Vec<Finding> {
   )]
 }
 
-/// A page's import map is inline, so a `Content-Security-Policy` naming script
-/// sources cannot omit it and the merged map matches no file on disk. Written
-/// in front of the host, the source has to be copied by hand and goes stale
-/// silently: a blocked import map resolves no module and the page is blank.
-/// `document.csp` puts the policy where the map is, so it cannot disagree.
+/// A blocked import map resolves no module, so the page is blank rather than
+/// degraded.
 fn csp(config: &Config) -> Vec<Finding> {
-  // A mounted site writes no document: its shell's head is the one that
-  // carries the import map, so the policy is the shell's to set.
+  // A site's document is its shell's.
   if config.site.is_some() {
     return Vec::new();
   }
-  // An absent policy is a deployment's choice, not a defect: the header may be
-  // written in front of the host or wanted nowhere. The boot report says on
-  // every start whether one is being sent.
   match &config.document.csp {
     Some(policy) if config.document.import_map.is_some() && !policy.contains("{import_map}") => vec![Finding::new(
       "csp",
