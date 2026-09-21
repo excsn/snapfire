@@ -15,7 +15,10 @@ pub const ROUTE: &str = "/static/js/fsr";
 
 pub const MEDIA_TYPE: &str = "text/javascript; charset=utf-8";
 
-/// Every module of the client, by the file name its URL ends in.
+/// Every module of the client, by the file name its URL ends in. The bodies are
+/// the readable build with `client_readable` on and the minified one without it,
+/// so a binary built without the feature carries one set of modules, not two.
+#[cfg(feature = "client_readable")]
 pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.js")),
   ("boot.js", include_str!("../embedded/client/boot.js")),
@@ -41,6 +44,38 @@ pub const FILES: &[(&str, &str)] = &[
   ("values.js", include_str!("../embedded/client/values.js")),
   ("vue.js", include_str!("../embedded/client/vue.js")),
 ];
+
+#[cfg(not(feature = "client_readable"))]
+pub const FILES: &[(&str, &str)] = &[
+  ("actions.js", include_str!("../embedded/client/actions.min.js")),
+  ("boot.js", include_str!("../embedded/client/boot.min.js")),
+  ("elements.js", include_str!("../embedded/client/elements.min.js")),
+  ("events.js", include_str!("../embedded/client/events.min.js")),
+  ("expect.js", include_str!("../embedded/client/expect.min.js")),
+  ("harness.js", include_str!("../embedded/client/harness.min.js")),
+  ("htmx.js", include_str!("../embedded/client/htmx.min.js")),
+  ("index.js", include_str!("../embedded/client/index.min.js")),
+  ("live.js", include_str!("../embedded/client/live.min.js")),
+  ("locale.js", include_str!("../embedded/client/locale.min.js")),
+  ("navigator.js", include_str!("../embedded/client/navigator.min.js")),
+  ("queries.js", include_str!("../embedded/client/queries.min.js")),
+  ("react.js", include_str!("../embedded/client/react.min.js")),
+  ("reader.js", include_str!("../embedded/client/reader.min.js")),
+  ("render.js", include_str!("../embedded/client/render.min.js")),
+  ("server.js", include_str!("../embedded/client/server.min.js")),
+  ("socket.js", include_str!("../embedded/client/socket.min.js")),
+  ("std.js", include_str!("../embedded/client/std.min.js")),
+  ("store.js", include_str!("../embedded/client/store.min.js")),
+  ("template.js", include_str!("../embedded/client/template.min.js")),
+  ("testing.js", include_str!("../embedded/client/testing.min.js")),
+  ("values.js", include_str!("../embedded/client/values.min.js")),
+  ("vue.js", include_str!("../embedded/client/vue.min.js")),
+];
+
+/// Whether the readable build is in this binary. `false` makes a configured
+/// `document.client = "readable"` serve the minified build instead, which the
+/// report's `client` row names.
+pub const HAS_READABLE: bool = cfg!(feature = "client_readable");
 
 /// The declarations for every module, written into an application's `types/`
 /// by `fsr types` rather than served. They are read by an editor and by
@@ -210,6 +245,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "client_readable")]
   fn imports_reads_siblings_and_bare_specifiers() {
     let found = imports("react.js", false);
     assert!(found.contains(&"./boot.js"), "{found:?}");
@@ -225,12 +261,22 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "client_readable")]
   fn a_min_name_is_the_minified_module_either_way() {
     let plain = get("boot.js", false).expect("boot.js");
     let min = get("boot.js", true).expect("minified boot.js");
     assert!(min.len() < plain.len(), "minified is not smaller");
     assert_eq!(get("boot.min.js", false), Some(min));
     assert_eq!(get("boot.min.js", true), Some(min));
+  }
+
+  #[test]
+  fn without_the_readable_build_every_name_is_minified() {
+    if HAS_READABLE {
+      return;
+    }
+    assert_eq!(get("boot.js", false), get("boot.min.js", false));
+    assert!(imports("react.js", false).contains(&"./boot.min.js"));
   }
 
   #[test]

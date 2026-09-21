@@ -304,8 +304,12 @@ pub enum ClientBuild {
 
 impl ClientBuild {
   /// Whether to serve the minified build, given whether this host is a
-  /// development one.
+  /// development one. Always minified in a binary built without the readable
+  /// build, since there is nothing else to answer with.
   pub fn minified(self, dev: bool) -> bool {
+    if !crate::client::HAS_READABLE {
+      return true;
+    }
     match self {
       Self::Auto => !dev,
       Self::Readable => false,

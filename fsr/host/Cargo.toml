@@ -14,7 +14,11 @@ repository = { workspace = true }
 readme = "README.md"
 
 [features]
-default = []
+default = ["client_readable"]
+# The readable client build, beside the minified one the binary always carries.
+# Off, the binary is about 215 KiB smaller and serves minified whatever
+# `document.client` says.
+client_readable = []
 actix = ["dep:actix-web"]
 tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
 ws = ["dep:tokio-tungstenite"]
