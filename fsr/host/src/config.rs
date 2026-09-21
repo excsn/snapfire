@@ -24,6 +24,7 @@ use crate::locale::LocalesSection;
 /// The host's configuration after loading and inference. `root` is the
 /// project directory, `app` the application directory under it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Config {
   pub root: PathBuf,
   pub app: PathBuf,
@@ -171,6 +172,7 @@ impl Default for AppSection {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ServerConfig {
   #[serde(default = "default_listen")]
   pub listen: String,
@@ -321,6 +323,7 @@ impl ClientBuild {
 /// The document shell. `entry`, `import_map` and `styles` are inferred when absent.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocumentConfig {
   #[serde(default)]
   pub title: String,

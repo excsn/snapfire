@@ -445,6 +445,7 @@ pub fn with_fragment(location: &str, slot: Option<&str>) -> String {
 /// What the host bound: the application's report plus the services it reaches
 /// and the static roots it serves.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HostReport {
   pub app: Report,
   /// Whether a served connection negotiates HTTP/2 as well as HTTP/1.1.
