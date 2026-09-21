@@ -319,8 +319,18 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     && !config.statics.iter().any(|s| s.route.trim_end_matches('/') == client::ROUTE);
   if serves_client {
     let under = client::ROUTE.trim_matches('/');
-    for (name, body) in client::FILES {
-      place(format!("{SERVE}/{under}/{name}"), Source::Text((*body).to_owned()), false)?;
+    // `config.dev()` here is the `RELEASE_ENV` of the machine bundling the
+    // tree, never the one the tree is deployed under.
+    let minified = config.document.client.minified(false);
+    for (name, _) in client::FILES {
+      let body = client::get(name, minified).unwrap_or_default();
+      place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false)?;
+    }
+    if minified {
+      for (name, body) in client::MINIFIED {
+        let name = name.replace(".js", ".min.js");
+        place(format!("{SERVE}/{under}/{name}"), Source::Text((*body).to_owned()), false)?;
+      }
     }
   }
 

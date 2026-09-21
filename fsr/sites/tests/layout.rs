@@ -233,3 +233,88 @@ fn no_route_reaches_outside_the_tree() {
     std::fs::remove_dir_all(&at).ok();
   });
 }
+
+/// A deploy tree answers the client prefix before a request reaches the host,
+/// so any spelling the host would have answered out of its binary and the tree
+/// does not carry is a 404 on a live page. The minified graph names its
+/// siblings `.min.js`, which the host emits as preload links.
+#[test]
+fn the_tree_carries_every_client_module_the_host_would_serve() {
+  use snapfire_fsr_host::client;
+
+  let at = project("client-minified", "");
+  let (config, laid) = laid(&at);
+  let minified = config.document.client.minified(false);
+  assert!(minified && config.dev(), "the tree follows the deployment rather than this machine");
+
+  let under = format!("serve{}", client::ROUTE);
+  let placed: std::collections::BTreeMap<String, String> = laid
+    .rows()
+    .unwrap()
+    .into_iter()
+    .map(|row| (row.path.clone(), String::from_utf8(row.bytes().unwrap()).unwrap()))
+    .collect();
+
+  let mut queue = vec!["index.js".to_owned()];
+  let mut walked: Vec<String> = Vec::new();
+  while let Some(name) = queue.pop() {
+    if walked.contains(&name) {
+      continue;
+    }
+    walked.push(name.clone());
+    let path = format!("{under}/{name}");
+    let body = placed.get(&path).unwrap_or_else(|| panic!("{path} is not in the tree"));
+    let served = client::get(&name, minified).expect("the client carries it");
+    assert_eq!(
+      body.lines().next(),
+      served.lines().next(),
+      "{path} is not the build the host serves"
+    );
+    for import in client::imports(&name, minified) {
+      if let Some(sibling) = import.strip_prefix("./") {
+        queue.push(sibling.to_owned());
+      }
+    }
+  }
+  assert!(walked.len() > 1, "the walk found no siblings: {walked:?}");
+  assert!(walked.iter().any(|name| name.ends_with(".min.js")), "{walked:?}");
+}
+
+/// `document.client = "readable"` serves the readable modules, which name
+/// their siblings by plain names, so the minified spellings would be dead
+/// weight in the tree.
+#[test]
+fn a_tree_serving_the_readable_client_carries_no_minified_spellings() {
+  use snapfire_fsr_host::client;
+
+  let at = project("client-readable", "[document]\nclient = \"readable\"\n");
+  let (_, laid) = laid(&at);
+  let rows = laid.rows().unwrap();
+  let under = format!("serve{}", client::ROUTE);
+
+  let index = rows.iter().find(|row| row.path == format!("{under}/index.js")).expect("the index");
+  let body = String::from_utf8(index.bytes().unwrap()).unwrap();
+  assert_eq!(
+    body.lines().next(),
+    client::get("index.js", false).unwrap().lines().next(),
+    "the tree carries a build the host would not serve"
+  );
+  let minified: Vec<&String> = rows.iter().map(|row| &row.path).filter(|path| path.ends_with(".min.js")).collect();
+  assert!(minified.is_empty(), "{minified:?}");
+}
+
+/// An application serving its own client owns the prefix, so the tree leaves
+/// it alone rather than placing a second opinion on the same route.
+#[test]
+fn a_tree_whose_application_serves_its_own_client_carries_none_of_the_embedded_one() {
+  use snapfire_fsr_host::client;
+
+  let at = project("client-own", "[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n");
+  write(&at.join("app/client/index.js"), "export {}\n");
+  let (_, laid) = laid(&at);
+  let rows = laid.rows().unwrap();
+
+  let under = format!("serve{}", client::ROUTE);
+  assert!(rows.iter().any(|row| row.path == format!("{under}/index.js")));
+  assert!(!rows.iter().any(|row| row.path.ends_with("/boot.js")), "{:?}", rows.iter().map(|r| &r.path).collect::<Vec<_>>());
+}

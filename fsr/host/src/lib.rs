@@ -4853,7 +4853,11 @@ impl HostBuilder {
 /// `<script type="module">` on the page.
 fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
   let Some(bundle) = &config.bundle else { return Vec::new() };
-  let minified = config.document.client.minified(config.dev());
+  // A `[[static]]` root on the client prefix is an application serving its own
+  // copy, which the host has not read, so the names the import map gives are
+  // the only ones it knows are there.
+  let serves_client = !config.statics.iter().any(|s| s.route == client::ROUTE);
+  let minified = serves_client && config.document.client.minified(config.dev());
 
   let map: std::collections::BTreeMap<String, String> = import_map
     .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())

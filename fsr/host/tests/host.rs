@@ -5038,9 +5038,10 @@ async fn the_import_map_source_changes_with_the_map() {
   assert!(a.report().csp.clone().unwrap().contains(&sa.unwrap()));
 }
 
-#[tokio::test]
-async fn module_preload_links_the_entry_graph_and_the_import_map() {
-  let dir = tuned_app(false, "", "module_preload = true");
+/// An application whose entry has a static import and whose import map names
+/// the client, which is what a preload walk has to have to find anything.
+fn preload_app(dev: bool, tables: &str) -> PathBuf {
+  let dir = tuned_app_with(dev, "", "module_preload = true", tables);
   // The graph is keyed on paths under the bundle's public path, so an entry
   // outside it matches nothing.
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
@@ -5062,7 +5063,12 @@ async fn module_preload_links_the_entry_graph_and_the_import_map() {
         "externals":["@snapfire/fsr-client"]}"#,
   )
   .unwrap();
-  let host = tuned_host(&dir);
+  dir
+}
+
+#[tokio::test]
+async fn module_preload_links_the_entry_graph_and_the_import_map() {
+  let host = tuned_host(&preload_app(false, ""));
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(
     html.contains(r#"<link rel="modulepreload" href="/static/js/app/generated/islands.js">"#),
@@ -5073,8 +5079,8 @@ async fn module_preload_links_the_entry_graph_and_the_import_map() {
     "the import map's target is not preloaded: {html}"
   );
   assert!(
-    html.contains(r#"href="/static/js/fsr/values.js">"#) || html.contains(r#"href="/static/js/fsr/values.min.js">"#),
-    "the client's own graph was not walked: {html}"
+    html.contains(r#"href="/static/js/fsr/values.min.js">"#),
+    "a host outside development serves the minified graph: {html}"
   );
   assert!(
     !html.contains(r#"modulepreload" href="/static/js/app/src/main.js"#),
@@ -5139,4 +5145,28 @@ async fn a_payload_carries_neither_policy() {
   assert!(header_of(&host, "/", REPORT_ONLY).await.is_some());
   assert_eq!(header_of(&host, "/?__payload", REPORT_ONLY).await, None);
   assert_eq!(header_of(&host, "/?__payload", "content-security-policy").await, None);
+}
+
+/// A development host serves the readable modules, so preloading the minified
+/// spellings would name files nothing on the page asks for.
+#[tokio::test]
+async fn the_client_preload_follows_the_build_the_host_serves() {
+  let host = tuned_host(&preload_app(true, ""));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"href="/static/js/fsr/values.js">"#), "{html}");
+  assert!(!html.contains(".min.js"), "{html}");
+}
+
+/// A `[[static]]` root on the client prefix serves the application's own copy.
+/// The host answers nothing there, so it names the plain modules the import
+/// map names rather than a build it has not read.
+#[tokio::test]
+async fn the_client_preload_names_plain_modules_when_a_static_root_serves_them() {
+  let dir = preload_app(false, "[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n");
+  std::fs::create_dir_all(dir.join("client")).unwrap();
+  std::fs::write(dir.join("client/index.js"), "export {}\n").unwrap();
+  let host = tuned_host(&dir);
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"href="/static/js/fsr/values.js">"#), "{html}");
+  assert!(!html.contains(".min.js"), "{html}");
 }
