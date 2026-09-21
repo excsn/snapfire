@@ -286,6 +286,34 @@ impl Default for ServerConfig {
   }
 }
 
+/// Which build of the embedded client `/static/js/fsr` answers with. The
+/// minified modules are about a third smaller and import their siblings by
+/// `.min.js`, which the host answers either way, so the choice is what a page's
+/// entry point gets and the rest of the graph follows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientBuild {
+  /// Minified unless `server.dev` is on. The default.
+  #[default]
+  Auto,
+  /// The readable build, whatever `server.dev` says.
+  Readable,
+  /// The minified build, whatever `server.dev` says.
+  Minified,
+}
+
+impl ClientBuild {
+  /// Whether to serve the minified build, given whether this host is a
+  /// development one.
+  pub fn minified(self, dev: bool) -> bool {
+    match self {
+      Self::Auto => !dev,
+      Self::Readable => false,
+      Self::Minified => true,
+    }
+  }
+}
+
 /// The document shell. `entry`, `import_map` and `styles` are inferred when absent.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -303,6 +331,10 @@ pub struct DocumentConfig {
   /// holds is not known until it renders.
   #[serde(default)]
   pub module_preload: bool,
+  /// Which build of the embedded client the page loads, `auto`, `readable` or
+  /// `minified`. `auto` follows `server.dev`.
+  #[serde(default)]
+  pub client: ClientBuild,
   /// Stylesheet URLs linked from the head, in order.
   #[serde(default)]
   pub styles: Option<Vec<String>>,

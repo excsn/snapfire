@@ -17,7 +17,7 @@ cd fsr/client
 snapfirec --source-map --minify compact --public-path /static/js/fsr --import-map importmap.json
 ```
 
-`host/embedded/client/` holds the copy the host serves, since `include_str!` cannot reach outside the crate, so a rebuilt `dist/` is copied there. The page's import map names the entry points either way. This is the map the `advanced_tera_app` example serves:
+`host/embedded/client/` holds the copy the host serves, since `include_str!` cannot reach outside the crate, so a rebuilt `dist/` is copied there: the `.js`, the `.min.js` and the `.d.ts`, all three sets. The host carries both builds and `document.client` picks which one the plain names answer with, minified unless `server.dev` is on. A minified module imports its siblings as `./boot.min.js`, so those spellings are answered too and the graph a page loads follows its entry point. The page's import map names the entry points either way. This is the map the `advanced_tera_app` example serves:
 
 ```json
 {

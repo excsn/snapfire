@@ -72,32 +72,88 @@ pub const TYPES: &[(&str, &str)] = &[
   ("vue.d.ts", include_str!("../embedded/client/vue.d.ts")),
 ];
 
-/// The module `name` names. `None` for anything the client does not carry.
-/// A name with a path separator in it matches nothing, so the prefix is the
-/// whole of what this answers.
-pub fn get(name: &str) -> Option<&'static str> {
+/// The same modules minified. A minified module imports its siblings by their
+/// own `.min.js` names, so both spellings are answered and the graph a page
+/// loads is whichever one its entry came from. No `.d.ts` has a minified twin.
+pub const MINIFIED: &[(&str, &str)] = &[
+  ("actions.js", include_str!("../embedded/client/actions.min.js")),
+  ("boot.js", include_str!("../embedded/client/boot.min.js")),
+  ("elements.js", include_str!("../embedded/client/elements.min.js")),
+  ("events.js", include_str!("../embedded/client/events.min.js")),
+  ("expect.js", include_str!("../embedded/client/expect.min.js")),
+  ("harness.js", include_str!("../embedded/client/harness.min.js")),
+  ("htmx.js", include_str!("../embedded/client/htmx.min.js")),
+  ("index.js", include_str!("../embedded/client/index.min.js")),
+  ("live.js", include_str!("../embedded/client/live.min.js")),
+  ("locale.js", include_str!("../embedded/client/locale.min.js")),
+  ("navigator.js", include_str!("../embedded/client/navigator.min.js")),
+  ("queries.js", include_str!("../embedded/client/queries.min.js")),
+  ("react.js", include_str!("../embedded/client/react.min.js")),
+  ("reader.js", include_str!("../embedded/client/reader.min.js")),
+  ("render.js", include_str!("../embedded/client/render.min.js")),
+  ("server.js", include_str!("../embedded/client/server.min.js")),
+  ("socket.js", include_str!("../embedded/client/socket.min.js")),
+  ("std.js", include_str!("../embedded/client/std.min.js")),
+  ("store.js", include_str!("../embedded/client/store.min.js")),
+  ("template.js", include_str!("../embedded/client/template.min.js")),
+  ("testing.js", include_str!("../embedded/client/testing.min.js")),
+  ("values.js", include_str!("../embedded/client/values.min.js")),
+  ("vue.js", include_str!("../embedded/client/vue.min.js")),
+];
+
+/// The module `name` names, from the readable build or the minified one.
+/// `None` for anything the client does not carry. A name with a path separator
+/// in it matches nothing, so the prefix is the whole of what this answers.
+///
+/// A `<name>.min.js` request is always the minified module whatever `minified`
+/// says, since only a minified module asks for one and it would be answering
+/// its own sibling.
+pub fn get(name: &str, minified: bool) -> Option<&'static str> {
   if name.contains('/') || name.contains('\\') {
     return None;
+  }
+  if let Some(stem) = name.strip_suffix(".min.js") {
+    let plain = format!("{stem}.js");
+    return MINIFIED.iter().find(|(file, _)| *file == plain).map(|(_, body)| *body);
+  }
+  if minified && let Some(body) = MINIFIED.iter().find(|(file, _)| *file == name).map(|(_, body)| *body) {
+    return Some(body);
   }
   FILES.iter().find(|(file, _)| *file == name).map(|(_, body)| *body)
 }
 
 /// What the modules come to, for a report that says how much the binary is
-/// answering out of itself.
-pub fn bytes() -> usize {
-  FILES.iter().map(|(_, body)| body.len()).sum()
+/// answering out of itself: the build being served, plus the declarations,
+/// which have one form.
+pub fn bytes(minified: bool) -> usize {
+  FILES
+    .iter()
+    .map(|(name, body)| match minified {
+      true => MINIFIED.iter().find(|(f, _)| f == name).map_or(body.len(), |(_, m)| m.len()),
+      false => body.len(),
+    })
+    .sum()
 }
 
 /// Writes the client into `dir`, for a deployment whose web server answers
 /// [`ROUTE`] from disk before a request reaches the host. Returns what it
 /// wrote.
-pub fn write_to(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+pub fn write_to(dir: &Path, minified: bool) -> std::io::Result<Vec<PathBuf>> {
   std::fs::create_dir_all(dir)?;
   let mut written = Vec::new();
-  for (name, body) in FILES {
+  for (name, _) in FILES {
     let path = dir.join(name);
-    std::fs::write(&path, body)?;
+    std::fs::write(&path, get(name, minified).unwrap_or_default())?;
     written.push(path);
+  }
+  // The minified graph names its siblings, so a tree that answers the prefix
+  // from disk needs those spellings too.
+  if minified {
+    for (name, body) in MINIFIED {
+      let path = dir.join(name.replace(".js", ".min.js"));
+      std::fs::write(&path, body)?;
+      written.push(path);
+    }
   }
   Ok(written)
 }
@@ -105,8 +161,8 @@ pub fn write_to(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 /// The specifiers `name` imports: `./sibling.js` for another embedded module,
 /// a bare specifier for anything the page's import map resolves. Read out of
 /// the module text, which is the only place the client's own graph is written.
-pub fn imports(name: &str) -> Vec<&'static str> {
-  let Some(body) = get(name) else { return Vec::new() };
+pub fn imports(name: &str, minified: bool) -> Vec<&'static str> {
+  let Some(body) = get(name, minified) else { return Vec::new() };
   let mut found = Vec::new();
   for keyword in ["from", "import"] {
     let mut rest = body;
@@ -133,11 +189,11 @@ mod tests {
 
   #[test]
   fn every_module_the_index_re_exports_is_carried() {
-    let index = get("index.js").expect("the index");
+    let index = get("index.js", false).expect("the index");
     for line in index.lines() {
       let Some((_, rest)) = line.split_once("from \"./") else { continue };
       let Some((file, _)) = rest.split_once('"') else { continue };
-      assert!(get(file).is_some(), "index.js re-exports {file}, which is not carried");
+      assert!(get(file, false).is_some(), "index.js re-exports {file}, which is not carried");
     }
   }
 
@@ -155,21 +211,48 @@ mod tests {
 
   #[test]
   fn imports_reads_siblings_and_bare_specifiers() {
-    let found = imports("react.js");
+    let found = imports("react.js", false);
     assert!(found.contains(&"./boot.js"), "{found:?}");
     assert!(found.contains(&"react"), "{found:?}");
     assert!(found.contains(&"react-dom/client"), "{found:?}");
   }
 
   #[test]
+  fn the_minified_graph_names_its_own_siblings() {
+    let found = imports("react.js", true);
+    assert!(found.contains(&"./boot.min.js"), "{found:?}");
+    assert!(found.contains(&"react"), "{found:?}");
+  }
+
+  #[test]
+  fn a_min_name_is_the_minified_module_either_way() {
+    let plain = get("boot.js", false).expect("boot.js");
+    let min = get("boot.js", true).expect("minified boot.js");
+    assert!(min.len() < plain.len(), "minified is not smaller");
+    assert_eq!(get("boot.min.js", false), Some(min));
+    assert_eq!(get("boot.min.js", true), Some(min));
+  }
+
+  #[test]
+  fn every_module_has_a_minified_twin() {
+    for (name, _) in FILES {
+      if !name.ends_with(".js") {
+        continue;
+      }
+      assert!(MINIFIED.iter().any(|(m, _)| m == name), "{name} has no minified twin");
+    }
+    assert_eq!(MINIFIED.len(), FILES.iter().filter(|(n, _)| n.ends_with(".js")).count());
+  }
+
+  #[test]
   fn imports_skips_a_dynamic_import() {
-    assert!(imports("navigator.js").iter().all(|s| !s.is_empty()));
-    assert!(imports("nope.js").is_empty());
+    assert!(imports("navigator.js", false).iter().all(|s| !s.is_empty()));
+    assert!(imports("nope.js", false).is_empty());
   }
 
   #[test]
   fn a_path_is_not_a_module_name() {
-    assert!(get("../../etc/passwd").is_none());
-    assert!(get("nested/index.js").is_none());
+    assert!(get("../../etc/passwd", false).is_none());
+    assert!(get("nested/index.js", true).is_none());
   }
 }

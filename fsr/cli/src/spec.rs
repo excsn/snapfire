@@ -81,7 +81,7 @@ pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildE
   // spec has to be given the same modules the host would have served. Last,
   // so an application serving its own client still wins the prefix.
   let client_dir = test_dir.join("client");
-  snapfire_fsr_host::client::write_to(&client_dir).map_err(|e| BuildError::Io(client_dir.clone(), e))?;
+  snapfire_fsr_host::client::write_to(&client_dir, false).map_err(|e| BuildError::Io(client_dir.clone(), e))?;
   roots.push((snapfire_fsr_host::client::ROUTE.to_owned(), client_dir));
   let resolution = Resolution { import_map, roots, overrides: overrides.into_iter().filter(|(k, _)| k != "linkedom").collect() };
 

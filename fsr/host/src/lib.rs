@@ -460,9 +460,10 @@ pub struct HostReport {
   /// Method and tags for every method that drops cached answers.
   pub writers: Vec<(String, String)>,
   pub statics: Vec<(String, PathBuf)>,
-  /// The prefix the embedded client answers, how many modules it holds and
-  /// what they come to. `None` when a static root claims the prefix instead.
-  pub client: Option<(&'static str, usize, usize)>,
+  /// The prefix the embedded client answers, how many modules it holds, what
+  /// they come to and whether the build served is the minified one.
+  /// `None` when a static root claims the prefix instead.
+  pub client: Option<(&'static str, usize, usize, bool)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
   /// How many of `app.warmable`'s keys the prerender directory answered at
@@ -566,8 +567,9 @@ impl std::fmt::Display for HostReport {
       let label = if i == 0 { "static" } else { "" };
       writeln!(f, "{label:<9} {route:<22} {}", dir.display())?;
     }
-    if let Some((route, files, bytes)) = self.client {
-      writeln!(f, "{:<9} {route:<22} {files} modules, {} KiB from the binary", "client", bytes / 1024)?;
+    if let Some((route, files, bytes, minified)) = self.client {
+      let build = if minified { "minified" } else { "readable" };
+      writeln!(f, "{:<9} {route:<22} {files} modules, {build}, {} KiB from the binary", "client", bytes / 1024)?;
     }
     if let Some(source) = &self.import_map_csp {
       writeln!(f, "{:<9} {:<22} {source}", "csp", "import map")?;
@@ -869,6 +871,9 @@ struct Tables {
   /// Whether [`client::ROUTE`] is answered out of the binary, which it is
   /// unless a static root claims the prefix.
   client: bool,
+  /// Whether that route answers with the minified build, `document.client`
+  /// resolved against `server.dev`.
+  client_minified: bool,
   prerendered: Option<PathBuf>,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
@@ -2497,7 +2502,7 @@ impl Host {
 
     if t.client {
       if let Some(name) = path.strip_prefix(client::ROUTE).and_then(|rest| rest.strip_prefix('/')) {
-        if let Some(body) = client::get(name) {
+        if let Some(body) = client::get(name, t.client_minified) {
           return js_response(body, self.changed.is_some(), t.static_cache.as_ref());
         }
       }
@@ -4621,6 +4626,7 @@ impl HostBuilder {
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
 
     let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
+    let client_minified = config.document.client.minified(dev);
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
     // Longest route first, so the most specific root answers a path whatever
     // order the file, the inference and the mounts named them in.
@@ -4746,7 +4752,7 @@ impl HostBuilder {
         })
         .unwrap_or_default(),
       statics: static_rows,
-      client: serve_client.then(|| (client::ROUTE, client::FILES.len(), client::bytes())),
+      client: serve_client.then(|| (client::ROUTE, client::FILES.len(), client::bytes(client_minified), client_minified)),
       prerender: prerendered.clone(),
       warmed: warmed_count,
       rendered: rendered_count,
@@ -4776,6 +4782,7 @@ impl HostBuilder {
         statics,
         static_cache,
         client: serve_client,
+        client_minified,
         prerendered,
         warm,
         renders,
@@ -4799,6 +4806,7 @@ impl HostBuilder {
 /// `<script type="module">` on the page.
 fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
   let Some(bundle) = &config.bundle else { return Vec::new() };
+  let minified = config.document.client.minified(config.dev());
 
   let map: std::collections::BTreeMap<String, String> = import_map
     .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
@@ -4847,7 +4855,7 @@ fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
       }
       walked.push(name.clone());
       push(&mut urls, format!("{prefix}{name}"));
-      for import in client::imports(&name) {
+      for import in client::imports(&name, minified) {
         match import.strip_prefix("./") {
           Some(sibling) => modules.push(sibling.to_owned()),
           None => specifiers.push(import.to_owned()),
