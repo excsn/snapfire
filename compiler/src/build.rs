@@ -742,7 +742,7 @@ fn plugin_jobs(opts: &Options, build: &mut Build, path: &Path, check_collisions:
       build.has_error = true;
       continue;
     }
-    let source_name = relative_from(dest.parent().unwrap_or(&build.out_dir), path);
+    let source_name = map_source_name(opts, build, &dest, &relative, path);
     jobs.push(Job {
       source: path.to_path_buf(),
       relative: relative.clone(),
@@ -824,7 +824,7 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
       continue;
     }
 
-    let source_name = relative_from(dest.parent().unwrap_or(&build.out_dir), path);
+    let source_name = map_source_name(opts, build, &dest, &relative, path);
 
     jobs.push(Job {
       source: path.to_path_buf(),
@@ -1400,6 +1400,20 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 
 /// Path of `to` as seen from inside `from_dir`, so a map written next to the output can point back
 /// at a source that lives outside the output tree.
+/// The name a map gives its one source. Two apps mounted into one page have the same layout, so a
+/// name relative to the output directory is byte-identical in both and a tool that keys on it reads
+/// the pair as one module loaded twice. A public path is unique per mount and settles it.
+fn map_source_name(opts: &Options, build: &Build, dest: &Path, relative: &Path, source: &Path) -> String {
+  match &opts.public_path {
+    Some(prefix) => format!("{}/{}", prefix.trim_end_matches('/'), slashed(relative)),
+    None => relative_from(dest.parent().unwrap_or(&build.out_dir), source),
+  }
+}
+
+fn slashed(path: &Path) -> String {
+  path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+}
+
 fn relative_from(from_dir: &Path, to: &Path) -> String {
   let mut from = from_dir.components().peekable();
   let mut target = to.components().peekable();
