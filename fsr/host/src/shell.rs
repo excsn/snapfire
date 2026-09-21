@@ -29,10 +29,11 @@ impl Evaluator for DocumentShell {
   }
 }
 
-/// What the head slot carries: the stylesheets, the inlined import map and
-/// the entry module, built once at boot, with the configured title as the
-/// default a route's `meta` overrides.
-pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> Head {
+/// What the head slot carries: the stylesheets, the inlined import map, the
+/// preload links and the entry module, built once at boot, with the configured
+/// title as the default a route's `meta` overrides. The preload links sit after
+/// the import map, since a bare specifier in one resolves through the other.
+pub fn head(title: &str, styles: &[String], import_map: Option<&str>, preload: &[String], entry: Option<&str>) -> Head {
   let mut head = String::new();
   head.push_str("<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
   for href in styles {
@@ -45,12 +46,23 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, entry: Opt
     head.push_str(map);
     head.push_str("</script>");
   }
+  for href in preload {
+    head.push_str("<link rel=\"modulepreload\" href=\"");
+    head.push_str(&escape(href));
+    head.push_str("\">");
+  }
   if let Some(entry) = entry {
     head.push_str("<script type=\"module\" src=\"");
     head.push_str(&escape(entry));
     head.push_str("\"></script>");
   }
   Head::new(title, Node::raw(head))
+}
+
+/// One preload link a mounted site adds to a document on its own routes, for
+/// a module of its own bundle that the shell's links do not already cover.
+pub fn preload_link(href: &str) -> String {
+  format!("<link rel=\"modulepreload\" href=\"{}\">", escape(href))
 }
 
 /// The entry script a mounted site adds to a document on its own routes. Its

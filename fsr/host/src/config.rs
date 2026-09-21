@@ -51,6 +51,9 @@ pub struct Config {
   /// `[public]`: the deployment's own values, which a body reads as
   /// `ctx.config.<key>`. Scalars only, one level deep.
   pub public: BTreeMap<String, PublicValue>,
+  /// The bundle's module graph, when its facts file was found; the input to
+  /// `server.preload`.
+  pub bundle: Option<Bundle>,
   /// Which settings were inferred rather than written, for the report.
   pub inferred: Vec<String>,
   /// Top-level keys the host does not own, left where they were for the
@@ -203,6 +206,13 @@ pub struct ServerConfig {
   /// either way.
   #[serde(default = "default_render")]
   pub render: String,
+  /// How long a browser may reuse a file from a `[[static]]` root without
+  /// asking again, in seconds. `0` sends no `Cache-Control` at all. A static
+  /// URL carries no content hash, so a lifetime longer than the gap between
+  /// deploys answers a stale module against fresh HTML. Ignored under `dev`,
+  /// where every static answer is `no-cache`.
+  #[serde(default = "default_static_max_age")]
+  pub static_max_age: u64,
   /// Whether `serve` negotiates HTTP/2 on the connection as well as HTTP/1.1.
   /// Without `[server.tls]` this is h2c: a client that opens with the HTTP/2
   /// preface is served and a browser, which wants ALPN over TLS, is not.
@@ -269,6 +279,7 @@ impl Default for ServerConfig {
       prerender: None,
       dev: None,
       render: default_render(),
+      static_max_age: default_static_max_age(),
       http2: false,
       tls: None,
     }
@@ -285,6 +296,13 @@ pub struct DocumentConfig {
   pub entry: Option<String>,
   #[serde(default)]
   pub import_map: Option<String>,
+  /// Whether the head carries a `modulepreload` link for every module the page
+  /// loads before the first island can mount: `entry`'s own static imports,
+  /// the import map's targets and whatever those reach. A module an island
+  /// loads through `import()` is left out, since which islands a document
+  /// holds is not known until it renders.
+  #[serde(default)]
+  pub module_preload: bool,
   /// Stylesheet URLs linked from the head, in order.
   #[serde(default)]
   pub styles: Option<Vec<String>>,
@@ -568,6 +586,10 @@ fn default_key() -> String {
 fn default_reload() -> String {
   "hup".to_owned()
 }
+fn default_static_max_age() -> u64 {
+  3600
+}
+
 fn default_max_body() -> usize {
   1 << 20
 }
@@ -1237,10 +1259,16 @@ impl Config {
     // `styles/`, so a component's rules come later in the cascade.
     let mut component_sheets: Vec<String> = Vec::new();
     let mut facts_dir = "dist".to_owned();
+    let mut bundle: Option<Bundle> = None;
     if let Some((dir, facts)) = build_facts(&app, &statics) {
       facts_dir = dir.clone();
       if let Some(public_path) = facts.public_path {
         let route = public_path.trim_end_matches('/').to_owned();
+        bundle = Some(Bundle {
+          route: route.clone(),
+          graph: facts.graph.clone(),
+          externals: facts.externals.clone(),
+        });
         if !statics.iter().any(|s| s.route == route) {
           statics.push(StaticRoot {
             route: route.clone(),
@@ -1392,6 +1420,7 @@ impl Config {
       site,
       sites,
       public,
+      bundle,
       inferred,
       ignored,
     })
@@ -1467,6 +1496,23 @@ struct BuildFacts {
   /// which nothing in the bundle imports.
   #[serde(default)]
   styles: Vec<String>,
+  /// Each entry's transitive static imports, in the output directory's own
+  /// terms. A module an island loads through `import()` is not an edge here.
+  #[serde(default)]
+  graph: BTreeMap<String, Vec<String>>,
+  /// The bare specifiers the bundle carries, which the page's import map
+  /// resolves.
+  #[serde(default)]
+  externals: Vec<String>,
+}
+
+/// What the bundle's facts say about its module graph, kept for `server.preload`.
+#[derive(Debug, Clone, Default)]
+pub struct Bundle {
+  /// The URL prefix the bundle is served under, with no trailing slash.
+  pub route: String,
+  pub graph: BTreeMap<String, Vec<String>>,
+  pub externals: Vec<String>,
 }
 
 /// The compiler's facts file, from `dist/` or from whichever static root a

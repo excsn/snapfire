@@ -854,6 +854,9 @@ struct Tables {
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
   statics: Vec<(String, ServeDir)>,
+  /// The `Cache-Control` a static answer carries, from `server.static_max_age`.
+  /// Absent when that is `0` or when `dev` is on, which sends `no-cache` instead.
+  static_cache: Option<HeaderValue>,
   /// Whether [`client::ROUTE`] is answered out of the binary, which it is
   /// unless a static root claims the prefix.
   client: bool,
@@ -881,6 +884,9 @@ struct SiteTables {
   middleware: Option<Arc<dyn ActionHandler>>,
   styles: Vec<String>,
   entry: Option<String>,
+  /// The site's own modules to preload, with whatever the shell already
+  /// preloads taken out: the shell's links are on every document anyway.
+  preload: Vec<String>,
 }
 
 impl Tables {
@@ -1482,6 +1488,11 @@ impl Host {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(self.origin.as_deref(), &visit.path)));
     }
     let site = t.site_for(&visit.path);
+    if let Some(site) = site {
+      for href in &site.preload {
+        extra.push(snapfire_fsr_core::Node::raw(shell::preload_link(href)));
+      }
+    }
     if let Some(entry) = site.and_then(|s| s.entry.as_deref()) {
       extra.push(snapfire_fsr_core::Node::raw(shell::site_entry(entry)));
     }
@@ -2478,7 +2489,7 @@ impl Host {
     if t.client {
       if let Some(name) = path.strip_prefix(client::ROUTE).and_then(|rest| rest.strip_prefix('/')) {
         if let Some(body) = client::get(name) {
-          return js_response(body, self.changed.is_some());
+          return js_response(body, self.changed.is_some(), t.static_cache.as_ref());
         }
       }
     }
@@ -2500,6 +2511,8 @@ impl Host {
                 response
                   .headers_mut()
                   .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+              } else if let Some(cache) = &t.static_cache {
+                response.headers_mut().entry(header::CACHE_CONTROL).or_insert(cache.clone());
               }
               response
             }
@@ -3695,13 +3708,16 @@ fn slot_in(node: &Node) -> Option<&str> {
 }
 
 /// One module of the embedded client. `no_cache` for a development host, whose
-/// client changes when the binary it is built beside does.
-fn js_response(body: &'static str, no_cache: bool) -> Response<Body> {
+/// client changes when the binary it is built beside does; `cache` otherwise,
+/// the same lifetime a `[[static]]` root answers with.
+fn js_response(body: &'static str, no_cache: bool, cache: Option<&HeaderValue>) -> Response<Body> {
   let mut response = Response::builder()
     .status(StatusCode::OK)
     .header(header::CONTENT_TYPE, client::MEDIA_TYPE);
   if no_cache {
     response = response.header(header::CACHE_CONTROL, "no-cache");
+  } else if let Some(cache) = cache {
+    response = response.header(header::CACHE_CONTROL, cache.clone());
   }
   response
     .body(
@@ -4331,6 +4347,10 @@ impl HostBuilder {
       }
       None => None,
     };
+    let preload = match config.document.module_preload {
+      true => preload_set(&config, import_map.as_deref()),
+      false => Vec::new(),
+    };
     for mount in std::mem::take(&mut self.mounts) {
       let site = mount.artifact.config.site.clone().ok_or_else(|| {
         HostError::Mount(
@@ -4451,6 +4471,14 @@ impl HostBuilder {
         middleware,
         styles: mount.artifact.config.document.styles.clone().unwrap_or_default(),
         entry: mount.artifact.config.document.entry.clone(),
+        preload: match config.document.module_preload {
+          true => {
+            let mut theirs = preload_set(&mount.artifact.config, import_map.as_deref());
+            theirs.retain(|url| !preload.contains(url));
+            theirs
+          }
+          false => Vec::new(),
+        },
       });
     }
     sites.sort_by(|a, b| b.at.len().cmp(&a.at.len()).then(a.at.cmp(&b.at)));
@@ -4575,6 +4603,7 @@ impl HostBuilder {
       &config.document.title,
       &styles,
       import_map.as_deref(),
+      &preload,
       config.document.entry.as_deref(),
     );
     head.head = config.document.head_meta()?.head;
@@ -4595,6 +4624,10 @@ impl HostBuilder {
       fields.into()
     };
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
+    let static_cache = match config.server.static_max_age {
+      0 => None,
+      seconds => HeaderValue::from_str(&format!("public, max-age={seconds}")).ok(),
+    };
 
     let locale_rows = match &config.locales {
       Some(_) => {
@@ -4731,6 +4764,7 @@ impl HostBuilder {
         public,
         dev_bundle,
         statics,
+        static_cache,
         client: serve_client,
         prerendered,
         warm,
@@ -4744,6 +4778,74 @@ impl HostBuilder {
       config,
     ))
   }
+}
+
+/// Every module the page fetches before an island can mount, as URLs: the
+/// entry's own static imports out of the bundle's graph, the import map's
+/// answer for each bare specifier the bundle carries, and whatever the
+/// embedded client reaches from there. A module an island pulls in with
+/// `import()` is left out, since which islands a document holds is not known
+/// until it renders. The entry itself is left out too: it is already a
+/// `<script type="module">` on the page.
+fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
+  let Some(bundle) = &config.bundle else { return Vec::new() };
+
+  let map: std::collections::BTreeMap<String, String> = import_map
+    .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+    .and_then(|value| value.get("imports").cloned())
+    .and_then(|imports| serde_json::from_value(imports).ok())
+    .unwrap_or_default();
+
+  let entry = config.document.entry.as_deref().unwrap_or_default();
+  let relative = entry.strip_prefix(&bundle.route).unwrap_or(entry).trim_start_matches('/');
+
+  let mut urls: Vec<String> = Vec::new();
+  let push = |urls: &mut Vec<String>, url: String| {
+    if url != entry && !urls.contains(&url) {
+      urls.push(url);
+    }
+  };
+
+  for module in bundle.graph.get(relative).into_iter().flatten() {
+    push(&mut urls, format!("{}/{module}", bundle.route));
+  }
+
+  let prefix = format!("{}/", client::ROUTE);
+  let mut specifiers: Vec<String> = bundle.externals.clone();
+  let mut modules: Vec<String> = Vec::new();
+  let mut seen: Vec<String> = Vec::new();
+  let mut walked: Vec<String> = Vec::new();
+
+  while !specifiers.is_empty() || !modules.is_empty() {
+    while let Some(specifier) = specifiers.pop() {
+      if seen.contains(&specifier) {
+        continue;
+      }
+      seen.push(specifier.clone());
+      let Some(url) = map.get(&specifier) else { continue };
+      push(&mut urls, url.clone());
+      // Only the embedded client's own graph is readable here. A vendor bundle
+      // is opaque, and what it imports the application declares as an external
+      // of its own, so the map answers for it anyway.
+      if let Some(name) = url.strip_prefix(&prefix) {
+        modules.push(name.to_owned());
+      }
+    }
+    while let Some(name) = modules.pop() {
+      if walked.contains(&name) {
+        continue;
+      }
+      walked.push(name.clone());
+      push(&mut urls, format!("{prefix}{name}"));
+      for import in client::imports(&name) {
+        match import.strip_prefix("./") {
+          Some(sibling) => modules.push(sibling.to_owned()),
+          None => specifiers.push(import.to_owned()),
+        }
+      }
+    }
+  }
+  urls
 }
 
 /// The `[session]` settings as one string, compared across a reload.

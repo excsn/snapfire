@@ -102,6 +102,31 @@ pub fn write_to(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
   Ok(written)
 }
 
+/// The specifiers `name` imports: `./sibling.js` for another embedded module,
+/// a bare specifier for anything the page's import map resolves. Read out of
+/// the module text, which is the only place the client's own graph is written.
+pub fn imports(name: &str) -> Vec<&'static str> {
+  let Some(body) = get(name) else { return Vec::new() };
+  let mut found = Vec::new();
+  for keyword in ["from", "import"] {
+    let mut rest = body;
+    while let Some(at) = rest.find(keyword) {
+      rest = &rest[at + keyword.len()..];
+      let quoted = rest.trim_start();
+      if !quoted.starts_with('"') {
+        continue;
+      }
+      let quoted = &quoted[1..];
+      let Some(end) = quoted.find('"') else { break };
+      let specifier = &quoted[..end];
+      if !specifier.is_empty() && !found.contains(&specifier) {
+        found.push(specifier);
+      }
+    }
+  }
+  found
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -126,6 +151,20 @@ mod tests {
       );
     }
     assert_eq!(FILES.len(), TYPES.len());
+  }
+
+  #[test]
+  fn imports_reads_siblings_and_bare_specifiers() {
+    let found = imports("react.js");
+    assert!(found.contains(&"./boot.js"), "{found:?}");
+    assert!(found.contains(&"react"), "{found:?}");
+    assert!(found.contains(&"react-dom/client"), "{found:?}");
+  }
+
+  #[test]
+  fn imports_skips_a_dynamic_import() {
+    assert!(imports("navigator.js").iter().all(|s| !s.is_empty()));
+    assert!(imports("nope.js").is_empty());
   }
 
   #[test]
