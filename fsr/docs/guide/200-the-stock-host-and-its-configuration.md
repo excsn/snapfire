@@ -34,7 +34,7 @@ For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, 
 
 `bundle.toml` is the last rung and a project does not write one. `fsr bundle` writes it into the deploy tree it produces, naming the paths that moved when the files were laid out; chapter 303 covers what it holds. It loads after every deployment overlay because those describe a deployment while it describes a directory and no deployment has an opinion about where in the tree its own plan file ended up.
 
-The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map and the stylesheets. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `[public]` holds the deployment's own values, the one section whose keys the application names.
+The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map, the stylesheets, which build of the client a page loads, whether the head carries a preload link per module, plus the Content-Security-Policy. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `server.static_max_age` says how long a browser may keep what one answers. `[public]` holds the deployment's own values, the one section whose keys the application names.
 
 ## What the host infers
 
@@ -49,10 +49,12 @@ inferred  document.entry from dist/.snapfire-build.json
 One prefix is not inferred and cannot be written away. `/static/js/fsr` is answered out of the binary, because `@snapfire/fsr-client` is carried by `snapfire_fsr_host` itself, so the client a page loads is the version of the host serving it and there is no copy in the project to fall behind. The boot report gives it a `client` row of its own rather than a `static` one:
 
 ```
-client    /static/js/fsr         17 modules, 95 KiB from the binary
+client    /static/js/fsr         23 modules, minified, 156 KiB from the binary
 ```
 
 A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client it built itself.
+
+The binary carries two builds of those modules and the row says which one is being served. `document.client` decides: `auto`, the default, is the minified build unless `server.dev` is on; `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings by `.min.js`, which the host answers either way, so the choice is what the entry point gets and the graph follows it.
 
 Everything the host decided shows up in the report, so nothing it inferred has to be guessed at from the log later.
 

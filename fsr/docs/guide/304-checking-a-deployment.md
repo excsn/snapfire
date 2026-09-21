@@ -49,6 +49,7 @@ Each check answers from something a build already computed, so none of it needs 
 | `cache.tags` | a call drops a cache tag no cached method names | The two sides are strings that have to agree; a typo either way leaves a write that invalidates nothing |
 | `links` | a literal internal link matching no route, static root or mounted site | The plan already holds the link and the routes, so a 404 nobody would find without clicking is findable without a crawler |
 | `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
+| `csp` | a policy naming `'unsafe-inline'` in `script-src` beside an import map; a policy naming `'strict-dynamic'` | The host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`. `'strict-dynamic'` makes it ignore `'self'` and every host, leaving the entry module with nothing to allow it |
 | `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
 
 A report names the check, the fact and the remedy:

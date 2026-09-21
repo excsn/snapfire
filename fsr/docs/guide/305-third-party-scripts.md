@@ -141,9 +141,33 @@ export const analytics = key<string>("site/analytics");
 
 The empty string in development is the whole switch: `loadAnalytics` returns before it touches the page and nothing about the banner or the module changes between a laptop and production. A `[public]` value reaches the browser, which is what the section is named for. A key that must stay on the server is not a `[public]` value.
 
+## The policy that decides whether any of it runs
+
+A Content-Security-Policy governs every script on the page, so a tag that loads fine without one stops the moment there is one. `[document.csp]` is that policy, written as directives and their sources rather than a string:
+
+```toml
+[document.csp]
+default-src = ["'self'"]
+script-src = ["'self'", "https://www.googletagmanager.com"]
+img-src = ["'self'", "data:", "https://*.google-analytics.com"]
+connect-src = ["'self'", "https://*.google-analytics.com"]
+frame-src = ["https://www.youtube.com"]
+object-src = ["'none'"]
+```
+
+The host merges in the sources only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Under `dev` a nonce for the refresh script goes in beside it, since that script carries the bundle id it was rendered against and has no stable hash. Nothing in the policy names either. A development host enforces what a production one does, which is where you want to find a missing origin.
+
+Two things are worth knowing before writing one.
+
+A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that same directive. The host always adds the import map's hash, so a policy written to keep inline third-party tags working loses every one of them the moment it names `script-src` at all. `fsr doctor` reports that pair.
+
+`'strict-dynamic'` is the usual answer for a tag manager, because it trusts whatever a trusted script loads through `document.createElement` so the allowlist stops mattering. It does not work here: it also makes the browser ignore `'self'` and every host in that directive. The entry module is a `<script src>` in the markup carrying no hash or nonce, so the page loads nothing at all. `fsr doctor` reports that too.
+
+An allowlist covers analytics, whose origins are stable. It cannot cover an ad network, which injects scripts from origins that change per impression and often still uses inline script and `document.write`. For that, write the policy into `[document.csp_report_only]` first, which is the same shape sent as `Content-Security-Policy-Report-Only`. A browser reports against it and enforces nothing, so a deployment learns what would break before anything does. Both keys may be set at once.
+
 ## What the build can check
 
-Every part of the arrangement is something the build reads. The head rows are data the report lists and a test asserts on. The vendor is a committed file with a recorded version. The id is a typed field, so a misspelt read is a build error and `fsr doctor` reports a loader reading a key no `[public]` declares. The consent decision is a function call in one module.
+Every part of the arrangement is something the build reads. The head rows are data the report lists and a test asserts on. The vendor is a committed file with a recorded version. The id is a typed field, so a misspelt read is a build error and `fsr doctor` reports a loader reading a key no `[public]` declares. The consent decision is a function call in one module. The policy is a table `fsr doctor` reads, so the two traps above are caught before a deployment ships rather than by a blank page.
 
 ## A script that reads the markup
 
