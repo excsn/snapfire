@@ -188,6 +188,10 @@ Anything written in the file wins over the inference. `[[static]]` entries add r
 
 `/static/js/fsr` is not inferred from anything and needs no entry. The host carries `@snapfire/fsr-client` in its own binary and answers the prefix from there, so the client a page loads is the version of the host serving it and an application vendors no copy. The boot report names it on a `client` row rather than a `static` one. `fsr bundle` writes the same modules under `serve/static/js/fsr`, for a deployment whose web server answers `serve/` before a request reaches the host. A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client of its own.
 
+The binary holds two builds of those modules and `document.client` says which one the prefix answers with: `auto`, the default, is the minified build unless `server.dev` is on and `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings as `./boot.min.js`, so those names are answered too and the graph a page loads follows its entry point. The `client` row names the build. Building `snapfire_fsr_host` with `default-features = false` drops the readable set, about 215 KiB, so every name answers minified.
+
+`document.module_preload` puts a `<link rel="modulepreload">` in the head for every module the page fetches before the first island can mount: the entry's own static imports, whatever the import map resolves for each bare specifier the bundle declares and whatever the client reaches from those. It is off by default. A module an island pulls in with `import()` is left out, since which islands a document holds is not known until it renders. A mounted site adds links for its own bundle beside its entry script, minus whatever the shell already covers.
+
 ## Overriding per Deployment
 
 The files in `config/` load in this order, each `.toml` then `.yaml`, skipping the ones that do not exist:
@@ -937,7 +941,7 @@ In development, which is what `RELEASE_ENV` unset means, every served document c
 host.changed();
 ```
 
-Every event names the bundle the server sees now, a hash over the modules `dist/.snapfire-build.json` lists. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them.
+Every event names the bundle the server sees now, a hash over the modules `dist/.snapfire-build.json` lists. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them. Outside development they carry `public, max-age=<server.static_max_age>`, 3600 by default and off at `0`; a static URL carries no content hash, so a lifetime longer than the gap between deploys answers a stale module against fresh HTML.
 
 `dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
 

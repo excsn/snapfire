@@ -18,6 +18,7 @@ snapfire_fsr_host = "0"
 | `actix` | `snapfire_fsr_host::actix::{handle, serve}`, the shim from actix's request and response types to the host's |
 | `ws` | `/_sf/socket`, a WebSocket per topic: `HostBuilder::socket` answers what a page sends and the reply goes out as store rows. Adds `tokio-tungstenite` |
 | `tls` | `[server.tls]`: the hyper listener terminates TLS with rustls over ring, ALPN chooses the version and the configured signal re-reads the certificate. Adds `rustls`, `rustls-pki-types` and `tokio-rustls` |
+| `client_readable` | on by default: the readable build of the browser client, beside the minified one the binary always carries. Off, a binary is about 215 KiB smaller and `/static/js/fsr` answers minified whatever `document.client` says |
 
 No feature is needed for hyper or axum. The crate depends on `c5store` with `toml` for configuration, `snapfire_fsr` for the binding rule, `snapfire_fsr_service` for clients and contracts, `snapfire_fsr_session` for sessions, `http`, `http-body`, `tower`, `tower-http` with `fs` and hyper.
 
@@ -48,6 +49,10 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Keep sessions somewhere else | `[session] store = "service"` behind a client or `HostBuilder::session_store` |
 | Sign users in | `[auth]` over `config/auth.toml`, `provider = "service"` asking a client or `HostBuilder::identity` with any `IdentityProvider` |
 | Send the session's token to one backend | `[clients.<name>] bearer = true` |
+| Let a browser keep a static file | `server.static_max_age`, 3600 by default and `0` for no header |
+| Flatten the module waterfall before the first island mounts | `document.module_preload` |
+| Serve the readable client instead of the minified one | `document.client = "readable"` or `auto` with `server.dev` on |
+| Write a Content-Security-Policy that names the inline import map | `import_map_csp` on the report, printed as its `csp` row |
 | See what was bound and served | `Host::report` |
 
 | Serve a team's application under a path of yours, from its build output, one session and one navigation across both | `HostBuilder::mount` and `Mount` or `snapfire_fsr_sites` over a `[sites]` table |

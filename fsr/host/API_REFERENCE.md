@@ -15,6 +15,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [TlsSection](#tlssection)
   * [socket](#socket)
   * [DocumentConfig](#documentconfig)
+  * [ClientBuild](#clientbuild)
+  * [Bundle](#bundle)
   * [PublicValue](#publicvalue)
   * [SessionSection](#sessionsection)
   * [CacheSection](#cachesection)
@@ -96,7 +98,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub public: BTreeMap<String, PublicValue>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store.
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub public: BTreeMap<String, PublicValue>, pub bundle: Option<Bundle>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store, `bundle` the module graph read out of the build facts.
 * `Config::load(path) -> Result<Config, HostError>`: `Loader::at(path).config()`.
 * `Config::from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Config, HostError>`: the same over a store the caller loaded and a root it names, for an application running the host inside itself: `Config::from_store_at(&store.branch("fsr"), root)`. Nothing here reads the filesystem for configuration.
 * `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site`, `sites` and `public`, leaving any other top-level key alone and naming it in `ignored`, requires `session`, refuses a `public` value that is not a scalar or a `public` key that is not an identifier, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, under the site's prefix when `site` is set, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
@@ -118,6 +120,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `dev: Option<bool>`: whether the document carries the live-refresh script and the host answers `/__fsr/events` and `/__fsr/changed`; absent, it follows `RELEASE_ENV`.
 * `render: String` (default `rust`): who renders a lowered component. `rust` registers the IR evaluator for it; `islands` registers none, so every lowered component falls to `NullEvaluator` and reaches the browser as a node naming its module, one region per plan child beside it. Loaders, actions, metadata, the store and the session are unaffected either way, since none of them goes through an evaluator. Any other value is a configuration error naming it.
 * `max_body: usize` (default 1048576): the most bytes a request body may carry. `serve` stops reading a larger body and answers 413 with a text naming the key; `handle` answers the same for a body handed to it whole, before a session is opened.
+* `static_max_age: u64` (default 3600): how long a browser may reuse a file from a `[[static]]` root or a module of the embedded client without asking again. Sent as `Cache-Control: public, max-age=<n>`; `0` sends no `Cache-Control` at all. A static URL carries no content hash, so a lifetime longer than the gap between deploys answers a stale module against fresh HTML. Ignored under `dev`, where every static answer is `no-cache`.
 * `http2: bool` (default false): whether a served connection negotiates HTTP/2 as well as HTTP/1.1. The listener carries no TLS and so no ALPN, which makes this h2c: a client opening with the HTTP/2 preface is served and a browser, which speaks HTTP/2 only over TLS, is not. `HostBuilder::http2` overrides it for a host built in Rust. Nothing else changes: the same `Host::handle` answers both versions.
 * `tls: Option<TlsSection>`, the `[server.tls]` table: absent, the listener is plain TCP. Present, the host must be built with the `tls` feature or `build` is a `HostError::Config` saying so, since a configured certificate must never be answered with plaintext.
 
@@ -133,7 +136,18 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 ### DocumentConfig
 
 * `title` (default empty), `entry: Option<String>`, `import_map: Option<String>` and `styles: Option<Vec<String>>`, stylesheet URLs linked in order, all three inferred when absent, `shell` (default `shell#document`), `origin: Option<String>`.
+* `module_preload: bool` (default false): whether the head carries a `<link rel="modulepreload">` for every module the page fetches before the first island can mount, which is `entry`'s own static imports out of `Config::bundle`, the import map's answer for each bare specifier the bundle declares and whatever the embedded client reaches from those. A module an island pulls in with `import()` is left out, since which islands a document holds is not known until it renders. `entry` itself is left out too, being a `<script type="module">` already. A mounted site adds its own links beside its entry script, minus whatever the shell already covers.
+* `client: ClientBuild` (default `auto`): which build of the embedded client `/static/js/fsr/<name>.js` answers with.
 * `head: Vec<BTreeMap<String, String>>` is not a key: it holds what the host inferred from `icons/`, which a route's `meta` folds over. `head_meta(&self) -> Result<Meta, HostError>` is that as the outermost `Meta`.
+
+### ClientBuild
+
+* `pub enum config::ClientBuild { Auto, Readable, Minified }`, `document.client` as `"auto"`, `"readable"` or `"minified"`. The minified modules are about a third smaller and import their siblings by `.min.js`, which the host answers either way, so the choice is what a page's entry point gets and the rest of the graph follows it.
+* `pub fn minified(self, dev: bool) -> bool`: `Auto` is minified unless `dev`; the other two ignore `dev`. Always true in a binary built without the `client_readable` feature, there being nothing else to answer with.
+
+### Bundle
+
+* `pub struct config::Bundle { pub route: String, pub graph: BTreeMap<String, Vec<String>>, pub externals: Vec<String> }`: the bundle's own terms, read from `dist/.snapfire-build.json` when it was found. `route` is the URL prefix it is served under with no trailing slash, `graph` each entry's transitive static imports in the output directory's own terms and `externals` the bare specifiers the bundle carries. `None` on `Config` when no facts file was read. The input to `document.module_preload`.
 
 ### PublicValue
 
@@ -168,9 +182,15 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/static/js/fsr`, unless a `StaticRoot` claims that prefix.
 
 * `pub const ROUTE: &str`, the prefix; `pub const MEDIA_TYPE: &str`, what a module is served as.
-* `pub const FILES: &[(&str, &str)]`: every module by file name, `index.js` through `values.js`, `template.js` among them. `pub const TYPES: &[(&str, &str)]`: the matching declarations, which `fsr types` writes into an application.
-* `pub fn get(name: &str) -> Option<&'static str>`: one module by file name. A name holding `/` or `\\` matches nothing, so the prefix is the whole of what it answers.
-* `pub fn bytes() -> usize`: what the modules come to. `pub fn write_to(dir: &Path) -> std::io::Result<Vec<PathBuf>>`: writes them into `dir`, which is what `fsr bundle` does.
+* `pub const FILES: &[(&str, &str)]`: every module by file name, `index.js` through `values.js`, `template.js` among them. The bodies are the readable build with `client_readable` on and the minified one without it, so a binary carries one set of modules rather than two.
+* `pub const MINIFIED: &[(&str, &str)]`: the same modules minified, keyed by the same plain names. Always present: a minified module imports its siblings as `./boot.min.js`, so those names have to be answered whatever is configured.
+* `pub const TYPES: &[(&str, &str)]`: the matching declarations, which `fsr types` writes into an application. A `.d.ts` has no minified twin.
+* `pub const HAS_READABLE: bool`: whether the readable build is in this binary, `cfg!(feature = "client_readable")`. The feature is on by default; without it a binary is about 215 KiB smaller and a configured `readable` serves the minified build instead, which the report's `client` row names.
+* `pub fn get(name: &str, minified: bool) -> Option<&'static str>`: one module by file name, from whichever build. A `<name>.min.js` request is the minified module whatever `minified` says, since only a minified module asks for one and it is asking for its own sibling. A name holding `/` or `\\` matches nothing, so the prefix is the whole of what it answers.
+* `pub fn imports(name: &str, minified: bool) -> Vec<&'static str>`: the specifiers that module imports, `./sibling.js` for another embedded module and a bare specifier for anything the page's import map resolves, read out of the module text. A dynamic `import()` is not one of them. This is what `document.module_preload` walks, so it follows the build being served.
+* `pub fn bytes(minified: bool) -> usize`: what the modules of that build come to.
+* `pub fn write_to(dir: &Path, minified: bool) -> std::io::Result<Vec<PathBuf>>`: writes them into `dir`, which is what `fsr bundle` does. With `minified` it writes the `.min.js` spellings beside them, since a tree answering the prefix from disk needs the names the minified graph asks for.
+* `config::ClientBuild` picks between the two builds at boot.
 
 ### LocalesSection
 
@@ -356,7 +376,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub extensions: Vec<String>, pub site: Option<(String, String)>, pub sites: Vec<SiteReport>, pub config: Vec<PathBuf>, pub inferred: Vec<String>, pub public: Vec<(String, String)>, pub ignored: Vec<String> }`
 * `extensions: Vec<String>`: the native pairs registered beside the standard library, by name; `Display` prints them as `natives` rows labelled `rust`, after `bearer`.
 * `catalogs: Vec<(String, usize)>`: each locale with a file under `locales/` and how many keys it holds; `Display` prints one `catalogs` row, `en_US 5 keys, fr_FR 5 keys`.
-* `client: Option<(&'static str, usize, usize)>`: the prefix the embedded client answers, how many modules it holds and what they come to; `None` when a static root claims the prefix. `Display` prints one `client` row after the `static` rows.
+* `client: Option<(&'static str, usize, usize, bool)>`: the prefix the embedded client answers, how many modules it holds, what they come to and whether the build served is the minified one; `None` when a static root claims the prefix. `Display` prints one `client` row after the `static` rows, naming the build as `minified` or `readable`.
+* `import_map_csp: Option<String>`: the `script-src` source covering the document's inline import map, `'sha256-<base64>'`, which is the only executable inline script a page carries; `None` without an import map. The host merges the shell's map with each mounted site's, so it matches no single file on disk and a deployment writing a Content-Security-Policy reads it from a boot rather than hashing a file. `Display` prints it as a `csp` row after the `client` row.
 * `site: Option<(String, String)>`: the application's own `[site]`, name and prefix; `Display` prints one `site` row. `sites: Vec<SiteReport>`: the mounted sites; `Display` prints a `sites` row per mount, `billing at /billing from <artifact> <version> <hash>` and a row naming what the mount ignored.
 
 ### SiteReport
@@ -452,7 +473,8 @@ With no collector installed each is a relaxed atomic load and a branch.
 ### head
 
 * `pub fn shell::dev_script(bundle: &str) -> String`: the `<script>` a development document carries, with `bundle` as the id it was rendered against. It opens `EventSource("/__fsr/events")`; an event whose `bundle` differs reloads, the first event after a connect is otherwise ignored and any later one re-links every stylesheet with a `__sf` query string and calls `window.__sf.refresh` or reloads when nothing is registered there.
-* `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, entry: Option<&str>) -> snapfire_fsr_runtime::Head`: a head whose default title is `title` and whose `rest` is `<meta charset>`, a viewport meta, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, the entry as `<script type="module" src>`.
+* `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, preload: &[String], entry: Option<&str>) -> snapfire_fsr_runtime::Head`: a head whose default title is `title` and whose `rest` is `<meta charset>`, a viewport meta, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, a `<link rel="modulepreload">` per `preload` href, the entry as `<script type="module" src>`. The preload links sit after the import map, since a bare specifier in one resolves through the other.
+* `pub fn shell::preload_link(href: &str) -> String`: one `<link rel="modulepreload">`, which a mounted site adds to a document on its own routes for a module of its own bundle the shell's links do not already cover.
 
 ### canonical
 
