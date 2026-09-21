@@ -495,6 +495,12 @@ pub struct HostReport {
   pub site: Option<(String, String)>,
   /// The sites mounted under this host: name, prefix, artifact, version and hash.
   pub sites: Vec<SiteReport>,
+  /// The `script-src` source covering the document's inline import map, which
+  /// is the only executable inline script a page carries. `None` without an
+  /// import map. A deployment writing a Content-Security-Policy copies this in;
+  /// it changes whenever the map does, so it is read from a boot rather than
+  /// computed from any one file on disk.
+  pub import_map_csp: Option<String>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
   /// `[public]` as key and value, what `ctx.config` answers.
@@ -562,6 +568,9 @@ impl std::fmt::Display for HostReport {
     }
     if let Some((route, files, bytes)) = self.client {
       writeln!(f, "{:<9} {route:<22} {files} modules, {} KiB from the binary", "client", bytes / 1024)?;
+    }
+    if let Some(source) = &self.import_map_csp {
+      writeln!(f, "{:<9} {:<22} {source}", "csp", "import map")?;
     }
     for (i, (pattern, anonymous)) in self
       .app
@@ -4752,6 +4761,7 @@ impl HostBuilder {
       extensions: extension_rows,
       site: config.site.as_ref().map(|s| (s.name.clone(), s.at.clone())),
       sites: site_reports,
+      import_map_csp: import_map.as_deref().map(import_map_csp),
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
       public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
@@ -4846,6 +4856,17 @@ fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
     }
   }
   urls
+}
+
+/// The CSP `script-src` source for the document's inline import map. An import
+/// map has to be inline, so a policy naming sources cannot omit it; every other
+/// inline script the document carries is `type="application/json"`, which is
+/// data rather than script and needs no source.
+fn import_map_csp(text: &str) -> String {
+  use base64::Engine;
+  use sha2::Digest;
+  let digest = sha2::Sha256::digest(text.as_bytes());
+  format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(digest))
 }
 
 /// The `[session]` settings as one string, compared across a reload.
