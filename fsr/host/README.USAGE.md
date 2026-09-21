@@ -190,14 +190,22 @@ Anything written in the file wins over the inference. `[[static]]` entries add r
 
 The binary holds two builds of those modules and `document.client` says which one the prefix answers with: `auto`, the default, is the minified build unless `server.dev` is on and `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings as `./boot.min.js`, so those names are answered too and the graph a page loads follows its entry point. The `client` row names the build. Building `snapfire_fsr_host` with `default-features = false` drops the readable set, about 215 KiB, so every name answers minified.
 
-`document.csp` is the `Content-Security-Policy` every document carries. A page's import map has to be inline, so a policy naming script sources cannot leave it out and the merged map matches no file on disk. Write `{import_map}` where the source goes and the host substitutes the hash of what it actually emitted:
+`[document.csp]` is the `Content-Security-Policy` every document carries, written as directives and their sources:
 
 ```toml
-[document]
-csp = "default-src 'self'; script-src 'self' {import_map}; base-uri 'none'; object-src 'none'"
+[document.csp]
+default-src = ["'self'"]
+script-src = ["'self'", "https://www.googletagmanager.com"]
+object-src = ["'none'"]
 ```
 
-Absent, the host sends no policy at all. Neither does a host with `server.dev` on: the refresh script is inline and carries the bundle id it was rendered against, so its text changes per request and no source computed at boot covers it. The boot report says which of the two is why. Writing one in a proxy instead means copying that hash by hand and copying it again whenever an import map changes. A stale one does not degrade: the browser blocks the map, no bare specifier resolves and the page is blank. `fsr doctor` says so when the key is unset and when a policy is set without `{import_map}` while the document carries one. A payload and a fragment carry no policy, the first being data for a page that already has one and the second being written into one.
+The host merges in what only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Under `dev` a nonce for the refresh script goes in beside it, since that script carries the bundle id it was rendered against and has no stable hash. Nothing in the policy has to name either. A development host enforces the same policy a production one does.
+
+`[document.csp_report_only]` is the same shape sent as `Content-Security-Policy-Report-Only`, which a browser reports against and never enforces. Both may be set at once. On a page carrying third-party scripts, put the policy there first and enforce it once you know what it would have blocked: an ad tag injects scripts from origins no allowlist can name ahead of time.
+
+Two traps `fsr doctor` watches for. A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that same directive, so a policy written for inline third-party tags loses them the moment the host adds the import map's hash. And `'strict-dynamic'` makes the browser ignore `'self'` and every host in that directive, which leaves the entry module, a `<script src>` in the markup carrying no hash or nonce, with nothing to allow it.
+
+Absent, the host sends no policy and whatever sits in front of it owns the header. A payload and a fragment carry none, the first being data for a page that already has one and the second being written into one.
 
 `document.module_preload` puts a `<link rel="modulepreload">` in the head for every module the page fetches before the first island can mount: the entry's own static imports, whatever the import map resolves for each bare specifier the bundle declares and whatever the client reaches from those. It is off by default. A module an island pulls in with `import()` is left out, since which islands a document holds is not known until it renders. A mounted site adds links for its own bundle beside its entry script, minus whatever the shell already covers.
 

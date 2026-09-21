@@ -499,19 +499,50 @@ fn a_sites_links_are_not_checked() {
 }
 
 #[test]
-fn a_policy_that_names_no_import_map_placeholder_is_reported() {
+fn unsafe_inline_beside_an_import_map_is_reported() {
   let dir = app(
-    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\ncsp = \"script-src 'self'\"\n",
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[document.csp]\nscript-src = [\"'self'\", \"'unsafe-inline'\"]\n",
     &[("app/importmap.json", r#"{"imports":{}}"#)],
   );
   assert!(findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
-  assert!(report(&dir).contains("{import_map}"), "{}", report(&dir));
+  assert!(report(&dir).contains("ignore `'unsafe-inline'`"), "{}", report(&dir));
 }
 
 #[test]
-fn a_policy_that_names_the_placeholder_is_quiet() {
+fn unsafe_inline_without_an_import_map_is_quiet() {
+  let dir = app("[document]\ntitle = \"t\"\n[document.csp]\nscript-src = [\"'self'\", \"'unsafe-inline'\"]\n", &[]);
+  assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
+}
+
+#[test]
+fn strict_dynamic_is_reported() {
+  let dir = app("[document]\ntitle = \"t\"\n[document.csp]\nscript-src = [\"'self'\", \"'strict-dynamic'\"]\n", &[]);
+  assert!(findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
+  assert!(report(&dir).contains("strict-dynamic"), "{}", report(&dir));
+}
+
+#[test]
+fn a_report_only_policy_is_checked_the_same_way() {
   let dir = app(
-    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\ncsp = \"script-src 'self' {import_map}\"\n",
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[document.csp_report_only]\nscript-src = [\"'unsafe-inline'\"]\n",
+    &[("app/importmap.json", r#"{"imports":{}}"#)],
+  );
+  assert!(report(&dir).contains("csp_report_only"), "{}", report(&dir));
+}
+
+#[test]
+fn an_ordinary_policy_is_quiet() {
+  let dir = app(
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[document.csp]\nscript-src = [\"'self'\"]\nobject-src = [\"'none'\"]\n",
+    &[("app/importmap.json", r#"{"imports":{}}"#)],
+  );
+  assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
+}
+
+#[test]
+fn a_mounted_site_leaves_the_policy_to_its_shell() {
+  let dir = app(
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[site]\nname = \"docs\"\nat = \"/docs\"\n[document.csp]\nscript-src = [\"'unsafe-inline'\"]\n",
     &[("app/importmap.json", r#"{"imports":{}}"#)],
   );
   assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
@@ -520,20 +551,5 @@ fn a_policy_that_names_the_placeholder_is_quiet() {
 #[test]
 fn no_policy_at_all_is_quiet() {
   let dir = app("", &[]);
-  assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
-}
-
-#[test]
-fn a_document_with_no_import_map_needs_no_placeholder() {
-  let dir = app("[document]\ntitle = \"t\"\ncsp = \"script-src 'self'\"\n", &[]);
-  assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
-}
-
-#[test]
-fn a_mounted_site_leaves_the_policy_to_its_shell() {
-  let dir = app(
-    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\ncsp = \"script-src 'self'\"\n[site]\nname = \"docs\"\nat = \"/docs\"\n",
-    &[("app/importmap.json", r#"{"imports":{}}"#)],
-  );
   assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
 }

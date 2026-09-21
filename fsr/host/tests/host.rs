@@ -4869,18 +4869,7 @@ async fn an_action_that_extends_the_session_sets_the_cookie_to_the_new_end_and_a
 
 /// `document.csp` with `{import_map}` in it, plus `server.dev` from `dev`.
 fn csp_app(policy: &str, dev: bool) -> PathBuf {
-  let dir = app_dir();
-  let mut base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
-  base = base.replace(
-    "entry = \"/static/app.js\"",
-    &format!("entry = \"/static/app.js\"\ncsp = \"{policy}\""),
-  );
-  base = base.replace(
-    "listen = \"127.0.0.1:0\"",
-    &format!("listen = \"127.0.0.1:0\"\ndev = {dev}"),
-  );
-  std::fs::write(dir.join("app.toml"), base).unwrap();
-  dir
+  tuned_app_with(dev, "", "", policy)
 }
 
 fn csp_host(policy: &str, dev: bool) -> Arc<Host> {
@@ -4904,11 +4893,13 @@ async fn csp_of(host: &Host, path: &str) -> Option<String> {
 
 #[tokio::test]
 async fn a_document_carries_the_configured_csp_with_the_import_map_substituted() {
-  let host = csp_host("script-src 'self' {import_map}; object-src 'none'", false);
+  let host = csp_host("[document.csp]\nscript-src = [\"'self'\"]\nobject-src = [\"'none'\"]", false);
   let policy = csp_of(&host, "/").await.expect("a policy on the document");
-  assert!(policy.starts_with("script-src 'self' 'sha256-"), "{policy}");
-  assert!(policy.ends_with("; object-src 'none'"), "{policy}");
-  assert!(!policy.contains("{import_map}"), "the placeholder survived: {policy}");
+  assert!(policy.contains("object-src 'none'"), "{policy}");
+  assert!(
+    policy.contains("script-src 'self' 'sha256-"),
+    "the host did not add the import map's source: {policy}"
+  );
   assert_eq!(Some(policy), host.report().csp.clone());
 }
 
@@ -4921,7 +4912,7 @@ async fn no_csp_key_sends_no_policy() {
 
 #[tokio::test]
 async fn a_payload_carries_no_csp() {
-  let host = csp_host("script-src 'self' {import_map}", false);
+  let host = csp_host("[document.csp]\nscript-src = [\"'self'\"]", false);
   assert!(csp_of(&host, "/").await.is_some());
   assert_eq!(csp_of(&host, "/?__payload").await, None);
 }
@@ -4931,23 +4922,34 @@ async fn a_payload_carries_no_csp() {
 /// source computed at boot covers it. A policy would block it and take the
 /// live reload with it.
 #[tokio::test]
-async fn a_development_host_sends_no_csp() {
-  let host = csp_host("script-src 'self' {import_map}", true);
+async fn a_development_host_nonces_its_own_refresh_script() {
+  let host = csp_host("[document.csp]\nscript-src = [\"'self'\"]", true);
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(html.contains("EventSource"), "the fixture is not a development host: {html}");
-  assert_eq!(csp_of(&host, "/").await, None, "a development document carried a policy");
-  assert_eq!(host.report().csp, None);
+  let policy = csp_of(&host, "/").await.expect("development still enforces the policy");
+  let nonce = html
+    .split("<script nonce=\"")
+    .nth(1)
+    .and_then(|rest| rest.split('"').next())
+    .expect("the refresh script carries a nonce");
+  assert!(policy.contains(&format!("'nonce-{nonce}'")), "{policy} does not name {nonce}");
 }
 
 /// An app.toml with `dev` pinned and extra `[server]` or `[document]` keys,
 /// so a test never depends on `RELEASE_ENV`.
 fn tuned_app(dev: bool, server: &str, document: &str) -> PathBuf {
+  tuned_app_with(dev, server, document, "")
+}
+
+/// `tables` is appended whole, for a sub-table like `[document.csp]` that has
+/// to follow every bare key of the table it belongs to.
+fn tuned_app_with(dev: bool, server: &str, document: &str, tables: &str) -> PathBuf {
   let dir = app_dir();
   let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   let base = base
     .replace("listen = \"127.0.0.1:0\"", &format!("listen = \"127.0.0.1:0\"\ndev = {dev}\n{server}"))
     .replace("entry = \"/static/app.js\"", &format!("entry = \"/static/app.js\"\n{document}"));
-  std::fs::write(dir.join("app.toml"), base).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{base}\n{tables}\n")).unwrap();
   dir
 }
 
@@ -5026,8 +5028,8 @@ async fn a_min_name_is_answered_whatever_the_build() {
 
 #[tokio::test]
 async fn the_import_map_source_changes_with_the_map() {
-  let one = tuned_app(false, "", "csp = \"script-src {import_map}\"");
-  let two = tuned_app(false, "", "csp = \"script-src {import_map}\"");
+  let one = tuned_app_with(false, "", "", "[document.csp]\nscript-src = [\"'self'\"]");
+  let two = tuned_app_with(false, "", "", "[document.csp]\nscript-src = [\"'self'\"]");
   std::fs::write(two.join("importmap.json"), r#"{"imports":{"a":"/static/a.js"}}"#).unwrap();
   let (a, b) = (tuned_host(&one), tuned_host(&two));
   let (sa, sb) = (a.report().import_map_csp.clone(), b.report().import_map_csp.clone());
@@ -5085,4 +5087,56 @@ async fn module_preload_is_off_by_default() {
   let host = tuned_host(&tuned_app(false, "", ""));
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(!html.contains("modulepreload"), "{html}");
+}
+
+const REPORT_ONLY: &str = "content-security-policy-report-only";
+
+#[tokio::test]
+async fn a_report_only_policy_goes_in_the_report_only_header() {
+  let host = tuned_host(&tuned_app_with(false, "", "", "[document.csp_report_only]\nscript-src = [\"'self'\"]"));
+  let observed = header_of(&host, "/", REPORT_ONLY).await.expect("a report-only policy");
+  assert!(observed.contains("'sha256-"), "the host did not add its source: {observed}");
+  assert_eq!(header_of(&host, "/", "content-security-policy").await, None, "it enforced as well");
+}
+
+#[tokio::test]
+async fn a_policy_can_enforce_and_another_can_observe_at_once() {
+  let dir = tuned_app_with(
+    false,
+    "",
+    "",
+    "[document.csp]\nscript-src = [\"'self'\", \"'unsafe-inline'\"]\n[document.csp_report_only]\nscript-src = [\"'self'\"]",
+  );
+  let host = tuned_host(&dir);
+  let enforced = header_of(&host, "/", "content-security-policy").await.expect("an enforced policy");
+  let observed = header_of(&host, "/", REPORT_ONLY).await.expect("a report-only policy");
+  assert!(enforced.contains("'unsafe-inline'"), "{enforced}");
+  assert!(!observed.contains("'unsafe-inline'"), "{observed}");
+}
+
+#[tokio::test]
+async fn a_development_host_nonces_both_policies() {
+  let host = tuned_host(&tuned_app_with(
+    true,
+    "",
+    "",
+    "[document.csp]\nscript-src = [\"'self'\"]\n[document.csp_report_only]\nscript-src = [\"'self'\"]",
+  ));
+  let enforced = header_of(&host, "/", "content-security-policy").await.expect("enforced");
+  let observed = header_of(&host, "/", REPORT_ONLY).await.expect("reported");
+  assert!(enforced.contains("'nonce-"), "{enforced}");
+  assert!(observed.contains("'nonce-"), "{observed}");
+}
+
+#[tokio::test]
+async fn a_payload_carries_neither_policy() {
+  let host = tuned_host(&tuned_app_with(
+    false,
+    "",
+    "",
+    "[document.csp]\nscript-src = [\"'self'\"]\n[document.csp_report_only]\nscript-src = [\"'self'\"]",
+  ));
+  assert!(header_of(&host, "/", REPORT_ONLY).await.is_some());
+  assert_eq!(header_of(&host, "/?__payload", REPORT_ONLY).await, None);
+  assert_eq!(header_of(&host, "/?__payload", "content-security-policy").await, None);
 }

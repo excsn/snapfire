@@ -506,6 +506,9 @@ pub struct HostReport {
   /// The `Content-Security-Policy` every HTML response carries, `document.csp`
   /// with the import map's source already substituted; `None` when none is set.
   pub csp: Option<String>,
+  /// The same for `Content-Security-Policy-Report-Only`, which a browser
+  /// reports against and never enforces.
+  pub csp_report_only: Option<String>,
   pub config: Vec<PathBuf>,
   pub inferred: Vec<String>,
   /// `[public]` as key and value, what `ctx.config` answers.
@@ -582,6 +585,9 @@ impl std::fmt::Display for HostReport {
       (Some(policy), _) => writeln!(f, "{:<9} {:<22} {policy}", "", "sent as")?,
       (None, true) => writeln!(f, "{:<9} {:<22} no policy sent, `dev` is on", "", "sent as")?,
       (None, false) => writeln!(f, "{:<9} {:<22} no policy sent, `document.csp` is unset", "", "sent as")?,
+    }
+    if let Some(policy) = &self.csp_report_only {
+      writeln!(f, "{:<9} {:<22} {policy}", "", "reported as")?;
     }
     for (i, (pattern, anonymous)) in self
       .app
@@ -886,6 +892,10 @@ struct Tables {
   /// The `Content-Security-Policy` an HTML response carries, `document.csp`
   /// with the import map's source substituted. `None` sends no policy.
   csp: Option<HeaderValue>,
+  /// The same for `Content-Security-Policy-Report-Only`, `document.csp_report_only`.
+  csp_report_only: Option<HeaderValue>,
+  /// The nonce on the development refresh script, named by both policies.
+  dev_nonce: Option<String>,
   prerendered: Option<PathBuf>,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
@@ -1507,7 +1517,7 @@ impl Host {
   ) -> Result<Rendered, HostError> {
     let mut extra = Vec::new();
     if let Some(facts) = &t.dev_bundle {
-      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts))));
+      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts), t.dev_nonce.as_deref())));
     }
     if visit.prefixed && visit.locale.is_default {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(self.origin.as_deref(), &visit.path)));
@@ -4643,13 +4653,22 @@ impl HostBuilder {
     // The development refresh script is inline and carries the bundle id it was
     // rendered against, so its text changes per request and no source computed
     // at boot covers it.
-    let csp = config.document.csp.as_deref().filter(|_| !dev).and_then(|policy| {
-      let filled = match import_map.as_deref() {
-        Some(map) => policy.replace("{import_map}", &import_map_csp(map)),
-        None => policy.replace("{import_map}", "").replace("  ", " "),
-      };
-      HeaderValue::from_str(filled.trim()).ok()
-    });
+    // The host owns the sources only it can know: the inline import map's hash,
+    // and in development the nonce on its own refresh script, whose text carries
+    // the bundle id it was rendered against and so has no stable hash.
+    let dev_nonce = dev.then(dev_nonce);
+    let compose = |declared: &config::Csp| {
+      let mut policy = declared.clone();
+      if let Some(map) = import_map.as_deref() {
+        policy.add("script-src", import_map_csp(map));
+      }
+      if let Some(nonce) = &dev_nonce {
+        policy.add("script-src", format!("'nonce-{nonce}'"));
+      }
+      policy.header().and_then(|text| HeaderValue::from_str(&text).ok())
+    };
+    let csp = config.document.csp.as_ref().and_then(&compose);
+    let csp_report_only = config.document.csp_report_only.as_ref().and_then(&compose);
     let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
     // Longest route first, so the most specific root answers a path whatever
     // order the file, the inference and the mounts named them in.
@@ -4792,6 +4811,7 @@ impl HostBuilder {
       sites: site_reports,
       import_map_csp: import_map.as_deref().map(import_map_csp),
       csp: csp.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
+      csp_report_only: csp_report_only.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
       public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
@@ -4808,6 +4828,8 @@ impl HostBuilder {
         client: serve_client,
         client_minified,
         csp,
+        csp_report_only,
+        dev_nonce,
         prerendered,
         warm,
         renders,
@@ -4896,6 +4918,25 @@ fn set_csp(t: &Tables, mode: &RenderMode, response: &mut Response<Body>) {
   if let Some(policy) = &t.csp {
     response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, policy.clone());
   }
+  if let Some(policy) = &t.csp_report_only {
+    response
+      .headers_mut()
+      .insert(header::CONTENT_SECURITY_POLICY_REPORT_ONLY, policy.clone());
+  }
+}
+
+/// The nonce a development host puts on its refresh script. Per boot rather
+/// than per response, which a prerendered document or the render memo would
+/// otherwise replay; neither runs under `dev`.
+fn dev_nonce() -> String {
+  use base64::Engine;
+  use sha2::Digest;
+  let seed = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map(|d| d.as_nanos())
+    .unwrap_or_default();
+  let digest = sha2::Sha256::digest(format!("{seed}{:?}", std::process::id()).as_bytes());
+  base64::engine::general_purpose::STANDARD.encode(&digest[..16])
 }
 
 /// The CSP `script-src` source for the document's inline import map, which is

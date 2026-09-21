@@ -80,9 +80,10 @@ pub fn site_entry(entry: &str) -> String {
 /// is on the page. The first event after a connect is the greeting and does
 /// nothing on its own, so a reconnect after a restart refreshes and a fresh
 /// load does not.
-pub fn dev_script(bundle: &str) -> String {
+pub fn dev_script(bundle: &str, nonce: Option<&str>) -> String {
+  let nonce = nonce.map(|n| format!(" nonce=\"{}\"", escape(n))).unwrap_or_default();
   format!(
-    "<script>(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first=true,s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}})()</script>",
+    "<script{nonce}>(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first=true,s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}})()</script>",
     escape(bundle)
   )
 }

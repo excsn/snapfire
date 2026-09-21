@@ -52,7 +52,8 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Let a browser keep a static file | `server.static_max_age`, 3600 by default and `0` for no header |
 | Flatten the module waterfall before the first island mounts | `document.module_preload` |
 | Serve the readable client instead of the minified one | `document.client = "readable"` or `auto` with `server.dev` on |
-| Send a Content-Security-Policy that names the inline import map | `[document] csp` with `{import_map}` in it; the host fills in the hash, so it cannot go stale |
+| Send a Content-Security-Policy | `[document.csp]` as directives and sources; the host adds the import map's hash and the dev nonce itself |
+| Try a policy before enforcing it | `[document.csp_report_only]`, the same shape, sent as report-only |
 | See what was bound and served | `Host::report` |
 
 | Serve a team's application under a path of yours, from its build output, one session and one navigation across both | `HostBuilder::mount` and `Mount` or `snapfire_fsr_sites` over a `[sites]` table |

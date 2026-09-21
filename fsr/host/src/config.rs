@@ -288,6 +288,48 @@ impl Default for ServerConfig {
   }
 }
 
+/// A Content-Security-Policy as directives and their sources, which is what
+/// lets the host add a source of its own without the policy having left a hole
+/// for it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct Csp(pub BTreeMap<String, Vec<String>>);
+
+impl Csp {
+  /// Adds `source` to `directive`, once. The host calls this for what only it
+  /// knows: the inline import map's hash, plus in a development host the nonce
+  /// on its own refresh script.
+  pub fn add(&mut self, directive: &str, source: impl Into<String>) {
+    let sources = self.0.entry(directive.to_owned()).or_default();
+    let source = source.into();
+    if !sources.contains(&source) {
+      sources.push(source);
+    }
+  }
+
+  /// Whether `directive` names `source` already.
+  pub fn names(&self, directive: &str, source: &str) -> bool {
+    self.0.get(directive).is_some_and(|s| s.iter().any(|v| v == source))
+  }
+
+  /// The header value: `directive source source; directive source`. A
+  /// directive with no sources is written bare, which is what `upgrade-insecure-requests`
+  /// wants. Empty overall is `None`, since a policy naming nothing forbids everything.
+  pub fn header(&self) -> Option<String> {
+    if self.0.is_empty() {
+      return None;
+    }
+    let mut parts = Vec::with_capacity(self.0.len());
+    for (directive, sources) in &self.0 {
+      match sources.is_empty() {
+        true => parts.push(directive.clone()),
+        false => parts.push(format!("{directive} {}", sources.join(" "))),
+      }
+    }
+    Some(parts.join("; "))
+  }
+}
+
 /// Which build of the embedded client `/static/js/fsr` answers with. The
 /// minified modules are about a third smaller and import their siblings by
 /// `.min.js`, which the host answers either way, so this picks what the entry
@@ -342,13 +384,20 @@ pub struct DocumentConfig {
   /// `minified`. `auto` follows `server.dev`.
   #[serde(default)]
   pub client: ClientBuild,
-  /// The `Content-Security-Policy` every HTML response carries. `{import_map}`
-  /// in it becomes the `script-src` source for the document's inline import
-  /// map, which is the only executable inline script a page holds and the one
-  /// thing a policy cannot name without knowing what the host emitted. Absent,
-  /// the host sends no policy and whatever sits in front of it owns the header.
+  /// `[document.csp]`, one directive per key and its sources as a list. The
+  /// host merges its own sources into the directives it owns, so a policy never
+  /// has to name what the host emitted. Absent, no policy is sent and whatever
+  /// sits in front of the host owns the header.
   #[serde(default)]
-  pub csp: Option<String>,
+  pub csp: Option<Csp>,
+  /// `[document.csp_report_only]`, the same shape, sent as
+  /// `Content-Security-Policy-Report-Only`, which a browser reports against and
+  /// never enforces. A policy for a page carrying third-party scripts belongs
+  /// here first: an ad tag injects scripts from origins no allowlist can name
+  /// ahead of time. A hash in `script-src` also makes the browser ignore
+  /// `'unsafe-inline'` in that same directive.
+  #[serde(default)]
+  pub csp_report_only: Option<Csp>,
   /// Stylesheet URLs linked from the head, in order.
   #[serde(default)]
   pub styles: Option<Vec<String>>,

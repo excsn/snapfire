@@ -15,6 +15,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [TlsSection](#tlssection)
   * [socket](#socket)
   * [DocumentConfig](#documentconfig)
+  * [Csp](#csp)
   * [ClientBuild](#clientbuild)
   * [Bundle](#bundle)
   * [PublicValue](#publicvalue)
@@ -138,8 +139,16 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `title` (default empty), `entry: Option<String>`, `import_map: Option<String>` and `styles: Option<Vec<String>>`, stylesheet URLs linked in order, all three inferred when absent, `shell` (default `shell#document`), `origin: Option<String>`.
 * `module_preload: bool` (default false): whether the head carries a `<link rel="modulepreload">` for every module the page fetches before the first island can mount, which is `entry`'s own static imports out of `Config::bundle`, the import map's answer for each bare specifier the bundle declares and whatever the embedded client reaches from those. A module an island pulls in with `import()` is left out, since which islands a document holds is not known until it renders. `entry` itself is left out too, being a `<script type="module">` already. A mounted site adds its own links beside its entry script, minus whatever the shell already covers.
 * `client: ClientBuild` (default `auto`): which build of the embedded client `/static/js/fsr/<name>.js` answers with.
-* `csp: Option<String>`: the `Content-Security-Policy` every HTML response carries. `{import_map}` in it is replaced with the `script-src` source for the document's inline import map, which is the only executable inline script a page holds and the one thing a policy cannot name without knowing what the host emitted. Absent, the host sends no policy and whatever sits in front of it owns the header. A payload and a fragment carry none, the first being data for a page that already has one and the second being written into one. A host with `server.dev` on sends none either: the refresh script is inline and its text changes per request.
+* `csp: Option<Csp>`: `[document.csp]`, the `Content-Security-Policy` every HTML response carries, as directives and their sources. The host merges in the sources only it knows: the inline import map's hash into `script-src`, plus under `dev` a nonce for its own refresh script, whose text carries the bundle id it was rendered against and so has no stable hash. A policy therefore never names what the host emitted. Absent, no policy is sent and whatever sits in front of the host owns the header. A payload and a fragment carry none, the first being data for a page that already has one and the second being written into one.
+* `csp_report_only: Option<Csp>`: `[document.csp_report_only]`, the same composed the same way and sent as `Content-Security-Policy-Report-Only`. Both may be set at once, which is how a policy is rolled onto a page carrying third-party scripts: observe first, then enforce.
 * `head: Vec<BTreeMap<String, String>>` is not a key: it holds what the host inferred from `icons/`, which a route's `meta` folds over. `head_meta(&self) -> Result<Meta, HostError>` is that as the outermost `Meta`.
+
+### Csp
+
+* `pub struct config::Csp(pub BTreeMap<String, Vec<String>>)`, one directive per key and its sources as a list, deserialised straight from `[document.csp]`.
+* `pub fn add(&mut self, directive: &str, source: impl Into<String>)`: adds a source once, which is how the host contributes what a policy cannot name for itself.
+* `pub fn names(&self, directive: &str, source: &str) -> bool`.
+* `pub fn header(&self) -> Option<String>`: the header value, `directive source source; directive source`. A directive with no sources is written bare, for the likes of `upgrade-insecure-requests`. `None` when empty, since a policy naming nothing forbids everything.
 
 ### ClientBuild
 
@@ -474,7 +483,7 @@ With no collector installed each is a relaxed atomic load and a branch.
 
 ### head
 
-* `pub fn shell::dev_script(bundle: &str) -> String`: the `<script>` a development document carries, with `bundle` as the id it was rendered against. It opens `EventSource("/__fsr/events")`; an event whose `bundle` differs reloads, the first event after a connect is otherwise ignored and any later one re-links every stylesheet with a `__sf` query string and calls `window.__sf.refresh` or reloads when nothing is registered there.
+* `pub fn shell::dev_script(bundle: &str, nonce: Option<&str>) -> String`: the `<script>` a development document carries, with `bundle` as the id it was rendered against and `nonce` the one both policies name, since the script's own text changes per request and has no stable hash. It opens `EventSource("/__fsr/events")`; an event whose `bundle` differs reloads, the first event after a connect is otherwise ignored and any later one re-links every stylesheet with a `__sf` query string and calls `window.__sf.refresh` or reloads when nothing is registered there.
 * `pub fn shell::head(title: &str, styles: &[String], import_map: Option<&str>, preload: &[String], entry: Option<&str>) -> snapfire_fsr_runtime::Head`: a head whose default title is `title` and whose `rest` is `<meta charset>`, a viewport meta, a `<link rel="stylesheet">` per style, the import map inlined verbatim as `<script type="importmap">`, a `<link rel="modulepreload">` per `preload` href, the entry as `<script type="module" src>`. The preload links sit after the import map, since a bare specifier in one resolves through the other.
 * `pub fn shell::preload_link(href: &str) -> String`: one `<link rel="modulepreload">`, which a mounted site adds to a document on its own routes for a module of its own bundle the shell's links do not already cover.
 

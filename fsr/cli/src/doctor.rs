@@ -671,21 +671,34 @@ fn tree(app: &Path, config: &Config) -> Vec<Finding> {
   )]
 }
 
-/// A blocked import map resolves no module, so the page is blank rather than
-/// degraded.
+/// A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that
+/// same directive. The host always adds the inline import map's hash, so a
+/// policy written for inline third-party scripts loses them the moment it names
+/// `script-src` at all.
 fn csp(config: &Config) -> Vec<Finding> {
   // A site's document is its shell's.
   if config.site.is_some() {
     return Vec::new();
   }
-  match &config.document.csp {
-    Some(policy) if config.document.import_map.is_some() && !policy.contains("{import_map}") => vec![Finding::new(
-      "csp",
-      "`document.csp` names no `{import_map}` while the document carries one",
-      "put `{import_map}` in the policy's `script-src`; without it the browser blocks the inline import map and no module on the page resolves",
-    )],
-    _ => Vec::new(),
+  let mut findings = Vec::new();
+  for (key, policy) in [("csp", &config.document.csp), ("csp_report_only", &config.document.csp_report_only)] {
+    let Some(policy) = policy else { continue };
+    if config.document.import_map.is_some() && policy.names("script-src", "'unsafe-inline'") {
+      findings.push(Finding::new(
+        "csp",
+        format!("`document.{key}` names `'unsafe-inline'` in `script-src` while the document carries an import map"),
+        "the host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`, so every inline script on the page stops running. Drop `'unsafe-inline'` or serve the document without an import map",
+      ));
+    }
+    if policy.names("script-src", "'strict-dynamic'") {
+      findings.push(Finding::new(
+        "csp",
+        format!("`document.{key}` names `'strict-dynamic'` in `script-src`"),
+        "`'strict-dynamic'` makes the browser ignore `'self'` and every host in that directive. The entry module is a `<script src>` in the markup carrying no hash or nonce, so the page loads nothing",
+      ));
+    }
   }
+  findings
 }
 
 /// The mounted sites, which a shell serves and never builds, so nothing about
