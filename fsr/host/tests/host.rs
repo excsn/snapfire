@@ -5075,7 +5075,7 @@ async fn module_preload_links_the_entry_graph_and_the_import_map() {
     "the entry's static import is not preloaded: {html}"
   );
   assert!(
-    html.contains(r#"href="/static/js/fsr/index.js">"#),
+    html.contains(r#"href="/static/js/fsr/index.min.js">"#),
     "the import map's target is not preloaded: {html}"
   );
   assert!(
@@ -5169,4 +5169,84 @@ async fn the_client_preload_names_plain_modules_when_a_static_root_serves_them()
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(html.contains(r#"href="/static/js/fsr/values.js">"#), "{html}");
   assert!(!html.contains(".min.js"), "{html}");
+}
+
+/// A minified module imports its siblings by their `.min.js` names, so a specifier the import
+/// map resolves to a plain name is a second copy of that module holding its own store.
+#[tokio::test]
+async fn the_import_map_names_the_build_the_host_serves() {
+  let host = tuned_host(&preload_app(false, ""));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#""@snapfire/fsr-client":"/static/js/fsr/index.min.js""#), "{html}");
+  assert!(!html.contains(r#""/static/js/fsr/index.js""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_development_import_map_names_the_readable_client() {
+  let host = tuned_host(&preload_app(true, ""));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#""@snapfire/fsr-client":"/static/js/fsr/index.js""#), "{html}");
+  assert!(!html.contains(".min.js"), "{html}");
+}
+
+/// A `[[static]]` root on the client prefix serves the application's own copy, which the host
+/// has not read, so it renames nothing there.
+#[tokio::test]
+async fn an_application_serving_its_own_client_keeps_the_urls_it_wrote() {
+  let dir = preload_app(false, "[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n");
+  std::fs::create_dir_all(dir.join("client")).unwrap();
+  std::fs::write(dir.join("client/index.js"), "export {}\n").unwrap();
+  let host = tuned_host(&dir);
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#""@snapfire/fsr-client":"/static/js/fsr/index.js""#), "{html}");
+  assert!(!html.contains(".min.js"), "{html}");
+}
+
+/// Two spellings of one module are two modules to a browser, each with its own state, so a
+/// document that names both has split whatever they hold.
+#[tokio::test]
+async fn every_client_url_in_a_document_has_one_spelling() {
+  for dev in [false, true] {
+    let host = tuned_host(&preload_app(dev, ""));
+    let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+    let mut rest = html.as_str();
+    let mut named: Vec<String> = Vec::new();
+    while let Some(at) = rest.find("/static/js/fsr/") {
+      rest = &rest[at..];
+      let end = rest.find(['"', '\'']).unwrap_or(rest.len());
+      named.push(rest[..end].to_owned());
+      rest = &rest[end..];
+    }
+    assert!(named.len() > 2, "dev {dev}: the document names no client modules: {html}");
+    let minified = named.iter().filter(|url| url.ends_with(".min.js")).count();
+    assert!(
+      minified == 0 || minified == named.len(),
+      "dev {dev}: {minified} of {} client urls are minified: {named:?}",
+      named.len()
+    );
+  }
+}
+
+/// The policy carries the hash of the map the document holds, so a rewrite that ran after the
+/// hash was taken would refuse the script it names.
+#[tokio::test]
+async fn the_policy_hashes_the_import_map_the_document_carries() {
+  use base64::Engine;
+  use sha2::Digest;
+  let dir = tuned_app_with(false, "", "module_preload = true", "[document.csp]\nscript-src = [\"'self'\"]\n");
+  std::fs::write(
+    dir.join("importmap.json"),
+    r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#,
+  )
+  .unwrap();
+  let host = tuned_host(&dir);
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let map = html
+    .split_once(r#"<script type="importmap">"#)
+    .and_then(|(_, rest)| rest.split_once("</script>"))
+    .expect("the document carries an import map")
+    .0;
+  let digest = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(map.as_bytes()));
+  let policy = header_of(&host, "/", "content-security-policy").await.expect("a policy");
+  assert!(policy.contains(&format!("'sha256-{digest}'")), "{policy}\n{map}");
 }

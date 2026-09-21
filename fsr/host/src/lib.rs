@@ -4377,10 +4377,13 @@ impl HostBuilder {
         dir: config.resolve(&root.dir),
       })
       .collect();
+    let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
+    let client_minified = config.document.client.minified(config.dev());
     let mut import_map = match &config.document.import_map {
       Some(rel) => {
         let path = config.resolve(rel);
-        Some(std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?)
+        let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
+        Some(client_urls(&text, serve_client && client_minified))
       }
       None => None,
     };
@@ -4492,7 +4495,8 @@ impl HostBuilder {
       if let Some(rel) = &mount.artifact.config.document.import_map {
         let path = mount.artifact.config.resolve(rel);
         let theirs = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
-        import_map = Some(merge_import_maps(import_map.as_deref(), &theirs));
+        let merged = merge_import_maps(import_map.as_deref(), &theirs);
+        import_map = Some(client_urls(&merged, serve_client && client_minified));
       }
       site_reports.push(SiteReport {
         name: mount.name.clone(),
@@ -4648,8 +4652,6 @@ impl HostBuilder {
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
 
-    let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
-    let client_minified = config.document.client.minified(dev);
     // The development refresh script is inline and carries the bundle id it was
     // rendered against, so its text changes per request and no source computed
     // at boot covers it.
@@ -4851,6 +4853,49 @@ impl HostBuilder {
 /// `import()` is left out, since which islands a document holds is not known
 /// until it renders. The entry itself is left out too: it is already a
 /// `<script type="module">` on the page.
+/// The import map names the build the host serves. A minified module imports its siblings by
+/// their `.min.js` names, so a specifier resolved to a plain name would be a second copy of that
+/// module, holding its own store.
+fn client_urls(text: &str, minified: bool) -> String {
+  if !minified {
+    return text.to_owned();
+  }
+  let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else {
+    return text.to_owned();
+  };
+  let mut changed = false;
+  minify_client_urls(&mut value, &format!("{}/", client::ROUTE), &mut changed);
+  match changed {
+    true => serde_json::to_string(&value).unwrap_or_else(|_| text.to_owned()),
+    false => text.to_owned(),
+  }
+}
+
+fn minify_client_urls(value: &mut serde_json::Value, prefix: &str, changed: &mut bool) {
+  match value {
+    serde_json::Value::Object(map) => {
+      for (_, held) in map.iter_mut() {
+        minify_client_urls(held, prefix, changed);
+      }
+    }
+    serde_json::Value::Array(items) => {
+      for held in items {
+        minify_client_urls(held, prefix, changed);
+      }
+    }
+    serde_json::Value::String(url) => {
+      let Some(stem) = url.strip_prefix(prefix).and_then(|rest| rest.strip_suffix(".js")) else {
+        return;
+      };
+      if !stem.ends_with(".min") {
+        *url = format!("{prefix}{stem}.min.js");
+        *changed = true;
+      }
+    }
+    _ => {}
+  }
+}
+
 fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
   let Some(bundle) = &config.bundle else { return Vec::new() };
   // A `[[static]]` root on the client prefix is an application serving its own
