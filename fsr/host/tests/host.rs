@@ -4866,3 +4866,223 @@ async fn an_action_that_extends_the_session_sets_the_cookie_to_the_new_end_and_a
   assert_eq!(response.status(), StatusCode::OK);
   assert!(session_cookie(&response).is_none(), "a request that only reads the session writes nothing");
 }
+
+/// `document.csp` with `{import_map}` in it, plus `server.dev` from `dev`.
+fn csp_app(policy: &str, dev: bool) -> PathBuf {
+  let dir = app_dir();
+  let mut base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  base = base.replace(
+    "entry = \"/static/app.js\"",
+    &format!("entry = \"/static/app.js\"\ncsp = \"{policy}\""),
+  );
+  base = base.replace(
+    "listen = \"127.0.0.1:0\"",
+    &format!("listen = \"127.0.0.1:0\"\ndev = {dev}"),
+  );
+  std::fs::write(dir.join("app.toml"), base).unwrap();
+  dir
+}
+
+fn csp_host(policy: &str, dev: bool) -> Arc<Host> {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  Arc::new(
+    Host::from(csp_app(policy, dev).join("app.toml"))
+      .unwrap()
+      .services_over(transport)
+      .build()
+      .unwrap(),
+  )
+}
+
+async fn csp_of(host: &Host, path: &str) -> Option<String> {
+  let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+  response
+    .headers()
+    .get(header::CONTENT_SECURITY_POLICY)
+    .map(|v| v.to_str().unwrap().to_owned())
+}
+
+#[tokio::test]
+async fn a_document_carries_the_configured_csp_with_the_import_map_substituted() {
+  let host = csp_host("script-src 'self' {import_map}; object-src 'none'", false);
+  let policy = csp_of(&host, "/").await.expect("a policy on the document");
+  assert!(policy.starts_with("script-src 'self' 'sha256-"), "{policy}");
+  assert!(policy.ends_with("; object-src 'none'"), "{policy}");
+  assert!(!policy.contains("{import_map}"), "the placeholder survived: {policy}");
+  assert_eq!(Some(policy), host.report().csp.clone());
+}
+
+#[tokio::test]
+async fn no_csp_key_sends_no_policy() {
+  let (host, _) = host();
+  assert_eq!(csp_of(&host, "/").await, None);
+  assert_eq!(host.report().csp, None);
+}
+
+#[tokio::test]
+async fn a_payload_carries_no_csp() {
+  let host = csp_host("script-src 'self' {import_map}", false);
+  assert!(csp_of(&host, "/").await.is_some());
+  assert_eq!(csp_of(&host, "/?__payload").await, None);
+}
+
+/// The refresh script a development host injects is inline and carries the
+/// bundle id it was rendered against, so its text changes per request and no
+/// source computed at boot covers it. A policy would block it and take the
+/// live reload with it.
+#[tokio::test]
+async fn a_development_host_sends_no_csp() {
+  let host = csp_host("script-src 'self' {import_map}", true);
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("EventSource"), "the fixture is not a development host: {html}");
+  assert_eq!(csp_of(&host, "/").await, None, "a development document carried a policy");
+  assert_eq!(host.report().csp, None);
+}
+
+/// An app.toml with `dev` pinned and extra `[server]` or `[document]` keys,
+/// so a test never depends on `RELEASE_ENV`.
+fn tuned_app(dev: bool, server: &str, document: &str) -> PathBuf {
+  let dir = app_dir();
+  let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  let base = base
+    .replace("listen = \"127.0.0.1:0\"", &format!("listen = \"127.0.0.1:0\"\ndev = {dev}\n{server}"))
+    .replace("entry = \"/static/app.js\"", &format!("entry = \"/static/app.js\"\n{document}"));
+  std::fs::write(dir.join("app.toml"), base).unwrap();
+  dir
+}
+
+fn tuned_host(dir: &std::path::Path) -> Arc<Host> {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  Arc::new(
+    Host::from(dir.join("app.toml"))
+      .unwrap()
+      .services_over(transport)
+      .build()
+      .unwrap(),
+  )
+}
+
+async fn header_of(host: &Host, path: &str, name: &str) -> Option<String> {
+  let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+  response.headers().get(name).map(|v| v.to_str().unwrap().to_owned())
+}
+
+async fn served(host: &Host, path: &str) -> String {
+  body_of(host.handle(Request::get(path).body(Bytes::new()).unwrap()).await).await
+}
+
+#[tokio::test]
+async fn a_static_root_and_the_embedded_client_carry_the_configured_lifetime() {
+  let host = tuned_host(&tuned_app(false, "static_max_age = 120", ""));
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=120"));
+  assert_eq!(
+    header_of(&host, "/static/js/fsr/index.js", "cache-control").await.as_deref(),
+    Some("public, max-age=120")
+  );
+}
+
+#[tokio::test]
+async fn a_zero_lifetime_sends_no_cache_control() {
+  let host = tuned_host(&tuned_app(false, "static_max_age = 0", ""));
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await, None);
+  assert_eq!(header_of(&host, "/static/js/fsr/index.js", "cache-control").await, None);
+}
+
+#[tokio::test]
+async fn the_default_lifetime_is_an_hour() {
+  let host = tuned_host(&tuned_app(false, "", ""));
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=3600"));
+}
+
+#[tokio::test]
+async fn a_development_host_revalidates_whatever_the_lifetime_says() {
+  let host = tuned_host(&tuned_app(true, "static_max_age = 120", ""));
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("no-cache"));
+  assert_eq!(header_of(&host, "/static/js/fsr/index.js", "cache-control").await.as_deref(), Some("no-cache"));
+}
+
+#[tokio::test]
+async fn the_client_build_follows_dev_and_then_document_client() {
+  let readable = tuned_host(&tuned_app(true, "", ""));
+  assert!(served(&readable, "/static/js/fsr/index.js").await.contains("from \"./values.js\""));
+  assert!(readable.report().to_string().contains("modules, readable,"), "{}", readable.report());
+
+  let minified = tuned_host(&tuned_app(false, "", ""));
+  assert!(served(&minified, "/static/js/fsr/index.js").await.contains("from\"./values.min.js\""));
+  assert!(minified.report().to_string().contains("modules, minified,"), "{}", minified.report());
+
+  let pinned = tuned_host(&tuned_app(false, "", "client = \"readable\""));
+  assert!(served(&pinned, "/static/js/fsr/index.js").await.contains("from \"./values.js\""));
+}
+
+#[tokio::test]
+async fn a_min_name_is_answered_whatever_the_build() {
+  for dev in [true, false] {
+    let host = tuned_host(&tuned_app(dev, "", ""));
+    let body = served(&host, "/static/js/fsr/values.min.js").await;
+    assert!(!body.is_empty(), "values.min.js was not answered with dev = {dev}");
+  }
+}
+
+#[tokio::test]
+async fn the_import_map_source_changes_with_the_map() {
+  let one = tuned_app(false, "", "csp = \"script-src {import_map}\"");
+  let two = tuned_app(false, "", "csp = \"script-src {import_map}\"");
+  std::fs::write(two.join("importmap.json"), r#"{"imports":{"a":"/static/a.js"}}"#).unwrap();
+  let (a, b) = (tuned_host(&one), tuned_host(&two));
+  let (sa, sb) = (a.report().import_map_csp.clone(), b.report().import_map_csp.clone());
+  assert!(sa.is_some() && sb.is_some(), "{sa:?} {sb:?}");
+  assert_ne!(sa, sb, "two import maps hashed the same");
+  assert!(a.report().csp.clone().unwrap().contains(&sa.unwrap()));
+}
+
+#[tokio::test]
+async fn module_preload_links_the_entry_graph_and_the_import_map() {
+  let dir = tuned_app(false, "", "module_preload = true");
+  // The graph is keyed on paths under the bundle's public path, so an entry
+  // outside it matches nothing.
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(
+    dir.join("app.toml"),
+    toml.replace("entry = \"/static/app.js\"", "entry = \"/static/js/app/src/main.js\""),
+  )
+  .unwrap();
+  std::fs::create_dir_all(dir.join("dist")).unwrap();
+  std::fs::write(
+    dir.join("importmap.json"),
+    r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#,
+  )
+  .unwrap();
+  std::fs::write(
+    dir.join("dist/.snapfire-build.json"),
+    r#"{"publicPath":"/static/js/app/","entries":["src/main.js"],
+        "graph":{"src/main.js":["generated/islands.js"]},
+        "externals":["@snapfire/fsr-client"]}"#,
+  )
+  .unwrap();
+  let host = tuned_host(&dir);
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(
+    html.contains(r#"<link rel="modulepreload" href="/static/js/app/generated/islands.js">"#),
+    "the entry's static import is not preloaded: {html}"
+  );
+  assert!(
+    html.contains(r#"href="/static/js/fsr/index.js">"#),
+    "the import map's target is not preloaded: {html}"
+  );
+  assert!(
+    html.contains(r#"href="/static/js/fsr/values.js">"#) || html.contains(r#"href="/static/js/fsr/values.min.js">"#),
+    "the client's own graph was not walked: {html}"
+  );
+  assert!(
+    !html.contains(r#"modulepreload" href="/static/js/app/src/main.js"#),
+    "the entry preloads itself: {html}"
+  );
+}
+
+#[tokio::test]
+async fn module_preload_is_off_by_default() {
+  let host = tuned_host(&tuned_app(false, "", ""));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("modulepreload"), "{html}");
+}

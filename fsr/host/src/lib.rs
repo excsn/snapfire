@@ -578,9 +578,10 @@ impl std::fmt::Display for HostReport {
     if let Some(source) = &self.import_map_csp {
       writeln!(f, "{:<9} {:<22} {source}", "csp", "import map")?;
     }
-    match &self.csp {
-      Some(policy) => writeln!(f, "{:<9} {:<22} {policy}", "", "sent as")?,
-      None => writeln!(f, "{:<9} {:<22} no policy sent, `document.csp` is unset", "", "sent as")?,
+    match (&self.csp, self.dev) {
+      (Some(policy), _) => writeln!(f, "{:<9} {:<22} {policy}", "", "sent as")?,
+      (None, true) => writeln!(f, "{:<9} {:<22} no policy sent, `dev` is on", "", "sent as")?,
+      (None, false) => writeln!(f, "{:<9} {:<22} no policy sent, `document.csp` is unset", "", "sent as")?,
     }
     for (i, (pattern, anonymous)) in self
       .app
@@ -4639,7 +4640,10 @@ impl HostBuilder {
 
     let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
     let client_minified = config.document.client.minified(dev);
-    let csp = config.document.csp.as_deref().and_then(|policy| {
+    // The development refresh script is inline and carries the bundle id it was
+    // rendered against, so its text changes per request and no source computed
+    // at boot covers it.
+    let csp = config.document.csp.as_deref().filter(|_| !dev).and_then(|policy| {
       let filled = match import_map.as_deref() {
         Some(map) => policy.replace("{import_map}", &import_map_csp(map)),
         None => policy.replace("{import_map}", "").replace("  ", " "),

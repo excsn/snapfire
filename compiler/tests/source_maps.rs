@@ -114,3 +114,42 @@ fn test_setting_both_map_modes_fails() {
       "'sourceMap' and 'inlineSourceMap' cannot both be set",
     ));
 }
+
+#[test]
+fn test_a_public_path_roots_the_source_name() {
+  let fixture = Fixture::new("computed-root");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(
+    cmd
+      .arg("--root")
+      .arg(fixture.root())
+      .arg("--source-map")
+      .arg("--public-path")
+      .arg("/static/js/app"),
+  );
+
+  let map = fs::read_to_string(fixture.root().join("dist/button.js.map")).unwrap();
+  assert!(field(&map, "sources").contains("/static/js/app/button.ts"), "{}", field(&map, "sources"));
+  assert!(!field(&map, "sources").contains(".."), "{}", field(&map, "sources"));
+}
+
+/// Two applications have the same layout, so without a public path their maps
+/// name the same source and a duplicate-module audit reads the pair as one
+/// module loaded twice.
+#[test]
+fn test_two_public_paths_give_two_source_names() {
+  let one = Fixture::new("computed-root");
+  let two = Fixture::new("computed-root");
+
+  for (fixture, base) in [(&one, "/static/js/app"), (&two, "/site/static/js/app")] {
+    let mut cmd = get_snapfirec_cmd();
+    run_snapfirec(
+      cmd.arg("--root").arg(fixture.root()).arg("--source-map").arg("--public-path").arg(base),
+    );
+  }
+
+  let a = fs::read_to_string(one.root().join("dist/button.js.map")).unwrap();
+  let b = fs::read_to_string(two.root().join("dist/button.js.map")).unwrap();
+  assert_ne!(field(&a, "sources"), field(&b, "sources"));
+}
