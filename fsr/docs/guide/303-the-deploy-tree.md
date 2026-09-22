@@ -94,6 +94,8 @@ The list on the right is derived the same way, from what the host reads at boot 
 
 `server.prerender`, when configured, is copied beside the plan: those documents are read by the host and answered from the file, not served off disk.
 
+`serve/static/js/fsr` holds both spellings of every client module, `store.js` and `store.min.js`, whichever build the deployment serves. A tree is bundled on a machine whose `RELEASE_ENV` says nothing about the one it is deployed under. The two spellings are two module records to a browser, each with its own state, so a tree carrying only one of them serves a 404 to any document whose import map names the other.
+
 A static root is copied whole, so whatever the directory holds is served. A vendored package that ships its `.d.ts` beside its `.js` puts those declarations under the route too. The browser never asks for them and the host would have served them in development just the same, but a directory you point a route at is a directory you have published.
 
 ## What it deliberately does not hold
