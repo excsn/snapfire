@@ -66,7 +66,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Variant** is `page.<slot>.tsx` beside a route's `page.tsx`: the rendering a soft navigation opens in that slot of the nearest layout declaring it, sharing the page's loader. It streams behind `loading.<slot>.tsx` when there is one.
 * **Module id** is the page's path with `#default`, `routes/cart/page.tsx#default`; the client registers islands under it.
 * **Shell** is the module every route's root node renders through, `shell#document` unless told otherwise.
-* **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page.
+* **Error module** is a route's own `error.tsx`, falling back to `routes/error.tsx` for every page. `error.<kind>.tsx` beside it answers one failure kind on its own, `error.not-found.tsx` for `not_found`; a route that declares any boundary supplies every kind itself.
 * **Loading module** is a route's `loading.tsx`; its presence marks the node deferred with that fallback.
 * **Not-found module** is `routes/not-found.tsx`, rendered with status 404 for a path no route matches; it receives `params.path`.
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
@@ -84,7 +84,7 @@ app/
   clients/   shopping.openapi.json
   schemas/   session.ts  cart.ts
   routes/
-    error.tsx
+    error.tsx      error.not-found.tsx
     not-found.tsx
     layout.tsx     layout.loader.ts
     slots/promo/   page.tsx  page.loader.ts

@@ -73,6 +73,8 @@ It is the scheme and the host and nothing else. A trailing slash or a path is re
 
 This is a deployment's one preferred origin, not the host a request arrived on. Those differ on purpose: two host names serving the same pages is exactly what a canonical link exists to collapse, so a self-referential one per host would assert both as originals and create the duplicate it is meant to prevent. An application that genuinely serves a different site per host wants `ctx.host` and a `canonical()` it builds itself, which passes through untouched because it is already absolute.
 
+A body reads this value as `ctx.origin`, `string | null`, for a URL the host does not rewrite: a JSON-LD block, a feed, an absolute link in the page. It is the same checked value, so nothing has to be copied into `[public]` to reach a loader.
+
 ## The host this deployment answers on
 
 A body reads `ctx.host`. It is null until `[server]` lists the hosts the deployment answers on:

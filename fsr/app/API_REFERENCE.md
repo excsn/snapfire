@@ -109,6 +109,7 @@ A route's plan written the way it reads; node ids are assigned in tree order whe
 * `Plan::deferred(self) -> Self`: streams instead of blocking the first response; pair with `fallback`.
 * `Plan::fallback(self, module) -> Self`
 * `Plan::error(self, module) -> Self`: rendered in place of the node when its loader fails.
+* `Plan::error_for(self, kind, module) -> Self`: rendered in place of `error` when the loader failed that kind, named as `FailureKind::as_str` spells it (`not_found`, `unauthorized`, `invalid`, `conflict`, `timeout`, `unavailable`, `internal`). Repeatable, one call per kind.
 * `Plan::cache_key(self, key) -> Self`
 * `Plan::slot(self, name, child: Plan) -> Self`
 * Every module is `path#export`; conversion fails with `BindError::Module` otherwise.

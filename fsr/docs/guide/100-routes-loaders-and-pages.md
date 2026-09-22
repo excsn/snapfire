@@ -8,7 +8,7 @@ The question this chapter answers: how does a directory become a route, where do
 
 Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern, with no name treated specially: `routes/` itself is `/`, `routes/cart/` is `/cart`, `routes/index/` is `/index`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart` and the one in `routes/` is `$root`, a name no directory can produce; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
 
-Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` and a `loading.tsx`. The build discovers all four, so adding a file is the whole of registering it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
+Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` (plus an `error.<kind>.tsx` per failure kind) and a `loading.tsx`. The build discovers them all, so adding a file is the whole of registering it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
 
 ```
 routes    /                      routes
@@ -103,9 +103,19 @@ export async function load({ locale, services }: Ctx) {
 
 The ops console picks its language from the settings drawer, two document loads with a prefix each and the host remembers the choice in a cookie.
 
-## The loader can know the host
+## The loader can know the host and the origin
 
 `ctx.host` is the host the request named, for a deployment that answers on more than one and has to tell them apart: an absolute URL in a `rel=canonical`, a tenant read off the domain. It is `string | null`. It is null until `[server] hosts` lists the hosts, which chapter 200 covers along with what the server in front has to do for the value to mean anything.
+
+`ctx.origin` is the other one: `document.origin` as the host checked it at boot, `string | null`. One value for the whole deployment rather than one per request, so a body reading it still prerenders where a body reading `ctx.host` does not. It is what an absolute href is built from when the application writes the href itself:
+
+```ts
+export const meta = ({ data }: MetaCtx<Data>) => ({
+  head: [canonical(`${data.origin ?? ""}${data.path}`)],
+});
+```
+
+A `canonical()` returning a path needs none of this, since the host makes it absolute against the same value. Reach for `ctx.origin` when the URL goes somewhere the host does not rewrite: a JSON-LD block, a feed, an absolute link in a body.
 
 ```ts
 export const meta = ({ data }: MetaCtx<Data>) => ({
@@ -143,7 +153,11 @@ A page is an island: it is mounted in the browser and, when the build could lowe
 
 ## Errors and loading
 
-An `error.tsx` beside a route (or `routes/error.tsx` for all of them) receives `{ error: string }` when the loader fails: a service that is down, a response the contract rejected, a `fail` the body raised. The document still renders around it, so an error page is a page with a message rather than a blank tab. The status follows the page: when the route's own page loader fails, the document answers with the kind's status, `404` for `fail("not_found", ...)`, `503` for `unavailable`, since a crawler, a cache and a browser's history read the status and not the markup. A layout's loader or a slot's failing degrades that segment and leaves the status at `200`, because the page is still the page. A client navigation to such a route gets the same status with the payload, which the navigator applies as it would any other. `fsr prerender` writes no file for a path whose loader failed.
+An `error.tsx` beside a route (or `routes/error.tsx` for all of them) receives `{ error: string, kind: string }` when the loader fails: a service that is down, a response the contract rejected, a `fail` the body raised. `kind` is the failure kind, `not_found`, `unauthorized`, `invalid`, `conflict`, `timeout`, `unavailable` or `internal`, so one boundary can say "no page here" for one and "something broke" for the rest. The document still renders around it, so an error page is a page with a message rather than a blank tab. The status follows the page: when the route's own page loader fails, the document answers with the kind's status, `404` for `fail("not_found", ...)`, `503` for `unavailable`, since a crawler, a cache and a browser's history read the status and not the markup. A layout's loader or a slot's failing degrades that segment and leaves the status at `200`, because the page is still the page. A client navigation to such a route gets the same status with the payload, which the navigator applies as it would any other. `fsr prerender` writes no file for a path whose loader failed.
+
+`error.<kind>.tsx` beside `error.tsx` is the boundary for one kind on its own: `error.not-found.tsx` renders when the loader failed `not_found` and `error.tsx` answers every other kind. Any of the seven kinds may have one, spelled with hyphens rather than the underscore the kind itself uses. A route that declares any boundary owns every kind, so its own `error.tsx` answers a `not_found` rather than pairing with `routes/error.not-found.tsx` above it; a route that declares none takes the whole set from `routes/`.
+
+This is not `not-found.tsx`, which answers a path no route matched. A loader failing `not_found` means the route matched and the record behind it does not exist. There the route's parameters are what the page has to work with.
 
 A `loading.tsx` marks the route deferred: the document ships with the loading module in the page's slot and the real page streams in when the loader finishes, filling the slot in place. Streaming is a property of the plan, declared by the file's presence, not something the page or the loader has to do.
 

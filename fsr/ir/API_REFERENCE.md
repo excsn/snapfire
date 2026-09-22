@@ -85,7 +85,7 @@ One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`
 
 One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`; serialised externally tagged in `snake_case`.
 
-* `Param(String)`, `Query(String)`, `Session(String)`, `Identity(Vec<String>)`, `Locale`, `Path`, `Document`, `Input`, `Now`, `Var(String)`.
+* `Param(String)`, `Query(String)`, `Session(String)`, `Identity(Vec<String>)`, `Locale`, `Path`, `Document`, `Origin`, `Input`, `Now`, `Var(String)`.
 * `Lit(Lit)`.
 * `Object(Vec<Entry>)` takes `Field`, `Computed` and `Spread` entries; `Array(Vec<Entry>)` takes `Item` and `Spread` entries. A wrong entry kind is `Internal`.
 * `Field(Box<Expr>, String)`, `Index(Box<Expr>, Box<Expr>)`.
@@ -105,7 +105,7 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `Expr::free_vars(&self, out: &mut Vec<String>)` appends every `Var` name read and not bound by an enclosing lambda, without duplicates.
 * `Expr::visit(&self, f: &mut dyn FnMut(&Expr))` calls `f` on the expression and every expression beneath it, in tree order.
 * `Expr::has_call(&self) -> bool` is true when any `Call` appears in the tree.
-* `Expr::reads_request(&self) -> bool` is true when a `Param`, `Query`, `Session`, `Identity`, `Input` or `Now` appears in the tree. `Locale`, `Path` and `Document` are not counted: a prerendered route has one of each, so a body reading only them renders once per locale rather than once per request.
+* `Expr::reads_request(&self) -> bool` is true when a `Param`, `Query`, `Session`, `Identity`, `Input` or `Now` appears in the tree. `Locale`, `Path`, `Document` and `Origin` are not counted: a prerendered route has one of each, so a body reading only them renders once per locale rather than once per request.
 * `body_reads_request(body: &Body) -> bool` is true when any statement reads the request or writes the session.
 * `body_params_read(body: &Body) -> Vec<String>` is every route parameter the body reads, by name, without duplicates.
 
@@ -340,7 +340,7 @@ The frameworks an application vendors, each at the major whose server markup the
 ### Reads
 
 * `Param(name)` and `Query(name)` are `Value::Str` or `Value::Null` when absent.
-* `Locale` is the request's locale tag, `Value::Null` under a context with none; `Path` is the path the request matched, `Value::Str` and empty under a context with none. `Document` is the path of the page the document is showing, `RequestCtx::document` when an intercepted render set it and `Path` otherwise; the renderer reads it off the `$document` prop as it reads `Path` off `$path`. The plan spells it `(document)`.
+* `Locale` is the request's locale tag, `Value::Null` under a context with none; `Path` is the path the request matched, `Value::Str` and empty under a context with none. `Document` is the path of the page the document is showing, `RequestCtx::document` when an intercepted render set it and `Path` otherwise; the renderer reads it off the `$document` prop as it reads `Path` off `$path`. The plan spells it `(document)`. `Origin` is `document.origin` as the host checked it at boot, `Value::Str` or `Value::Null`; it is one value for the whole deployment, so it is constant the way `Config` is rather than per-request the way `Host` is. The plan spells it `(origin)`.
 * `Session(key)` reads the draft, so a body sees its own earlier writes; `Value::Null` when absent.
 * `Identity(path)` walks `{ subject, claims }` from the session's identity; `Value::Null` when anonymous or when a step is missing.
 * `Input` is the value passed to `run`; `Now` is `Value::Int` from the clock.

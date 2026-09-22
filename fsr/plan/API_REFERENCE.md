@@ -78,7 +78,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 The serialized shape of a `PlanNode`. Every optional field is absent from the file rather than null and `deferred` is absent when false.
 
-* `pub struct Node { pub id: u32, pub module: String, pub source: Option<String>, pub deferred: bool, pub fallback: Option<String>, pub error: Option<String>, pub cache_key: Option<String>, pub children: Vec<Child>, pub keep: Vec<String> }`. `keep`, absent when empty, names the slots this node leaves unfilled that the browser keeps as they stand when the tree arrives as a payload; an intercept's layout keeps its page there.
+* `pub struct Node { pub id: u32, pub module: String, pub source: Option<String>, pub deferred: bool, pub fallback: Option<String>, pub error_kinds: Vec<(String, String)>, pub error: Option<String>, pub cache_key: Option<String>, pub children: Vec<Child>, pub keep: Vec<String> }`. `error_kinds`, absent when empty, pairs a failure kind with the module that renders for it, which the assembler prefers over `error`; it is `(error-kind <kind> <module>)` in the s-expression. `keep`, absent when empty, names the slots this node leaves unfilled that the browser keeps as they stand when the tree arrives as a payload; an intercept's layout keeps its page there.
 * `Node::from_plan(plan: &PlanNode) -> Self`
 * `module`, `fallback` and `error` are module ids, `path#export`; `Manifest::routes` refuses any other spelling.
 

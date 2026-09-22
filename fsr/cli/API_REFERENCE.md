@@ -263,6 +263,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * Page: `<route dir>/page.tsx#default`, with the directory relative to `app`.
 * Error: `routes/error.tsx#default` (or `.ts`) when present, applied to every page; a route's own `error.tsx` takes precedence for that route.
+* Error per kind: `error.<kind>.tsx#default` (or `.ts`) beside either, one per `FailureKind` spelled with hyphens, `error.not-found.tsx` for `not_found`. They land on the node as `error_kinds`, `(kind, module)` pairs the assembler prefers over `error` when the loader failed that way. A route declaring any boundary supplies the whole set, so its `error.tsx` is never paired with `routes/error.<kind>.tsx`.
 * Loading: `<route dir>/loading.tsx#default` when present; the node is marked deferred with it as the fallback.
 * Not found: `routes/not-found.tsx#default` (or `.ts`) when present, the page for a path no route matches.
 * Layout: `<dir>/layout.tsx#default`, its loader `<dir>/layout.loader.ts` as the source row under the layout id, once however many routes it wraps.

@@ -10,6 +10,7 @@ pub struct Plan {
   deferred: bool,
   fallback: Option<String>,
   error: Option<String>,
+  error_kinds: Vec<(String, String)>,
   cache_key: Option<String>,
   children: Vec<(String, Plan)>,
 }
@@ -22,6 +23,7 @@ impl Plan {
       deferred: false,
       fallback: None,
       error: None,
+      error_kinds: Vec::new(),
       cache_key: None,
       children: Vec::new(),
     }
@@ -50,6 +52,14 @@ impl Plan {
     self
   }
 
+  /// Rendered in place of `error` when the loader failed this kind, named as
+  /// `FailureKind::as_str` spells it: `not_found`, `unauthorized`, `invalid`,
+  /// `conflict`, `timeout`, `unavailable`, `internal`.
+  pub fn error_for(mut self, kind: impl Into<String>, module: impl Into<String>) -> Self {
+    self.error_kinds.push((kind.into(), module.into()));
+    self
+  }
+
   pub fn cache_key(mut self, key: impl Into<String>) -> Self {
     self.cache_key = Some(key.into());
     self
@@ -71,6 +81,9 @@ impl Plan {
     node.cache_key = self.cache_key.map(CacheKey);
     node.fallback = self.fallback.as_deref().map(parse).transpose()?;
     node.error = self.error.as_deref().map(parse).transpose()?;
+    for (kind, module) in &self.error_kinds {
+      node.error_kinds.push((kind.clone(), parse(module)?));
+    }
 
     for (slot, child) in self.children {
       node.children.push((SlotName(slot), child.assemble(next)?));
