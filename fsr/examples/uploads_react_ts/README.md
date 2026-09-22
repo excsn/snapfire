@@ -10,6 +10,7 @@ A file posted to an action, twice: once by a form the browser submits natively a
 | The same action called from the page with a `FormData` | `upload("$root.deposit", data)` in the `Deposit` island |
 | A part refused before the body runs | `max_upload` in `config/app.toml` |
 | A type the application refuses itself | `ACCEPTED` in `routes/actions.ts` |
+| A `fail` that lands back on the form rather than on a page of JSON | the empty-file guard in `routes/actions.ts`, read as `action_failure` in `routes/page.tsx` |
 | The per-kind error boundary | `routes/error.not-found.tsx` beside `routes/error.tsx` |
 
 ## Run it
@@ -43,6 +44,8 @@ interface Upload {
 The form posts natively to `/_sf/action/$root.deposit`. A form post is answered with a redirect back to the page that posted, so the browser lands on the page with the session written and the table filled in. Nothing on that path needs JavaScript.
 
 The island posts the same action with a `FormData` through `upload`, which names JSON in `Accept`, so the host answers the action's value instead of the redirect and the page refreshes in place. Both carry `_csrf`, since a form post is verified where a JSON call is not.
+
+A `fail` follows the same split. The browser is redirected back with the failure waiting as the `action_failure` prop, which the page renders and which the next render does not, so a reload is clean. The JSON caller gets `{kind, message}` and the failure's status, which is what `upload` throws as an `ActionFailure`.
 
 ## What it costs
 

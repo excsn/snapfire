@@ -1,4 +1,4 @@
-import { action } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr";
 import type { ActionCtx } from "@snapfire/fsr";
 import type { Deposit } from "@schemas/upload";
 
@@ -10,8 +10,7 @@ export const deposit = action(async ({ input, session }: ActionCtx<Deposit>) => 
     return { ok: false };
   }
   if (input.file.size === 0n) {
-    session.error = "that file is empty";
-    return { ok: false };
+    fail("invalid", "that file is empty");
   }
 
   session.error = "";

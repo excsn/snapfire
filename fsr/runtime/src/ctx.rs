@@ -27,6 +27,11 @@ struct SessionState {
 /// dirty; the session layer persists a dirty cell when the response starts.
 /// `expires` is the one end the record, the cookie and the store follow, in
 /// seconds since the Unix epoch; it moves only through `extend`.
+/// Where a form post's failure waits for the render it redirected to. The name
+/// is not one a schema can declare, so it never collides with an application's
+/// own key.
+pub const FAILURE_KEY: &str = "$failure";
+
 #[derive(Clone, Default)]
 pub struct SessionCell(Arc<Mutex<SessionState>>);
 
@@ -216,6 +221,11 @@ pub struct RequestCtx {
   /// `document.origin` as the host validated it at boot, `ctx.origin`. One
   /// value for the whole deployment, so a body reading it still prerenders.
   pub origin: Option<String>,
+  /// The failure of a form post that redirected back here, `{kind, message}`,
+  /// which every page and layout reads as its `action_failure` prop. Taken off
+  /// the session by the render that shows it, so a reload does not show it
+  /// again.
+  pub failure: Option<Value>,
   /// The deployment's `[public]` values, `ctx.config`. The same on every
   /// request, so a body reading only these still prerenders.
   pub config: ValueMap,
@@ -238,6 +248,7 @@ impl RequestCtx {
       locale: Locale::default(),
       host: None,
       origin: None,
+      failure: None,
       config: ValueMap::default(),
       csrf: CsrfHandle::default(),
       services: ServiceHandle::default(),

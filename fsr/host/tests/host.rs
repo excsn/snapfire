@@ -4060,9 +4060,37 @@ async fn a_form_field_is_read_as_the_type_the_action_declares() {
     .await;
   assert_eq!(
     response.status(),
-    StatusCode::BAD_REQUEST,
-    "a field that is not the declared type is still refused"
+    StatusCode::SEE_OTHER,
+    "a browser is answered its page, refused or not"
   );
+
+  let html = body_of(
+    host
+      .handle(
+        Request::get("/hello/norm")
+          .header(header::COOKIE, &cookie)
+          .body(Bytes::new())
+          .unwrap(),
+      )
+      .await,
+  )
+  .await;
+  assert!(
+    html.contains("action_failure"),
+    "a field that is not the declared type is still refused, and the page says so: {html}"
+  );
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"by": 0}"#))
+        .unwrap(),
+    )
+    .await;
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert_eq!(&body[..], b"5", "and the refused post changed nothing");
 }
 
 #[tokio::test]
@@ -5392,4 +5420,149 @@ async fn a_multipart_body_that_is_not_one_is_refused_as_invalid() {
   assert_eq!(response.status(), StatusCode::BAD_REQUEST);
   let text = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
   assert!(text.contains("multipart"), "{text}");
+}
+
+#[tokio::test]
+async fn a_form_post_that_fails_gets_its_page_back_with_the_failure_on_it() {
+  let dir = app_dir();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  toml = toml.replace("[session]\nkey = \"test-key\"", "[session]\ncsrf = \"always\"\nkey = \"test-key\"");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+
+  // A guard the input always trips, so the action fails rather than returning.
+  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+  json["actions"][1]["body"] = serde_json::json!([
+    { "guard": { "cond": { "lit": { "bool": true } }, "kind": "invalid", "message": { "lit": { "str": "that is not a number" } } } },
+    { "return": { "lit": { "int": 0 } } }
+  ]);
+  write_plan_value(&dir, json);
+  let host = host_at(&dir).unwrap();
+
+  let opened = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = opened
+    .headers()
+    .get(header::SET_COOKIE)
+    .unwrap()
+    .to_str()
+    .unwrap()
+    .split(';')
+    .next()
+    .unwrap()
+    .to_owned();
+  let token = field(&body_of(opened).await, "csrf_token").expect("a token for an anonymous session");
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::REFERER, "http://x/hello/norm")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from(format!("_csrf={token}&by=2")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(
+    response.status(),
+    StatusCode::SEE_OTHER,
+    "a browser gets its page back rather than a page of JSON"
+  );
+  assert_eq!(location(&response), "/hello/norm");
+
+  let page = host
+    .handle(
+      Request::get("/hello/norm")
+        .header(header::COOKIE, &cookie)
+        .body(Bytes::new())
+        .unwrap(),
+    )
+    .await;
+  let html = body_of(page).await;
+  assert!(
+    html.contains("that is not a number"),
+    "the render the redirect landed on carries the failure: {html}"
+  );
+  assert!(html.contains("invalid"), "with its kind: {html}");
+
+  let again = host
+    .handle(
+      Request::get("/hello/norm")
+        .header(header::COOKIE, &cookie)
+        .body(Bytes::new())
+        .unwrap(),
+    )
+    .await;
+  let html = body_of(again).await;
+  assert!(
+    !html.contains("that is not a number"),
+    "and only that render: a reload is clean: {html}"
+  );
+}
+
+#[tokio::test]
+async fn a_form_caller_naming_json_gets_the_failure_as_json_rather_than_the_redirect() {
+  let dir = app_dir();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  toml = toml.replace("[session]\nkey = \"test-key\"", "[session]\ncsrf = \"always\"\nkey = \"test-key\"");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+  json["actions"][1]["body"] = serde_json::json!([
+    { "guard": { "cond": { "lit": { "bool": true } }, "kind": "invalid", "message": { "lit": { "str": "no" } } } },
+    { "return": { "lit": { "int": 0 } } }
+  ]);
+  write_plan_value(&dir, json);
+  let host = host_at(&dir).unwrap();
+
+  let opened = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&opened);
+  let token = field(&body_of(opened).await, "csrf_token").expect("a token");
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::ACCEPT, "application/json")
+        .header(header::REFERER, "http://x/hello/norm")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from(format!("_csrf={token}&by=2")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST, "a caller awaiting a value is not redirected");
+  let text = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+  assert!(text.contains("\"kind\":\"invalid\""), "{text}");
+
+  let html = body_of(
+    host
+      .handle(Request::get("/hello/norm").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap())
+      .await,
+  )
+  .await;
+  assert!(
+    !html.contains("action_failure"),
+    "and nothing was left on the session for a later render: {html}"
+  );
+}
+
+#[tokio::test]
+async fn a_json_caller_still_gets_the_failure_as_json() {
+  let dir = app_dir();
+  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+  json["actions"][1]["body"] = serde_json::json!([
+    { "guard": { "cond": { "lit": { "bool": true } }, "kind": "invalid", "message": { "lit": { "str": "no" } } } },
+    { "return": { "lit": { "int": 0 } } }
+  ]);
+  write_plan_value(&dir, json);
+  let host = host_at(&dir).unwrap();
+
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Bytes::from(r#"{"by": 2}"#))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+  let text = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+  assert!(text.contains("\"kind\":\"invalid\""), "{text}");
 }

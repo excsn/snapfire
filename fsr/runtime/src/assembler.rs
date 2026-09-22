@@ -721,6 +721,11 @@ impl Session {
         props.insert("csrf_token".to_owned(), Value::str(csrf));
       }
     }
+    if class == Static::Dynamic {
+      if let Some(failure) = &self.ctx.failure {
+        props.insert("action_failure".to_owned(), failure.clone());
+      }
+    }
   }
 
   /// Replaces every `Node::Slot` inside `node` with the plan child of that

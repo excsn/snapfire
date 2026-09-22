@@ -3,7 +3,12 @@ import { upload } from "@snapfire/fsr-client";
 import { Island } from "@snapfire/fsr-client/react";
 import type { RootProps } from "@generated/client";
 
-export default function Page({ held, error, csrf_token }: RootProps & { csrf_token?: string }) {
+export default function Page({
+  held,
+  error,
+  csrf_token,
+  action_failure,
+}: RootProps & { csrf_token?: string; action_failure?: { kind: string; message: string } }) {
   return (
     <main className="page">
       <h1>Uploads</h1>
@@ -13,6 +18,11 @@ export default function Page({ held, error, csrf_token }: RootProps & { csrf_tok
       </p>
 
       {error ? <p className="error">{error}</p> : null}
+      {action_failure ? (
+        <p className="error">
+          {action_failure.kind}: {action_failure.message}
+        </p>
+      ) : null}
 
       <section className="panel">
         <h2>Without JavaScript</h2>

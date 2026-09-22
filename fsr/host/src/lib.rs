@@ -2263,6 +2263,8 @@ impl Host {
       path: path.to_owned(),
       document,
       address,
+      // Taken rather than read, so the next render does not show it again.
+      failure: incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY),
       session: incoming.session,
       locale,
       host: incoming.host,
@@ -2830,6 +2832,25 @@ impl Host {
             }
           }
           Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
+          // A browser that posted a form is answered the page it posted from,
+          // failure or not: a JSON body is not something a visitor can read.
+          // The failure waits on the session for that render.
+          Err(e) if is_form && !wants_json(req.headers()) => {
+            let mut failure = snapfire_fsr_core::Fields::default();
+            failure.insert("kind".to_owned(), Value::str(e.kind.as_str()));
+            failure.insert("message".to_owned(), Value::str(e.message.clone()));
+            opened.cell.insert(snapfire_fsr_runtime::FAILURE_KEY, Value::Map(failure.into()));
+            let back = req
+              .headers()
+              .get(header::REFERER)
+              .and_then(|v| v.to_str().ok())
+              .and_then(referer_path)
+              .unwrap_or_else(|| "/".to_owned());
+            match fragment_of(raw_query) {
+              Some(slot) => see_other(&with_fragment(&back, slot.as_deref())),
+              None => see_other(&back),
+            }
+          }
           Err(e) => json_response(
             StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
             &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
