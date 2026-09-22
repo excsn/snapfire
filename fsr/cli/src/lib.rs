@@ -485,6 +485,68 @@ struct Route {
 /// Walks `<app>/routes`, `<app>/clients` and `<app>/schemas`, lowers every
 /// `page.loader.ts` and `actions.ts`, builds the contract and returns the plan file
 /// and the generated TypeScript. Nothing is written; `write` does that.
+/// The failure kinds a route may name an error module for, as `FailureKind`
+/// spells them, paired with the filename infix `error.<infix>.tsx` uses.
+const ERROR_KINDS: [(&str, &str); 7] = [
+  ("not_found", "not-found"),
+  ("unauthorized", "unauthorized"),
+  ("invalid", "invalid"),
+  ("conflict", "conflict"),
+  ("timeout", "timeout"),
+  ("unavailable", "unavailable"),
+  ("internal", "internal"),
+];
+
+/// What a segment falls back to when its loader fails: an error module and
+/// the per-kind ones beside it.
+#[derive(Default, Clone)]
+struct Boundary {
+  module: Option<String>,
+  kinds: Vec<(String, String)>,
+}
+
+impl Boundary {
+  fn read(dir: &Path, rel: &str) -> Self {
+    Self {
+      module: ["error.tsx", "error.ts"].iter().find(|f| dir.join(f).is_file()).map(|f| format!("{rel}/{f}#default")),
+      kinds: error_kind_modules(dir, rel),
+    }
+  }
+
+  fn is_empty(&self) -> bool {
+    self.module.is_none() && self.kinds.is_empty()
+  }
+
+  /// This one when it names anything, the outer one otherwise. A route that
+  /// declares any boundary owns every kind, so an `error.not-found.tsx` of
+  /// its own is not silently paired with the root's `error.tsx`.
+  fn or(&self, outer: &Boundary) -> Boundary {
+    match self.is_empty() {
+      true => outer.clone(),
+      false => self.clone(),
+    }
+  }
+
+  fn modules(&self) -> impl Iterator<Item = &String> {
+    self.module.iter().chain(self.kinds.iter().map(|(_, m)| m))
+  }
+}
+
+/// `error.not-found.tsx` and its kin beside `error.tsx`, as (kind, module).
+fn error_kind_modules(dir: &Path, rel: &str) -> Vec<(String, String)> {
+  let mut found = Vec::new();
+  for (kind, infix) in ERROR_KINDS {
+    for ext in ["tsx", "ts"] {
+      let file = format!("error.{infix}.{ext}");
+      if dir.join(&file).is_file() {
+        found.push((kind.to_owned(), format!("{rel}/{file}#default")));
+        break;
+      }
+    }
+  }
+  found
+}
+
 pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let routes_dir = app.join("routes");
   if !routes_dir.is_dir() {
@@ -582,10 +644,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   routes.sort_by(|a, b| a.pattern.cmp(&b.pattern));
   handler_routes.sort_by(|a, b| a.pattern.cmp(&b.pattern));
 
-  let error_module = ["error.tsx", "error.ts"]
-    .iter()
-    .find(|f| routes_dir.join(f).is_file())
-    .map(|f| format!("routes/{f}#default"));
+  let root_boundary = Boundary::read(&routes_dir, "routes");
 
   let not_found_module = ["not-found.tsx", "not-found.ts"]
     .iter()
@@ -597,7 +656,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut actions = Vec::new();
   let mut islands: Vec<String> = Vec::new();
   let mut templates: Vec<PathBuf> = Vec::new();
-  for module in [&error_module, &not_found_module].into_iter().flatten() {
+  for module in root_boundary.modules().chain(not_found_module.iter()) {
     islands.push(module.clone());
   }
 
@@ -683,8 +742,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
 
       let loading = ["loading.tsx", "loading.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
-      let error = ["error.tsx", "error.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
-      for module in [Some(&page), loading.as_ref(), error.as_ref()].into_iter().flatten() {
+      let error = Boundary::read(&slot_dir, &slot_rel);
+      for module in [Some(&page), loading.as_ref()].into_iter().flatten().chain(error.modules()) {
         if is_template(module) {
           report.components.push((module.clone(), "template".to_owned(), String::new()));
           templates.push(slot_dir.join(&slot_page));
@@ -756,16 +815,14 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
     }
 
-    let local_error = ["error.tsx", "error.ts"]
-      .iter()
-      .find(|f| route.dir.join(f).is_file())
-      .map(|f| format!("{rel}/{f}#default"));
+    let local = Boundary::read(&route.dir, &rel);
+    let boundary = local.or(&root_boundary);
     let loading = ["loading.tsx", "loading.ts"]
       .iter()
       .find(|f| route.dir.join(f).is_file())
       .map(|f| format!("{rel}/{f}#default"));
 
-    for module in [Some(&page), local_error.as_ref(), loading.as_ref()].into_iter().flatten() {
+    for module in [Some(&page), loading.as_ref()].into_iter().flatten().chain(local.modules()) {
       if is_template(module) {
         report.components.push((module.clone(), "template".to_owned(), String::new()));
         templates.push(route.dir.join(&page_file));
@@ -780,12 +837,13 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       source: source.clone(),
       deferred: loading.is_some(),
       fallback: loading.clone(),
-      error: local_error.clone().or_else(|| error_module.clone()),
+      error: boundary.module.clone(),
+      error_kinds: boundary.kinds.clone(),
       cache_key: Some(page),
       children: Vec::new(),
       keep: Vec::new(),
     };
-    let content = wrap_in_layouts(content, &wrapping, error_module.as_deref());
+    let content = wrap_in_layouts(content, &wrapping, &root_boundary);
     entries.push(RouteEntry { pattern: route.pattern.clone(), plan: shell_over(options, content) });
 
     for (file, slot) in variant_files(&route.dir)? {
@@ -804,12 +862,13 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         source: source.clone(),
         deferred: slot_loading.is_some(),
         fallback: slot_loading,
-        error: local_error.clone().or_else(|| error_module.clone()),
+        error: boundary.module.clone(),
+        error_kinds: boundary.kinds.clone(),
         cache_key: Some(module.clone()),
         children: Vec::new(),
         keep: Vec::new(),
       };
-      let plan = intercept_plan(variant, &slot, &wrapping[..=declaring], error_module.as_deref());
+      let plan = intercept_plan(variant, &slot, &wrapping[..=declaring], &root_boundary);
       report.intercepts.push((format!("{} into {slot}", route.pattern), module));
       intercepts.push(RouteEntry { pattern: route.pattern.clone(), plan: shell_over(options, plan) });
     }
@@ -844,8 +903,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 
   let mut not_found = not_found_module.map(|module| {
     let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| l.dir == routes_dir).collect();
-    let content = Node { id: 0, module: module.clone(), source: None, deferred: false, fallback: None, error: error_module.clone(), cache_key: Some(module), children: Vec::new(), keep: Vec::new() };
-    shell_over(options, wrap_in_layouts(content, &wrapping, error_module.as_deref()))
+    let content = Node { id: 0, module: module.clone(), source: None, deferred: false, fallback: None, error: root_boundary.module.clone(), error_kinds: root_boundary.kinds.clone(), cache_key: Some(module), children: Vec::new(), keep: Vec::new() };
+    shell_over(options, wrap_in_layouts(content, &wrapping, &root_boundary))
   });
   for plan in entries.iter_mut().map(|e| &mut e.plan).chain(intercepts.iter_mut().map(|e| &mut e.plan)).chain(not_found.iter_mut()) {
     renumber(plan, &mut 0);
@@ -1287,7 +1346,7 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String,
     let _ = writeln!(out, "  {key}: {};", ts.print(Flavour::Server));
   }
   out.push_str(
-    "}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  /** The path this request matched, query excluded, locale prefix included. Empty under an action, whose path is the action endpoint rather than the document's. */\n  path: string;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  /** The host the request named, when `[server] hosts` lists it; null when it does not, null whenever that key is unset. */\n  host: string | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** `[public]` from the configuration, one field per key, typed from the value written there. */\n  config: Config;\n  services: Services;\n  /** The application's own Rust, in this process. A method the build read as `fn` answers a value; an `async fn` answers a promise. */\n  native: Natives;\n  now: bigint;\n}\n\n/** What an action, a route handler or middleware can do to the session beyond reading and writing its keys. */\nexport interface SessionControl {\n  /** Moves the session's end to `seconds` from now once the body commits; the cookie and the store follow. Nothing extends on its own. */\n  extend(seconds: number): void;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n  session: Session & SessionControl;\n}\n\n/** A `route.ts` handler's context: a loader's plus `session.extend`. */\nexport interface HandlerCtx<P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  session: Session & SessionControl;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n  session: Session & SessionControl;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
+    "}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  /** The path this request matched, query excluded, locale prefix included. Empty under an action, whose path is the action endpoint rather than the document's. */\n  path: string;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  /** The host the request named, when `[server] hosts` lists it; null when it does not, null whenever that key is unset. */\n  host: string | null;\n  /** `document.origin` for this deployment, the scheme and host it is reached over; null when the configuration names none. The same on every request, so a body reading it still prerenders. */\n  origin: string | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** `[public]` from the configuration, one field per key, typed from the value written there. */\n  config: Config;\n  services: Services;\n  /** The application's own Rust, in this process. A method the build read as `fn` answers a value; an `async fn` answers a promise. */\n  native: Natives;\n  now: bigint;\n}\n\n/** What an action, a route handler or middleware can do to the session beyond reading and writing its keys. */\nexport interface SessionControl {\n  /** Moves the session's end to `seconds` from now once the body commits; the cookie and the store follow. Nothing extends on its own. */\n  extend(seconds: number): void;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n  session: Session & SessionControl;\n}\n\n/** A `route.ts` handler's context: a loader's plus `session.extend`. */\nexport interface HandlerCtx<P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  session: Session & SessionControl;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n  session: Session & SessionControl;\n}\n\nexport interface Meta {\n  title?: string;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
   out.push_str("\nexport type { HeadEl } from \"./head\";\n");
   out
@@ -2041,14 +2100,15 @@ impl LayoutInfo {
     kept
   }
 
-  fn node(&self, children: Vec<Child>, keep: Vec<String>, error: Option<&str>) -> Node {
+  fn node(&self, children: Vec<Child>, keep: Vec<String>, error: &Boundary) -> Node {
     Node {
       id: 0,
       module: self.module.clone(),
       source: self.source.clone(),
       deferred: false,
       fallback: None,
-      error: error.map(str::to_owned),
+      error: error.module.clone(),
+      error_kinds: error.kinds.clone(),
       cache_key: Some(self.module.clone()),
       children,
       keep,
@@ -2061,11 +2121,12 @@ struct SlotInfo {
   page: String,
   source: Option<String>,
   loading: Option<String>,
-  error: Option<String>,
+  error: Boundary,
 }
 
 impl SlotInfo {
-  fn child(&self, error: Option<&str>) -> Child {
+  fn child(&self, error: &Boundary) -> Child {
+    let boundary = self.error.or(error);
     Child {
       slot: self.name.clone(),
       node: Node {
@@ -2074,7 +2135,8 @@ impl SlotInfo {
         source: self.source.clone(),
         deferred: self.loading.is_some(),
         fallback: self.loading.clone(),
-        error: self.error.clone().or_else(|| error.map(str::to_owned)),
+        error: boundary.module,
+        error_kinds: boundary.kinds,
         cache_key: Some(self.page.clone()),
         children: Vec::new(),
         keep: Vec::new(),
@@ -2085,7 +2147,7 @@ impl SlotInfo {
 
 /// Nests `content` under each layout, outermost first, each layout's
 /// parallel slots beside it. Ids are assigned afterwards by `renumber`.
-fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: Option<&str>) -> Node {
+fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: &Boundary) -> Node {
   let mut node = content;
   for layout in wrapping.iter().rev() {
     let mut children = vec![Child { slot: "content".to_owned(), node }];
@@ -2099,7 +2161,7 @@ fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: Option<&str>)
 /// down to the one declaring `slot`, which takes `variant` there and keeps
 /// its page; every other slot along the way is kept too, so only the one
 /// region changes in the browser.
-fn intercept_plan(variant: Node, slot: &str, wrapping: &[&LayoutInfo], error: Option<&str>) -> Node {
+fn intercept_plan(variant: Node, slot: &str, wrapping: &[&LayoutInfo], error: &Boundary) -> Node {
   let (declaring, above) = wrapping.split_last().expect("an intercept sits under the layout declaring its slot");
   let mut node = declaring.node(vec![Child { slot: slot.to_owned(), node: variant }], declaring.kept(&[slot.to_owned()]), error);
   for layout in above.iter().rev() {
@@ -2116,6 +2178,7 @@ fn shell_over(options: &Options, content: Node) -> Node {
     deferred: false,
     fallback: None,
     error: None,
+    error_kinds: Vec::new(),
     cache_key: None,
     children: vec![Child { slot: options.slot.clone(), node: content }],
     keep: Vec::new(),

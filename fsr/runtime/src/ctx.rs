@@ -213,6 +213,9 @@ pub struct RequestCtx {
   /// `None` when that key is unset, so nothing a client sends reaches a body
   /// unless the deployment listed it.
   pub host: Option<String>,
+  /// `document.origin` as the host validated it at boot, `ctx.origin`. One
+  /// value for the whole deployment, so a body reading it still prerenders.
+  pub origin: Option<String>,
   /// The deployment's `[public]` values, `ctx.config`. The same on every
   /// request, so a body reading only these still prerenders.
   pub config: ValueMap,
@@ -234,6 +237,7 @@ impl RequestCtx {
       session: SessionCell::default(),
       locale: Locale::default(),
       host: None,
+      origin: None,
       config: ValueMap::default(),
       csrf: CsrfHandle::default(),
       services: ServiceHandle::default(),

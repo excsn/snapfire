@@ -486,15 +486,19 @@ impl Session {
     Ok(loaded)
   }
 
-  /// The degraded rendering of a segment whose loader failed: the plan's error
-  /// module with params plus the message or the built-in error node.
+  /// The degraded rendering of a segment whose loader failed: the module the
+  /// plan names for that failure kind, else its error module, else the
+  /// built-in error node. Rendered with params plus the message and the kind.
   async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
-    let Some(module) = &node.error else {
+    let kind = failure.kind.as_str();
+    let for_kind = node.error_kinds.iter().find(|(named, _)| named == kind).map(|(_, module)| module);
+    let Some(module) = for_kind.or(node.error.as_ref()) else {
       return Ok(error_node(&failure.to_string()));
     };
     let mut props = ValueMap::default();
     self.inject_ctx_props(&mut props, node.id.0, Static::Dynamic, true, true);
     props.insert("error".to_owned(), Value::str(failure.to_string()));
+    props.insert("kind".to_owned(), Value::str(kind));
     let chunks: Vec<Chunk> = self
       .runtime
       .evaluators

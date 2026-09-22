@@ -583,6 +583,7 @@ impl Env {
       Expr::Path => Ok(Value::str(self.ctx.path.clone())),
       Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
       Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
+      Expr::Origin => Ok(self.ctx.origin.clone().map(Value::str).unwrap_or(Value::Null)),
       Expr::Address => Ok(self.ctx.address.as_ref().map(snapfire_fsr_runtime::Address::value).unwrap_or(Value::Null)),
       Expr::Config(key) => Ok(self.ctx.config.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Identity(path) => {
@@ -888,6 +889,7 @@ impl Env {
         Expr::Path => Ok(Value::str(self.ctx.path.clone())),
         Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
         Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
+        Expr::Origin => Ok(self.ctx.origin.clone().map(Value::str).unwrap_or(Value::Null)),
         Expr::Address => Ok(self.ctx.address.as_ref().map(snapfire_fsr_runtime::Address::value).unwrap_or(Value::Null)),
         Expr::Config(key) => Ok(self.ctx.config.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Identity(path) => {

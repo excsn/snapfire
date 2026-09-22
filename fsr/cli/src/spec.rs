@@ -723,7 +723,7 @@ impl SpecHooks {
     }
     let natives = snapfire_fsr_runtime::NativeHandle::new(Arc::new(natives));
     let config = self.host.as_ref().map(|h| h.public()).unwrap_or_default();
-    let ctx = RequestCtx { params, query, path: spec.path.unwrap_or_default(), document: None, address: None, session: SessionCell::new(session, identity), locale, host: spec.host, config, csrf: snapfire_fsr_runtime::CsrfHandle::default(), services: handle, natives };
+    let ctx = RequestCtx { params, query, path: spec.path.unwrap_or_default(), document: None, address: None, session: SessionCell::new(session, identity), locale, host: spec.host, origin: None, config, csrf: snapfire_fsr_runtime::CsrfHandle::default(), services: handle, natives };
     Ok(MockCtx { ctx, input, flow: snapfire_fsr_host::AuthFlow::new() })
   }
 

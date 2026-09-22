@@ -1068,3 +1068,52 @@ fn a_page_that_does_not_lower_travels_in_the_plan_with_its_cause() {
   assert!(plan.contains("(client routes/index/page.tsx#default") && plan.contains(&format!("\"{}\"", cause.at)), "{plan}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_route_names_an_error_module_for_each_kind_it_declares() {
+  let dir = app(&[
+    ("routes/page.tsx", PAGE),
+    ("routes/error.tsx", "export default function Failed() {\n  return <p>failed</p>;\n}\n"),
+    ("routes/error.not-found.tsx", "export default function Missing() {\n  return <p>missing</p>;\n}\n"),
+  ]);
+  let plan = plan_json(&dir);
+  let page = &plan["routes"][0]["plan"]["children"][0]["node"];
+  assert_eq!(page["error"], "routes/error.tsx#default");
+  assert_eq!(page["error_kinds"][0][0], "not_found");
+  assert_eq!(page["error_kinds"][0][1], "routes/error.not-found.tsx#default");
+  let sexpr = build(&dir, &Options::default()).unwrap().manifest.to_sexpr();
+  assert!(
+    sexpr.contains("(error-kind not_found routes/error.not-found.tsx#default)"),
+    "the kind survives the sexpr: {sexpr}"
+  );
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_route_with_no_error_file_names_no_kinds() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  let plan = plan_json(&dir);
+  let page = &plan["routes"][0]["plan"]["children"][0]["node"];
+  assert!(page.get("error").is_none(), "no error module: {page}");
+  assert!(page.get("error_kinds").is_none(), "and no kinds: {page}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_routes_own_boundary_owns_every_kind() {
+  let dir = app(&[
+    ("routes/error.tsx", "export default function Failed() {\n  return <p>root</p>;\n}\n"),
+    ("routes/error.not-found.tsx", "export default function Missing() {\n  return <p>root missing</p>;\n}\n"),
+    ("routes/deep/page.tsx", PAGE),
+    ("routes/deep/error.tsx", "export default function Failed() {\n  return <p>deep</p>;\n}\n"),
+  ]);
+  let plan = plan_json(&dir);
+  let route = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/deep").unwrap();
+  let page = &route["plan"]["children"][0]["node"];
+  assert_eq!(page["error"], "routes/deep/error.tsx#default");
+  assert!(
+    page.get("error_kinds").is_none(),
+    "the root's not-found does not pair with a route's own error page: {page}"
+  );
+  std::fs::remove_dir_all(&dir).unwrap();
+}

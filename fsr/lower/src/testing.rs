@@ -48,6 +48,7 @@ pub struct Mock {
   pub locale: Option<Expr>,
   pub path: Option<Expr>,
   pub host: Option<Expr>,
+  pub origin: Option<Expr>,
   pub config: Vec<(String, Expr)>,
 }
 
@@ -1203,6 +1204,7 @@ impl<'a> TestLowerer<'a> {
         "locale" => mock.locale = Some(self.lowerer.expr(value)?),
         "path" => mock.path = Some(self.lowerer.expr(value)?),
         "host" => mock.host = Some(self.lowerer.expr(value)?),
+        "origin" => mock.origin = Some(self.lowerer.expr(value)?),
         "config" => mock.config = self.entries(value)?,
         "services" => {
           let js::Expr::Object(services) = value else {

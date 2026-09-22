@@ -45,8 +45,26 @@ impl Evaluator for ErrorPartial {
       Some(Value::Str(s)) => s.to_string(),
       _ => panic!("error module receives the failure message"),
     };
+    let kind = match props.get("kind") {
+      Some(Value::Str(s)) => s.to_string(),
+      _ => panic!("error module receives the failure kind"),
+    };
     Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!(
-      "<oops>{message}</oops>"
+      "<oops>{message}|{kind}</oops>"
+    ))))]))
+  }
+}
+
+struct MissingPartial;
+
+impl Evaluator for MissingPartial {
+  fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+    let message = match props.get("error") {
+      Some(Value::Str(s)) => s.to_string(),
+      _ => panic!("error module receives the failure message"),
+    };
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!(
+      "<gone>{message}</gone>"
     ))))]))
   }
 }
@@ -56,6 +74,7 @@ fn evaluators() -> Evaluators {
   evs.register(|m: &ModuleId| m.path == "shell.tera", Arc::new(Shell));
   evs.register(|m: &ModuleId| m.path == "page.tera", Arc::new(Page));
   evs.register(|m: &ModuleId| m.path == "error.tera", Arc::new(ErrorPartial));
+  evs.register(|m: &ModuleId| m.path == "error.not-found.tera", Arc::new(MissingPartial));
   evs
 }
 
@@ -71,15 +90,24 @@ fn plan_with_page(error_module: bool) -> PlanNode {
 }
 
 fn failing_sources() -> DataSources {
+  failing_with(snapfire_fsr_runtime::FailureKind::Internal, "backend down")
+}
+
+fn failing_with(kind: snapfire_fsr_runtime::FailureKind, message: &'static str) -> DataSources {
   let mut sources = DataSources::new();
-  sources.insert_fn("page_loader", |_p| async {
-    Err(LoadError {
-      source_id: "page_loader".into(),
-      message: "backend down".into(),
-      kind: snapfire_fsr_runtime::FailureKind::Internal,
-    })
+  sources.insert_fn("page_loader", move |_p| async move {
+    Err(LoadError { source_id: "page_loader".into(), message: message.into(), kind })
   });
   sources
+}
+
+fn plan_with_kinds() -> PlanNode {
+  let mut plan = plan_with_page(true);
+  let page = &mut plan.children[0].1;
+  page
+    .error_kinds
+    .push(("not_found".to_owned(), ModuleId::new("error.not-found.tera", "default")));
+  plan
 }
 
 #[test]
@@ -189,4 +217,36 @@ fn a_failed_subtree_is_never_cached() {
     "no poisoned cache entry survives the failure: {:?}",
     recovered.tree
   );
+}
+
+#[test]
+fn a_failure_kind_the_plan_names_renders_its_own_module() {
+  let rt = Runtime::new(failing_with(snapfire_fsr_runtime::FailureKind::NotFound, "no such chapter"), evaluators());
+  let assembly = block_on(assemble(
+    &rt,
+    &plan_with_kinds(),
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  let Node::Seq(parts) = &assembly.tree else { panic!() };
+  let rendered = format!("{:?}", parts[1]);
+  assert!(rendered.contains("<gone>"), "the not_found module rendered, not the plain one: {rendered}");
+  assert!(rendered.contains("no such chapter"));
+}
+
+#[test]
+fn a_kind_the_plan_does_not_name_falls_back_to_the_error_module() {
+  let rt = Runtime::new(failing_with(snapfire_fsr_runtime::FailureKind::Timeout, "took too long"), evaluators());
+  let assembly = block_on(assemble(
+    &rt,
+    &plan_with_kinds(),
+    &RequestCtx::anonymous(Params::new()),
+    &Node::raw(""),
+  ))
+  .unwrap();
+  let Node::Seq(parts) = &assembly.tree else { panic!() };
+  let rendered = format!("{:?}", parts[1]);
+  assert!(rendered.contains("<oops>"), "the error module rendered: {rendered}");
+  assert!(rendered.contains("|timeout"), "and was told the kind: {rendered}");
 }

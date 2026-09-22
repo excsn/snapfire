@@ -876,6 +876,8 @@ struct Tables {
   head: Head,
   /// `[public]` as values, cloned into every request's `ctx.config`.
   public: ValueMap,
+  /// `document.origin`, checked at boot, read by every request's `ctx.origin`.
+  origin: Option<String>,
   /// The bundle's build facts file, read for its id when `dev` is on; the
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
@@ -2261,6 +2263,7 @@ impl Host {
       session: incoming.session,
       locale,
       host: incoming.host,
+      origin: t.origin.clone(),
       config: t.public.clone(),
       csrf: incoming.csrf,
       services,
@@ -3492,6 +3495,7 @@ fn graft(shell: &Manifest, site: &mut Manifest, shell_module: &str) {
       deferred: false,
       fallback: None,
       error: None,
+      error_kinds: Vec::new(),
       cache_key: None,
       children: vec![PlanChild {
         slot: "content".to_owned(),
@@ -4824,6 +4828,7 @@ impl HostBuilder {
         app,
         head,
         public,
+        origin: config.origin()?,
         dev_bundle,
         statics,
         static_cache,

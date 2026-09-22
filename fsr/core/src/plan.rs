@@ -24,6 +24,10 @@ pub struct PlanNode {
   /// message when this segment's data source fails. Absent means the
   /// built-in error node.
   pub error: Option<ModuleId>,
+  /// Error modules for one failure kind each, keyed by `FailureKind::as_str`.
+  /// A failure whose kind is named here renders that module instead of
+  /// `error`, which stays the fallback for every other kind.
+  pub error_kinds: Vec<(String, ModuleId)>,
   pub cache_key: Option<CacheKey>,
   pub children: Vec<(SlotName, PlanNode)>,
   /// Slots this node leaves unfilled that the browser keeps as they stand
@@ -41,6 +45,7 @@ impl PlanNode {
       deferred: false,
       fallback: None,
       error: None,
+      error_kinds: Vec::new(),
       cache_key: None,
       children: Vec::new(),
       keep: Vec::new(),

@@ -325,6 +325,9 @@ pub struct Node {
   pub fallback: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
+  /// One error module per failure kind, keyed by `FailureKind::as_str`.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub error_kinds: Vec<(String, String)>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cache_key: Option<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -364,6 +367,11 @@ impl Node {
       Some(raw) => Some(module(raw, &format!("{at}/error"))?),
       None => None,
     };
+    plan.error_kinds = self
+      .error_kinds
+      .iter()
+      .map(|(kind, raw)| Ok((kind.clone(), module(raw, &format!("{at}/error.{kind}"))?)))
+      .collect::<Result<_, PlanError>>()?;
     plan.keep = self.keep.iter().cloned().map(SlotName).collect();
 
     let mut slots: Vec<&str> = Vec::new();
@@ -388,6 +396,7 @@ impl Node {
       deferred: plan.deferred,
       fallback: plan.fallback.as_ref().map(ToString::to_string),
       error: plan.error.as_ref().map(ToString::to_string),
+      error_kinds: plan.error_kinds.iter().map(|(kind, m)| (kind.clone(), m.to_string())).collect(),
       cache_key: plan.cache_key.as_ref().map(|k| k.0.clone()),
       children: plan
         .children
@@ -644,6 +653,11 @@ fn namespace_node(node: &mut serde_json::Value, prefix: &str, shell: &str) {
   for key in ["source", "fallback", "error", "cache_key"] {
     if let Some(value) = node.get_mut(key) {
       prefix_str(value, prefix);
+    }
+  }
+  for pair in node.get_mut("error_kinds").and_then(|k| k.as_array_mut()).into_iter().flatten() {
+    if let Some(module) = pair.get_mut(1) {
+      prefix_str(module, prefix);
     }
   }
   for child in node.get_mut("children").and_then(|c| c.as_array_mut()).into_iter().flatten() {

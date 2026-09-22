@@ -14,6 +14,9 @@ pub(super) fn node_to_sx(node: &Node) -> Sx {
   }
   rest.extend(opt_form("fallback", &node.fallback));
   rest.extend(opt_form("error", &node.error));
+  for (kind, module) in &node.error_kinds {
+    rest.push(form("error-kind", vec![sym(kind.clone()), sym(module.clone())]));
+  }
   rest.extend(opt_form("cache-key", &node.cache_key));
   if !node.keep.is_empty() {
     rest.push(form("keep", node.keep.iter().map(|k| sym(k.clone())).collect()));
@@ -39,6 +42,7 @@ pub(super) fn node_from_sx(sx: &Sx) -> Res<Node> {
     deferred: false,
     fallback: None,
     error: None,
+    error_kinds: Vec::new(),
     cache_key: None,
     children: Vec::new(),
     keep: Vec::new(),
@@ -53,6 +57,12 @@ pub(super) fn node_from_sx(sx: &Sx) -> Res<Node> {
       "deferred" => node.deferred = true,
       "fallback" => node.fallback = Some(one()?),
       "error" => node.error = Some(one()?),
+      "error-kind" => {
+        if inner.len() != 3 {
+          return Err(err("an error kind is `(error-kind kind module)`"));
+        }
+        node.error_kinds.push((as_sym(&inner[1])?, as_sym(&inner[2])?));
+      }
       "cache-key" => node.cache_key = Some(one()?),
       "keep" => node.keep = inner[1..].iter().map(as_sym).collect::<Res<_>>()?,
       "slot" => {

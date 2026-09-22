@@ -238,6 +238,7 @@ fn every_manifest() -> Manifest {
     deferred: true,
     fallback: Some("routes/loading.tsx#default".to_owned()),
     error: Some("routes/error.tsx#default".to_owned()),
+    error_kinds: vec![("not_found".to_owned(), "routes/error.not-found.tsx#default".to_owned())],
     cache_key: Some("page".to_owned()),
     children: vec![Child {
       slot: "content".to_owned(),
@@ -248,6 +249,7 @@ fn every_manifest() -> Manifest {
         deferred: false,
         fallback: None,
         error: None,
+        error_kinds: Vec::new(),
         cache_key: None,
         children: Vec::new(),
         keep: vec!["modal".to_owned()],
@@ -445,14 +447,16 @@ fn node() -> BoxedStrategy<Node> {
     prop::option::of(text()),
     prop::option::of(text()),
     prop::collection::vec(text(), 0..3),
+    prop::collection::vec((text(), text()), 0..3),
   )
-    .prop_map(|(id, module, source, deferred, fallback, error, cache_key, keep)| Node {
+    .prop_map(|(id, module, source, deferred, fallback, error, cache_key, keep, error_kinds)| Node {
       id,
       module,
       source,
       deferred,
       fallback,
       error,
+      error_kinds,
       cache_key,
       children: Vec::new(),
       keep,
