@@ -5250,3 +5250,146 @@ async fn the_policy_hashes_the_import_map_the_document_carries() {
   let policy = header_of(&host, "/", "content-security-policy").await.expect("a policy");
   assert!(policy.contains(&format!("'sha256-{digest}'")), "{policy}\n{map}");
 }
+
+/// One `multipart/form-data` body: `parts` is (name, optional filename, content type, bytes).
+fn multipart_body(boundary: &str, parts: &[(&str, Option<&str>, &str, &[u8])]) -> Bytes {
+  let mut out: Vec<u8> = Vec::new();
+  for (name, filename, content_type, bytes) in parts {
+    out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    match filename {
+      Some(filename) => out.extend_from_slice(
+        format!("Content-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n").as_bytes(),
+      ),
+      None => out.extend_from_slice(format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n").as_bytes()),
+    }
+    out.extend_from_slice(bytes);
+    out.extend_from_slice(b"\r\n");
+  }
+  out.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+  Bytes::from(out)
+}
+
+#[tokio::test]
+async fn a_multipart_text_part_reaches_an_action_conformed_like_a_form_field() {
+  let dir = app_dir();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  toml = toml.replace("[session]\nkey = \"test-key\"", "[session]\ncsrf = \"always\"\nkey = \"test-key\"");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let host = host_at(&dir).unwrap();
+
+  let opened = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = opened
+    .headers()
+    .get(header::SET_COOKIE)
+    .expect("a session opens for an anonymous visitor")
+    .to_str()
+    .unwrap()
+    .split(';')
+    .next()
+    .unwrap()
+    .to_owned();
+
+  // A token is spent by the post that carries it, so each one is read fresh.
+  async fn token_now(host: &Host, cookie: &str) -> String {
+    let page = host
+      .handle(Request::get("/").header(header::COOKIE, cookie).body(Bytes::new()).unwrap())
+      .await;
+    field(&body_of(page).await, "csrf_token").expect("csrf = always mints one for an anonymous session")
+  }
+
+  let token = token_now(&host, &cookie).await;
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "multipart/form-data; boundary=xbound")
+        .body(multipart_body(
+          "xbound",
+          &[("_csrf", None, "text/plain", token.as_bytes()), ("by", None, "text/plain", b"2")],
+        ))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(
+    response.status(),
+    StatusCode::SEE_OTHER,
+    "a multipart post is a form post, so a browser gets its page back"
+  );
+
+  let token = token_now(&host, &cookie).await;
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::ACCEPT, "application/json")
+        .header(header::CONTENT_TYPE, "multipart/form-data; boundary=xbound")
+        .body(multipart_body(
+          "xbound",
+          &[("_csrf", None, "text/plain", token.as_bytes()), ("by", None, "text/plain", b"2")],
+        ))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::OK, "a caller naming JSON is answered the value");
+  let body = response.into_body().collect().await.unwrap().to_bytes();
+  assert_eq!(&body[..], b"4", "the text part was coerced to the contract's i64, twice over one session");
+}
+
+#[tokio::test]
+async fn a_part_over_max_upload_is_refused_before_the_body_runs() {
+  let dir = app_dir();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  toml = toml.replace("[server]\nlisten", "[server]\nmax_upload = 8\nlisten");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let host = host_at(&dir).unwrap();
+  let body = multipart_body(
+    "xbound",
+    &[("by", None, "text/plain", b"1"), ("avatar", Some("big.png"), "image/png", &[0u8; 9])],
+  );
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "multipart/form-data; boundary=xbound")
+        .body(body)
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+  let text = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+  assert!(text.contains("avatar"), "the refusal names the field: {text}");
+  assert!(text.contains("max_upload"), "and the setting: {text}");
+
+  let small = multipart_body(
+    "xbound",
+    &[("by", None, "text/plain", b"1"), ("avatar", Some("ok.png"), "image/png", &[0u8; 8])],
+  );
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "multipart/form-data; boundary=xbound")
+        .body(small)
+        .unwrap(),
+    )
+    .await;
+  assert_ne!(
+    response.status(),
+    StatusCode::PAYLOAD_TOO_LARGE,
+    "a part at the cap passes the size gate and goes on to the csrf check"
+  );
+}
+
+#[tokio::test]
+async fn a_multipart_body_that_is_not_one_is_refused_as_invalid() {
+  let (host, _) = host();
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "multipart/form-data; boundary=xbound")
+        .body(Bytes::from_static(b"not a multipart body at all"))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+  let text = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+  assert!(text.contains("multipart"), "{text}");
+}

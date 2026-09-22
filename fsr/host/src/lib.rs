@@ -807,6 +807,9 @@ pub struct Host {
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
   max_body: usize,
+  /// The most bytes one uploaded part may carry, `server.max_upload`; `0` is
+  /// no cap beyond `max_body`.
+  max_upload: usize,
   /// The hosts a request's `Host` is matched against, `server.hosts`,
   /// lowercased once at boot. Empty, the header is never read.
   hosts: Vec<String>,
@@ -2757,13 +2760,32 @@ impl Host {
       }
       if let Some(id) = path.strip_prefix("/_sf/action/").map(percent_decoded) {
         let id = id.as_str();
-        let is_form = req
-          .headers()
-          .get(header::CONTENT_TYPE)
-          .and_then(|v| v.to_str().ok())
-          .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
+        let multipart = multipart_boundary(req.headers());
+        let is_form = multipart.is_some()
+          || req
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
         let input = if is_form {
-          let mut fields = form_params(req.body());
+          let mut fields = match &multipart {
+            Some(boundary) => match multipart_params(req.body(), boundary, self.max_upload).await {
+              Ok(Ok(fields)) => fields,
+              Ok(Err(refused)) => {
+                return json_response(
+                  StatusCode::PAYLOAD_TOO_LARGE,
+                  &serde_json::json!({ "kind": "invalid", "message": format!("`{}` is {}", refused.field, refused.why) }),
+                );
+              }
+              Err(e) => {
+                return json_response(
+                  StatusCode::BAD_REQUEST,
+                  &serde_json::json!({ "kind": "invalid", "message": format!("invalid multipart body: {e}") }),
+                );
+              }
+            },
+            None => form_params(req.body()),
+          };
           let token = match fields.shift_remove("_csrf") {
             Some(Value::Str(token)) => token.to_string(),
             _ => String::new(),
@@ -2792,6 +2814,9 @@ impl Host {
           .dispatch_action(t, id, self.incoming(opened, self.matched_host(req.headers())), &visit.path, visit.locale.clone(), input)
           .await
         {
+          Ok(value) if is_form && wants_json(req.headers()) => {
+            json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value))
+          }
           Ok(_) if is_form => {
             let back = req
               .headers()
@@ -2816,15 +2841,34 @@ impl Host {
     }
 
     if t.app.handlers.match_request(req.method().as_str(), &path).is_some() {
-      let form = req
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
+      let multipart = multipart_boundary(req.headers());
+      let form = multipart.is_some()
+        || req
+          .headers()
+          .get(header::CONTENT_TYPE)
+          .and_then(|v| v.to_str().ok())
+          .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
       let input = if req.body().is_empty() {
         Value::Null
       } else if form {
-        let mut fields = form_params(req.body());
+        let mut fields = match &multipart {
+          Some(boundary) => match multipart_params(req.body(), boundary, self.max_upload).await {
+            Ok(Ok(fields)) => fields,
+            Ok(Err(refused)) => {
+              return json_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &serde_json::json!({ "kind": "invalid", "message": format!("`{}` is {}", refused.field, refused.why) }),
+              );
+            }
+            Err(e) => {
+              return json_response(
+                StatusCode::BAD_REQUEST,
+                &serde_json::json!({ "kind": "invalid", "message": format!("invalid multipart body: {e}") }),
+              );
+            }
+          },
+          None => form_params(req.body()),
+        };
         let token = match fields.shift_remove("_csrf") {
           Some(Value::Str(token)) => token.to_string(),
           _ => String::new(),
@@ -3829,6 +3873,71 @@ fn percent_decoded(segment: &str) -> String {
   String::from_utf8(out).unwrap_or_else(|_| segment.to_owned())
 }
 
+/// Whether a form post asked for the action's value rather than its page back.
+/// A browser navigating a form takes the redirect; a caller that named JSON in
+/// `Accept`, which `upload` in the client does, is answered the value.
+fn wants_json(headers: &http::HeaderMap) -> bool {
+  headers
+    .get(header::ACCEPT)
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|accept| accept.split(',').any(|part| part.trim().starts_with("application/json")))
+}
+
+/// The boundary a `multipart/form-data` content type names, or `None` when the
+/// header is some other type.
+fn multipart_boundary(headers: &http::HeaderMap) -> Option<String> {
+  let raw = headers.get(header::CONTENT_TYPE)?.to_str().ok()?;
+  multer::parse_boundary(raw).ok()
+}
+
+/// What one refused part says, so the caller answers the same way for a part
+/// too large as for one whose type the deployment does not accept.
+struct PartRefused {
+  field: String,
+  why: String,
+}
+
+/// Reads a buffered `multipart/form-data` body into the fields an action or a
+/// handler receives: a part with no filename is text, one with a filename is an
+/// `Upload`. The whole request is already in memory, bounded by
+/// `server.max_body`, so this is bounded by it too; `max_upload` caps one part
+/// below that.
+async fn multipart_params(body: &[u8], boundary: &str, max_upload: usize) -> Result<Result<ValueMap, PartRefused>, String> {
+  let owned = bytes::Bytes::copy_from_slice(body);
+  let stream = futures_util::stream::once(async move { Ok::<_, std::io::Error>(owned) });
+  let mut parts = multer::Multipart::new(stream, boundary.to_owned());
+  let mut fields = ValueMap::default();
+
+  while let Some(part) = parts.next_field().await.map_err(|e| e.to_string())? {
+    let Some(name) = part.name().map(str::to_owned) else { continue };
+    let filename = part.file_name().map(str::to_owned);
+    let content_type = part.content_type().map(|m| m.to_string());
+    let bytes = part.bytes().await.map_err(|e| e.to_string())?;
+
+    match filename {
+      None => {
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        fields.insert(name, Value::str(text));
+      }
+      Some(filename) => {
+        if max_upload > 0 && bytes.len() > max_upload {
+          return Ok(Err(PartRefused {
+            field: name,
+            why: format!("{} bytes, over the host's server.max_upload of {max_upload}", bytes.len()),
+          }));
+        }
+        let mut upload = ValueMap::default();
+        upload.insert("filename".to_owned(), Value::str(filename));
+        upload.insert("content_type".to_owned(), Value::str(content_type.unwrap_or_else(|| "application/octet-stream".to_owned())));
+        upload.insert("size".to_owned(), Value::Int(bytes.len() as i128));
+        upload.insert("bytes".to_owned(), Value::Bytes(bytes.to_vec()));
+        fields.insert(name, Value::Map(upload));
+      }
+    }
+  }
+  Ok(Ok(fields))
+}
+
 fn form_params(body: &[u8]) -> ValueMap {
   form_urlencoded::parse(body)
     .map(|(k, v)| (k.into_owned(), Value::str(v.into_owned())))
@@ -4314,6 +4423,7 @@ impl HostBuilder {
       session_shape: session_shape(&config),
       keyring: owned_ring,
       max_body: config.server.max_body,
+      max_upload: config.server.max_upload,
       hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
       origin: config.origin()?,
       http2,

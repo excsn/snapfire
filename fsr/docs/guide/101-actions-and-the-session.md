@@ -57,6 +57,34 @@ The build writes one typed callable per action into `generated/client.ts`, neste
 
 A successful call re-fetches the current route by default and patches the segments that changed, so the header's badge follows the cart without a page reload and without the page asking. A call that should not revalidate says so when it is created.
 
+## A file is a part of the input
+
+An action posted as `multipart/form-data` receives the parts as its input: one with no filename is a text field, coerced against the schema exactly as a urlencoded field is; one with a filename is an `Upload`.
+
+```ts
+export interface Deposit {
+  caption: string;
+  file: Upload;
+}
+```
+
+`Upload` is the host's own type. A schema names it without declaring it, the way it names `Uint8Array`. An application that declares one of its own is refused rather than disagreeing with the host about the shape. It carries `filename` and `content_type` as the browser claimed them, `size` and `bytes`.
+
+```ts
+export const deposit = action(async ({ input, session }: ActionCtx<Deposit>) => {
+  if (!ACCEPTED.includes(input.file.content_type)) {
+    fail("invalid", `${input.file.content_type} is not a type this takes`);
+  }
+  return await services.files.store({ name: input.file.filename, body: input.file.bytes });
+});
+```
+
+Neither the name nor the type is evidence of anything: both are strings a client chose. What the host guarantees is the length. `server.max_upload` refuses a part over it before the body runs, with `server.max_body` bounding the request whole. The request is buffered before anything parses it, so an upload costs memory for its size while it is in flight; this is for a file a person picks in a form rather than for a large transfer.
+
+A body has no filesystem, so `bytes` goes to a service method or to the application's own Rust through `ctx.native`. Writing a file is not something a lowered body does.
+
+Both callers reach the same action. A `<form method="post" enctype="multipart/form-data">` posts it with no JavaScript and is answered with a redirect back to the page, so the session the action wrote is what the next render reads. From the page, `upload(id, formData)` in the client posts a `FormData` and names JSON in `Accept`, so the host answers the action's value rather than the redirect. Both carry `_csrf`, since a form post is verified where a JSON call is not. A form anonymous visitors post needs `[session] csrf = "always"`.
+
 ## The lab
 
 Run `fsr check app`, then remove the `export` from `checkout` in `actions.ts` and check again: the report's actions section loses `cart.checkout`, `generated/client.ts` loses its callable and `tsc` fails in the cart page at the call. A page cannot call an action the build did not declare. Put it back.

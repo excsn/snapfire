@@ -43,6 +43,22 @@ function kindOf(status: number): string {
   }
 }
 
+/** Posts a `FormData` to an action, which is how a file reaches one: the host reads `multipart/form-data` into the same input an ordinary call carries, with each file part arriving as an `Upload`. The form must carry `_csrf`, since a form post is verified where a JSON call is not; a page reads the token from its `csrf_token` prop. Revalidates on success like `action`. */
+export async function upload(id: string, form: FormData, opts?: { revalidate?: boolean }): Promise<SfValue> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
+  const res = await fetch(`/_sf/action/${encodeURIComponent(id)}`, { method: "POST", headers, body: form });
+  const text = await res.text();
+  if (!res.ok) {
+    throw failure(res.status, res.statusText, text);
+  }
+  const result = decodeValue(JSON.parse(text));
+  if (opts?.revalidate !== false) {
+    await refresh();
+  }
+  return result;
+}
+
 /** A callable for a stable action id. The client holds references, not URLs. A successful call revalidates the current route by default, so mutated segments refresh in place. The document's path rides as `x-sf-from`, which is how the server gives the action the document's locale. */
 export function action(id: string, opts?: { revalidate?: boolean }): (input?: SfValue) => Promise<SfValue> {
   return async (input: SfValue = {}) => {

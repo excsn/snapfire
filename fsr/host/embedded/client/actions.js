@@ -36,6 +36,26 @@ function kindOf(status) {
             return "internal";
     }
 }
+export async function upload(id, form, opts) {
+    const headers = {
+        accept: "application/json"
+    };
+    if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
+    const res = await fetch(`/_sf/action/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers,
+        body: form
+    });
+    const text = await res.text();
+    if (!res.ok) {
+        throw failure(res.status, res.statusText, text);
+    }
+    const result = decodeValue(JSON.parse(text));
+    if (opts?.revalidate !== false) {
+        await refresh();
+    }
+    return result;
+}
 export function action(id, opts) {
     return async (input = {})=>{
         const headers = {

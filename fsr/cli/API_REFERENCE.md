@@ -81,7 +81,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### fsr build
 
 * `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
-* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.sexp`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
+* Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.sexp`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
 * The bundle follows the generation because it compiles the island registry the generation writes. `--public-path` defaults to `/static/js/app` or `<at>/static/js/app` for a site; `--snapfirec` defaults to `$SNAPFIREC`, else beside this binary, else `PATH`.
 * Exit 0 on success, 1 on any `BuildError`, 2 on a usage error.
 * The typecheck prints one `typecheck <row>` line, a `recorded` line when it wrote the version into the configuration and nothing at all when no checker is installed beyond a note on stderr.
@@ -171,7 +171,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String> }`
 * `browser_routes` are the route modules the browser mounts, as files relative to the app: every route module that is not `static`, which is all of `routes/` a bundle compiles.
-* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `<types>/foreign.d.ts` when a source or a placement is a component in a language the build does not read, declaring `*.<ext>` for the typechecker; `write` removes a `generated/foreign.d.ts` left by an earlier build.
+* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `<types>/foreign.d.ts` when a source or a placement is a component in a language the build does not read, declaring `*.<ext>` for the typechecker; `write` removes a `generated/foreign.d.ts` left by an earlier build.
 * `generated/native.d.ts` is read off the Rust rather than the contract: `native::read` walks the crate's `src/`, the sibling of the app directory, with `syn` and takes every `#[native]` `impl` block's `pub` methods plus the structs they name. It reads rather than expands, so `build.rs` can run it before the crate compiles. A method the reader saw as `fn` is typed as its value and an `async fn` as a promise; a Rust type outside the value model reads as `unknown`.
 
 ### write
@@ -222,6 +222,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### Schemas
 
 * Every `app/schemas/*.ts`, sorted by name, is read with `snapfire_fsr_lower::read_schema`. Each exported interface or string-literal union becomes a contract type; a name declared twice is `DuplicateType`.
+* `snapfire_fsr_lower::builtin_types` joins them first, which is where `Upload` comes from: a schema names it as a field's type without declaring it. An application declaring its own is `DuplicateType` against the host's. The build writes it for TypeScript as a global in `generated/uploads.d.ts`.
 * The type named `Session` is imported into `generated/fsr.ts` from its file and types `ctx.session`; without one, `session` is `Record<string, unknown>`. An `export const defaults` in that file is read with `read_session_defaults` and folded into every lowered session read.
 * After both, `Contract::validate` runs; an unresolved reference is `BuildError::Contract`.
 

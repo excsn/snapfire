@@ -176,6 +176,7 @@ The cursor over one application: parsed files, lowered components and the resolu
 
 * An interface becomes `TypeDef::Record`; `extends`, type parameters, methods, index signatures and computed keys are residue.
 * Field types: `string` is `Str`, `number` is `F64`, `bigint` is `I64`, `boolean` is `Bool`, `null` and `undefined` are `Null`; `T[]` and `Array<T>` are `List`; `Record<string, T>` is `Map`; `Uint8Array` is `Bytes` and the other typed arrays are `Array(kind)`; a bare name is `Named`.
+* `builtin_types() -> Vec<SchemaType>` is what every contract holds before a schema is read: one record, `UPLOAD`, with `filename` and `content_type` as `Str`, `size` as `I64` and `bytes` as `Bytes`. It is the shape the host builds from one file part of a `multipart/form-data` body, so a schema declaring a field as `Upload` receives exactly that.
 * `T | null`, `T | undefined` and a `?` field are `Optional(T)`; a union of two real types, an inline object type, a literal outside a named union and a generic reference are residue.
 * A type alias must be a union of string literals and becomes `TypeDef::Union` of unit variants.
 

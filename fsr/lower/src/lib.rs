@@ -95,7 +95,7 @@ pub enum LowerError {
   Extension(Residue),
 }
 
-pub use schema::{read_schema, read_session_defaults, SchemaType};
+pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};
 
 /// The import aliases every fsr application has, each a prefix and the app
 /// directory it stands for. The build writes them into both tsconfigs, snapfirec

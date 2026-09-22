@@ -643,26 +643,55 @@ fn malformed_plan_terms_are_refused() {
 /// file is regenerated with `SEXP_GOLDEN=overwrite`, alongside a bump of
 /// `FORMAT_VERSION` and a reader that still takes the old spelling, which
 /// the earlier format's file below keeps pinned.
-const GOLDEN: &str = include_str!("golden/format-3.sexp");
+const GOLDEN: &str = include_str!("golden/format-4.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_3_promises() {
+fn the_printed_bytes_are_the_ones_format_4_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-3.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-4.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 3");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 4");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 3 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 4 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
+}
+
+/// Format 3, as the builds before per-kind error modules wrote it.
+const GOLDEN_3: &str = include_str!("golden/format-3.sexp");
+
+#[test]
+fn a_format_3_plan_still_reads_and_prints_as_written() {
+  let read = Manifest::from_sexpr(GOLDEN_3).expect("format 3 still reads");
+  let mut expected = every_manifest();
+  forget_error_kinds(&mut expected);
+  assert_eq!(read, expected);
+  assert_eq!(read.to_sexpr(), GOLDEN_3);
+}
+
+/// Every node's per-kind error modules dropped, which is what a plan written
+/// before format 4 carries.
+fn forget_error_kinds(manifest: &mut Manifest) {
+  fn strip(node: &mut snapfire_fsr_plan::Node) {
+    node.error_kinds.clear();
+    for child in &mut node.children {
+      strip(&mut child.node);
+    }
+  }
+  for route in manifest.routes.iter_mut().chain(manifest.intercepts.iter_mut()) {
+    strip(&mut route.plan);
+  }
+  if let Some(node) = &mut manifest.not_found {
+    strip(node);
+  }
 }
 
 /// Format 2, as the builds before `client` rows wrote it: everything in it
@@ -675,6 +704,7 @@ fn a_format_2_plan_still_reads_and_prints_as_written() {
   let mut expected = every_manifest();
   expected.version = 2;
   expected.clients.clear();
+  forget_error_kinds(&mut expected);
   assert_eq!(read, expected);
   assert_eq!(read.to_sexpr(), GOLDEN_2);
 }

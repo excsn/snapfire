@@ -1,0 +1,18 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8108"
+max_body = 4194304
+max_upload = 1048576
+
+[document]
+title = "Uploads"
+
+[session]
+key = "uploads-example-dev-key-not-a-secret"
+csrf = "always"
+ttl = "1h"
+
+[typecheck]
+version = "7.0.2"

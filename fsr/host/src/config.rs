@@ -185,6 +185,10 @@ pub struct ServerConfig {
   /// before anything reads it. Default 1 MiB.
   #[serde(default = "default_max_body")]
   pub max_body: usize,
+  /// The most bytes one uploaded part may carry, `0` for no cap beyond
+  /// `max_body`. A part over it is refused before the body runs.
+  #[serde(default)]
+  pub max_upload: usize,
   /// The hosts this deployment answers on, which a body reads as `ctx.host`.
   /// Empty, the request's `Host` is never read and `ctx.host` is null. A
   /// header naming anything absent from this list does not match, so a client
@@ -277,6 +281,7 @@ impl Default for ServerConfig {
       plan: default_plan(),
       contracts: default_contracts(),
       max_body: default_max_body(),
+      max_upload: 0,
       hosts: Vec::new(),
       prerender: None,
       dev: None,

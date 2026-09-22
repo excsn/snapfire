@@ -153,7 +153,7 @@ Seven ES module entry points, resolved through an import map. There is no packag
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
-| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure` | none |
+| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure` and `upload` | none |
 | `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
@@ -638,6 +638,17 @@ Builds a callable for a stable action id. The client holds ids, never URLs.
 The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `JSON.stringify(encodeValue(input))` as the body. `input` defaults to `{}`. On a non-ok status it throws `ActionFailure`: from the body's `kind` and `message` when the body is the JSON failure shape, otherwise with the kind the status stands for (`400` `invalid`, `401` and `403` `unauthorized`, `404` `not_found`, `409` `conflict`, `503` `unavailable`, `504` `timeout`, anything else `internal`); the message is then the body's text, the `statusText` or `HTTP <status>`. On success it returns `decodeValue` of the JSON body.
 
 `revalidate` defaults to true, which awaits `refresh()` after a successful call and before the result is returned. Pass `{ revalidate: false }` for a read-only action or to batch several mutations behind one manual `refresh`.
+
+* `upload(id: string, form: FormData, opts?: { revalidate?: boolean }): Promise<SfValue>`
+
+Posts a `FormData` to the same action endpoint, which is how a file reaches an action: the host reads `multipart/form-data` into the input an ordinary call carries, with each part that has a filename arriving as an `Upload`.
+
+The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with the `FormData` as the body, so the browser sets the content type and its boundary. It sends `accept: application/json`, which is what makes the host answer the action's value: a form post without it is answered with a 303 back to the page that posted, which is what a browser submitting a form natively wants and not what a caller awaiting a value does.
+
+The form must carry `_csrf`, since a form post is verified where a JSON call is not. A page reads the token from its `csrf_token` prop; for an anonymous visitor the deployment needs `[session] csrf = "always"` for one to exist.
+
+Failures and `revalidate` behave as `action`'s do.
+
 
 ## 8. The Store
 

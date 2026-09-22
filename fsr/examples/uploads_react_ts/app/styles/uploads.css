@@ -1,0 +1,98 @@
+:root {
+  --paper: #0f1115;
+  --ink: #e6e8eb;
+  --dim: #9aa3ad;
+  --line: #262b33;
+  --accent: #4b9fff;
+  --bad: #ff6b6b;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.55 ui-sans-serif, system-ui, sans-serif;
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+
+.lede {
+  color: var(--dim);
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin: 20px 0;
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+
+label {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--dim);
+}
+
+input[name="caption"] {
+  display: block;
+  margin-top: 4px;
+  width: 100%;
+  max-width: 320px;
+  padding: 6px 8px;
+  background: #171a20;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+button {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.error {
+  color: var(--bad);
+}
+
+.empty {
+  color: var(--dim);
+}
+
+.state {
+  margin-left: 10px;
+  color: var(--dim);
+}
+
+.held {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}
+
+.held th,
+.held td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.held th {
+  color: var(--dim);
+  font-weight: 600;
+}

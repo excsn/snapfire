@@ -14,6 +14,26 @@ pub struct SchemaType {
   pub def: TypeDef,
 }
 
+/// The name a schema gives a file part posted to an action. The host builds
+/// one per part, so the contract always defines it and an application declaring
+/// its own is refused rather than silently disagreeing with the host.
+pub const UPLOAD: &str = "Upload";
+
+/// The types every contract has without an application declaring them.
+pub fn builtin_types() -> Vec<SchemaType> {
+  vec![SchemaType {
+    name: UPLOAD.to_owned(),
+    def: TypeDef::Record {
+      fields: vec![
+        Field { name: "filename".to_owned(), ty: Type::Str },
+        Field { name: "content_type".to_owned(), ty: Type::Str },
+        Field { name: "size".to_owned(), ty: Type::I64 },
+        Field { name: "bytes".to_owned(), ty: Type::Bytes },
+      ],
+    },
+  }]
+}
+
 /// Every exported `interface` and string-literal-union `type` in the module.
 pub fn read_schema(file: &str, source: &str) -> Result<Vec<SchemaType>, LowerError> {
   let parsed = parse(file, source)?;
