@@ -10,8 +10,10 @@ use snapfire_fsr_ir::{Body, Component};
 pub mod sexpr;
 
 /// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
-/// with bare action ids and no sources, still reads.
-pub const FORMAT_VERSION: u32 = 3;
+/// with bare action ids and no sources, still reads. Format 4 adds a node's
+/// `error-kind` sections, which a format 3 reader refuses by name rather than
+/// ignoring, so the version is what tells an older host to say so plainly.
+pub const FORMAT_VERSION: u32 = 4;
 const OLDEST_READABLE: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

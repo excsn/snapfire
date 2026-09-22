@@ -66,7 +66,7 @@ fn the_file_names_every_source_and_module_a_host_must_bind() {
 fn a_version_the_runtime_does_not_know_is_refused() {
   let json = r#"{"version":99,"routes":[]}"#;
   assert_eq!(Manifest::from_json(json).unwrap_err(), PlanError::Version { found: 99 });
-  assert_eq!(FORMAT_VERSION, 3);
+  assert_eq!(FORMAT_VERSION, 4);
 }
 
 #[test]
