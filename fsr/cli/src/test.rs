@@ -489,7 +489,15 @@ impl<'a> Run<'a> {
     for (key, expr) in &mock.config {
       config.insert(key.clone(), self.eval(expr).await.map_err(|f| format!("config.{key}: {}", f.message))?);
     }
-    let ctx = RequestCtx { params, query, path, document: None, address: None, session: SessionCell::new(session, identity), locale, host, origin, failure: None, config, csrf: snapfire_fsr_runtime::CsrfHandle::default(), services: handle, natives: Default::default() };
+    let mut ctx = RequestCtx::anonymous(params);
+    ctx.query = query;
+    ctx.path = path;
+    ctx.session = SessionCell::new(session, identity);
+    ctx.locale = locale;
+    ctx.host = host;
+    ctx.origin = origin;
+    ctx.config = config;
+    ctx.services = handle;
     let mock = MockCtx { ctx, input, transport, written: Vec::new(), extended: None };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);

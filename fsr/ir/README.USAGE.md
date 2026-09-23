@@ -225,8 +225,8 @@ A body sees services only through `RequestCtx::services`, so a `ServiceCaller` t
 
 ```rust
 use futures_util::future::BoxFuture;
-use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_runtime::{FailureKind, RequestCtx, ServiceCaller, ServiceError, ServiceHandle, SessionCell};
+use snapfire_fsr_core::{Params, Value, ValueMap};
+use snapfire_fsr_runtime::{FailureKind, RequestCtx, ServiceCaller, ServiceError, ServiceHandle};
 
 struct Answers(ValueMap);
 
@@ -240,12 +240,8 @@ impl ServiceCaller for Answers {
 
 let mut answers = ValueMap::new();
 answers.insert("shopping.listProducts".into(), Value::Seq(vec![]));
-let ctx = RequestCtx {
-  params: Default::default(),
-  session: SessionCell::new(ValueMap::new(), None),
-  csrf: None,
-  services: ServiceHandle::new(Arc::new(Answers(answers))),
-};
+let mut ctx = RequestCtx::anonymous(Params::new());
+ctx.services = ServiceHandle::new(Arc::new(Answers(answers)));
 ```
 
 ## How Calls Are Ordered

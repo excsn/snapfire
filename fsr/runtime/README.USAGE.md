@@ -633,12 +633,10 @@ A narrower keyer is an optimisation rather than a requirement, because `digest` 
 ```rust
 use snapfire_fsr_runtime::{RequestCtx, SessionCell};
 
-let ctx = RequestCtx {
-  params: matched.params,
-  session: incoming.session,
-  csrf: incoming.csrf,
-  services: app.services.bind(incoming.session.identity(), incoming.credentials),
-};
+let mut ctx = RequestCtx::anonymous(matched.params);
+ctx.services = app.services.bind(incoming.session.identity(), incoming.credentials);
+ctx.session = incoming.session;
+ctx.csrf = incoming.csrf;
 ```
 
 For a test or a request with no session at all:

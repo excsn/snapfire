@@ -231,7 +231,7 @@ Each matcher's older names lower to the same variant: `toBeCalled` is `Called`, 
 
 ### Mock, Answer and Binding
 
-* `pub struct Mock { pub session, pub services: Vec<(String, String, Expr)>, pub mock_fns: Vec<(String, String, String)>, pub input, pub params, pub query, pub identity, pub locale, pub path, pub host, pub config }`
+* `pub struct Mock { pub session, pub services: Vec<(String, String, Expr)>, pub mock_fns: Vec<(String, String, String)>, pub input, pub params, pub query, pub identity, pub locale, pub path, pub host, pub origin, pub config }`, `Default` and `#[non_exhaustive]`
 * `pub enum Answer { Returns(Expr), Calls(Expr), Fails(Expr) }`
 * `pub enum Binding { Name(String), Fields(Vec<(String, String)>) }`
 

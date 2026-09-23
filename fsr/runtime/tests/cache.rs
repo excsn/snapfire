@@ -274,11 +274,9 @@ fn identity_is_part_of_the_key() {
       subject: subject.to_owned(),
       claims: ValueMap::default(),
     }));
-    RequestCtx {
-      params: Params::new(),
-      session: cell,
-      ..Default::default()
-    }
+    let mut ctx = RequestCtx::default();
+    ctx.session = cell;
+    ctx
   };
 
   block_on(assemble(
@@ -329,9 +327,10 @@ fn the_csrf_token_is_part_of_the_key() {
   let evals = Arc::new(AtomicU32::new(0));
   let rt = runtime(Arc::clone(&evals), DataSources::new());
   let plan = cached_leaf(None);
-  let with = |token: &str| RequestCtx {
-    csrf: CsrfHandle::fixed(token),
-    ..Default::default()
+  let with = |token: &str| {
+    let mut ctx = RequestCtx::default();
+    ctx.csrf = CsrfHandle::fixed(token);
+    ctx
   };
 
   block_on(assemble(
@@ -392,7 +391,10 @@ impl Evaluator for PropsEval {
 fn user(subject: &str) -> RequestCtx {
   let cell = SessionCell::default();
   cell.set_identity(Some(Identity { subject: subject.to_owned(), claims: ValueMap::default() }));
-  RequestCtx { params: Params::new(), session: cell, csrf: CsrfHandle::fixed("t0k"), ..Default::default() }
+  let mut ctx = RequestCtx::default();
+  ctx.session = cell;
+  ctx.csrf = CsrfHandle::fixed("t0k");
+  ctx
 }
 
 #[test]
@@ -429,7 +431,9 @@ impl Evaluator for PathEval {
 }
 
 fn at(path: &str) -> RequestCtx {
-  RequestCtx { params: Params::new(), path: path.to_owned(), ..Default::default() }
+  let mut ctx = RequestCtx::default();
+  ctx.path = path.to_owned();
+  ctx
 }
 
 #[test]

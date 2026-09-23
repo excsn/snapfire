@@ -520,7 +520,7 @@ Every mutator takes `&self`. Dirtiness and extension are one-way within a reques
 
 ### `RequestCtx`
 
-Everything a loader or action may know about the request. `Clone + Default`. Serializable values only, plus the handle, which is callable but carries nothing readable.
+Everything a loader or action may know about the request. `Clone + Default` and `#[non_exhaustive]`: build one with `anonymous` or `Default` and assign the fields. Serializable values only, plus the handle, which is callable but carries nothing readable.
 
 * `pub params: Params`
 * `pub session: SessionCell`

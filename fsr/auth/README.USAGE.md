@@ -282,12 +282,10 @@ if req.path() == "/auth/logout" && req.method() == Method::POST {
 Nothing in this crate renders. Identity travels the ordinary route: the adapter puts `opened.cell` into `RequestCtx`, the assembler injects it as the `identity` prop on every node.
 
 ```rust
-let ctx = RequestCtx {
-  params: matched.params,
-  session: opened.cell.clone(),
-  csrf: Some(app.sessions.csrf_token(&opened.id)),
-  services,
-};
+let mut ctx = RequestCtx::anonymous(matched.params);
+ctx.session = opened.cell.clone();
+ctx.csrf = CsrfHandle::fixed(app.sessions.csrf_token(&opened));
+ctx.services = services;
 ```
 
 The prop is a map with `subject` plus `claims`, absent entirely when the session is anonymous, so a template branches on whether it is defined.

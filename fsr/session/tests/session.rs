@@ -176,10 +176,8 @@ fn tokens_round_trip_but_never_reach_the_cell() {
   assert_eq!(back.tokens.get("access_token"), Some(Value::Str("secret-abc".into())));
   assert_eq!(back.cell.get("access_token"), None, "custody: the cell cannot see tokens");
 
-  let ctx = snapfire_fsr_runtime::RequestCtx {
-    session: back.cell.clone(),
-    ..Default::default()
-  };
+  let mut ctx = snapfire_fsr_runtime::RequestCtx::default();
+  ctx.session = back.cell.clone();
   assert_eq!(ctx.session.get("access_token"), None, "loaders and actions cannot reach tokens");
   let (data, _) = back.cell.snapshot();
   assert!(data.is_empty());

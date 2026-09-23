@@ -13,6 +13,7 @@ pub struct DataSourceId(pub String);
 pub struct CacheKey(pub String);
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PlanNode {
   pub id: NodeId,
   pub module: ModuleId,

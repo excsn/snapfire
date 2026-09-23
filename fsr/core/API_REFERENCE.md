@@ -193,7 +193,7 @@ The cacheability tag for a subtree. Invalidation matches on this tag.
 
 ### PlanNode
 
-One segment of the render plan.
+One segment of the render plan. `#[non_exhaustive]`: build one with `new` and assign the fields.
 
 * `pub id: NodeId`
 * `pub module: ModuleId`
@@ -201,8 +201,10 @@ One segment of the render plan.
 * `pub deferred: bool` - `true` means this segment streams. Deferral is declared here and never discovered during rendering.
 * `pub fallback: Option<ModuleId>` - the loading module, rendered from params alone.
 * `pub error: Option<ModuleId>` - the error module, rendered with params plus the failure message when this segment's data source fails. `None` means the built-in error node.
+* `pub error_kinds: Vec<(String, ModuleId)>` - error modules for one failure kind each, keyed by `FailureKind::as_str`. A failure whose kind is named here renders that module instead of `error`.
 * `pub cache_key: Option<CacheKey>`
 * `pub children: Vec<(SlotName, PlanNode)>`
+* `pub keep: Vec<SlotName>` - slots this node leaves unfilled that the browser keeps as they stand when the payload arrives.
 * `pub fn new(id: NodeId, module: ModuleId) -> PlanNode` - every other field starts `None`, `false` or empty.
 * Derives `Debug`, `Clone` and `PartialEq`.
 

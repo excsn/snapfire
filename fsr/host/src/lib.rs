@@ -1606,7 +1606,10 @@ impl Host {
     let ctx = self.ctx(t, incoming, params, query, path, locale.clone());
     let assembly = match origin {
       Some((document, params, query, nodes)) => {
-        let under = RequestCtx { path: document, params, query, ..ctx.clone() };
+        let mut under = ctx.clone();
+        under.path = document;
+        under.params = params;
+        under.query = query;
         assemble_under(&t.app.runtime, plan, &ctx, head, Origin { ctx: under, nodes }).await?
       }
       None => assemble(&t.app.runtime, plan, &ctx, head).await?,
@@ -2257,23 +2260,22 @@ impl Host {
       Some(intercept) => (Some(intercept.document), Some(Address { path: path.to_owned(), params: params.clone(), query: query.clone() })),
       None => (None, None),
     };
-    RequestCtx {
-      params,
-      query,
-      path: path.to_owned(),
-      document,
-      address,
-      // Taken rather than read, so the next render does not show it again.
-      failure: incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY),
-      session: incoming.session,
-      locale,
-      host: incoming.host,
-      origin: t.origin.clone(),
-      config: t.public.clone(),
-      csrf: incoming.csrf,
-      services,
-      natives: snapfire_fsr_runtime::NativeHandle::new(t.app.natives.clone()),
-    }
+    let mut ctx = RequestCtx::anonymous(params);
+    ctx.query = query;
+    ctx.path = path.to_owned();
+    ctx.document = document;
+    ctx.address = address;
+    // Taken rather than read, so the next render does not show it again.
+    ctx.failure = incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY);
+    ctx.session = incoming.session;
+    ctx.locale = locale;
+    ctx.host = incoming.host;
+    ctx.origin = t.origin.clone();
+    ctx.config = t.public.clone();
+    ctx.csrf = incoming.csrf;
+    ctx.services = services;
+    ctx.natives = snapfire_fsr_runtime::NativeHandle::new(t.app.natives.clone());
+    ctx
   }
 
   /// What a request at the edge carries: the session, its custody and, once

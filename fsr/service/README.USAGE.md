@@ -427,12 +427,10 @@ use std::sync::Arc;
 use snapfire_fsr_runtime::{Identity, RequestCtx};
 use snapfire_fsr_session::TokenCell;
 
-let ctx = RequestCtx {
-  params: matched.params,
-  session: incoming.session,
-  csrf: incoming.csrf,
-  services: services.bind(incoming.session.identity(), incoming.credentials),
-};
+let mut ctx = RequestCtx::anonymous(matched.params);
+ctx.services = services.bind(incoming.session.identity(), incoming.credentials);
+ctx.session = incoming.session;
+ctx.csrf = incoming.csrf;
 ```
 
 For a request with no signed-in user, `bind_anonymous` is the same call with no identity and `NoCredentials`.
@@ -868,12 +866,9 @@ pub fn build(fleet: Fleet) -> Arc<Services> {
 Bind per request where the `RequestCtx` is assembled. Application code reads it off the context.
 
 ```rust
-let ctx = RequestCtx {
-  params: matched.params,
-  session: opened.cell.clone(),
-  csrf: None,
-  services: app.services.bind(opened.cell.identity(), Arc::new(opened.tokens.clone())),
-};
+let mut ctx = RequestCtx::anonymous(matched.params);
+ctx.session = opened.cell.clone();
+ctx.services = app.services.bind(opened.cell.identity(), Arc::new(opened.tokens.clone()));
 ```
 
 A loader asks for the capability and nothing else.

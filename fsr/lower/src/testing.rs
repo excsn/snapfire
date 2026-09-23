@@ -35,6 +35,7 @@ pub enum Target {
 
 /// The `ctx({ ... })` literal, each part an expression the runner evaluates.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Mock {
   pub session: Vec<(String, Expr)>,
   /// `(service, method, lambda)`; a value that is not a function is a lambda of no parameters.

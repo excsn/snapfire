@@ -63,21 +63,10 @@ fn ctx(mock: Arc<Mock>, params: &[(&str, &str)], session: ValueMap) -> RequestCt
   for (k, v) in params {
     p.insert((*k).to_owned(), (*v).to_owned());
   }
-  RequestCtx {
-    params: p,
-    query: Params::new(),
-    path: String::new(),
-    document: None,
-    address: None,
-    session: SessionCell::new(session, None),
-    locale: Default::default(),
-    host: None,
-    origin: None,
-    failure: None,
-    config: Default::default(),
-    csrf: Default::default(),
-    services: ServiceHandle::new(mock), natives: Default::default() 
-  }
+  let mut ctx = RequestCtx::anonymous(p);
+  ctx.session = SessionCell::new(session, None);
+  ctx.services = ServiceHandle::new(mock);
+  ctx
 }
 
 fn cart_of(entries: &[(&str, i64)]) -> ValueMap {
@@ -361,21 +350,8 @@ fn identity_and_now_are_reads() {
   }
   let mut claims = ValueMap::default();
   claims.insert("tenant".into(), Value::str("acme"));
-  let c = RequestCtx {
-    params: Params::new(),
-    query: Params::new(),
-    path: String::new(),
-    document: None,
-    address: None,
-    session: SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims })),
-    locale: Default::default(),
-    host: None,
-    origin: None,
-    failure: None,
-    config: Default::default(),
-    csrf: Default::default(),
-    services: ServiceHandle::default(), natives: Default::default() 
-  };
+  let mut c = RequestCtx::anonymous(Params::new());
+  c.session = SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims }));
   let body = vec![Stmt::Return(Expr::object(vec![
     ("who", Expr::Identity(vec!["subject".into()])),
     ("tenant", Expr::Identity(vec!["claims".into(), "tenant".into()])),

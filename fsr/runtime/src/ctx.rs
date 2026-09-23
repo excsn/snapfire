@@ -196,6 +196,7 @@ impl Address {
 /// should embed and the bound service handle. Serializable values only, per the boundary rules, plus the handle,
 /// which is callable but carries nothing readable.
 #[derive(Clone, Default)]
+#[non_exhaustive]
 pub struct RequestCtx {
   pub params: Params,
   /// The query string, decoded, one value per key with the last repeat

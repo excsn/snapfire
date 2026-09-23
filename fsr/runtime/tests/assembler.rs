@@ -441,10 +441,17 @@ fn a_kept_layout_loads_under_the_documents_request_and_is_marked_by_the_address(
   let mut params = Params::new();
   params.insert("id".to_owned(), "1".to_owned());
   let address = Address { path: "/item/1".to_owned(), params: params.clone(), query: Params::new() };
-  let ctx = RequestCtx { params, path: "/item/1".to_owned(), document: Some("/list".to_owned()), address: Some(address), ..RequestCtx::anonymous(Params::new()) };
+  let mut ctx = RequestCtx::anonymous(params);
+  ctx.path = "/item/1".to_owned();
+  ctx.document = Some("/list".to_owned());
+  ctx.address = Some(address);
   let mut query = Params::new();
   query.insert("q".to_owned(), "old".to_owned());
-  let origin = Origin { ctx: RequestCtx { params: Params::new(), query, path: "/list".to_owned(), ..ctx.clone() }, nodes: vec![0] };
+  let mut document = ctx.clone();
+  document.params = Params::new();
+  document.query = query;
+  document.path = "/list".to_owned();
+  let origin = Origin { ctx: document, nodes: vec![0] };
 
   let assembly = block_on(assemble_under(&runtime, &layout, &ctx, &Node::raw(""), origin)).unwrap();
   assert_eq!(assembly.segments.key, "layout.tera#default?q=old", "the kept layout is keyed by the document's request");

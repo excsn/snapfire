@@ -53,10 +53,9 @@ fn plan() -> PlanNode {
 }
 
 fn ctx(locale: Locale) -> RequestCtx {
-  RequestCtx {
-    locale,
-    ..RequestCtx::anonymous(Params::new())
-  }
+  let mut ctx = RequestCtx::anonymous(Params::new());
+  ctx.locale = locale;
+  ctx
 }
 
 fn render(locale: Locale) -> (String, String) {

@@ -38,7 +38,8 @@ fn a_loader_calls_through_ctx_services_and_never_names_a_transport() {
     .default_transport(Arc::new(MockTransport::new().returns("fleet.get", server("web-1", 0.5))))
     .build();
 
-  let ctx = RequestCtx { services: services.bind_anonymous(), ..Default::default() };
+  let mut ctx = RequestCtx::default();
+  ctx.services = services.bind_anonymous();
   let got = block_on(ctx.services.call("fleet", "get", args(vec![("name", Value::str("web-1"))]))).unwrap();
   assert_eq!(got, server("web-1", 0.5));
 }
@@ -204,7 +205,8 @@ fn the_handle_is_clonable_into_a_request_ctx() {
     .default_transport(Arc::new(MockTransport::new().returns("fleet.count", Value::Int(1))))
     .build();
   let handle: ServiceHandle = services.bind_anonymous();
-  let ctx = RequestCtx { services: handle.clone(), ..Default::default() };
+  let mut ctx = RequestCtx::default();
+  ctx.services = handle.clone();
   let cloned = ctx.clone();
   assert!(cloned.services.is_bound());
   assert_eq!(block_on(cloned.services.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(1));
