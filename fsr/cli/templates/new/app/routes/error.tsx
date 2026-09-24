@@ -3,7 +3,7 @@ export default function Failed({ error }: { error: string }) {
     <section className="hero">
       <h1>That did not load</h1>
       <p>{error}</p>
-      <a href="/">Back to the start</a>
+      <a href="{{home}}">Back to the start</a>
     </section>
   );
 }

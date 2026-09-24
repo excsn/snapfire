@@ -118,6 +118,38 @@ fn a_site_is_scaffolded_at_the_path_it_is_given() {
 }
 
 #[test]
+fn a_site_scaffold_keeps_its_styles_and_links_inside_its_prefix() {
+  let root = root("scoped");
+  create(&root, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: Some("docs".to_owned()), into: None }), ..offline() }).unwrap();
+  assert!(!root.join("app/styles/app.css").exists(), "a site does not write the shell's stylesheet");
+  let css = std::fs::read_to_string(root.join("app/styles/docs.css")).unwrap();
+  assert!(!css.contains("body") && !css.contains(":root"), "a mounted site's sheet lands on the shell's page: {css}");
+  for rule in css.split('}').map(str::trim).filter(|r| !r.is_empty() && !r.starts_with('@') && !r.starts_with(".docs")) {
+    assert!(rule.starts_with('{') || rule.contains(".docs"), "an unscoped rule: {rule}");
+  }
+  let layout = std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap();
+  assert!(layout.contains("className=\"docs\"") && layout.contains("href=\"/docs\""), "{layout}");
+  for page in ["not-found.tsx", "error.tsx"] {
+    let text = std::fs::read_to_string(root.join("app/routes").join(page)).unwrap();
+    assert!(text.contains("href=\"/docs\"") && !text.contains("href=\"/\""), "{page}: {text}");
+  }
+  let toml = std::fs::read_to_string(root.join("config/app.toml")).unwrap();
+  assert!(toml.contains("127.0.0.1:3001") && !toml.contains("[cache]"), "{toml}");
+}
+
+#[test]
+fn an_application_scaffold_keeps_the_page_wide_styles() {
+  let root = root("whole");
+  create(&root, offline()).unwrap();
+  let css = std::fs::read_to_string(root.join("app/styles/app.css")).unwrap();
+  assert!(css.contains("body"), "{css}");
+  let toml = std::fs::read_to_string(root.join("config/app.toml")).unwrap();
+  assert!(toml.contains("127.0.0.1:3000") && toml.contains("[cache]"), "{toml}");
+  let layout = std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap();
+  assert!(layout.contains("className=\"shell\"") && layout.contains("href=\"/\""), "{layout}");
+}
+
+#[test]
 fn into_writes_both_halves_and_the_site_names_the_shell() {
   let base = root("into");
   let shell = base.join("portal");

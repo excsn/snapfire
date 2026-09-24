@@ -4514,6 +4514,14 @@ impl HostBuilder {
         dir: config.resolve(&root.dir),
       })
       .collect();
+    if let Some(dir) = &config.shell_vendor {
+      if !statics.iter().any(|s| s.route == "/static/js/vendor") {
+        statics.push(StaticRootResolved {
+          route: "/static/js/vendor".to_owned(),
+          dir: dir.clone(),
+        });
+      }
+    }
     let serve_client = !statics.iter().any(|s| s.route == client::ROUTE);
     let client_minified = config.document.client.minified(config.dev());
     let mut import_map = match &config.document.import_map {
@@ -4796,13 +4804,17 @@ impl HostBuilder {
     // and in development the nonce on its own refresh script, whose text carries
     // the bundle id it was rendered against and so has no stable hash.
     let dev_nonce = dev.then(dev_nonce);
+    let empty_icon = config.document.head.iter().any(|t| t.get("href").is_some_and(|href| href == "data:,"));
     let compose = |declared: &config::Csp| {
       let mut policy = declared.clone();
+      if empty_icon {
+        policy.widen("img-src", "data:");
+      }
       if let Some(map) = import_map.as_deref() {
-        policy.add("script-src", import_map_csp(map));
+        policy.widen("script-src", import_map_csp(map));
       }
       if let Some(nonce) = &dev_nonce {
-        policy.add("script-src", format!("'nonce-{nonce}'"));
+        policy.widen("script-src", format!("'nonce-{nonce}'"));
       }
       policy.header().and_then(|text| HeaderValue::from_str(&text).ok())
     };

@@ -22,4 +22,6 @@ snapfire_fsr_sites = "0"
 | Hash an artifact the way the table pins it | `hash_dir` |
 | Lay a project out as a deploy tree | `layout`, `parts` |
 | Pack an artifact, unpack it and verify it against its manifest | `pack`, `unpack`, `Manifest::verify` |
+| Fetch a version the cache lacks from a directory of archives or an HTTP server | `[sites] store`, `TarStore`, `HttpStore` (feature `http`), `fetch_missing` |
+| Fetch from a registry of your own | a `Store` handed to `mount_all_with` and `mountable_with` |
 | Reread the table on `SIGHUP` or a poll and reload the host when it moved | `watch`, `poll_of` |

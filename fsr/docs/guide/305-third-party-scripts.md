@@ -26,7 +26,7 @@ export const meta = () => ({
 });
 ```
 
-Two rows are the same element when they share the attribute a head element is identified by: `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified by `sizes`, `media`, `type` and `hreflang`. A `link` whose `rel` names a resource, a stylesheet, a preconnect or a preload, is qualified by its `href` as well, so two preconnects are two elements. A `canonical` or an `icon` is a role and an inner route replaces it by naming it again. The host's own inferred icons sit under the layout's rows and are overridden the same way.
+Two rows are the same element when they share the attribute a head element is identified by: `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified by `sizes`, `media`, `type` and `hreflang`. A `link` whose `rel` names a resource, a stylesheet, a preconnect or a preload, is qualified by its `href` as well, so two preconnects are two elements. A `canonical` or an `icon` is a role and an inner route replaces it by naming it again. The host's own inferred icons sit under the layout's rows and are overridden the same way. An application with no `icons/` directory gets `<link rel="icon" href="data:,">`, an empty icon that keeps the browser from requesting `/favicon.ico` and logging the 404. It is dropped as soon as a route's `meta` names any icon, like the two above. `[document] empty_icon = false` turns it off.
 
 What is not in that list is a `script`. The document's one script is the entry, `main.ts`, which the host writes for you.
 

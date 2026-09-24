@@ -86,3 +86,15 @@ fn without_react_the_dialect_types_its_own_module() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
+
+#[test]
+fn each_package_has_one_status_row_wherever_the_import_map_repeats_it() {
+  let dir = app();
+  std::fs::write(
+    dir.join("importmap.json"),
+    r#"{"imports":{"@snapfire/fsr-client":"/a","react":"/b","@snapfire/fsr-authoring/template":"/c","@snapfire/fsr-client/store":"/d"}}"#,
+  )
+  .unwrap();
+  let rows: Vec<String> = status(&dir).unwrap().into_iter().map(|(package, _)| package).collect();
+  assert_eq!(rows, vec!["@snapfire/fsr-authoring", "@snapfire/fsr-client", "react"]);
+}

@@ -1,0 +1,43 @@
+.{{scope}} {
+  --ink: #16181d;
+  --paper: #fbfbfd;
+  --line: #e3e4e8;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  .{{scope}} {
+    --ink: #e8e9ed;
+    --paper: #14161a;
+    --line: #2a2d34;
+  }
+}
+
+.{{scope}} .bar {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 24px;
+}
+
+.{{scope}} .brand {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.{{scope}} .content {
+  padding: 32px 24px;
+}
+
+.{{scope}} .hero h1 {
+  font-size: 2rem;
+  margin: 0 0 12px;
+}
+
+.{{scope}} code {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 4px;
+  padding: 2px 5px;
+}

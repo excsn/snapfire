@@ -17,7 +17,13 @@ shell = "../portal/app/generated/shell.json"
 
 Nothing in the site's TypeScript changes. Routes are still `routes/invoice/[id]/page.tsx`, a loader still calls `services.ledger`, a page still calls `actions.invoice.pay`. The paths are literal, as they are everywhere in fsr: a link is `/billing/invoice/1` and the middleware compares against `/billing/overdue`. Only the plan file and the browser bundle spell the prefix, `billing:routes/invoice/[id]/page.tsx#default` and `billing:invoice.pay` and the host reads them that way.
 
-A site runs alone with `fsr dev` or `cargo run`, its own layout as the page, so a team develops and tests it without the shell.
+## A site running on its own
+
+A site runs alone with `fsr dev` or `cargo run`, under its own prefix with its own layout as the page, so a team develops and tests it without the shell. Alone it keeps what a mount drops: its own `[session]`, `[auth]`, `[cache]` and `not-found.tsx`. It has no sign-in but its own `[auth]`, so a guard that redirects to the shell's login lands on a page that is not there.
+
+Its frameworks still come from the shell. The site's import map names React at the shell's URL, so when the `generated/shell.json` that `[site] shell` names sits in the shell's `app/` beside a `vendor/` directory, the host serves that directory at `/static/js/vendor` and the report lists it under `inferred`. The root belongs to the site running alone. A mount never reads it and a deploy tree never carries it, so the site's artifact and its hash are the same either way.
+
+Running alone is for development and tests. A site is deployed by mounting it: a deploy tree has no shell beside it, so a site deployed by itself has no framework to import.
 
 ## The shell mounts it
 
@@ -85,11 +91,35 @@ Two things follow from the destinations being derived rather than copied from th
 
 `fsr sites hash <site>` prints that hash with the parts it covers; `--files` adds every file and digest. A part is a path in the artifact rather than in the project. `fsr sites pin <shell> [<name>]` writes it into the shell's table instead of leaving it to be copied between two files, replacing whatever the mount pinned before and reporting the move. Only a `name@version` artifact is pinned: a mount naming a path is a linked working tree that changes on every build, so a pin there would be stale by the next one. `fsr sites pack <site> --version 1.4.2` writes the artifact as a gzipped tar carrying a manifest of every file with its size and sha256. Packing the same tree twice writes the same bytes, so two builders can be compared. The hash is over that listing rather than over the bytes, so a manifest alone yields it and a pin is checked before anything is downloaded.
 
+## How a site reaches the shell
+
+A `[sites.<name>]` row names its artifact one of two ways and a version gets into the cache one of two ways, which gives three shapes. The portal example mounts one site of each.
+
+| Row | Where the artifact comes from | For |
+| --- | --- | --- |
+| `artifact = "sites/billing"` | The site's working tree, read in place. Reported as version `path` and never pinned, since it changes on every build. | Developing the shell and its sites together in one repository. |
+| `artifact = "billing@1.4.2"`, installed | `<root>/billing/1.4.2`, placed by `fsr sites install` from an archive before the row moves. | An operator who ships each release by hand or from a job. |
+| `artifact = "billing@1.4.2"`, fetched | The same directory, filled by the shell from `[sites] store` when the cache lacks the version. | A release pipeline that publishes archives to a registry: moving the row is the whole deploy. |
+
+In all three the site runs inside the shell's process. The shell reads the site's plan, runs its loaders and actions and renders its pages under its own root layout. That is what gives one document, one session and one navigation. A site running in a process of its own with the shell proxying to it is not something FSR does: the shell would have to forward the session and identity on every request, splice another server's HTML and payload under its layout and decide what a page shows when that server is down. A site that needs a backend of its own gets one through `[clients]`, described above. Its pages still render in the shell.
+
 ## A deploy is a pointer moved
 
 `[sites] root` is a cache: `<root>/<name>/<version>`, which is where `artifact = "billing@1.4.2"` already resolves. `fsr sites install <shell> billing-1.4.2.tar.gz --keep 3` unpacks into a dot-prefixed staging directory beside the destination, verifies every file against the manifest and the listing against the hash and only then renames it into place. A fetch that dies leaves nothing a mount can see; one that arrives wrong leaves the running version serving and names the file that disagreed. `--keep` sweeps older versions and never the one in use, so a rollback is offline. It then writes the hash of what it placed into the mount that names that version, because install is the one moment when computing a hash and meaning to ship that version are the same act; `--no-pin` leaves the table alone. A mount still pointing at the previous version is left as it is, since moving the pointer is a separate decision.
 
-Where the bytes come from is a seam, not a fixed answer: a directory of archives ships and so does a single archive, while an object store, a registry or a company artifact service is one method away, `fetch(package, version, into)`, with the install path around it unchanged.
+The shell can also fetch a version itself. `[sites] store` names where a version the cache lacks comes from: a directory of `<name>-<version>.tar.gz` archives against the project root or an `http://` or `https://` URL answering `GET <url>/<name>-<version>.tar.gz`. On boot and on every reload the shell fetches each `name@version` row the cache does not hold, stages it, verifies it the way `install` does and renames it into place before mounting anything. A fetch that fails refuses the mount and names the row, so a reload leaves the running version serving.
+
+```toml
+[sites]
+root = "/srv/sites"
+store = "https://artifacts.example.com/sites"
+
+[sites.billing]
+artifact = "billing@1.4.2"
+hash = "3a098783bbb3ebc5"
+```
+
+`FSR_SITES_STORE_HEADER="Authorization: Bearer <token>"` puts a header on every fetch, which keeps the token out of the table. Any server answering those names is a store: nginx over a directory, a bucket, an Artifactory generic repository. A store that needs more than a GET, a registry with its own protocol or a company artifact service, is a type implementing `snapfire_fsr_sites::Store`, one method, `fetch(package, version, into)`. A shell with Rust of its own hands it to `mount_all_with` and `mountable_with`. `fsr serve` has the directory and HTTP stores only.
 
 Then the row moves. The shell rereads the table on `SIGHUP` and on the poll, rebuilds its tables whole and swaps them; a request in flight finishes on the old ones. A pinned hash refuses bytes the table did not mean. The pin lives in the shell rather than beside the artifact on purpose: a pin inside the thing it pins is replaced by whoever replaced the artifact, so it is only worth something as a statement the shell makes about the site. `GET /__fsr/sites` lists every mounted site with its version and hash, so a monitor compares the fleet against the table and resends a signal when an instance lags.
 
@@ -117,4 +147,4 @@ Two things a proxy rule does not cover. A host bound to `0.0.0.0` is reachable a
 
 ## The lab
 
-Build and run `portal_react_ts` as its README says, then open `/`, sign in as `alice` and click Billing. Watch the header stay while the invoices arrive, open the browser's network view and find the payload with its `E` row, then the site's `main.js` loaded from `/billing/static/js/app/`. Click Overdue: the site's guard let you through on the portal's sign-in. Click Blog and then Billing again: each hop is a payload navigation and the header's team count survives all of them. Now stop the portal, edit the billing site's overdue page, rebuild it and `kill -HUP` the portal: `GET /__fsr/sites` shows a new hash and the page shows your edit, with your session intact.
+Build and run `portal_react_ts` as its README says, then open `/`, sign in as `alice` and click Billing. Watch the header stay while the invoices arrive, open the browser's network view and find the payload with its `E` row, then the site's `main.js` loaded from `/billing/static/js/app/`. Click Overdue: the site's guard let you through on the portal's sign-in. Click Blog, Status and then Billing again: each hop is a payload navigation and the header's team count survives all of them. Now edit the blog's index page, run `fsr build sites/blog/app` and `kill -HUP` the portal. The blog is a linked tree, so `GET /__fsr/sites` shows a new hash and the page shows your edit, with your session intact. For a release rather than an edit, pack status as `1.1.0` into the store and move `[sites.status] artifact` to `status@1.1.0`: within the poll the portal fetches it and `/__fsr/sites` reports the new version.

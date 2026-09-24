@@ -609,7 +609,7 @@ Falls back to `window.location.reload()` when there is no sidecar, when the resp
 
 Opens the host's event stream at `path` (`/_sf/live` by default) asking for `topics`, then returns the function that closes it. Every publish of a topic in the list calls `onTopic`, which defaults to `refresh()`, so the route's loaders run again and the page is patched in place without a navigation. The browser reconnects the stream on its own, so a restarted server resumes without a reload.
 
-Does nothing and returns a no-op where `topics` is empty or where `EventSource` is absent, which is every server-side render. An island typically opens it in an effect and returns the closer, so leaving the page stops the stream.
+Does nothing and returns a no-op where `topics` is empty or where `EventSource` is absent, which is every server-side render. An island typically opens it in an effect and returns the closer. The stream also closes on `pagehide` and opens again on a `pageshow` from the back-forward cache, since a full navigation never runs the closer and a cached page holding the stream would keep a connection to the host. A topic published while the page was cached is not replayed.
 
 ### socket
 

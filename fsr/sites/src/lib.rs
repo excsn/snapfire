@@ -17,6 +17,12 @@ pub mod layout;
 pub use artifact::{pack, parts, unpack, ArtifactError, Entry, Listing, Manifest};
 pub use layout::{layout, Layout, LayoutError, Placement, Row, Source};
 pub use install::{ArchiveStore, Cache, InstallError, Installed, Store, TarStore};
+#[cfg(feature = "http")]
+pub use install::HttpStore;
+
+/// The environment variable a configured HTTP store reads one `Name: Value`
+/// header from, which keeps a token out of the configuration.
+pub const STORE_HEADER_ENV: &str = "FSR_SITES_STORE_HEADER";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SitesError {
@@ -94,6 +100,65 @@ pub fn hash_dir(dir: &Path) -> Result<String, ArtifactError> {
   Ok(Listing::of(dir)?.hash())
 }
 
+/// The store `[sites] store` names: a directory of archives against the
+/// project root, or an HTTP store for a URL, carrying the header
+/// [`STORE_HEADER_ENV`] holds. `None` when the table names none.
+pub fn store_of(config: &Config) -> Result<Option<Box<dyn Store>>, SitesError> {
+  let Some(named) = config.sites.as_ref().and_then(|s| s.store.as_deref()) else {
+    return Ok(None);
+  };
+  if named.starts_with("http://") || named.starts_with("https://") {
+    #[cfg(feature = "http")]
+    {
+      let mut store = HttpStore::new(named);
+      if let Ok(header) = std::env::var(STORE_HEADER_ENV) {
+        let (name, value) = header.split_once(':').ok_or_else(|| SitesError::Artifact {
+          name: "store".to_owned(),
+          message: format!("{STORE_HEADER_ENV} must be `Name: Value`"),
+        })?;
+        store = store.header(name.trim(), value.trim());
+      }
+      return Ok(Some(Box::new(store)));
+    }
+    #[cfg(not(feature = "http"))]
+    return Err(SitesError::Artifact {
+      name: "store".to_owned(),
+      message: format!("`{named}` is a URL and this host was built without the `http` feature of snapfire_fsr_sites"),
+    });
+  }
+  Ok(Some(Box::new(TarStore::new(config.root.join(named)))))
+}
+
+/// Fetches every `name@version` row the cache under `[sites] root` does not
+/// hold from `store`, verified before it is renamed into place. A row naming
+/// a path, or a version already held, is left alone. The pinned hash is
+/// checked when the row resolves, not here.
+pub fn fetch_missing(config: &Config, store: &dyn Store) -> Result<Vec<Installed>, SitesError> {
+  let Some(section) = &config.sites else {
+    return Ok(Vec::new());
+  };
+  let Some(root) = section.root.as_deref() else {
+    return Ok(Vec::new());
+  };
+  let cache = Cache::new(config.root.join(root));
+  let mut fetched = Vec::new();
+  for (name, mount) in &section.mounts {
+    let Some((package, version)) = mount.artifact.split_once('@').filter(|_| !mount.artifact.contains('/')) else {
+      continue;
+    };
+    if cache.holds(package, version) {
+      continue;
+    }
+    let installed = cache.install(store, package, package, version, None).map_err(|e| SitesError::Artifact {
+      name: name.clone(),
+      message: e.to_string(),
+    })?;
+    tracing::info!(target: "fsr::sites", "fetched {package}@{version} from {} into {}", store.describe(), installed.path.display());
+    fetched.push(installed);
+  }
+  Ok(fetched)
+}
+
 /// Installs [`mount_all`] as the host's sites mounter, so `Host::reload_sites`
 /// and `POST /__fsr/sites/reload` read the artifacts again while the shell
 /// stays exactly as the process booted it.
@@ -104,10 +169,32 @@ pub fn mountable(builder: HostBuilder) -> HostBuilder {
   builder.sites_mounter(|builder| mount_all(builder).map_err(|e| HostError::Value("sites".to_owned(), e.to_string())))
 }
 
-/// Mounts every site the builder's configuration names, each read through
-/// `Loader::mount` on the builder's loader so its secrets decrypt the way the
-/// shell's do; `Loader::at` when the builder has none.
+/// [`mountable`] over a store the application supplies, which every reload
+/// fetches missing versions from before it mounts.
+pub fn mountable_with(builder: HostBuilder, store: Arc<dyn Store>) -> HostBuilder {
+  builder.sites_mounter(move |builder| {
+    mount_all_with(builder, store.as_ref()).map_err(|e| HostError::Value("sites".to_owned(), e.to_string()))
+  })
+}
+
+/// Mounts every site the builder's configuration names, after fetching any
+/// version the cache lacks from the store `[sites] store` names. Each is read
+/// through `Loader::mount` on the builder's loader so its secrets decrypt the
+/// way the shell's do; `Loader::at` when the builder has none.
 pub fn mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError> {
+  match store_of(builder.config())? {
+    Some(store) => mount_all_with(builder, store.as_ref()),
+    None => mount_resolved(builder),
+  }
+}
+
+/// [`mount_all`] fetching from `store` rather than the configured one.
+pub fn mount_all_with(builder: HostBuilder, store: &dyn Store) -> Result<HostBuilder, SitesError> {
+  fetch_missing(builder.config(), store)?;
+  mount_resolved(builder)
+}
+
+fn mount_resolved(builder: HostBuilder) -> Result<HostBuilder, SitesError> {
   let resolved = resolve(builder.config())?;
   let mut builder = builder;
   for site in resolved {
@@ -164,7 +251,7 @@ pub fn watch(host: Arc<Host>, root: PathBuf, poll: Option<Duration>) {
         match host.reload() {
           Ok(report) => {
             tracing::info!(target: "fsr::sites", "the sites table moved; reloaded\n{report}");
-            last = now;
+            last = table_shape(&root).or(now);
           }
           Err(e) => tracing::warn!(target: "fsr::sites", error = %e, "the sites table moved; reload refused"),
         }

@@ -374,7 +374,7 @@ A deferred slot's eventual content.
 `pub struct Head { pub title: String, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
 
 * `pub fn new(title: impl Into<String>, rest: Node) -> Self`: no default description.
-* `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped; `rest` alone when neither.
+* `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped, then `head` with `meta` folded over it and the response's stylesheets; `rest` alone when none of those. The empty icon, a `link` with `rel="icon"` and `href="data:,"`, is dropped when the folded head carries any other icon. `HeadEl::is_icon` and `HeadEl::is_empty_icon` are those two tests.
 * `From<Node>`, `From<&Node>`: an empty title. `From<&Head>`: a clone.
 
 ## 7. Segments

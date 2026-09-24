@@ -27,6 +27,21 @@ impl HeadEl {
   /// carries several icons under one `rel`, several stylesheets under one
   /// `media` and one `alternate` per language; a resource rel is qualified
   /// by its href as well.
+  fn attr(&self, name: &str) -> Option<&str> {
+    self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+  }
+
+  /// A `link` whose `rel` includes `icon`.
+  pub fn is_icon(&self) -> bool {
+    self.tag == "link" && self.attr("rel").is_some_and(|rel| rel.split_whitespace().any(|r| r == "icon"))
+  }
+
+  /// The icon the host links when an application serves none, `href="data:,"`,
+  /// which a document drops once it carries any other icon.
+  pub fn is_empty_icon(&self) -> bool {
+    self.is_icon() && self.attr("href") == Some("data:,")
+  }
+
   pub fn identity(&self) -> (String, String) {
     let of = |name: &str| self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
     for name in ["rel", "name", "property", "http-equiv", "itemprop", "id"] {
@@ -193,6 +208,9 @@ impl Head {
       head: self.head.clone(),
     };
     merged.merge(meta.clone());
+    if merged.head.iter().any(|e| e.is_icon() && !e.is_empty_icon()) {
+      merged.head.retain(|e| !e.is_empty_icon());
+    }
     if let Some(origin) = &self.origin {
       for element in &mut merged.head {
         let rel = element.attrs.iter().find(|(k, _)| k == "rel").map(|(_, v)| v.as_str());
@@ -290,6 +308,27 @@ mod tests {
   fn a_script_with_only_a_src_is_closed() {
     let script = el("script", &[("defer", ""), ("src", "/a.js")]);
     assert_eq!(rendered(&script), r#"<script defer="" src="/a.js"></script>"#);
+  }
+
+  fn tail(head: &Head, meta: &Meta) -> String {
+    match head.node(meta) {
+      Node::Seq(parts) => match parts.last() {
+        Some(Node::Raw(html)) => html.0.clone(),
+        other => panic!("{other:?}"),
+      },
+      other => panic!("{other:?}"),
+    }
+  }
+
+  #[test]
+  fn the_empty_icon_gives_way_to_any_other_icon() {
+    let mut head = Head::new("t", Node::raw(""));
+    head.head = vec![el("link", &[("rel", "icon"), ("href", "data:,")])];
+    assert!(tail(&head, &Meta::default()).contains(r#"<link rel="icon" href="data:,">"#));
+
+    let typed = Meta { head: vec![el("link", &[("rel", "icon"), ("type", "image/png"), ("href", "/i.png")])], ..Meta::default() };
+    let html = tail(&head, &typed);
+    assert!(html.contains("/i.png") && !html.contains("data:,"), "{html}");
   }
 
   #[test]

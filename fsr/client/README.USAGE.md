@@ -638,7 +638,7 @@ export default function Live({ topic }: { topic: string }) {
 }
 ```
 
-`live` returns the function that closes the stream, which is what an effect wants back. The server side is one call, `Host::publish("board")`. The browser reconnects on its own if the connection drops.
+`live` returns the function that closes the stream, which is what an effect wants back. The server side is one call, `Host::publish("board")`. The browser reconnects on its own if the connection drops. Leaving the page closes the stream too, and coming back to it with the back button opens it again, though a topic published in between is not replayed.
 
 What arrives is the topic and nothing else: no data rides on the stream. The route's loaders answer that, the ordinary way, when `refresh()` runs. A page that wants to do something other than revalidate passes `onTopic`:
 

@@ -7,6 +7,7 @@
 * [Writing the Table](#writing-the-table)
 * [Pinning an Artifact](#pinning-an-artifact)
 * [Laying Out a Deploy Tree](#laying-out-a-deploy-tree)
+* [Fetching from a Store](#fetching-from-a-store)
 * [Deploying a Site](#deploying-a-site)
 * [Error Handling](#error-handling)
 
@@ -87,6 +88,51 @@ Configuration lands under `config/`, everything the host reads at boot under `ap
 The paths that moved are named back in a generated `config/bundle.toml`, the last file the host's configuration ladder loads. That makes the layout idempotent: laying a tree out again yields the same tree, which is why `Listing::of` works on a working tree and on the artifact copied out of it and gets the same hash.
 
 `Placement::required` marks what the host will not start without, which is what `fsr doctor` reports on before a bundle is written.
+
+## Fetching from a Store
+
+`[sites] store` names where a version the cache lacks comes from. `mount_all` fetches every `name@version` row the cache under `root` does not hold, verifies each against the manifest packed with it and renames it into place before mounting.
+
+```toml
+[sites]
+root = "deploy/sites"
+store = "http://127.0.0.1:8199"   # or a directory of archives, against the project root
+
+[sites.status]
+artifact = "status@1.0.0"
+```
+
+A directory is a `TarStore`; a URL is an `HttpStore`, which needs the `http` feature and reads one `Name: Value` header from `FSR_SITES_STORE_HEADER`. The files are `<name>-<version>.tar.gz`, what `fsr sites pack` writes.
+
+```rust
+let fetched = snapfire_fsr_sites::fetch_missing(&config, &snapfire_fsr_sites::TarStore::new("deploy/archives"))?;
+for installed in fetched {
+  println!("{}@{} into {}", installed.name, installed.version, installed.path.display());
+}
+```
+
+A store of your own implements `Store` and goes to the mount directly, so every reload fetches through it too:
+
+```rust
+struct Registry { base: String }
+
+impl snapfire_fsr_sites::Store for Registry {
+  fn describe(&self) -> String {
+    self.base.clone()
+  }
+
+  fn fetch(&self, package: &str, version: &str, into: &Path) -> Result<Manifest, InstallError> {
+    let archive = download(&self.base, package, version)?;
+    Ok(snapfire_fsr_sites::unpack(&archive, into)?)
+  }
+}
+
+let store: Arc<dyn snapfire_fsr_sites::Store> = Arc::new(Registry { base: "https://registry.internal".into() });
+let builder = snapfire_fsr_sites::mount_all_with(builder, store.as_ref())?;
+let builder = snapfire_fsr_sites::mountable_with(builder, store);
+```
+
+`fetch` only has to put the artifact and its manifest in `into`. The cache checks every file before the rename, so a store cannot install bytes the manifest does not describe.
 
 ## Deploying a Site
 

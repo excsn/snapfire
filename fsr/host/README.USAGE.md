@@ -112,6 +112,7 @@ reload = "hup"                    # optional: hup, usr1, usr2 or none
 
 [document]
 title = "Shopping"
+empty_icon = true                 # default: an app with no icons/ links an empty icon, false turns it off
 
 [session]
 key = "a signing key"             # required
@@ -160,6 +161,7 @@ at = "/billing"                   # every route and link sits under it
 [sites]                           # optional: this application mounts sites, see Mounting Sites
 root = "/srv/sites"               # where name@version artifacts resolve
 poll = "30s"                      # reread the table this often; absent, only on SIGHUP
+store = "https://artifacts.example.com/sites"  # optional: a URL or a directory of archives a missing version is fetched from
 
 [sites.billing]
 artifact = "billing@1.4.2"        # <root>/billing/1.4.2, or a path against the project root
@@ -179,6 +181,8 @@ From the app directory, each reported at boot under `inferred`:
 | `document.entry` | the same file's `src/main.js` entry under that path |
 | `document.import_map` | `importmap.json` in the app directory |
 | a `/static/js/vendor` root | `vendor/` in the app directory, under the site's prefix when `[site]` is set |
+| `<link rel="icon" href="data:,">` in the head | no icon under `icons/`, unless `document.empty_icon = false`; dropped when a route's `meta` names an icon |
+| a `/static/js/vendor` root for a site running alone | the shell's `app/vendor/`, beside the `generated/shell.json` that `[site] shell` names |
 | a `/static/css` root and `document.styles` | `styles/` in the app directory, every `.css` in it linked from the head in name order |
 | the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own |
 
@@ -917,6 +921,8 @@ let host = Host::from(".")?
 
 An application with a `[site]` section is a site: `fsr build` prefixes every id it emits with `<name>:` and puts every route under `at`, so two sites can carry the same files and the host serves it alone the same way it serves any application. A site's clients register under the prefix too, `billing:ledger`, since its bodies were lowered to call them by that name; the report's `site` row names the site and its prefix and every other row shows the prefixed ids. Its stylesheets are inferred under `<at>/static/css` and its bundle under the public path the build was given, so both keep working once the site is mounted.
 
+A site's import map names its frameworks at the shell's URLs. Running alone, the host serves the shell's `app/vendor/` at `/static/js/vendor` so those URLs answer, when `[site] shell` names a `generated/shell.json` with a `vendor/` beside it. A shell mounting the site never reads that root and a deploy tree never carries it.
+
 ```toml
 [site]
 name = "billing"
@@ -949,7 +955,7 @@ let host = Host::from(shell)?.mount(billing).build()?;
 
 A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table.
 
-`snapfire_fsr_sites` turns the `[sites]` table into mounts, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
+`snapfire_fsr_sites` turns the `[sites]` table into mounts, fetches a version the cache lacks from `[sites] store`, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
 
 ## Refreshing the Browser in Development
 

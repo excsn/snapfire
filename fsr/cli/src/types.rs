@@ -126,6 +126,12 @@ fn major_of(version: &str) -> Option<u64> {
   semver(version).map(|(m, _, _)| m)
 }
 
+/// The major to take declarations at: the vendored version's, else the one a
+/// site's shell contract names for the framework.
+fn wanted_major(vendored: Option<&str>, shell: Option<&str>) -> Option<u64> {
+  vendored.or(shell).and_then(major_of)
+}
+
 #[derive(Deserialize)]
 struct Abbreviated {
   #[serde(default, rename = "dist-tags")]
@@ -283,7 +289,8 @@ fn fetch_npm(client: &reqwest::blocking::Client, app: &Path, layout: &Layout, pa
 
 /// Fills the types directory for the fsr packages and every package the import
 /// map names: the fsr packages from the binary, the rest from the npm registry
-/// at the vendored major when `fsr add` recorded one. A package already present
+/// at the vendored major when `fsr add` recorded one, else for a site at the
+/// major its shell's contract names for the framework. A package already present
 /// is kept unless `refresh`. Under xwpm, `xwpm restore` and `xwpm types` fill
 /// the directory and only the fsr packages are written here.
 pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
@@ -291,6 +298,10 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
   let mut report = TypesReport::default();
   let mut manifest = TypesManifest::read(app, &layout)?;
   let vendored = VendorManifest::read(app, &layout)?;
+  let shell_frameworks = match crate::site_beside(app).and_then(|site| site.shell) {
+    Some(path) => crate::ShellContract::read(&path)?.frameworks,
+    None => Default::default(),
+  };
   let client = vendor::client()?;
 
   if layout.xwpm {
@@ -337,7 +348,7 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
       report.missing.push((package, "xwpm supplies declarations for its modules and externals".to_owned()));
       continue;
     }
-    let major = vendored.packages.get(&package).and_then(|p| major_of(&p.version));
+    let major = wanted_major(vendored.packages.get(&package).map(|p| p.version.as_str()), shell_frameworks.get(&package).map(String::as_str));
     match fetch_npm(&client, app, &layout, &package, major)? {
       Some(fetched) => {
         for dependency in fetched.dependencies {
@@ -481,8 +492,11 @@ pub fn present(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)
 /// whatever the import map names.
 fn wanted(app: &Path, layout: &Layout) -> Result<Vec<String>, BuildError> {
   let mut packages: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
-  packages.extend(import_map_packages(app, layout)?);
-  packages.dedup();
+  for package in import_map_packages(app, layout)? {
+    if !packages.contains(&package) {
+      packages.push(package);
+    }
+  }
   Ok(packages)
 }
 
@@ -633,6 +647,13 @@ pub fn element_declarations(app: &Path, layout: &Layout, elements: &[(String, St
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_site_with_nothing_vendored_takes_declarations_at_its_shells_major() {
+    assert_eq!(wanted_major(None, Some("18.3.1")), Some(18));
+    assert_eq!(wanted_major(Some("19.0.0"), Some("18.3.1")), Some(19));
+    assert_eq!(wanted_major(None, None), None);
+  }
 
   #[test]
   fn definitely_typed_names_mangle_scopes() {

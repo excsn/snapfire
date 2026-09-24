@@ -41,7 +41,7 @@ snapfire_fsr_core.workspace = true
 snapfire_fsr_engine.workspace = true
 snapfire_fsr_host.workspace = true
 
-snapfire_fsr_sites.workspace = true
+snapfire_fsr_sites = { workspace = true, features = ["http"] }
 snapfire_fsr_ir.workspace = true
 snapfire_fsr_lower.workspace = true
 snapfire_fsr_payload.workspace = true

@@ -17,6 +17,8 @@ readme = "README.md"
 default = []
 # `POST /__fsr/sites/reload` on the stock host, off unless the application asks.
 reload_route = ["snapfire_fsr_host/sites_reload"]
+# `HttpStore`, a store fetched over HTTP.
+http = ["dep:ureq"]
 
 [dependencies]
 snapfire_fsr_core.workspace = true
@@ -31,6 +33,7 @@ toml = "0.8"
 tokio = { version = "1", features = ["rt", "time", "signal", "macros"] }
 tracing = "0.1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+ureq = { version = "3", optional = true }
 
 [dev-dependencies]
 snapfire_fsr_plan.workspace = true

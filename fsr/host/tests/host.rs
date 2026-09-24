@@ -758,6 +758,7 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
     .await
     .unwrap();
   assert!(html.contains("new EventSource(\"/__fsr/events\")"), "{html}");
+  assert!(html.contains("addEventListener(\"pagehide\",function(){s.close()})"), "a page leaving closes its stream: {html}");
   assert!(
     html.contains("<title>Test &lt;app&gt;</title>"),
     "the head is otherwise the same: {html}"
@@ -2573,6 +2574,40 @@ async fn a_site_serves_standalone_under_its_prefix_with_its_ids_prefixed() {
   assert_eq!(response.status(), StatusCode::OK, "{}", body_of(response).await);
 }
 
+/// A site whose `[site] shell` names a shell tree holding `app/vendor/`.
+fn site_over_shell() -> PathBuf {
+  let dir = site_dir();
+  std::fs::create_dir_all(dir.join("shell/app/generated")).unwrap();
+  std::fs::write(dir.join("shell/app/generated/shell.json"), r#"{"version":1,"store":{},"imports":{},"frameworks":{}}"#).unwrap();
+  std::fs::create_dir_all(dir.join("shell/app/vendor/react")).unwrap();
+  std::fs::write(dir.join("shell/app/vendor/react/react.bundle.mjs"), "shell react").unwrap();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml + "shell = \"shell/app/generated/shell.json\"\n").unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_site_running_alone_serves_the_shell_vendor_tree() {
+  let dir = site_over_shell();
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
+  let report = host.report().to_string();
+  assert!(report.contains("static /static/js/vendor from the shell's vendor/"), "{report}");
+
+  let response = host.handle(Request::get("/static/js/vendor/react/react.bundle.mjs").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(body_of(response).await, "shell react");
+  let response = host.handle(Request::get("/shop/static/js/vendor/react/react.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "the site's own vendor root stays under its prefix");
+}
+
+#[tokio::test]
+async fn a_mounted_site_never_carries_the_shell_vendor_tree() {
+  let site = site_over_shell();
+  let host = shell_with(&site);
+  let response = host.handle(Request::get("/static/js/vendor/react/react.bundle.mjs").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "the shell serves its own vendor tree, never the one a site names");
+}
+
 #[test]
 fn a_bad_site_section_refuses_to_start() {
   let dir = site_dir();
@@ -3814,6 +3849,51 @@ async fn a_favicon_ico_under_icons_is_linked() {
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(html.contains(r#"<link href="/static/icons/favicon.ico" rel="icon" type="image/x-icon">"#), "{html}");
   assert!(html.contains(r#"<link href="/static/icons/favicon.svg" rel="icon" type="image/svg+xml">"#), "{html}");
+}
+
+const EMPTY_ICON: &str = r#"<link href="data:," rel="icon">"#;
+
+#[tokio::test]
+async fn an_app_with_no_icon_links_an_empty_one() {
+  let host = host_at(&app_dir()).unwrap();
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(EMPTY_ICON), "{html}");
+  assert!(host.report().to_string().contains("document.head links an empty icon"));
+}
+
+#[tokio::test]
+async fn an_app_with_icons_links_no_empty_one() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("icons")).unwrap();
+  std::fs::write(dir.join("icons/favicon.svg"), b"<svg/>").unwrap();
+  let host = host_at(&dir).unwrap();
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("data:,"), "{html}");
+}
+
+#[tokio::test]
+async fn empty_icon_false_turns_the_empty_icon_off() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("title = \"Test <app>\"", "title = \"Test <app>\"\nempty_icon = false")).unwrap();
+  let host = host_at(&dir).unwrap();
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("data:,"), "{html}");
+}
+
+#[tokio::test]
+async fn the_empty_icon_widens_img_src_without_narrowing_it() {
+  let host = csp_host("[document.csp]\ndefault-src = [\"'self'\"]", false);
+  let policy = csp_of(&host, "/").await.unwrap();
+  assert!(policy.contains("img-src 'self' data:"), "img-src starts from default-src: {policy}");
+
+  let host = csp_host("[document.csp]\nimg-src = [\"https://cdn.example\"]", false);
+  let policy = csp_of(&host, "/").await.unwrap();
+  assert!(policy.contains("img-src https://cdn.example data:"), "{policy}");
+
+  let host = csp_host("[document.csp]\nobject-src = [\"'none'\"]", false);
+  let policy = csp_of(&host, "/").await.unwrap();
+  assert!(!policy.contains("img-src"), "a policy that restricts no image is left so: {policy}");
 }
 
 #[tokio::test]
@@ -5565,4 +5645,11 @@ async fn a_json_caller_still_gets_the_failure_as_json() {
   assert_eq!(response.status(), StatusCode::BAD_REQUEST);
   let text = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
   assert!(text.contains("\"kind\":\"invalid\""), "{text}");
+}
+
+#[tokio::test]
+async fn the_import_map_hash_widens_script_src_without_narrowing_it() {
+  let host = csp_host("[document.csp]\ndefault-src = [\"'self'\"]", false);
+  let policy = csp_of(&host, "/").await.unwrap();
+  assert!(policy.contains("script-src 'self' 'sha256-"), "script-src starts from default-src: {policy}");
 }

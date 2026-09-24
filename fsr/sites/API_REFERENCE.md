@@ -21,13 +21,26 @@
   * [`Manifest`](#manifest)
   * [`pack`](#pack)
   * [`unpack`](#unpack)
-* [4. Mounting](#4-mounting)
+* [4. Installing](#4-installing)
+  * [`Store`](#store)
+  * [`TarStore`](#tarstore)
+  * [`ArchiveStore`](#archivestore)
+  * [`HttpStore`](#httpstore)
+  * [`Cache`](#cache)
+  * [`Installed`](#installed)
+  * [`store_of`](#store_of)
+  * [`fetch_missing`](#fetch_missing)
+* [5. Mounting](#5-mounting)
   * [`mount_all`](#mount_all)
-* [5. Watching](#5-watching)
+  * [`mount_all_with`](#mount_all_with)
+  * [`mountable`](#mountable)
+  * [`mountable_with`](#mountable_with)
+* [6. Watching](#6-watching)
   * [`watch`](#watch)
   * [`poll_of`](#poll_of)
-* [6. Error Handling](#6-error-handling)
+* [7. Error Handling](#7-error-handling)
   * [`SitesError`](#siteserror)
+  * [`InstallError`](#installerror)
   * [`LayoutError`](#layouterror)
   * [`ArtifactError`](#artifacterror)
 
@@ -114,13 +127,64 @@ Module constants: `CONFIG` is `"config"`, `APP` is `"app"`, `SERVE` is `"serve"`
 
 * `unpack(archive: &Path, into: &Path) -> Result<Manifest, ArtifactError>`: into a directory that must not exist, returning the manifest without verifying it. An entry that is absolute, that climbs out with `..` or that is not a regular file is refused before anything is written.
 
-## 4. Mounting
+## 4. Installing
+
+Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the directory under the cache root a fetch stages in; `STORE_HEADER_ENV` is `"FSR_SITES_STORE_HEADER"`.
+
+### Store
+
+* `pub trait Store: Send + Sync { fn describe(&self) -> String; fn fetch(&self, package: &str, version: &str, into: &Path) -> Result<Manifest, InstallError>; }`: where a version's bytes come from. `fetch` writes the artifact into `into`, an empty directory the cache owns, with its manifest at the root; the cache verifies what lands.
+
+### TarStore
+
+* `pub struct TarStore { pub dir: PathBuf }`: a directory of `<package>-<version>.tar.gz`. `new(dir)`, `archive(package, version) -> PathBuf`. `Absent` when the file is not there.
+
+### ArchiveStore
+
+* `pub struct ArchiveStore { pub archive: PathBuf }`: one archive as a store of a single version, whatever version is asked for.
+
+### HttpStore
+
+* `pub struct HttpStore { pub base: String, pub headers: Vec<(String, String)> }`, feature `http`: `GET <base>/<package>-<version>.tar.gz` with every header. `new(base)` trims a trailing slash, `header(name, value)` adds one, `url(package, version)` is the URL fetched. A 404 is `Absent`; any other failure is `Fetch`. The body streams to a file beside `into` that is removed after it is unpacked.
+
+### Cache
+
+* `pub struct Cache { pub root: PathBuf }`: `<root>/<name>/<version>` per installed version, where `name@version` resolves.
+* `path(name, version)`, `holds(name, version)`, `versions(name)` oldest install first.
+* `install(&self, store: &dyn Store, name, package, version, keep: Option<usize>) -> Result<Installed, InstallError>`: a held version is reported with `held: true` and not fetched; otherwise the store fills a staging directory, the manifest is verified and the directory renamed into place, then `keep` sweeps. `Mismatch` when the archive's manifest names another version.
+* `sweep(name, keep, hold: &[String])` removes the oldest versions beyond `keep`, never one in `hold`; `sweep_staging()` removes what a dead fetch left.
+
+### Installed
+
+* `pub struct Installed { pub name: String, pub version: String, pub hash: String, pub path: PathBuf, pub held: bool, pub swept: Vec<String> }`.
+
+### store_of
+
+* `store_of(config: &Config) -> Result<Option<Box<dyn Store>>, SitesError>`: `sites.store` as a store. An `http://` or `https://` URL is an `HttpStore` carrying the `Name: Value` header in `FSR_SITES_STORE_HEADER` when it is set; anything else a `TarStore` against `config.root`. A URL without the `http` feature is `Artifact` naming `store`. `None` without a `sites.store`.
+
+### fetch_missing
+
+* `fetch_missing(config: &Config, store: &dyn Store) -> Result<Vec<Installed>, SitesError>`: every `name@version` row whose version the cache under `sites.root` lacks, installed from `store` as `name`. Path rows and held versions are skipped; a pinned hash is left for `resolve`. A failure is `Artifact` naming the row.
+
+## 5. Mounting
 
 ### mount_all
 
-* `mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError>`: `resolve` over the builder's configuration, then for each site `Loader::mount` on the builder's loader (`Loader::at` when it has none), `load` and `HostBuilder::mount`.
+* `mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError>`: `fetch_missing` from `store_of` when the configuration names a store, then `resolve` over the builder's configuration and for each site `Loader::mount` on the builder's loader (`Loader::at` when it has none), `load` and `HostBuilder::mount`.
 
-## 5. Watching
+### mount_all_with
+
+* `mount_all_with(builder: HostBuilder, store: &dyn Store) -> Result<HostBuilder, SitesError>`: the same, fetching from `store` instead of the configured one.
+
+### mountable
+
+* `mountable(builder: HostBuilder) -> HostBuilder`: installs `mount_all` as the builder's sites mounter, so `Host::reload`, `Host::reload_sites` and `POST /__fsr/sites/reload` mount again.
+
+### mountable_with
+
+* `mountable_with(builder: HostBuilder, store: Arc<dyn Store>) -> HostBuilder`: `mountable` over `mount_all_with(store)`.
+
+## 6. Watching
 
 ### watch
 
@@ -130,13 +194,17 @@ Module constants: `CONFIG` is `"config"`, `APP` is `"app"`, `SERVE` is `"serve"`
 
 * `poll_of(config: &Config) -> Option<Duration>`: `sites.poll` parsed.
 
-## 6. Error Handling
+## 7. Error Handling
 
 ### SitesError
 
 * `Host(HostError)`, transparent.
 * `Artifact { name: String, message: String }`, displayed as `sites.<name>: <message>`.
 * `Content(ArtifactError)`, transparent.
+
+### InstallError
+
+* `#[non_exhaustive]`. `Artifact(ArtifactError)`, transparent; `Io(PathBuf, std::io::Error)`; `Held { name, version, path }`; `Absent { store, package, version }`, displayed as `<store> holds no <package> at <version>`; `Fetch(url, message)`; `Mismatch { name, version, package, wanted }`.
 
 ### LayoutError
 

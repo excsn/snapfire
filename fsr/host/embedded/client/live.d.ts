@@ -4,5 +4,5 @@ export interface LiveOptions {
 	/** The endpoint, for a host mounted under a prefix. Defaults to `/_sf/live`. */
 	path?: string;
 }
-/** Follows `topics` over the host's event stream and returns the function that stops following. The browser reconnects on its own when the stream drops, so a restarted server resumes without a reload. Does nothing where `EventSource` is absent, which is every server-side render. */
+/** Follows `topics` over the host's event stream and returns the function that stops following. The browser reconnects on its own when the stream drops, so a restarted server resumes without a reload. The stream closes when the page is left and opens again when the page comes back from the back-forward cache; a topic that fired while it was away is not replayed. Does nothing where `EventSource` is absent, which is every server-side render. */
 export declare function live(topics: string[], options?: LiveOptions): () => void;

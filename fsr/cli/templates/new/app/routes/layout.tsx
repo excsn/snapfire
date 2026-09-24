@@ -2,9 +2,9 @@ import { Link, type Children } from "@snapfire/fsr-authoring/template";
 
 export default function Layout({ children }: { children: Children }) {
   return (
-    <div className="shell">
+    <div className="{{scope}}">
       <header className="bar">
-        <Link href="/" className="brand">
+        <Link href="{{home}}" className="brand">
           {{name}}
         </Link>
       </header>

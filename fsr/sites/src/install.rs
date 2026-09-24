@@ -16,6 +16,7 @@ use crate::artifact::{unpack, ArtifactError, Manifest};
 pub const STAGING: &str = ".staging";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum InstallError {
   #[error(transparent)]
   Artifact(#[from] ArtifactError),
@@ -33,6 +34,8 @@ pub enum InstallError {
     package: String,
     version: String,
   },
+  #[error("fetching {0}: {1}")]
+  Fetch(String, String),
   #[error("the artifact is {name}@{version} and {package}@{wanted} was asked for")]
   Mismatch {
     name: String,
@@ -104,6 +107,60 @@ impl Store for ArchiveStore {
 
   fn fetch(&self, _package: &str, _version: &str, into: &Path) -> Result<Manifest, InstallError> {
     Ok(unpack(&self.archive, into)?)
+  }
+}
+
+/// A store served over HTTP: `GET <base>/<package>-<version>.tar.gz`, the
+/// names a [`TarStore`] holds, so any server over such a directory is one.
+/// `headers` ride on every request, which is where a token goes.
+#[cfg(feature = "http")]
+#[derive(Debug, Clone)]
+pub struct HttpStore {
+  pub base: String,
+  pub headers: Vec<(String, String)>,
+}
+
+#[cfg(feature = "http")]
+impl HttpStore {
+  pub fn new(base: impl Into<String>) -> Self {
+    Self { base: base.into().trim_end_matches('/').to_owned(), headers: Vec::new() }
+  }
+
+  pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+    self.headers.push((name.into(), value.into()));
+    self
+  }
+
+  pub fn url(&self, package: &str, version: &str) -> String {
+    format!("{}/{package}-{version}.tar.gz", self.base)
+  }
+}
+
+#[cfg(feature = "http")]
+impl Store for HttpStore {
+  fn describe(&self) -> String {
+    self.base.clone()
+  }
+
+  fn fetch(&self, package: &str, version: &str, into: &Path) -> Result<Manifest, InstallError> {
+    let url = self.url(package, version);
+    let mut request = ureq::get(&url);
+    for (name, value) in &self.headers {
+      request = request.header(name, value);
+    }
+    let response = match request.call() {
+      Ok(response) => response,
+      Err(ureq::Error::StatusCode(404)) => {
+        return Err(InstallError::Absent { store: self.describe(), package: package.to_owned(), version: version.to_owned() });
+      }
+      Err(e) => return Err(InstallError::Fetch(url, e.to_string())),
+    };
+    let archive = into.with_extension("tar.gz");
+    let written = std::fs::File::create(&archive)
+      .and_then(|mut file| std::io::copy(&mut response.into_body().into_reader(), &mut file));
+    let unpacked = written.map_err(|e| InstallError::Io(archive.clone(), e)).and_then(|_| Ok(unpack(&archive, into)?));
+    let _ = std::fs::remove_file(&archive);
+    unpacked
   }
 }
 

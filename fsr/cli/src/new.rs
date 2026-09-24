@@ -20,6 +20,12 @@ const TEMPLATE: &[(&str, &str)] = &[
   ("app/styles/app.css", include_str!("../templates/new/app/styles/app.css")),
 ];
 
+/// A site's stylesheet, scoped under the site's own class, since a mounted
+/// site's sheets load on top of the shell's and must not restyle its page.
+const SITE_STYLES: &str = include_str!("../templates/new/app/styles/site.css");
+
+const CACHE: &str = "\n[cache]\ncapacity = 1000\nttl = \"1m\"\n";
+
 pub struct NewOptions {
   /// Vendors what the directions pin and fetches editor types, both of which reach the network.
   pub fetch: bool,
@@ -82,6 +88,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
 
   // Nothing is written until the section the flags ask for is known to be one
   // the host would accept, so a refused name leaves no half-made project.
+  let mut site_scope: Option<(String, String)> = None;
   let site_section = match &options.site {
     Some(site) => {
       let site_name = match &site.name {
@@ -89,6 +96,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
         None => crate::sites::name_from(&name)?,
       };
       crate::sites::check(&site_name, &site.at)?;
+      site_scope = Some((site_name.clone(), site.at.clone()));
       // `--into` writes the whole `[site]`, shell path and all, once the
       // project exists; writing a partial one here would only be replaced.
       match site.into {
@@ -103,9 +111,23 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   let mut created = Created::default();
 
   let htmx = options.with.iter().any(|d| d == "htmx");
+  // A site runs alone beside a shell during development, so it takes another
+  // port. Its `[cache]` is the shell's once mounted.
+  let (scope, home, port, cache) = match &site_scope {
+    Some((site_name, at)) => (site_name.clone(), at.clone(), "3001", ""),
+    None => ("shell".to_owned(), "/".to_owned(), "3000", CACHE),
+  };
   for (path, contents) in TEMPLATE {
+    let (path, contents) = match (*path, &site_scope) {
+      ("app/styles/app.css", Some((site_name, _))) => (format!("app/styles/{site_name}.css"), SITE_STYLES),
+      _ => ((*path).to_owned(), *contents),
+    };
     let contents = contents
       .replace("{{name}}", &name)
+      .replace("{{scope}}", &scope)
+      .replace("{{home}}", &home)
+      .replace("{{port}}", port)
+      .replace("{{cache}}", cache)
       .replace("{{site}}", &site_section)
       .replace("{{htmx_import}}", if htmx { "import htmx from \"htmx.org\";\n" } else { "" })
       .replace("{{htmx_bind_import}}", if htmx { "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";\n" } else { "" })

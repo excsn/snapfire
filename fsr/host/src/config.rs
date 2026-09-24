@@ -49,6 +49,11 @@ pub struct Config {
   pub site: Option<SiteSection>,
   /// The sites this application mounts as their shell; absent means none.
   pub sites: Option<SitesSection>,
+  /// The shell's `vendor/`, beside the `generated/shell.json` that `[site]
+  /// shell` names. A site's import map points its frameworks at the shell's
+  /// URLs, so a site running alone serves this at `/static/js/vendor` to
+  /// answer them. A mount, a deploy tree and a packed artifact never carry it.
+  pub shell_vendor: Option<PathBuf>,
   /// `[public]`: the deployment's own values, which a body reads as
   /// `ctx.config.<key>`. Scalars only, one level deep.
   pub public: BTreeMap<String, PublicValue>,
@@ -107,11 +112,16 @@ impl std::fmt::Display for PublicValue {
 }
 
 /// `[sites]`: `root` is where `name@version` artifacts resolve, `poll` how
-/// often the table is reread and one `[sites.<name>]` per mounted site.
+/// often the table is reread, `store` where a version the root lacks is
+/// fetched from and one `[sites.<name>]` per mounted site.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SitesSection {
   pub root: Option<String>,
   pub poll: Option<String>,
+  /// A directory of `<name>-<version>.tar.gz` archives, against the project
+  /// root, or an `http://` or `https://` URL serving the same names.
+  pub store: Option<String>,
   pub mounts: BTreeMap<String, MountConfig>,
 }
 
@@ -312,6 +322,19 @@ impl Csp {
     }
   }
 
+  /// Adds `source` to `directive` without narrowing it: a directive the policy
+  /// leaves to `default-src` starts from `default-src`'s sources, and a policy
+  /// naming neither restricts nothing, so it is left alone.
+  pub fn widen(&mut self, directive: &str, source: impl Into<String>) {
+    if !self.0.contains_key(directive) {
+      let Some(fallback) = self.0.get("default-src").cloned() else {
+        return;
+      };
+      self.0.insert(directive.to_owned(), fallback);
+    }
+    self.add(directive, source);
+  }
+
   /// Whether `directive` names `source` already.
   pub fn names(&self, directive: &str, source: &str) -> bool {
     self.0.get(directive).is_some_and(|s| s.iter().any(|v| v == source))
@@ -368,7 +391,7 @@ impl ClientBuild {
 }
 
 /// The document shell. `entry`, `import_map` and `styles` are inferred when absent.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DocumentConfig {
@@ -414,12 +437,24 @@ pub struct DocumentConfig {
   pub head: Vec<BTreeMap<String, String>>,
   #[serde(default = "default_shell")]
   pub shell: String,
+  /// Whether the head carries `<link rel="icon" href="data:,">` when the
+  /// application serves no icon of its own, so a browser does not ask for
+  /// `/favicon.ico` and log the 404. On unless set to `false`. An icon from
+  /// `icons/` or a layout's plain `rel="icon"` replaces it.
+  #[serde(default = "default_empty_icon")]
+  pub empty_icon: bool,
   /// `scheme://host` this deployment is reached at, with no trailing slash.
   /// A crawler reads `rel=canonical` and `rel=alternate` as absolute URLs
   /// only, so the host prefixes a path on either with this. Absent, both are
   /// written as the application wrote them.
   #[serde(default)]
   pub origin: Option<String>,
+}
+
+impl Default for DocumentConfig {
+  fn default() -> Self {
+    serde_json::from_str("{}").expect("every document key has a default")
+  }
 }
 
 impl DocumentConfig {
@@ -693,6 +728,10 @@ fn default_static_max_age() -> u64 {
 fn default_max_body() -> usize {
   1 << 20
 }
+fn default_empty_icon() -> bool {
+  true
+}
+
 fn default_shell() -> String {
   "shell#document".to_owned()
 }
@@ -1299,6 +1338,13 @@ impl Config {
         };
         let root = scalar("root")?;
         let poll = scalar("poll")?;
+        let fetch_from = scalar("store")?;
+        if fetch_from.is_some() && root.is_none() {
+          return Err(HostError::Config(
+            at.clone(),
+            "sites.store fetches into sites.root, so it needs one".to_owned(),
+          ));
+        }
         if let Some(poll) = &poll {
           if parse_duration(poll).is_none() {
             return Err(HostError::Config(
@@ -1314,10 +1360,10 @@ impl Config {
             k.strip_prefix("sites.")
               .map(|rest| rest.split('.').next().unwrap_or(rest).to_owned())
           })
-          .filter(|name| name != "root" && name != "poll")
+          .filter(|name| !["root", "poll", "store"].contains(&name.as_str()))
           .collect();
         if let Some(c5store::value::C5DataValue::Map(map)) = store.get("sites") {
-          names.extend(map.keys().filter(|k| *k != "root" && *k != "poll").cloned());
+          names.extend(map.keys().filter(|k| !["root", "poll", "store"].contains(&k.as_str())).cloned());
         }
         names.sort();
         names.dedup();
@@ -1335,7 +1381,7 @@ impl Config {
           }
           mounts.insert(name, mount);
         }
-        Some(SitesSection { root, poll, mounts })
+        Some(SitesSection { root, poll, store: fetch_from, mounts })
       } else {
         None
       };
@@ -1401,6 +1447,16 @@ impl Config {
       });
       inferred.push(format!("static {vendor_route} from vendor/"));
     }
+    let shell_vendor = site
+      .as_ref()
+      .and_then(|s| s.shell.as_deref())
+      .map(|shell| root.join(shell))
+      .filter(|shell| shell.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "generated"))
+      .and_then(|shell| shell.parent().and_then(|p| p.parent()).map(|app| app.join("vendor")))
+      .filter(|dir| dir.is_dir());
+    if shell_vendor.is_some() {
+      inferred.push("static /static/js/vendor from the shell's vendor/, served when running alone".to_owned());
+    }
     let icons_route = match &site {
       Some(site) => site.under("/static/icons"),
       None => "/static/icons".to_owned(),
@@ -1455,6 +1511,15 @@ impl Config {
       if !linked.is_empty() {
         inferred.push(format!("document.head links [{}] from {icons_route}", linked.join(", ")));
       }
+    }
+    let has_icon = document.head.iter().any(|t| t.get("rel").is_some_and(|rel| rel.split_whitespace().any(|r| r == "icon")));
+    if document.empty_icon && !has_icon {
+      let table: BTreeMap<String, String> = [("tag", "link"), ("rel", "icon"), ("href", "data:,")]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+      document.head.push(table);
+      inferred.push("document.head links an empty icon, since no icons/ serves one".to_owned());
     }
     if app.join("styles").is_dir() {
       if !statics.iter().any(|s| s.route == css_route) {
@@ -1519,6 +1584,7 @@ impl Config {
       typecheck,
       site,
       sites,
+      shell_vendor,
       public,
       bundle,
       inferred,
