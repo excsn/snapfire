@@ -10,7 +10,7 @@ A site: an application built with a `[site]` section, so every id it emits is pr
 | A guard that relies on a sign-in the site never implements | `app/middleware.ts` on `/billing/overdue` |
 | A nav whose current link is marked by the server and kept right by the navigator, styled by selector alone | `<Link>` in `app/routes/layout.tsx`, `a[aria-current]` in `app/styles/billing.css` |
 | A client of its own, mocked from a file, cached on the contract's say-so | `app/clients/ledger.openapi.json`, `app/clients/ledger.mock.json` |
-| Static roots the portal serves itself, kept only for running alone | the `[[static]]` root and `vendor/`, a link to the portal's, both `ignored` in the portal's report |
+| React from the portal's vendor tree when running alone, since the import map names the shell's URLs | `shell` in `config/app.toml`, the `inferred` row naming the shell's `vendor/` |
 
 ## Run it alone
 
@@ -18,4 +18,4 @@ A site: an application built with a `[site]` section, so every id it emits is pr
 cargo run -p billing_site_react_ts
 ```
 
-`http://127.0.0.1:8101/billing` is the site with its own layout as the page and no sign-in, since the guard's redirect has nowhere to go here. `cargo test -p billing_site_react_ts` drives the standalone host.
+`http://127.0.0.1:8101/billing` is the site with its own layout as the page and React served from the portal's `app/vendor/`. There is no sign-in, so `/billing/overdue` redirects to a `/auth/login` that only the portal answers. `cargo test -p billing_site_react_ts` drives the standalone host.

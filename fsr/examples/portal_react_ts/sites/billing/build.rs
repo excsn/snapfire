@@ -3,7 +3,7 @@ fn main() {
   for watched in ["routes", "src", "schemas", "clients", "importmap.json", "types", "middleware.ts"] {
     println!("cargo:rerun-if-changed={}", app.join(watched).display());
   }
-  let portal = app.join("../../portal_react_ts/app");
+  let portal = app.join("../../../app");
   println!("cargo:rerun-if-changed={}", portal.join("generated/shell.json").display());
   if !portal.join("generated/shell.json").is_file() {
     let built = snapfire_fsr_cli::build(&portal, &snapfire_fsr_cli::Options::beside(&portal)).unwrap_or_else(|e| panic!("fsr build portal: {e}"));
@@ -20,6 +20,6 @@ fn snapfirec() -> Option<std::path::PathBuf> {
   if let Some(path) = std::env::var_os("SNAPFIREC") {
     return Some(path.into());
   }
-  let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../..");
+  let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../../../..");
   ["target/debug/snapfirec", "target/release/snapfirec"].iter().map(|p| root.join(p)).find(|p| p.is_file())
 }

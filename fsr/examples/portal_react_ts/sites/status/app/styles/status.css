@@ -1,0 +1,50 @@
+.status {
+  border: 1px solid #dde3ea;
+  border-radius: 12px;
+  background: #fff;
+  padding: 20px 24px;
+}
+
+.status-nav {
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #dde3ea;
+}
+
+.status-nav a {
+  color: #1f6feb;
+  text-decoration: none;
+}
+
+.status-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.status-table th,
+.status-table td {
+  border-bottom: 1px solid #dde3ea;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.status-state {
+  border-radius: 999px;
+  font-size: 0.85em;
+  padding: 2px 8px;
+}
+
+.status-operational {
+  background: #dafbe1;
+  color: #116329;
+}
+
+.status-degraded {
+  background: #fff8c5;
+  color: #7d4e00;
+}
+
+.status-down {
+  background: #ffebe9;
+  color: #a40e26;
+}

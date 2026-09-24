@@ -23,11 +23,6 @@ fsr serve app
 
 ## Under the portal
 
-Build this site, then run the portal, which mounts it from `[sites.blog]`:
+The portal mounts this directory as a linked working tree, `artifact = "sites/blog"`, so `fsr build app` is all a change needs before the portal rereads it. The portal's README runs the three sites together.
 
-```sh
-fsr build app
-cargo run -p portal_react_ts
-```
-
-`http://127.0.0.1:8100/blog` is the blog under the portal's header, sharing its session and navigation. `fsr prerender ../portal_react_ts/app` writes the blog's pages into the portal's prerender directory.
+`http://127.0.0.1:8100/blog` is the blog under the portal's header, sharing its session and navigation. `fsr prerender ../../app` writes the blog's pages into the portal's prerender directory.

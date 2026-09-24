@@ -39,10 +39,16 @@ async fn main() -> std::io::Result<()> {
   println!("inventory grpc on http://{inventory_addr}");
   println!("fsr server on http://{}:{}/", fsr_addr.0, fsr_addr.1);
 
-  futures_util::try_join!(
+  // The gRPC backend never sees the signal the two actix servers stop on, so
+  // the process ends with the fsr server rather than waiting on all three.
+  let backends = futures_util::future::try_join(
     backend::shopping::serve(catalog, backend_addr),
     backend::inventory::serve(inventory_addr),
-    snapfire_fsr_host::actix::serve(host, fsr_addr)
-  )?;
-  Ok(())
+  );
+  let fsr = snapfire_fsr_host::actix::serve(host, fsr_addr);
+  futures_util::pin_mut!(backends, fsr);
+  match futures_util::future::select(fsr, backends).await {
+    futures_util::future::Either::Left((served, _)) => served,
+    futures_util::future::Either::Right((backends, _)) => backends.map(|_| ()),
+  }
 }

@@ -9,3 +9,5 @@ app/dist/
 # written by `fsr test`: compiled spec files and test-only vendor builds
 app/.fsr-test/
 app/.fsr-bundle/
+# the site cache, the archives the walkthrough packs and the store it serves
+deploy/

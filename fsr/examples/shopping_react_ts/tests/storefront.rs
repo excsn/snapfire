@@ -313,7 +313,7 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let page = html.find("<!--sf-g:routes/order/[id]/page.tsx#default?id=5001-->").expect(&html);
   assert!(page < region, "the island sits inside the page's markup");
   assert!(html[region..].contains("<p>Quote order #<!-- -->5001<!-- --> when you write to us.</p>"), "rendered in Rust with the page's data: {html}");
-  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i1\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false},\"$k\":\"routes/order/[id]/page.tsx#default|i0\"}</script></sf-s>"), "its own props script with the state a server island starts from and the region it names, inside the region: {html}");
+  assert!(html[region..].contains("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i1\">{\"orderId\":5001,") && html[region..].contains(",\"$s\":{\"open\":false,\"asked\":{\"$\":\"f\",\"v\":0.0}},\"$k\":\"routes/order/[id]/page.tsx#default|i0\"}</script></sf-s>"), "its own props script with the state a server island starts from and the region it names, inside the region: {html}");
   let payload = block_on(app.render_to_string("/order/5001", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("[\"c\",{\"m\":\"src/ui/OrderHelp.tsx#OrderHelp\""), "a nested client node on the wire: {payload}");
 }
@@ -453,7 +453,7 @@ fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
   assert_eq!(app.prerendered("/about", RenderMode::Html), None, "nothing written yet");
 
   let written = block_on(app.prerender(&out)).unwrap();
-  assert_eq!(written.iter().map(|(p, f)| (p.as_str(), f.strip_prefix(&out).unwrap().to_string_lossy().into_owned())).collect::<Vec<_>>(), vec![("/about", "about/index.html".to_owned()), ("/about", "about/index.payload".to_owned())]);
+  assert_eq!(written.iter().map(|(p, f)| (p.as_str(), f.strip_prefix(&out).unwrap().to_string_lossy().into_owned())).collect::<Vec<_>>(), vec![("/about", "about/index.html".to_owned()), ("/about", "about/index.payload".to_owned()), ("prerendered.json", "prerendered.json".to_owned())]);
   let html = app.prerendered("/about?anything=1", RenderMode::Html).unwrap();
   assert!(html.contains("data-sf-module=\"src/About.tsx#default\""), "the document, with the Rust route's island: {html}");
   assert!(!html.contains("EventSource"), "a prerendered document never carries the live-refresh script: {html}");

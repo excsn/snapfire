@@ -21,6 +21,9 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
         <Link href="/blog" match="prefix">
           Blog
         </Link>
+        <Link href="/status" match="prefix">
+          Status
+        </Link>
       </nav>
       <span className="pill" aria-label={`${count} teams`}>
         {count} teams

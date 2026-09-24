@@ -8,7 +8,7 @@ prerender = "dist/prerender"
 [site]
 name = "blog"
 at = "/blog"
-shell = "../portal_react_ts/app/generated/shell.json"
+shell = "../../app/generated/shell.json"
 
 [document]
 title = "Blog"

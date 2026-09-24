@@ -7,7 +7,7 @@ listen = "127.0.0.1:8101"
 [site]
 name = "billing"
 at = "/billing"
-shell = "../portal_react_ts/app/generated/shell.json"
+shell = "../../app/generated/shell.json"
 
 [document]
 title = "Billing"

@@ -18,14 +18,19 @@ login = "/login"
 [clients.directory]
 transport = "mock"
 
-[sites]
-poll = "5s"
-
-[sites.billing]
-artifact = "../billing_site_react_ts"
-
 [typecheck]
 version = "7.0.2"
 
+[sites]
+poll = "5s"
+root = "deploy/sites"
+store = "http://127.0.0.1:8199"
+
+[sites.billing]
+artifact = "billing@1.0.0"
+
 [sites.blog]
-artifact = "../blog_site_react_ts"
+artifact = "sites/blog"
+
+[sites.status]
+artifact = "status@1.0.0"
