@@ -6,9 +6,9 @@ The question this chapter answers: how do you test a loader, an action or a page
 
 The testing API takes its names from Jest, Vitest and Testing Library: `describe`, `it`, `expect`, `beforeEach`, `fn`, `screen.getByRole` and `userEvent` read the way they do there, so a suite written for those moves over with small changes. [107](107-moving-tests-from-jest-or-vitest.md) lists them.
 
-## A test replays the body where it runs
+## Body tests
 
-A body is data the interpreter runs, so a test of a body is a replay: build the context the body would see, run it, look at what came out. `fsr test` does exactly that. It lowers the test file, lowers the body under test the way the build does, then replays the body through the same interpreter that serves requests. Nothing in the path is a JavaScript engine, so the developer's test runs where the developer's code runs.
+A body is data the interpreter runs, so a test of a body is a replay: build the context the body would see, run it and look at what came out. `fsr test` does exactly that. It lowers the test file, lowers the body under test the way the build does, then replays the body through the same interpreter that serves requests. Nothing in the path is a JavaScript engine, so a test runs in the same interpreter as production.
 
 Tests live under `app/tests/`, mirroring `routes/`; they import the body by alias:
 
@@ -34,11 +34,11 @@ describe("the cart loader", () => {
 
 A body under test is the body the build lowered, taken from the plan the runner built first rather than lowered again on its own, so whatever the build follows a test follows too: a module constant under `src/` a loader imports, a helper declared at module level, the plan's own constants. `load`, `meta`, `store` and `paths` come from a page loader, `meta` and `store` over `{ data }` and `paths()` against the `ctx(...)` bound above it, since a `paths` body may call a service. A call to one of them is a statement of its own, `const sets = paths()`, not an expression inside another call, because the runner replays statements.
 
-## The mock cannot lie
+## Mocks are checked against the contract
 
-The mocked services sit behind the same registry the host uses, with the application's contract. A mock for a method the contract does not have fails with the method's name. A mock that answers a shape the contract rejects fails the same way, naming the field. A call to a method no mock answers fails too, naming the method: under a page spec the loader would otherwise degrade to the error component and the spec would pass by looking at the wrong page. That is what keeps a body test honest about the world it pretends to see: the first version of the storefront's checkout test returned order lines without a `name`; the test failed before the assertion was reached, which is the failure you want to have at your desk rather than in a page.
+The mocked services sit behind the same registry the host uses, with the application's contract. A mock for a method the contract does not have fails with the method's name. A mock that answers a shape the contract rejects fails the same way, naming the field. A call to a method no mock answers fails too, naming the method: under a page spec the loader would otherwise degrade to the error component and the spec would pass by looking at the wrong page. This keeps mocks consistent with the real services. A checkout test whose mock returns order lines without a `name` fails before the assertion is reached, so the mistake shows up in the test instead of on a page.
 
-The same allowance holds on the way in. A mock answering `minutes: 35` for an integer field is read as the integer the contract names, since a JavaScript number is a double whatever it holds; a mock answering `35.5` there still fails with the field. The generated mock types agree, taking `number` wherever a field is `bigint`.
+A mock may answer an integer field with a JavaScript number: `minutes: 35` is read as the integer the contract names, since a JavaScript number is a double whatever it holds. A mock answering `35.5` there still fails with the field. The generated mock types agree, taking `number` wherever a field is `bigint`.
 
 ## What a test can say
 
@@ -59,7 +59,7 @@ Inside a test or a hook:
 - `expect.any(String)`, `expect.anything()`, `expect.objectContaining({ ... })`, `expect.arrayContaining([...])`, `expect.stringContaining("x")` and `expect.stringMatching(/x/)` sit anywhere inside an expected value.
 - `await expect(checkout(c)).rejects.toMatchObject({ kind: "invalid" })` asserts a run fails with that kind. `.rejects.toThrow("invalid")` is looser: the kind or the message must hold the text. `.resolves` matches what a run returned.
 - `const placeOrder = fn((args) => order)` is a mock function, which a ctx's services name: `services: { shopping: { placeOrder } }`. `expect(placeOrder).toHaveBeenCalledWith({ lines })`, `toHaveBeenCalledTimes(1)` and the other call matchers read what it was asked. `placeOrder.mockReturnValueOnce(other)`, `mockResolvedValue`, `mockImplementation` and `mockRejectedValue({ kind: "unavailable", message: "down" })` change what it answers, the last one failing the call with that kind. A mock function declared at the top of a file starts every test with no calls.
-- `assert.ok`, `assert.equal`, `assert.match` and `assert.rejects` still read, for tests written before `expect`.
+- `assert.ok`, `assert.equal`, `assert.match` and `assert.rejects` also work, for tests written before `expect`.
 
 A failed comparison prints both sides as TypeScript would write them, under the message when there is one.
 
@@ -70,11 +70,11 @@ await expect(checkout(c)).rejects.toMatchObject({ kind: "invalid" });
 expect(c.trace.calls).toEqual([]);
 ```
 
-That test is the sentence "an empty cart never reaches the order service" made checkable.
+That test checks that an empty cart never reaches the order service.
 
-## A page test renders where the browser would
+## Page tests
 
-A body test never touches a component. A page test does: it renders a page or a component into a DOM, clicks it, reads what it shows. `fsr test` runs those too, in QuickJS inside the same process, over a DOM from linkedom and React's own development build, so the page runs as JavaScript because a page is JavaScript. No Node is involved: snapfirec compiles the spec file beside the app's modules into `app/.fsr-test/`, the engine resolves imports through the app's import map and the vendor tree and the few test-only builds it needs are fetched once into the same directory.
+A body test never touches a component. A page test renders a page or a component into a DOM, clicks it and reads what it shows. `fsr test` runs those too, in QuickJS inside the same process, over a DOM from linkedom and React's own development build, since page code is browser JavaScript. No Node is involved: snapfirec compiles the spec file beside the app's modules into `app/.fsr-test/`, the engine resolves imports through the app's import map and the vendor tree and the few test-only builds it needs are fetched once into the same directory.
 
 A page test is a `*.spec.tsx` under `app/tests/`:
 
@@ -98,11 +98,11 @@ test("choosing a quantity and adding runs the action with it", async () => {
 
 Four things in that test differ from the same test under a Node runner.
 
-**The page is hydrated, not mounted.** `render` of a page the build lowered first asks the server renderer for the page's HTML with those props, puts it in the container and lets React hydrate over it, exactly the production sequence. A mismatch between what Rust rendered and what React expected fails the test with React's own message, naming the element and both sides, because the development build says it in words rather than as an error number. The first version of this runner failed the cart page with `Prop style did not match. Server: "" Client: "null"`, which was a real difference the browser had been patching silently. `r.hydrated` names the module that was hydrated or is `null` when the component mounted fresh, which is what happens to a component below a page and to a page with nothing for the browser to run.
+**The page is hydrated, not mounted.** `render` of a page the build lowered first asks the server renderer for the page's HTML with those props, puts it in the container and lets React hydrate over it, exactly the production sequence. A mismatch between what Rust rendered and what React expected fails the test with React's own message, naming the element and both sides, because the development build says it in words rather than as an error number. For example, `Prop style did not match. Server: "" Client: "null"` points at a real difference the browser would otherwise patch silently. `r.hydrated` names the module that was hydrated or is `null` when the component mounted fresh, which is what happens to a component below a page and to a page with nothing for the browser to run.
 
-**The action is real.** The click calls `addToCart` through the generated client, which posts to `/_sf/action/cart.addToCart`. Under test that `fetch` is answered by the runner: the lowered action runs through the interpreter under the `ctx` the test built, the session and the trace update the way they do in a body test and the page gets the same JSON it would from the host. A mocked service method is a function in the spec; when the action calls it, the interpreter calls back into the page's JavaScript and the contract checks both the arguments and the answer, so a mock cannot lie here either.
+**The action runs.** The click calls `addToCart` through the generated client, which posts to `/_sf/action/cart.addToCart`. Under test that `fetch` is answered by the runner: the lowered action runs through the interpreter under the `ctx` the test built, the session and the trace update the way they do in a body test and the page gets the same JSON it would from the host. A mocked service method is a function in the spec; when the action calls it, the interpreter calls back into the page's JavaScript and the contract checks both the arguments and the answer, so mocks are checked here too.
 
-**Time does not pass.** `settle`, which `render`, every `fireEvent` and every `userEvent` method await, runs everything that happens now: microtasks, the action round trip, React's re-render, timers already due. A timer set for later waits for `advance(ms)`, so the toast is there to assert on and gone after the clock moves. `waitFor` and every `findBy` query retry after moving the clock in small steps, so something a timer brings in arrives while they wait. Nothing in a test sleeps.
+**Time moves only when the test moves it.** `settle`, which `render`, every `fireEvent` and every `userEvent` method await, runs everything that happens now: microtasks, the action round trip, React's re-render, timers already due. A timer set for later waits for `advance(ms)`, so the toast is there to assert on and gone after the clock moves. `waitFor` and every `findBy` query retry after moving the clock in small steps, so something a timer brings in arrives while they wait.
 
 **Rendering and acting are awaited.** `render` and every event return a promise, because each settles the engine before the next line reads the page.
 
@@ -126,13 +126,13 @@ test("a click from the catalog to the cart swaps the page and keeps the document
 
 What hydrates in a page test is what would hydrate in a browser. `render` of a lowered page hands React the values and subtrees the server computed for it, the way the mounter does from the island's props, so a spec exercises the read path rather than the fallback and a component the server rendered as a subtree is not rendered by React in the test either. An island in server mode is stepped the same way it is served: a click in a spec posts to the island route, the runner answers it through the function the host's route calls and the spec sees the patched markup, as [`order/server.spec.tsx`](../../examples/shopping_react_ts/app/tests/order/server.spec.tsx) does when it clicks the order help twice.
 
-A route with a `loading.tsx` reaches a browser as a stream and `load` reads it whole: each resolved template is moved into its slot before the islands mount and what the fill script would have said about the title and the store is applied once the document's own seed is in, so a spec sees the resolved page, the retitled document and the seeded keys, never the skeleton. The store is emptied before every `load`, the way a full load empties it in a browser, so a key one test wrote cannot leak into the next test's hydration. What `load` does not do is run the application's entry module: `src/main.ts` and whatever it wires, a `derive`, a listener, a global, are the browser's. A spec sees a derived key only as the server seeded it. A mock returns what the contract says and one thing it cannot spell: an integral value for a `number` field, since `0` encodes as an integer and the contract refuses an integer where a double is declared, so a mock writes `0.5` where the backend would write `0.0`.
+A route with a `loading.tsx` reaches a browser as a stream and `load` reads it whole: each resolved template is moved into its slot before the islands mount and what the fill script would have said about the title and the store is applied once the document's own seed is in, so a spec sees the resolved page, the retitled document and the seeded keys, never the skeleton. The store is emptied before every `load`, the way a full load empties it in a browser, so a key one test wrote cannot leak into the next test's hydration. What `load` does not do is run the application's entry module: `src/main.ts` and whatever it wires, a `derive`, a listener, a global, are the browser's. A spec sees a derived key only as the server seeded it. A mock can return anything the contract allows except an integral value for a `number` field, since `0` encodes as an integer and the contract refuses an integer where a double is declared, so a mock writes `0.5` where the backend would write `0.0`.
 
 A Vue island mounts under the harness the way it does in a browser: the recipes example's specs click a Vue button, plan a recipe and read the count the Vue masthead shows, with the same `load`, `userEvent` and `screen`. The markup a layout writes inside a Vue island reaches it as its default slot. The runner compiles the browser half of the app the way the bundle does, static templates left out and `.vue` files through the plugin. It writes the build's generated files first, so a spec always runs against the registry of the build it was given.
 
-## Route tests are the other layer
+## Route tests
 
-A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, nineteen tests over a mock transport that assert on the HTML a route renders, the chunks a deferred route streams and the props it ships. They are Rust because they assert on the host; an application with no Rust project gets the document half of that from `load` in a spec. The two layers are enough: a body test says a loader produces these props from these responses; a route test says a URL produces this document from these props.
+A body test cuts at the service boundary. A route test cuts at the host: a request in, a document or payload out, with every transport mocked. The storefront's Rust suite is that layer, nineteen tests over a mock transport that assert on the HTML a route renders, the chunks a deferred route streams and the props it ships. They are Rust because they assert on the host; an application with no Rust project gets the document half of that from `load` in a spec. The two layers cover the application between them: a body test checks that a loader produces these props from these responses and a route test checks that a URL produces this document from these props.
 
 ## The lab
 

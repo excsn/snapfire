@@ -1,4 +1,4 @@
-# 001. One contract, no client code
+# 001. Calling a service without a client
 
 The question this chapter answers: how does a loader call a service it has never seen a client for, with the editor knowing the types and the runtime refusing a bad call?
 
@@ -6,15 +6,15 @@ The question this chapter answers: how does a loader call a service it has never
 
 ## The service's own document
 
-A service the application talks to already describes itself. An HTTP service publishes an OpenAPI document; a gRPC service publishes a `.proto`. fsr uses that document as the integration: drop it under `app/clients/` and the build imports it into the contract. The storefront has two, [`shopping.openapi.json`](../../examples/shopping_react_ts/app/clients/shopping.openapi.json) for the catalog and orders and [`inventory.proto`](../../examples/shopping_react_ts/app/clients/inventory.proto) for stock levels. Nothing under `app/` mentions HTTP or gRPC anywhere.
+A service the application talks to already describes itself. An HTTP service publishes an OpenAPI document; a gRPC service publishes a `.proto`. fsr uses that document to integrate the service: drop it under `app/clients/` and the build imports it into the contract. The storefront has two, [`shopping.openapi.json`](../../examples/shopping_react_ts/app/clients/shopping.openapi.json) for the catalog and orders and [`inventory.proto`](../../examples/shopping_react_ts/app/clients/inventory.proto) for stock levels. Nothing under `app/` mentions HTTP or gRPC anywhere.
 
 The name of the file is the name of the service. `shopping.openapi.json` is `services.shopping`; each operation's `operationId` is a method; each schema is a type. For a proto, the one service in the file takes the file's name, the messages become records and `int64` stays a 64-bit integer rather than becoming a JavaScript number, which is why the value model has a `bigint` and the generated types say so.
 
-A backend is integrated as soon as its document matches what it serves. For a backend developer that is the whole job: publish an accurate document and the frontend team has what it needs. The storefront's HTTP backend goes further and includes its document from `app/clients/` at compile time, so the document the build imports and the document the server publishes are the same bytes and cannot disagree.
+A backend is integrated as soon as its document matches what it serves. A backend developer only has to publish an accurate document and the frontend team needs nothing else. The storefront's HTTP backend goes further and includes its document from `app/clients/` at compile time, so the build imports exactly the bytes the server publishes.
 
 ## What the build makes of it
 
-The build writes one contract file per document under `generated/contracts/`, plus one for the application's own schemas, then merges them at boot. A type or a service defined twice names both files, since two teams' documents landing in one directory is exactly when that matters.
+The build writes one contract file per document under `generated/contracts/`, plus one for the application's own schemas, then merges them at boot. A type or a service defined twice is reported with both files named, which is what you need when two teams' documents land in one directory.
 
 From the merged contract it writes `generated/services.d.ts`, the TypeScript the editor sees:
 
@@ -23,17 +23,17 @@ services.shopping.listProducts(args: { q?: string; category?: string; tag?: stri
 services.inventory.getStock(args: { product_id: bigint }): Promise<StockLevel>;
 ```
 
-A loader calls a service through `ctx.services` with exactly that shape. The call is a row in the plan file: service, method, arguments. There is no client module. A client module would have nothing to add. The transport is chosen by the host from the document's extension and the base URL in configuration, which is [chapter 202](202-services-and-transports.md).
+A loader calls a service through `ctx.services` with exactly that shape. The call is a row in the plan file: service, method, arguments. There is no client module, because the registry already does what one would do. The transport is chosen by the host from the document's extension and the base URL in configuration, which is [chapter 202](202-services-and-transports.md).
 
-## The runtime checks both directions
+## Runtime checks
 
 At request time the registry checks every call's arguments against the contract before the transport sees them and every response after it. A loader that sends a string where the document says integer fails with the field's path. A backend that answers with a missing required field fails the same way, naming the method, rather than letting a wrong shape reach a page and render as `undefined`.
 
-This is the reason the registry exists as a block rather than as generated code. Generated clients check what they were generated from; the registry checks the document that is deployed. When a backend changes its document, the next build changes the types and the next boot changes the checks. Nothing in between has to be regenerated by hand.
+This is why the registry is a block instead of generated code. A generated client checks against the document it was generated from, while the registry checks against the document that is deployed. When a backend changes its document, the next build changes the types and the next boot changes the checks. Nothing in between has to be regenerated by hand.
 
-## Why this is the enterprise argument
+## Working with many services
 
-A team with forty services has forty documents already. What it usually lacks is one place where a frontend's use of them is typed, checked and visible. fsr makes the contract that place: the editor types against it, the build refuses an unknown method, the runtime refuses a bad shape, the boot report lists every service and its transport. Adding a service costs one copied document. Changing a service costs one build, which tells you where the change lands.
+A team with forty services has forty documents already. What it usually lacks is one place where a frontend's use of them is typed, checked and visible. In fsr the contract is that place: the editor types against it, the build refuses an unknown method, the runtime refuses a bad shape and the boot report lists every service and its transport. To add a service, copy in its document. When a service changes, rebuild and the build shows where the change lands.
 
 ## The lab
 

@@ -4,11 +4,11 @@ The question this chapter answers: how does a Vue component end up on a page the
 
 **For:** app developers.
 
-## A page is a template, an island is a framework
+## Templates and islands
 
-The pages, layouts and boundaries under `routes/` are TSX the build lowers and the server renders; chapter 003 is that story. Nothing in it is React: a template's JSX is a vocabulary the lowerer reads and the server writes the markup. React enters when a component needs the browser, `useState`, a handler, a store read, because then the browser must run it. The build keeps a compiled twin of it for that.
+The pages, layouts and boundaries under `routes/` are TSX the build lowers and the server renders, which chapter 003 covers. None of it is React: the lowerer reads a template's JSX and the server writes the markup. React is needed only when a component needs the browser for `useState`, a handler or a store read, because then the browser must run it. The build keeps a compiled twin of it for that.
 
-An island written in Vue is the same arrangement with a different runtime. The template places it; the server writes its marker and its props; the browser mounts it with Vue. The recipes example, [`recipes_vue_ts`](../../examples/recipes_vue_ts/README.md), is exactly this: every route is a template, every interactive piece is a `.vue` file under `src/ui/`. There is no React in the import map, the vendor tree, the bundle or the type declarations.
+An island written in Vue works the same way with a different runtime. The template places it, the server writes its marker and its props and the browser mounts it with Vue. The recipes example, [`recipes_vue_ts`](../../examples/recipes_vue_ts/README.md), works this way: every route is a template and every interactive piece is a `.vue` file under `src/ui/`. There is no React in the import map, the vendor tree, the bundle or the type declarations.
 
 ## Placing a `.vue` component
 
@@ -35,7 +35,7 @@ export default function BoxLayout({ children, planned }: { children: Children; p
 
 The build reads the import and asks `snapfirec-vue` to describe the file: the template as Vue's own parser reads it, the `<script setup>` block and how the template reads each name the script binds. It lowers the component the way it lowers a TSX template, to the same render tree and places it as an island with its props lowered like any other placement. The server writes the component's markup inside the `<sf-i>`, spelled the way Vue's own server renderer spells it, with the props script beside it. The browser hydrates over that markup rather than mounting fresh. Place the same component outside `Island` and the build refuses, naming the tag: a component Vue mounts can only be an island, since Vue's root is the island's.
 
-A component the build cannot read stays foreign: the server writes the `<sf-i>` empty with its props and Vue mounts it fresh, which is what every `.vue` file got before the build read them. The report says which and why, with the line:
+A component the build cannot read stays foreign: the server writes the `<sf-i>` empty with its props and Vue mounts it fresh. The report says which and why, with the line:
 
 ```text
 rendered  src/ui/Box.vue#default             foreign     src/ui/Box.vue:5:18
@@ -47,9 +47,9 @@ foreign   src/ui/Box.vue:5:18                `v-model`
 
 What lowers is the subset a server can evaluate. In `<script setup>`: `defineProps`, with `withDefaults` around it, `ref`, `shallowRef`, `computed` of an arrow, `reactive`, `useStore` from `@snapfire/fsr-client/vue`, a `const` bound to an expression the build reads and functions, which are the browser's. Lifecycle and watch calls are the browser's too and are passed over. In the template: interpolation, `v-if`, `v-else-if` and `v-else`, `v-for` over a list with an item and an index, a bound attribute, `:class` as a string, an array or an object, `:style`, `v-show`, `v-html`, `v-text` and a plain `<slot />`. Outside that is residue: `v-model`, `v-bind` of a whole object, a named or a scoped slot, a component placed inside the template, `v-slot`, `inject`, a `<script>` without `setup`. The residue names its line in the `.vue` file.
 
-A number deserves a word. An integer a contract types as `bigint` reaches the server as an integer and a Vue component that multiplies it by a literal fails the render, the way chapter 100 says a loader must convert one before arithmetic. The recipe page passes `serves={Number(recipe.serves)}` for that reason; the browser never saw a difference, the server does.
+Integers need a conversion. An integer a contract types as `bigint` reaches the server as an integer and a Vue component that multiplies it by a literal fails the render, the way chapter 100 says a loader must convert one before arithmetic. The recipe page passes `serves={Number(recipe.serves)}` for that reason: the browser handles either type, but the server render fails without the conversion.
 
-`Island`, `island`, `Link` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. A page on the template module that hydrates loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type at all. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
+`Island`, `island`, `Link` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. A page on the template module that hydrates loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
 
 ## The component itself
 
@@ -87,7 +87,7 @@ The `<template data-sf-children>` after the markup is the island's children. The
 
 ## What the build does with it
 
-Neither `fsr` nor `snapfirec` compiles Vue. `fsr build` looks for `snapfirec-vue` on `PATH` and asks it to describe every `.vue` file under the source directories in one batch before any route is lowered; `snapfirec` finds the same binary again when it bundles and hands it the same files to compile. The plugin carries Vue's own compiler, run in QuickJS, so no Node is involved; `cargo install snapfire_vue` is the whole install. Without it nothing reads the file, so the component is neither lowered nor compiled and the bundle stops on the module the registry imports. A `plugins` row in the report says which binary was missing and the report is printed even though the build failed, since the two halves only name the fix together:
+Neither `fsr` nor `snapfirec` compiles Vue. `fsr build` looks for `snapfirec-vue` on `PATH` and asks it to describe every `.vue` file under the source directories in one batch before any route is lowered; `snapfirec` finds the same binary again when it bundles and hands it the same files to compile. The plugin carries Vue's own compiler, run in QuickJS, so no Node is involved. Install it with `cargo install snapfire_vue`. Without it nothing reads the file, so the component is neither lowered nor compiled and the bundle stops on the module the registry imports. A `plugins` row in the report says which binary was missing and the report is printed even though the build failed, since the fix is only clear from both errors together:
 
 ```text
 ❌ `snapfirec-vue` is not on PATH; `cargo install snapfire_vue` puts it there
@@ -140,7 +140,7 @@ Navigation still keeps a static layout's DOM. A segment carries a digest of its 
 
 Run `fsr build app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
 
-Take `snapfirec-vue` off `PATH` and build again. The bundle stops on the modules the registry imports, and the report still prints, with a `plugins` row naming the binary and the install command. The three components are missing from `rendered` altogether rather than listed foreign, since nothing read them.
+Take `snapfirec-vue` off `PATH` and build again. The bundle stops on the modules the registry imports and the report still prints, with a `plugins` row naming the binary and the install command. The three components are missing from `rendered` altogether rather than listed foreign, since nothing read them.
 
 Give `Tonight.vue` a `v-model` on an input. The report keeps the page `static`, marks the component `foreign` with the line and the bundle compiles it as before: the panel mounts fresh and everything else on the page is as it was.
 
@@ -152,6 +152,6 @@ Give `routes/page.tsx` a `useState`. Build: the page stops being `static`, so th
 `routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
 ```
 
-That failure is the whole reason the static rule exists. Take it back out.
+The static rule exists to prevent this failure. Remove the `useState` again.
 
 Open the masthead panel in a browser, then click "Cook this tonight" on a recipe. The count moves, the button changes and the panel is still open: the layout re-rendered around its island and the island kept its state.

@@ -4,7 +4,7 @@ The question this chapter answers: where do an analytics tag, a consent banner, 
 
 **For:** app developers.
 
-## Nothing in the head is written as HTML
+## The document head
 
 A conventional site keeps a document template with the fixed part of the head in it: the base, the robots meta, a preconnect to the font host, the icons, the analytics tag. fsr has no such template. The host writes the document (chapter 200) and what it writes is data from two places: what it inferred from the app directory and what the routes said in their `meta` exports (chapter 100). There is no third place and no configuration key that takes an element.
 
@@ -28,9 +28,9 @@ export const meta = () => ({
 
 Two rows are the same element when they share the attribute a head element is identified by: `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified by `sizes`, `media`, `type` and `hreflang`. A `link` whose `rel` names a resource, a stylesheet, a preconnect or a preload, is qualified by its `href` as well, so two preconnects are two elements. A `canonical` or an `icon` is a role and an inner route replaces it by naming it again. The host's own inferred icons sit under the layout's rows and are overridden the same way. An application with no `icons/` directory gets `<link rel="icon" href="data:,">`, an empty icon that keeps the browser from requesting `/favicon.ico` and logging the 404. It is dropped as soon as a route's `meta` names any icon, like the two above. `[document] empty_icon = false` turns it off.
 
-What is not in that list is a `script`. The document's one script is the entry, `main.ts`, which the host writes for you.
+A `script` is not in that list. The document's one script is the entry, `main.ts`, which the host writes for you.
 
-## A script is a module
+## Scripts as modules
 
 Anything the page runs is a module the entry imports. A cookie banner, a theme toggle, a keyboard shortcut: each is a file under `src/` that `main.ts` imports for its effect and the build compiles it with everything else.
 
@@ -50,11 +50,11 @@ A third-party library arrives the way React did in chapter 301: its ESM build un
 
 A library that has to be a `<script src>` because its vendor says so is still not a head row. It is a script element the module creates when the page needs it, which is the next section.
 
-## Consent decides when a tag loads
+## Loading a tag after consent
 
-The usual pattern for consent-gated analytics is to write the tag with `type="text/plain"` and a category attribute, so the banner library rewrites it into a real script once the category is accepted. That pattern exists because the tag was HTML and something had to defuse it. Without a tag there is nothing to defuse: the banner's own callbacks say when a category is accepted and the module loads the vendor from there.
+The usual pattern for consent-gated analytics is to write the tag with `type="text/plain"` and a category attribute, so the banner library rewrites it into a real script once the category is accepted. That pattern exists because the tag was HTML and the banner had to stop it running. With no tag, the module loads the vendor from the banner's own callbacks, which say when a category is accepted.
 
-Keep the banner and each vendor apart. One module orchestrates consent; one module per vendor knows how that vendor is loaded.
+Keep the banner and each vendor apart. One module handles consent and each vendor gets its own module that knows how that vendor is loaded.
 
 ```ts
 // src/consent.ts
@@ -103,11 +103,11 @@ export function loadAnalytics() {
 }
 ```
 
-The shim deserves its comment. Google's snippet pushes `arguments` and gtag.js checks for exactly that; a rest parameter is an array and an array on the queue is silently ignored, so the page view never goes out and nothing says so. `onChange` runs `onConsent` again so a visitor who accepts later is counted from then on; the `dataLayer` guard makes the second call a no-op.
+Google's snippet pushes `arguments` and gtag.js checks for exactly that; a rest parameter is an array and an array on the queue is silently ignored, so the page view never goes out and nothing says so. `onChange` runs `onConsent` again so a visitor who accepts later is counted from then on; the `dataLayer` guard makes the second call a no-op.
 
-## The id differs per deployment
+## A per-deployment id
 
-The one thing in that module the deployment owns is the id and the one place a deployment's values live is `[public]` in the configuration, chapter 200. Declare it in `app.toml` with the value development runs under, which is also what types it, then let the region's overlay set the real one:
+The deployment owns the id in that module and a deployment's values live in `[public]` in the configuration, chapter 200. Declare it in `app.toml` with the value development runs under, which is also what types it, then let the region's overlay set the real one:
 
 ```toml
 # config/app.toml
@@ -139,9 +139,9 @@ import { key } from "@snapfire/fsr-client/store";
 export const analytics = key<string>("site/analytics");
 ```
 
-The empty string in development is the whole switch: `loadAnalytics` returns before it touches the page and nothing about the banner or the module changes between a laptop and production. A `[public]` value reaches the browser, which is what the section is named for. A key that must stay on the server is not a `[public]` value.
+With an empty id in development, `loadAnalytics` returns before it touches the page, so nothing about the banner or the module changes between a laptop and production. A `[public]` value reaches the browser, as the section's name says. A key that must stay on the server does not go in `[public]`.
 
-## The policy that decides whether any of it runs
+## Content-Security-Policy
 
 A Content-Security-Policy governs every script on the page, so a tag that loads fine without one stops the moment there is one. `[document.csp]` is that policy, written as directives and their sources rather than a string:
 
@@ -155,9 +155,9 @@ frame-src = ["https://www.youtube.com"]
 object-src = ["'none'"]
 ```
 
-The host merges in the sources only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Under `dev` a nonce for the refresh script goes in beside it, since that script carries the bundle id it was rendered against and has no stable hash. Nothing in the policy names either. A development host enforces what a production one does, which is where you want to find a missing origin.
+The host merges in the sources only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Under `dev` a nonce for the refresh script goes in beside it, since that script carries the bundle id it was rendered against and has no stable hash. Nothing in the policy names either. A development host enforces what a production one does, so a missing origin shows up in development.
 
-Two things are worth knowing before writing one.
+Two `script-src` sources break the page next to what the host adds: `'unsafe-inline'` and `'strict-dynamic'`.
 
 A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that same directive. The host always adds the import map's hash, so a policy written to keep inline third-party tags working loses every one of them the moment it names `script-src` at all. `fsr doctor` reports that pair.
 
@@ -171,7 +171,7 @@ Every part of the arrangement is something the build reads. The head rows are da
 
 ## A script that reads the markup
 
-A tag reads events. A library that reads the markup, one that wires attributes it finds when it processes a node, has one more thing to know: the navigator writes markup after the document loaded. It dispatches `sf:navigate` on `document` once a payload's eager wave is applied and `sf:fill` for every deferred segment it fills, so such a library processes the document again on both. Chapter 105 does this for htmx, in both directions.
+A tag reads events. A library that reads the markup, one that wires attributes it finds when it processes a node, needs to know that the navigator writes markup after the document loaded. It dispatches `sf:navigate` on `document` once a payload's eager wave is applied and `sf:fill` for every deferred segment it fills, so such a library processes the document again on both. Chapter 105 does this for htmx, in both directions.
 
 ## The lab
 

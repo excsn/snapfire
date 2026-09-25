@@ -4,17 +4,17 @@ The question this chapter answers: where does the session a body reads actually 
 
 **For:** platform developers.
 
-## The cookie is a reference
+## The session cookie
 
-The browser holds one cookie, `sf_session` by default, holding a session id signed with the key from `[session]`. The data is not in the cookie. It is in a store the host owns, keyed by the id; the cookie's signature is what stops a browser from presenting an id it was not given. A cookie that fails the signature is treated as absent and the request gets a fresh session, which the layer marks so a host can tell a first visit from a forged one.
+The browser holds one cookie, `sf_session` by default, holding a session id signed with the key from `[session]`. The session data lives in a store the host owns, keyed by the id. The cookie's signature is what stops a browser from presenting an id it was not given. A cookie that fails the signature is treated as absent and the request gets a fresh session, which the layer marks so a host can tell a first visit from a forged one.
 
-The host opens the session before matching the route and persists it when the response starts. Between those two moments the session is a cell the request context carries: bodies read it, actions write it through their draft and Rust code that took a name over sees the same cell. Persisting writes the store and, when the session is new, sets the cookie with a `Max-Age` counting down to the session's end, the `Secure` flag and the path from configuration. A body sees none of that; [chapter 101](101-actions-and-the-session.md) is its whole view.
+The host opens the session before matching the route and persists it when the response starts. Between those two moments the session is a cell the request context carries: bodies read it, actions write it through their draft and Rust code that took a name over sees the same cell. Persisting writes the store and, when the session is new, sets the cookie with a `Max-Age` counting down to the session's end, the `Secure` flag and the path from configuration. A body sees none of that; [chapter 101](101-actions-and-the-session.md) covers everything a body sees of the session.
 
 ## The store
 
-The stock store is in memory, bounded by capacity and dropping each record at its own end, built on the same cache the runtime uses for rendered subtrees: sharded, frequency-aware, so a burst of new sessions evicts the least useful rather than the oldest. `[session]` sets `capacity` and `ttl`, the length of a new session. The end is one number on the record that the cookie and the store both follow and it never slides: a session read a thousand times still ends one `ttl` after it opened unless an action, a route handler or middleware calls `session.extend(seconds)` or Rust code with the request calls `extend` on the cell, which is how an application chooses to pay for one write a day rather than one a request. It is the right store for one process and the wrong one for two, since a session opened on one host is unknown to the other; a `SessionStore` implementation over something shared is the block to write for that; `HostBuilder::session_store` is where it goes.
+The stock store is in memory, bounded by capacity and dropping each record at its own end, built on the same cache the runtime uses for rendered subtrees: sharded, frequency-aware, so a burst of new sessions evicts the least useful rather than the oldest. `[session]` sets `capacity` and `ttl`, the length of a new session. The end is one number on the record that the cookie and the store both follow and it never slides: a session read a thousand times still ends one `ttl` after it opened unless an action, a route handler or middleware calls `session.extend(seconds)` or Rust code with the request calls `extend` on the cell, so an application can choose to write the session once a day instead of once a request. The memory store works for a single process. With two, a session opened on one host is unknown to the other. For that, write a `SessionStore` implementation over something shared and pass it to `HostBuilder::session_store`.
 
-The signing key is a secret and `app.toml` is not the place for it. The storefront keeps a development key there with a name that says so; a deployment puts the real one in the YAML overlay the configuration ladder reads, encrypted.
+The signing key is a secret, so it does not belong in `app.toml`. The storefront keeps a development key there with a name that says so; a deployment puts the real one in the YAML overlay the configuration ladder reads, encrypted.
 
 ## Custody
 
@@ -24,7 +24,7 @@ Beside the cell, a session holds tokens: the credentials the platform obtained f
 
 Who the request is lives on the session as an identity: a subject and a map of claims. A body reads it as `identity.subject` and `identity.claims.<name>`; it sees `null` when nobody is signed in. The identity interceptor carries it onto every outbound call. The host does not decide what a claim means; it delivers the ones the provider gave.
 
-Where identity comes from is the `IdentityProvider` seam in `snapfire_fsr_auth`. A provider answers two questions: where to send the browser to log in, with whatever state it needs back, then what to make of the callback, which yields an identity and the tokens that go into custody. The state crosses the round trip in custody too, never in the URL. `Auth` is the facade around a provider: it begins a login, finishes the callback into the session's identity and custody, then clears both on logout.
+Identity comes from an `IdentityProvider`, a trait in `snapfire_fsr_auth`. A provider answers two questions: where to send the browser to log in, with whatever state it needs back, then what to make of the callback, which yields an identity and the tokens that go into custody. The state crosses the round trip in custody too, never in the URL. `Auth` is the facade around a provider: it begins a login, finishes the callback into the session's identity and custody, then clears both on logout.
 
 An `[auth]` section mounts that flow on three framework-owned routes, the way the action route is owned: `GET /auth/login` starts it, `/auth/callback` finishes it and `POST /auth/logout` clears both cells. The login page itself stays the application's own route, since auth never renders; `[auth] login` names it. Chapter 200 has the section and what each route does. A host with its own flow can still call the facade directly. The bodies are unaffected either way, since they only ever see `identity`.
 
@@ -34,4 +34,4 @@ An `[auth]` section mounts that flow on three framework-owned routes, the way th
 
 Load the storefront, add a product to the cart, then open the browser's cookie view: one cookie, `sf_session`, an opaque signed id. Edit its value by one character and reload. The cart is empty, because the signature failed and the request got a fresh session; the old one is still in the store until its TTL passes, but nothing can name it.
 
-Then restart the host and reload with the original cookie. The cart is empty again: the memory store did not survive the process, which is the property a shared store exists to change.
+Then restart the host and reload with the original cookie. The cart is empty again because the memory store did not survive the process. A shared store keeps sessions across restarts.

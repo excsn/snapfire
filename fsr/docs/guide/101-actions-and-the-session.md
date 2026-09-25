@@ -4,7 +4,7 @@ The question this chapter answers: how does the browser change something, how is
 
 **For:** app developers.
 
-## An action is a declared, typed mutation
+## Declaring an action
 
 An action is an exported constant in a route's `actions.ts`, built with `action` around a body whose parameter names its input type:
 
@@ -19,11 +19,11 @@ export const addToCart = action(async ({ input, session }: ActionCtx<AddToCart>)
 });
 ```
 
-`AddToCart` is an interface under `app/schemas/`; the build lowers every interface there into the contract beside the imported services. The host checks an action's input against its schema before the body runs, so a body never sees a shape it did not declare. The annotation on the parameter is what tells the build which schema. It is also what lets TypeScript infer the action's result for the browser and the tests; `action<AddToCart>(...)` reads too, but with an explicit type argument TypeScript stops inferring the rest, so the parameter form is the one to write.
+`AddToCart` is an interface under `app/schemas/`; the build lowers every interface there into the contract beside the imported services. The host checks an action's input against its schema before the body runs, so a body never sees a shape it did not declare. The annotation on the parameter is what tells the build which schema. It is also what lets TypeScript infer the action's result for the browser and the tests; `action<AddToCart>(...)` also works, but with an explicit type argument TypeScript stops inferring the rest, so the parameter form is the one to write.
 
-The build declares every action in the plan file by id, `cart.addToCart`, so the host refuses to boot if any declared action has nothing answering it. An action a page can call that nobody implemented is a boot error, never a 404 in production.
+The build declares every action in the plan file by id, `cart.addToCart`, so the host refuses to boot if any declared action has nothing answering it. So an action a page can call but nothing implements stops the boot instead of answering 404 in production.
 
-## The session is a typed record
+## The session
 
 `app/schemas/session.ts` declares the session's shape as an interface, plus `defaults` for what a body reads when a key is absent:
 
@@ -39,9 +39,9 @@ A body reads `session.cart` and gets `{}` on a fresh session rather than `undefi
 
 An action, a route handler or middleware can also move the session's end: `session.extend(7200)` makes it end two hours from now once the body commits and the host sets the cookie again to match. Nothing extends on its own, so a session read a thousand times still ends one `ttl` after it opened; extend on sign-in, on a write the application makes anyway or once the remaining time drops under a threshold. A loader cannot call it, since a loader runs on every navigation and extending there would be a store write per page view; the build refuses it by name.
 
-The typed shape is why the cart is written as `session.cart = { ...session.cart, [key]: wanted }` rather than an index assignment. With `cart` typed as a record, `session.cart[key] = wanted` is a type error when the record may be absent; the honest TypeScript is the spread with a computed key. The recogniser learned the computed key from that body.
+The typed shape is why the cart is written as `session.cart = { ...session.cart, [key]: wanted }` rather than an index assignment. With `cart` typed as a record, `session.cart[key] = wanted` is a type error when the record may be absent; the correct TypeScript is the spread with a computed key, which the recogniser supports.
 
-## Guards run first
+## Guards
 
 `fail(kind, message)` inside an `if` is a guard. The kinds are the seven the runtime maps onto a status: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable`, `internal`. The storefront's checkout has one:
 
@@ -49,7 +49,7 @@ The typed shape is why the cart is written as `session.cart = { ...session.cart,
 if (lines.length === 0) fail("invalid", "the cart is empty");
 ```
 
-A guard that reads nothing a call has to produce runs before any call is made, so an empty cart never reaches the order service, which is an assertion the chapter 103 test states in so many words. A guard that depends on a call's result runs where it sits. The kind is a string literal, because the build matches it. The message is any expression and is evaluated only when the guard fires, so a guard can say what it knows: `` fail("not_found", `there is no talk ${params.id}`) `` names the id the caller asked for.
+A guard that reads nothing a call has to produce runs before any call is made, so an empty cart never reaches the order service. The test in chapter 103 asserts exactly that. A guard that depends on a call's result runs where it sits. The kind is a string literal, because the build matches it. The message is any expression and is evaluated only when the guard fires, so a guard can say what it knows: `` fail("not_found", `there is no talk ${params.id}`) `` names the id the caller asked for.
 
 ## Calling an action from the browser
 
@@ -57,7 +57,7 @@ The build writes one typed callable per action into `generated/client.ts`, neste
 
 A successful call re-fetches the current route by default and patches the segments that changed, so the header's badge follows the cart without a page reload and without the page asking. A call that should not revalidate says so when it is created.
 
-## A file is a part of the input
+## File uploads
 
 An action posted as `multipart/form-data` receives the parts as its input: one with no filename is a text field, coerced against the schema exactly as a urlencoded field is; one with a filename is an `Upload`.
 
@@ -68,7 +68,7 @@ export interface Deposit {
 }
 ```
 
-`Upload` is the host's own type. A schema names it without declaring it, the way it names `Uint8Array`. An application that declares one of its own is refused rather than disagreeing with the host about the shape. It carries `filename` and `content_type` as the browser claimed them, `size` and `bytes`.
+`Upload` is the host's own type. A schema names it without declaring it, the way it names `Uint8Array`. An application that declares its own `Upload` is refused, so it cannot disagree with the host about the shape. It carries `filename` and `content_type` as the browser claimed them, `size` and `bytes`.
 
 ```ts
 export const deposit = action(async ({ input, session }: ActionCtx<Deposit>) => {
@@ -79,11 +79,11 @@ export const deposit = action(async ({ input, session }: ActionCtx<Deposit>) => 
 });
 ```
 
-Neither the name nor the type is evidence of anything: both are strings a client chose. What the host guarantees is the length. `server.max_upload` refuses a part over it before the body runs, with `server.max_body` bounding the request whole. The request is buffered before anything parses it, so an upload costs memory for its size while it is in flight; this is for a file a person picks in a form rather than for a large transfer.
+Do not trust the name or the type, since both are strings the client chose. The host only guarantees the length. `server.max_upload` refuses a part over it before the body runs, with `server.max_body` bounding the request whole. The request is buffered before anything parses it, so an upload costs memory for its size while it is in flight; this is for a file a person picks in a form rather than for a large transfer.
 
-A body has no filesystem, so `bytes` goes to a service method or to the application's own Rust through `ctx.native`. Writing a file is not something a lowered body does.
+A body has no filesystem, so `bytes` goes to a service method or to the application's own Rust through `ctx.native`.
 
-Both callers reach the same action. A `<form method="post" enctype="multipart/form-data">` posts it with no JavaScript and is answered with a redirect back to the page, so the session the action wrote is what the next render reads. From the page, `upload(id, formData)` in the client posts a `FormData` and names JSON in `Accept`, so the host answers the action's value rather than the redirect. Both carry `_csrf`, since a form post is verified where a JSON call is not. A form anonymous visitors post needs `[session] csrf = "always"`.
+A form and a script reach the same action. A `<form method="post" enctype="multipart/form-data">` posts it with no JavaScript and is answered with a redirect back to the page, so the session the action wrote is what the next render reads. From the page, `upload(id, formData)` in the client posts a `FormData` and names JSON in `Accept`, so the host answers the action's value rather than the redirect. Both carry `_csrf`, since a form post is verified where a JSON call is not. A form anonymous visitors post needs `[session] csrf = "always"`.
 
 ## The lab
 

@@ -4,7 +4,7 @@ The question this chapter answers: why does a page write `@src/ui/Header` rather
 
 **For:** everyone.
 
-## Five prefixes, one root
+## The five aliases
 
 Every fsr application has the same five import aliases, each a prefix rooted at the app directory:
 
@@ -18,9 +18,9 @@ Every fsr application has the same five import aliases, each a prefix rooted at 
 
 The build writes them into both generated tsconfigs, so they are the same in every application and a reader who sees `@generated/client` knows where it points without opening a config. The two framework imports sit beside them: `@snapfire/fsr` for the authoring types a body uses and `@snapfire/fsr/testing` for the test helpers, both mapped to files under `generated/`.
 
-Sibling imports stay relative. `ProductCard.tsx` imports `./Stars` because the two live together; a page two directories away imports `@src/ui/ProductCard`. The alias is for crossing folders, not for replacing `./`.
+Sibling imports stay relative. `ProductCard.tsx` imports `./Stars` because the two live together; a page two directories away imports `@src/ui/ProductCard`. Use an alias to cross folders and keep `./` for files in the same folder.
 
-## Three readers, one answer
+## Who resolves an alias
 
 An import is read by three things and each resolves an alias to the same file.
 
@@ -32,12 +32,12 @@ An import is read by three things and each resolves an alias to the same file.
 
 A bare specifier that is not an alias is still an external: `react`, `sweetalert2`, `@snapfire/fsr-client`. Those resolve through the import map [chapter 301](301-dependencies-without-npm.md) maintains; snapfirec refuses a build whose import map does not cover one.
 
-## Why not more
+## Custom aliases
 
-`@ui/*` or `@components/*` would each be a name to learn; alias maps in large React projects are unreadable for exactly that reason. Five prefixes that mirror the five directories every application has need no explanation. An application that wants its own alias has nowhere to declare one today, since both tsconfigs are generated; that is a deliberate absence rather than an oversight. The place to declare one, if the need is real, is a build setting rather than a hand edit to a generated file.
+`@ui/*` or `@components/*` would each be a name to learn and custom alias maps in large React projects are hard to read for that reason. The five fixed prefixes match the five directories every application has. An application cannot declare its own alias, since both tsconfigs are generated; this is deliberate. If the need is real, the place to add one is a build setting and not a hand edit to a generated file.
 
 ## The lab
 
 Open `dist/routes/page.js` after a bundle and read its imports: `../src/ui/Header.js`, relative, with the extension. The source said `@src/ui/Header`. Then open `tsconfig.build.json` at the app root and find the `paths` block that snapfirec read to do it.
 
-Now write `import { Header } from "@ui/Header"` in a page and run `fsr check app`. The report marks the page `client`, since the lowerer cannot follow the alias; run the bundle and snapfirec reports `@ui/Header` as an external the import map does not resolve. Two readers, two refusals, one line to fix.
+Now write `import { Header } from "@ui/Header"` in a page and run `fsr check app`. The report marks the page `client`, since the lowerer cannot follow the alias; run the bundle and snapfirec reports `@ui/Header` as an external the import map does not resolve.

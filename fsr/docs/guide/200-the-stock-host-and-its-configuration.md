@@ -4,7 +4,7 @@ The question this chapter answers: what runs an fsr application when nobody has 
 
 **For:** platform developers.
 
-## The host is a library with a stock binary's worth of behaviour
+## The host library
 
 `snapfire_fsr_host` turns a configuration directory, the plan file and the contracts into a service over HTTP types. It matches the route, opens the session from the cookie, runs the loaders, renders the page, serves the statics, answers actions and persists the session into the response. hyper serves it directly; axum can nest it; actix reaches it through a shim behind the `actix` feature, which is what the storefront uses so its two backends and the host can share one binary.
 
@@ -15,7 +15,7 @@ let host = Host::from(env!("CARGO_MANIFEST_DIR"))?.build()?;
 snapfire_fsr_host::actix::serve(Arc::new(host), ("127.0.0.1", 8080)).await
 ```
 
-`Host::from` takes a project root, a `config/` directory or a single file, finds the app directory from it, reads the plan file and the contracts under `generated/` and binds every row. Everything the builder returns before `build` is a seam [chapter 201](201-graduating-to-rust.md) uses; an application that needs none of them is those two lines.
+`Host::from` takes a project root, a `config/` directory or a single file, finds the app directory from it, reads the plan file and the contracts under `generated/` and binds every row. Every builder method before `build` is an extension point that [chapter 201](201-graduating-to-rust.md) uses. An application that needs none of them needs only those two lines.
 
 ## The configuration ladder
 
@@ -30,11 +30,11 @@ Configuration is TOML or YAML under `config/`, read as a ladder of files where a
 | `<env>-<region>` | both, when the region is set |
 | `bundle` | always, last |
 
-For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, in that order, then lets `C5_`-prefixed environment variables override any key with `__` as the separator. A file that is absent is simply not on the ladder, so a checkout with only `app.toml` runs while a deployment adds `production.toml` and `production-eu.yaml` without touching the base. The report lists every file it read under `config`, in order, so the ladder is never a guess. A secret goes in the same files as a c5store `.c5encval`, the decryptor, the key name and the ciphertext, which `c5cli` writes into TOML, YAML or JSON; the host decrypts it while loading with the key of that name from `config/private_keys` or from `C5_SECRETKEY_<NAME>`. A Rust host changes where keys come from through `Loader::secrets`.
+For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, in that order, then lets `C5_`-prefixed environment variables override any key with `__` as the separator. A file that is absent is simply not on the ladder, so a checkout with only `app.toml` runs while a deployment adds `production.toml` and `production-eu.yaml` without touching the base. The report lists every file it read under `config`, in order, so you can see which files were read. A secret goes in the same files as a c5store `.c5encval`, the decryptor, the key name and the ciphertext, which `c5cli` writes into TOML, YAML or JSON; the host decrypts it while loading with the key of that name from `config/private_keys` or from `C5_SECRETKEY_<NAME>`. A Rust host changes where keys come from through `Loader::secrets`.
 
-`bundle.toml` is the last rung and a project does not write one. `fsr bundle` writes it into the deploy tree it produces, naming the paths that moved when the files were laid out; chapter 303 covers what it holds. It loads after every deployment overlay because those describe a deployment while it describes a directory and no deployment has an opinion about where in the tree its own plan file ended up.
+`bundle.toml` is the last rung and a project does not write one. `fsr bundle` writes it into the deploy tree it produces, naming the paths that moved when the files were laid out; chapter 303 covers what it holds. It loads after every deployment overlay because the overlays describe a deployment while `bundle.toml` describes the directory layout, which no deployment overlay sets.
 
-The sections are few. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map, the stylesheets, which build of the client a page loads, whether the head carries a preload link per module, plus the Content-Security-Policy. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `server.static_max_age` says how long a browser may keep what one answers. `[public]` holds the deployment's own values, the one section whose keys the application names.
+The host reads these sections. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title, the shell, the entry script, the import map, the stylesheets, which build of the client a page loads, whether the head carries a preload link per module, plus the Content-Security-Policy. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `server.static_max_age` says how long a browser may keep what one answers. `[public]` holds the deployment's own values, the one section whose keys the application names.
 
 ## What the host infers
 
@@ -54,24 +54,22 @@ client    /static/js/fsr         23 modules, minified, 156 KiB from the binary
 
 A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client it built itself.
 
-The binary carries two builds of those modules and the row says which one is being served. `document.client` decides: `auto`, the default, is the minified build unless `server.dev` is on; `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings by `.min.js`, which the host answers either way, so the choice is what the entry point gets and the graph follows it.
-
-Everything the host decided shows up in the report, so nothing it inferred has to be guessed at from the log later.
+The binary carries two builds of those modules and the row says which one is being served. `document.client` decides: `auto`, the default, is the minified build unless `server.dev` is on; `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings by `.min.js`, which the host answers either way, so the setting picks the entry point's build and the rest of the module graph follows it.
 
 ## The origin a canonical link points at
 
-A crawler reads `rel=canonical` and `rel=alternate` as absolute URLs only. A path on either is not a weaker version of the tag, it is an ignored one, so name the origin this deployment is reached at:
+A crawler reads `rel=canonical` and `rel=alternate` as absolute URLs only. A crawler ignores either tag when it holds a path, so name the origin this deployment is reached at:
 
 ```toml
 [document]
 origin = "https://example.com"
 ```
 
-The host then writes every path href on those two rels absolute, whichever of two places it came from. A `canonical()` or `alternate()` a route's `meta` returned. Its own locale canonical, the one pointing `/en_US/about` at `/about` so a prefixed request for the default locale is not a second page. An href that is already absolute is left exactly as written, which is how a cross-domain `alternate` still works. Every other `rel` keeps its path, since a crawler reads those relative to the document.
+The host then writes every path href on those two rels absolute, whichever of two places it came from: a `canonical()` or `alternate()` a route's `meta` returned or the host's own locale canonical, the one pointing `/en_US/about` at `/about` so a prefixed request for the default locale is not a second page. An href that is already absolute is left exactly as written, which is how a cross-domain `alternate` still works. Every other `rel` keeps its path, since a crawler reads those relative to the document.
 
-It is the scheme and the host and nothing else. A trailing slash or a path is refused at boot rather than producing `https://example.com//about` on a live page. A value with no scheme is refused the same way, since the scheme is the part a host name cannot supply on its own.
+The value holds the scheme and the host only. A trailing slash or a path is refused at boot rather than producing `https://example.com//about` on a live page. A value with no scheme is refused the same way, since the scheme is the part a host name cannot supply on its own.
 
-This is a deployment's one preferred origin, not the host a request arrived on. Those differ on purpose: two host names serving the same pages is exactly what a canonical link exists to collapse, so a self-referential one per host would assert both as originals and create the duplicate it is meant to prevent. An application that genuinely serves a different site per host wants `ctx.host` and a `canonical()` it builds itself, which passes through untouched because it is already absolute.
+This is a deployment's one preferred origin, not the host a request arrived on. The two differ on purpose. A canonical link exists to merge two host names that serve the same pages, so a self-referential one per host would mark both as originals and create the duplicate it is meant to prevent. An application that serves a different site per host wants `ctx.host` and a `canonical()` it builds itself, which passes through untouched because it is already absolute.
 
 A body reads this value as `ctx.origin`, `string | null`, for a URL the host does not rewrite: a JSON-LD block, a feed, an absolute link in the page. It is the same checked value, so nothing has to be copied into `[public]` to reach a loader.
 
@@ -84,7 +82,7 @@ A body reads `ctx.host`. It is null until `[server]` lists the hosts the deploym
 hosts = ["example.com", "www.example.com"]
 ```
 
-The list is an allowlist, not a format. A request's `Host` is lowercased and compared whole, port included, so a deployment on a port lists the port and `localhost:3000` is a separate entry from `localhost`. A header naming anything the list does not hold answers null rather than the value the client sent, so nothing a caller writes reaches a body unless the deployment already named it.
+The list is an allowlist. A request's `Host` is lowercased and compared whole, port included, so a deployment on a port lists the port and `localhost:3000` is a separate entry from `localhost`. A header naming anything the list does not hold answers null rather than the value the client sent, so nothing a caller writes reaches a body unless the deployment already named it.
 
 **The server in front must set the header.** `ctx.host` is only as trustworthy as whatever terminates the connection, because a value the list happens to hold is indistinguishable from the same value sent by hand. With nginx that is `proxy_set_header Host $host;` under a `server_name` that matches, plus a default server for the socket so a request naming something else is answered there instead of being passed through. The boot report says so on every start while the key is set:
 
@@ -94,7 +92,7 @@ hosts     example.com
           ctx.host reads the request's Host against these; the server in front must set it; a client otherwise names its own
 ```
 
-Leave the key out and the header is never read at all, which is the default and the right setting for an application that does not need it.
+Leave the key out and the header is never read. That is the default and it suits an application that does not need the host.
 
 ## The deployment's own values
 
@@ -114,9 +112,9 @@ support = "help@example.com"
 analytics_id = "G-65TR8XV7YE"
 ```
 
-The values are public in the plain sense: a loader returns them, a page renders them, a store seeds the browser with them. A secret is not a `[public]` value; it is a `[clients]` credential or something the application's own Rust reads. The boot report lists every key with its value on a `public` row. `fsr doctor` reports a body reading a key the section does not declare.
+The values are public in the plain sense: a loader returns them, a page renders them, a store seeds the browser with them. A secret does not go in `[public]`. Put it in a `[clients]` credential or somewhere the application's own Rust reads. The boot report lists every key with its value on a `public` row. `fsr doctor` reports a body reading a key the section does not declare.
 
-**A section the host does not own is left alone.** An application that runs the host inside itself hands it one branch of its own store, `Config::from_store_at(&store.branch("fsr"), root)` and keeps the rest of `config/` for itself. Its rungs are named after the same deployment axes, so the application's `local.yaml` and the host's are one file. The host reads the sections it names and leaves every other top-level key where it is, listing them on the report's `ignored` row so a misspelt section is still visible; `fsr bundle` and `fsr doctor` read the directory the same way. A key it does not know inside a section it owns is still an error.
+**A section the host does not own is left alone.** An application that runs the host inside itself hands it one branch of its own store, `Config::from_store_at(&store.branch("fsr"), root)` and keeps the rest of `config/` for itself. Its rungs are named after the same deployment axes, so the application and the host share one `local.yaml`. The host reads the sections it names and leaves every other top-level key where it is, listing them on the report's `ignored` row so a misspelt section is still visible; `fsr bundle` and `fsr doctor` read the directory the same way. A key it does not know inside a section it owns is still an error.
 
 ## The boot report
 

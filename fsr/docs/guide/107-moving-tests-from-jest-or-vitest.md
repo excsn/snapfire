@@ -43,13 +43,13 @@ There is no `vitest`, `@jest/globals`, `@testing-library/react`, `@testing-libra
 
 **`render` and every event are awaited.** `await render(<Page />)`, `await fireEvent.click(button)` and `await user.click(button)`. Each one settles the engine before it resolves: microtasks, the action round trip, the re-render and timers already due. A line after an unawaited click reads the page before the click took effect.
 
-**Services are mocked through `ctx`, not modules.** There is no `vi.mock` or `jest.mock`. A loader or action reaches the world only through its services, so `ctx({ services: { shopping: { listProducts: () => [filament] } } })` is where a mock goes, in a body test and in a page spec. A service method may be a function, a value or a mock function. The contract checks both what a mock is asked and what it answers. A module mock you used to stub a fetch wrapper has no counterpart because the page never calls one: its actions and loaders go through the generated client, which the runner answers.
+**Services are mocked through `ctx`, not modules.** There is no `vi.mock` or `jest.mock`. A loader or action reaches the world only through its services, so `ctx({ services: { shopping: { listProducts: () => [filament] } } })` is where a mock goes, in a body test and in a page spec. A service method may be a function, a value or a mock function. The contract checks both what a mock is asked and what it answers. A module mock that stubs a fetch wrapper has no counterpart because the page never calls one: its actions and loaders go through the generated client, which the runner answers.
 
 **The clock is always fake.** Time never passes on its own. `advance(ms)` moves it. `vi.advanceTimersByTime(ms)` is the same call and returns a promise to await. `vi.useFakeTimers()` and `vi.useRealTimers()` change nothing. `waitFor` and every `findBy` query move the clock in steps of 50 while they wait, up to a second.
 
 **There are no snapshots.** `toMatchSnapshot` and `toMatchInlineSnapshot` fail with a message saying so. Assert on the value.
 
-**A body test is a dialect.** A `*.test.ts` is lowered and replayed, not run as JavaScript, so it holds what [103](103-testing-a-body.md) lists: mocks, runs, local values, mock functions, hooks and expectations. A loop, a helper function or a `console.log` in it fails the file with its line. A failure of a run reads as `{ kind, message }`, so `rejects.toMatchObject({ kind: "invalid" })` pins the kind. `toBe` compares the way `toEqual` does, since a value the interpreter returns has no identity. An integer field reads back as a bigint equal to the number a test writes.
+**A body test is lowered.** A `*.test.ts` is lowered and replayed, not run as JavaScript, so it holds what [103](103-testing-a-body.md) lists: mocks, runs, local values, mock functions, hooks and expectations. A loop, a helper function or a `console.log` in it fails the file with its line. A failure of a run reads as `{ kind, message }`, so `rejects.toMatchObject({ kind: "invalid" })` pins the kind. `toBe` compares the way `toEqual` does, since a value the interpreter returns has no identity. An integer field reads back as a bigint equal to the number a test writes.
 
 **The DOM is not laid out.** Specs run over linkedom. Visibility and the accessibility tree read attributes and inline styles, never a stylesheet, so `toBeVisible` does not see `display: none` from a CSS file. Focus, typed values and a text control's selection are tracked the way a browser tracks them.
 
@@ -94,7 +94,7 @@ describe("the cart", () => {
 });
 ```
 
-Three lines moved. The imports come from one module. The module mock became a mock function behind the service the checkout action calls, so the real action runs under the spec's `ctx` and the contract checks what the mock answers. `render` is awaited.
+Three things changed. The imports come from one module. The module mock became a mock function behind the service the checkout action calls, so the real action runs under the spec's `ctx` and the contract checks what the mock answers. `render` is awaited.
 
 ## The lab
 

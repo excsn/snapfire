@@ -4,7 +4,7 @@ The question this chapter answers: how does React get into the browser when ther
 
 **For:** everyone.
 
-## What the browser loads is committed
+## Vendored browser modules
 
 A browser dependency is a module the browser fetches. fsr keeps those under `app/vendor/`, committed to the repository, served from disk by the host at its conventional path and named in `app/importmap.json` so a bare specifier in a page resolves to a file the application ships. There is no install step on a checkout and nothing is fetched at runtime; the storefront's README has no `npm install` line because there is nothing for one to do.
 
@@ -12,21 +12,21 @@ A browser dependency is a module the browser fetches. fsr keeps those under `app
 
 The client library itself, `@snapfire/fsr-client`, is not a package to add. It is built from `fsr/client` with snapfirec and served from that build; the storefront's import map points at it.
 
-## Types come separately and are not committed
+## Type declarations
 
 The editor needs declarations and the build's `tsc` step needs them too; they are not something the browser loads, so they go under `app/types/`, ignored by git. `fsr types <app>` fills it: for every vendored package it asks the npm registry for the release matching the vendored major, takes the package's own declarations when it ships them and `@types/<name>` from DefinitelyTyped when it does not, then queues whatever those declarations depend on. The generated `tsconfig.json` maps each package to its declarations, so `import { useState } from "react"` types in the editor exactly as it resolves in the browser.
 
-The step is best effort by design. Skip it and the application still builds and runs; the editor types every import as `any` until you run it. The report's `types` section says which package's declarations came from where; `missing` names the ones it could not find with the reason.
+The step is best effort. Skip it and the application still builds and runs; the editor types every import as `any` until you run it. The report's `types` section says which package's declarations came from where; `missing` names the ones it could not find with the reason.
 
-Templates are JSX; what types their JSX follows the import map. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr-authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, with no `@types/react` fetched. `fsr add app vue@3.5.13` is how Vue itself gets there, the same way React does.
+Templates are JSX and the import map decides what types that JSX. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr-authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, with no `@types/react` fetched. `fsr add app vue@3.5.13` is how Vue itself gets there, the same way React does.
 
-## Why the split
+## Why two directories
 
-Two directories because two audiences. `vendor/` is what ships and it is committed so that a checkout is complete and a deployment carries exactly what was reviewed. `types/` is what the editor reads and it is not committed because it is large, regenerable and never served. The manifests in each record the version so `fsr add` and `fsr types` know what is already there.
+There are two directories because they serve different readers. `vendor/` is what ships and it is committed so that a checkout is complete and a deployment carries exactly what was reviewed. `types/` is what the editor reads and it is not committed because it is large, regenerable and never served. The manifests in each record the version so `fsr add` and `fsr types` know what is already there.
 
 ## When a team has xwpm
 
-Internally, snapfire modules are published to a registry and installed with xwpm, which owns a vendor tree, an import map and a types directory of its own. fsr does not reimplement any of that. An `xwpm.wmf` in the app directory marks the application as one xwpm manages and names its layout; from then on `fsr add` and `fsr types` delegate to xwpm rather than fetching themselves, while the build reads the directories the file names. A public application never sees this path; an internal one gets the registry without the two tools drifting apart.
+Internally, snapfire modules are published to a registry and installed with xwpm, which owns a vendor tree, an import map and a types directory of its own. fsr does not reimplement any of that. An `xwpm.wmf` in the app directory marks the application as one xwpm manages and names its layout; from then on `fsr add` and `fsr types` delegate to xwpm rather than fetching themselves, while the build reads the directories the file names. A public application does not use this path. An internal one uses the registry and fsr stays in step with xwpm because it delegates to it.
 
 ## The lab
 

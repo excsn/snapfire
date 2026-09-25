@@ -1,14 +1,14 @@
-# 105. No framework at all
+# 105. Applications without a framework
 
 The question this chapter answers: what does an fsr application look like with no component framework in it, where does the interactivity go and how does a region talk to the server without a payload or an island?
 
 **For:** app developers.
 
-## The browser is the mounter
+## Custom elements instead of a mounter
 
-Chapter 104 put a Vue component where a React one had been and the seam held: a template places it, the server writes its marker, a mounter takes it in the browser. The cheapest case on that spectrum has no mounter. A custom element is defined once by a module the browser runs and upgraded wherever the parser finds its tag. The server can write that tag and everything inside it, because it is markup like any other; the browser does the rest when the definition arrives.
+Chapter 104 put a Vue component where a React one had been and nothing else changed: a template places it, the server writes its marker and a mounter takes it in the browser. A custom element needs no mounter. It is defined once by a module the browser runs and upgraded wherever the parser finds its tag. The server can write that tag and everything inside it, because it is markup like any other; the browser does the rest when the definition arrives.
 
-Two examples carry this chapter. The tool library, [`toolshed_web_ts`](../../examples/toolshed_web_ts/README.md), is built that way. Every route is a template, every interactive piece is a `.ts` file under `src/elements/` calling `customElements.define`; the regions that reach the server are htmx attributes. Nothing mounts, nothing hydrates and the one line in `generated/islands.ts` registers an element definition rather than a component. The bundle is `src/**/*` and two generated files; the import map is the client, its store and htmx. The noticeboard, [`noticeboard_tera`](../../examples/noticeboard_tera/README.md), goes one step further at the end of the chapter: its pages are not TSX templates at all but Tera files the host renders from disk.
+This chapter uses two examples. The tool library, [`toolshed_web_ts`](../../examples/toolshed_web_ts/README.md), is built with custom elements: every route is a template and every interactive piece is a `.ts` file under `src/elements/` calling `customElements.define`, while the regions that reach the server are htmx attributes. Nothing mounts or hydrates and the one line in `generated/islands.ts` registers an element definition rather than a component. The bundle is `src/**/*` and two generated files; the import map is the client, its store and htmx. The noticeboard, [`noticeboard_tera`](../../examples/noticeboard_tera/README.md), comes at the end of the chapter: its pages are Tera files the host renders from disk instead of TSX templates.
 
 ## Writing a custom element in a template
 
@@ -64,11 +64,11 @@ class ShedTally extends HTMLElement {
 customElements.define("shed-tally", ShedTally);
 ```
 
-`get` and `subscribe` are the whole store adapter. React reads the store through a hook and Vue through a ref, because each framework has its own idea of a reactive value; an element has none, so it reads the value once and takes a callback for the changes. The `get` comes first because `subscribe` only hears what changes after it: the server wrote this count into the button, but a property or anything else the server did not write would stay empty until the key next moved. The layout's loader seeds the key with `export const store`, exactly as it would for a React island; the count follows the store from then on.
+The store adapter for an element is just `get` and `subscribe`. React reads the store through a hook and Vue through a ref, because each framework has its own idea of a reactive value; an element has none, so it reads the value once and takes a callback for the changes. The `get` comes first because `subscribe` only hears what changes after it: the server wrote this count into the button, but a property or anything else the server did not write would stay empty until the key next moved. The layout's loader seeds the key with `export const store`, exactly as it would for a React island; the count follows the store from then on.
 
 `disconnectedCallback` removes the listener and the subscription that `connectedCallback` added. A morph that moves an element disconnects it and connects it again, so without the stop a moved tally would carry two click listeners that cancel each other out; a removed one would stay subscribed and keep being written.
 
-## A shadow root the server writes
+## Server-written shadow roots
 
 An element that wants its own styles has a shadow root. The parser attaches one from a `<template shadowrootmode="open">` inside the element, before any script runs. The element's template lives beside its class in `elements/loan-planner.tsx`. The server writes it inside every `<loan-planner>` it renders:
 
@@ -89,7 +89,7 @@ export default function LoanPlanner({ deposit, days, max, disabled }: { deposit:
 
 The tool page places the tag and nothing else, `<loan-planner name="days" deposit={tool.deposit} disabled={reserved} max={tool.days} days={days} />`. The file name is the tag. The template's props are the element's attributes, so an array or an object reaches the template without becoming an attribute. The build types the tag with those props in `generated/elements.d.ts`, so a missing `days` or a `max` of the wrong type fails the typecheck at the page, while `name`, which the class reads and the template does not take, passes. A template with state or a handler stops the build, since the class owns the behaviour.
 
-The planner is styled and laid out from the first paint, with no framework and no stylesheet to link. One thing to know: `innerHTML` attaches no declarative shadow roots, so an element that arrives inside an htmx swap finds its template as an ordinary child. `shadowOf` from `@snapfire/fsr-client/elements` answers both cases, the root the parser attached or one attached from the template:
+The planner is styled and laid out from the first paint, with no framework and no stylesheet to link. `innerHTML` does not attach declarative shadow roots, so an element that arrives inside an htmx swap finds its template as an ordinary child. `shadowOf` from `@snapfire/fsr-client/elements` answers both cases, the root the parser attached or one attached from the template:
 
 ```ts
 const root = shadowOf(this, this.#internals);
@@ -112,9 +112,9 @@ return (
 
 The build reads that `<template>` as the shadow root. Anything on it besides the four `shadowroot` attributes stops the build, since the parser drops the template element once it becomes the root. A closed root is not on `this.shadowRoot`. The planner already holds its internals for the form value, which is why the call above passes `this.#internals`. An element without them would get `null` from `shadowOf`.
 
-The state is in the markup, not in a script that runs after paint. `reserved` comes from the loader, so the server writes `disabled` on the host and on the range, with the label reading "Borrowed for" from the first byte. A boolean attribute is written bare when it is true and left out when it is false, which is what `:host([disabled])` and a disabled control each want.
+The state is written into the markup instead of being set by a script after paint. `reserved` comes from the loader, so the server writes `disabled` on the host and on the range, with the label reading "Borrowed for" from the first byte. A boolean attribute is written bare when it is true and left out when it is false, which is what `:host([disabled])` and a disabled control each want.
 
-## A value inside a shadow root that the form posts
+## Form values from a shadow root
 
 A control in a shadow root has no form owner, so the slider is not submitted by the form around it however it is nested. An element that wants to be a field says so and supplies its own value:
 
@@ -131,9 +131,9 @@ class LoanPlanner extends HTMLElement {
 
 With `name="days"` on the host, `days` is in the posted body under that name, natively and through htmx alike, since both build the form data from the form. The action reads it as it reads any other field, clamps it to what the shed lends that tool for and writes the agreed length into the session, so the page that comes back says what was actually agreed rather than what the tool's limit is.
 
-## A definition that waits until its element is in view
+## Deferring a definition until the element is in view
 
-Everything above is defined when the entry module runs, which is what a masthead wants and not what a panel at the bottom of the page wants. An element has no mount, so what a timing can defer is its definition. That is what a template asks for:
+Everything above is defined when the entry module runs, which suits a masthead but not a panel at the bottom of the page. An element has no mount, so a timing can only defer its definition. A template asks for that like this:
 
 ```tsx
 <Island when="visible" define="@src/elements/time-ago.ts">
@@ -147,11 +147,11 @@ Everything above is defined when the entry module runs, which is what a masthead
 </Island>
 ```
 
-The child is an element, not a component. The server writes its markup inside the island marker, so the list is readable with no script at all: `back 2026-09-14` until the definition lands, `back in 2 days` after it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports it when the panel scrolls into view and every element inside upgrades itself. The module needs an `export` to be imported dynamically; the class is the obvious one.
+The child is an element, not a component. The server writes its markup inside the island marker, so the list is readable with no script at all: `back 2026-09-14` until the definition lands, `back in 2 days` after it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports it when the panel scrolls into view and every element inside upgrades itself. The module needs an `export` to be imported dynamically and exporting the class is enough.
 
-Islands in this application need nothing more than that: one marker, no props script, no mounter and no framework.
+An island in this application is only the marker, with no props script, mounter or framework.
 
-## A region that asks the server for markup
+## Fragments for htmx regions
 
 An island round trip carries a payload the client applies. htmx carries none: an attribute names a URL, the response is markup and it is swapped into a target. What it needs from the host is one segment of a route as HTML with nothing around it. That is what `__fragment` in the query asks for:
 
@@ -171,7 +171,7 @@ The host renders the whole route for either, layouts included, waits for every d
 
 `data-sf-native` tells the navigator this anchor is not its own. The loans panel polls the same way, `hx-get="?__fragment=loans"` with `hx-trigger="every 15s"`; the `<time-ago>` elements inside each fresh fragment upgrade as they land, since the browser defines the element once and applies it everywhere.
 
-## A form that gets its page back
+## Posting a form through htmx
 
 An action posted as a form is answered with a redirect to the page that posted it; the tera application in the examples posts its forms that way with no JavaScript at all. When the action's URL carries `__fragment`, the redirect carries it too:
 
@@ -186,9 +186,9 @@ An action posted as a form is answered with a redirect to the page that posted i
 
 htmx posts, follows the 303 to `/tool/3?__fragment` and swaps in the tool page rendered from the session the action just wrote, with the button now saying the opposite. Without JavaScript the same form posts natively and lands back on the document. `csrf_token` is a prop every page and layout may read, minted for anonymous sessions too when `[session] csrf = "always"` is set, which a form anonymous visitors post needs.
 
-## Two libraries, one document
+## Wiring htmx to the navigator
 
-A fragment ends with the same inert seed script a document carries, so the store follows the server through htmx exactly as it does through a payload. Making the two libraries aware of each other is one line:
+A fragment ends with the same inert seed script a document carries, so the store follows the server through htmx exactly as it does through a payload. Making the two libraries aware of each other takes one call, `bindHtmx(htmx)`, in the entry module:
 
 ```ts
 import htmx from "htmx.org";
@@ -200,9 +200,9 @@ enableNavigation();
 bindHtmx(htmx);
 ```
 
-`fsr use app htmx` writes the map line, vendors htmx and prints those three lines for `main.ts`; `fsr new --with htmx` writes them into the scaffold's own. htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed, which is what that one line wires up. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the one way this arrangement fails. It fails visibly.
+`fsr use app htmx` writes the map line, vendors htmx and prints those three lines for `main.ts`; `fsr new --with htmx` writes them into the scaffold's own. htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed and `bindHtmx` wires up both. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the only way this setup fails and the reload makes it easy to see.
 
-## A page that is a Tera template
+## Tera pages
 
 The tool library's pages are TSX with no state, which the build lowers to a tree the host walks. A page can skip the lowering altogether and be a template the host renders from the file. Put `page.tera` where `page.tsx` would go and the route is the same route:
 
@@ -231,7 +231,7 @@ The loader is unchanged. It is TypeScript, lowered and run by the host like ever
 
 Every `.tera` under `app/` is loaded into one Tera and named by its path under the app, which is why the include names `templates/nav.tera` and why a partial can sit anywhere outside `vendor/`, `dist/` and `generated/`. `extends` resolves the same way. The build has nothing to lower, bundle or typecheck for a template, so the report lists it as `template`; `tsconfig.build.json` lists the file among its includes and snapfirec compiles nothing from it. The loader and any `actions.ts` beside it are lowered as usual and a form in the template posts to an action the way the tool library's reserve form does. A template places an island with `{{ island(module="src/ui/Thing.tsx#default") }}`; the build reads the literal and bundles that module, so an island can still sit inside a page nothing else in the application hydrates.
 
-The host reads the templates at boot and refuses a plan naming a template the tree does not hold, so a renamed file is a boot error rather than an empty page. `fsr prerender app` treats a template route like any other: the index reads nothing from the request, so it is written once. The notice page's loader exports `paths`, so one file per notice is written beside it and the host answers those from disk while rendering any other id live. There is no Rust project in the noticeboard and no `main.rs`; `fsr serve app` is the whole server. An application that owns its binary registers the same evaluator through `HostBuilder::evaluator`, which is how `uni` in chapter 106 renders its layout. A bare application takes the direction with `fsr use app tera`, whose example is a `page.tera` beside its loader.
+The host reads the templates at boot and refuses a plan naming a template the tree does not hold, so a renamed file is a boot error rather than an empty page. `fsr prerender app` treats a template route like any other: the index reads nothing from the request, so it is written once. The notice page's loader exports `paths`, so one file per notice is written beside it and the host answers those from disk while rendering any other id live. There is no Rust project in the noticeboard and no `main.rs`; `fsr serve app` runs it. An application that owns its binary registers the same evaluator through `HostBuilder::evaluator`, which is how `uni` in chapter 106 renders its layout. A bare application takes the direction with `fsr use app tera`, whose example is a `page.tera` beside its loader.
 
 ## The lab
 
@@ -241,6 +241,6 @@ Ask for fragments with `curl`, as above. The page fragment starts at `<section` 
 
 Open the shelves in a browser, open the tally panel, click a tool and reserve it. The masthead was never touched and the panel is still open; the count moved because the fragment carried the seed. Then take the `sf:navigate` listener out of `main.ts`, rebuild and do it again: the document reloads on the reserve. Put it back.
 
-Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. The build stops with the error chapter 104 shows, since this import map has no React either. The rule from chapter 104 is the same rule here.
+Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. The build stops with the error chapter 104 shows, since this import map has no React either.
 
 Then the noticeboard. Run `fsr build app` there and read the report: the two pages and the layout are `template`, the three loaders are `lowered` and `generated/islands.ts` registers nothing. Run `fsr prerender app` and count the files under `dist/prerender`: the index plus one per notice, from `paths`. Start `fsr serve app` and ask for `/notice/bins` with `curl -i`: the answer carries `x-sf-prerendered: 1`. Ask for `/notice/nope`: rendered live, with the template's else branch. Rename `templates/nav.tera` and start the server again: it refuses at boot naming the template the layout includes and cannot find.

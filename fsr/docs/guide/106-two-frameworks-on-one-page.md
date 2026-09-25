@@ -4,22 +4,22 @@ The question this chapter answers: what does it actually take to run React and V
 
 **For:** app developers, plus anyone weighing a migration.
 
-## The seam is a module id
+## How islands are dispatched
 
 A placement carries a module id and nothing else. The server writes `<sf-i data-sf-module="js/src/ui/Holdings.vue#default">` around the markup it rendered; the browser looks that id up in the registry and calls whatever mounter the entry names. Nothing in the plan, the payload or the renderer knows which framework is behind an id, which is why a page can hold more than one.
 
-That makes mixing a property of the registry rather than a feature:
+So mixing frameworks needs nothing beyond the registry:
 
 ```ts
 registerIsland("js/src/ui/Watch.tsx#default", { loader: () => import("./ui/Watch.js").then((m) => m.default), mount: reactMounter, patch: reactPatcher, unmount: reactUnmounter });
 registerIsland("js/src/ui/Holdings.vue#default", { loader: () => import("./ui/Holdings.vue"), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
 ```
 
-The [`uni`](../../examples/uni/README.md) example is a page doing exactly that: a Tera layout with a React island in its masthead, a Vue island on the board beneath it and an htmx region beside them, all from one payload.
+The [`uni`](../../examples/uni/README.md) example is a page that does this: a Tera layout with a React island in its masthead, a Vue island on the board beneath it and an htmx region beside them, all from one payload.
 
-## One store, two adapters
+## Sharing the store
 
-Each framework reads the store through its own adapter, both adapters being the same store. The key is declared once and imported by both:
+Each framework reads the store through its own adapter and both adapters read the same store. The key is declared once and imported by both:
 
 ```ts
 export const watchedKey = key<string>("uni/watched");
@@ -37,27 +37,27 @@ Vue takes it as a ref:
 const held = useStore(watchedKey, props.watched);
 ```
 
-Clicking a row in the Vue table writes `held.value` and the React masthead re-renders with the new symbol. Neither component imports the other; neither knows what the other is written in. The server renders both with the same value as a prop, so the first paint agrees with the store before any script runs.
+Clicking a row in the Vue table writes `held.value` and the React masthead re-renders with the new symbol. The two components do not import each other or know each other's framework. The server renders both with the same value as a prop, so the first paint agrees with the store before any script runs.
 
-## One router over segments that differ
+## Navigation across frameworks
 
-A segment is a segment. `uni` puts the Vue island on `/board` and a React island on `/news`, both under the same layout, so clicking between them replaces one framework's segment with the other's while the layout, the masthead island included, is kept with its state. The navigator does not consult a framework to do it: it applies the payload's segments by key, hands each region's props to whatever is mounted there and mounts what is not.
+Navigation treats a segment the same whatever framework rendered it. `uni` puts the Vue island on `/board` and a React island on `/news`, both under the same layout, so clicking between them replaces one framework's segment with the other's while the layout, the masthead island included, is kept with its state. The navigator does not consult a framework to do it: it applies the payload's segments by key, hands each region's props to whatever is mounted there and mounts what is not.
 
-## The third shape
+## htmx
 
-htmx belongs in this chapter because it is not a third runtime. It has no build step, no mounter and nothing to hydrate: an attribute names a URL, the response is markup and it is swapped in. What it asks of the framework is a fragment, which chapter 105 covers, plus one line to keep the two libraries aware of each other:
+htmx fits beside React and Vue without adding a third runtime. It has no build step, no mounter and nothing to hydrate: an attribute names a URL, the response is markup and it is swapped in. What it asks of the framework is a fragment, which chapter 105 covers, plus one line to keep the two libraries aware of each other:
 
 ```ts
 bindHtmx(htmx);
 ```
 
-So one page here holds three interaction models: a component React hydrates, a component Vue hydrates over the markup the server wrote for it, a region nothing mounts at all. The lot stepper in the masthead is a fourth, from chapter 102: a React component the host renders and steps itself, placed in server mode, whose buttons call an action the host dispatches inside the round trip.
+So one page here holds three interaction models: a component React hydrates, a component Vue hydrates over the markup the server wrote for it and a region nothing mounts. The lot stepper in the masthead is a fourth, from chapter 102: a React component the host renders and steps itself, placed in server mode, whose buttons call an action the host dispatches inside the round trip.
 
-The fifth is the cheapest to serve and it holds the page's most valuable content. The book under the masthead, value against cost with the profit between them, is arithmetic the layout's loader did, printed straight into the markup: no island, no mounter, no props script, nothing to hydrate, no module loaded. It is current because the desk's clock pushes `prices` and `live(["prices"])` revalidates the route, so the server computes the numbers again and the navigator swaps the segment. Reach for an island when the browser owns something. When the server owns it, plain markup is enough.
+The fifth is plain server markup. The book under the masthead, value against cost with the profit between them, is arithmetic the layout's loader did, printed straight into the markup with no island, mounter, props script or module to load. It is current because the desk's clock pushes `prices` and `live(["prices"])` revalidates the route, so the server computes the numbers again and the navigator swaps the segment. Use an island only when the browser owns the state; otherwise render plain markup.
 
 ## What it costs
 
-This is the part worth reading before you reach for it. Measured from the files `uni`'s board actually loads, gzip at level 9:
+Read this before mixing frameworks. These sizes are measured from the files `uni`'s board loads, with gzip at level 9:
 
 | | raw | gzip |
 | --- | --- | --- |
@@ -68,21 +68,21 @@ This is the part worth reading before you reach for it. Measured from the files 
 | this application | 6.6K | 2.2K |
 | everything the page loads | 503.1K | 152.6K |
 
-React and Vue together are 96K compressed before a line of application code runs. A page that needs both pays for both, every visit; no amount of seam design makes that cheaper.
+React and Vue together are 96K compressed before a line of application code runs and every visit to a page that uses both downloads both.
 
-Where it earns its keep is narrow and worth naming:
+Mixing is worth it in a few cases:
 
 - **A migration.** Moving off one framework island by island rather than in one jump, with both running until the last one is gone.
-- **Two teams, one page.** A shell one group owns holding a panel another group owns, without agreeing on a framework first.
-- **Zero-runtime pieces.** Custom elements are the browser and compile away to nothing, so dropping one into a React page costs what chapter 105 measures rather than what this table does.
+- **Separate teams on one page.** A shell one group owns holding a panel another group owns, without agreeing on a framework first.
+- **Pieces with no runtime.** Custom elements need no framework runtime, so dropping one into a React page costs what chapter 105 measures rather than what this table does.
 
-What it is not is a default. If one framework will do, use one.
+Do not mix frameworks by default. If one framework will do, use one.
 
 ## The lab
 
 Run the example: `cargo run -p uni`, then build its browser tree the way its README says, since it keeps `js/` rather than `app/`.
 
-Open `/board` and click a row in the table. The masthead symbol changes; the table is Vue and the masthead is React. Open the console: nothing.
+Open `/board` and click a row in the table. The masthead symbol changes; the table is Vue and the masthead is React. Open the console: it is empty.
 
 Click News. The page segment is React now, the masthead is the same element it was, the feed's filter already reading the symbol you picked in the Vue table. Click Board again: the table comes back with your row still held.
 

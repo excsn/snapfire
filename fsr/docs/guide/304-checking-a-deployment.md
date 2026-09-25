@@ -6,11 +6,11 @@ The question this chapter answers: what is wrong with an application that starts
 
 ## What the host already refuses
 
-The host is strict at boot on purpose. A declared action nothing answers, a bundle carrying a server module, a route claimed twice, a plan file it cannot read, a `server.render` that is neither `rust` nor `islands`: each of those stops the process with the reason, because a deployment that half works is worse than one that does not start.
+The host is strict at boot on purpose. A declared action nothing answers, a bundle carrying a server module, a route claimed twice, a plan file it cannot read, a `server.render` that is neither `rust` nor `islands`: each of those stops the process with the reason, because a boot failure is easier to notice than a deployment that partly works.
 
-That strictness has an edge. Everything it catches is a contradiction the host can see from inside a single boot. What it cannot see is a setting that is coherent, loads cleanly and still cannot do the job it was written for. A locale in the table with no catalog file loads: `t` falls back and the page renders in the wrong language. An import map naming a package nothing vendored loads: the browser asks for the file and gets a 404. A plan older than the routes it was lowered from loads perfectly, then answers yesterday's routes.
+Everything the host catches is a contradiction it can see from inside a single boot. It cannot catch a setting that is coherent, loads cleanly and still cannot do the job it was written for. A locale in the table with no catalog file loads: `t` falls back and the page renders in the wrong language. An import map naming a package nothing vendored loads: the browser asks for the file and gets a 404. A plan older than the routes it was lowered from loads cleanly, then answers the old routes.
 
-`fsr doctor` is that middle.
+`fsr doctor` checks for those.
 
 ```
 fsr doctor app
@@ -28,7 +28,7 @@ fsr build app && fsr doctor app
 fsr build app && fsr bundle app
 ```
 
-The command stays worth running on its own in CI, where there is a plan to check but no tree to write. `fsr bundle --no-doctor` skips the check for a caller that means to bundle anyway.
+Run the command on its own in CI, where there is a plan to check but no tree to write. `fsr bundle --no-doctor` skips the check for a caller that means to bundle anyway.
 
 ## What it checks
 
@@ -37,7 +37,7 @@ Each check answers from something a build already computed, so none of it needs 
 | Check | What it reports | Why it matters |
 | --- | --- | --- |
 | `canonical` | `[document] origin` is unset while the deployment names hosts or prerenders | Without an origin the canonical and alternate links are relative, which an audit reports and a crawler resolves against whatever host it arrived on |
-| `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty | The list is the whole opt-in, so an empty one means the read answers null for ever rather than the host the request carried |
+| `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty | The list is the only opt-in, so an empty one means the read answers null for ever rather than the host the request carried |
 | `ctx.config` | a body reads `ctx.config.<key>` while `[public]` does not declare the key | The declaration is what types the read and what an overlay sets, so a key missing from it answers null on every deployment |
 | `locales` | a locale in `[locales] supported` with no catalog under `locales/` | The application says it serves that language and every message falls back |
 | `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` | The host reads the plan and never the sources, so an unbuilt change is invisible until the next build |
@@ -47,7 +47,7 @@ Each check answers from something a build already computed, so none of it needs 
 | `shadow` | a `[[static]]` root whose route swallows an application route | A matched static prefix answers from the directory and returns, so the page underneath it never runs |
 | `bearer` | a client carries a bearer token while `[auth]` is unset | An `[auth]` provider is the only thing that writes a token into custody, so the call goes out with no `Authorization` header |
 | `cache.tags` | a call drops a cache tag no cached method names | The two sides are strings that have to agree; a typo either way leaves a write that invalidates nothing |
-| `links` | a literal internal link matching no route, static root or mounted site | The plan already holds the link and the routes, so a 404 nobody would find without clicking is findable without a crawler |
+| `links` | a literal internal link matching no route, static root or mounted site | The plan already holds the link and the routes, so a 404 you would otherwise find only by clicking shows up without a crawler |
 | `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
 | `csp` | a policy naming `'unsafe-inline'` in `script-src` beside an import map; a policy naming `'strict-dynamic'` | The host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`. `'strict-dynamic'` makes it ignore `'self'` and every host, leaving the entry module with nothing to allow it |
 | `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
@@ -60,7 +60,7 @@ canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so e
 doctor       1 of 14 checks found something
 ```
 
-### What the plan and the configuration say about each other
+### Plan and configuration checks
 
 Four of the checks compare two artifacts that were written separately and have to agree.
 
@@ -68,9 +68,9 @@ Four of the checks compare two artifacts that were written separately and have t
 
 `bearer` and `cache.tags` are both a name that only works if two places spell it the same. A bearer client reads a token out of custody and an `[auth]` provider is the only thing that puts one there. A cache tag is dropped by whatever names it in `writes`. Only the write side of a tag is asked about, because a cached tag nothing writes is how a read-only service says it expires by its own ttl. A typo in either direction leaves a written tag nothing caches.
 
-`links` reads the literal `href` of every anchor the build lowered and asks whether this deployment answers it, against its routes, its static roots, the prefixes of the sites it mounts and the framework's own paths. A locale prefix is stripped first, the way the host strips one. Only a literal is asked about, since a computed href is not something the build knows the whole of. A site is exempt: its links reach into a shell it cannot see, so the shell it was built against need not be the one it runs in.
+`links` reads the literal `href` of every anchor the build lowered and asks whether this deployment answers it, against its routes, its static roots, the prefixes of the sites it mounts and the framework's own paths. A locale prefix is stripped first, the way the host strips one. Only a literal is asked about, since the build cannot know every value a computed href takes. A site is exempt: its links reach into a shell it cannot see, so the shell it was built against need not be the one it runs in.
 
-### What a deploy tree would carry
+### Deploy tree checks
 
 The other checks read settings. This one reads the deploy tree that `fsr bundle` is about to write, before it exists, then reports a file the tree would name and the project cannot supply.
 
@@ -80,9 +80,9 @@ The check also refuses a setting no tree can express. A `[[static]]` route that 
 
 The plan and the import map are left to `stale` and `vendor`, which already report them with remedies of their own.
 
-### What a shell owes its sites
+### Site checks
 
-A shell serves a mounted site and never builds it, so the artifact is the only thing that says what it should carry. Three of those findings are worth spelling out.
+A shell serves a mounted site and never builds it, so the artifact is the only thing that says what it should carry.
 
 A mount that pins no `hash` accepts whatever sits at the path. The pin is what makes a deploy reproducible; `fsr sites hash <site dir>` prints the one to set. Only a `name@version` artifact is asked for one: a mount naming a path is a linked working tree that changes on every build, so a pin there would be stale by the next one.
 
@@ -90,16 +90,16 @@ A part the artifact says it ships and does not carry is hashed as absent rather 
 
 Artifacts under the sites root that no mount names are what `fsr sites install` leaves behind. They cost disk and they make it hard to tell which version is live; `--keep <n>` bounds them.
 
-A pin the artifact no longer matches is reported with what to do about it. The content moved. If that was meant, `fsr sites pin` records it. If it was not, the directory is not the version the shell pinned. A mount pointing at nothing is reported too. Both are refusals to start rather than warnings; doctor says them before the deploy rather than instead of it.
+A pin the artifact does not match is reported with what to do about it. The content changed. If that was meant, `fsr sites pin` records it. If it was not, the directory is not the version the shell pinned. A mount pointing at nothing is reported too. Both are refusals to start rather than warnings; doctor reports them before the deploy and the host still refuses them at boot.
 
-## What it will not do
+## What doctor does not do
 
-**It never fixes anything.** Every finding here has a remedy that is a judgement: whether a locale should gain a catalog or leave the table, whether an island is missing or the render mode is wrong. A flag that picked one would be wrong half the time and silent about it.
+**It never fixes anything.** Every finding here has a remedy that is a judgement: whether a locale should gain a catalog or leave the table, whether an island is missing or the render mode is wrong. So doctor reports the finding and leaves the choice to you.
 
 **It never softens a boot error.** Anything the host refuses to start over still fails at boot. Doctor reports what has nowhere else to be reported; it does not downgrade failures.
 
-**It has no opinions.** Every check covers a fact the application stated and then contradicted, never a matter of taste. "The locale table names `fr` and there is no `fr` catalog" is a fact. How long a title should be is not. There is no configuration file for turning checks off either, because there is nothing here worth turning off.
+**It only checks contradictions.** Every check covers a fact the application stated and then contradicted, never a matter of taste. "The locale table names `fr` and there is no `fr` catalog" is a fact. Style questions such as how long a title should be are not checked. There is no configuration file for turning checks off.
 
 ## Where it belongs
 
-In CI after the build, then in a deploy script before the bundle. It is fast and needs nothing running, so it is the last thing that reads the whole configuration before a server does.
+Run it in CI after the build, then in a deploy script before the bundle. It is fast and needs nothing running, so it is the last thing that reads the whole configuration before a server does.

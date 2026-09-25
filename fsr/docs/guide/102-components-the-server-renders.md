@@ -4,13 +4,13 @@ The question this chapter answers: what may a page or component say so that the 
 
 **For:** app developers.
 
-The components in this chapter are React components, the storefront's, so they need a project that has React: `fsr new <dir> --with react` or `fsr use app react` on one that started bare, since a plain `fsr new` writes no framework. A bare application writes its pages and layouts in the same dialect from `@snapfire/fsr-authoring/template`; what it does without is the hooks and the islands they make, which are React's.
+The components in this chapter are React components, the storefront's, so they need a project that has React: `fsr new <dir> --with react` or `fsr use app react` on one that started bare, since a plain `fsr new` writes no framework. A bare application writes its pages and layouts in the same dialect from `@snapfire/fsr-authoring/template`; it has no hooks and none of the islands they make, since those are React's.
 
-## A component is a function of its props
+## What the build can read in a component
 
-The build reads a page as an exported function whose parameter is `props` or a destructuring of it, whose body is `const`s, inner functions and one `return` of JSX. That covers most of what a page is. The storefront's catalog, cart and product pages, its error page and the four components under `src/ui/` all read this way; the report lists each under `rendered` as `lowered`.
+The build reads a page as an exported function whose parameter is `props` or a destructuring of it, whose body is `const`s, inner functions and one `return` of JSX. Most pages fit that shape. The storefront's catalog, cart and product pages, its error page and the four components under `src/ui/` all read this way; the report lists each under `rendered` as `lowered`.
 
-Inside the JSX, the vocabulary is what JSX already is:
+Inside the JSX, the build reads JSX's own constructs:
 
 - An element with attributes: strings, expressions or bare booleans. `className` and its relatives become their HTML names; `style` takes an object literal; `key` and `ref` are dropped since the server has no use for them.
 - Text and `{expr}`. Text keeps JSX's whitespace rule and decodes entities. An expression prints as React prints it: strings and numbers as text, `null` and booleans as nothing, an array item by item.
@@ -26,7 +26,7 @@ A page calls helpers: `money(cents)`, `categoryLabel(key)`, `percentOff(price, l
 
 Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A namespace import works as a tag: `<Ui.Card>` reaches `Card` in the file `import * as Ui` names. A rest in a destructuring is the object without the named keys, so `{ className, ...rest }` spread onto an element or a component passes everything else through. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
 
-One bare specifier is not: `@snapfire/fsr-client/std`, the standard library. `intl.number(n)` groups a number for the document's locale, `intl.currency(n, "USD")`, `intl.date(when, "long")` and `intl.plural(n)` do what their names say, `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC and `crypto.hash` is SHA-256. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
+One bare specifier is not residue: `@snapfire/fsr-client/std`, the standard library. `intl.number(n)` groups a number for the document's locale, `intl.currency(n, "USD")`, `intl.date(when, "long")` and `intl.plural(n)` do what their names say, `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC and `crypto.hash` is SHA-256. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
 
 `t("help.title")` is the same idea for text: the message under that key in the locale's catalog, `locales/fr_FR.toml` beside the app, with `t("agents.watching", { count })` picking the plural form and filling `{count}`. The server reads the file, the browser reads the same table the document carried, so the console's help page is three `t` calls instead of two copies of the page.
 
@@ -34,26 +34,26 @@ Three members are the server's alone: `time.now`, `crypto.random` and `id.new` c
 
 ## What the browser keeps
 
-Three things in a component are the browser's and the build drops them rather than refusing them:
+Four things in a component are the browser's and the build drops them rather than refusing them:
 
 - **Event handlers.** Any `on*` attribute. The server writes the markup; the browser attaches the behaviour when it hydrates.
 - **Inner functions.** The `add` and `search` functions the handlers call and a `const` holding an arrow. Dropped by name; a reference to one outside a handler is residue.
 - **Hooks.** `const [quantity, setQuantity] = useState(1)` reads as `const quantity = 1`, which is exactly what a first render sees in the browser too. The setter is a handler. `useMemo(() => e)` reads as `e`, `useRef(x)` as `{ current: x }`, `useCallback` as a handler. `useEffect` and its layout and insertion variants are dropped whole, since the server never runs an effect and neither does React's own server renderer.
 - **Providers.** `<Theme.Provider value={mode}>` where `Theme` is a `createContext` value the file declares or imports reads as its children, the value dropped, since the server renders nothing from it. The component then hydrates, because the context exists only in the browser.
 
-Markup an application produced is ordinary too. `<div dangerouslySetInnerHTML={{ __html: body }} />` writes that string into the document as markup and renders no children, the same on the server as in React, so a page whose loader returns rendered markdown is readable before the bundle runs. Nothing escapes or sanitises it: whoever produced the string answers for it, which is the contract the spelling has always carried.
+An application can also write markup it produced itself. `<div dangerouslySetInnerHTML={{ __html: body }} />` writes that string into the document as markup and renders no children, the same on the server as in React, so a page whose loader returns rendered markdown is readable before the bundle runs. Nothing escapes or sanitises it: whoever produced the string is responsible for it.
 
-Children and spreads are ordinary. A component that takes `children` places them with `{children}` and the build renders what the caller wrote between the tags in the caller's scope, so a layout can wrap a page without the page knowing. `<Header {...header} />` spreads an object into props and `<h1 {...attrs}>` into attributes, later entries winning the way React merges them and a spread's `className` and a literal `class` are one attribute.
+Children and spreads work as they do in React. A component that takes `children` places them with `{children}` and the build renders what the caller wrote between the tags in the caller's scope, so a layout can wrap a page without the page knowing. `<Header {...header} />` spreads an object into props and `<h1 {...attrs}>` into attributes, later entries winning the way React merges them and a spread's `className` and a literal `class` are one attribute.
 
-Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works, since it always could.
+Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works in the browser.
 
-## What the browser reads instead of computing
+## Hoisted values and subtrees
 
-A helper call on the render path used to run twice, in Rust for the markup and in React at hydration. Now the build looks at each one: when its inputs are props only, the server computes it and the browser reads the value the server delivered, calling the helper only where the server did not, a branch the server did not take or an input that changed with browser state. A subtree with nothing the browser can change, no handler, no state, no island, no component inside it with state of its own, is delivered whole as markup. React neither renders nor hydrates inside it.
+Without hoisting, a helper call on the render path would run twice, in Rust for the markup and in React at hydration. The build checks each one: when its inputs are props only, the server computes it and the browser reads the value the server delivered, calling the helper only where the server did not, a branch the server did not take or an input that changed with browser state. A subtree with nothing the browser can change, meaning no handler, state, island or component inside it with state of its own, is delivered whole as markup. React neither renders nor hydrates inside it.
 
-Nothing about that is written. The rule is the one this chapter already has: a component is a function of its props. What reaches state stays a call in the browser: `money(total * qty)` with `qty` from `useState` is computed where `qty` lives, `money(l.price)` beside it is not. A call inside a lambda, `items.map((i) => money(i)).join(", ")`, stays as written too. The report says what was hoisted per component, as values and subtrees. The storefront's cards show the shape: the price and the discount are values, the card's body is a subtree, the "Add to cart" button that carries a handler is not inside it.
+You write nothing for this. It follows from a component being a function of its props. What reaches state stays a call in the browser: `money(total * qty)` with `qty` from `useState` is computed where `qty` lives, `money(l.price)` beside it is not. A call inside a lambda, `items.map((i) => money(i)).join(", ")`, stays as written too. The report says what was hoisted per component, as values and subtrees. The storefront's cards show the shape: the price and the discount are values, the card's body is a subtree, the "Add to cart" button that carries a handler is not inside it.
 
-## An island the server drives
+## Server-mode islands
 
 An island in browser mode has a JavaScript half that React runs. An island in server mode has none: its events go to the server, Rust runs the handler and renders the island again from the new state and the browser patches the markup that comes back into the DOM, touching only what changed. The placement chooses it:
 
@@ -63,17 +63,17 @@ An island in browser mode has a JavaScript half that React runs. An island in se
 </Island>
 ```
 
-`OrderHelp` is the same component either way, two `useState`s and a button whose `onClick` flips one and, when it is opening, counts on the other. The build lowers the handler into the plan beside the state the way it lowers a loader: a handler may be `const`s, calls to state setters, `setOpen(!open)`, `setN((prev) => prev - 1)`, `setQty(Number(e.target.value))`, calls to actions, `void save({ id })` with `save` an `action("orders.save")`, a named function by name or called, with `e.preventDefault()` allowed and dropped. An `if` with `else` around any of those lowers too, `if (!open) setAsked(asked + 1)` or `if (!ok) return`. A key set inside a branch keeps its value where the branch did not run, so the answer carries only what the click changed. An action called from a server-mode handler is dispatched by the host inside the round trip, with the session the action route would give it; the island refreshes the page's data once its patch is in, so a click in an island with no JavaScript still moves what every other island renders from. In browser mode anything else in a handler is simply the browser's; in server mode it is refused at build with the line, wherever inside the island it sits. A component inside the island may hold state and handlers of its own: each instance is addressed by its place in the island's markup, its state rides in the island's under that address and a click inside it round-trips through the island. One the render stops placing starts afresh when it returns, as it would under React. The storefront's `ContactHours`, inside `OrderHelp`, is one. A slot is refused the same way, `{children}` included: a step renders the island's own component and nothing else, so anything that filled the slot at first paint would be missing from the answer and the patch would take it out of the document. An island placed inside is fine, since the patch leaves its marker and children alone and hands it the props the render gave it. The server marks each bound element, the island's initial state rides in its props and the client mounts it with no React root at all, so no module is loaded for it.
+`OrderHelp` is the same component either way, two `useState`s and a button whose `onClick` flips one and, when it is opening, counts on the other. The build lowers the handler into the plan beside the state the way it lowers a loader: a handler may be `const`s, calls to state setters, `setOpen(!open)`, `setN((prev) => prev - 1)`, `setQty(Number(e.target.value))`, calls to actions, `void save({ id })` with `save` an `action("orders.save")`, a named function by name or called, with `e.preventDefault()` allowed and dropped. An `if` with `else` around any of those lowers too, `if (!open) setAsked(asked + 1)` or `if (!ok) return`. A key set inside a branch keeps its value where the branch did not run, so the answer carries only what the click changed. An action called from a server-mode handler is dispatched by the host inside the round trip, with the session the action route would give it; the island refreshes the page's data once its patch is in, so a click in an island with no JavaScript still moves what every other island renders from. In browser mode anything else in a handler stays in the browser; in server mode it is refused at build with the line, wherever inside the island it sits. A component inside the island may hold state and handlers of its own: each instance is addressed by its place in the island's markup, its state rides in the island's under that address and a click inside it round-trips through the island. One the render stops placing starts afresh when it returns, as it would under React. The storefront's `ContactHours`, inside `OrderHelp`, is one. A slot is refused the same way, `{children}` included: a step renders the island's own component and nothing else, so anything that filled the slot at first paint would be missing from the answer and the patch would take it out of the document. An island placed inside is fine, since the patch leaves its marker and children alone and hands it the props the render gave it. The server marks each bound element, the island's initial state rides in its props and the client mounts it with no React root, so no module is loaded for it.
 
-The trade is a round trip per event, which the island shows as `data-sf-pending` while it is out, with no optimistic guess. A toggle, a quantity, a filter or a sort order fits; a text field the user types into continuously belongs in browser mode. Neither mode is the framework's preference; the report lists what runs each way:
+The cost is a round trip per event, which the island shows as `data-sf-pending` while it is out, with no optimistic guess. A toggle, a quantity, a filter or a sort order fits; a text field the user types into continuously belongs in browser mode. Neither mode is the framework's preference; the report lists what runs each way:
 
 ```
 islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 ```
 
-## An island with no component at all
+## Server-mode islands without a component
 
-A server-mode island never ships its component, so a fair question is whether it needs one. It does not. The island's markup can be a template and its handlers Rust, which is the shape a Tera application wants. Nothing about the round trip changes:
+A server-mode island never ships its component, so it does not need one. The island's markup can be a template and its handlers Rust, which is the shape a Tera application wants. Nothing about the round trip changes:
 
 ```tera
 {{ island(module="fleet.tera#default", props={}, state=fleet, mode="server", key="fleet") }}
@@ -94,11 +94,11 @@ builder.island_handler("fleet.tera#default", "filter", |ctx, event| async move {
 })
 ```
 
-It is ordinary Rust, so it calls services, reads the session and writes it, none of which a lowered handler may do. The example's filter re-reads its fleet on every step, so the card shows what a page render would rather than what the browser last saw, which is the same reason a server-mode island exists at all.
+It is ordinary Rust, so it calls services, reads the session and writes it, none of which a lowered handler may do. The example's filter re-reads its fleet on every step, so the card shows what a page render would rather than what the browser last saw.
 
-The first paint comes from the same template, rendered by the evaluator as the page is assembled, so the card is in the document before any script runs. What the browser adds is the round trip.
+The first paint comes from the same template, rendered by the evaluator as the page is assembled, so the card is in the document before any script runs. The browser only handles the round trip.
 
-## A component as its own island
+## Giving a component its own island
 
 A page hydrates as one React root, so a component inside it shares that root: it re-renders with the page and hydrates when the page does. To give a component a root of its own, with its own timing and state the page never touches, place it with `Island` from the React adapter:
 
@@ -114,7 +114,7 @@ The build lowers the use: the server renders `OrderHelp` with its props as a nes
 
 The child need not be React. A `.vue` file imported by a template and placed the same way is an island the build lowers through Vue's own parser: the server writes what Vue's server renderer would and Vue hydrates it or mounts it fresh where the file holds what the build does not read. Chapter 104 is that path, with the plugin that reads and compiles the file and the application that has no React in it.
 
-## State two islands share
+## Sharing state between islands
 
 Two islands are two roots, so a value both of them show cannot be a prop and cannot be context. It is a store key and `useStore` reads like `useState`:
 
@@ -137,11 +137,11 @@ await optimistic(cartCount, (get(cartCount) ?? 0) + quantity, () =>
 );
 ```
 
-## Writing for the server without thinking about it
+## Writing components that lower
 
-The pages in the storefront were written as ordinary React and seven of eight lowered on the first try. The eighth built a query string with `new URLSearchParams`, which the build cannot follow; it became a template with `encodeURIComponent`. That is the whole cost so far: write React as a function of props, keep state and effects in handlers; the server render falls out. A component that needs more is a component the browser renders, which the report says plainly rather than a build that fails.
+The pages in the storefront were written as ordinary React and seven of eight lowered on the first try. The eighth built a query string with `new URLSearchParams`, which the build cannot follow; it became a template string with `encodeURIComponent`. Write components as functions of props, keep state and effects in handlers and the server can render them. A component that needs more renders in the browser and the report says so; the build does not fail.
 
-The one rule that matters is the invariant behind it: **a component is a function of its props**. Data comes from the loader; a component that fetched for itself could not be rendered by anything that did not run it.
+The rule behind this is that **a component is a function of its props**. Data comes from the loader. A component that fetched its own data could not be rendered without running it.
 
 ## The lab
 

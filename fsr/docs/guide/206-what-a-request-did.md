@@ -8,13 +8,13 @@ The question this chapter answers: when a page is slow or wrong, how do you find
 
 A log line tells you one thing happened. It does not tell you what else was happening around it, what it cost or what it was waiting for. Ten lines from one request are ten facts you have to reassemble in your head and they interleave with every other request in flight.
 
-What you want is the request as one object: every step it took, nested the way it nested, each with its own cost. That is a trace and `tracing`, the crate the Rust ecosystem instruments with, does not give you one back. Spans go to a subscriber and nothing returns. That is right for logs, whose destination is a file. It is wrong here.
+What you want is the request as one object: every step it took, nested the way it nested, each with its own cost. That is a trace and `tracing`, the crate the Rust ecosystem instruments with, does not give you one back. Spans go to a subscriber and nothing returns. That works for logs, which go to a file, but not for inspecting one request.
 
-So fsr keeps them. `fibre_tracing` is a layer that collects a request's spans and the host installs it, holds it and serves what it kept.
+fsr keeps the spans: `fibre_tracing` is a layer that collects a request's spans and the host installs it, holds it and serves what it kept.
 
 ## Turning it on
 
-Two lines in `main`, before the host is built:
+Add two lines to `main`, before the host is built:
 
 ```rust
 let logging = Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
@@ -24,7 +24,7 @@ let host = Host::from(env!("CARGO_MANIFEST_DIR"))
   .and_then(|builder| builder.traces(traces).build())?;
 ```
 
-One call composes two things on one registry: `fibre_logging` taking the events out to its appenders and the collector keeping the spans. They are different jobs and neither replaces the other. Hold `_logging`, because dropping it flushes the appenders.
+One call composes two things on one registry: `fibre_logging` taking the events out to its appenders and the collector keeping the spans. You need both. Hold `_logging`, because dropping it flushes the appenders.
 
 Every example does exactly this.
 
@@ -44,11 +44,9 @@ request 19.92ms ok {"method": "GET", "path": "/agents", "status": "200"}
         render 0.10ms {"module": "routes/agents/page.tsx#default", "cache": "miss"}
 ```
 
-The endpoint answers a JSON array. Every span carries its own `depth`, so laying it out as a tree is the reader's job; the shape of the page is in that. Two loaders ran and they ran together rather than one after the other, because both took about sixteen milliseconds inside a request that took twenty. The two service calls sit under the loader that made them, so you know which loader is waiting on which backend. Rendering the whole tree cost one and a half milliseconds against sixteen spent waiting, which tells you where to look and where not to.
+The endpoint answers a JSON array. Every span carries its own `depth`, so a reader can lay it out as a tree, which shows the shape of the page. Two loaders ran and they ran together rather than one after the other, because both took about sixteen milliseconds inside a request that took twenty. The two service calls sit under the loader that made them, so you know which loader is waiting on which backend. Rendering the whole tree cost one and a half milliseconds against sixteen spent waiting, so the time went to the backends and not the render.
 
-Three caches report themselves on three spans. A `source` span carries `memo: hit` or `memo: miss` when that loader is memoizable. A `call` span carries `cache: hit` or `cache: miss` when the method has a cache policy and `cache: none` when it has none, so two identical requests differ in exactly the call the data cache answered. A `render` span carries `cache: hit` or `cache: miss` when the render cache was consulted for that node. Ask for the same page again and the render subtree gets shorter rather than faster: a `cache: hit` high in the tree means the nodes beneath it were never rendered, so they have no spans at all.
-
-None of that is deducible from ten log lines.
+Each of the three caches reports on its own span. A `source` span carries `memo: hit` or `memo: miss` when that loader is memoizable. A `call` span carries `cache: hit` or `cache: miss` when the method has a cache policy and `cache: none` when it has none, so two identical requests differ in exactly the call the data cache answered. A `render` span carries `cache: hit` or `cache: miss` when the render cache was consulted for that node. Ask for the same page again and the render subtree has fewer spans: a `cache: hit` high in the tree means the nodes beneath it were never rendered, so they have no spans at all.
 
 ## The four spans
 
@@ -63,11 +61,11 @@ The framework opens four and anything you open with `tracing` joins whichever re
 
 A failure names its kind rather than a raw status, because the failure vocabulary is what your code acts on and what a dashboard should group by. Only `request`, `source` and `call` set an outcome. A `render` span has none, so read its `cache` field instead of looking for `ok` on it.
 
-## What it costs when nobody is watching
+## Cost with no collector
 
-Nothing worth measuring. With no collector installed a span is a relaxed atomic load and a branch: no allocation, no formatting of fields. So the instrumentation stays in production builds and you decide separately whether anything collects.
+With no collector installed, a span costs a relaxed atomic load and a branch: no allocation, no formatting of fields. So the instrumentation stays in production builds and you decide separately whether anything collects.
 
-The ring holds the last few hundred traces in memory, about a kilobyte each. That is the whole storage story until you want more.
+The ring holds the last few hundred traces in memory, about a kilobyte each.
 
 ## Getting them out
 
@@ -83,6 +81,6 @@ That is also the only place tail sampling can happen, keeping the traces that fa
 
 Start the ops console and load `/agents`, then fetch `/__fsr/traces` and find that request. Note how long the two loaders took and that they overlap.
 
-Now open the fleet backend and make `listAlerts` sleep for half a second. Load the page again and read the trace: the request grows by roughly half a second, one `source` span grows with it and the `call` span underneath names which method did it. The other loader is unchanged, which is the parallelism showing itself.
+Now open the fleet backend and make `listAlerts` sleep for half a second. Load the page again and read the trace: the request grows by roughly half a second, one `source` span grows with it and the `call` span underneath names which method did it. The other loader is unchanged, because the loaders run in parallel.
 
 Then load the same page twice without changing anything and compare the `render` spans. The second one says `cache: hit` where the first said `cache: miss`; the spans that sat beneath it are gone. The `call` spans say the same thing about the data cache: a method with a policy goes from `cache: miss` to `cache: hit` and its transport is never reached the second time.
