@@ -102,6 +102,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [useStore](#usestore)
   * [useLocale](#uselocale)
   * [Link](#link)
+  * [Picture](#picture)
   * [Mount](#mount)
   * [reactPatcher](#reactpatcher)
   * [reactUnmounter](#reactunmounter)
@@ -159,7 +160,7 @@ Seven ES module entry points, resolved through an import map. There is no packag
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
-| `@snapfire/fsr-authoring/template` | `dist/template.js` | `Island`, `island`, `Link`, `Slot`, re-exported from the React entry | `react`, through the React entry |
+| `@snapfire/fsr-authoring/template` | `dist/template.js` | `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the React entry | `react`, through the React entry |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the runtime behind the dialect's placements for a page the browser mounts; the `react` direction maps the specifier to it and a page that never hydrates never loads it.
 
@@ -894,6 +895,16 @@ Every link also carries `data-sf-link`, the rule by which it is called the page 
 `current` says which path the mark is judged against. `"url"`, the default, is the address bar, `currentAddressPath` in the browser and the path the request matched on the server. `"document"` is the page beneath an open intercept, `currentDocumentPath` in the browser and the origin the navigator sent as `x-sf-from` on the server, which the build lowers to `Expr::Document`; the anchor then carries `data-sf-current="document"` so `markLinks` judges it the same way. The two differ only while an intercept is open. `current` is written out rather than computed, since the build lowers it.
 
 The server writes the mark at first paint, from the path the request matched or the document's, so it is there before any script runs and in a prerendered document. A navigation re-renders the page segment and leaves the layout holding the nav alone, so the navigator re-reads every `data-sf-link` in the document afterwards; see `markLinks`.
+
+### Picture
+
+* `function Picture({ src, source, priority, widths, quality, sizes, loading, decoding, ...rest }: PictureProps): ReactElement`
+* `interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> { src: ImageAsset | string; source?: string; priority?: boolean; widths?: number[]; quality?: number | { avif?: number; webp?: number } }`
+* `interface ImageAsset { src: string; width: number; height: number; animated?: boolean; sources?: { type: string; srcset: string }[] }`: an imported image as the bundle binds it; `sources` is present on the server only, where a `meta` preloads one of them.
+
+The markup the server wrote for the same props, so hydration finds what it expects. For an imported image: a `<picture>` with a `<source>` per format of the policy, each `srcSet` naming `<stem>.<width>.<format>` for every policy width below the image's own and then its own, `sizes` as given or `(max-width: {width}px) 100vw, {width}px`, then the `<img>` with `src`, `width` and `height` from the asset, `loading` as given or `lazy` (`eager` under `priority`), `decoding` as given or `async` and, under `priority`, `fetchPriority="high"` (the lowercase attribute under React 18). An SVG, a GIF or an asset marked `animated` is the `<img>` alone. A string `src` with a `source` that names an entry of the policy's `sources` is an `<img>` whose `srcSet` the template writes per policy width with `{src}` and `{width}` filled and `sizes` defaulting to `100vw`; any other string is `<img src>` as written. `widths` replaces the policy's; `quality` changes nothing in the browser.
+
+The policy is read once from the document's `<meta name="sf:images">`, which the host writes from the build's manifest: `widths`, `formats`, `base`, prefixed onto a root-relative `src` for a tree a CDN serves, plus `sources`. A document without the meta falls back to the policy's defaults.
 
 ### Mount
 

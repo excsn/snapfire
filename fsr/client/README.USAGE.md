@@ -24,6 +24,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
 * [Marking the Link to the Page Being Shown](#marking-the-link-to-the-page-being-shown)
+* [Placing a Picture](#placing-a-picture)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
@@ -695,6 +696,29 @@ await addServer({ name: "eu-3", load: 0.25 });
 await addServer({ name: "eu-4", load: 0.5 });
 await refresh();
 ```
+
+## Placing a Picture
+
+`Picture` writes in the browser what the build wrote on the server for an imported image, so a page that mounts the component hydrates over markup that matches:
+
+```tsx
+import { Picture } from "@snapfire/fsr-client/react";
+import hero from "../img/hero.png";
+
+export function Banner() {
+  return <Picture src={hero} alt="The harbour at dusk" sizes="(min-width: 60em) 50vw, 100vw" priority />;
+}
+```
+
+The import is an `ImageAsset`, the hashed URL with the width and height the bundle read from the file. The component writes a `<picture>` with a `<source>` per format and the original as its `<img>`, choosing the widths the way the build did: every policy width below the image's own, then its own. The policy comes from the document's `<meta name="sf:images">`, which the host writes from the build.
+
+A string `src` is a remote image. With a named source it goes through that source's template:
+
+```tsx
+<Picture src={product.photo} source="cms" alt="" width={800} height={600} />
+```
+
+Without one it is an `<img src>` as written. `priority` loads the image eagerly at high fetch priority; the preload in the head is the server's, from the page's plan or its `meta`.
 
 ## Sharing State Across Islands
 

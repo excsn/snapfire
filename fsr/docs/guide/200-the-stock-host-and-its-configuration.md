@@ -46,6 +46,8 @@ inferred  document.entry from dist/.snapfire-build.json
           clients.inventory.document from clients/
 ```
 
+The `styles/`, `icons/` and `fonts/` directories are conventions a `[dirs]` table moves, with the routes staying what they are; what `fsr build` derived from the images and the fonts reaches the head through `generated/assets.json`, which the host reads at boot when the file is there. Chapter 108 covers both.
+
 One prefix is not inferred and cannot be written away. `/static/js/fsr` is answered out of the binary, because `@snapfire/fsr-client` is carried by `snapfire_fsr_host` itself, so the client a page loads is the version of the host serving it and there is no copy in the project to fall behind. The boot report gives it a `client` row of its own rather than a `static` one:
 
 ```

@@ -28,7 +28,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 ### FORMAT_VERSION
 
-* `pub const FORMAT_VERSION: u32 = 3`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows.
+* `pub const FORMAT_VERSION: u32 = 5`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows.
 * A file from version 1 up to `FORMAT_VERSION` reads; anything else is `PlanError::Version`. A format 1 file's bare action ids read as `rust` rows.
 
 ## 2. The Manifest
@@ -126,7 +126,8 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 
 ### ComponentEntry
 
-* `pub struct ComponentEntry { pub module: String, pub body: Component }`: a module lowered to a render tree, `snapfire_fsr_ir::Component`.
+* `pub struct ComponentEntry { pub module: String, pub body: Component, pub head: Vec<HeadRow> }`: a module lowered to a render tree, `snapfire_fsr_ir::Component`, with the head elements a page rendering it carries, the preload of a priority image among them; the build folds in the rows of every component the module places. In the s-expression form each row is `(head <tag> "name" "value" …)` after the component's sections.
+* `pub struct HeadRow { pub tag: String, pub attrs: Vec<(String, String)> }`: one head element, its attributes in order. The runtime merges a row by identity, so two pages placing one image preload it once.
 
 ### ClientEntry
 

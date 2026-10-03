@@ -32,6 +32,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [MountConfig](#mountconfig)
   * [SiteSection](#sitesection)
   * [SitesSection](#sitessection)
+  * [DirsSection](#dirssection)
+  * [ImagesSection](#imagessection)
+  * [FontsSection](#fontssection)
+  * [FontEntry](#fontentry)
   * [parse_duration](#parse_duration)
 * [2. Building](#2-building)
   * [Artifact](#artifact)
@@ -49,6 +53,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [ServiceProvider](#serviceprovider)
   * [ServiceSessionStore](#servicesessionstore)
   * [SiteReport](#sitereport)
+  * [Assets](#assets)
+  * [AssetsManifest](#assetsmanifest)
   * [Body](#body)
   * [PAYLOAD_ENCODINGS](#payload_encodings)
 * [4. Serving](#4-serving)
@@ -99,10 +105,10 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub shell_vendor: Option<PathBuf>, pub public: BTreeMap<String, PublicValue>, pub bundle: Option<Bundle>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store, `bundle` the module graph read out of the build facts, `shell_vendor` the shell's `app/vendor/` when `[site] shell` names a `generated/shell.json` beside one, which a host built from this configuration serves at `/static/js/vendor` and a mount never reads.
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub dirs: DirsSection, pub images: ImagesSection, pub fonts: FontsSection, pub shell_vendor: Option<PathBuf>, pub public: BTreeMap<String, PublicValue>, pub bundle: Option<Bundle>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store, `bundle` the module graph read out of the build facts, `shell_vendor` the shell's `app/vendor/` when `[site] shell` names a `generated/shell.json` beside one, which a host built from this configuration serves at `/static/js/vendor` and a mount never reads.
 * `Config::load(path) -> Result<Config, HostError>`: `Loader::at(path).config()`.
 * `Config::from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Config, HostError>`: the same over a store the caller loaded and a root it names, for an application running the host inside itself: `Config::from_store_at(&store.branch("fsr"), root)`. Nothing here reads the filesystem for configuration.
-* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site`, `sites` and `public`, leaving any other top-level key alone and naming it in `ignored`, requires `session`, refuses a `public` value that is not a scalar or a `public` key that is not an identifier, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, under the site's prefix when `site` is set, `shell_vendor` from the shell's `app/vendor/` when `site.shell` names a `generated/shell.json` beside one, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
+* `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `site`, `sites`, `public`, `dirs`, `images` and `fonts`, leaving any other top-level key alone and naming it in `ignored`, requires `session`, refuses a `public` value that is not a scalar or a `public` key that is not an identifier, refuses an `auth.provider` outside `PROVIDERS` and an `auth.login` that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, under the site's prefix when `site` is set, `/static/css` and `/static/icons` from the directories `dirs` names, `shell_vendor` from the shell's `app/vendor/` when `site.shell` names a `generated/shell.json` beside one, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
 * `Config::resolve(&self, relative: &str) -> PathBuf` joins onto `app`.
 * `Config::config_dir(&self) -> PathBuf`: the directory of the first file loaded, the project root when none; where `auth.users` resolves.
 * `Config::session_ttl(&self) -> Result<Duration, HostError>`.
@@ -235,6 +241,40 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 ### MountConfig
 
 * `pub struct MountConfig { pub artifact: String, pub hash: Option<String>, pub allow_engine: bool }`: `[sites.<name>]`. `artifact` is `name@version` under the root or a path against the project root; `hash` pins the content hash; `allow_engine` admits an artifact with engine-owned rows.
+
+### DirsSection
+
+`[dirs]`: where each kind of asset lives under the app directory. Every key defaults to the conventional name, so an application that writes nothing changes nothing. The routes stay fixed: `/static/css`, `/static/icons` and the bundle's public path answer whatever directory a key names.
+
+* `pub struct DirsSection { pub styles: String, pub fonts: String, pub images: String, pub icons: String }`, `#[non_exhaustive]`, defaults `styles`, `fonts`, `images` and `icons`.
+* `styles`, `fonts` and `icons` are scanned, so the key moves where discovery looks. `images` are found by reference, so the key is the directory `fsr build` scans into the asset manifest for a template's `fsr_picture` to name.
+
+### ImagesSection
+
+`[images]`: the variant policy every image is built under and how a remote one is addressed.
+
+* `pub struct ImagesSection { pub widths: Vec<u32>, pub formats: Vec<String>, pub quality: BTreeMap<String, u8>, pub rewrite: bool, pub base: Option<String>, pub sources: BTreeMap<String, ImageSource> }`, `#[non_exhaustive]`.
+* `widths` (default `[640, 960, 1280, 1920, 2560]`), each at least 1; `formats` (default `["avif", "webp"]`), each `avif` or `webp`; `quality` keyed by format, 0 to 100, a format left out keeping its default of 60 for AVIF and 80 for WebP.
+* `rewrite` (default `true`): whether an `<img>` whose `src` is an imported asset's is lowered as a `Picture`.
+* `base`: `scheme://host/path` with no trailing slash, prefixed onto every emitted image URL at build time for a static tree a CDN serves.
+* `sources`: `[images.sources.<name>] template = "…"`, a URL template a string `src` goes through, which must carry `{src}` and may carry `{width}`. `pub struct ImageSource { pub template: String }`.
+* Each rule above is refused at load with the key named.
+
+### FontsSection
+
+`[fonts]`: `base` is where the font files are served from when a CDN answers them and one `[fonts.<key>]` per family the application declares. A family the directory holds and no key names is inferred from the files' own name tables under the key its family slugs to.
+
+* `pub struct FontsSection { pub base: Option<String>, pub faces: BTreeMap<String, FontEntry> }`, `#[non_exhaustive]`.
+* A key is lowercase letters, digits and `-`, since it names `--font-<key>`; `base` is `scheme://host/path` with no trailing slash.
+
+### FontEntry
+
+One `[fonts.<key>]`. Every field is optional, though a key carries at least one, since an empty table is not read.
+
+* `pub struct FontEntry { pub family: Option<String>, pub files: Vec<String>, pub fallback: Option<String>, pub display: Option<String>, pub preload: Option<bool>, pub remote: Option<String>, pub variable: Option<String> }`, `#[non_exhaustive]`.
+* `family` names the family when the files' tables are not to be trusted or `remote` carries no file to read; `files` names the files under `[dirs] fonts` the key covers, else every file whose family matches.
+* `fallback` is the system face the fallback is sized against, one `snapfire_fsr_assets::font::fallbacks` names, `Arial` absent; `display` is `font-display`, `swap` absent; `preload` is whether the faces are preloaded, the regular weight only when absent.
+* `remote` is a provider's own stylesheet URL, which the host links and preconnects to; it needs `family` and excludes `files`. `variable` is the CSS variable the family is defined as, which must start with `--`; `--font-<key>` absent.
 
 ### parse_duration
 
@@ -419,6 +459,26 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 ### ServiceProvider
 
 * `pub struct ServiceProvider`, an `IdentityProvider` over a client: `new(services: Arc<Services>, client: impl Into<String>, login_path: impl Into<String>) -> Self`. `begin` sends the browser to the login page with `return_to`; `callback` sends the form's `user` and `password` to `authenticate` and reads `subject`, `claims` and `access_token` from a map answer. A failure of kind `unauthorized`, `not_found` or `invalid` is `AuthError::Denied` with the service's message; any other failure, a non-map answer or one without a `subject` is `AuthError::Invalid`.
+
+### Assets
+
+What the build derived from the application's images and fonts reaches a document through `generated/assets.json`, read at boot when present:
+
+* `<meta name="sf:images">` carries the policy, `ImagePolicy` as JSON, which the client's `Picture` reads so a browser writes the markup the server wrote.
+* The font CSS is inlined as `<style data-sf-fonts>` and its hash widened into `style-src`; one `<link rel="preload" as="font" crossorigin>` per face the manifest marks; for a provider's stylesheet, `<link rel="preconnect">` per origin and the `<link rel="stylesheet">`.
+* `font-src`, `img-src` and `style-src` are widened with the origin of `fonts.base`, `images.base`, each source template and each preconnect.
+* A plan component's `head` rows are merged into the document of every page whose plan places that module, the preload of a priority image among them; a row is merged by identity, so two pages placing one image preload it once.
+* A static file whose name carries a content hash, `hero.0a1b2c3d.png` or `hero.0a1b2c3d.640.avif`, answers `Cache-Control: public, max-age=31536000, immutable` in place of `static_max_age`; a plain name keeps the configured lifetime.
+* With the `tera` feature, `fsr_picture(src, alt, sizes, priority, class)` writes what the `Picture` tag writes for an image the manifest holds, by its path under the app. `fsr_fonts()` writes the inline style and the font links for a template that builds its own head. An image the manifest lacks fails the render.
+
+### AssetsManifest
+
+`assets::AssetsManifest`, `generated/assets.json`, `assets::ASSETS_FILE`.
+
+* `pub struct AssetsManifest { pub version: u32, pub images: ImagePolicy, pub entries: Vec<ImageEntry>, pub fonts: Fonts }`; `read(app: &Path) -> Option<AssetsManifest>`, `policy_json(&self) -> String`, `image(&self, source: &str) -> Option<&ImageEntry>`.
+* `pub struct ImagePolicy { pub widths: Vec<u32>, pub formats: Vec<String>, pub quality: BTreeMap<String, u8>, pub base: Option<String>, pub sources: BTreeMap<String, String> }`.
+* `pub struct ImageEntry { pub source: String, pub src: String, pub hash: String, pub width: u32, pub height: u32, pub passthrough: bool, pub widths: Vec<u32>, pub quality: BTreeMap<String, u8>, pub variants: Vec<Variant> }`; `pub struct Variant { pub width: u32, pub format: String, pub url: String, pub path: String }`, `path` under the bundle's output directory.
+* `pub struct Fonts { pub base: Option<String>, pub faces: Vec<Face>, pub css: String, pub preload: Vec<String>, pub remote: Vec<Remote>, pub variables: BTreeMap<String, String> }`; `pub struct Face { pub key: String, pub family: String, pub weight: u16, pub style: String, pub source: String, pub url: String, pub path: String, pub unicode_range: Option<String>, pub preload: bool }`; `pub struct Remote { pub key: String, pub family: String, pub href: String, pub preconnect: Vec<String> }`.
 
 ### Body
 

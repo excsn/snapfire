@@ -12,6 +12,7 @@ The question this chapter answers: what does `fsr build` produce, why is none of
 - **The contracts**, one file per client document plus one for the schemas, under `generated/contracts/`. The host merges them at boot.
 - **The TypeScript the application is written against**: `fsr.ts` with `Ctx` and `ActionCtx` per route, `services.d.ts` from the contract, `client.ts` with every page's props type and every action's typed callable, `islands.ts` registering every page for the browser, `testing.ts` for the tests.
 - **Both tsconfigs**: `tsconfig.json` for the editor and `tsc`, with the aliases and the type roots, plus `tsconfig.build.json` for the bundle.
+- **The asset manifest**, `generated/assets.json`: every image a component imported with its size and variants, every face under `fonts/` with the CSS that serves it. The host reads it at boot; the variants and the font copies themselves are written under `dist/` once the bundle has run, each named with its hash so a rebuild with nothing changed writes nothing. Chapter 108 has the rest.
 
 `fsr check <app>` does the same without writing, prints the report and exits non-zero when anything is residue. It is the command for a pull request.
 

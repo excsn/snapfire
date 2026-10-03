@@ -20,6 +20,7 @@ fsr serve app
 | `/notice/{id}` | one notice, or a line saying there is none |
 | `routes/layout.tera` | the frame, with a footer counting the notices its own loader returned |
 | `templates/nav.tera` | a partial the layout includes by path |
+| `images/board.png` | the photo the layout places with `fsr_picture`, found by the build under the images directory rather than by an import |
 
 ## What it does not do
 

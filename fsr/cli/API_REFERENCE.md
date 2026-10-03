@@ -24,6 +24,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [write](#write)
   * [write_overlay](#write_overlay)
   * [emit](#emit)
+  * [assets](#assets)
   * [Report](#report)
 * [3. Discovery Rules](#3-discovery-rules)
   * [Clients](#clients)
@@ -142,6 +143,12 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ## 2. The Build
 
+### fsr fonts
+
+* `fsr fonts add <app dir> <spec>`, `spec` as `google:<Family>@<weights>`, a weight ending in `i` for italic, `google:Inter@400,700,400i`.
+* `assets::add(app: &Path, spec: &str) -> Result<Vec<PathBuf>, BuildError>`: fetches the provider's stylesheet with a current browser's user agent, so it answers woff2 split by `unicode-range`, downloads every face it names into the directory `[dirs] fonts` names as `<Family>-<weight>[-italic]-<subset>.woff2` and writes `<file>.range` beside each with its `unicode-range`. The build then reads them as local files and writes the range into the `@font-face`. `assets::add_from(app, spec, provider_base)` is the same against a provider at another base, which a test stands in for.
+* Prints `fetched <path>` per file and a `fonts` line with the count. A family the provider does not serve is refused by name.
+
 ### Options
 
 * `pub struct Options { pub site: Option<SiteOptions>, pub shell: String, pub slot: String }`
@@ -169,9 +176,9 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Built
 
-* `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String> }`
+* `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String>, pub assets: snapfire_fsr_host::assets::AssetsManifest }`
 * `browser_routes` are the route modules the browser mounts, as files relative to the app: every route module that is not `static`, which is all of `routes/` a bundle compiles.
-* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `<types>/foreign.d.ts` when a source or a placement is a component in a language the build does not read, declaring `*.<ext>` for the typechecker; `write` removes a `generated/foreign.d.ts` left by an earlier build.
+* `files` pairs a path relative to the app directory with its content: `generated/plan.sexp`, `generated/assets.json` (the asset manifest, `snapfire_fsr_host::assets::AssetsManifest`), `generated/assets.d.ts` (`declare module "*.png"` and the other image and font extensions, an image import typed `ImageAsset` and a font import `string`), `generated/contracts/<client>.json` per document in name order, `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json`, `tsconfig.build.json`, in that order, then `<types>/foreign.d.ts` when a source or a placement is a component in a language the build does not read, declaring `*.<ext>` for the typechecker; `write` removes a `generated/foreign.d.ts` left by an earlier build.
 * `generated/native.d.ts` is read off the Rust rather than the contract: `native::read` walks the crate's `src/`, the sibling of the app directory, with `syn` and takes every `#[native]` `impl` block's `pub` methods plus the structs they name. It reads rather than expands, so `build.rs` can run it before the crate compiles. A method the reader saw as `fn` is typed as its value and an `async fn` as a promise; a Rust type outside the value model reads as `unknown`.
 
 ### write
@@ -208,6 +215,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `foreign: Vec<Cause>` states each residue that left a described `.vue` component foreign once, with the modules that mount in the browser for it; `Display` prints them as `foreign` rows after the `client` causes. `plugins: Vec<String>` is one line per framework plugin the build could not start and what that left foreign; `Display` prints them as `plugins` rows.
 * `hoisted` gives a lowered component's module, prefixed for a site, how many of its render-path calls and how many of its static subtrees the server computes for the browser; `Display` prints them as `hoisted` rows after the components, `4 values, 8 subtrees`.
 * `islands: Vec<(String, usize)>` names each component placed as an island in server mode, prefixed for a site, with how many handlers it answers; `Display` prints them as `islands` rows labelled `server`, before `hoisted`.
+* `images: Vec<(String, String)>` pairs each image the markup named or the images directory holds with its size and variant count, `160x100, 4 variants` or `served as it is`; `fonts: Vec<String>` is one line per face the font directory holds, `Inter 400 normal from fonts/Inter-Regular.woff2`, else per remote stylesheet; `Display` prints them as `image` and `font` rows after the components.
 * `extensions: Vec<(String, String)>` pairs each export under `ext/`, `file#name`, with `lowered`, `native render` or `native body`; `browser: Vec<(String, String)>` pairs a lowered module, prefixed for a site, with `file:line:column` of each render-path call that stays in the browser after hoisting. `Display` prints `extensions` rows, then `browser` rows, before `hoisted`.
 * `routes` pairs a pattern with its directory relative to `app`; `layouts` pairs the pattern a layout wraps with its module; `slots` pairs a parallel slot's source id with its page module; `intercepts` pairs `<pattern> into <slot>` with the `page.<slot>.tsx` module; `sources` and `actions` pair an id with the module that lowered to it; `services` pairs a service with its document; `schemas` pairs a type with its file; `types` pairs a package with `types::status`'s row.
 * `Display` prints the six sections in that order, source and action rows labelled `lowered`, service rows `http` or `grpc` by their document's extension.
@@ -410,6 +418,17 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `pub struct vendor::VendorManifest { pub packages: BTreeMap<String, VendoredPackage> }`, `vendor::VendoredPackage { pub version: String, pub externals: Vec<String>, pub entries: BTreeMap<String, String> }`, entries from specifier to file relative to the vendor directory; read and written as `<vendor>/.fsr-vendor.json`.
 * `pub struct types::TypesManifest { pub packages: BTreeMap<String, TypedPackage> }`, `types::TypedPackage { pub version: String, pub from: String, pub entry: String, pub ambient: bool }`; read and written as `<types>/.fsr-types.json`.
 * Both: `read(app, &layout)`, `write(&self, app, &layout)`; a missing file reads as empty.
+
+### assets
+
+The build's half of images and fonts, `snapfire_fsr_cli::assets`.
+
+* `pub struct Sections { pub dirs: DirsSection, pub images: ImagesSection, pub fonts: FontsSection }`; `Sections::of(app: &Path) -> Sections` reads them from the configuration beside the app, defaults when there is none; `policy(&self) -> snapfire_fsr_assets::VariantPolicy`.
+* `pub struct Resolver`, `Resolver::new(app: &Path, public_path: &str, sections: Sections)`: answers the lowerer's `AssetResolver` from the files, hashing each image with `snapfire_fsr_assets::hash::of`, reading its header for the size, choosing its widths under the policy and any per-image override and naming its variants `<stem>.<hash>.<width>.<ext>` beside the hashed original under `public_path`, with `[images] base` prefixed. An image the lowerer never asked about is not an entry; `scan(&self, dir, under)` records every image under a directory, which `build` runs over `[dirs] images`. `entries(&self) -> Vec<ImageEntry>`, `policy_out(&self) -> ImagePolicy`, `refused: RefCell<Vec<(String, String)>>` for a file that was asked for and does not decode.
+* `pub fn fonts(app: &Path, public_path: &str, sections: &Sections) -> Result<(Fonts, Vec<String>), BuildError>`: reads every woff2, woff, ttf and otf under `[dirs] fonts` for its family, weight, style and metrics, a `<file>.range` sidecar for its `unicode-range`, places each under a `[fonts.<key>]` by `files`, then by `family`, else under the family's slug. It writes the `@font-face` rules, one fallback face per key from its regular weight against `fallback`, `--font-<key>` variables and the preload list. Refused by name: a `fallback` the asset crate does not know, a key naming no file, a `files` entry that is not there, a key with neither `family` nor `files`, a `remote` without `family`. The second value is the report's `fonts` lines.
+* `pub fn manifest(resolver: &Resolver, fonts: Fonts) -> AssetsManifest`.
+* `pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Derived, BuildError>`: writes every variant and hashed font copy the manifest names that is not under `out` already, decoding each source once; `Derived { written: Vec<PathBuf>, kept: usize }`. A name carries the content's hash, so a file that is there is kept, which is what makes a rebuild with nothing changed write nothing. `emit` and the dev loop run it after the bundle, under `<app>/dist`.
+* `add` and `add_from` as `fsr fonts` says.
 
 ## 7. Error Handling
 

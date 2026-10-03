@@ -48,6 +48,10 @@ The shopping document says how long its answers hold: `listProducts` and `getPro
 
 The two backends stand in for services this application does not own. It reaches both through one typed registry; neither the loaders nor the pages can tell which transport a call uses.
 
+## Photos and type
+
+Every product has a photo under `app/src/img/products/`, which `app/src/ui/photos.ts` maps by the file the catalog names, so a card or the detail hero lowers to one `<picture>` branch per photo and the browser writes the same one. The build derives six variants per photo, two formats at three widths. The catalog page fetches the 640 AVIF set, 31 KB for fourteen cards against 200 KB for the originals; the catalog loader's `meta` preloads the first card's photo and the detail hero loads eagerly at high priority. Inter sits under `app/fonts/` with `[fonts.sans]` in the configuration, so the body face is `var(--font-sans)` and a line of its Arial fallback takes the room Inter will. Guide chapter 108 walks through it.
+
 ## What is where
 
 ```

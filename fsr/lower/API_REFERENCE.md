@@ -14,6 +14,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
   * [read_session_defaults](#read_session_defaults)
   * [SchemaType](#schematype)
   * [ComponentSet](#componentset)
+  * [assets](#assets)
   * [The Vue Front End](#the-vue-front-end)
   * [ALIASES, STD_SPECIFIER and EXT_DIR](#aliases-std_specifier-and-ext_dir)
 * [2. The Recognised Language](#2-the-recognised-language)
@@ -86,13 +87,25 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 
 The cursor over one application: parsed files, lowered components and the resolution that follows imports. `component::ComponentSet`.
 
-* `ComponentSet::new(app: &Path) -> ComponentSet`; `with_defaults(self, defaults: SessionDefaults) -> ComponentSet`: the session defaults every body lowers with.
+* `ComponentSet::new(app: &Path) -> ComponentSet`; `with_defaults(self, defaults: SessionDefaults) -> ComponentSet`: the session defaults every body lowers with; `with_assets(self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> ComponentSet`: where an imported image or font is looked up and whether a plain `<img>` of one is rewritten, `NoAssets` and `true` by default.
+* `heads: HashMap<String, Vec<HeadRow>>`: the head rows each lowered module asks for, its own and those of every component it places, by module id; `pub struct HeadRow { pub tag: String, pub attrs: Vec<(String, String)> }`. A priority `Picture` of an imported image asks for one `link rel="preload" as="image"` row with its first format's `srcset` and its `sizes`.
 * `lower(&mut self, module: &str) -> Result<(), LowerError>`: lowers `path#export` and everything it renders into `components`; a module already lowered is not read again. A module met while it is still being lowered is a component that renders itself, directly or through others. It lowers to a `Tmpl::Component` naming it, which the renderer calls by id. Once the outermost call returns, every `hydrate` verdict and every entry of `pure` is brought to what the whole graph says: a component on a cycle hydrates when any component it renders inline has state or handlers. It is pure when every component on the cycle is.
 * `lower_loader(&mut self, file: &str) -> Result<Body, LowerError>`, `lower_meta`, `lower_store` and `lower_paths` (`Result<Option<Body>, LowerError>`), `lower_actions` (`Result<Vec<LoweredAction>, LowerError>`), `lower_handlers` (`Result<Vec<LoweredHandler>, LowerError>`) and `lower_middleware` (`Result<Body, LowerError>`): the body lowerers over a file under the app, each following the module-level names the body calls through the same resolution a component uses, so a loader calls the helper a component calls. A name that cannot be followed is the residue the free functions give.
 * `lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError>`: lowers every export of a module under `ext/`, `(file#export, kind)` with the kind `lowered`, `native render` or `native body`; an export that does not lower is `LowerError::Extension`.
 * `natives: Vec<(String, Reach)>`: every native pair declared so far, `module.member` and reach. `remaining: Vec<(String, String)>`: per lowered module, `file:line:column` of each render-path call candidate that was not hoisted and sits under no hoisted call, which the browser still makes.
 * `components`, `layouts`, `slots`, `rewrites`, `pure` and `rewritten` as the hoisting section says.
 * `foreign: Vec<String>`: components in a language the build does not read, as `file#export`, placed as islands the server writes empty. `describe(&mut self, file, described: snapfire_compiler_wire::Described)`: what the framework's plugin said `file` is, so a placement of it lowers through that framework's front end instead of staying foreign; `undescribed(&mut self, file, why)`: the plugin refused to describe `file`, so a placement of it is foreign with `why` as its residue; `is_described(&self, module) -> bool`. `foreign_residue: Vec<(String, Residue)>`: each described component that did not lower, with why, so the report can say so. A placement of a described file that does not lower never fails the page: the component is foreign and the page lowers on.
+
+### assets
+
+Where the lowerer looks an imported image or font up, `assets::AssetResolver`. The build answers from the files; the lowerer writes what it is told.
+
+* `pub trait AssetResolver { fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts>; fn font(&self, path: &str) -> Option<String>; fn source(&self, name: &str) -> Option<String>; fn widths(&self) -> Vec<u32> }`: `path` relative to the app and normalised; `image` records the request's override for the build; `font` is the served URL; `source` is a named remote source's template; `widths` the policy's, for a remote image whose own width is unknown.
+* `pub struct ImageRequest { pub widths: Option<Vec<u32>>, pub quality: Option<BTreeMap<String, u8>> }`, a per-image override.
+* `pub struct ImageFacts { pub src: String, pub width: u32, pub height: u32, pub sources: Vec<(String, String)> }`: the hashed original's URL, its size and `(mime, srcset)` per format, empty for an image served as it is.
+* `pub struct NoAssets`: knows nothing, so an asset import stays unbound.
+* `assets::kind(specifier: &str) -> Option<Kind>`, `Kind::Image` for `png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`, `svg`, `ico` and `bmp`, `Kind::Font` for `woff2`, `woff`, `ttf` and `otf`; `assets::default_sizes(width: u32) -> String`, `(max-width: {width}px) 100vw, {width}px`.
+* `component::RAW_ESCAPE: &str`, `data-sf-raw`, the attribute that keeps an `<img>` out of the rewrite; stripped from the markup.
 
 ### The Vue Front End
 
@@ -115,7 +128,9 @@ The cursor over one application: parsed files, lowered components and the resolu
 ### Modules
 
 * The context parameter is the first parameter of the body: an identifier or an object pattern whose keys are `params`, `query`, `session`, `services`, `identity`, `input` or `now`, each optionally renamed with `key: local`. Any other key, a nested pattern or a rest element is residue.
-* Imports, type declarations and non-action exports are ignored.
+* Imports, type declarations and non-action exports are ignored, except a default import of a relative specifier naming an image or a font, which is bound through the set's `AssetResolver`: an image to `{ src, width, height, sources }`, a font to its URL. An import the resolver does not know stays unbound.
+* `<Picture>` from `@snapfire/fsr-client/react` or `@snapfire/fsr-authoring/template` lowers to a `<picture>` with a `<source type srcset sizes>` per format and the hashed original as its `<img>`, with `width`, `height`, `loading` (`lazy`, `eager` under `priority`), `decoding` (`async`) and `fetchpriority="high"` under `priority`; an image served as it is lowers to the `<img>` alone. `src` is an imported image, its `.src`, an entry of an object of imported images indexed by a value (`PHOTOS[key]`, declared in the file or imported, which lowers to `Tmpl::If` per entry on `key == "<entry>"` and nothing when none matches) or any other value: with `source="<name>"` an `<img>` whose `srcset` the named template writes per policy width and `sizes` defaulting to `100vw`, without one an `<img src>` as written. `sizes` defaults to `default_sizes`; `widths` is an array of positive numbers and `quality` a number or `{ avif, webp }`, written out, which only change what the build generates. A literal relative `src` is residue naming the import form, since it resolves against the page in a browser.
+* With `rewrite_images`, an `<img>` whose `src` is `<import>.src` lowers as a `Picture` with the same rules; `data-sf-raw` on it keeps a plain `<img>` with the hashed original, `width` and `height` filled unless written and the attribute stripped.
 * `<X.Provider>` where `X` is a module-level `const` bound to `createContext(...)` from `react`, in the file or followed through its imports, lowers to `Tmpl::Fragment` of its children with the `value` dropped and makes the component hydrate; `X` bound to anything else is residue naming the tag. `useContext` and `X.Consumer` stay residue.
 * `export default tree(Layout)` with `tree` from `@snapfire/fsr-client/react` lowers `Layout` as the default export and sets `hydrated_by` to `HydratedBy::ReactTree`, whatever the layout holds. The module must be one of `ComponentSet::layouts`; on any other module the call is residue, as is a call with anything but one identifier.
 * `<Link>` from the same module lowers to an `<a>` carrying `data-sf-link` and an `aria-current` computed against `Expr::Path`. With `current="document"` written it is computed against `Expr::Document` and the anchor carries `data-sf-current="document"` beside it; `current="url"` is the default. `match` and `current` must be written out; any other value is residue.

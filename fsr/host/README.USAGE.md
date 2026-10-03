@@ -24,6 +24,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
 * [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
 * [Rendering a Template Route](#rendering-a-template-route)
+* [Serving Images and Fonts](#serving-images-and-fonts)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
@@ -114,6 +115,25 @@ reload = "hup"                    # optional: hup, usr1, usr2 or none
 title = "Shopping"
 empty_icon = true                 # default: an app with no icons/ links an empty icon, false turns it off
 
+[dirs]                            # optional: where each kind of asset lives under the app directory
+styles = "styles"
+fonts = "fonts"
+images = "images"
+icons = "icons"
+
+[images]                          # optional: the variants every imported image is built with
+widths = [640, 960, 1280, 1920, 2560]
+formats = ["avif", "webp"]
+quality = { avif = 60, webp = 80 }
+rewrite = true                    # an <img> of an imported asset is lowered as a Picture
+# base = "https://cdn.example.com"            # prefixed onto every image URL at build time
+# [images.sources.cms]                        # a string src goes through a template
+# template = "https://img.example.com/{src}?w={width}&auto=format"
+
+[fonts.sans]                      # optional: a family under the fonts directory, served with a sized fallback
+family = "Inter"
+fallback = "Arial"
+
 [session]
 key = "a signing key"             # required
 previous_keys = []                # keys that still verify a cookie signed before `key` replaced them
@@ -183,7 +203,8 @@ From the app directory, each reported at boot under `inferred`:
 | a `/static/js/vendor` root | `vendor/` in the app directory, under the site's prefix when `[site]` is set |
 | `<link rel="icon" href="data:,">` in the head | no icon under `icons/`, unless `document.empty_icon = false`; dropped when a route's `meta` names an icon |
 | a `/static/js/vendor` root for a site running alone | the shell's `app/vendor/`, beside the `generated/shell.json` that `[site] shell` names |
-| a `/static/css` root and `document.styles` | `styles/` in the app directory, every `.css` in it linked from the head in name order |
+| a `/static/css` root and `document.styles` | the `styles` directory `[dirs]` names, `styles/` by default, every `.css` in it linked from the head in name order |
+| the image policy, the font CSS and the preloads in the head | `generated/assets.json`, which `fsr build` writes from the images the components import and the fonts directory |
 | the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own |
 
 The build facts are read from `dist/` or, failing that, from whichever directory a `[[static]]` root already points at, since an application that writes its own root for the browser tree keeps the bundle elsewhere: a project rendering through Tera has `js/dist`, whose component stylesheets would otherwise never reach the head. The report names the directory it read.
@@ -555,6 +576,61 @@ let host = Host::from("config")?
   .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
   .build()?;
 ```
+
+## Serving Images and Fonts
+
+`fsr build` derives the variants of every image a component imports and the CSS for every face under the fonts directory, writing what it derived as `generated/assets.json`. The host reads that file at boot and the rest follows from it:
+
+```toml
+[images]
+widths = [640, 960, 1280, 1920, 2560]
+formats = ["avif", "webp"]
+
+[fonts.sans]
+family = "Inter"
+fallback = "Arial"
+```
+
+Every document then carries the policy, the inline font CSS, the preloads and, for a page whose plan asks for one, the preload of its largest image:
+
+```html
+<meta name="sf:images" content="{&quot;widths&quot;:[640,960,1280,1920,2560],…}">
+<link rel="preload" as="font" href="/static/js/app/fonts/Inter-Regular.a76fafda.woff2" crossorigin="">
+<style data-sf-fonts="">@font-face{font-family:"Inter";…}@font-face{font-family:"Inter Fallback";src:local("Arial");size-adjust:108.20%;…}:root{--font-sans:"Inter","Inter Fallback",sans-serif;}</style>
+<link rel="preload" as="image" type="image/avif" imagesrcset="/static/js/app/src/img/hero.0a1b2c3d.640.avif 640w, …" imagesizes="(max-width: 1600px) 100vw, 1600px" fetchpriority="high">
+```
+
+The inline style's hash is widened into `style-src`, so a `[document.csp]` keeps its `'self'` and nothing else inline. A file the build named with a content hash, the original, every variant and every font copy, answers `Cache-Control: public, max-age=31536000, immutable`; everything else keeps `static_max_age`.
+
+A static tree a CDN serves sets the base at build time, since the URLs are written into the markup:
+
+```toml
+[images]
+base = "https://cdn.example.com"
+
+[fonts]
+base = "https://cdn.example.com"
+```
+
+The host widens `img-src` and `font-src` with the origin. A font fetched across origins needs `Access-Control-Allow-Origin` from the CDN, since the browser requests fonts in CORS mode whatever the markup says; the preload carries `crossorigin` for the same reason.
+
+A provider's own stylesheet is linked rather than served, with a preconnect to its origins:
+
+```toml
+[fonts.display]
+family = "Fraunces"
+remote = "https://fonts.googleapis.com/css2?family=Fraunces&display=swap"
+```
+
+That key gets no metrics and no preload, since there is no file to read, so its text reflows when the face arrives; the request also carries every visitor's IP to the provider.
+
+A Tera template writes an image the way the `Picture` tag does, for any image under the `images` directory `[dirs]` names or one a component imported:
+
+```html
+{{ fsr_picture(src="images/board.png", alt="The board in the hall", sizes="100vw", priority=true, class="board-photo") }}
+```
+
+`fsr_fonts()` writes the inline style and the font links for a template that builds its own head. A template gets no preload row from `priority`, since a template has no `meta`; the image loads eagerly at high priority instead.
 
 ## Serving Locales
 

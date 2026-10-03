@@ -224,6 +224,7 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub load_keyer: Arc<dyn LoadKeyer>`
 * `pub loads: Arc<dyn LoadCache>`
 * `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id, how a segment describes the document from its data.
+* `pub heads: HashMap<String, Vec<HeadEl>>`: by module id, the head elements a page rendering that module carries, which the build settled; merged into a page's `Meta` after its segments describe it, for every module in the plan subtree, outermost first.
 * `pub stores: HashMap<String, Arc<dyn Seeds>>`: by data source id, what a segment seeds the store with.
 * `pub reads: Reads`: by `subtree_shape`, what each subtree reads of the request; a subtree with no entry reads everything.
 * `pub fn builder() -> RuntimeBuilder`
@@ -241,11 +242,12 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn load_keyer(self, keyer: Arc<dyn LoadKeyer>) -> Self`
 * `pub fn loads(self, loads: Arc<dyn LoadCache>) -> Self`
 * `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
+* `pub fn heads(self, heads: HashMap<String, Vec<HeadEl>>) -> Self`
 * `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`
 * `pub fn reads(self, reads: Reads) -> Self`
 * `pub fn build(self) -> Arc<Runtime>`
 
-Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata, no seeds, an empty `Reads`.
+Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata, no head rows, no seeds, an empty `Reads`.
 
 ### `Static`, `SubtreeReads` and `Reads`
 

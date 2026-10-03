@@ -38,3 +38,5 @@ Client navigation is the part that depends on what serves the files. The navigat
 `fsr test app`: the home page's cards come from the loader's constant and the layout wraps every page.
 
 Checked in a browser over `python3 -m http.server`: every document and every asset answers, the page hydrates with an empty console and following a link lands on the next page with its own title.
+
+The cover on the index is an imported image: the prerender writes its variants under `site/static/js/app/src/img/` beside the hashed original and the preload into `index.html`, so a static host serves a `<picture>` the same way the stock host would.

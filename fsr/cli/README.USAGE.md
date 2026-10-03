@@ -32,6 +32,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Building](#building)
 * [Typechecking](#typechecking)
 * [Running the Specs](#running-the-specs)
+* [Serving Images and Fonts](#serving-images-and-fonts)
 * [Building a Site](#building-a-site)
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
@@ -818,6 +819,95 @@ await load("/account", { ctx: c });                       // and now the page is
 ```
 
 One thing the runner cannot answer, so a spec must not expect it: the Rust half of a native pair, which it answers from the browser half.
+
+## Serving Images and Fonts
+
+An image a component imports is served under a content hash with a resized variant per width and format. A font under the fonts directory is served with a fallback face sized to match it. Import the image and place it with `Picture`:
+
+```tsx
+import { Picture } from "@snapfire/fsr-client/react";
+import hero from "../img/hero.png";
+
+export default function Page() {
+  return <Picture src={hero} alt="The harbour at dusk" sizes="(min-width: 60em) 50vw, 100vw" priority />;
+}
+```
+
+The build writes the `<picture>` with a `<source>` per format and the hashed original as its `<img>`, width and height from the file, lazy unless `priority`, plus for a priority image a preload row every page placing the component carries. A plain `<img src={hero.src}>` gets the same treatment; `data-sf-raw` on it keeps the hashed original alone. `[images] rewrite = false` keeps every plain `<img>` plain. A `src` that is a string is a URL as written or the value an `[images.sources.<name>]` template takes with `source="<name>"`:
+
+```tsx
+<Picture src={product.photo} source="cms" alt="" width={800} height={600} />
+```
+
+A record of imports indexed by a value lowers to one branch per entry, which is how a catalog rendered from data gets its photos:
+
+```tsx
+import one from "../img/1.png";
+import two from "../img/2.png";
+export const PHOTOS = { "1.png": one, "2.png": two };
+
+<Picture src={PHOTOS[product.image.file]} alt="" sizes="300px" />
+```
+
+A keyed record asks for no preload, since the key is a value; a loader's `meta` names the one its page shows, with `preloadImage` from `@snapfire/fsr/head`, on a route that is not streamed:
+
+```ts
+import { preloadImage } from "@snapfire/fsr/head";
+import { PHOTOS } from "@src/ui/photos";
+
+export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({
+  title: "Today's picks",
+  head: data.products.length > 0 ? [preloadImage(PHOTOS[data.products[0].image.file], "(max-width: 640px) 100vw, 300px")] : [],
+});
+```
+
+The policy is `[images]` in the configuration, with the defaults shown; `widths` and `quality` are overridable per image as props:
+
+```toml
+[images]
+widths = [640, 960, 1280, 1920, 2560]
+formats = ["avif", "webp"]
+quality = { avif = 60, webp = 80 }
+```
+
+An image gets every policy width below its own, then its own, so nothing is upscaled; an SVG, a GIF or an APNG is served as it is with its width and height. The report lists each image with its size and variant count and each face the directory holds:
+
+```text
+image     src/img/hero.png                   1600x900, 8 variants
+font      Inter 700 normal from fonts/Inter-Bold.woff2
+          Inter 400 normal from fonts/Inter-Regular.woff2
+derived   18 files under dist/, 0 already there
+```
+
+The variants and the font copies are written under `dist/` after the bundle, each named with its hash, so a rebuild with nothing changed writes nothing and a changed image gets a new name. `generated/assets.json` records all of it for the host.
+
+Fonts are files under `fonts/` and a `[fonts.<key>]` per family:
+
+```toml
+[fonts.sans]
+family = "Inter"
+fallback = "Arial"
+```
+
+```css
+body { font-family: var(--font-sans); }
+```
+
+The build reads each file's own tables, writes the `@font-face` rules, an `Inter Fallback` face drawn with Arial and scaled so the text takes the same room, plus `--font-sans` as `"Inter", "Inter Fallback", sans-serif`. The regular weight is preloaded; `preload = true` preloads every face of the key and `false` none. A family under the directory that no key names gets the key its family slugs to. To take a family from Google Fonts, fetch it once into the directory:
+
+```sh
+fsr fonts add app google:Inter@400,700
+```
+
+Each subset lands as its own file with a `.range` sidecar. The build serves them as local files from then on. `[dirs]` moves any of the four directories:
+
+```toml
+[dirs]
+styles = "assets/css"
+fonts = "assets/fonts"
+images = "assets/images"
+icons = "assets/icons"
+```
 
 ## Building a Site
 
