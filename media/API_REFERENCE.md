@@ -39,15 +39,15 @@ The size is read by `imagesize`, so every format it knows is covered: PNG, JPEG,
 
 ### Metrics
 
-`pub struct Metrics { pub units_per_em: u16, pub ascender: i16, pub descender: i16, pub line_gap: i16, pub avg_char_width: i16, pub cap_height: Option<i16>, pub x_height: Option<i16> }`, all in font units. `ascender`, `descender` and `line_gap` follow `OS/2` typographic metrics when `USE_TYPO_METRICS` is set and `hhea` otherwise. `avg_char_width` is the advance of `a` to `z` weighted by English letter frequency.
+`pub struct Metrics { pub units_per_em: u16, pub ascender: i16, pub descender: i16, pub line_gap: i16, pub avg_char_width: Option<i16>, pub cap_height: Option<i16>, pub x_height: Option<i16> }`, all in font units. `ascender`, `descender` and `line_gap` follow `OS/2` typographic metrics when `USE_TYPO_METRICS` is set and `hhea` otherwise. `avg_char_width` is the advance of `a` to `z` weighted by English letter frequency, `None` for a face with none of those glyphs, such as a provider's non-Latin subset.
 
 ### Face
 
-`pub struct Face { pub family: String, pub weight: u16, pub style: Style, pub metrics: Metrics }`.
+`pub struct Face { pub family: String, pub weight: u16, pub style: Style, pub weight_range: Option<(u16, u16)>, pub metrics: Metrics }`. `weight` is `OS/2`'s weight class, which for a variable face is its default instance's and not the weight a provider declared it under; `weight_range` is the `wght` axis, lowest to highest, the `font-weight` range one variable file serves, `None` for a static face.
 
 * `fn read(path: &Path) -> Result<Face, Error>`: by extension, `woff2` and `woff` unpacked, `ttf` and `otf` as they are.
 * `fn from_bytes(path: &Path, bytes: &[u8], ext: &str) -> Result<Face, Error>`: the same over bytes; `path` names the file in an error only.
-* `fn fallback_face(&self, family: &str, fallback: &Fallback) -> String`: one `@font-face` rule declaring `family` as `local(<fallback>)` with `size-adjust`, `ascent-override`, `descent-override` and `line-gap-override`, each a percentage to two decimals.
+* `fn fallback_face(&self, family: &str, fallback: &Fallback) -> Option<String>`: one `@font-face` rule, `None` for a face with no `a` to `z` advance to size it by, declaring `family` as `local(<fallback>)` with `size-adjust`, `ascent-override`, `descent-override` and `line-gap-override`, each a percentage to two decimals.
 
 `family` is the typographic family name when present, else the family name; a Unicode name record is preferred and a Macintosh Roman one read when that is all the font carries.
 
@@ -66,4 +66,4 @@ The size is read by `imagesize`, so every format it knows is covered: PNG, JPEG,
 
 * `Io(PathBuf, std::io::Error)`: reading the file.
 * `Image(PathBuf, String)`: not an image whose header this crate reads.
-* `Font(PathBuf, String)`: not a font this crate reads, including one without a family name or `a` to `z` glyphs.
+* `Font(PathBuf, String)`: not a font this crate reads, including one without a family name.

@@ -24,6 +24,9 @@ impl Header {
 
   /// `path` names the file in an error only.
   pub fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, Error> {
+    if let Some((width, height)) = svg_size(bytes) {
+      return Ok(Header { width, height, orientation: 1 });
+    }
     let size = imagesize::blob_size(bytes).map_err(|e| Error::Image(path.to_path_buf(), e.to_string()))?;
     let (width, height) = (size.width as u32, size.height as u32);
     let orientation = orientation(bytes);
@@ -56,6 +59,52 @@ fn transposes(orientation: u8) -> bool {
   (5..=8).contains(&orientation)
 }
 
+/// The size an SVG draws at, from the root element's `width` and `height`
+/// when both are plain lengths or in `px`, else from its `viewBox`. An SVG
+/// with neither has no size to write on an element. `None` for bytes that
+/// are not an SVG at all.
+pub fn svg_size(bytes: &[u8]) -> Option<(u32, u32)> {
+  let head = std::str::from_utf8(&bytes[..bytes.len().min(4096)]).ok()?;
+  let start = head.find("<svg")?;
+  if head[..start].trim_start_matches('\u{feff}').trim().chars().any(|c| c != '<' && !c.is_whitespace() && !head[..start].contains("<?xml") && !head[..start].contains("<!--")) {
+    return None;
+  }
+  let tag = &head[start..];
+  let end = tag.find('>')?;
+  let tag = &tag[..end];
+  let attr = |name: &str| -> Option<&str> {
+    let mut rest = tag;
+    while let Some(at) = rest.find(name) {
+      let before_ok = at == 0 || rest.as_bytes()[at - 1].is_ascii_whitespace();
+      let after = &rest[at + name.len()..];
+      let after = after.trim_start();
+      if before_ok && after.starts_with('=') {
+        let after = after[1..].trim_start();
+        let quote = after.chars().next()?;
+        if quote == '"' || quote == '\'' {
+          return after[1..].split(quote).next();
+        }
+      }
+      rest = &rest[at + name.len()..];
+    }
+    None
+  };
+  let length = |value: &str| -> Option<u32> {
+    let value = value.trim().trim_end_matches("px").trim();
+    let number: f64 = value.parse().ok()?;
+    (number > 0.0).then(|| number.round() as u32)
+  };
+  if let (Some(w), Some(h)) = (attr("width").and_then(length), attr("height").and_then(length)) {
+    return Some((w, h));
+  }
+  let view_box = attr("viewBox")?;
+  let parts: Vec<f64> = view_box.split(|c: char| c == ',' || c.is_whitespace()).filter(|p| !p.is_empty()).filter_map(|p| p.parse().ok()).collect();
+  if parts.len() == 4 && parts[2] > 0.0 && parts[3] > 0.0 {
+    return Some((parts[2].round() as u32, parts[3].round() as u32));
+  }
+  None
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -81,6 +130,19 @@ mod tests {
     assert_eq!(header, Header { width: 3, height: 2, orientation: 1 });
     assert!(!header.transposes());
     assert_eq!(orientation(b"not an image"), 1);
+  }
+
+  #[test]
+  fn an_svg_is_sized_by_its_attributes_or_its_view_box_and_never_rotated() {
+    let sized = br#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="120px" height="32" viewBox="0 0 240 64"><circle r="4"/></svg>"#;
+    assert_eq!(Header::from_bytes(Path::new("logo.svg"), sized).unwrap(), Header { width: 120, height: 32, orientation: 1 });
+    let boxed = b"<svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"/>";
+    assert_eq!(Header::from_bytes(Path::new("icon.svg"), boxed).unwrap(), Header { width: 24, height: 24, orientation: 1 });
+    let relative = b"<svg width=\"100%\" height=\"100%\" viewBox=\"0 0 10 5\"/>";
+    assert_eq!(Header::from_bytes(Path::new("fluid.svg"), relative).unwrap(), Header { width: 10, height: 5, orientation: 1 });
+    let missing = b"<!-- a comment --><svg xmlns=\"http://www.w3.org/2000/svg\"><rect/></svg>";
+    assert!(Header::from_bytes(Path::new("unsized.svg"), missing).is_err(), "no size to write on an element");
+    assert_eq!(svg_size(b"<html><svg width=\"1\" height=\"1\"/></html>"), None, "markup that merely contains an svg is not one");
   }
 
   #[test]

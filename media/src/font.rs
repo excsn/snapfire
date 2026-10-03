@@ -29,15 +29,16 @@ pub struct Metrics {
   /// The advance of `a` to `z` weighted by English letter frequency, in font
   /// units, which is what `size-adjust` scales by. `OS/2`'s `xAvgCharWidth`
   /// averages every glyph in the font and a face with a wide symbol set
-  /// overstates its text width by half.
-  pub avg_char_width: i16,
+  /// overstates its text width by half. `None` for a face with none of
+  /// those glyphs, a non-Latin subset for one, which no fallback is sized from.
+  pub avg_char_width: Option<i16>,
   pub cap_height: Option<i16>,
   pub x_height: Option<i16>,
 }
 
 impl Metrics {
-  fn avg_width(&self) -> f64 {
-    f64::from(self.avg_char_width) / f64::from(self.units_per_em)
+  fn avg_width(&self) -> Option<f64> {
+    Some(f64::from(self.avg_char_width?) / f64::from(self.units_per_em))
   }
 }
 
@@ -45,8 +46,13 @@ impl Metrics {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Face {
   pub family: String,
+  /// `OS/2`'s weight class, which for a variable face is its default instance's.
   pub weight: u16,
   pub style: Style,
+  /// The `wght` axis of a variable face, lowest to highest, which is the
+  /// `font-weight` range one file serves; `None` for a static face.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub weight_range: Option<(u16, u16)>,
   pub metrics: Metrics,
 }
 
@@ -72,12 +78,19 @@ impl Face {
       .or_else(|| name(&face, ttf_parser::name_id::FAMILY))
       .ok_or_else(|| Error::Font(path.to_path_buf(), "no family name".to_owned()))?;
 
-    let avg_char_width = weighted_advance(&face).ok_or_else(|| Error::Font(path.to_path_buf(), "no a to z glyphs".to_owned()))?;
+    let avg_char_width = weighted_advance(&face);
+
+    let weight_range = face
+      .variation_axes()
+      .into_iter()
+      .find(|axis| axis.tag == ttf_parser::Tag::from_bytes(b"wght"))
+      .map(|axis| (axis.min_value.round() as u16, axis.max_value.round() as u16));
 
     Ok(Face {
       family,
       weight: face.weight().to_number(),
       style: if face.is_italic() || face.is_oblique() { Style::Italic } else { Style::Normal },
+      weight_range,
       metrics: Metrics {
         units_per_em: face.units_per_em(),
         ascender: face.ascender(),
@@ -93,12 +106,13 @@ impl Face {
   /// The `@font-face` for a fallback drawn with `fallback` so its text takes
   /// the same room as this face's: `size-adjust` matches the average advance
   /// and the three overrides match the vertical metrics after that scale.
-  /// `family` is the name the fallback face is declared under.
-  pub fn fallback_face(&self, family: &str, fallback: &Fallback) -> String {
-    let adjust = self.metrics.avg_width() / fallback.metrics.avg_width();
+  /// `family` is the name the fallback face is declared under. `None` for a
+  /// face with no `a` to `z` advance to match, since nothing sizes it.
+  pub fn fallback_face(&self, family: &str, fallback: &Fallback) -> Option<String> {
+    let adjust = self.metrics.avg_width()? / fallback.metrics.avg_width()?;
     let em = f64::from(self.metrics.units_per_em);
     let pct = |value: f64| format!("{:.2}%", value * 100.0);
-    format!(
+    Some(format!(
       "@font-face {{ font-family: \"{}\"; src: local(\"{}\"); size-adjust: {}; ascent-override: {}; descent-override: {}; line-gap-override: {}; }}",
       family,
       fallback.local,
@@ -106,7 +120,7 @@ impl Face {
       pct(f64::from(self.metrics.ascender) / em / adjust),
       pct(f64::from(self.metrics.descender).abs() / em / adjust),
       pct(f64::from(self.metrics.line_gap) / em / adjust),
-    )
+    ))
   }
 }
 
@@ -164,7 +178,7 @@ macro_rules! fallback {
         ascender: $asc,
         descender: $desc,
         line_gap: $gap,
-        avg_char_width: $avg,
+        avg_char_width: Some($avg),
         cap_height: None,
         x_height: None,
       },
@@ -210,19 +224,21 @@ mod tests {
     assert_eq!(regular.style, Style::Normal);
     assert!(regular.metrics.units_per_em >= 1000);
     assert!(regular.metrics.ascender > 0 && regular.metrics.descender < 0);
-    assert!(regular.metrics.avg_char_width > 0);
-    assert!(regular.metrics.avg_char_width < regular.metrics.units_per_em as i16 * 3 / 4);
+    let avg = regular.metrics.avg_char_width.expect("Inter has a to z");
+    assert!(avg > 0);
+    assert!(avg < regular.metrics.units_per_em as i16 * 3 / 4);
 
     let bold = Face::read(&fixture("Inter-Bold.woff2")).unwrap();
     assert_eq!(bold.family, "Inter");
     assert_eq!(bold.weight, 700);
+    assert_eq!(bold.weight_range, None, "a static face");
     assert_eq!(bold.metrics.units_per_em, regular.metrics.units_per_em);
   }
 
   #[test]
   fn the_fallback_face_scales_arial_to_inters_advance_and_overrides_the_vertical_metrics() {
     let inter = Face::read(&fixture("Inter-Regular.woff2")).unwrap();
-    let css = inter.fallback_face("Inter Fallback", fallback("arial").unwrap());
+    let css = inter.fallback_face("Inter Fallback", fallback("arial").unwrap()).unwrap();
     assert!(css.starts_with("@font-face { font-family: \"Inter Fallback\"; src: local(\"Arial\"); size-adjust: "), "{css}");
     let number = |key: &str| -> f64 {
       let start = css.find(key).unwrap() + key.len();
@@ -242,6 +258,17 @@ mod tests {
     assert!(fallback("Comic Sans MS").is_none());
     assert_eq!(fallback("ARIAL").unwrap().local, "Arial");
     assert!(fallbacks().any(|f| f == "Georgia"));
+  }
+
+  #[test]
+  fn a_subset_without_a_to_z_reads_with_no_average_width_and_sizes_no_fallback() {
+    let vietnamese = Face::read(&fixture("Fraunces-400-vietnamese.woff2")).unwrap();
+    assert_eq!(vietnamese.family, "Fraunces");
+    assert_eq!(vietnamese.weight, 900, "the file's own weight class is its default instance, which is not the weight the provider declared it under");
+    assert_eq!(vietnamese.weight_range, Some((100, 900)), "the provider serves the variable face for a discrete weight");
+    assert_eq!(vietnamese.metrics.avg_char_width, None, "a provider's vietnamese subset carries the accented letters alone");
+    assert!(vietnamese.metrics.units_per_em > 0 && vietnamese.metrics.ascender > 0);
+    assert_eq!(vietnamese.fallback_face("Fraunces Fallback", fallback("Georgia").unwrap()), None);
   }
 
   #[test]

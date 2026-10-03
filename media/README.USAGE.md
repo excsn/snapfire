@@ -32,7 +32,7 @@ fn main() -> Result<(), snapfire_media::Error> {
   println!("{}x{} as displayed, orientation {}", header.width, header.height, header.orientation);
 
   let inter = Face::read(Path::new("app/fonts/Inter-Regular.woff2"))?;
-  let css = inter.fallback_face("Inter Fallback", font::fallback("Arial").unwrap());
+  let css = inter.fallback_face("Inter Fallback", font::fallback("Arial").unwrap()).expect("Inter has a to z");
   println!("{css}");
   Ok(())
 }
@@ -86,7 +86,7 @@ assert_eq!(inter.style, Style::Normal);
 assert!(inter.metrics.units_per_em > 0);
 ```
 
-The family is the typographic family name when the font has one, so `Inter Bold` reads as `Inter` with weight 700.
+The family is the typographic family name when the font has one, so `Inter Bold` reads as `Inter` with weight 700. A variable face carries its `wght` axis as `weight_range`, say `Some((100, 900))`; that is the `font-weight` to declare it under. Its `weight` is the default instance's class, 900 for Fraunces, which says nothing about the weight a stylesheet asked for.
 
 ## Writing the Fallback Face
 
@@ -98,11 +98,11 @@ use std::path::Path;
 
 let inter = Face::read(Path::new("app/fonts/Inter-Regular.woff2"))?;
 let arial = font::fallback("Arial").expect("a known fallback");
-let css = inter.fallback_face("Inter Fallback", arial);
+let css = inter.fallback_face("Inter Fallback", arial).expect("Inter has a to z");
 // @font-face { font-family: "Inter Fallback"; src: local("Arial"); size-adjust: 108.20%; ascent-override: 89.53%; descent-override: 22.32%; line-gap-override: 0.00%; }
 ```
 
-`size-adjust` is the ratio of the two faces' frequency-weighted average advances; the three overrides are the real face's vertical metrics divided by that scale. The fallbacks on offer are the ones `font::fallbacks` lists: Arial, Arial Black, Helvetica, Verdana, Tahoma, Trebuchet MS, Georgia, Times New Roman and Courier New, with metrics read from the files macOS and Windows ship.
+`size-adjust` is the ratio of the two faces' frequency-weighted average advances; the three overrides are the real face's vertical metrics divided by that scale. A face with no `a` to `z` glyphs, a provider's Vietnamese subset for one, has no average advance and `fallback_face` is `None` for it; size the fallback from the Latin subset. The fallbacks on offer are the ones `font::fallbacks` lists: Arial, Arial Black, Helvetica, Verdana, Tahoma, Trebuchet MS, Georgia, Times New Roman and Courier New, with metrics read from the files macOS and Windows ship.
 
 ## Error Handling
 
@@ -120,4 +120,4 @@ match Header::read(Path::new("app/img/photo.jpg")) {
 }
 ```
 
-`Font` names the file that was not a font, including one without a family name or `a` to `z` glyphs.
+`Font` names the file that was not a font, including one without a family name.
