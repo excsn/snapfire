@@ -12,6 +12,8 @@ pub struct Attribute {
 /// A placeholder in place of a photograph: a tile colour and a glyph.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Image {
+  /// The photo under `app/src/img/products/`, which the storefront's `Thumb` maps to an import.
+  pub file: String,
   pub color: String,
   pub emoji: String,
 }
@@ -130,7 +132,7 @@ impl Seed {
       description: self.description.to_owned(),
       tags: self.tags.iter().map(|t| (*t).to_owned()).collect(),
       attributes: self.attributes.iter().map(|(n, v)| Attribute { name: (*n).to_owned(), value: (*v).to_owned() }).collect(),
-      image: Image { color: self.color.to_owned(), emoji: self.emoji.to_owned() },
+      image: Image { file: format!("{}.png", self.id), color: self.color.to_owned(), emoji: self.emoji.to_owned() },
     }
   }
 }

@@ -9,7 +9,7 @@ import { addedToCart, failed } from "@src/ui/feedback";
 import { money, percentOff } from "@src/ui/money";
 import { stockLine } from "@src/ui/ProductCard";
 import { Stars } from "@src/ui/Stars";
-import { Thumb } from "@src/ui/Thumb";
+import { Hero } from "@src/ui/Thumb";
 
 export default function ProductPage({ product, stock: level, inCart }: ProductIdProps) {
   const [quantity, setQuantity] = useState(1);
@@ -43,7 +43,7 @@ export default function ProductPage({ product, stock: level, inCart }: ProductId
       </nav>
       <div className="product-layout">
         <div className="product-hero">
-          <Thumb image={product.image} size="hero" />
+          <Hero image={product.image} />
         </div>
         <div className="product-info">
           <h1>{product.name}</h1>

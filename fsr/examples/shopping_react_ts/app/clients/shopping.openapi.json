@@ -203,10 +203,14 @@
       "Image": {
         "type": "object",
         "required": [
+          "file",
           "color",
           "emoji"
         ],
         "properties": {
+          "file": {
+            "type": "string"
+          },
           "color": {
             "type": "string"
           },

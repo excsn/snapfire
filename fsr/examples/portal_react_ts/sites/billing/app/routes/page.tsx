@@ -1,10 +1,13 @@
 import type { RootProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link, Picture } from "@snapfire/fsr-client/react";
+
+import ledger from "../src/img/ledger.png";
 
 export default function InvoicesPage({ invoices }: RootProps) {
   return (
     <div className="page invoices">
       <h1>Invoices</h1>
+      <Picture src={ledger} alt="" sizes="(max-width: 640px) 100vw, 400px" className="ledger-art" />
       <table className="invoice-table">
         <thead>
           <tr>

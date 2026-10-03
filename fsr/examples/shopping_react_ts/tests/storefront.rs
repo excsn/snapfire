@@ -11,6 +11,7 @@ use snapfire_fsr_service::MockTransport;
 
 fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
   let mut image = ValueMap::default();
+  image.insert("file".to_owned(), Value::str(format!("{id}.png")));
   image.insert("color".to_owned(), Value::str("#2f3e46"));
   image.insert("emoji".to_owned(), Value::str("x"));
   let mut attribute = ValueMap::default();

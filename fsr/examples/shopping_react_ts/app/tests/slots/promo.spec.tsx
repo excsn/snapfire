@@ -1,7 +1,7 @@
 import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr-client/testing";
 
-const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 8n, description: "A spool.", tags: ["pla"], attributes: [] };
-const crackers = { id: 8n, name: "Sea salt crackers", brand: "Peter's Yard", category: "food", price_cents: 395n, list_price_cents: null, image: { color: "#c9a66b", emoji: "🥟" }, rating: 4.4, reviews: 688n, stock: 3n, description: "Thin.", tags: ["food", "snack"], attributes: [] };
+const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 8n, description: "A spool.", tags: ["pla"], attributes: [] };
+const crackers = { id: 8n, name: "Sea salt crackers", brand: "Peter's Yard", category: "food", price_cents: 395n, list_price_cents: null, image: { file: "8.png", color: "#c9a66b", emoji: "🥟" }, rating: 4.4, reviews: 688n, stock: 3n, description: "Thin.", tags: ["food", "snack"], attributes: [] };
 
 test("the promo slot renders from its own loader beside the page and survives a navigation", async () => {
   const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: ({ tag }: { tag?: string }) => (tag === "snack" ? [crackers] : [filament]) } } });

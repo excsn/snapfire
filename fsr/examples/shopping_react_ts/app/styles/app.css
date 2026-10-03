@@ -23,7 +23,7 @@
 
 body {
   margin: 0;
-  font-family: "Amazon Ember", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif);
   font-size: 14px;
   line-height: 1.4;
   color: var(--ink);
@@ -283,28 +283,26 @@ hr {
 }
 
 .thumb {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 100%;
+  height: auto;
+  object-fit: cover;
   color: #fff;
 }
 
 .thumb-card {
   aspect-ratio: 4 / 3;
-  font-size: 72px;
 }
 
 .thumb-line {
   width: 120px;
-  height: 120px;
+  height: 90px;
   border-radius: 6px;
-  font-size: 48px;
 }
 
 .thumb-hero {
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 3;
   border-radius: var(--radius);
-  font-size: 160px;
 }
 
 .stars {
@@ -819,7 +817,6 @@ hr {
   }
   .thumb-hero {
     aspect-ratio: 16 / 9;
-    font-size: 120px;
   }
   .cart-layout {
     grid-template-columns: 1fr;

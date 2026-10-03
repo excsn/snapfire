@@ -1,7 +1,7 @@
 import Catalog from "@routes/page";
 import { expect, render, screen, test } from "@snapfire/fsr-client/testing";
 
-const product = (id: bigint, name: string, category: string) => ({ id, name, brand: "Prusa", category, price_cents: 2400n, list_price_cents: 2900n, image: { color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "", tags: [], attributes: [] });
+const product = (id: bigint, name: string, category: string) => ({ id, name, brand: "Prusa", category, price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "", tags: [], attributes: [] });
 
 test("the catalog renders its chips and cards and hydrates since each card's add button runs in the browser", async () => {
   const products = [product(1n, "PLA filament", "printing"), product(2n, "Nozzle", "printing")];

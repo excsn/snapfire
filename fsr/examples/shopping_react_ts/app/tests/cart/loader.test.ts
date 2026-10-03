@@ -1,7 +1,7 @@
 import { load } from "@routes/cart/page.loader";
 import { ctx, expect, test } from "@snapfire/fsr/testing";
 
-const filament = { id: 1n, name: "PLA filament", brand: "Polymaker", category: "printing", price_cents: 2400n, stock: 12n, rating: 4.7, reviews: 1834n, description: "", tags: [], attributes: [], image: { color: "#000", emoji: "x" } };
+const filament = { id: 1n, name: "PLA filament", brand: "Polymaker", category: "printing", price_cents: 2400n, stock: 12n, rating: 4.7, reviews: 1834n, description: "", tags: [], attributes: [], image: { file: "1.png", color: "#000", emoji: "x" } };
 const hotend = { ...filament, id: 2n, name: "Hotend" };
 
 test("held lines carry the catalog's rows and the held quantity", async () => {

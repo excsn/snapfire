@@ -1,5 +1,5 @@
 <div class="board">
-  <header>{% include "templates/nav.tera" %}</header>
+  <header>{% include "templates/nav.tera" %}{{ fsr_picture(src="images/board.png", alt="The board in the hall", class="board-photo", priority=true) }}</header>
   <main>{{ slot(name="content") }}</main>
   <footer>{{ notices | length }} notices, served from templates under <code>routes/</code>.</footer>
 </div>
