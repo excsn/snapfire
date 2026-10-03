@@ -1,11 +1,15 @@
 use crate::policy::Format;
 use crate::Error;
 use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
+use image::metadata::Orientation;
 use image::{DynamicImage, ImageReader, RgbaImage};
+use snapfire_media::Header;
 use std::io::Cursor;
 use std::path::Path;
 
-/// A decoded image, held as RGBA so every variant resizes from one buffer.
+/// A decoded image, held as RGBA so every variant resizes from one buffer,
+/// upright: the EXIF orientation the header carries is applied to the pixels,
+/// since a variant is written without the tag.
 pub struct Source {
   pixels: RgbaImage,
 }
@@ -18,11 +22,15 @@ impl Source {
 
   /// `path` names the file in an error only; the bytes are what is decoded.
   pub fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Self, Error> {
-    let decoded = ImageReader::new(Cursor::new(bytes))
+    let orientation = snapfire_media::image::orientation(bytes);
+    let mut decoded = ImageReader::new(Cursor::new(bytes))
       .with_guessed_format()
       .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?
       .decode()
       .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))?;
+    if let Some(orientation) = Orientation::from_exif(orientation) {
+      decoded.apply_orientation(orientation);
+    }
     Ok(Self { pixels: decoded.into_rgba8() })
   }
 
@@ -89,14 +97,11 @@ fn encode(pixels: &RgbaImage, format: Format, quality: u8) -> Result<Vec<u8>, Er
   }
 }
 
-/// Width and height from the header alone, with nothing decoded.
+/// Width and height as displayed, from the header alone with nothing decoded:
+/// the stored size with the EXIF orientation applied.
 pub fn dimensions(path: &Path) -> Result<(u32, u32), Error> {
-  ImageReader::open(path)
-    .map_err(|e| Error::Io(path.to_path_buf(), e))?
-    .with_guessed_format()
-    .map_err(|e| Error::Io(path.to_path_buf(), e))?
-    .into_dimensions()
-    .map_err(|e| Error::Decode(path.to_path_buf(), e.to_string()))
+  let header = Header::read(path)?;
+  Ok((header.width, header.height))
 }
 
 /// Whether the file is served as it is rather than resized: an SVG scales
@@ -194,6 +199,27 @@ mod tests {
     let svg = dir.path().join("logo.svg");
     std::fs::write(&svg, "<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap();
     assert!(passthrough(&svg).unwrap());
+  }
+
+  #[test]
+  fn a_tagged_jpeg_is_decoded_upright_and_its_variants_follow() {
+    let jpeg = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tagged.jpg")).unwrap();
+    let source = Source::from_bytes(Path::new("tagged.jpg"), &jpeg).unwrap();
+    assert_eq!((source.width(), source.height()), (2, 4), "stored 4x2 with orientation 6");
+    let top = source.pixels.get_pixel(0, 0).0;
+    let bottom = source.pixels.get_pixel(0, 3).0;
+    assert!(top[0] > 150 && top[2] < 100, "the stored left half, red, is on top once rotated: {top:?}");
+    assert!(bottom[2] > 150 && bottom[0] < 100, "{bottom:?}");
+
+    let webp = source.variant(2, Format::Webp, 90).unwrap();
+    let decoded = ImageReader::new(Cursor::new(&webp)).with_guessed_format().unwrap().decode().unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (2, 4));
+    assert_eq!(snapfire_media::image::orientation(&webp), 1, "a variant carries no tag");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tagged.jpg");
+    std::fs::write(&path, &jpeg).unwrap();
+    assert_eq!(dimensions(&path).unwrap(), (2, 4));
   }
 
   #[test]

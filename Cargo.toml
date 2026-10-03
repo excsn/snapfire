@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "compiler",
+  "media",
   "web",
   "web/examples/basic_site",
   "typecheck",

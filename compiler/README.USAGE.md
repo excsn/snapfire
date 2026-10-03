@@ -1079,7 +1079,7 @@ Each one is listed in the build facts under `assets`, with its header read, so a
 ]
 ```
 
-`url` is present when `--public-path` was given. The compiler reads headers only; it resizes, converts and subsets nothing.
+`url` is present when `--public-path` was given. The compiler reads headers only; it resizes, converts and subsets nothing. The header read is the `snapfire_media` crate's, the one FSR's pipeline reads through. The width and height are the displayed size: a phone photo stored 4000x3000 with EXIF orientation 6 is listed as 3000 by 4000, which is how the browser shows it.
 
 ## Resolving Externals
 

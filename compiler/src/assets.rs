@@ -1,5 +1,7 @@
 //! An image or a font a module or a stylesheet names: hashed, so its URL changes
 //! when its bytes do, and read for the facts a consumer wants without decoding.
+//! The header read is `snapfire_media`'s, so the width and height here are
+//! the ones FSR's pipeline sees for the same file.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -34,7 +36,8 @@ pub fn kind(path: &Path) -> Option<Kind> {
 }
 
 /// One asset as the build emits it: the source it came from, the file name it
-/// goes out under and what its header says.
+/// goes out under and what its header says. `width` and `height` are the
+/// displayed size, with the EXIF orientation applied.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Emitted {
   pub source: PathBuf,
@@ -61,8 +64,8 @@ pub fn emit(source: &Path) -> Result<Emitted> {
   let ext = source.extension().unwrap_or_default().to_string_lossy();
   let name = format!("{stem}.{hash}.{ext}");
   let (width, height) = match kind {
-    Kind::Image => match imagesize::blob_size(&bytes) {
-      Ok(size) => (Some(size.width as u32), Some(size.height as u32)),
+    Kind::Image => match snapfire_media::Header::from_bytes(source, &bytes) {
+      Ok(header) => (Some(header.width), Some(header.height)),
       Err(_) => (None, None),
     },
     Kind::Font => (None, None),
@@ -121,5 +124,12 @@ mod tests {
     assert_eq!(emitted.hash.len(), 8);
     let again = emit(&png).unwrap();
     assert_eq!(again, emitted);
+  }
+
+  #[test]
+  fn a_tagged_photo_is_emitted_at_its_displayed_size() {
+    let photo = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/asset-urls/input/img/photo.jpg");
+    let emitted = emit(&photo).unwrap();
+    assert_eq!((emitted.width, emitted.height), (Some(160), Some(320)), "stored 320x160 with orientation 6");
   }
 }

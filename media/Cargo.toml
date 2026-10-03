@@ -1,0 +1,22 @@
+[package]
+name = "snapfire_media"
+version = "0.1.0"
+description = "What an image or a font file says about itself: a header's displayed size and orientation, a face's family, weight, style and metrics"
+keywords = ["snapfire", "image", "font", "exif", "metrics"]
+categories = ["multimedia::images", "web-programming"]
+exclude = ["tests"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire/tree/main/media"
+readme = "README.md"
+
+[dependencies]
+imagesize = "0.14"
+kamadak-exif = "0.6"
+ttf-parser = "0.25"
+wuff = "0.2"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"

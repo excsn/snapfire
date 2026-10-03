@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_assets
 
-What FSR derives from an image or a font: variants under a policy, a face's metrics and the fallback that matches them.
+What FSR derives from an image or a font: variants under a policy, a face's metrics and the fallback that matches them. The header and face reads are `snapfire_media`'s, re-exported here.
 
 ## Contents
 
@@ -48,18 +48,20 @@ An output format. Serialises in lowercase.
 A decoded image held as RGBA.
 
 * `fn open(path: &Path) -> Result<Source, Error>`.
-* `fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Source, Error>`: `path` names the file in an error only. PNG, JPEG, GIF, WebP, BMP and ICO decode.
+* `fn from_bytes(path: &Path, bytes: &[u8]) -> Result<Source, Error>`: `path` names the file in an error only. PNG, JPEG, GIF, WebP, BMP and ICO decode. The EXIF orientation the bytes carry is applied, so the pixels are upright and `width` and `height` are the displayed size.
 * `fn width(&self) -> u32`, `fn height(&self) -> u32`.
 * `fn height_at(&self, width: u32) -> u32`: the height at `width` keeping the aspect ratio, never 0; the source's height for a width at or past its own.
 * `fn variant(&self, width: u32, format: Format, quality: u8) -> Result<Vec<u8>, Error>`: resized to `width` when below the source's, Lanczos3, then encoded; `quality` is 0 to 100 and clamped.
 
 ### Functions
 
-* `image::dimensions(path: &Path) -> Result<(u32, u32), Error>`: from the header, nothing decoded.
+* `image::dimensions(path: &Path) -> Result<(u32, u32), Error>`: the displayed size from the header, nothing decoded; `snapfire_media::Header::read` with the orientation applied.
 * `image::passthrough(path: &Path) -> Result<bool, Error>`: `true` for an SVG, a GIF with more than one frame or a PNG carrying `acTL`.
 * `variant_name(stem: &str, hash: &str, width: u32, format: Format) -> String`: `<stem>.<hash>.<width>.<ext>`.
 
 ## 3. Fonts
+
+`font` is `snapfire_media::font` re-exported. `Face`, `Fallback`, `Metrics`, `Style` and `Header` are re-exported at the root.
 
 ### Style
 
@@ -100,4 +102,4 @@ A decoded image held as RGBA.
 * `Io(PathBuf, std::io::Error)`: reading the file.
 * `Decode(PathBuf, String)`: not an image this crate decodes.
 * `Encode(&'static str, String)`: the format that failed to encode.
-* `Font(PathBuf, String)`: not a font this crate reads, including one without a family name or `a` to `z` glyphs.
+* `Media(snapfire_media::Error)`, transparent and `From`: a header or a face `snapfire_media` could not read, including a font without a family name or `a` to `z` glyphs.

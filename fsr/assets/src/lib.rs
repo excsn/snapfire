@@ -1,12 +1,18 @@
 //! What FSR derives from an image or a font. `fsr build` calls these at build
 //! time; a host answering images at request time calls the same functions.
+//! What a file says about itself, a header's size and orientation or a face's
+//! metrics, is read through `snapfire_media`, which snapfirec reads through too.
 
-pub mod font;
 pub mod hash;
 pub mod image;
 pub mod policy;
 
-pub use font::{Face, Fallback, Metrics, Style};
+/// The face reader and the fallback table, `snapfire_media::font` as it is.
+pub mod font {
+  pub use snapfire_media::font::*;
+}
+
+pub use snapfire_media::{Face, Fallback, Header, Metrics, Style};
 pub use image::{Source, variant_name};
 pub use policy::{Format, VariantPolicy};
 
@@ -19,6 +25,6 @@ pub enum Error {
   Decode(std::path::PathBuf, String),
   #[error("encoding {0}: {1}")]
   Encode(&'static str, String),
-  #[error("{0} is not a font this build reads: {1}")]
-  Font(std::path::PathBuf, String),
+  #[error(transparent)]
+  Media(#[from] snapfire_media::Error),
 }

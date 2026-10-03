@@ -30,6 +30,7 @@ fn an_imported_image_becomes_a_const_with_its_url_and_dimensions() {
   assert!(module.contains(&format!("src: \"/static/js/app/img/{hero}\"")), "{module}");
   assert!(module.contains("width: 6"), "{module}");
   assert!(module.contains("height: 4"), "{module}");
+  assert!(module.contains("width: 160") && module.contains("height: 320"), "the tagged photo is bound at its displayed size: {module}");
   assert!(module.contains(&format!("const inter = \"/static/js/app/fonts/{inter}\"")), "{module}");
   assert!(module.contains("from \"./card.json\""), "a JSON import is still an import: {module}");
   assert!(!dist.join("img/hero.png").exists(), "the unhashed copy was written too");
@@ -84,15 +85,16 @@ fn the_build_facts_list_every_asset_with_its_header() {
 
   assert_eq!(facts["version"], 2);
   let assets = facts["assets"].as_array().unwrap();
-  assert_eq!(assets.len(), 2, "{assets:?}");
-  let font = &assets[0];
-  assert_eq!(font["source"], "fonts/inter.woff2");
+  assert_eq!(assets.len(), 3, "{assets:?}");
+  let row = |source: &str| assets.iter().find(|a| a["source"] == source).unwrap_or_else(|| panic!("{source} in {assets:?}"));
+  let font = row("fonts/inter.woff2");
   assert_eq!(font["path"], format!("fonts/{inter}"));
   assert_eq!(font["url"], format!("/static/js/app/fonts/{inter}"));
   assert_eq!(font["kind"], "font");
   assert!(font.get("width").is_none());
-  let image = &assets[1];
-  assert_eq!(image["source"], "img/hero.png");
+  let photo = row("img/photo.jpg");
+  assert_eq!((photo["width"].as_u64(), photo["height"].as_u64()), (Some(160), Some(320)), "stored 320x160 with EXIF orientation 6, displayed upright: {photo}");
+  let image = row("img/hero.png");
   assert_eq!(image["path"], format!("img/{hero}"));
   assert_eq!(image["kind"], "image");
   assert_eq!(image["width"], 6);

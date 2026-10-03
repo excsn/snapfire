@@ -20,7 +20,8 @@ How to turn one image into its variants and one font into the CSS that serves it
 * **Never upscale**: a source gets every policy width below its own, then its own; no variant is wider than the file it came from.
 * **Format**: `avif` or `webp`. The original stays as the `<img>` a browser with neither falls back to.
 * **Passthrough**: an SVG, an animated GIF or an APNG is served as it is and gets no variant.
-* **Face**: one font file read for its family, weight, style and metrics.
+* **Header**: what an image's header says, read through `snapfire_media`: the displayed width and height and the EXIF orientation they account for.
+* **Face**: one font file read for its family, weight, style and metrics, through `snapfire_media`.
 * **Metrics**: units per em, ascender, descender, line gap and the frequency-weighted advance of `a` to `z`.
 * **Fallback**: a face a visitor already has, with the metrics a fallback `@font-face` is computed against.
 * **Hash**: eight hex digits of xxh3, the digest snapfirec names an emitted asset with.
@@ -94,7 +95,13 @@ let webp = source.variant(640, Format::Webp, 80)?;
 assert_eq!(source.height_at(640), source.height() * 640 / source.width());
 ```
 
-A width at or past the source's own is encoded without resizing. Resizing is Lanczos3 through `fast_image_resize`.
+A width at or past the source's own is encoded without resizing. Resizing is Lanczos3 through `fast_image_resize`. A photo carrying an EXIF orientation is decoded upright, so a variant, which carries no tag, shows the way the browser shows the original:
+
+```rust
+let photo = Source::open(Path::new("app/img/photo.jpg"))?;
+// stored 4000x3000 with orientation 6
+assert_eq!((photo.width(), photo.height()), (3000, 4000));
+```
 
 Before decoding, ask whether the file should be touched at all:
 
@@ -102,6 +109,7 @@ Before decoding, ask whether the file should be touched at all:
 use snapfire_fsr_assets::image::{dimensions, passthrough};
 
 let (width, height) = dimensions(Path::new("app/img/hero.png"))?;
+// the displayed size, so a tagged photo reports 3000x4000 here too
 if passthrough(Path::new("app/img/spinner.gif"))? {
   // served as it is, with width and height only
 }
@@ -169,4 +177,4 @@ match Source::open(Path::new("app/img/hero.png")) {
 }
 ```
 
-`Encode` names the format that failed and `Font` the file that was not a font.
+`Encode` names the format that failed and `Media` carries `snapfire_media`'s error for a header or a face that could not be read.
