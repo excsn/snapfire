@@ -10,6 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod driven;
 pub mod host;
 
 /// The wire version. A plugin announcing another number is refused by name

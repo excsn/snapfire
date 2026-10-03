@@ -26,7 +26,11 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 * [5. The Host](#5-the-host)
   * [Worker](#worker)
   * [HostError](#hosterror)
-* [6. Error Handling](#6-error-handling)
+* [6. The Driven Protocol](#6-the-driven-protocol)
+  * [Lines](#lines)
+  * [AssetMap](#assetmap)
+  * [MappedAsset](#mappedasset)
+* [7. Error Handling](#7-error-handling)
 
 ## 1. The Protocol
 
@@ -132,6 +136,26 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 * `pub enum HostError { NotFound { binary, hint }, Spawn { binary, error }, Silent { binary, stderr }, Greeting { binary, line }, Protocol { binary, theirs, ours }, Closed { binary, stderr }, Died { binary, stderr }, Answer { binary, error }, Batch { binary, got, wanted }, Count { binary, got, wanted } }`
 * `NotFound` carries the install hint; the three that follow a death carry what the plugin wrote to stderr. `Display` is the sentence the build prints.
 
-## 6. Error Handling
+## 6. The Driven Protocol
+
+What `snapfirec --driven` and the process driving it say to each other, in `driven`. One line at a time over the compiler's stdin and stdout; the driver sends batches of paths and the compiler answers each.
+
+### Lines
+
+* `driven::PROTOCOL: u32`, 2. The compiler announces it first; a driver refuses another number by name.
+* `driven::HELLO`, `snapfirec: driven`; `fn hello() -> String`, the first line with the version; `fn parse_hello(line: &str) -> Option<u32>`, the version a hello line announces, `None` for any other line.
+* `driven::REBUILT`, `driven::FAILED`: one of them ends every batch.
+* `driven::REFERENCES`: written before the status line when a batch referenced an asset the map does not name, followed by one path per line under the compiler's root directory and an empty line; the compiler then waits.
+* `driven::MAPPED`: the driver's answer once it has rewritten the map, after which the compiler reads the map again and compiles the sources that were waiting.
+
+### AssetMap
+
+`pub struct AssetMap { pub version: u32, pub assets: BTreeMap<String, MappedAsset> }`, `Default`, `serde`. `AssetMap::new()` carries `MAP_VERSION`, 1; a compiler reading another version refuses the file. Keys are paths under the compiler's root directory with forward slashes.
+
+### MappedAsset
+
+`pub struct MappedAsset { pub url: String, pub width: Option<u32>, pub height: Option<u32> }`. The URL a reference is rewritten to and, for an image, the displayed size the driver read; the dimensions are left out of the JSON when absent.
+
+## 7. Error Handling
 
 The host's failures are `HostError`. The crate defines no other error type. A failure of a unit is `Outcome::Failed`; a failure of the plugin itself is whatever it wrote to stderr before exiting, which the host attaches to the error it reports. Serialization goes through `serde`, so a malformed line is a `serde_json::Error` on whichever side read it.

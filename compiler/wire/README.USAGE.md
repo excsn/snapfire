@@ -13,6 +13,7 @@ How a framework compiler plugin speaks to `snapfirec` and what `snapfirec` promi
 * [Describing a Component](#describing-a-component)
 * [Hosting a Plugin](#hosting-a-plugin)
 * [Being Found and Kept](#being-found-and-kept)
+* [Driving the Compiler](#driving-the-compiler)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -157,6 +158,56 @@ A binary not on PATH is `HostError::NotFound` with the install hint; a plugin on
 ## Being Found and Kept
 
 The host looks for `snapfirec-<ext>` on `PATH`, once per extension per build. A missing binary is reported to the user with `cargo install snapfire_<ext>`, so a plugin crate is named after its extension. The extensions that reach a plugin at all are `EXTENSIONS`: `snapfirec` hands a file over only when the list holds its extension. `fsr` reads the same list to tell a framework it cannot mount yet from an extension nothing claims. The worker is kept for the build's length and across every rebuild under `--watch` or `--driven`; stdin closing is how it learns the build is over; a worker that does not exit on that is killed.
+
+## Driving the Compiler
+
+The other direction, for a tool that holds `snapfirec --driven` open and owns the assets it serves. The lines are constants and the map is a type, so a driver never spells either by hand:
+
+```rust
+use snapfire_compiler_wire::driven::{self, AssetMap, MappedAsset};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio};
+
+let mut child = Command::new("snapfirec")
+  .args(["--driven", "--asset-map", "generated/assets.map.json"])
+  .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
+let mut stdin = child.stdin.take().unwrap();
+let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+let mut line = String::new();
+stdout.read_line(&mut line)?;
+match driven::parse_hello(&line) {
+  Some(version) if version == driven::PROTOCOL => {}
+  other => panic!("snapfirec speaks {other:?}, this driver {}", driven::PROTOCOL),
+}
+
+loop {
+  line.clear();
+  stdout.read_line(&mut line)?;
+  match line.trim_end() {
+    driven::REBUILT => break,
+    driven::FAILED => panic!("the batch failed"),
+    driven::REFERENCES => {
+      let mut paths = Vec::new();
+      loop {
+        line.clear();
+        stdout.read_line(&mut line)?;
+        if line.trim_end().is_empty() { break }
+        paths.push(line.trim_end().to_owned());
+      }
+      let mut map = AssetMap::new();
+      for path in paths {
+        map.assets.insert(path.clone(), MappedAsset { url: format!("/static/{path}"), width: None, height: None });
+      }
+      std::fs::write("generated/assets.map.json", serde_json::to_string(&map)?)?;
+      writeln!(stdin, "{}", driven::MAPPED)?;
+    }
+    _ => {}
+  }
+}
+```
+
+The map is keyed by each file's path under the compiler's root directory. A row for an image carries the width and height the driver read; a font's carries the URL alone. `MAP_VERSION` is written into the file and a compiler reading another version refuses it.
 
 ## Error Handling
 

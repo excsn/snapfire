@@ -2,7 +2,7 @@
 
 License: same as the workspace. Status: active, protocol 3.
 
-The wire contract between `snapfirec` and a framework compiler plugin: the types both sides serialize as one JSON object per line over stdin and stdout. A plugin depends on this crate to speak the protocol; `snapfirec` depends on it to read the answers. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
+The wire contract between `snapfirec` and a framework compiler plugin: the types both sides serialize as one JSON object per line over stdin and stdout. A plugin depends on this crate to speak the protocol; `snapfirec` depends on it to read the answers. The `driven` module is the other direction: what `snapfirec --driven` and the process driving it say to each other, line by line, plus the asset map that process hands the compiler. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -28,7 +28,9 @@ No features.
 | Spawn a plugin and talk to it | `host::Worker`, which `snapfirec` and `fsr` both use |
 | Refuse a host speaking another protocol | compare `Hello::protocol` with `PROTOCOL` |
 | Know which extensions go to a plugin and what each binary is called | `EXTENSIONS`, `claimed`, `binary_for`, `install_hint` |
+| Drive `snapfirec --driven` and refuse one speaking another protocol | `driven::hello`, `driven::parse_hello`, `driven::PROTOCOL` and the line constants |
+| Hand the compiler the URLs of every image and font you serve | `driven::AssetMap`, written as JSON and named with `--asset-map` |
 
 ## Status
 
-Protocol 3 since 2026-09-20: `Request::kind` with `Describe`, `Outcome::Described` and the `host` module. Protocol 2 added `Unit::files` and `Outcome::Needs`. A host and a plugin on different versions refuse each other by name.
+Driven protocol 2: the hello line, the asset map and the references handshake, which `fsr build` and `fsr dev` drive. Plugin protocol 3 since 2026-09-20: `Request::kind` with `Describe`, `Outcome::Described` and the `host` module. Protocol 2 added `Unit::files` and `Outcome::Needs`. A host and a plugin on different versions refuse each other by name.
