@@ -1029,7 +1029,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         islands.push(placed);
       }
     }
-    components.push(ComponentEntry { module, body: component });
+    components.push(ComponentEntry { module, body: component, head: Vec::new() });
   }
   // A component a page places as an island is mounted because the page asked
   // for it, whatever its own markup would need.

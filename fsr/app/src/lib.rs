@@ -327,6 +327,8 @@ pub struct AppBuilder {
   lowered_paths: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
   lowered_components: Vec<(String, Component)>,
+  /// The head rows each lowered module asks for, by module id.
+  lowered_heads: Vec<(String, Vec<snapfire_fsr_plan::HeadRow>)>,
   clients: Vec<snapfire_fsr_plan::ClientEntry>,
   contract: Option<Arc<Contract>>,
   sources: DataSources,
@@ -384,6 +386,7 @@ impl App {
       lowered_paths: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
+      lowered_heads: Vec::new(),
       clients: Vec::new(),
       contract: None,
       sources: DataSources::new(),
@@ -432,6 +435,7 @@ impl App {
       .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
       .collect();
     builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
+    builder.lowered_heads = parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())).collect();
     builder.clients = parsed.clients.clone();
     if !parsed.consts.is_empty() {
       builder.consts = Some(Arc::new(parsed.consts.clone()));
@@ -468,6 +472,7 @@ impl AppBuilder {
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
+    self.lowered_heads.extend(parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())));
     self.clients.extend(parsed.clients.iter().cloned());
     if !parsed.consts.is_empty() {
       let mut merged = self.consts.as_deref().cloned().unwrap_or_default();
@@ -1051,10 +1056,21 @@ impl AppBuilder {
       resolver.insert(entry, plan);
     }
 
+    let heads: std::collections::HashMap<String, Vec<snapfire_fsr_runtime::HeadEl>> = self
+      .lowered_heads
+      .iter()
+      .map(|(module, rows)| {
+        (
+          module.clone(),
+          rows.iter().map(|row| snapfire_fsr_runtime::HeadEl { tag: row.tag.clone(), attrs: row.attrs.clone(), children: None }).collect(),
+        )
+      })
+      .collect();
     let mut runtime = Runtime::builder()
       .sources(self.sources)
       .evaluators(self.evaluators)
       .reads(reads)
+      .heads(heads)
       .keyer(Arc::new(ReadsKeyer { reads: params_read }))
       .load_keyer(Arc::new(ClassKeyer {
         fixed: warm_fixed,

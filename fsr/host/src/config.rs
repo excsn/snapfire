@@ -49,6 +49,12 @@ pub struct Config {
   pub site: Option<SiteSection>,
   /// The sites this application mounts as their shell; absent means none.
   pub sites: Option<SitesSection>,
+  /// `[dirs]`: where each kind of asset lives, defaults filled.
+  pub dirs: DirsSection,
+  /// `[images]`: the variant policy and the sources, defaults filled.
+  pub images: ImagesSection,
+  /// `[fonts]`: the families declared and where their files are served from.
+  pub fonts: FontsSection,
   /// The shell's `vendor/`, beside the `generated/shell.json` that `[site]
   /// shell` names. A site's import map points its frameworks at the shell's
   /// URLs, so a site running alone serves this at `/static/js/vendor` to
@@ -109,6 +115,143 @@ impl std::fmt::Display for PublicValue {
       PublicValue::Bool(b) => write!(f, "{b}"),
     }
   }
+}
+
+/// `[dirs]`: where each kind of asset lives under the app directory. Every
+/// key defaults to the conventional name, so an application that writes
+/// nothing changes nothing. The routes stay fixed: `/static/css`,
+/// `/static/icons` and the bundle's public path answer whatever directory
+/// a key names.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DirsSection {
+  #[serde(default = "default_styles_dir")]
+  pub styles: String,
+  #[serde(default = "default_fonts_dir")]
+  pub fonts: String,
+  #[serde(default = "default_images_dir")]
+  pub images: String,
+  #[serde(default = "default_icons_dir")]
+  pub icons: String,
+}
+
+impl Default for DirsSection {
+  fn default() -> Self {
+    serde_json::from_str("{}").expect("every dirs key has a default")
+  }
+}
+
+fn default_styles_dir() -> String {
+  "styles".to_owned()
+}
+fn default_fonts_dir() -> String {
+  "fonts".to_owned()
+}
+fn default_images_dir() -> String {
+  "images".to_owned()
+}
+fn default_icons_dir() -> String {
+  "icons".to_owned()
+}
+
+/// `[images]`: the variant policy every image is built under, whether a
+/// plain `<img>` of an imported asset is rewritten, the base its URLs are
+/// served from when a CDN answers them and the named sources a remote
+/// image is addressed through.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct ImagesSection {
+  #[serde(default = "default_image_widths")]
+  pub widths: Vec<u32>,
+  #[serde(default = "default_image_formats")]
+  pub formats: Vec<String>,
+  /// Quality per format, `avif` and `webp`, 0 to 100. A format left out
+  /// keeps its default.
+  #[serde(default)]
+  pub quality: BTreeMap<String, u8>,
+  /// Whether an `<img>` whose `src` is an imported asset's is lowered as a
+  /// `Picture`. Off, only `Picture` does anything.
+  #[serde(default = "default_true")]
+  pub rewrite: bool,
+  /// `scheme://host/path` every emitted image URL is prefixed with, for a
+  /// deployment whose static tree a CDN serves. No trailing slash.
+  #[serde(default)]
+  pub base: Option<String>,
+  /// `[images.sources.<name>]`: a URL template a remote image is addressed
+  /// through, `{src}` the value given and `{width}` each width of the
+  /// policy. Format negotiation is the service's.
+  #[serde(default)]
+  pub sources: BTreeMap<String, ImageSource>,
+}
+
+impl Default for ImagesSection {
+  fn default() -> Self {
+    serde_json::from_str("{}").expect("every images key has a default")
+  }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ImageSource {
+  pub template: String,
+}
+
+fn default_true() -> bool {
+  true
+}
+fn default_image_widths() -> Vec<u32> {
+  vec![640, 960, 1280, 1920, 2560]
+}
+fn default_image_formats() -> Vec<String> {
+  vec!["avif".to_owned(), "webp".to_owned()]
+}
+
+/// `[fonts]`: `base` is where the font files are served from when a CDN
+/// answers them, and one `[fonts.<key>]` per family the application declares.
+/// A family the directory holds and no key names is inferred from the
+/// files' own name tables.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FontsSection {
+  pub base: Option<String>,
+  pub faces: BTreeMap<String, FontEntry>,
+}
+
+/// One `[fonts.<key>]`. Every field is optional, though a key carries at
+/// least one, since an empty table is not read: `family` alone names a
+/// family the directory holds and gives it the variable `--font-<key>`.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct FontEntry {
+  /// The family name, when the files' own tables are not to be trusted or
+  /// `remote` carries no file to read.
+  #[serde(default)]
+  pub family: Option<String>,
+  /// The files under `[dirs] fonts` this key covers. Absent, every file
+  /// whose family matches.
+  #[serde(default)]
+  pub files: Vec<String>,
+  /// The system face the fallback is sized against: one `font::fallbacks`
+  /// names. Absent, `Arial`.
+  #[serde(default)]
+  pub fallback: Option<String>,
+  /// `font-display`; absent, `swap`.
+  #[serde(default)]
+  pub display: Option<String>,
+  /// Whether the faces are preloaded. Absent, the regular weight only.
+  #[serde(default)]
+  pub preload: Option<bool>,
+  /// A provider's own stylesheet URL. The build links it, preconnects to
+  /// its file origin, widens the policy and skips the metrics and the
+  /// preload, since there is no file to read.
+  #[serde(default)]
+  pub remote: Option<String>,
+  /// The CSS variable the family is defined as; absent, `--font-<key>`.
+  #[serde(default)]
+  pub variable: Option<String>,
 }
 
 /// `[sites]`: `root` is where `name@version` artifacts resolve, `poll` how
@@ -695,6 +838,9 @@ const SECTIONS: &[&str] = &[
   "site",
   "sites",
   "public",
+  "dirs",
+  "images",
+  "fonts",
 ];
 
 fn default_app_dir() -> String {
@@ -1447,6 +1593,90 @@ impl Config {
       });
       inferred.push(format!("static {vendor_route} from vendor/"));
     }
+    let dirs: DirsSection = section(store, "dirs", &at)?;
+    let images: ImagesSection = section(store, "images", &at)?;
+    for width in &images.widths {
+      if *width == 0 {
+        return Err(HostError::Config(at.clone(), "images.widths: a width is at least 1".to_owned()));
+      }
+    }
+    for format in &images.formats {
+      if format != "avif" && format != "webp" {
+        return Err(HostError::Config(at.clone(), format!("images.formats: `{format}` is not `avif` or `webp`")));
+      }
+    }
+    for (format, quality) in &images.quality {
+      if format != "avif" && format != "webp" {
+        return Err(HostError::Config(at.clone(), format!("images.quality: `{format}` is not `avif` or `webp`")));
+      }
+      if *quality > 100 {
+        return Err(HostError::Config(at.clone(), format!("images.quality.{format}: {quality} is above 100")));
+      }
+    }
+    if let Some(base) = &images.base {
+      if !base.starts_with("https://") && !base.starts_with("http://") || base.ends_with('/') {
+        return Err(HostError::Config(at.clone(), format!("images.base `{base}` must be `scheme://host/path` with no trailing slash")));
+      }
+    }
+    for (name, source) in &images.sources {
+      if !source.template.contains("{src}") {
+        return Err(HostError::Config(at.clone(), format!("images.sources.{name}.template must carry `{{src}}`")));
+      }
+    }
+    let fonts: FontsSection = if store.path_exists("fonts") || !store.key_paths_with_prefix(Some("fonts")).is_empty() {
+      let base = match store.get("fonts.base") {
+        Some(value) => match to_json(&value) {
+          serde_json::Value::String(s) => Some(s),
+          other => return Err(HostError::Config(at.clone(), format!("fonts.base must be a string, found {other}"))),
+        },
+        None => None,
+      };
+      if let Some(base) = &base {
+        if !base.starts_with("https://") && !base.starts_with("http://") || base.ends_with('/') {
+          return Err(HostError::Config(at.clone(), format!("fonts.base `{base}` must be `scheme://host/path` with no trailing slash")));
+        }
+      }
+      let mut keys: Vec<String> = store
+        .key_paths_with_prefix(Some("fonts"))
+        .into_iter()
+        .filter_map(|k| k.strip_prefix("fonts.").map(|rest| rest.split('.').next().unwrap_or(rest).to_owned()))
+        .filter(|k| k != "base")
+        .collect();
+      if let Some(c5store::value::C5DataValue::Map(map)) = store.get("fonts") {
+        keys.extend(map.keys().filter(|k| *k != "base").cloned());
+      }
+      keys.sort();
+      keys.dedup();
+      let mut faces = BTreeMap::new();
+      for key in keys {
+        let valid = key.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+          && key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !valid {
+          return Err(HostError::Config(at.clone(), format!("fonts.{key}: a key is lowercase letters, digits and `-`, since it names `--font-{key}`")));
+        }
+        let entry: FontEntry = store
+          .get_into_struct(&format!("fonts.{key}"))
+          .map_err(|e| HostError::Config(at.clone(), format!("fonts.{key}: {e}")))?;
+        if let Some(remote) = &entry.remote {
+          if !remote.starts_with("https://") && !remote.starts_with("http://") {
+            return Err(HostError::Config(at.clone(), format!("fonts.{key}.remote `{remote}` must be a URL")));
+          }
+          if !entry.files.is_empty() {
+            return Err(HostError::Config(at.clone(), format!("fonts.{key}: `remote` and `files` name two sources for one key")));
+          }
+        }
+        if let Some(variable) = &entry.variable {
+          if !variable.starts_with("--") || variable.len() < 3 {
+            return Err(HostError::Config(at.clone(), format!("fonts.{key}.variable `{variable}` must start with `--`")));
+          }
+        }
+        faces.insert(key, entry);
+      }
+      FontsSection { base, faces }
+    } else {
+      FontsSection::default()
+    };
+
     let shell_vendor = site
       .as_ref()
       .and_then(|s| s.shell.as_deref())
@@ -1469,14 +1699,14 @@ impl Config {
       .find(|s| s.route == icons_route)
       .map(|s| app.join(&s.dir))
       .filter(|dir| dir.is_dir())
-      .or_else(|| app.join("icons").is_dir().then(|| app.join("icons")));
+      .or_else(|| app.join(&dirs.icons).is_dir().then(|| app.join(&dirs.icons)));
     if let Some(icons_dir) = icons_dir {
       if !statics.iter().any(|s| s.route == icons_route) {
         statics.push(StaticRoot {
           route: icons_route.clone(),
-          dir: "icons".to_owned(),
+          dir: dirs.icons.clone(),
         });
-        inferred.push(format!("static {icons_route} from icons/"));
+        inferred.push(format!("static {icons_route} from {}/", dirs.icons));
       }
       let held = |name: &str| icons_dir.join(name).is_file();
       let mut linked = Vec::new();
@@ -1521,16 +1751,16 @@ impl Config {
       document.head.push(table);
       inferred.push("document.head links an empty icon, since no icons/ serves one".to_owned());
     }
-    if app.join("styles").is_dir() {
+    if app.join(&dirs.styles).is_dir() {
       if !statics.iter().any(|s| s.route == css_route) {
         statics.push(StaticRoot {
           route: css_route.clone(),
-          dir: "styles".to_owned(),
+          dir: dirs.styles.clone(),
         });
-        inferred.push(format!("static {css_route} from styles/"));
+        inferred.push(format!("static {css_route} from {}/", dirs.styles));
       }
       if document.styles.is_none() {
-        let mut sheets: Vec<String> = std::fs::read_dir(app.join("styles"))
+        let mut sheets: Vec<String> = std::fs::read_dir(app.join(&dirs.styles))
           .map(|entries| {
             entries
               .filter_map(|e| e.ok())
@@ -1584,6 +1814,9 @@ impl Config {
       typecheck,
       site,
       sites,
+      dirs,
+      images,
+      fonts,
       shell_vendor,
       public,
       bundle,

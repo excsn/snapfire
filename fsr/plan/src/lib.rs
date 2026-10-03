@@ -13,7 +13,7 @@ pub mod sexpr;
 /// with bare action ids and no sources, still reads. Format 4 adds a node's
 /// `error-kind` sections, which a format 3 reader refuses by name rather than
 /// ignoring, so the version is what tells an older host to say so plainly.
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 5;
 const OLDEST_READABLE: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -120,6 +120,20 @@ impl HandlerEntry {
 pub struct ComponentEntry {
   pub module: String,
   pub body: Component,
+  /// Head elements a page rendering this module carries, the preload of a
+  /// priority image among them. The build folds in the rows of every
+  /// component the module places, so a plan node's module holds the set.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub head: Vec<HeadRow>,
+}
+
+/// One head element a component asks for: a tag and its attributes in the
+/// order written. A row is merged into the document's head by identity, so
+/// two pages placing one image preload it once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeadRow {
+  pub tag: String,
+  pub attrs: Vec<(String, String)>,
 }
 
 /// One row per module the build could not lower, so the host can say at

@@ -14,6 +14,7 @@ use node::{node_from_sx, node_to_sx};
 use rows::{action_from_sx, action_to_sx, handler_from_sx, handler_to_sx, source_from_sx, source_to_sx};
 use shape::*;
 
+use crate::HeadRow;
 use crate::{
   ClientEntry, ComponentEntry, Manifest, RouteEntry, RowOwner, FORMAT_VERSION, OLDEST_READABLE,
 };
@@ -46,6 +47,14 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
   for entry in &manifest.components {
     let mut rest = vec![sym(entry.module.clone())];
     rest.extend(component_sections(&entry.body));
+    for row in &entry.head {
+      let mut terms = vec![sym(row.tag.clone())];
+      for (name, value) in &row.attrs {
+        terms.push(Sx::Str(name.clone()));
+        terms.push(Sx::Str(value.clone()));
+      }
+      rest.push(form("head", terms));
+    }
     out.push(form("component", rest));
   }
   for entry in &manifest.clients {
@@ -120,9 +129,22 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         if items.len() < 2 {
           return Err(err("a component needs a module id"));
         }
+        let (heads, sections): (Vec<&Sx>, Vec<&Sx>) = items[2..].iter().partition(|s| head_of(s).ok().as_deref() == Some("head"));
+        let sections: Vec<Sx> = sections.into_iter().cloned().collect();
+        let mut head = Vec::new();
+        for row in heads {
+          let terms = as_list(row)?;
+          if terms.len() < 2 || terms.len() % 2 != 0 {
+            return Err(err("a head row is `(head tag \"name\" \"value\" ...)`"));
+          }
+          let tag = as_sym(&terms[1])?;
+          let attrs = terms[2..].chunks(2).map(|pair| Ok((as_sym(&pair[0])?, as_sym(&pair[1])?))).collect::<Result<Vec<_>, _>>()?;
+          head.push(HeadRow { tag, attrs });
+        }
         manifest.components.push(ComponentEntry {
           module: as_sym(&items[1])?,
-          body: component_from_sections(&items[2..])?,
+          body: component_from_sections(&sections)?,
+          head,
         });
       }
       "client" => {

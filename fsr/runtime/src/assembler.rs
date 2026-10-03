@@ -90,6 +90,9 @@ pub struct Runtime {
   head_users: parking_lot::Mutex<std::collections::HashSet<u32>>,
   /// By data source id: how a segment describes the document from its data.
   pub metas: HashMap<String, Arc<dyn Metadata>>,
+  /// By module id: the head elements a page rendering that module carries,
+  /// which the build settled, a priority image's preload among them.
+  pub heads: HashMap<String, Vec<crate::meta::HeadEl>>,
   /// By data source id: what a segment seeds the store with from its data.
   pub stores: HashMap<String, Arc<dyn Seeds>>,
   /// What each subtree reads of the request, by its shape. A subtree with no
@@ -105,6 +108,7 @@ pub struct RuntimeBuilder {
   load_keyer: Arc<dyn LoadKeyer>,
   loads: Arc<dyn LoadCache>,
   metas: HashMap<String, Arc<dyn Metadata>>,
+  heads: HashMap<String, Vec<crate::meta::HeadEl>>,
   stores: HashMap<String, Arc<dyn Seeds>>,
   reads: Reads,
 }
@@ -145,6 +149,12 @@ impl RuntimeBuilder {
     self
   }
 
+  /// The head elements a module asks for, by module id.
+  pub fn heads(mut self, heads: HashMap<String, Vec<crate::meta::HeadEl>>) -> Self {
+    self.heads = heads;
+    self
+  }
+
   pub fn store(mut self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self {
     self.stores.insert(source_id.into(), seeds);
     self
@@ -167,6 +177,7 @@ impl RuntimeBuilder {
       load_keyer: self.load_keyer,
       loads: self.loads,
       metas: self.metas,
+      heads: self.heads,
       stores: self.stores,
       reads: self.reads,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
@@ -184,6 +195,7 @@ impl Runtime {
       load_keyer: Arc::new(NoLoadKey),
       loads: Arc::new(NoLoadCache),
       metas: HashMap::new(),
+      heads: HashMap::new(),
       stores: HashMap::new(),
       reads: Reads::new(),
     }
@@ -626,6 +638,11 @@ impl Session {
         Ok(described) => meta.merge(described),
         Err(e) => tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment metadata failed"),
       }
+    }
+    if !self.runtime.heads.is_empty() {
+      let mut rows = Vec::new();
+      module_heads(&self.runtime.heads, plan, &mut rows);
+      meta.merge(Meta { head: rows, ..Meta::default() });
     }
     meta
   }
@@ -1086,4 +1103,14 @@ fn page_of(plan: &PlanNode) -> &PlanNode {
     node = child;
   }
   node
+}
+
+/// The head rows of every module in the subtree, outermost first.
+fn module_heads(heads: &HashMap<String, Vec<crate::meta::HeadEl>>, plan: &PlanNode, out: &mut Vec<crate::meta::HeadEl>) {
+  if let Some(rows) = heads.get(&plan.module.to_string()) {
+    out.extend(rows.iter().cloned());
+  }
+  for (_, child) in &plan.children {
+    module_heads(heads, child, out);
+  }
 }

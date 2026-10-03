@@ -2,6 +2,7 @@
 //! The recognised language is the IR's own; anything outside it is residue,
 //! reported with the line and the construct.
 
+pub mod assets;
 pub mod component;
 pub mod hoist;
 pub mod schema;

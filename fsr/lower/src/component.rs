@@ -20,6 +20,7 @@ use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
+use crate::assets::{self, AssetResolver, ImageFacts, ImageRequest, NoAssets};
 use crate::hoist::{self, Candidates, Hook, Rewrite};
 use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, lower_paths_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
 use snapfire_fsr_ir::Body;
@@ -29,6 +30,14 @@ use snapfire_fsr_ir::Body;
 pub struct ComponentSet {
   app: PathBuf,
   parsed: HashMap<String, Rc<Parsed>>,
+  /// Where an imported image or font is looked up.
+  assets: Rc<dyn AssetResolver>,
+  /// Whether an `<img>` whose `src` is an imported asset's is lowered as a
+  /// `Picture`.
+  rewrite_images: bool,
+  /// The head rows each lowered module asks for, its own and those of every
+  /// component it places, by module id.
+  pub heads: HashMap<String, Vec<HeadRow>>,
   /// Modules the caller supplies rather than the app directory holding, so a
   /// body may call into one the build has not written yet.
   provided: HashMap<String, String>,
@@ -92,7 +101,15 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+  }
+
+  /// Where an imported image or font is looked up, and whether a plain
+  /// `<img>` of one is rewritten.
+  pub fn with_assets(mut self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> Self {
+    self.assets = resolver;
+    self.rewrite_images = rewrite_images;
+    self
   }
 
   /// The custom elements whose shadow template the build lowers, by tag.
@@ -375,7 +392,7 @@ impl ComponentSet {
       Ok(found) => found.filter(|_| export == "default"),
       Err((span, message)) => return Err(self.parsed[file].residue(span, message).into()),
     };
-    let ((component, refs, providers), hoisting) = loop {
+    let ((component, refs, providers, own_heads), hoisting) = loop {
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
         let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
@@ -386,9 +403,9 @@ impl ComponentSet {
         lowerer.hoisting = (!element_template).then(Candidates::default);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new() };
         let result = cl.component(&function);
-        let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers)));
+        let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
         let result = match result {
           Err(residue) if cl.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
@@ -446,6 +463,17 @@ impl ComponentSet {
         islands.insert(placed.clone(), timing);
       }
       modules.insert(placed, module);
+    }
+    let mut heads: Vec<HeadRow> = own_heads;
+    for placed in modules.values() {
+      for row in self.heads.get(placed).cloned().unwrap_or_default() {
+        if !heads.contains(&row) {
+          heads.push(row);
+        }
+      }
+    }
+    if !heads.is_empty() {
+      self.heads.insert(module.clone(), heads);
     }
     // A template with nothing for the browser to change is never mounted, so
     // it has no browser twin and pulls no framework into the page. A component
@@ -646,6 +674,15 @@ impl ComponentSet {
     }
     let parsed = self.parsed[file].clone();
     if let Some((source, imported)) = find_import(&parsed, name) {
+      if imported == "default" {
+        if let Some(kind) = assets::kind(&source) {
+          let Some(path) = asset_path(file, &source) else { return Ok(None) };
+          return Ok(match kind {
+            assets::Kind::Image => self.assets.image(&path, &ImageRequest::default()).map(|facts| (asset_object(&facts), key)),
+            assets::Kind::Font => self.assets.font(&path).map(|url| (Expr::lit_str(url), key)),
+          });
+        }
+      }
       let Some(target) = self.resolve_import(file, &source) else { return Ok(None) };
       self.load(&target)?;
       return self.global(&target, &imported);
@@ -1112,6 +1149,76 @@ pub(crate) fn imported_callee(parsed: &Parsed, expr: &js::Expr) -> Option<(Strin
 
 /// The name `local` was imported under when its source satisfies `source_is`,
 /// which is how a call or a tag is recognised however it was spelled here.
+/// The attribute that keeps an `<img>` of an imported asset out of the
+/// rewrite. Stripped from the markup.
+pub const RAW_ESCAPE: &str = "data-sf-raw";
+
+enum PictureSrc {
+  Local(String),
+  Value(Expr),
+}
+
+/// `template` with `{src}` as `value` and `{width}` as `width`, as the
+/// concatenation the renderer evaluates.
+fn fill_template(template: &str, value: &Expr, width: u32) -> Expr {
+  let mut parts: Vec<Expr> = Vec::new();
+  let mut rest = template;
+  loop {
+    let src_at = rest.find("{src}");
+    let width_at = rest.find("{width}");
+    let next = match (src_at, width_at) {
+      (Some(a), Some(b)) => Some(if a < b { (a, "{src}") } else { (b, "{width}") }),
+      (Some(a), None) => Some((a, "{src}")),
+      (None, Some(b)) => Some((b, "{width}")),
+      (None, None) => None,
+    };
+    let Some((at, token)) = next else {
+      if !rest.is_empty() {
+        parts.push(Expr::lit_str(rest));
+      }
+      break;
+    };
+    if at > 0 {
+      parts.push(Expr::lit_str(&rest[..at]));
+    }
+    match token {
+      "{src}" => parts.push(value.clone()),
+      _ => parts.push(Expr::lit_str(width.to_string())),
+    }
+    rest = &rest[at + token.len()..];
+  }
+  match parts.len() {
+    1 => parts.pop().unwrap(),
+    _ => Expr::Template(parts),
+  }
+}
+
+/// A number literal with no fraction, however it was spelled.
+fn whole_number(expr: &Expr) -> Option<i128> {
+  match expr {
+    Expr::Lit(Lit::Int(n)) => Some(*n),
+    Expr::Lit(Lit::Float(f)) if f.fract() == 0.0 => Some(*f as i128),
+    _ => None,
+  }
+}
+
+/// The app-relative path an asset specifier names from `file`, or `None`
+/// for one that is not relative.
+fn asset_path(file: &str, specifier: &str) -> Option<String> {
+  let clean = specifier.split(['?', '#']).next().unwrap_or(specifier);
+  crate::resolve_specifier(file, clean)
+}
+
+/// `{ src, width, height }`, what an imported image is bound to, so a
+/// component may read any field of it.
+fn asset_object(facts: &ImageFacts) -> Expr {
+  Expr::Object(vec![
+    Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone())),
+    Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))),
+    Entry::Field("height".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.height)))),
+  ])
+}
+
 pub(crate) fn imported_as(parsed: &Parsed, local: &str, source_is: impl Fn(&str) -> bool) -> Option<String> {
   find_import(parsed, local).filter(|(source, _)| source_is(source)).map(|(_, imported)| imported)
 }
@@ -1428,6 +1535,17 @@ struct ComponentLowerer<'a, 'p> {
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
   providers: Vec<(String, (usize, usize))>,
+  assets: Rc<dyn AssetResolver>,
+  rewrite_images: bool,
+  /// The head rows this component asks for, a priority image's preload.
+  heads: Vec<HeadRow>,
+}
+
+/// One head element a component asks for: a tag and its attributes in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadRow {
+  pub tag: String,
+  pub attrs: Vec<(String, String)>,
 }
 
 impl ComponentLowerer<'_, '_> {
@@ -1848,9 +1966,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if is_component {
       return self.component_ref(&name, el, as_child);
     }
+    if name == "img" && self.rewrite_images && self.img_names_an_asset(el) {
+      return self.picture_element(el, true);
+    }
     let mut attrs = Vec::new();
     let mut select_value = None;
     let mut bound = false;
+    let mut escaped_asset: Option<String> = None;
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -1863,6 +1985,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let raw = attr_name(&attr.name);
       if raw == "ref" {
         bound = true;
+        continue;
+      }
+      if name == "img" && raw == RAW_ESCAPE {
+        escaped_asset = self.img_asset_path(el);
         continue;
       }
       if is_handler_name(&raw) {
@@ -1894,6 +2020,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
         }
         _ => attrs.push(Entry::Field(html_attr_name(&raw).to_owned(), value)),
+      }
+    }
+    if let Some(path) = escaped_asset {
+      if let Some(facts) = self.assets.image(&path, &ImageRequest::default()) {
+        for (name, value) in [("width", facts.width), ("height", facts.height)] {
+          if !attrs.iter().any(|e| matches!(e, Entry::Field(n, _) if n == name)) {
+            attrs.push(Entry::Field(name.to_owned(), Expr::Lit(Lit::Int(i128::from(value)))));
+          }
+        }
       }
     }
     let outer = if name == "select" { std::mem::replace(&mut self.select_value, select_value) } else { self.select_value.take() };
@@ -2288,6 +2423,273 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Tmpl::Element { tag: "a".to_owned(), attrs, children })
   }
 
+  /// Whether an `<img>`'s `src` is `<asset>.src` of an imported image, which
+  /// the rewrite lowers as a `Picture`, and not escaped with `data-sf-raw`.
+  fn img_names_an_asset(&self, el: &'p js::JSXElement) -> bool {
+    let escaped = el.opening.attrs.iter().any(|attr| matches!(attr, js::JSXAttrOrSpread::JSXAttr(attr) if attr_name(&attr.name) == RAW_ESCAPE));
+    !escaped && self.img_asset_path(el).is_some()
+  }
+
+  /// The imported image an `<img src={x.src}>` names, by its app-relative path.
+  fn img_asset_path(&self, el: &'p js::JSXElement) -> Option<String> {
+    for attr in &el.opening.attrs {
+      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { continue };
+      if attr_name(&attr.name) != "src" {
+        continue;
+      }
+      let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return None };
+      let js::JSXExpr::Expr(e) = &c.expr else { return None };
+      let js::Expr::Member(m) = &**e else { return None };
+      let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
+      if prop.sym.as_ref() != "src" {
+        return None;
+      }
+      return self.asset_import(obj.sym.as_ref());
+    }
+    None
+  }
+
+  /// The app-relative path of the image `local` imports, when it is one.
+  fn asset_import(&self, local: &str) -> Option<String> {
+    let (source, imported) = find_import(self.lowerer.parsed, local)?;
+    if imported != "default" || assets::kind(&source) != Some(assets::Kind::Image) {
+      return None;
+    }
+    asset_path(self.file, &source)
+  }
+
+  /// `<Picture src={hero} alt="…" sizes="…" priority widths={[…]} quality={…} source="cms">`,
+  /// or an `<img>` of an imported asset under the rewrite: a `<picture>`
+  /// with a `<source>` per format and the hashed original as its `<img>`,
+  /// an `<img>` alone for an image served as it is, and for a string `src`
+  /// an `<img>` whose `srcset` a named source's template writes.
+  fn picture_element(&mut self, el: &'p js::JSXElement, from_img: bool) -> Lowered<Tmpl> {
+    let mut src: Option<PictureSrc> = None;
+    let mut sizes: Option<Expr> = None;
+    let mut priority = false;
+    let mut request = ImageRequest::default();
+    let mut source_name: Option<String> = None;
+    let mut rest: Vec<Entry> = Vec::new();
+    let mut explicit_loading = None;
+    let mut explicit_decoding = None;
+    let mut wrote_dimensions = false;
+    for attr in &el.opening.attrs {
+      let attr = match attr {
+        js::JSXAttrOrSpread::JSXAttr(attr) => attr,
+        js::JSXAttrOrSpread::SpreadElement(spread) => {
+          rest.push(Entry::Spread(self.lowerer.expr(&spread.expr)?));
+          continue;
+        }
+      };
+      let raw = attr_name(&attr.name);
+      if raw == "key" || raw == "ref" || is_handler_name(&raw) || raw == RAW_ESCAPE {
+        continue;
+      }
+      match raw.as_str() {
+        "src" => src = Some(self.picture_src(attr)?),
+        "sizes" => sizes = Some(self.attr_value(attr)?),
+        "priority" => priority = matches!(self.attr_value(attr)?, Expr::Lit(Lit::Bool(true))),
+        "fetchPriority" | "fetchpriority" => {
+          if matches!(self.attr_value(attr)?, Expr::Lit(Lit::Str(ref v)) if v == "high") {
+            priority = true;
+          }
+        }
+        "widths" => request.widths = Some(self.picture_widths(attr)?),
+        "quality" => request.quality = Some(self.picture_quality(attr)?),
+        "source" => match self.attr_value(attr)? {
+          Expr::Lit(Lit::Str(name)) => source_name = Some(name),
+          _ => return Err(self.lowerer.residue(attr.span, "a `<Picture>`'s `source` is a name written out")),
+        },
+        "loading" => explicit_loading = Some(self.attr_value(attr)?),
+        "decoding" => explicit_decoding = Some(self.attr_value(attr)?),
+        "style" => rest.push(Entry::Field("style".to_owned(), self.style(attr)?)),
+        "width" | "height" => {
+          wrote_dimensions = true;
+          let value = self.attr_value(attr)?;
+          rest.push(Entry::Field(raw.clone(), value));
+        }
+        other => {
+          let value = self.attr_value(attr)?;
+          rest.push(Entry::Field(html_attr_name(other).to_owned(), value));
+        }
+      }
+    }
+    let Some(src) = src else {
+      return Err(self.lowerer.residue(el.span, if from_img { "an `<img>` with no `src`" } else { "a `<Picture>` needs a `src`" }));
+    };
+    let loading = explicit_loading.unwrap_or_else(|| Expr::lit_str(if priority { "eager" } else { "lazy" }));
+    let decoding = explicit_decoding.unwrap_or_else(|| Expr::lit_str("async"));
+    let mut img: Vec<Entry> = Vec::new();
+
+    match src {
+      PictureSrc::Local(path) => {
+        let Some(facts) = self.assets.image(&path, &request) else {
+          return Err(self.lowerer.residue(el.span, format!("`{path}` is not an image under the app")));
+        };
+        img.push(Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone())));
+        if !wrote_dimensions {
+          img.push(Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))));
+          img.push(Entry::Field("height".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.height)))));
+        }
+        img.extend(rest);
+        img.push(Entry::Field("loading".to_owned(), loading));
+        img.push(Entry::Field("decoding".to_owned(), decoding));
+        if priority {
+          img.push(Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high")));
+        }
+        if facts.sources.is_empty() {
+          return Ok(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() });
+        }
+        let sizes = sizes.unwrap_or_else(|| Expr::lit_str(assets::default_sizes(facts.width)));
+        let mut children = Vec::new();
+        for (mime, srcset) in &facts.sources {
+          children.push(Tmpl::Element {
+            tag: "source".to_owned(),
+            attrs: vec![
+              Entry::Field("type".to_owned(), Expr::lit_str(mime.clone())),
+              Entry::Field("srcset".to_owned(), Expr::lit_str(srcset.clone())),
+              Entry::Field("sizes".to_owned(), sizes.clone()),
+            ],
+            children: Vec::new(),
+          });
+        }
+        if priority {
+          if let (Some((mime, srcset)), Expr::Lit(Lit::Str(sizes))) = (facts.sources.first(), &sizes) {
+            self.remember_head(HeadRow {
+              tag: "link".to_owned(),
+              attrs: vec![
+                ("rel".to_owned(), "preload".to_owned()),
+                ("as".to_owned(), "image".to_owned()),
+                ("type".to_owned(), mime.clone()),
+                ("imagesrcset".to_owned(), srcset.clone()),
+                ("imagesizes".to_owned(), sizes.clone()),
+                ("fetchpriority".to_owned(), "high".to_owned()),
+              ],
+            });
+          }
+        }
+        children.push(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() });
+        Ok(Tmpl::Element { tag: "picture".to_owned(), attrs: Vec::new(), children })
+      }
+      PictureSrc::Value(value) => {
+        let template = match &source_name {
+          Some(name) => match self.assets.source(name) {
+            Some(template) => Some(template),
+            None => return Err(self.lowerer.residue(el.span, format!("`{name}` is not an `[images.sources]` entry"))),
+          },
+          None => None,
+        };
+        match template {
+          Some(template) => {
+            let widths = self.assets.widths();
+            let largest = widths.iter().copied().max().unwrap_or(1280);
+            img.push(Entry::Field("src".to_owned(), fill_template(&template, &value, largest)));
+            let mut parts: Vec<Expr> = Vec::new();
+            for (i, width) in widths.iter().enumerate() {
+              if i > 0 {
+                parts.push(Expr::lit_str(", "));
+              }
+              parts.push(fill_template(&template, &value, *width));
+              parts.push(Expr::lit_str(format!(" {width}w")));
+            }
+            if !parts.is_empty() {
+              img.push(Entry::Field("srcset".to_owned(), Expr::Template(parts)));
+              img.push(Entry::Field("sizes".to_owned(), sizes.unwrap_or_else(|| Expr::lit_str("100vw"))));
+            }
+          }
+          None => img.push(Entry::Field("src".to_owned(), value)),
+        }
+        img.extend(rest);
+        img.push(Entry::Field("loading".to_owned(), loading));
+        img.push(Entry::Field("decoding".to_owned(), decoding));
+        if priority {
+          img.push(Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high")));
+        }
+        Ok(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() })
+      }
+    }
+  }
+
+  /// A `src`: the imported asset itself, its `.src`, or any other value.
+  fn picture_src(&mut self, attr: &'p js::JSXAttr) -> Lowered<PictureSrc> {
+    if let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value {
+      if let js::JSXExpr::Expr(e) = &c.expr {
+        match &**e {
+          js::Expr::Ident(id) => {
+            if let Some(path) = self.asset_import(id.sym.as_ref()) {
+              return Ok(PictureSrc::Local(path));
+            }
+          }
+          js::Expr::Member(m) => {
+            if let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) {
+              if prop.sym.as_ref() == "src" {
+                if let Some(path) = self.asset_import(obj.sym.as_ref()) {
+                  return Ok(PictureSrc::Local(path));
+                }
+              }
+            }
+          }
+          _ => {}
+        }
+      }
+    }
+    match self.attr_value(attr)? {
+      Expr::Lit(Lit::Str(literal)) if literal.starts_with('.') => Err(self.lowerer.residue(attr.span, format!("`src=\"{literal}\"` is a path, which resolves against the page in a browser; import the file and pass the import"))),
+      value => Ok(PictureSrc::Value(value)),
+    }
+  }
+
+  fn picture_widths(&mut self, attr: &'p js::JSXAttr) -> Lowered<Vec<u32>> {
+    let Expr::Array(items) = self.attr_value(attr)? else {
+      return Err(self.lowerer.residue(attr.span, "a `<Picture>`'s `widths` is an array of numbers written out"));
+    };
+    let mut widths = Vec::new();
+    for item in items {
+      match item {
+        Entry::Item(expr) => match whole_number(&expr) {
+          Some(n) if n > 0 => widths.push(n as u32),
+          _ => return Err(self.lowerer.residue(attr.span, "a `<Picture>`'s `widths` is an array of positive numbers written out")),
+        },
+        _ => return Err(self.lowerer.residue(attr.span, "a `<Picture>`'s `widths` is an array of positive numbers written out")),
+      }
+    }
+    Ok(widths)
+  }
+
+  fn picture_quality(&mut self, attr: &'p js::JSXAttr) -> Lowered<std::collections::BTreeMap<String, u8>> {
+    let mut quality = std::collections::BTreeMap::new();
+    let refused = |this: &Self| this.lowerer.residue(attr.span, "a `<Picture>`'s `quality` is a number or `{ avif, webp }` of numbers, 0 to 100, written out");
+    match self.attr_value(attr)? {
+      Expr::Object(entries) => {
+        for entry in entries {
+          match entry {
+            Entry::Field(format, value) if format == "avif" || format == "webp" => match whole_number(&value) {
+              Some(n) if (0..=100).contains(&n) => {
+                quality.insert(format, n as u8);
+              }
+              _ => return Err(refused(self)),
+            },
+            _ => return Err(refused(self)),
+          }
+        }
+      }
+      value => match whole_number(&value) {
+        Some(n) if (0..=100).contains(&n) => {
+          quality.insert("avif".to_owned(), n as u8);
+          quality.insert("webp".to_owned(), n as u8);
+        }
+        _ => return Err(refused(self)),
+      },
+    }
+    Ok(quality)
+  }
+
+  fn remember_head(&mut self, row: HeadRow) {
+    if !self.heads.contains(&row) {
+      self.heads.push(row);
+    }
+  }
+
   /// A `Link`'s `current`, which says which path the mark is judged
   /// against: `"url"` is the address and `"document"` the page beneath an
   /// open intercept. True for `"document"`.
@@ -2336,6 +2738,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some("Island") => return self.island_element(el),
       Some("Slot") => return self.slot_element(el),
       Some("Link") => return self.link_element(el),
+      Some("Picture") => return self.picture_element(el, false),
       _ => {}
     }
     if let Some((target, when, mode)) = self.island_alias(name)? {

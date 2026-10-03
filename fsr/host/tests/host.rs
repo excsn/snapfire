@@ -5653,3 +5653,103 @@ async fn the_import_map_hash_widens_script_src_without_narrowing_it() {
   let policy = csp_of(&host, "/").await.unwrap();
   assert!(policy.contains("script-src 'self' 'sha256-"), "script-src starts from default-src: {policy}");
 }
+
+#[test]
+fn the_asset_sections_fill_their_defaults_when_absent() {
+  let dir = app_dir();
+  let config = snapfire_fsr_host::config::Config::load(&dir.join("app.toml")).unwrap();
+  assert_eq!(config.dirs.styles, "styles");
+  assert_eq!(config.dirs.fonts, "fonts");
+  assert_eq!(config.dirs.images, "images");
+  assert_eq!(config.dirs.icons, "icons");
+  assert_eq!(config.images.widths, [640, 960, 1280, 1920, 2560]);
+  assert_eq!(config.images.formats, ["avif", "webp"]);
+  assert!(config.images.quality.is_empty());
+  assert!(config.images.rewrite);
+  assert!(config.images.base.is_none());
+  assert!(config.images.sources.is_empty());
+  assert!(config.fonts.base.is_none());
+  assert!(config.fonts.faces.is_empty());
+}
+
+#[test]
+fn dirs_move_where_the_styles_and_icons_are_read_from_and_the_routes_stay() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("assets/css")).unwrap();
+  std::fs::create_dir_all(dir.join("assets/icons")).unwrap();
+  std::fs::write(dir.join("assets/css/site.css"), "body{}").unwrap();
+  std::fs::write(dir.join("assets/icons/favicon.svg"), "<svg/>").unwrap();
+  let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  toml.push_str("\n[dirs]\nstyles = \"assets/css\"\nicons = \"assets/icons\"\n");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+
+  let config = snapfire_fsr_host::config::Config::load(&dir.join("app.toml")).unwrap();
+  assert_eq!(config.document.styles.as_deref(), Some(&["/static/css/site.css".to_owned()][..]));
+  assert!(config.statics.iter().any(|s| s.route == "/static/css" && s.dir == "assets/css"), "{:?}", config.statics);
+  assert!(config.statics.iter().any(|s| s.route == "/static/icons" && s.dir == "assets/icons"), "{:?}", config.statics);
+  assert!(config.inferred.iter().any(|l| l == "static /static/css from assets/css/"), "{:?}", config.inferred);
+  assert!(config.inferred.iter().any(|l| l == "static /static/icons from assets/icons/"), "{:?}", config.inferred);
+  assert!(config.document.head.iter().any(|t| t.get("href").is_some_and(|h| h == "/static/icons/favicon.svg")), "{:?}", config.document.head);
+}
+
+#[test]
+fn the_images_section_is_read_and_its_mistakes_are_named() {
+  let dir = app_dir();
+  let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  let load = |extra: &str| {
+    std::fs::write(dir.join("app.toml"), format!("{base}\n{extra}\n")).unwrap();
+    snapfire_fsr_host::config::Config::load(&dir.join("app.toml"))
+  };
+
+  let config = load("[images]\nwidths = [320, 640]\nformats = [\"webp\"]\nquality = { webp = 70 }\nrewrite = false\nbase = \"https://cdn.example.com/static\"\n\n[images.sources.cms]\ntemplate = \"https://img.example.com/{src}?w={width}&auto=format\"\n").unwrap();
+  assert_eq!(config.images.widths, [320, 640]);
+  assert_eq!(config.images.formats, ["webp"]);
+  assert_eq!(config.images.quality.get("webp"), Some(&70));
+  assert!(!config.images.rewrite);
+  assert_eq!(config.images.base.as_deref(), Some("https://cdn.example.com/static"));
+  assert_eq!(config.images.sources["cms"].template, "https://img.example.com/{src}?w={width}&auto=format");
+
+  for (extra, names) in [
+    ("[images]\nformats = [\"jpeg\"]\n", "`jpeg` is not `avif` or `webp`"),
+    ("[images]\nquality = { avif = 120 }\n", "120 is above 100"),
+    ("[images]\nwidths = [0]\n", "a width is at least 1"),
+    ("[images]\nbase = \"cdn.example.com\"\n", "must be `scheme://host/path`"),
+    ("[images]\nbase = \"https://cdn.example.com/\"\n", "no trailing slash"),
+    ("[images.sources.cms]\ntemplate = \"https://img.example.com/x?w={width}\"\n", "must carry `{src}`"),
+  ] {
+    let err = load(extra).unwrap_err().to_string();
+    assert!(err.contains(names), "{extra}: {err}");
+  }
+}
+
+#[test]
+fn the_fonts_section_is_read_by_key_and_its_mistakes_are_named() {
+  let dir = app_dir();
+  let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  let load = |extra: &str| {
+    std::fs::write(dir.join("app.toml"), format!("{base}\n{extra}\n")).unwrap();
+    snapfire_fsr_host::config::Config::load(&dir.join("app.toml"))
+  };
+
+  let config = load("[fonts]\nbase = \"https://cdn.example.com/fonts\"\n\n[fonts.sans]\nfamily = \"Inter\"\nfallback = \"Arial\"\ndisplay = \"swap\"\npreload = true\nvariable = \"--font-body\"\n\n[fonts.mono]\nfamily = \"JetBrains Mono\"\n\n[fonts.display]\nremote = \"https://fonts.googleapis.com/css2?family=Fraunces\"\n").unwrap();
+  assert_eq!(config.fonts.base.as_deref(), Some("https://cdn.example.com/fonts"));
+  let sans = &config.fonts.faces["sans"];
+  assert_eq!(sans.family.as_deref(), Some("Inter"));
+  assert_eq!(sans.fallback.as_deref(), Some("Arial"));
+  assert_eq!(sans.preload, Some(true));
+  assert_eq!(sans.variable.as_deref(), Some("--font-body"));
+  assert_eq!(config.fonts.faces["mono"].family.as_deref(), Some("JetBrains Mono"));
+  assert_eq!(config.fonts.faces["display"].remote.as_deref(), Some("https://fonts.googleapis.com/css2?family=Fraunces"));
+  assert_eq!(config.fonts.faces.len(), 3);
+
+  for (extra, names) in [
+    ("[fonts.Sans]\nfamily = \"Inter\"\n", "a key is lowercase letters"),
+    ("[fonts.sans]\nremote = \"fonts.googleapis.com\"\n", "must be a URL"),
+    ("[fonts.sans]\nremote = \"https://x/y.css\"\nfiles = [\"a.woff2\"]\n", "two sources for one key"),
+    ("[fonts.sans]\nvariable = \"font-sans\"\n", "must start with `--`"),
+    ("[fonts.sans]\nweight = 400\n", "unknown field"),
+  ] {
+    let err = load(extra).unwrap_err().to_string();
+    assert!(err.contains(names), "{extra}: {err}");
+  }
+}

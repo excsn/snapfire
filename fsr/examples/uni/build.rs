@@ -12,7 +12,7 @@ fn main() {
   let components = set
     .components
     .into_iter()
-    .map(|(module, body)| snapfire_fsr_plan::ComponentEntry { module, body })
+    .map(|(module, body)| snapfire_fsr_plan::ComponentEntry { module, body, head: Vec::new() })
     .collect();
   let manifest = snapfire_fsr_plan::Manifest::new(Vec::new()).with_components(components);
   let out = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("plan.sexp");

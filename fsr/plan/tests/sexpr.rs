@@ -291,8 +291,20 @@ fn every_manifest() -> Manifest {
       ActionEntry::rust("cart.clear"),
     ],
     components: vec![
-      ComponentEntry { module: "routes/page.tsx#default".to_owned(), body: component },
-      ComponentEntry { module: "routes/layout.tsx#default".to_owned(), body: tree },
+      ComponentEntry { module: "routes/page.tsx#default".to_owned(), body: component, head: Vec::new() },
+      ComponentEntry {
+        module: "routes/layout.tsx#default".to_owned(),
+        body: tree,
+        head: vec![snapfire_fsr_plan::HeadRow {
+          tag: "link".to_owned(),
+          attrs: vec![
+            ("rel".to_owned(), "preload".to_owned()),
+            ("as".to_owned(), "image".to_owned()),
+            ("imagesrcset".to_owned(), "/static/js/app/img/hero.0a1b2c3d.640.avif 640w".to_owned()),
+            ("imagesizes".to_owned(), "100vw".to_owned()),
+          ],
+        }],
+      },
     ],
     consts,
     not_found: Some(node.clone()),
@@ -643,26 +655,46 @@ fn malformed_plan_terms_are_refused() {
 /// file is regenerated with `SEXP_GOLDEN=overwrite`, alongside a bump of
 /// `FORMAT_VERSION` and a reader that still takes the old spelling, which
 /// the earlier format's file below keeps pinned.
-const GOLDEN: &str = include_str!("golden/format-4.sexp");
+const GOLDEN: &str = include_str!("golden/format-5.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_4_promises() {
+fn the_printed_bytes_are_the_ones_format_5_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-4.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-5.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 4");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 5");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 4 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 5 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
+}
+
+/// Format 4, as the builds before a component's head rows wrote it.
+const GOLDEN_4: &str = include_str!("golden/format-4.sexp");
+
+#[test]
+fn a_format_4_plan_still_reads_and_prints_as_written() {
+  let read = Manifest::from_sexpr(GOLDEN_4).expect("format 4 still reads");
+  let mut expected = every_manifest();
+  forget_heads(&mut expected);
+  assert_eq!(read, expected);
+  assert_eq!(read.to_sexpr(), GOLDEN_4);
+}
+
+/// Every component's head rows dropped, which is what a plan written before
+/// format 5 carries.
+fn forget_heads(manifest: &mut Manifest) {
+  for entry in &mut manifest.components {
+    entry.head.clear();
+  }
 }
 
 /// Format 3, as the builds before per-kind error modules wrote it.
@@ -673,6 +705,7 @@ fn a_format_3_plan_still_reads_and_prints_as_written() {
   let read = Manifest::from_sexpr(GOLDEN_3).expect("format 3 still reads");
   let mut expected = every_manifest();
   forget_error_kinds(&mut expected);
+  forget_heads(&mut expected);
   assert_eq!(read, expected);
   assert_eq!(read.to_sexpr(), GOLDEN_3);
 }
@@ -705,6 +738,7 @@ fn a_format_2_plan_still_reads_and_prints_as_written() {
   expected.version = 2;
   expected.clients.clear();
   forget_error_kinds(&mut expected);
+  forget_heads(&mut expected);
   assert_eq!(read, expected);
   assert_eq!(read.to_sexpr(), GOLDEN_2);
 }
