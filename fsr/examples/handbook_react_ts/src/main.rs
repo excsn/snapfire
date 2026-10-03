@@ -21,8 +21,12 @@ async fn main() -> std::io::Result<()> {
 
   let out = root.join("site");
   let written = host.prerender(&out).await.map_err(std::io::Error::other)?;
-  for (pattern, file) in &written {
+  let client = written.iter().filter(|(pattern, _)| pattern.starts_with("/static/js/fsr/")).count();
+  for (pattern, file) in written.iter().filter(|(pattern, _)| !pattern.starts_with("/static/js/fsr/")) {
     println!("wrote     {pattern:<22} {}", file.display());
+  }
+  if client > 0 {
+    println!("wrote     {:<22} {client} modules the documents load, under {}", "/static/js/fsr", out.join("static/js/fsr").display());
   }
 
   for (route, dir) in &host.report().statics {
@@ -31,7 +35,7 @@ async fn main() -> std::io::Result<()> {
     println!("copied    {route:<22} {count} files from {}", dir.display());
   }
 
-  let mut routes: Vec<&str> = written.iter().map(|(pattern, _)| pattern.as_str()).collect();
+  let mut routes: Vec<&str> = written.iter().map(|(pattern, _)| pattern.as_str()).filter(|p| !p.starts_with("/static/js/fsr/") && !p.ends_with(".json")).collect();
   routes.dedup();
   println!("{} routes in {} files: serve {} with anything", routes.len(), written.len(), out.display());
   Ok(())

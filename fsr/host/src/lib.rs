@@ -1829,6 +1829,19 @@ impl Host {
         written.push((RENDERS_FILE.to_owned(), file));
       }
     }
+    // The documents' import map names the client under `client::ROUTE`, which
+    // this host answers from the binary; a directory served by anything else
+    // needs the files, so they go beside the documents whenever a document was written.
+    if t.client && written.iter().any(|(_, file)| file.extension().is_some_and(|e| e == "html")) {
+      let dir = out.join(client::ROUTE.trim_start_matches('/'));
+      std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
+      for (name, _) in client::FILES {
+        let Some(body) = client::get(name, t.client_minified) else { continue };
+        let file = dir.join(name);
+        std::fs::write(&file, body).map_err(|e| HostError::Io(file.clone(), e))?;
+        written.push((format!("{}/{name}", client::ROUTE), file));
+      }
+    }
     if !written.is_empty() {
       let listed: Vec<String> = written.iter().filter_map(|(_, file)| file.strip_prefix(out).ok()).map(|rel| rel.to_string_lossy().replace('\\', "/")).collect();
       let file = out.join(WRITTEN_FILE);

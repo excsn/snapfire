@@ -38,7 +38,7 @@ fn the_whole_site_is_written_to_files_and_each_document_stands_alone() {
   for route in ROUTES {
     assert_eq!(written.iter().filter(|(pattern, _)| pattern == route).count(), 2, "a document and a payload for {route}: {written:?}");
   }
-  for file in ["index.html", "faq/index.html", "install/index.html", "index.payload"] {
+  for file in ["index.html", "faq/index.html", "install/index.html", "index.payload", "static/js/fsr/index.js", "static/js/fsr/react.js"] {
     assert!(out.join(file).is_file(), "{file} was written");
   }
 

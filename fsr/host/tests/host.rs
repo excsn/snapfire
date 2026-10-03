@@ -1332,6 +1332,11 @@ async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_dir
   assert!(out.join("index.html").is_file());
   assert!(out.join("fr_FR/index.html").is_file());
   assert!(out.join("de/index.payload").is_file());
+  assert!(out.join("static/js/fsr/index.js").is_file(), "the client the documents' import map names is written beside them");
+  assert!(out.join("static/js/fsr/react.js").is_file());
+  assert!(served.contains(&"/static/js/fsr/index.js"), "and listed as written: {served:?}");
+  let listed = std::fs::read_to_string(out.join(snapfire_fsr_host::WRITTEN_FILE)).unwrap();
+  assert!(listed.contains("static/js/fsr/index.js"), "so the next run clears it: {listed}");
 
   assert!(
     host
