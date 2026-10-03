@@ -491,6 +491,36 @@ pub struct Built {
   pub browser_routes: Vec<String>,
   /// What the build derived from the images and fonts, written as `generated/assets.json`.
   pub assets: snapfire_fsr_host::assets::AssetsManifest,
+  /// What answered the lowerer's asset questions and defines the map the bundle is compiled by;
+  /// it keeps growing as the bundle reports references the lowering never saw.
+  pub(crate) resolver: std::rc::Rc<assets::Resolver>,
+}
+
+impl Built {
+  /// Defines the asset paths the bundle reported and the lowering never saw, then recomputes
+  /// the manifest and the map; the two files to write come back.
+  pub fn adopt(&mut self, paths: &[String]) -> Result<Vec<(String, String)>, BuildError> {
+    self.resolver.reconcile(paths)?;
+    Ok(self.refresh_assets())
+  }
+
+  /// Recomputes the asset manifest and the map from the resolver, after the bundle reported
+  /// references the lowering never saw; the two files to write come back.
+  pub fn refresh_assets(&mut self) -> Vec<(String, String)> {
+    let fonts = self.assets.fonts.clone();
+    self.assets = assets::manifest(&self.resolver, fonts);
+    let refreshed = vec![
+      (snapfire_fsr_host::assets::ASSETS_FILE.to_owned(), serde_json::to_string_pretty(&self.assets).expect("an assets manifest serializes") + "\n"),
+      (assets::MAP_FILE.to_owned(), assets::map_text(&self.resolver, &self.assets.fonts)),
+    ];
+    for (name, content) in &refreshed {
+      match self.files.iter_mut().find(|(n, _)| n == name) {
+        Some(entry) => entry.1 = content.clone(),
+        None => self.files.push((name.clone(), content.clone())),
+      }
+    }
+    refreshed
+  }
 }
 
 #[derive(Clone)]
@@ -1160,6 +1190,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     ("generated/uploads.d.ts".to_owned(), UPLOAD_DECLARATION.to_owned()),
     ("generated/assets.d.ts".to_owned(), ASSET_DECLARATIONS.to_owned()),
     (snapfire_fsr_host::assets::ASSETS_FILE.to_owned(), serde_json::to_string_pretty(&assets_manifest).expect("an assets manifest serializes") + "\n"),
+    (assets::MAP_FILE.to_owned(), assets::map_text(&resolver, &assets_manifest.fonts)),
     ("generated/native.d.ts".to_owned(), native::declarations(&natives)),
     ("generated/services.d.ts".to_owned(), declarations),
     ("generated/elements.d.ts".to_owned(), types::element_declarations(app, &layout, &elements)?),
@@ -1177,7 +1208,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut report = report;
   report.types = types::status(app)?;
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, assets: assets_manifest })
+  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, assets: assets_manifest, resolver })
 }
 
 /// Writes every generated file under `<app>` and returns their paths. The

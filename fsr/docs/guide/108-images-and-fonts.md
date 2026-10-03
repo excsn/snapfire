@@ -31,7 +31,7 @@ Three things follow from the markup. The browser picks the width that fits the s
 
 ## Where the variants come from
 
-`fsr build` reads every image a component imports, chooses its widths under the `[images]` policy and, after the bundle runs, writes the variants beside the hashed original under `dist/`, placing the original itself when the bundle did not, as for an image only a template names:
+`fsr build` reads every image a component imports, chooses its widths under the `[images]` policy and, after the bundle runs, writes the hashed original and the variants under `dist/`. The bundle places nothing of its own: the build hands the compiler the URL of every image and font it defined. An import the build had not seen, from a module only the browser runs, comes back to it, is read and gets its variants like the rest:
 
 ```toml
 [images]

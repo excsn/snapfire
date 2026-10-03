@@ -8,7 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_assets::{font, hash, image, variant_name, Face, Format, Source, VariantPolicy};
-use snapfire_fsr_host::assets::{AssetsManifest, Face as FaceOut, Fonts, ImageEntry, ImagePolicy, Remote, Variant, VERSION};
+use snapfire_compiler_wire::driven::{AssetMap, MappedAsset};
+use snapfire_fsr_host::assets::{AssetsManifest, Face as FaceOut, FontFile, Fonts, ImageEntry, ImagePolicy, Remote, Variant, VERSION};
 use snapfire_fsr_host::config::{Config, DirsSection, FontsSection, ImagesSection};
 use snapfire_fsr_lower::assets::{AssetResolver, ImageFacts, ImageRequest};
 
@@ -69,14 +70,60 @@ pub struct Resolver {
   sections: Sections,
   policy: VariantPolicy,
   seen: RefCell<BTreeMap<String, Seen>>,
+  /// Every font a module or a stylesheet named, by its path under the app.
+  fonts: RefCell<BTreeMap<String, FontFile>>,
   /// Files that were asked for and are not images this build decodes, with why.
   pub refused: RefCell<Vec<(String, String)>>,
 }
 
+/// Where the build writes the map the compiler rewrites every reference by.
+pub const MAP_FILE: &str = "generated/assets.map.json";
+
 impl Resolver {
   pub fn new(app: &Path, public_path: &str, sections: Sections) -> Self {
     let policy = sections.policy();
-    Self { app: app.to_path_buf(), public_path: public_path.trim_end_matches('/').to_owned(), sections, policy, seen: RefCell::new(BTreeMap::new()), refused: RefCell::new(Vec::new()) }
+    Self { app: app.to_path_buf(), public_path: public_path.trim_end_matches('/').to_owned(), sections, policy, seen: RefCell::new(BTreeMap::new()), fonts: RefCell::new(BTreeMap::new()), refused: RefCell::new(Vec::new()) }
+  }
+
+  /// Defines every path the compiler reported as referenced and not in the
+  /// map: an image is read and gets its widths, a font gets its URL. A path
+  /// that is neither or names no file this build reads is an error, since
+  /// the compiler will not take it over.
+  pub fn reconcile(&self, paths: &[String]) -> Result<(), BuildError> {
+    for path in paths {
+      let kind = snapfire_fsr_lower::assets::kind(path);
+      let defined = match kind {
+        Some(snapfire_fsr_lower::assets::Kind::Image) => self.image(path, &ImageRequest::default()).is_some(),
+        Some(snapfire_fsr_lower::assets::Kind::Font) => self.font(path).is_some(),
+        None => false,
+      };
+      if !defined {
+        let why = self.refused.borrow().iter().rev().find(|(p, _)| p == path).map(|(_, why)| format!(": {why}")).unwrap_or_default();
+        return Err(BuildError::Assets(format!("the bundle names `{path}`, which is not an image or a font this build can serve{why}")));
+      }
+    }
+    Ok(())
+  }
+
+  /// The map the compiler rewrites every reference by: each image and font
+  /// this build defines, keyed by its path under the app.
+  pub fn map(&self, fonts: &Fonts) -> AssetMap {
+    let mut map = AssetMap::new();
+    for (source, seen) in self.seen.borrow().iter() {
+      map.assets.insert(source.clone(), MappedAsset { url: seen.src.clone(), width: Some(seen.width), height: Some(seen.height) });
+    }
+    for face in &fonts.faces {
+      map.assets.insert(face.source.clone(), MappedAsset { url: face.url.clone(), width: None, height: None });
+    }
+    for (source, file) in self.fonts.borrow().iter() {
+      map.assets.entry(source.clone()).or_insert_with(|| MappedAsset { url: file.url.clone(), width: None, height: None });
+    }
+    map
+  }
+
+  /// The fonts named outside the fonts directory, which no face covers.
+  fn referenced_fonts(&self, faces: &[FaceOut]) -> Vec<FontFile> {
+    self.fonts.borrow().values().filter(|file| !faces.iter().any(|face| face.source == file.source)).cloned().collect()
   }
 
   fn url(&self, base: Option<&str>, relative: &str) -> String {
@@ -222,6 +269,9 @@ impl AssetResolver for Resolver {
   }
 
   fn font(&self, path: &str) -> Option<String> {
+    if let Some(file) = self.fonts.borrow().get(path) {
+      return Some(file.url.clone());
+    }
     let file = self.app.join(path);
     let bytes = std::fs::read(&file).ok()?;
     let digest = hash::of(&bytes);
@@ -229,7 +279,10 @@ impl AssetResolver for Resolver {
     let dir = relative.parent().map(|d| d.to_string_lossy().replace('\\', "/")).unwrap_or_default();
     let stem = relative.file_stem().unwrap_or_default().to_string_lossy().into_owned();
     let ext = relative.extension().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
-    Some(self.url(self.sections.fonts.base.as_deref(), &format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext))))
+    let out_path = format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext));
+    let url = self.url(self.sections.fonts.base.as_deref(), &out_path);
+    self.fonts.borrow_mut().insert(path.to_owned(), FontFile { source: path.to_owned(), url: url.clone(), path: out_path });
+    Some(url)
   }
 
   fn source(&self, name: &str) -> Option<String> {
@@ -243,7 +296,8 @@ impl AssetResolver for Resolver {
 
 /// The manifest the build writes, from what the resolver saw and what the
 /// font directory holds.
-pub fn manifest(resolver: &Resolver, fonts: Fonts) -> AssetsManifest {
+pub fn manifest(resolver: &Resolver, mut fonts: Fonts) -> AssetsManifest {
+  fonts.referenced = resolver.referenced_fonts(&fonts.faces);
   AssetsManifest { version: VERSION, images: resolver.policy_out(), entries: resolver.entries(), fonts }
 }
 
@@ -297,8 +351,10 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
       derived.written.push(path);
     }
   }
-  for face in &manifest.fonts.faces {
-    let path = out.join(&face.path);
+  let faces = manifest.fonts.faces.iter().map(|face| (&face.source, &face.path));
+  let referenced = manifest.fonts.referenced.iter().map(|file| (&file.source, &file.path));
+  for (source, rel) in faces.chain(referenced) {
+    let path = out.join(rel);
     if path.is_file() {
       derived.kept += 1;
       continue;
@@ -306,10 +362,23 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
     if let Some(parent) = path.parent() {
       std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
     }
-    std::fs::copy(app.join(&face.source), &path).map_err(|e| BuildError::Io(path.clone(), e))?;
+    std::fs::copy(app.join(source), &path).map_err(|e| BuildError::Io(path.clone(), e))?;
     derived.written.push(path);
   }
   Ok(derived)
+}
+
+/// Writes the compiler's map under the app, from what the resolver defines.
+pub fn write_map(app: &Path, resolver: &Resolver, fonts: &Fonts) -> Result<(), BuildError> {
+  let path = app.join(MAP_FILE);
+  if let Some(parent) = path.parent() {
+    std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+  }
+  std::fs::write(&path, map_text(resolver, fonts)).map_err(|e| BuildError::Io(path, e))
+}
+
+pub fn map_text(resolver: &Resolver, fonts: &Fonts) -> String {
+  serde_json::to_string_pretty(&resolver.map(fonts)).expect("an asset map serializes") + "\n"
 }
 
 /// One face the directory holds, read for the CSS.

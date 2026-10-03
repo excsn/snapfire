@@ -105,6 +105,14 @@ fn the_build_sees_the_image_and_the_fonts_and_writes_the_manifest_the_plan_rows_
   let files: Vec<&str> = built.files.iter().map(|(name, _)| name.as_str()).collect();
   assert!(files.contains(&"generated/assets.json"), "{files:?}");
   assert!(files.contains(&"generated/assets.d.ts"), "{files:?}");
+  let map: serde_json::Value = serde_json::from_str(&built.files.iter().find(|(n, _)| n == "generated/assets.map.json").expect("the compiler's map").1).unwrap();
+  assert_eq!(map["version"], 1);
+  assert_eq!(map["assets"]["src/img/hero.png"]["url"], format!("/static/js/app/src/img/hero.{hash}.png"));
+  assert_eq!((map["assets"]["src/img/hero.png"]["width"].as_u64(), map["assets"]["src/img/hero.png"]["height"].as_u64()), (Some(160), Some(100)));
+  assert_eq!(map["assets"]["fonts/Inter-Regular.woff2"]["url"], regular.url, "a face the page imports is one row, the directory's");
+  assert!(map["assets"]["fonts/Inter-Regular.woff2"].get("width").is_none());
+  assert!(map["assets"]["fonts/Inter-Bold.woff2"]["url"].as_str().unwrap().ends_with(".woff2"), "every face is in the map, imported or not");
+  assert!(fonts.referenced.is_empty(), "a face under the directory is not a referenced file too: {:?}", fonts.referenced);
   let declarations = &built.files.iter().find(|(n, _)| n == "generated/assets.d.ts").unwrap().1;
   assert!(declarations.contains("declare module \"*.png\" { const asset: import(\"@snapfire/fsr-authoring/template\").ImageAsset; export default asset; }"), "{declarations}");
   assert!(declarations.contains("declare module \"*.woff2\" { const url: string; export default url; }"), "{declarations}");
@@ -189,6 +197,39 @@ fn a_tagged_photo_is_upright_in_the_manifest_the_markup_and_its_variants() {
   let decoded = snapfire_fsr_assets::Source::from_bytes(Path::new("x.webp"), &webp).unwrap();
   assert_eq!((decoded.width(), decoded.height()), (80, 160), "the variant is upright");
   assert_eq!(snapfire_fsr_assets::Header::from_bytes(Path::new("x.webp"), &webp).unwrap().orientation, 1, "and carries no tag");
+}
+
+#[test]
+fn reconciling_what_the_bundle_reports_adds_entries_fonts_and_map_rows_and_refuses_what_it_cannot_serve() {
+  let (app, mut built) = built("reconcile", SECTIONS);
+  std::fs::write(app.join("src/img/photo.jpg"), fixture("photo.jpg")).unwrap();
+  std::fs::create_dir_all(app.join("src/type")).unwrap();
+  std::fs::write(app.join("src/type/Inter-Bold.woff2"), fixture("Inter-Bold.woff2")).unwrap();
+  assert!(built.assets.entries.iter().all(|e| e.source != "src/img/photo.jpg"), "nothing placed it yet");
+
+  let refreshed = built.adopt(&["src/img/photo.jpg".to_owned(), "src/type/Inter-Bold.woff2".to_owned()]).unwrap();
+  assert_eq!(refreshed.len(), 2);
+  let photo = built.assets.entries.iter().find(|e| e.source == "src/img/photo.jpg").expect("adopted into the manifest");
+  assert_eq!((photo.width, photo.height), (160, 320));
+  assert_eq!(photo.widths, [80, 160]);
+  assert_eq!(built.assets.fonts.referenced.len(), 1);
+  assert_eq!(built.assets.fonts.referenced[0].source, "src/type/Inter-Bold.woff2");
+  assert!(built.assets.fonts.referenced[0].path.starts_with("src/type/Inter-Bold.") && built.assets.fonts.referenced[0].path.ends_with(".woff2"));
+  let map: serde_json::Value = serde_json::from_str(&refreshed[1].1).unwrap();
+  assert!(map["assets"]["src/img/photo.jpg"]["url"].as_str().unwrap().contains("/src/img/photo."), "{map}");
+  assert_eq!(map["assets"]["src/type/Inter-Bold.woff2"]["url"], built.assets.fonts.referenced[0].url);
+  let manifest_file = &built.files.iter().find(|(n, _)| n == "generated/assets.json").unwrap().1;
+  assert!(manifest_file.contains("src/type/Inter-Bold.woff2"), "the file to write carries the adopted font");
+
+  let dist = app.join("dist");
+  let derived = assets::derive(&app, &dist, &built.assets).unwrap();
+  assert!(derived.written.iter().any(|p| p.ends_with(&built.assets.fonts.referenced[0].path)), "the referenced font is placed: {:?}", derived.written);
+  assert!(derived.written.iter().any(|p| p.to_string_lossy().contains("src/img/photo.") && p.to_string_lossy().ends_with(".80.avif")), "{:?}", derived.written);
+
+  let err = built.adopt(&["src/img/nothing.png".to_owned()]).unwrap_err().to_string();
+  assert!(err.contains("the bundle names `src/img/nothing.png`, which is not an image or a font this build can serve"), "{err}");
+  let err = built.adopt(&["src/notes.txt".to_owned()]).unwrap_err().to_string();
+  assert!(err.contains("`src/notes.txt`"), "{err}");
 }
 
 #[test]

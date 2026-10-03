@@ -26,6 +26,7 @@ use snapfire_fsr_host::config::Config;
 use crate::typecheck::{self, Checked, Typecheck};
 use crate::xwpm::Layout;
 use crate::{BuildError, Built, Options, build, write};
+use snapfire_compiler_wire::driven::{self as protocol, FAILED, MAPPED, REBUILT, REFERENCES};
 
 /// Editors save in bursts; batching until this much quiet has passed turns one save into one rebuild.
 const SETTLE: Duration = Duration::from_millis(120);
@@ -102,34 +103,39 @@ impl App {
     Ok(Self { dir, layout, snapfirec, options })
   }
 
-  fn generate(&self) -> Result<Built, BuildError> {
-    let built = build(&self.dir, &self.options.build)?;
+  /// Builds and writes, with `adopted` the asset paths earlier bundles reported, so the map the
+  /// compiler reads already names them.
+  fn generate(&self, adopted: &[String]) -> Result<Built, BuildError> {
+    let mut built = build(&self.dir, &self.options.build)?;
+    if !adopted.is_empty() {
+      built.resolver.reconcile(adopted)?;
+      built.refresh_assets();
+    }
     write(&self.dir, &built)?;
     Ok(built)
   }
 
-  /// The compiler invocation both the one-shot bundle and the driven child are built from.
+  /// The compiler invocation the driven child is built from.
   fn compiler(&self) -> Command {
     let mut command = Command::new(&self.snapfirec);
-    command
-      .arg("--root")
-      .arg(&self.dir)
-      .args(["--config", "tsconfig.build.json", "--source-map", "--public-path", &self.options.public_path, "--import-map", &self.layout.importmap]);
+    command.arg("--root").arg(&self.dir).args([
+      "--config",
+      "tsconfig.build.json",
+      "--source-map",
+      "--public-path",
+      &self.options.public_path,
+      "--import-map",
+      &self.layout.importmap,
+      "--asset-map",
+      crate::assets::MAP_FILE,
+    ]);
     command
   }
 
-  fn bundle(&self) -> Result<(), BuildError> {
-    crate::install::ensure(&crate::install::COMPILER, &self.snapfirec)?;
-    let mut command = self.compiler();
-    if self.dir.join(BUNDLE_OVERLAY).is_dir() {
-      command.args(["--overlay", BUNDLE_OVERLAY]);
-    }
-    let status = command
-      .status()
-      .map_err(|e| BuildError::Dev(format!("{}: {e}; pass --snapfirec or put it on PATH", self.snapfirec.display())))?;
-    if !status.success() {
-      return Err(BuildError::Dev(format!("snapfirec exited with {status}")));
-    }
+  /// One bundle of everything, through a driven child that is dropped once it has answered.
+  fn bundle(&self, built: &Built) -> Result<(), BuildError> {
+    let mut reconcile = reconciler(&self.dir, built, None);
+    Driven::start(self, &mut reconcile)?;
     Ok(())
   }
 
@@ -171,8 +177,8 @@ impl App {
   /// The bundle and the typecheck, which read none of each other's output
   /// and so run at once. A checker that is not installed is not an error;
   /// its absence is reported by the caller.
-  fn compile(&self) -> Result<Option<Checked>, BuildError> {
-    self.compile_with(|| self.bundle())
+  fn compile(&self, built: &Built) -> Result<Option<Checked>, BuildError> {
+    self.compile_with(|| self.bundle(built))
   }
 
   fn compile_with(&self, bundle: impl FnOnce() -> Result<(), BuildError>) -> Result<Option<Checked>, BuildError> {
@@ -396,13 +402,27 @@ impl Seen {
   }
 }
 
-/// The two lines of snapfirec's `--driven` protocol: one of them ends every batch.
-const REBUILT: &str = "snapfirec: rebuilt";
-const FAILED: &str = "snapfirec: failed";
+/// What answers the compiler when it reports references the map does not name: defines each
+/// on the resolver and rewrites the map, so the compiler reads it again.
+type Reconcile<'a> = dyn FnMut(&[String]) -> Result<(), BuildError> + 'a;
+
+/// The reconciler for one build: every path the compiler reports is defined on the build's
+/// resolver, remembered in `adopted` when a loop keeps one; then the map is rewritten.
+fn reconciler<'a>(app: &'a Path, built: &'a Built, mut adopted: Option<&'a mut std::collections::BTreeSet<String>>) -> impl FnMut(&[String]) -> Result<(), BuildError> + 'a {
+  move |paths: &[String]| {
+    built.resolver.reconcile(paths)?;
+    if let Some(adopted) = adopted.as_deref_mut() {
+      adopted.extend(paths.iter().cloned());
+    }
+    crate::assets::write_map(app, &built.resolver, &built.assets.fonts)
+  }
+}
 
 /// The compiler held open for the life of `fsr dev`, told which paths changed and answering once it
 /// has compiled them. One process means one resolved configuration and one selection, so a change
-/// recompiles what changed instead of everything. Starting it is itself the first build.
+/// recompiles what changed instead of everything. Starting it is itself the first build. The
+/// protocol is `snapfire_compiler_wire::driven`: the compiler announces its version first, and
+/// when a batch named an asset the map does not define it lists the paths and waits for the map.
 struct Driven {
   child: Child,
   /// Taken when the child is gone, which is what tells a failed batch from a lost compiler.
@@ -411,11 +431,14 @@ struct Driven {
 }
 
 impl Driven {
-  fn start(app: &App) -> Result<Self, BuildError> {
+  fn start(app: &App, reconcile: &mut Reconcile<'_>) -> Result<Self, BuildError> {
     crate::install::ensure(&crate::install::COMPILER, &app.snapfirec)?;
-    let mut child = app
-      .compiler()
-      .args(["--driven", "--overlay", BUNDLE_OVERLAY])
+    let mut command = app.compiler();
+    command.arg("--driven");
+    if app.dir.join(BUNDLE_OVERLAY).is_dir() {
+      command.args(["--overlay", BUNDLE_OVERLAY]);
+    }
+    let mut child = command
       .stdin(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
@@ -423,16 +446,37 @@ impl Driven {
     let stdin = child.stdin.take();
     let stdout = BufReader::new(child.stdout.take().expect("a piped stdout"));
     let mut driven = Self { child, stdin, stdout };
-    match driven.settled() {
+    driven.hello(app)?;
+    match driven.settled(reconcile) {
       Ok(()) => Ok(driven),
       Err(e) if driven.alive() => Err(e),
       Err(e) => match driven.child.wait().ok().filter(|status| !status.success()) {
-        Some(status) => Err(BuildError::Dev(format!(
-          "{} exited with {status} before its first build; `--driven` needs a newer snapfire_compiler than this one",
-          app.snapfirec.display()
-        ))),
+        Some(status) => Err(BuildError::Dev(format!("{} exited with {status} before its first build", app.snapfirec.display()))),
         None => Err(e),
       },
+    }
+  }
+
+  /// The compiler's first line names the protocol it speaks; any other first line is an older
+  /// compiler, which would compile without the map and place assets of its own.
+  fn hello(&mut self, app: &App) -> Result<(), BuildError> {
+    let mut line = String::new();
+    let read = self.stdout.read_line(&mut line).map_err(|e| BuildError::Dev(format!("snapfirec: {e}")))?;
+    let theirs = if read == 0 { None } else { protocol::parse_hello(&line) };
+    match theirs {
+      Some(version) if version == protocol::PROTOCOL => Ok(()),
+      Some(version) => Err(BuildError::Tool(format!(
+        "{} speaks driven protocol {version} and this fsr needs {}; `{}`",
+        app.snapfirec.display(),
+        protocol::PROTOCOL,
+        crate::install::COMPILER.command()
+      ))),
+      None => Err(BuildError::Tool(format!(
+        "{} does not announce the driven protocol this fsr needs ({}), so it is older than the asset map; `{}`",
+        app.snapfirec.display(),
+        protocol::PROTOCOL,
+        crate::install::COMPILER.command()
+      ))),
     }
   }
 
@@ -440,38 +484,62 @@ impl Driven {
     self.stdin.is_some()
   }
 
-  fn rebuild(&mut self, paths: &[PathBuf]) -> Result<(), BuildError> {
+  fn rebuild(&mut self, paths: &[PathBuf], reconcile: &mut Reconcile<'_>) -> Result<(), BuildError> {
     let mut batch: String = paths.iter().map(|path| format!("{}\n", path.display())).collect();
     batch.push('\n');
+    self.send(&batch)?;
+    self.settled(reconcile)
+  }
+
+  fn send(&mut self, text: &str) -> Result<(), BuildError> {
     let Some(stdin) = self.stdin.as_mut() else {
       return Err(BuildError::Dev("snapfirec is gone".to_owned()));
     };
-    if let Err(e) = stdin.write_all(batch.as_bytes()).and_then(|()| stdin.flush()) {
+    if let Err(e) = stdin.write_all(text.as_bytes()).and_then(|()| stdin.flush()) {
       self.stdin = None;
       return Err(BuildError::Dev(format!("snapfirec: {e}")));
     }
-    self.settled()
+    Ok(())
   }
 
-  /// Forwards the compiler's own output until it says the batch is compiled.
-  fn settled(&mut self) -> Result<(), BuildError> {
+  fn line(&mut self, line: &mut String) -> Result<(), BuildError> {
+    line.clear();
+    match self.stdout.read_line(line) {
+      Ok(0) => {
+        self.stdin = None;
+        Err(BuildError::Dev("snapfirec exited".to_owned()))
+      }
+      Ok(_) => Ok(()),
+      Err(e) => {
+        self.stdin = None;
+        Err(BuildError::Dev(format!("snapfirec: {e}")))
+      }
+    }
+  }
+
+  /// Forwards the compiler's own output until it says the batch is compiled, answering a
+  /// references list on the way by defining each path and rewriting the map.
+  fn settled(&mut self, reconcile: &mut Reconcile<'_>) -> Result<(), BuildError> {
     let mut line = String::new();
     loop {
-      line.clear();
-      match self.stdout.read_line(&mut line) {
-        Ok(0) => {
-          self.stdin = None;
-          return Err(BuildError::Dev("snapfirec exited".to_owned()));
+      self.line(&mut line)?;
+      match line.trim_end() {
+        REBUILT => return Ok(()),
+        FAILED => return Err(BuildError::Dev("snapfirec failed; see the errors above".to_owned())),
+        REFERENCES => {
+          let mut paths = Vec::new();
+          loop {
+            self.line(&mut line)?;
+            let path = line.trim_end();
+            if path.is_empty() {
+              break;
+            }
+            paths.push(path.to_owned());
+          }
+          reconcile(&paths)?;
+          self.send(&format!("{MAPPED}\n"))?;
         }
-        Ok(_) => match line.trim_end() {
-          REBUILT => return Ok(()),
-          FAILED => return Err(BuildError::Dev("snapfirec failed; see the errors above".to_owned())),
-          text => println!("{text}"),
-        },
-        Err(e) => {
-          self.stdin = None;
-          return Err(BuildError::Dev(format!("snapfirec: {e}")));
-        }
+        text => println!("{text}"),
       }
     }
   }
@@ -494,16 +562,16 @@ enum Bundler {
 }
 
 impl Bundler {
-  fn bundle(&mut self, app: &App, paths: &[PathBuf]) -> Result<(), BuildError> {
+  fn bundle(&mut self, app: &App, paths: &[PathBuf], reconcile: &mut Reconcile<'_>) -> Result<(), BuildError> {
     if let Self::Running(driven) = self {
       if driven.alive() {
-        let outcome = driven.rebuild(paths);
+        let outcome = driven.rebuild(paths, reconcile);
         if driven.alive() {
           return outcome;
         }
       }
     }
-    *self = Self::Running(Driven::start(app)?);
+    *self = Self::Running(Driven::start(app, reconcile)?);
     Ok(())
   }
 }
@@ -519,31 +587,42 @@ struct Tracked<'a> {
   pending: HashSet<PathBuf>,
   /// The asset manifest of the last build, derived under `dist/` once the bundle has run.
   last: Option<snapfire_fsr_host::assets::AssetsManifest>,
+  /// Asset paths the compiler reported and the loop defined, carried into every later build so
+  /// the map names them before the compiler asks again.
+  adopted: std::collections::BTreeSet<String>,
 }
 
 impl<'a> Tracked<'a> {
   fn new(app: &'a App) -> Self {
-    Self { app, files: None, bundler: Bundler::default(), pending: HashSet::new(), last: None }
+    Self { app, files: None, bundler: Bundler::default(), pending: HashSet::new(), last: None, adopted: std::collections::BTreeSet::new() }
   }
 
   /// Generates and bundles, `sources` naming what changed and none of them meaning everything.
   /// `Ok(true)` when the generated files differ from the last build's.
   fn rebuild(&mut self, sources: Vec<PathBuf>) -> Result<bool, BuildError> {
     self.pending.extend(sources);
-    let built = self.app.generate()?;
-    let changed = self.files.as_ref() != Some(&built.files);
-    if changed {
+    let adopted: Vec<String> = self.adopted.iter().cloned().collect();
+    let mut built = self.app.generate(&adopted)?;
+    if self.files.as_ref() != Some(&built.files) {
       print!("{}", built.report);
     }
-    self.last = Some(built.assets.clone());
     self.pending.extend(rewritten(&self.app.dir, self.files.as_deref(), &built.files));
+    let batch: Vec<PathBuf> = self.pending.iter().cloned().collect();
+    let checked = {
+      let mut reconcile = reconciler(&self.app.dir, &built, Some(&mut self.adopted));
+      self.app.compile_with(|| self.bundler.bundle(self.app, &batch, &mut reconcile))?
+    };
+    self.pending.clear();
+    report_types(checked.as_ref());
+    for (rel, content) in built.refresh_assets() {
+      let path = self.app.dir.join(&rel);
+      std::fs::write(&path, content).map_err(|e| BuildError::Io(path, e))?;
+    }
+    let changed = self.files.as_ref() != Some(&built.files);
+    self.last = Some(built.assets.clone());
     if changed {
       self.files = Some(built.files);
     }
-    let batch: Vec<PathBuf> = self.pending.iter().cloned().collect();
-    let checked = self.app.compile_with(|| self.bundler.bundle(self.app, &batch))?;
-    self.pending.clear();
-    report_types(checked.as_ref());
     if let Some(built) = self.last.as_ref() {
       report_derived(crate::assets::derive(&self.app.dir, &self.app.dir.join("dist"), built)?);
     }
@@ -611,18 +690,25 @@ pub const BUNDLE_OVERLAY: &str = ".fsr-bundle";
 /// leaves it to the loop; see [`owns_build`].
 pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
   let app = App::open(app, options)?;
-  let built = build(&app.dir, &app.options.build)?;
+  let mut built = build(&app.dir, &app.options.build)?;
   let rest = (|| -> Result<(Vec<PathBuf>, Option<Checked>), BuildError> {
-    let written = write(&app.dir, &built)?;
+    let mut written = write(&app.dir, &built)?;
     let missing = crate::types::missing(&app.dir)?;
     if !missing.is_empty() {
       return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`", missing.join(", "))));
     }
-    let checked = app.compile()?;
+    let checked = app.compile(&built)?;
     if let Some(checked) = &checked {
       if checked.errors() > 0 {
         let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
         return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));
+      }
+    }
+    for (rel, content) in built.refresh_assets() {
+      let path = app.dir.join(&rel);
+      std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
+      if !written.contains(&path) {
+        written.push(path);
       }
     }
     report_derived(crate::assets::derive(&app.dir, &app.dir.join("dist"), &built.assets)?);

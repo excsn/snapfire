@@ -84,6 +84,10 @@ pub struct Fonts {
   pub preload: Vec<String>,
   #[serde(default)]
   pub remote: Vec<Remote>,
+  /// A font a module or a stylesheet names outside the fonts directory,
+  /// placed under `dist/` like a face but written into no `@font-face`.
+  #[serde(default)]
+  pub referenced: Vec<FontFile>,
   /// `--font-<key>` to its value.
   #[serde(default)]
   pub variables: BTreeMap<String, String>,
@@ -104,6 +108,16 @@ pub struct Face {
   pub unicode_range: Option<String>,
   #[serde(default)]
   pub preload: bool,
+}
+
+/// A font file served under its hash, with no face read for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FontFile {
+  /// The file under the app.
+  pub source: String,
+  pub url: String,
+  /// Where the hashed copy sits under the bundle's output directory.
+  pub path: String,
 }
 
 /// A provider's own stylesheet, linked rather than served.
