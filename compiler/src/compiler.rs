@@ -1,6 +1,8 @@
+use crate::assets::{self, Emitted};
 use crate::config::{Aliases, Jsx, MapMode, MapOptions};
-use crate::transforms::{Import, ImportRewriter, StripConsole};
+use crate::transforms::{AssetUrls, Import, ImportRewriter, StripConsole, relative_specifier};
 use anyhow::{Context, Result, anyhow};
+use lightningcss::dependencies::{Dependency, DependencyOptions};
 use lightningcss::rules::CssRule;
 use lightningcss::stylesheet::{MinifyOptions, ParserFlags, ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::targets::{Browsers, Targets};
@@ -57,6 +59,8 @@ pub struct Output {
   pub code: String,
   pub map: Option<String>,
   pub referenced: Vec<PathBuf>,
+  /// The images and fonts the source named, each emitted under its hash.
+  pub assets: Vec<Emitted>,
   pub externals: Vec<String>,
   pub imports: Vec<Import>,
   /// Names this module exports under its own roof.
@@ -75,6 +79,7 @@ impl Output {
       code,
       map: None,
       referenced: Vec::new(),
+      assets: Vec::new(),
       externals: Vec::new(),
       imports: Vec::new(),
       exports: Vec::new(),
@@ -188,13 +193,18 @@ pub struct Compiler {
   targets: Option<Browsers>,
   jsx: Jsx,
   aliases: Aliases,
+  urls: AssetUrls,
   /// The root the sources are under and the directory read in its place when it holds the same relative path.
   overlay: Option<(PathBuf, PathBuf)>,
 }
 
 impl Compiler {
-  pub fn new(targets: Option<Browsers>, jsx: Jsx, aliases: Aliases) -> Self {
-    Self { targets, jsx, aliases, overlay: None }
+  pub fn new(targets: Option<Browsers>, jsx: Jsx, aliases: Aliases, urls: AssetUrls) -> Self {
+    Self { targets, jsx, aliases, urls, overlay: None }
+  }
+
+  pub fn urls(&self) -> &AssetUrls {
+    &self.urls
   }
 
   pub fn with_overlay(mut self, overlay: Option<(PathBuf, PathBuf)>) -> Self {
@@ -254,6 +264,7 @@ impl Compiler {
     let referenced: Rc<RefCell<Vec<PathBuf>>> = Default::default();
     let externals: Rc<RefCell<Vec<String>>> = Default::default();
     let imports: Rc<RefCell<Vec<Import>>> = Default::default();
+    let assets: Rc<RefCell<Vec<Emitted>>> = Default::default();
 
     GLOBALS.set(&globals, || {
       let fm = cm.new_source_file(Lrc::new(FileName::Real(path.to_path_buf())), content);
@@ -343,6 +354,8 @@ impl Compiler {
           referenced.clone(),
           externals.clone(),
           imports.clone(),
+          assets.clone(),
+          self.urls.clone(),
           minify.is_some(),
         )),
         // `fixer` inserts the parentheses the grammar requires; without it the namespace and enum
@@ -398,6 +411,7 @@ impl Compiler {
         code: String::from_utf8(buf)?,
         map: serialised,
         referenced: referenced.borrow().clone(),
+        assets: assets.take(),
         externals: externals.borrow().clone(),
         imports: imports.take(),
         exports: surface.names,
@@ -415,7 +429,7 @@ impl Compiler {
   /// `compile_css` over text the caller already holds: a stylesheet a plugin
   /// produced from a component, which no file on disk contains.
   pub fn compile_style(&self, path: &Path, content: String, minify: bool, map: MapRequest) -> Result<Output> {
-    let _ = path;
+    let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
 
     let parser_options = ParserOptions {
       filename: map.source_name.to_string(),
@@ -453,6 +467,7 @@ impl Compiler {
         minify,
         targets,
         source_map: map.wanted().then_some(&mut built),
+        analyze_dependencies: Some(DependencyOptions { remove_imports: false }),
         ..Default::default()
       })
       .map_err(|e| anyhow!("Failed to generate CSS: {}", e))?;
@@ -467,10 +482,13 @@ impl Compiler {
       None
     };
 
+    let (code, emitted) = rewrite_urls(&dir, &self.urls, res.code, res.dependencies.unwrap_or_default());
+
     Ok(Output {
-      code: res.code,
+      code,
       map: serialised,
       referenced: Vec::new(),
+      assets: emitted,
       externals: Vec::new(),
       imports: Vec::new(),
       exports: Vec::new(),
@@ -478,6 +496,45 @@ impl Compiler {
       open_exports: false,
     })
   }
+}
+
+/// Puts every `url()` and `@import` back where LightningCSS left a placeholder.
+/// A relative `url()` naming an image or a font under the root is emitted under
+/// its hash and the reference points at the emitted name, still relative to
+/// the stylesheet, since a stylesheet's URLs resolve against the stylesheet
+/// wherever it is served from. Everything else goes back as written.
+fn rewrite_urls(dir: &Path, urls: &AssetUrls, mut code: String, dependencies: Vec<Dependency>) -> (String, Vec<Emitted>) {
+  let mut emitted = Vec::new();
+
+  for dependency in dependencies {
+    let (placeholder, written) = match &dependency {
+      Dependency::Import(import) => (import.placeholder.as_str(), import.url.as_str()),
+      Dependency::Url(url) => (url.placeholder.as_str(), url.url.as_str()),
+    };
+
+    let replacement = match &dependency {
+      Dependency::Url(url) if assets::is_relative(&url.url) => {
+        let (path, fragment) = assets::split_reference(&url.url);
+        let source = crate::graph::normalise(&dir.join(path));
+        match assets::kind(&source).filter(|_| source.is_file() && source.strip_prefix(&urls.root_dir).is_ok()) {
+          Some(_) => match assets::emit(&source) {
+            Ok(asset) => {
+              let relative = relative_specifier(dir, &source.with_file_name(&asset.name));
+              emitted.push(asset);
+              format!("{relative}{fragment}")
+            }
+            Err(_) => written.to_owned(),
+          },
+          None => written.to_owned(),
+        }
+      }
+      _ => written.to_owned(),
+    };
+
+    code = code.replace(placeholder, &replacement);
+  }
+
+  (code, emitted)
 }
 
 /// Points a minified stylesheet's `@import`s at the minified siblings.

@@ -35,6 +35,8 @@ lightningcss = { version = "1.0.0-alpha.72", features = ["browserslist", "source
 browserslist-rs = "0.20.0"
 parcel_sourcemap = { version = "2.1", features = ["json"] }
 base64 = "0.23"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+imagesize = "0.14"
 notify = "8"
 rayon = "1.12.0"
 

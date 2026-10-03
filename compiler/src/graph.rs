@@ -119,6 +119,10 @@ fn url_for(path: &Path, out_dir: &Path, public_path: Option<&str>) -> Option<Str
 
 /// Resolves `.` and `..` without touching the filesystem, since a dependency may legitimately not
 /// have been written yet when the edge is recorded.
+pub(crate) fn slashed(path: &Path) -> String {
+  path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+}
+
 pub(crate) fn normalise(path: &Path) -> PathBuf {
   let mut out = PathBuf::new();
 

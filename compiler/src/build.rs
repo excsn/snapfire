@@ -1,9 +1,10 @@
+use crate::assets::Emitted;
 use crate::compiler::{Compiler, Dialect, MapRequest, Markup, Minify, Output};
 use crate::config::{Jsx, MapMode, MapOptions, TsConfig};
 use crate::graph::Graph;
 use crate::importmap::ImportMap;
 use crate::sources;
-use crate::transforms::Import;
+use crate::transforms::{AssetUrls, Import};
 use anyhow::{Context, Result};
 use base64::Engine;
 use browserslist::{Opts, execute};
@@ -63,6 +64,11 @@ pub struct Build {
   /// named it. Collected rather than checked in place, because whether a target
   /// was produced is only knowable once every job and every asset has landed.
   pub references: Vec<(PathBuf, Import)>,
+  /// Every image and font the output names, by where it was emitted.
+  pub assets: BTreeMap<PathBuf, Emitted>,
+  /// The modules and stylesheets that named each asset, so a changed image
+  /// recompiles what points at it.
+  asset_importers: HashMap<PathBuf, BTreeSet<PathBuf>>,
   surfaces: HashMap<PathBuf, Surface>,
   pub emitted: usize,
   pub has_error: bool,
@@ -242,6 +248,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   }
 
   let overlay = opts.overlay.as_ref().map(|o| (selection.root_dir.clone(), opts.root.join(o)));
+  let urls = AssetUrls { root_dir: selection.root_dir.clone(), out_dir: out_dir.clone(), public_path: opts.public_path.clone() };
   let mut build = Build {
     out_dir,
     root_dir: selection.root_dir,
@@ -250,12 +257,14 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include_patterns: selection.include_patterns,
     map_options,
     declaration,
-    compiler: Compiler::new(targets, jsx, aliases).with_overlay(overlay),
+    compiler: Compiler::new(targets, jsx, aliases, urls).with_overlay(overlay),
     claimed: HashMap::new(),
     externals: Vec::new(),
     importers: BTreeMap::new(),
     graph: Graph::default(),
     references: Vec::new(),
+    assets: BTreeMap::new(),
+    asset_importers: HashMap::new(),
     surfaces: HashMap::new(),
     emitted: 0,
     has_error: false,
@@ -361,6 +370,10 @@ pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
     }
   }
   let Some(jobs) = jobs_for(opts, build, path, false) else {
+    let importers: Vec<PathBuf> = build.asset_importers.get(path).into_iter().flatten().cloned().collect();
+    for importer in importers {
+      refresh(opts, build, &importer);
+    }
     return;
   };
 
@@ -403,10 +416,13 @@ struct Job {
 
 struct JobResult {
   source: String,
+  source_path: PathBuf,
   emit: Emit,
   log: String,
   failure: Option<String>,
   referenced: Vec<PathBuf>,
+  /// Each asset the source named, with where it was written.
+  assets: Vec<(PathBuf, Emitted)>,
   externals: Vec<String>,
   imports: Vec<Import>,
   surface: Surface,
@@ -904,10 +920,12 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
     Err(e) => {
       return JobResult {
         source: display(&job.source, &opts.root),
+        source_path: job.source.clone(),
         emit: job.emit,
         log,
         failure: Some(format!("❌ Error compiling {:?}: {:?}", job.source, e)),
         referenced: Vec::new(),
+        assets: Vec::new(),
         externals: Vec::new(),
         imports: Vec::new(),
         surface: Surface::default(),
@@ -920,6 +938,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   let referenced = output.referenced.clone();
   let externals = output.externals.clone();
   let imports = std::mem::take(&mut output.imports);
+  let (assets, asset_failure) = place_assets(compiler, opts, std::mem::take(&mut output.assets));
 
   let directory = job.dest.parent().unwrap_or(&job.dest).to_path_buf();
   let surface = Surface {
@@ -934,10 +953,12 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   match write_variant(map_options, &job.dest, &job.asset, output) {
     Ok(()) => JobResult {
       source: display(&job.source, &opts.root),
+      source_path: job.source.clone(),
       emit: job.emit,
       log,
-      failure: None,
+      failure: asset_failure,
       referenced,
+      assets,
       externals,
       imports,
       surface: surface.clone(),
@@ -946,10 +967,12 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
     },
     Err(e) => JobResult {
       source: display(&job.source, &opts.root),
+      source_path: job.source.clone(),
       emit: job.emit,
       log,
       failure: Some(format!("❌ Error writing {}: {}", display(&job.dest, &opts.root), e)),
       referenced,
+      assets: Vec::new(),
       externals,
       imports,
       surface: surface.clone(),
@@ -959,9 +982,39 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   }
 }
 
+/// Copies each asset a job named to its hashed place under the output
+/// directory. The name is the content's, so a file already there is the
+/// same bytes and is left alone.
+fn place_assets(compiler: &Compiler, opts: &Options, emitted: Vec<Emitted>) -> (Vec<(PathBuf, Emitted)>, Option<String>) {
+  let root_dir = &compiler.urls().root_dir;
+  let mut placed = Vec::new();
+  for asset in emitted {
+    let Some(dest) = asset.dest(root_dir, &compiler.urls().out_dir) else {
+      continue;
+    };
+    if !dest.is_file() {
+      if let Some(parent) = dest.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+      {
+        return (placed, Some(format!("❌ Error creating {}: {}", display(parent, &opts.root), e)));
+      }
+      if let Err(e) = fs::copy(&asset.source, &dest) {
+        return (placed, Some(format!("❌ Error writing {}: {}", display(&dest, &opts.root), e)));
+      }
+    }
+    placed.push((dest, asset));
+  }
+  (placed, None)
+}
+
 fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   println!("{}", result.log);
   referenced.extend(result.referenced);
+  for (dest, asset) in result.assets {
+    build.claimed.insert(dest.clone(), asset.source.clone());
+    build.asset_importers.entry(asset.source.clone()).or_default().insert(result.source_path.clone());
+    build.assets.insert(dest, asset);
+  }
   for external in &result.externals {
     build.importers.entry(external.clone()).or_default().insert(result.source.clone());
   }
@@ -1250,12 +1303,13 @@ fn write_build_facts(opts: &Options, build: &mut Build) {
 
   let path = build.out_dir.join(BUILD_FACTS);
 
-  let mut body = String::from("{\n  \"version\": 1,\n");
+  let mut body = String::from("{\n  \"version\": 2,\n");
 
   push_list(&mut body, "entries", &entries);
   push_list(&mut body, "externals", &build.externals);
   push_list(&mut body, "outputs", &outputs(build));
   push_list(&mut body, "styles", &plugin_styles(build));
+  push_assets(&mut body, build);
 
   if opts.minify.is_some() {
     body.push_str(&format!("  \"minified\": \"{MIN_SUFFIX}\",\n"));
@@ -1329,6 +1383,40 @@ fn outputs(build: &Build) -> Vec<String> {
 
   listed.sort();
   listed
+}
+
+/// One row per emitted image or font: where it came from under the root,
+/// where it went under the output directory, its URL when the public path
+/// makes one knowable, and what its header said.
+fn push_assets(body: &mut String, build: &Build) {
+  let mut rows: Vec<String> = Vec::new();
+  for (dest, asset) in &build.assets {
+    let Ok(source) = asset.source.strip_prefix(&build.root_dir) else {
+      continue;
+    };
+    let Ok(path) = dest.strip_prefix(&build.out_dir) else {
+      continue;
+    };
+    let mut row = format!(
+      "{{\"source\": \"{}\", \"path\": \"{}\"",
+      escape(&crate::graph::slashed(source)),
+      escape(&crate::graph::slashed(path))
+    );
+    if let Some(url) = build.compiler.urls().public(asset) {
+      row.push_str(&format!(", \"url\": \"{}\"", escape(&url)));
+    }
+    row.push_str(&format!(", \"hash\": \"{}\", \"kind\": \"{}\"", asset.hash, asset.kind.as_str()));
+    if let (Some(width), Some(height)) = (asset.width, asset.height) {
+      row.push_str(&format!(", \"width\": {width}, \"height\": {height}"));
+    }
+    row.push('}');
+    rows.push(row);
+  }
+  if rows.is_empty() {
+    body.push_str("  \"assets\": [],\n");
+  } else {
+    body.push_str(&format!("  \"assets\": [\n    {}\n  ],\n", rows.join(",\n    ")));
+  }
 }
 
 fn push_list(body: &mut String, key: &str, values: &[String]) {
@@ -1405,13 +1493,9 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 /// mount.
 fn map_source_name(opts: &Options, build: &Build, dest: &Path, relative: &Path, source: &Path) -> String {
   match &opts.public_path {
-    Some(prefix) => format!("{}/{}", prefix.trim_end_matches('/'), slashed(relative)),
+    Some(prefix) => format!("{}/{}", prefix.trim_end_matches('/'), crate::graph::slashed(relative)),
     None => relative_from(dest.parent().unwrap_or(&build.out_dir), source),
   }
-}
-
-fn slashed(path: &Path) -> String {
-  path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
 fn relative_from(from_dir: &Path, to: &Path) -> String {

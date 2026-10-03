@@ -1790,6 +1790,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd62e6b5e86ea8eeeb8db1de02880a6abc01a397b2ebb64b5d74ac255318f5cb"
 
 [[package]]
+name = "imagesize"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09e54e57b4c48b40f7aec75635392b12b3421fa26fe8b4332e63138ed278459c"
+
+[[package]]
 name = "impl-more"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3717,6 +3723,7 @@ dependencies = [
  "clap",
  "fibre",
  "globset",
+ "imagesize",
  "jsonc-parser",
  "lightningcss",
  "notify 8.2.0",
@@ -3737,6 +3744,7 @@ dependencies = [
  "swc_core",
  "tempfile",
  "walkdir",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -5210,6 +5218,12 @@ dependencies = [
  "libc",
  "rustix",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "yoke"

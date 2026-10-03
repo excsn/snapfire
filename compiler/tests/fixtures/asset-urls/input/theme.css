@@ -1,0 +1,19 @@
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/inter.woff2?v=2#iefix") format("woff2");
+}
+.hero {
+  background: url(img/hero.png);
+}
+.remote {
+  background: url("https://cdn.example.com/x.png");
+}
+.inline {
+  background: url("data:image/gif;base64,R0lGODlhAQABAAAAACw=");
+}
+.missing {
+  background: url("./img/absent.png");
+}
+.plain {
+  background: url("./card.cur");
+}

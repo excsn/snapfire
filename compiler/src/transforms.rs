@@ -2,11 +2,15 @@ use std::cell::RefCell;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
+use crate::assets::{self, Emitted};
 use crate::config::Aliases;
 
+use swc_core::common::DUMMY_SP;
 use swc_core::ecma::ast::{
-  CallExpr, Callee, Expr, ExprStmt, ExportSpecifier, ImportSpecifier, Lit, MemberExpr, MemberProp,
-  ModuleExportName, ModuleItem, Stmt, Str,
+  BindingIdent, CallExpr, Callee, Decl, Expr, ExprOrSpread, ExprStmt, ExportSpecifier, Ident, IdentName,
+  ImportSpecifier, KeyValueProp, Lit, MemberExpr, MemberProp, MetaPropExpr, MetaPropKind, ModuleDecl,
+  ModuleExportName, ModuleItem, NewExpr, Number, ObjectLit, Pat, Prop, PropName, PropOrSpread, Stmt, Str, VarDecl,
+  VarDeclKind, VarDeclarator,
 };
 use swc_core::ecma::visit::{Fold, FoldWith};
 
@@ -28,12 +32,37 @@ pub struct Import {
   pub names: Vec<String>,
 }
 
+/// How an emitted asset is named from a module: by the public path when the
+/// build has one, else relative to the module through `import.meta.url`.
+#[derive(Clone, Default)]
+pub struct AssetUrls {
+  pub root_dir: PathBuf,
+  pub out_dir: PathBuf,
+  pub public_path: Option<String>,
+}
+
+impl AssetUrls {
+  /// The URL of `asset` as a page serving this build reaches it, when the
+  /// public path makes that knowable.
+  pub fn public(&self, asset: &Emitted) -> Option<String> {
+    let prefix = self.public_path.as_deref()?.trim_end_matches('/');
+    let relative = asset.source.strip_prefix(&self.root_dir).ok()?;
+    let dir = relative.parent().filter(|p| !p.as_os_str().is_empty());
+    Some(match dir {
+      Some(dir) => format!("{prefix}/{}/{}", crate::graph::slashed(dir), asset.name),
+      None => format!("{prefix}/{}", asset.name),
+    })
+  }
+}
+
 pub struct ImportRewriter {
   dir: PathBuf,
   aliases: Aliases,
   referenced: Rc<RefCell<Vec<PathBuf>>>,
   externals: Rc<RefCell<Vec<String>>>,
   imports: Rc<RefCell<Vec<Import>>>,
+  assets: Rc<RefCell<Vec<Emitted>>>,
+  urls: AssetUrls,
   /// Points every specifier at the `.min` graph, so a minified module never pulls in an
   /// unminified dependency.
   minified: bool,
@@ -46,6 +75,8 @@ impl ImportRewriter {
     referenced: Rc<RefCell<Vec<PathBuf>>>,
     externals: Rc<RefCell<Vec<String>>>,
     imports: Rc<RefCell<Vec<Import>>>,
+    assets: Rc<RefCell<Vec<Emitted>>>,
+    urls: AssetUrls,
     minified: bool,
   ) -> Self {
     Self {
@@ -54,8 +85,58 @@ impl ImportRewriter {
       referenced,
       externals,
       imports,
+      assets,
+      urls,
       minified,
     }
+  }
+
+  /// The binding an image or font import becomes: a `const` holding the URL
+  /// the emitted file is served at, plus the dimensions for an image. The
+  /// file has to sit under the root, or there is nowhere to emit it.
+  fn asset_binding(&self, local: &Ident, specifier: &str) -> Option<ModuleItem> {
+    let (path, _) = assets::split_reference(specifier);
+    let source = crate::graph::normalise(&self.dir.join(path));
+    assets::kind(&source)?;
+    if !source.is_file() || source.strip_prefix(&self.urls.root_dir).is_err() {
+      return None;
+    }
+    let emitted = assets::emit(&source).ok()?;
+
+    let url: Expr = match self.urls.public(&emitted) {
+      Some(url) => string(url),
+      None => {
+        let relative = relative_specifier(&self.dir, &source.with_file_name(&emitted.name));
+        module_relative_url(relative)
+      }
+    };
+
+    let init = match emitted.kind {
+      assets::Kind::Image => {
+        let mut props = vec![property("src", url)];
+        if let (Some(width), Some(height)) = (emitted.width, emitted.height) {
+          props.push(property("width", number(width)));
+          props.push(property("height", number(height)));
+        }
+        Expr::Object(ObjectLit { span: DUMMY_SP, props })
+      }
+      assets::Kind::Font => url,
+    };
+
+    self.assets.borrow_mut().push(emitted);
+
+    Some(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+      span: DUMMY_SP,
+      ctxt: Default::default(),
+      kind: VarDeclKind::Const,
+      declare: false,
+      decls: vec![VarDeclarator {
+        span: DUMMY_SP,
+        name: Pat::Ident(BindingIdent { id: local.clone(), type_ann: None }),
+        init: Some(Box::new(init)),
+        definite: false,
+      }],
+    })))))
   }
 
   fn rewrite(&self, src: &mut Str, dynamic: bool, names: Vec<String>) {
@@ -180,7 +261,72 @@ fn minified_name(specifier: &str) -> String {
   specifier.to_string()
 }
 
+fn string(value: String) -> Expr {
+  Expr::Lit(Lit::Str(Str { span: DUMMY_SP, value: value.into(), raw: None }))
+}
+
+fn number(value: u32) -> Expr {
+  Expr::Lit(Lit::Num(Number { span: DUMMY_SP, value: f64::from(value), raw: None }))
+}
+
+fn property(key: &str, value: Expr) -> PropOrSpread {
+  PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+    key: PropName::Ident(IdentName::new(key.into(), DUMMY_SP)),
+    value: Box::new(value),
+  })))
+}
+
+/// `new URL(relative, import.meta.url).href`, which the browser resolves
+/// against the module rather than the page, so the build stays mountable
+/// anywhere.
+fn module_relative_url(relative: String) -> Expr {
+  let meta_url = Expr::Member(MemberExpr {
+    span: DUMMY_SP,
+    obj: Box::new(Expr::MetaProp(MetaPropExpr { span: DUMMY_SP, kind: MetaPropKind::ImportMeta })),
+    prop: MemberProp::Ident(IdentName::new("url".into(), DUMMY_SP)),
+  });
+  let constructed = Expr::New(NewExpr {
+    span: DUMMY_SP,
+    ctxt: Default::default(),
+    callee: Box::new(Expr::Ident(Ident::new_no_ctxt("URL".into(), DUMMY_SP))),
+    args: Some(vec![
+      ExprOrSpread { spread: None, expr: Box::new(string(relative)) },
+      ExprOrSpread { spread: None, expr: Box::new(meta_url) },
+    ]),
+    type_args: None,
+  });
+  Expr::Member(MemberExpr {
+    span: DUMMY_SP,
+    obj: Box::new(constructed),
+    prop: MemberProp::Ident(IdentName::new("href".into(), DUMMY_SP)),
+  })
+}
+
 impl Fold for ImportRewriter {
+  /// An image or font imported as a default binding is replaced by a `const`
+  /// before the import itself is rewritten, so it never becomes an edge in the
+  /// module graph. Any other shape of import is left to resolve as written.
+  fn fold_module_items(&mut self, items: Vec<ModuleItem>) -> Vec<ModuleItem> {
+    let items: Vec<ModuleItem> = items
+      .into_iter()
+      .map(|item| {
+        let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = &item else {
+          return item;
+        };
+        let specifier = import.src.value.to_string_lossy();
+        if !specifier.starts_with('.') || import.specifiers.len() != 1 {
+          return item;
+        }
+        let ImportSpecifier::Default(default) = &import.specifiers[0] else {
+          return item;
+        };
+        self.asset_binding(&default.local, &specifier).unwrap_or(item)
+      })
+      .collect();
+
+    items.fold_children_with(self)
+  }
+
   fn fold_import_decl(&mut self, mut n: swc_core::ecma::ast::ImportDecl) -> swc_core::ecma::ast::ImportDecl {
     let names = n
       .specifiers

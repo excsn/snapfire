@@ -30,6 +30,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * [Emitting Declarations](#emitting-declarations)
   * [Annotating Exports for It](#annotating-exports-for-it)
 * [Delivering Assets](#delivering-assets)
+* [Emitting Images and Fonts](#emitting-images-and-fonts)
 * [Resolving Externals](#resolving-externals)
   * [Checking Relative Specifiers](#checking-relative-specifiers)
   * [Checking Against an Import Map](#checking-against-an-import-map)
@@ -62,7 +63,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **Public path** - The URL prefix the output directory is served under. Optional and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
 * **Declaration** - The `.d.ts` describing one module's exported types. Emitted per file from that file alone, so an export whose type only inference across files could supply is an error rather than a guess.
 * **Minified graph** - The parallel set of `.min` files `--minify` adds. Its specifiers point only at other `.min` files, so loading the minified entry never pulls an unminified dependency.
-* **Build facts** - `.snapfire-build.json` in the output directory, recording the entry points, the module graph, the bare specifiers the output carries and every file it produced. A page preloads from it; a packager vendors from it; the next build prunes from it.
+* **Build facts** - `.snapfire-build.json` in the output directory, recording the entry points, the module graph, the bare specifiers the output carries, every image and font it emitted and every file it produced. A page preloads from it; a packager vendors from it; the next build prunes from it.
 * **`.browserslistrc`** - Sets which browsers the CSS is compiled for, searched for from the root upward.
 
 ## Quick Start
@@ -1030,6 +1031,56 @@ dist/
 
 Compiled files are never also copied, so `theme.css` in the output is the compiled stylesheet rather than a byte copy of the source.
 
+## Emitting Images and Fonts
+
+An image or a font a module or a stylesheet names is emitted under a name that carries a hash of its bytes, so the URL changes when the file does and a server can cache it for as long as it likes. The reference is rewritten to the emitted name.
+
+In a module, a default import of one becomes a `const`. An image is an object carrying its URL and the width and height read from its header; a font is the URL alone:
+
+```typescript
+// src/ui/Card.ts
+import hero from "../img/hero.png";
+import inter from "../fonts/inter.woff2";
+
+export const picture = hero;
+```
+
+```javascript
+// dist/src/ui/Card.js, built with --public-path /static/js/app
+const hero = { src: "/static/js/app/img/hero.3f2a9c1e.png", width: 1600, height: 900 };
+const inter = "/static/js/app/fonts/inter.8b1d0e77.woff2";
+export const picture = hero;
+```
+
+Without `--public-path` the URL is resolved against the module, `new URL("../img/hero.3f2a9c1e.png", import.meta.url).href`, so the build stays mountable anywhere. Only a default import of a relative specifier is rewritten. Any other shape is left as written, as is a file outside the root.
+
+In a stylesheet every relative `url()` naming an image or a font is rewritten the same way, still relative to the stylesheet since that is what a stylesheet's URLs resolve against:
+
+```css
+@font-face { src: url("./fonts/inter.woff2?v=2#iefix") format("woff2"); }
+.hero { background: url(img/hero.png); }
+```
+
+```css
+@font-face { src: url("./fonts/inter.8b1d0e77.woff2#iefix") format("woff2"); }
+.hero { background: url("./img/hero.3f2a9c1e.png"); }
+```
+
+A query is dropped, since the hash does its job. A fragment is kept. A `url()` with a scheme, a root-relative path, a `data:` URI or a file of another kind is left as written.
+
+The extensions this covers are `png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`, `svg`, `ico` and `bmp` for images and `woff2`, `woff`, `ttf` and `otf` for fonts. The emitted file sits where the source did, under the output directory. The previous name is pruned on the next build like any other stale output. The minified graph shares the one copy.
+
+Each one is listed in the build facts under `assets`, with its header read, so a tool consuming the output never opens the files to learn their size:
+
+```json
+"assets": [
+  {"source": "fonts/inter.woff2", "path": "fonts/inter.8b1d0e77.woff2", "url": "/static/js/app/fonts/inter.8b1d0e77.woff2", "hash": "8b1d0e77", "kind": "font"},
+  {"source": "img/hero.png", "path": "img/hero.3f2a9c1e.png", "url": "/static/js/app/img/hero.3f2a9c1e.png", "hash": "3f2a9c1e", "kind": "image", "width": 1600, "height": 900}
+]
+```
+
+`url` is present when `--public-path` was given. The compiler reads headers only; it resizes, converts and subsets nothing.
+
 ## Resolving Externals
 
 A specifier that names a package rather than a file passes through untouched, because `snapfirec` has no `node_modules` to resolve it against and does not bundle:
@@ -1161,10 +1212,12 @@ Every build writes `.snapfire-build.json`, whose `graph` names what each entry p
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "entries": ["index.js", "deferred.js", "standalone.js"],
   "externals": ["markdown-it"],
   "outputs": [".snapfire-build.json", "index.js", "deep/a.js", "deep/b.js"],
+  "styles": [],
+  "assets": [],
   "minified": ".min",
   "graph": {
     "index.js": ["deep/a.js", "deep/b.js"],
@@ -1174,7 +1227,7 @@ Every build writes `.snapfire-build.json`, whose `graph` names what each entry p
 }
 ```
 
-One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `outputs`, `externals` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript; the compiler already resolved every one of them.
+One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `outputs`, `externals`, `assets` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript; the compiler already resolved every one of them. `assets` is described under [Emitting Images and Fonts](#emitting-images-and-fonts).
 
 Paths stay in the output directory's own terms. `--public-path` is recorded as `publicPath` rather than prefixed onto every path, so one build is mountable anywhere and a consumer joins the two.
 
