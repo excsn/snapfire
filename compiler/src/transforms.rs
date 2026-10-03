@@ -3,6 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
 use crate::assets::{self, Emitted};
+use snapfire_compiler_wire::driven::{AssetMap, MappedAsset};
 use crate::config::Aliases;
 
 use swc_core::common::DUMMY_SP;
@@ -33,15 +34,41 @@ pub struct Import {
 }
 
 /// How an emitted asset is named from a module: by the public path when the
-/// build has one, else relative to the module through `import.meta.url`.
+/// build has one, else relative to the module through `import.meta.url`. With
+/// a map, by the row the driver wrote for it, with nothing emitted.
 #[derive(Clone, Default)]
 pub struct AssetUrls {
   pub root_dir: PathBuf,
   pub out_dir: PathBuf,
   pub public_path: Option<String>,
+  pub map: Option<std::sync::Arc<AssetMap>>,
+}
+
+/// What a reference to an asset resolves to under a map.
+pub enum Mapped<'a> {
+  /// The driver's row.
+  Row(&'a MappedAsset),
+  /// A map was given and has no row for the file: the driver has to define it.
+  Missing,
+  /// No map: the compiler hashes and emits the file itself.
+  Unmapped,
 }
 
 impl AssetUrls {
+  /// The key a file is looked up under in the map: its path under the root
+  /// with forward slashes.
+  pub fn key(&self, source: &Path) -> Option<String> {
+    source.strip_prefix(&self.root_dir).ok().map(crate::graph::slashed)
+  }
+
+  pub fn mapped(&self, source: &Path) -> Mapped<'_> {
+    let Some(map) = &self.map else { return Mapped::Unmapped };
+    match self.key(source).and_then(|key| map.assets.get(&key)) {
+      Some(row) => Mapped::Row(row),
+      None => Mapped::Missing,
+    }
+  }
+
   /// The URL of `asset` as a page serving this build reaches it, when the
   /// public path makes that knowable.
   pub fn public(&self, asset: &Emitted) -> Option<String> {
@@ -55,6 +82,13 @@ impl AssetUrls {
   }
 }
 
+/// What an import became under `asset_binding`.
+enum Bound {
+  Asset(ModuleItem),
+  Kept,
+  Other,
+}
+
 pub struct ImportRewriter {
   dir: PathBuf,
   aliases: Aliases,
@@ -62,6 +96,10 @@ pub struct ImportRewriter {
   externals: Rc<RefCell<Vec<String>>>,
   imports: Rc<RefCell<Vec<Import>>>,
   assets: Rc<RefCell<Vec<Emitted>>>,
+  /// Assets the map was asked about and does not name.
+  misses: Rc<RefCell<Vec<PathBuf>>>,
+  /// The imports of those, held out of the fold so they are neither rewritten nor recorded as references.
+  kept: Rc<RefCell<Vec<ModuleItem>>>,
   urls: AssetUrls,
   /// Points every specifier at the `.min` graph, so a minified module never pulls in an
   /// unminified dependency.
@@ -69,6 +107,7 @@ pub struct ImportRewriter {
 }
 
 impl ImportRewriter {
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     source: &Path,
     aliases: Aliases,
@@ -76,6 +115,7 @@ impl ImportRewriter {
     externals: Rc<RefCell<Vec<String>>>,
     imports: Rc<RefCell<Vec<Import>>>,
     assets: Rc<RefCell<Vec<Emitted>>>,
+    misses: Rc<RefCell<Vec<PathBuf>>>,
     urls: AssetUrls,
     minified: bool,
   ) -> Self {
@@ -86,35 +126,55 @@ impl ImportRewriter {
       externals,
       imports,
       assets,
+      misses,
+      kept: Rc::new(RefCell::new(Vec::new())),
       urls,
       minified,
     }
   }
 
   /// The binding an image or font import becomes: a `const` holding the URL
-  /// the emitted file is served at, plus the dimensions for an image. The
-  /// file has to sit under the root, or there is nowhere to emit it.
-  fn asset_binding(&self, local: &Ident, specifier: &str) -> Option<ModuleItem> {
+  /// the file is served at, plus the dimensions for an image. Under a map the
+  /// row says both; otherwise the file is emitted here and has to sit under
+  /// the root or there is nowhere to emit it. `Bound::Kept` is an import of
+  /// an asset the map does not define, left as written and not a reference
+  /// to copy; `Bound::Other` is not an asset import at all.
+  fn asset_binding(&self, local: &Ident, specifier: &str) -> Bound {
     let (path, _) = assets::split_reference(specifier);
     let source = crate::graph::normalise(&self.dir.join(path));
-    assets::kind(&source)?;
-    if !source.is_file() || source.strip_prefix(&self.urls.root_dir).is_err() {
-      return None;
+    let Some(kind) = assets::kind(&source) else { return Bound::Other };
+    if source.strip_prefix(&self.urls.root_dir).is_err() {
+      return Bound::Other;
     }
-    let emitted = assets::emit(&source).ok()?;
 
-    let url: Expr = match self.urls.public(&emitted) {
-      Some(url) => string(url),
-      None => {
-        let relative = relative_specifier(&self.dir, &source.with_file_name(&emitted.name));
-        module_relative_url(relative)
+    let (url, width, height): (Expr, Option<u32>, Option<u32>) = match self.urls.mapped(&source) {
+      Mapped::Row(row) => (string(row.url.clone()), row.width, row.height),
+      Mapped::Missing => {
+        self.misses.borrow_mut().push(source);
+        return Bound::Kept;
+      }
+      Mapped::Unmapped => {
+        if !source.is_file() {
+          return Bound::Other;
+        }
+        let Ok(emitted) = assets::emit(&source) else { return Bound::Other };
+        let url = match self.urls.public(&emitted) {
+          Some(url) => string(url),
+          None => {
+            let relative = relative_specifier(&self.dir, &source.with_file_name(&emitted.name));
+            module_relative_url(relative)
+          }
+        };
+        let (width, height) = (emitted.width, emitted.height);
+        self.assets.borrow_mut().push(emitted);
+        (url, width, height)
       }
     };
 
-    let init = match emitted.kind {
+    let init = match kind {
       assets::Kind::Image => {
         let mut props = vec![property("src", url)];
-        if let (Some(width), Some(height)) = (emitted.width, emitted.height) {
+        if let (Some(width), Some(height)) = (width, height) {
           props.push(property("width", number(width)));
           props.push(property("height", number(height)));
         }
@@ -123,9 +183,7 @@ impl ImportRewriter {
       assets::Kind::Font => url,
     };
 
-    self.assets.borrow_mut().push(emitted);
-
-    Some(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+    Bound::Asset(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
       span: DUMMY_SP,
       ctxt: Default::default(),
       kind: VarDeclKind::Const,
@@ -320,7 +378,14 @@ impl Fold for ImportRewriter {
         let ImportSpecifier::Default(default) = &import.specifiers[0] else {
           return item;
         };
-        self.asset_binding(&default.local, &specifier).unwrap_or(item)
+        match self.asset_binding(&default.local, &specifier) {
+          Bound::Asset(bound) => bound,
+          Bound::Kept => {
+            self.kept.borrow_mut().push(item);
+            ModuleItem::Stmt(Stmt::Empty(swc_core::ecma::ast::EmptyStmt { span: DUMMY_SP }))
+          }
+          Bound::Other => item,
+        }
       })
       .collect();
 

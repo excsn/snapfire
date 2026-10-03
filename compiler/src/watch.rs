@@ -71,7 +71,8 @@ pub fn run(opts: &Options, mut build: Build) -> Result<()> {
       }
     }
 
-    if build.has_error {
+    build.report_misses(opts);
+    if build.failed() {
       println!("   waiting for changes");
     }
   }

@@ -1,6 +1,6 @@
 use crate::assets::{self, Emitted};
 use crate::config::{Aliases, Jsx, MapMode, MapOptions};
-use crate::transforms::{AssetUrls, Import, ImportRewriter, StripConsole, relative_specifier};
+use crate::transforms::{AssetUrls, Mapped, Import, ImportRewriter, StripConsole, relative_specifier};
 use anyhow::{Context, Result, anyhow};
 use lightningcss::dependencies::{Dependency, DependencyOptions};
 use lightningcss::rules::CssRule;
@@ -61,6 +61,9 @@ pub struct Output {
   pub referenced: Vec<PathBuf>,
   /// The images and fonts the source named, each emitted under its hash.
   pub assets: Vec<Emitted>,
+  /// The images and fonts the source named that the asset map does not
+  /// define, under the root. Empty without a map.
+  pub misses: Vec<PathBuf>,
   pub externals: Vec<String>,
   pub imports: Vec<Import>,
   /// Names this module exports under its own roof.
@@ -78,6 +81,7 @@ impl Output {
     Self {
       code,
       map: None,
+      misses: Vec::new(),
       referenced: Vec::new(),
       assets: Vec::new(),
       externals: Vec::new(),
@@ -207,6 +211,17 @@ impl Compiler {
     &self.urls
   }
 
+  /// The asset map every reference is resolved by from now on, `None` to go
+  /// back to emitting files here.
+  pub fn set_asset_map(&mut self, map: Option<std::sync::Arc<snapfire_compiler_wire::driven::AssetMap>>) {
+    self.urls.map = map;
+  }
+
+  pub fn with_asset_map(mut self, map: Option<std::sync::Arc<snapfire_compiler_wire::driven::AssetMap>>) -> Self {
+    self.urls.map = map;
+    self
+  }
+
   pub fn with_overlay(mut self, overlay: Option<(PathBuf, PathBuf)>) -> Self {
     self.overlay = overlay;
     self
@@ -265,6 +280,7 @@ impl Compiler {
     let externals: Rc<RefCell<Vec<String>>> = Default::default();
     let imports: Rc<RefCell<Vec<Import>>> = Default::default();
     let assets: Rc<RefCell<Vec<Emitted>>> = Default::default();
+    let misses: Rc<RefCell<Vec<PathBuf>>> = Default::default();
 
     GLOBALS.set(&globals, || {
       let fm = cm.new_source_file(Lrc::new(FileName::Real(path.to_path_buf())), content);
@@ -355,6 +371,7 @@ impl Compiler {
           externals.clone(),
           imports.clone(),
           assets.clone(),
+          misses.clone(),
           self.urls.clone(),
           minify.is_some(),
         )),
@@ -412,6 +429,7 @@ impl Compiler {
         map: serialised,
         referenced: referenced.borrow().clone(),
         assets: assets.take(),
+        misses: misses.take(),
         externals: externals.borrow().clone(),
         imports: imports.take(),
         exports: surface.names,
@@ -482,13 +500,14 @@ impl Compiler {
       None
     };
 
-    let (code, emitted) = rewrite_urls(&dir, &self.urls, res.code, res.dependencies.unwrap_or_default());
+    let (code, emitted, misses) = rewrite_urls(&dir, &self.urls, res.code, res.dependencies.unwrap_or_default());
 
     Ok(Output {
       code,
       map: serialised,
       referenced: Vec::new(),
       assets: emitted,
+      misses,
       externals: Vec::new(),
       imports: Vec::new(),
       exports: Vec::new(),
@@ -499,12 +518,14 @@ impl Compiler {
 }
 
 /// Puts every `url()` and `@import` back where LightningCSS left a placeholder.
-/// A relative `url()` naming an image or a font under the root is emitted under
-/// its hash and the reference points at the emitted name, still relative to
-/// the stylesheet, since a stylesheet's URLs resolve against the stylesheet
-/// wherever it is served from. Everything else goes back as written.
-fn rewrite_urls(dir: &Path, urls: &AssetUrls, mut code: String, dependencies: Vec<Dependency>) -> (String, Vec<Emitted>) {
+/// A relative `url()` naming an image or a font under the root takes the map's
+/// URL when there is a map. Without one the file is emitted under its hash and
+/// the reference points at the emitted name, still relative to the stylesheet,
+/// since a stylesheet's URLs resolve against the stylesheet wherever it is
+/// served from. Everything else goes back as written.
+fn rewrite_urls(dir: &Path, urls: &AssetUrls, mut code: String, dependencies: Vec<Dependency>) -> (String, Vec<Emitted>, Vec<PathBuf>) {
   let mut emitted = Vec::new();
+  let mut misses = Vec::new();
 
   for dependency in dependencies {
     let (placeholder, written) = match &dependency {
@@ -516,14 +537,22 @@ fn rewrite_urls(dir: &Path, urls: &AssetUrls, mut code: String, dependencies: Ve
       Dependency::Url(url) if assets::is_relative(&url.url) => {
         let (path, fragment) = assets::split_reference(&url.url);
         let source = crate::graph::normalise(&dir.join(path));
-        match assets::kind(&source).filter(|_| source.is_file() && source.strip_prefix(&urls.root_dir).is_ok()) {
-          Some(_) => match assets::emit(&source) {
-            Ok(asset) => {
-              let relative = relative_specifier(dir, &source.with_file_name(&asset.name));
-              emitted.push(asset);
-              format!("{relative}{fragment}")
+        match assets::kind(&source).filter(|_| source.strip_prefix(&urls.root_dir).is_ok()) {
+          Some(_) => match urls.mapped(&source) {
+            Mapped::Row(row) => format!("{}{fragment}", row.url),
+            Mapped::Missing => {
+              misses.push(source);
+              written.to_owned()
             }
-            Err(_) => written.to_owned(),
+            Mapped::Unmapped if source.is_file() => match assets::emit(&source) {
+              Ok(asset) => {
+                let relative = relative_specifier(dir, &source.with_file_name(&asset.name));
+                emitted.push(asset);
+                format!("{relative}{fragment}")
+              }
+              Err(_) => written.to_owned(),
+            },
+            Mapped::Unmapped => written.to_owned(),
           },
           None => written.to_owned(),
         }
@@ -534,7 +563,7 @@ fn rewrite_urls(dir: &Path, urls: &AssetUrls, mut code: String, dependencies: Ve
     code = code.replace(placeholder, &replacement);
   }
 
-  (code, emitted)
+  (code, emitted, misses)
 }
 
 /// Points a minified stylesheet's `@import`s at the minified siblings.

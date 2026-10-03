@@ -83,6 +83,11 @@ struct Args {
   import_map: Option<PathBuf>,
 
   /// Typecheck the same tsconfig with `snapfiretc`, which compiles nothing
+  /// The asset map a driving process wrote: every image and font a module or a stylesheet
+  /// names is rewritten from its row and none is emitted here.
+  #[arg(long)]
+  asset_map: Option<PathBuf>,
+
   #[arg(long)]
   typecheck: bool,
 
@@ -124,11 +129,20 @@ fn main() -> Result<()> {
     public_path: args.public_path.map(|p| if p.ends_with('/') { p } else { format!("{p}/") }),
     import_map: args.import_map,
     overlay: args.overlay,
+    asset_map: args.asset_map,
   };
 
-  let outcome = build::full(&options, true)?;
+  if args.driven {
+    println!("{}", snapfire_compiler_wire::driven::hello());
+    std::io::Write::flush(&mut std::io::stdout())?;
+  }
 
-  if args.typecheck && !outcome.has_error {
+  let outcome = build::full(&options, true)?;
+  if !args.driven {
+    outcome.report_misses(&options);
+  }
+
+  if args.typecheck && !outcome.failed() {
     let checking = typecheck::Options { tsc: args.tsc, version: args.tsc_version, checker: args.snapfiretc };
     typecheck::run(&options.root, &options.config_path, &checking)?;
   }
@@ -141,7 +155,7 @@ fn main() -> Result<()> {
     return driven::run(&options, outcome);
   }
 
-  if outcome.emitted == 0 && !outcome.has_error {
+  if outcome.emitted == 0 && !outcome.failed() {
     bail!(
       "No inputs were found in {:?}. Specified 'include' paths were {:?}.",
       options.config_path,
@@ -149,7 +163,7 @@ fn main() -> Result<()> {
     );
   }
 
-  if outcome.has_error {
+  if outcome.failed() {
     bail!("Build failed. See the errors above.");
   }
 

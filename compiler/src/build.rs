@@ -40,6 +40,11 @@ pub struct Options {
   /// A directory whose files are read in place of the root's at the same relative path. The file
   /// set is still the root's, so an overlay can only replace, never add.
   pub overlay: Option<PathBuf>,
+  /// The driver's asset map, relative to the root. With one, every image and
+  /// font a module or a stylesheet names is rewritten from its row and none is
+  /// emitted here; a reference the map does not name fails the source and is
+  /// reported, under `--driven`, for the driver to define.
+  pub asset_map: Option<PathBuf>,
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
@@ -66,6 +71,9 @@ pub struct Build {
   pub references: Vec<(PathBuf, Import)>,
   /// Every image and font the output names, by where it was emitted.
   pub assets: BTreeMap<PathBuf, Emitted>,
+  /// The sources that named an asset the map does not define, with the assets.
+  /// Such a source is not written until the driver defines them.
+  pub misses: BTreeMap<PathBuf, Vec<PathBuf>>,
   /// The modules and stylesheets that named each asset, so a changed image
   /// recompiles what points at it.
   asset_importers: HashMap<PathBuf, BTreeSet<PathBuf>>,
@@ -248,7 +256,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   }
 
   let overlay = opts.overlay.as_ref().map(|o| (selection.root_dir.clone(), opts.root.join(o)));
-  let urls = AssetUrls { root_dir: selection.root_dir.clone(), out_dir: out_dir.clone(), public_path: opts.public_path.clone() };
+  let urls = AssetUrls { root_dir: selection.root_dir.clone(), out_dir: out_dir.clone(), public_path: opts.public_path.clone(), map: None };
   let mut build = Build {
     out_dir,
     root_dir: selection.root_dir,
@@ -257,13 +265,14 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include_patterns: selection.include_patterns,
     map_options,
     declaration,
-    compiler: Compiler::new(targets, jsx, aliases, urls).with_overlay(overlay),
+    compiler: Compiler::new(targets, jsx, aliases, urls).with_overlay(overlay).with_asset_map(load_asset_map(opts)?),
     claimed: HashMap::new(),
     externals: Vec::new(),
     importers: BTreeMap::new(),
     graph: Graph::default(),
     references: Vec::new(),
     assets: BTreeMap::new(),
+    misses: BTreeMap::new(),
     asset_importers: HashMap::new(),
     surfaces: HashMap::new(),
     emitted: 0,
@@ -342,7 +351,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   let facts = build.out_dir.join(BUILD_FACTS);
   build.claimed.insert(facts.clone(), facts);
 
-  if !build.has_error {
+  if !build.failed() {
     prune_stale(opts, &build, &previous)?;
   }
 
@@ -351,9 +360,65 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   Ok(build)
 }
 
+impl Build {
+  /// Whether anything stopped this build being whole: a job that failed, or
+  /// a source waiting on an asset the map does not define.
+  pub fn failed(&self) -> bool {
+    self.has_error || !self.misses.is_empty()
+  }
+
+  /// Prints every source still waiting on an asset the map does not define,
+  /// once a build has settled and nothing is going to define it.
+  pub fn report_misses(&self, opts: &Options) {
+    for (source, assets) in &self.misses {
+      let listed: Vec<String> = assets.iter().map(|a| display(a, &opts.root)).collect();
+      eprintln!("❌ {} names an asset the map does not define: {}", display(source, &opts.root), listed.join(", "));
+    }
+  }
+
+  /// Every asset a source is waiting on, relative to the root, each once.
+  pub fn missing_assets(&self) -> Vec<String> {
+    let mut paths: Vec<String> = self
+      .misses
+      .values()
+      .flatten()
+      .filter_map(|asset| asset.strip_prefix(&self.root_dir).ok())
+      .map(crate::graph::slashed)
+      .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+  }
+
+  /// Reads the map again and compiles every source that was waiting on it.
+  pub fn remap(&mut self, opts: &Options) -> Result<()> {
+    self.compiler.set_asset_map(load_asset_map(opts)?);
+    let waiting: Vec<PathBuf> = self.misses.keys().cloned().collect();
+    for source in waiting {
+      refresh(opts, self, &source);
+    }
+    Ok(())
+  }
+}
+
+/// The driver's map, when `--asset-map` names one. A version this build does
+/// not read is refused rather than taken for an empty map.
+fn load_asset_map(opts: &Options) -> Result<Option<std::sync::Arc<snapfire_compiler_wire::driven::AssetMap>>> {
+  use snapfire_compiler_wire::driven::{AssetMap, MAP_VERSION};
+  let Some(relative) = &opts.asset_map else { return Ok(None) };
+  let path = opts.root.join(relative);
+  let text = fs::read_to_string(&path).with_context(|| format!("Failed to read the asset map {:?}", path))?;
+  let map: AssetMap = serde_json::from_str(&text).with_context(|| format!("Failed to parse the asset map {:?}", path))?;
+  if map.version != MAP_VERSION {
+    anyhow::bail!("the asset map {:?} is version {}, which this snapfirec does not read (it reads {MAP_VERSION})", path, map.version);
+  }
+  Ok(Some(std::sync::Arc::new(map)))
+}
+
 /// Recompiles one already-selected file in place. Nothing structural is re-checked, so this never
 /// prunes and never re-runs collision detection against entries the file already owns.
 pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
+  build.misses.remove(path);
   // A plugin source is compiled again before its jobs are planned, and a file
   // a plugin read beside a source refreshes every source that read it.
   let mut sources: Vec<PathBuf> = build.plugin_deps.get(path).cloned().unwrap_or_default();
@@ -423,6 +488,8 @@ struct JobResult {
   referenced: Vec<PathBuf>,
   /// Each asset the source named, with where it was written.
   assets: Vec<(PathBuf, Emitted)>,
+  /// Each asset the source named that the map does not define.
+  misses: Vec<PathBuf>,
   externals: Vec<String>,
   imports: Vec<Import>,
   surface: Surface,
@@ -926,6 +993,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
         failure: Some(format!("❌ Error compiling {:?}: {:?}", job.source, e)),
         referenced: Vec::new(),
         assets: Vec::new(),
+        misses: Vec::new(),
         externals: Vec::new(),
         imports: Vec::new(),
         surface: Surface::default(),
@@ -934,6 +1002,25 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       };
     }
   };
+
+  if !output.misses.is_empty() {
+    let listed: Vec<String> = output.misses.iter().map(|m| display(m, &opts.root)).collect();
+    return JobResult {
+      source: display(&job.source, &opts.root),
+      source_path: job.source.clone(),
+      emit: job.emit,
+      log,
+      failure: Some(format!("❌ {} names an asset the map does not define: {}", display(&job.source, &opts.root), listed.join(", "))),
+      referenced: output.referenced,
+      assets: Vec::new(),
+      misses: output.misses,
+      externals: output.externals,
+      imports: output.imports,
+      surface: Surface::default(),
+      dest: job.dest.clone(),
+      written: false,
+    };
+  }
 
   let referenced = output.referenced.clone();
   let externals = output.externals.clone();
@@ -959,6 +1046,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       failure: asset_failure,
       referenced,
       assets,
+      misses: Vec::new(),
       externals,
       imports,
       surface: surface.clone(),
@@ -973,6 +1061,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       failure: Some(format!("❌ Error writing {}: {}", display(&job.dest, &opts.root), e)),
       referenced,
       assets: Vec::new(),
+      misses: Vec::new(),
       externals,
       imports,
       surface: surface.clone(),
@@ -1030,9 +1119,18 @@ fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   build.graph.add(&result.dest, &result.imports);
   }
 
-  if let Some(failure) = result.failure {
-    eprintln!("{}", failure);
-    build.has_error = true;
+  // A source waiting on the map is not an error yet: under `--driven` the
+  // driver defines what it named and the source is compiled again. What is
+  // still missing when a build settles is printed by `report_misses`.
+  match result.failure {
+    Some(failure) if result.misses.is_empty() => {
+      eprintln!("{}", failure);
+      build.has_error = true;
+    }
+    _ => {}
+  }
+  if !result.misses.is_empty() {
+    build.misses.insert(result.source_path.clone(), result.misses);
   }
 
   if result.written {

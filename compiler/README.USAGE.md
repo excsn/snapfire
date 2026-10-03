@@ -31,6 +31,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Annotating Exports for It](#annotating-exports-for-it)
 * [Delivering Assets](#delivering-assets)
 * [Emitting Images and Fonts](#emitting-images-and-fonts)
+* [Compiling by an Asset Map](#compiling-by-an-asset-map)
 * [Resolving Externals](#resolving-externals)
   * [Checking Relative Specifiers](#checking-relative-specifiers)
   * [Checking Against an Import Map](#checking-against-an-import-map)
@@ -63,6 +64,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **Public path** - The URL prefix the output directory is served under. Optional and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
 * **Declaration** - The `.d.ts` describing one module's exported types. Emitted per file from that file alone, so an export whose type only inference across files could supply is an error rather than a guess.
 * **Minified graph** - The parallel set of `.min` files `--minify` adds. Its specifiers point only at other `.min` files, so loading the minified entry never pulls an unminified dependency.
+* **Asset map** - A file a driving process writes naming every image and font it defines, with the URL each is served at. Given one with `--asset-map`, the compiler rewrites every reference from it and emits none of them; a reference it does not name is reported for the driver to define.
 * **Build facts** - `.snapfire-build.json` in the output directory, recording the entry points, the module graph, the bare specifiers the output carries, every image and font it emitted and every file it produced. A page preloads from it; a packager vendors from it; the next build prunes from it.
 * **`.browserslistrc`** - Sets which browsers the CSS is compiled for, searched for from the root upward.
 
@@ -198,6 +200,7 @@ snapfirec
 | `--strip-log` | Delete `console.log` statements | off |
 | `--strip-debug` | Delete `console.debug` statements | off |
 | `--copy-assets` | Copy every selected file that is not compiled | off |
+| `--asset-map <path>` | Rewrite every image and font reference from the driver's map and emit none | off |
 | `--source-map` | Emit a `.map` beside each output | `sourceMap` |
 | `--inline-source-map` | Embed each map as a data URI | `inlineSourceMap` |
 | `--minify[=compact\|full]` | Additionally emit a minified `.min` graph | off |
@@ -1081,6 +1084,34 @@ Each one is listed in the build facts under `assets`, with its header read, so a
 
 `url` is present when `--public-path` was given. The compiler reads headers only; it resizes, converts and subsets nothing. The header read is the `snapfire_media` crate's, the one FSR's pipeline reads through. The width and height are the displayed size: a phone photo stored 4000x3000 with EXIF orientation 6 is listed as 3000 by 4000, which is how the browser shows it.
 
+## Compiling by an Asset Map
+
+A tool that owns the images and fonts it serves, `fsr build` for one, decides their URLs itself and hands the compiler a map. The compiler then rewrites every reference from the map and emits nothing:
+
+```bash
+snapfirec --asset-map generated/assets.map.json
+```
+
+```json
+{
+  "version": 1,
+  "assets": {
+    "img/hero.png": {"url": "https://cdn.example.com/a/hero.3f2a9c1e.png", "width": 1600, "height": 900},
+    "fonts/inter.woff2": {"url": "https://cdn.example.com/a/inter.8b1d0e77.woff2"}
+  }
+}
+```
+
+A row is keyed by the file's path under the root directory, with forward slashes. An import of a mapped image binds to the row's URL, width and height; a font import binds to the URL; a stylesheet's `url()` takes the URL with its fragment kept. The map is believed over the disk: no header is read and nothing is hashed, copied or listed under `assets` in the build facts. The map's types are `snapfire_compiler_wire::driven::AssetMap`, so the driver and the compiler serialize the same shape. A map of another version is refused by name.
+
+A reference to an image or a font under the root that the map does not name is a miss. The source is not written and the build fails naming each one:
+
+```text
+❌ "ui/card.ts" names an asset the map does not define: "img/photo.jpg"
+```
+
+Under `--driven` a miss is not the end: the compiler reports the paths and waits for the driver to define them, as the next chapter says. A reference outside the root or to a file of another kind is left as written whether or not there is a map.
+
 ## Resolving Externals
 
 A specifier that names a package rather than a file passes through untouched, because `snapfirec` has no `node_modules` to resolve it against and does not bundle:
@@ -1337,7 +1368,7 @@ A tool that already watches the filesystem, `fsr dev` for one, holds one compile
 snapfirec --driven
 ```
 
-The first build runs at once. After it, every line on stdin is a path, relative to the root or absolute, and an empty line ends a batch. A batch is compiled the way `--watch` compiles what its watcher reported: a path already in the selection recompiles that file alone, a new or deleted file, `tsconfig.json` or `.browserslistrc` rebuilds everything, and so does an empty batch. When the batch has been compiled one line is printed on stdout and flushed:
+The first line on stdout announces the protocol, `snapfirec: driven 2`, so a driver written against another version refuses the compiler by name rather than misreading its output. Then the first build runs at once. After it, every line on stdin is a path, relative to the root or absolute; an empty line ends a batch. A batch is compiled the way `--watch` compiles what its watcher reported: a path already in the selection recompiles that file alone, a new or deleted file, `tsconfig.json` or `.browserslistrc` rebuilds everything, as does an empty batch. When the batch has been compiled one line is printed on stdout and flushed:
 
 ```text
 snapfirec: rebuilt
@@ -1345,6 +1376,17 @@ snapfirec: failed
 ```
 
 Everything else the build prints stays on stdout ahead of it, so the driver forwards lines until it reads one of the two. A failed batch keeps the process running and the next batch is compiled in full, so a driver keeps naming what changed and reads `rebuilt` once it compiles. Closing stdin ends the process. The banner is not printed and `--driven` conflicts with `--watch`.
+
+With `--asset-map` as well, a batch that referenced an image or a font the map does not name ends differently. Before the status line the compiler lists what it could not map, one path per line under the root directory and an empty line to end the list. Then it waits:
+
+```text
+snapfirec: references
+img/photo.jpg
+fonts/inter.woff2
+
+```
+
+The driver defines each path, rewrites the map and answers one line, `mapped`. The compiler reads the map again, compiles the sources that were waiting on it and then prints `rebuilt` or `failed`. A path the driver did not define is printed as a miss and the batch fails. The constants and the map types are in `snapfire_compiler_wire::driven`, so a driver and the compiler agree on every line.
 
 ## Loading the Output in a Browser
 
