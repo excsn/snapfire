@@ -122,9 +122,11 @@ fn the_derive_pass_writes_the_variants_and_the_font_copies_once_and_keeps_them_a
   let (app, built) = built("derive", SECTIONS);
   let dist = app.join("dist");
   let derived = assets::derive(&app, &dist, &built.assets).unwrap();
-  assert_eq!(derived.written.len(), 6, "four variants and two faces: {:?}", derived.written);
+  assert_eq!(derived.written.len(), 7, "the original, four variants and two faces; nothing bundled here, so the original is placed too: {:?}", derived.written);
   assert_eq!(derived.kept, 0);
   let hash = snapfire_fsr_assets::hash::of(&fixture("hero.png"));
+  assert_eq!(built.assets.entries[0].path, format!("src/img/hero.{hash}.png"));
+  assert_eq!(std::fs::read(dist.join(format!("src/img/hero.{hash}.png"))).unwrap(), fixture("hero.png"));
   for (width, format, magic) in [(80u32, "avif", &b"ftypavif"[..]), (160, "avif", &b"ftypavif"[..]), (80, "webp", &b"WEBP"[..]), (160, "webp", &b"WEBP"[..])] {
     let path = dist.join(format!("src/img/hero.{hash}.{width}.{format}"));
     let bytes = std::fs::read(&path).unwrap_or_else(|_| panic!("{} was not written", path.display()));
@@ -139,7 +141,54 @@ fn the_derive_pass_writes_the_variants_and_the_font_copies_once_and_keeps_them_a
 
   let again = assets::derive(&app, &dist, &built.assets).unwrap();
   assert!(again.written.is_empty(), "{:?}", again.written);
-  assert_eq!(again.kept, 6);
+  assert_eq!(again.kept, 7);
+
+  std::fs::remove_file(dist.join(format!("src/img/hero.{hash}.png"))).unwrap();
+  let replaced = assets::derive(&app, &dist, &built.assets).unwrap();
+  assert_eq!(replaced.written, vec![dist.join(format!("src/img/hero.{hash}.png"))], "an original the bundle did not place is copied from the source");
+  assert_eq!(std::fs::read(dist.join(format!("src/img/hero.{hash}.png"))).unwrap(), fixture("hero.png"));
+}
+
+const TAGGED_PAGE: &str = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+import photo from "../src/img/photo.jpg";
+
+export default function Page() {
+  return <Picture src={photo} alt="A phone photo" />;
+}
+"#;
+
+#[test]
+fn a_tagged_photo_is_upright_in_the_manifest_the_markup_and_its_variants() {
+  let root = root("tagged");
+  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  let app = root.join("app");
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::create_dir_all(app.join("vendor")).unwrap();
+  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
+  std::fs::create_dir_all(app.join("src/img")).unwrap();
+  std::fs::write(app.join("src/img/photo.jpg"), fixture("photo.jpg")).unwrap();
+  std::fs::write(app.join("routes/page.tsx"), TAGGED_PAGE).unwrap();
+  let config = root.join("config/app.toml");
+  let mut text = std::fs::read_to_string(&config).unwrap();
+  text.push_str("\n[images]\nwidths = [80]\n");
+  std::fs::write(&config, text).unwrap();
+  let built = build(&app, &Options::beside(&app)).unwrap();
+
+  let entry = built.assets.entries.iter().find(|e| e.source == "src/img/photo.jpg").expect("the photo is an entry");
+  assert_eq!((entry.width, entry.height), (160, 320), "stored 320x160 with EXIF orientation 6");
+  assert_eq!(entry.widths, [80, 160]);
+  let text = built.manifest.to_sexpr();
+  assert!(text.contains("(width 160)") && text.contains("(height 320)"), "the element carries the displayed size: {text}");
+
+  let dist = app.join("dist");
+  let derived = assets::derive(&app, &dist, &built.assets).unwrap();
+  let hash = snapfire_fsr_assets::hash::of(&fixture("photo.jpg"));
+  assert_eq!(derived.written.len(), 5, "{:?}", derived.written);
+  assert_eq!(std::fs::read(dist.join(format!("src/img/photo.{hash}.jpg"))).unwrap(), fixture("photo.jpg"), "the original is served as saved, tag and all");
+  let webp = std::fs::read(dist.join(format!("src/img/photo.{hash}.80.webp"))).unwrap();
+  let decoded = snapfire_fsr_assets::Source::from_bytes(Path::new("x.webp"), &webp).unwrap();
+  assert_eq!((decoded.width(), decoded.height()), (80, 160), "the variant is upright");
+  assert_eq!(snapfire_fsr_assets::Header::from_bytes(Path::new("x.webp"), &webp).unwrap().orientation, 1, "and carries no tag");
 }
 
 #[test]

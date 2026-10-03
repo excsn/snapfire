@@ -57,6 +57,7 @@ struct Seen {
   /// Relative directory under the app, `src/img`, and the stem and extension.
   dir: String,
   stem: String,
+  ext: String,
   widths: BTreeSet<u32>,
   quality: BTreeMap<Format, u8>,
 }
@@ -149,6 +150,7 @@ impl Resolver {
         ImageEntry {
           source: source.clone(),
           src: seen.src.clone(),
+          path: format!("{}{}", dir_prefix(&seen.dir), hash::emitted_name(&seen.stem, &seen.hash, &seen.ext)),
           hash: seen.hash.clone(),
           width: seen.width,
           height: seen.height,
@@ -199,7 +201,7 @@ impl AssetResolver for Resolver {
       let stem = relative.file_stem().unwrap_or_default().to_string_lossy().into_owned();
       let ext = relative.extension().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
       let src = self.url(self.sections.images.base.as_deref(), &format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext)));
-      seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, dir, stem, widths: BTreeSet::new(), quality: BTreeMap::new() });
+      seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, dir, stem, ext, widths: BTreeSet::new(), quality: BTreeMap::new() });
     }
     let entry = seen.get_mut(path).expect("just inserted");
     let policy = match &request.widths {
@@ -265,6 +267,18 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
     }
   }
   for entry in &manifest.entries {
+    if !entry.path.is_empty() {
+      let original = out.join(&entry.path);
+      if original.is_file() {
+        derived.kept += 1;
+      } else {
+        if let Some(parent) = original.parent() {
+          std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+        }
+        std::fs::copy(app.join(&entry.source), &original).map_err(|e| BuildError::Io(original.clone(), e))?;
+        derived.written.push(original);
+      }
+    }
     let missing: Vec<&Variant> = entry.variants.iter().filter(|v| !out.join(&v.path).is_file()).collect();
     derived.kept += entry.variants.len() - missing.len();
     if missing.is_empty() {

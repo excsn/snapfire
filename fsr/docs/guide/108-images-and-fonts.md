@@ -31,7 +31,7 @@ Three things follow from the markup. The browser picks the width that fits the s
 
 ## Where the variants come from
 
-`fsr build` reads every image a component imports, chooses its widths under the `[images]` policy and, after the bundle runs, writes the variants beside the hashed original under `dist/`:
+`fsr build` reads every image a component imports, chooses its widths under the `[images]` policy and, after the bundle runs, writes the variants beside the hashed original under `dist/`, placing the original itself when the bundle did not, as for an image only a template names:
 
 ```toml
 [images]
@@ -48,6 +48,8 @@ derived   8 files under dist/, 0 already there
 ```
 
 An SVG scales itself and an animated GIF would have every frame re-encoded, so both are served as they are, with width and height and no `<picture>`.
+
+A photo straight off a phone is stored on its side with an EXIF orientation tag the browser rotates by. The build reads the tag, so `width` and `height` are the size the photo displays at and every variant is written upright, since a variant carries no tag.
 
 ## A catalog rendered from data
 

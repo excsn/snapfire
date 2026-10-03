@@ -41,6 +41,11 @@ pub struct ImageEntry {
   pub source: String,
   /// The hashed original's URL.
   pub src: String,
+  /// Where the hashed original sits under the bundle's output directory,
+  /// `src/img/hero.3f2a9c1e.png`; the derive pass places it there when the
+  /// bundle did not.
+  #[serde(default)]
+  pub path: String,
   pub hash: String,
   pub width: u32,
   pub height: u32,
