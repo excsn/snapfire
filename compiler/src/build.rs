@@ -1099,6 +1099,15 @@ fn place_assets(compiler: &Compiler, opts: &Options, emitted: Vec<Emitted>) -> (
 fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   println!("{}", result.log);
   referenced.extend(result.referenced);
+  // A source held back for the map was not written and offers nothing yet:
+  // it is neither a node in the graph nor a surface to check an importer
+  // against until the driver defines what it named and it is compiled again.
+  // The plain files it referenced are still copied, since the second pass
+  // copies nothing.
+  if !result.misses.is_empty() {
+    build.misses.insert(result.source_path.clone(), result.misses);
+    return;
+  }
   for (dest, asset) in result.assets {
     build.claimed.insert(dest.clone(), asset.source.clone());
     build.asset_importers.entry(asset.source.clone()).or_default().insert(result.source_path.clone());
@@ -1122,15 +1131,9 @@ fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   // A source waiting on the map is not an error yet: under `--driven` the
   // driver defines what it named and the source is compiled again. What is
   // still missing when a build settles is printed by `report_misses`.
-  match result.failure {
-    Some(failure) if result.misses.is_empty() => {
-      eprintln!("{}", failure);
-      build.has_error = true;
-    }
-    _ => {}
-  }
-  if !result.misses.is_empty() {
-    build.misses.insert(result.source_path.clone(), result.misses);
+  if let Some(failure) = result.failure {
+    eprintln!("{}", failure);
+    build.has_error = true;
   }
 
   if result.written {

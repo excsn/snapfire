@@ -5813,6 +5813,14 @@ async fn a_hashed_static_name_is_immutable_and_a_plain_one_keeps_the_configured_
   assert_eq!(cache(&host, "/static/hero.0a1b2c3d.640.avif").await.as_deref(), Some("public, max-age=31536000, immutable"));
   assert_eq!(cache(&host, "/static/hero.png").await.as_deref(), Some("public, max-age=3600"));
   assert_eq!(cache(&host, "/static/notes.v2.min.js").await.as_deref(), Some("public, max-age=3600"));
+
+  async fn cors(host: &Host, path: &str) -> Option<String> {
+    let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+    response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).map(|v| v.to_str().unwrap().to_owned())
+  }
+  assert_eq!(cors(&host, "/static/hero.0a1b2c3d.png").await.as_deref(), Some("*"), "a hashed file is fetched across origins under a base");
+  assert_eq!(cors(&host, "/static/hero.0a1b2c3d.640.avif").await.as_deref(), Some("*"));
+  assert_eq!(cors(&host, "/static/hero.png").await, None, "a plain file is not");
 }
 
 #[tokio::test]

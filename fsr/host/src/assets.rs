@@ -97,7 +97,11 @@ pub struct Fonts {
 pub struct Face {
   pub key: String,
   pub family: String,
+  /// The weight the face is declared at; for a variable face, the lowest of its range.
   pub weight: u16,
+  /// The `font-weight` range one variable file serves, lowest to highest.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub weight_range: Option<(u16, u16)>,
   pub style: String,
   /// The file under the app.
   pub source: String,

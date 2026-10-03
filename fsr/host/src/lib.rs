@@ -2553,6 +2553,15 @@ impl Host {
           return match dir.clone().oneshot(inner).await {
             Ok(response) => {
               let mut response = response.map(|b| b.map_err(std::io::Error::other).boxed_unsync());
+              // A hashed file is public and immutable; a font is fetched in CORS mode
+              // whatever the page says, so when `[fonts] base` or `[images] base` puts the
+              // file under another origin the browser needs this to use it.
+              if is_hashed_name(rest) {
+                response
+                  .headers_mut()
+                  .entry(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                  .or_insert(HeaderValue::from_static("*"));
+              }
               if self.changed.is_some() {
                 response
                   .headers_mut()

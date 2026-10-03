@@ -318,4 +318,22 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
   assert!(fonts.css.contains("unicode-range:U+0100-02BA;"), "{}", fonts.css);
   assert_eq!(fonts.variables["--font-inter"], "\"Inter\", \"Inter Fallback\", sans-serif");
   assert_eq!(fonts.preload.len(), 1, "one subset is the regular face the default preloads: {:?}", fonts.preload);
+
+  let second = std::env::temp_dir().join(format!("fsr-cli-assets-{}-variable", std::process::id()));
+  let _ = std::fs::remove_dir_all(&second);
+  create(&second, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  let app = second.join("app");
+  let base = provider(fixture("Fraunces-vietnamese.woff2"));
+  let written = assets::add_from(&app, "google:Fraunces@400,700", &base).unwrap();
+  let names: Vec<String> = written.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+  assert_eq!(names, ["Fraunces-latin-ext.woff2", "Fraunces-latin.woff2"], "a variable file is one per subset, with no weight in its name");
+  let (fonts, lines) = assets::fonts(&app, "/static/js/app", &assets::Sections::of(&app)).unwrap();
+  assert_eq!(fonts.faces.len(), 2);
+  assert_eq!(fonts.faces[0].weight_range, Some((100, 900)));
+  assert_eq!(fonts.faces[0].weight, 100);
+  assert!(fonts.css.contains("font-weight:100 900;"), "the axis is the declared range: {}", fonts.css);
+  assert!(!fonts.css.contains("Fraunces Fallback"), "a subset with no a to z sizes no fallback: {}", fonts.css);
+  assert_eq!(fonts.variables["--font-fraunces"], "\"Fraunces\", sans-serif");
+  assert!(lines.iter().any(|l| l.starts_with("Fraunces: no fallback face sized")), "{lines:?}");
+  assert!(lines.iter().any(|l| l == "Fraunces 100-900 normal from fonts/Fraunces-latin.woff2"), "{lines:?}");
 }

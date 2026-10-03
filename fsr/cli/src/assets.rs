@@ -472,7 +472,21 @@ pub fn fonts(app: &Path, public_path: &str, sections: &Sections) -> Result<(Font
       let known: Vec<&str> = font::fallbacks().collect();
       return Err(BuildError::Assets(format!("fonts.{key}.fallback `{fallback_name}` is not a face this build knows; one of {}", known.join(", "))));
     };
-    let regular = indices.iter().copied().min_by_key(|i| (held[*i].face.weight.abs_diff(400), held[*i].face.style != snapfire_fsr_assets::Style::Normal)).expect("a key has a face");
+    // The face the fallback is sized from: nearest to regular, upright and
+    // with `a` to `z` to measure, so a provider's non-Latin subset never is.
+    let regular = indices
+      .iter()
+      .copied()
+      .min_by_key(|i| {
+        let face = &held[*i].face;
+        let distance = match face.weight_range {
+          Some((low, high)) if (low..=high).contains(&400) => 0,
+          Some((low, high)) => low.abs_diff(400).min(high.abs_diff(400)),
+          None => face.weight.abs_diff(400),
+        };
+        (face.metrics.avg_char_width.is_none(), distance, face.style != snapfire_fsr_assets::Style::Normal)
+      })
+      .expect("a key has a face");
     for i in &indices {
       let h = &held[*i];
       let path = Path::new(&h.file);
@@ -490,10 +504,13 @@ pub fn fonts(app: &Path, public_path: &str, sections: &Sections) -> Result<(Font
         "ttf" => "truetype",
         _ => "opentype",
       };
+      let (weight, weight_css) = match h.face.weight_range {
+        Some((low, high)) => (low, format!("{low} {high}")),
+        None => (h.face.weight, h.face.weight.to_string()),
+      };
       css.push_str(&format!(
-        "@font-face{{font-family:\"{family}\";font-style:{};font-weight:{};font-display:{display};src:url({url}) format(\"{format}\");",
+        "@font-face{{font-family:\"{family}\";font-style:{};font-weight:{weight_css};font-display:{display};src:url({url}) format(\"{format}\");",
         h.face.style.as_css(),
-        h.face.weight
       ));
       if let Some(range) = &h.unicode_range {
         css.push_str(&format!("unicode-range:{range};"));
@@ -502,13 +519,21 @@ pub fn fonts(app: &Path, public_path: &str, sections: &Sections) -> Result<(Font
       if preload {
         fonts.preload.push(url.clone());
       }
-      fonts.faces.push(FaceOut { key: key.clone(), family: family.clone(), weight: h.face.weight, style: h.face.style.as_css().to_owned(), source: h.file.clone(), url, path: out_path, unicode_range: h.unicode_range.clone(), preload });
-      lines.push(format!("{family} {} {} from {}", h.face.weight, h.face.style.as_css(), h.file));
+      fonts.faces.push(FaceOut { key: key.clone(), family: family.clone(), weight, weight_range: h.face.weight_range, style: h.face.style.as_css().to_owned(), source: h.file.clone(), url, path: out_path, unicode_range: h.unicode_range.clone(), preload });
+      lines.push(format!("{family} {} {} from {}", weight_css.replace(' ', "-"), h.face.style.as_css(), h.file));
     }
     let fallback_family = format!("{family} Fallback");
-    css.push_str(&held[regular].face.fallback_face(&fallback_family, fallback));
     let variable = entry.variable.clone().unwrap_or_else(|| format!("--font-{key}"));
-    let value = format!("\"{family}\", \"{fallback_family}\", {}", generic_of(&fallback_name));
+    let value = match held[regular].face.fallback_face(&fallback_family, fallback) {
+      Some(rule) => {
+        css.push_str(&rule);
+        format!("\"{family}\", \"{fallback_family}\", {}", generic_of(&fallback_name))
+      }
+      None => {
+        lines.push(format!("{family}: no fallback face sized, {} has no a to z glyphs to measure", held[regular].file));
+        format!("\"{family}\", {}", generic_of(&fallback_name))
+      }
+    };
     fonts.variables.insert(variable, value);
   }
 
@@ -631,9 +656,22 @@ pub fn add_from(app: &Path, spec: &str, provider_base: &str) -> Result<Vec<PathB
     let (Some(weight), Some(style), Some(src)) = (field("font-weight"), field("font-style"), field("src")) else { continue };
     let Some(file_url) = src.split("url(").nth(1).and_then(|u| u.split(')').next()) else { continue };
     let ext = file_url.rsplit('.').next().unwrap_or("woff2").to_owned();
-    let name = format!("{}-{weight}{}-{subset}.{ext}", family.replace(' ', ""), if style == "italic" { "-italic" } else { "" });
-    let path = dir.join(&name);
     let bytes = client.get(file_url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| BuildError::Http(file_url.to_owned(), e.to_string()))?;
+    let italic = if style == "italic" { "-italic" } else { "" };
+    // A provider answers a discrete weight of a variable family with the
+    // whole variable file, the same bytes under every weight asked for, so
+    // one file per subset is kept and its name carries no weight: the
+    // build reads the range off the file's own axis.
+    let variable = Face::from_bytes(Path::new(file_url), &bytes, &ext).ok().and_then(|face| face.weight_range).is_some();
+    let name = if variable {
+      format!("{}{italic}-{subset}.{ext}", family.replace(' ', ""))
+    } else {
+      format!("{}-{weight}{italic}-{subset}.{ext}", family.replace(' ', ""))
+    };
+    let path = dir.join(&name);
+    if written.contains(&path) {
+      continue;
+    }
     std::fs::write(&path, &bytes).map_err(|e| BuildError::Io(path.clone(), e))?;
     if let Some(range) = field("unicode-range") {
       let sidecar = dir.join(format!("{name}.range"));

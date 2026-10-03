@@ -1256,6 +1256,16 @@ const MAX_SPLIT: usize = 1_000_000;
 /// an allocation the process does not survive.
 const MAX_REPEAT: usize = 64 * 1024 * 1024;
 
+fn float(op: ArithOp, a: f64, b: f64) -> f64 {
+  match op {
+    ArithOp::Add => a + b,
+    ArithOp::Sub => a - b,
+    ArithOp::Mul => a * b,
+    ArithOp::Div => a / b,
+    ArithOp::Rem => a % b,
+  }
+}
+
 fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
   match (l, r) {
     (Value::Int(a), Value::Int(b)) => Ok(Value::Int(match op {
@@ -1265,13 +1275,13 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
       ArithOp::Div => a.checked_div(b).ok_or_else(|| Fail::internal("division by zero"))?,
       ArithOp::Rem => a.checked_rem(b).ok_or_else(|| Fail::internal("division by zero"))?,
     })),
-    (Value::F64(a), Value::F64(b)) => Ok(Value::F64(match op {
-      ArithOp::Add => a + b,
-      ArithOp::Sub => a - b,
-      ArithOp::Mul => a * b,
-      ArithOp::Div => a / b,
-      ArithOp::Rem => a % b,
-    })),
+    (Value::F64(a), Value::F64(b)) => Ok(Value::F64(float(op, a, b))),
+    // A number literal lowers as a float and a record's width is an integer,
+    // so `width / 2` meets here; JavaScript has one number type and so does this.
+    (Value::Int(a), Value::F64(b)) => Ok(Value::F64(float(op, a as f64, b))),
+    (Value::F64(a), Value::Int(b)) => Ok(Value::F64(float(op, a, b as f64))),
+    (Value::UInt(a), Value::F64(b)) => Ok(Value::F64(float(op, a as f64, b))),
+    (Value::F64(a), Value::UInt(b)) => Ok(Value::F64(float(op, a, b as f64))),
     (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => Ok(Value::str(format!("{a}{b}"))),
     (l, r) => Err(Fail::internal(format!(
       "{:?} wants two integers, two numbers or two strings, got {} and {}",
