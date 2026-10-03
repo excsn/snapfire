@@ -710,7 +710,7 @@ impl ComponentSet {
   /// would cost more than copying it. `CONST_WEIGHT` is where a copy per
   /// reference starts to dominate the plan.
   fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
-    if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Ext { .. }) {
+    if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
       return expr;
     }
     self.consts.entry(key.clone()).or_insert(expr);
@@ -1156,6 +1156,10 @@ pub const RAW_ESCAPE: &str = "data-sf-raw";
 enum PictureSrc {
   Local(String),
   Value(Expr),
+  /// `PHOTOS[key]` where `PHOTOS` is an object of imported images, declared
+  /// here or imported: the key expression and each entry's image, one branch
+  /// per entry.
+  Keyed(Expr, Vec<(String, ImageFacts)>),
 }
 
 /// `template` with `{src}` as `value` and `{width}` as `width`, as the
@@ -1202,6 +1206,22 @@ fn whole_number(expr: &Expr) -> Option<i128> {
   }
 }
 
+/// The entries of a record of imported images bound as a global, as key
+/// and image, or `None` for any other value.
+fn asset_record(expr: &Expr) -> Option<Vec<(String, ImageFacts)>> {
+  if !is_asset_record(expr) {
+    return None;
+  }
+  let Expr::Object(entries) = expr else { return None };
+  entries
+    .iter()
+    .map(|e| match e {
+      Entry::Field(key, value) => asset_facts(value).map(|facts| (key.clone(), facts)),
+      _ => None,
+    })
+    .collect()
+}
+
 /// The app-relative path an asset specifier names from `file`, or `None`
 /// for one that is not relative.
 fn asset_path(file: &str, specifier: &str) -> Option<String> {
@@ -1209,14 +1229,57 @@ fn asset_path(file: &str, specifier: &str) -> Option<String> {
   crate::resolve_specifier(file, clean)
 }
 
-/// `{ src, width, height }`, what an imported image is bound to, so a
-/// component may read any field of it.
+/// `{ src, width, height, sources }`, what an imported image is bound to on
+/// the server, so a component may read any field of it and a `meta` may
+/// preload it. The browser's binding has the first three.
 fn asset_object(facts: &ImageFacts) -> Expr {
   Expr::Object(vec![
     Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone())),
     Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))),
     Entry::Field("height".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.height)))),
+    Entry::Field(
+      "sources".to_owned(),
+      Expr::Array(
+        facts
+          .sources
+          .iter()
+          .map(|(mime, srcset)| Entry::Item(Expr::Object(vec![Entry::Field("type".to_owned(), Expr::lit_str(mime.clone())), Entry::Field("srcset".to_owned(), Expr::lit_str(srcset.clone()))])))
+          .collect(),
+      ),
+    ),
   ])
+}
+
+/// The facts back out of what `asset_object` wrote, so a record of imports
+/// bound as a global reads as the images it holds.
+fn asset_facts(expr: &Expr) -> Option<ImageFacts> {
+  let Expr::Object(entries) = expr else { return None };
+  let field = |name: &str| entries.iter().find_map(|e| match e {
+    Entry::Field(n, v) if n == name => Some(v),
+    _ => None,
+  });
+  let Expr::Lit(Lit::Str(src)) = field("src")? else { return None };
+  let Expr::Lit(Lit::Int(width)) = field("width")? else { return None };
+  let Expr::Lit(Lit::Int(height)) = field("height")? else { return None };
+  let Expr::Array(items) = field("sources")? else { return None };
+  let mut sources = Vec::new();
+  for item in items {
+    let Entry::Item(Expr::Object(fields)) = item else { return None };
+    let get = |name: &str| fields.iter().find_map(|e| match e {
+      Entry::Field(n, Expr::Lit(Lit::Str(v))) if n == name => Some(v.clone()),
+      _ => None,
+    });
+    sources.push((get("type")?, get("srcset")?));
+  }
+  Some(ImageFacts { src: src.clone(), width: *width as u32, height: *height as u32, sources })
+}
+
+/// Whether a lowered value is a record of imported images, which stays
+/// inline rather than named as a constant, so a `Picture` indexing it can
+/// read the entries.
+fn is_asset_record(expr: &Expr) -> bool {
+  let Expr::Object(entries) = expr else { return false };
+  !entries.is_empty() && entries.iter().all(|e| matches!(e, Entry::Field(_, value) if asset_facts(value).is_some()))
 }
 
 pub(crate) fn imported_as(parsed: &Parsed, local: &str, source_is: impl Fn(&str) -> bool) -> Option<String> {
@@ -2526,50 +2589,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let Some(facts) = self.assets.image(&path, &request) else {
           return Err(self.lowerer.residue(el.span, format!("`{path}` is not an image under the app")));
         };
-        img.push(Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone())));
-        if !wrote_dimensions {
-          img.push(Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))));
-          img.push(Entry::Field("height".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.height)))));
-        }
-        img.extend(rest);
-        img.push(Entry::Field("loading".to_owned(), loading));
-        img.push(Entry::Field("decoding".to_owned(), decoding));
-        if priority {
-          img.push(Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high")));
-        }
-        if facts.sources.is_empty() {
-          return Ok(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() });
-        }
-        let sizes = sizes.unwrap_or_else(|| Expr::lit_str(assets::default_sizes(facts.width)));
-        let mut children = Vec::new();
-        for (mime, srcset) in &facts.sources {
-          children.push(Tmpl::Element {
-            tag: "source".to_owned(),
-            attrs: vec![
-              Entry::Field("type".to_owned(), Expr::lit_str(mime.clone())),
-              Entry::Field("srcset".to_owned(), Expr::lit_str(srcset.clone())),
-              Entry::Field("sizes".to_owned(), sizes.clone()),
-            ],
-            children: Vec::new(),
+        Ok(self.picture_markup(&facts, &rest, sizes, priority, true, loading, decoding, wrote_dimensions))
+      }
+      PictureSrc::Keyed(key, entries) => {
+        // Lowered once per entry with the same attributes, then chained:
+        // `key == "1.png" ? <picture one> : key == "2.png" ? … : nothing`.
+        let mut chain: Option<Tmpl> = None;
+        for (entry_key, facts) in entries.into_iter().rev() {
+          let branch = self.picture_markup(&facts, &rest, sizes.clone(), priority, false, loading.clone(), decoding.clone(), wrote_dimensions);
+          let cond = Expr::Compare(CompareOp::Eq, Box::new(key.clone()), Box::new(Expr::lit_str(entry_key)));
+          chain = Some(match chain {
+            Some(rest_chain) => Tmpl::If { cond, then: Box::new(branch), r#else: Some(Box::new(rest_chain)) },
+            None => Tmpl::If { cond, then: Box::new(branch), r#else: None },
           });
         }
-        if priority {
-          if let (Some((mime, srcset)), Expr::Lit(Lit::Str(sizes))) = (facts.sources.first(), &sizes) {
-            self.remember_head(HeadRow {
-              tag: "link".to_owned(),
-              attrs: vec![
-                ("rel".to_owned(), "preload".to_owned()),
-                ("as".to_owned(), "image".to_owned()),
-                ("type".to_owned(), mime.clone()),
-                ("imagesrcset".to_owned(), srcset.clone()),
-                ("imagesizes".to_owned(), sizes.clone()),
-                ("fetchpriority".to_owned(), "high".to_owned()),
-              ],
-            });
-          }
-        }
-        children.push(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() });
-        Ok(Tmpl::Element { tag: "picture".to_owned(), attrs: Vec::new(), children })
+        Ok(chain.expect("a record has an entry"))
       }
       PictureSrc::Value(value) => {
         let template = match &source_name {
@@ -2610,7 +2644,61 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// A `src`: the imported asset itself, its `.src`, or any other value.
+  /// The markup for one local image: a `<picture>` with a `<source>` per
+  /// format and the hashed original as its `<img>`, or the `<img>` alone for
+  /// an image served as it is. A priority image also asks the head for a
+  /// preload of its first format when `preload`, which a keyed record never
+  /// is: the key is a value, so the page's `meta` names the one to preload.
+  #[allow(clippy::too_many_arguments)]
+  fn picture_markup(&mut self, facts: &ImageFacts, rest: &[Entry], sizes: Option<Expr>, priority: bool, preload: bool, loading: Expr, decoding: Expr, wrote_dimensions: bool) -> Tmpl {
+    let mut img: Vec<Entry> = vec![Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone()))];
+    if !wrote_dimensions {
+      img.push(Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))));
+      img.push(Entry::Field("height".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.height)))));
+    }
+    img.extend(rest.iter().cloned());
+    img.push(Entry::Field("loading".to_owned(), loading));
+    img.push(Entry::Field("decoding".to_owned(), decoding));
+    if priority {
+      img.push(Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high")));
+    }
+    if facts.sources.is_empty() {
+      return Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() };
+    }
+    let sizes = sizes.unwrap_or_else(|| Expr::lit_str(assets::default_sizes(facts.width)));
+    let mut children = Vec::new();
+    for (mime, srcset) in &facts.sources {
+      children.push(Tmpl::Element {
+        tag: "source".to_owned(),
+        attrs: vec![
+          Entry::Field("type".to_owned(), Expr::lit_str(mime.clone())),
+          Entry::Field("srcset".to_owned(), Expr::lit_str(srcset.clone())),
+          Entry::Field("sizes".to_owned(), sizes.clone()),
+        ],
+        children: Vec::new(),
+      });
+    }
+    if priority && preload {
+      if let (Some((mime, srcset)), Expr::Lit(Lit::Str(sizes))) = (facts.sources.first(), &sizes) {
+        self.remember_head(HeadRow {
+          tag: "link".to_owned(),
+          attrs: vec![
+            ("rel".to_owned(), "preload".to_owned()),
+            ("as".to_owned(), "image".to_owned()),
+            ("type".to_owned(), mime.clone()),
+            ("imagesrcset".to_owned(), srcset.clone()),
+            ("imagesizes".to_owned(), sizes.clone()),
+            ("fetchpriority".to_owned(), "high".to_owned()),
+          ],
+        });
+      }
+    }
+    children.push(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() });
+    Tmpl::Element { tag: "picture".to_owned(), attrs: Vec::new(), children }
+  }
+
+  /// A `src`: the imported asset itself, its `.src`, an entry of an object
+  /// of imports indexed by a key, or any other value.
   fn picture_src(&mut self, attr: &'p js::JSXAttr) -> Lowered<PictureSrc> {
     if let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value {
       if let js::JSXExpr::Expr(e) = &c.expr {
@@ -2626,6 +2714,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 if let Some(path) = self.asset_import(obj.sym.as_ref()) {
                   return Ok(PictureSrc::Local(path));
                 }
+              }
+            }
+            if let (js::Expr::Ident(obj), js::MemberProp::Computed(key)) = (&*m.obj, &m.prop) {
+              let bound = self.lowerer.ident(obj)?;
+              if let Some(entries) = asset_record(&bound) {
+                let key = self.lowerer.expr(&key.expr)?;
+                return Ok(PictureSrc::Keyed(key, entries));
               }
             }
           }

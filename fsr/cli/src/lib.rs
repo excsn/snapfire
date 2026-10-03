@@ -1115,6 +1115,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     None => (manifest, contract, contracts),
   };
 
+  resolver.scan(&app.join(&sections.dirs.images), &sections.dirs.images);
   let (fonts, font_lines) = assets::fonts(app, &public_path, &sections)?;
   let assets_manifest = assets::manifest(&resolver, fonts);
   for entry in &assets_manifest.entries {
@@ -1310,6 +1311,15 @@ export function og(property: string, content: string): HeadEl {
 /** A Twitter card property: `twitter("card", c)` is `<meta name="twitter:card">`. */
 export function twitter(name: string, content: string): HeadEl {
   return { tag: "meta", name: `twitter:${name}`, content };
+}
+
+/** A preload of the page's largest image, written into the head so the fetch starts before the stylesheet and the modules parse. `image` is an imported image; `sizes` is what the picture renders at. */
+export function preloadImage(image: { src: string; sources?: { type: string; srcset: string }[] }, sizes: string): HeadEl {
+  const first = image.sources != null && image.sources.length > 0 ? image.sources[0] : null;
+  if (first == null) {
+    return { tag: "link", rel: "preload", as: "image", href: image.src, fetchpriority: "high" };
+  }
+  return { tag: "link", rel: "preload", as: "image", type: first.type, imagesrcset: first.srcset, imagesizes: sizes, fetchpriority: "high" };
 }
 
 /** The canonical URL of this page. */

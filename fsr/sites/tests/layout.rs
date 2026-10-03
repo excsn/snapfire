@@ -318,3 +318,16 @@ fn a_tree_whose_application_serves_its_own_client_carries_none_of_the_embedded_o
   assert!(rows.iter().any(|row| row.path == format!("{under}/index.js")));
   assert!(!rows.iter().any(|row| row.path.ends_with("/boot.js")), "{:?}", rows.iter().map(|r| &r.path).collect::<Vec<_>>());
 }
+
+/// The host reads the asset manifest at boot, so a tree carries it beside
+/// the plan; a project without one lays out as before.
+#[test]
+fn the_asset_manifest_travels_with_the_tree_when_the_build_wrote_one() {
+  let at = project("assets", "");
+  let (_, before) = laid(&at);
+  assert!(!before.places.iter().any(|p| p.to == "app/generated/assets.json"), "nothing to place without a manifest");
+  write(&at.join("app/generated/assets.json"), r#"{"version":1,"images":{"widths":[],"formats":[]},"entries":[],"fonts":{}}"#);
+  let (_, after) = laid(&at);
+  let place = after.places.iter().find(|p| p.to == "app/generated/assets.json").expect("the manifest is placed");
+  assert!(!place.required, "a tree without one still boots");
+}

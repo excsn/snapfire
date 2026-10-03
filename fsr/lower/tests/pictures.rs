@@ -288,3 +288,34 @@ export default function Page() {
   assert!(err.contains("is not an image under the app") || err.contains("not bound here"), "{err}");
   let _ = Value::Null;
 }
+
+#[test]
+fn a_record_of_imports_indexed_by_a_key_lowers_to_one_branch_per_entry() {
+  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+import hero from "../img/hero.png";
+import logo from "../img/logo.svg";
+const PHOTOS = { "hero.png": hero, "logo.svg": logo };
+export default function Page(props: { file: string }) {
+  return <Picture src={PHOTOS[props.file]} alt="keyed" className="thumb" priority />;
+}
+"#;
+  let (set, _) = lower_with(&[("src/ui/Page.tsx", page)], "src/ui/Page.tsx#default", true);
+  assert!(set.heads.is_empty(), "a keyed record asks for no preload, priority or not: {:?}", set.heads);
+  let Tmpl::If { then, r#else, .. } = render_of(&set, "src/ui/Page.tsx#default") else { panic!("not a branch: {:?}", render_of(&set, "src/ui/Page.tsx#default")) };
+  let (_, img) = picture_of(then);
+  assert_eq!(string(attr(img, "class")), "thumb");
+  let Some(rest) = r#else else { panic!("one branch per entry") };
+  let Tmpl::If { then: second, r#else: last, .. } = &**rest else { panic!() };
+  let Tmpl::Element { tag, .. } = &**second else { panic!() };
+  assert_eq!(tag, "img", "the svg entry is an img alone");
+  assert!(last.is_none());
+
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let render = |file: &str| {
+    let props: ValueMap = [("file".to_owned(), Value::str(file))].into_iter().collect();
+    Interpreter::default().render_module("src/ui/Page.tsx#default", &library["src/ui/Page.tsx#default"], &props, &library).map(|r| r.html).unwrap()
+  };
+  assert!(render("hero.png").starts_with("<picture><source type=\"image/avif\""), "{}", render("hero.png"));
+  assert!(render("logo.svg").starts_with("<img src=\"/static/js/app/src/img/logo.9f9f9f9f.svg\""), "{}", render("logo.svg"));
+  assert_eq!(render("absent.png"), "", "a key no entry has renders nothing");
+}

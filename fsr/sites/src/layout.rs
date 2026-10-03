@@ -253,6 +253,14 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   // `build_facts` and the leak check read this by name. It also ships inside
   // whichever static root `dist/` serves and both copies are wanted: one
   // answers a request, this one answers the host at boot.
+  // The host reads it at boot for the image policy, the font CSS and the
+  // preloads; the variants and the font copies it names ship inside the
+  // static root `dist/` serves.
+  let assets = config.app.join(snapfire_fsr_host::assets::ASSETS_FILE);
+  if assets.is_file() {
+    place(format!("{APP}/{}", snapfire_fsr_host::assets::ASSETS_FILE), Source::Path(assets), false)?;
+  }
+
   let facts = config.app.join("dist/.snapfire-build.json");
   if facts.is_file() {
     place(

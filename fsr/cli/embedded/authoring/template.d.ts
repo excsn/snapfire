@@ -530,6 +530,8 @@ export interface ImageAsset {
   height: number;
   /** An APNG, which is served as it is. */
   animated?: boolean;
+  /** The `<source>` rows the build derived, present on the server where a `meta` preloads one of them and absent in the browser. */
+  sources?: { type: string; srcset: string }[];
 }
 
 export interface PictureProps extends Omit<ImageAttributes, "src"> {

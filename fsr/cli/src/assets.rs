@@ -57,7 +57,6 @@ struct Seen {
   /// Relative directory under the app, `src/img`, and the stem and extension.
   dir: String,
   stem: String,
-  ext: String,
   widths: BTreeSet<u32>,
   quality: BTreeMap<Format, u8>,
 }
@@ -103,6 +102,26 @@ impl Resolver {
         .collect()
     };
     ImageFacts { src: seen.src.clone(), width: seen.width, height: seen.height, sources }
+  }
+
+  /// Records every image under `[dirs] images`, so a template that names one
+  /// by its path finds it in the manifest whether or not a component
+  /// imported it.
+  pub fn scan(&self, dir: &Path, under: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    files.sort();
+    for file in files {
+      let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
+      if file.is_dir() {
+        self.scan(&file, &format!("{under}/{name}"));
+        continue;
+      }
+      let ext = file.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).unwrap_or_default();
+      if ["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp"].contains(&ext.as_str()) {
+        let _ = self.image(&format!("{under}/{name}"), &ImageRequest::default());
+      }
+    }
   }
 
   /// Everything the markup named, as the manifest records it.
@@ -180,7 +199,7 @@ impl AssetResolver for Resolver {
       let stem = relative.file_stem().unwrap_or_default().to_string_lossy().into_owned();
       let ext = relative.extension().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
       let src = self.url(self.sections.images.base.as_deref(), &format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext)));
-      seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, dir, stem, ext, widths: BTreeSet::new(), quality: BTreeMap::new() });
+      seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, dir, stem, widths: BTreeSet::new(), quality: BTreeMap::new() });
     }
     let entry = seen.get_mut(path).expect("just inserted");
     let policy = match &request.widths {
@@ -471,6 +490,11 @@ fn origin_of(url: &str) -> Option<String> {
 /// a `.range` sidecar carrying its `unicode-range`. The build then reads
 /// them as local files.
 pub fn add(app: &Path, spec: &str) -> Result<Vec<PathBuf>, BuildError> {
+  add_from(app, spec, "https://fonts.googleapis.com")
+}
+
+/// `add` against a provider at `provider_base`, which a test stands in for.
+pub fn add_from(app: &Path, spec: &str, provider_base: &str) -> Result<Vec<PathBuf>, BuildError> {
   let sections = Sections::of(app);
   let (provider, rest) = spec.split_once(':').ok_or_else(|| BuildError::Assets(format!("`{spec}` is not `google:<Family>@<weights>`")))?;
   if provider != "google" {
@@ -496,7 +520,7 @@ pub fn add(app: &Path, spec: &str) -> Result<Vec<PathBuf>, BuildError> {
     tuples.sort();
     format!("ital,wght@{}", tuples.join(";"))
   };
-  let url = format!("https://fonts.googleapis.com/css2?family={}:{axes}&display=swap", family.replace(' ', "+"));
+  let url = format!("{}/css2?family={}:{axes}&display=swap", provider_base.trim_end_matches('/'), family.replace(' ', "+"));
   let client = reqwest::blocking::Client::builder()
     .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     .build()
@@ -505,13 +529,22 @@ pub fn add(app: &Path, spec: &str) -> Result<Vec<PathBuf>, BuildError> {
   let dir = app.join(&sections.dirs.fonts);
   std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
   let mut written = Vec::new();
-  for block in css.split("@font-face").skip(1) {
+  // The provider writes `/* latin */` before each `@font-face`, so a block's
+  // subset is the comment trailing the chunk before it.
+  let chunks: Vec<&str> = css.split("@font-face").collect();
+  for (i, block) in chunks.iter().enumerate().skip(1) {
     let field = |name: &str| -> Option<String> {
       let at = block.find(name)? + name.len();
       let rest = block[at..].trim_start_matches([':', ' ']);
       Some(rest.split(';').next()?.trim().trim_matches('\'').trim_matches('"').to_owned())
     };
-    let subset = block.split("*/").next().and_then(|c| c.rsplit("/*").next()).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty() && !s.contains('{')).unwrap_or_else(|| "all".to_owned());
+    let subset = chunks[i - 1]
+      .trim_end()
+      .strip_suffix("*/")
+      .and_then(|c| c.rsplit("/*").next())
+      .map(|s| s.trim().to_owned())
+      .filter(|s| !s.is_empty() && !s.contains('{'))
+      .unwrap_or_else(|| "all".to_owned());
     let (Some(weight), Some(style), Some(src)) = (field("font-weight"), field("font-style"), field("src")) else { continue };
     let Some(file_url) = src.split("url(").nth(1).and_then(|u| u.split(')').next()) else { continue };
     let ext = file_url.rsplit('.').next().unwrap_or("woff2").to_owned();

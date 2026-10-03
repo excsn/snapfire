@@ -180,3 +180,52 @@ fn a_dirs_entry_moves_the_font_directory_and_a_base_prefixes_every_url() {
   assert!(entry.variants[0].url.starts_with("https://cdn.example.com/static/js/app/"), "{}", entry.variants[0].url);
   assert_eq!(built.assets.images.base.as_deref(), Some("https://cdn.example.com"));
 }
+
+/// A provider standing in for Google Fonts on a local port: one stylesheet
+/// with two subsets and the files it names.
+fn provider(woff2: Vec<u8>) -> String {
+  use std::io::{Read, Write};
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let base = format!("http://{}", listener.local_addr().unwrap());
+  let css_base = base.clone();
+  std::thread::spawn(move || {
+    for stream in listener.incoming().take(3) {
+      let Ok(mut stream) = stream else { continue };
+      let mut buf = [0u8; 4096];
+      let n = stream.read(&mut buf).unwrap_or(0);
+      let request = String::from_utf8_lossy(&buf[..n]);
+      let path = request.lines().next().unwrap_or_default().split_whitespace().nth(1).unwrap_or("/").to_owned();
+      let (kind, body): (&str, Vec<u8>) = if path.starts_with("/css2") {
+        let css = format!(
+          "/* latin-ext */\n@font-face {{\n  font-family: 'Inter';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url({css_base}/s/inter/ext.woff2) format('woff2');\n  unicode-range: U+0100-02BA;\n}}\n/* latin */\n@font-face {{\n  font-family: 'Inter';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url({css_base}/s/inter/latin.woff2) format('woff2');\n  unicode-range: U+0000-00FF;\n}}\n"
+        );
+        ("text/css", css.into_bytes())
+      } else {
+        ("font/woff2", woff2.clone())
+      };
+      let _ = stream.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: {kind}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes());
+      let _ = stream.write_all(&body);
+    }
+  });
+  base
+}
+
+#[test]
+fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build_reads_them() {
+  let root = root("fonts-add");
+  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  let app = root.join("app");
+  let base = provider(fixture("Inter-Regular.woff2"));
+  let written = assets::add_from(&app, "google:Inter@400", &base).unwrap();
+  let names: Vec<String> = written.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+  assert_eq!(names, ["Inter-400-latin-ext.woff2", "Inter-400-latin.woff2"]);
+  assert_eq!(std::fs::read_to_string(app.join("fonts/Inter-400-latin.woff2.range")).unwrap().trim(), "U+0000-00FF");
+  assert_eq!(std::fs::read(app.join("fonts/Inter-400-latin.woff2")).unwrap(), fixture("Inter-Regular.woff2"));
+
+  let (fonts, _) = assets::fonts(&app, "/static/js/app", &assets::Sections::of(&app)).unwrap();
+  assert_eq!(fonts.faces.len(), 2);
+  assert!(fonts.css.contains("unicode-range:U+0000-00FF;"), "{}", fonts.css);
+  assert!(fonts.css.contains("unicode-range:U+0100-02BA;"), "{}", fonts.css);
+  assert_eq!(fonts.variables["--font-inter"], "\"Inter\", \"Inter Fallback\", sans-serif");
+  assert_eq!(fonts.preload.len(), 1, "one subset is the regular face the default preloads: {:?}", fonts.preload);
+}
