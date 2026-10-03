@@ -4,6 +4,7 @@ members = [
   "core",
   "engine",
   "app",
+  "assets",
   "auth",
   "cli",
   "host",
@@ -34,6 +35,7 @@ repository = "https://github.com/excsn/snapfire"
 # changed and the requirements here that name them.
 [workspace.dependencies]
 snapfire_fsr = { path = "app", version = "0" }
+snapfire_fsr_assets = { path = "assets", version = "0" }
 snapfire_fsr_auth = { path = "auth", version = "0" }
 snapfire_fsr_cli = { path = "cli", version = "0" }
 snapfire_fsr_core = { path = "core", version = "0" }

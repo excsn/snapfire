@@ -1,0 +1,30 @@
+[package]
+name = "snapfire_fsr_assets"
+version = "0.1.0"
+description = "What FSR derives from an image or a font: resized and re-encoded variants under one policy, a face's metrics and the fallback that matches them"
+keywords = ["snapfire", "fsr", "image", "font", "avif"]
+categories = ["web-programming", "multimedia::images"]
+exclude = ["tests"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+readme = "README.md"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
+fast_image_resize = { version = "6", features = ["image"] }
+ravif = "0.13"
+webp = "0.3"
+ttf-parser = "0.25"
+wuff = "0.2"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+proptest = "1"
+serde_json = "1"
+tempfile = "3"
