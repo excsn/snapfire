@@ -1,0 +1,34 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8200"
+
+[document]
+title = "Four evenings"
+styles = ["/static/css/gallery.css", "/static/js/app/src/ui/wall.css"]
+
+[session]
+key = "gallery-example-dev-key-not-a-secret"
+ttl = "1h"
+
+[typecheck]
+version = "7.0.2"
+
+[images]
+widths = [480, 960, 1440]
+base = "http://localhost:8200"
+
+[images.sources.picsum]
+template = "https://picsum.photos/id/{src}/{width}/{width}"
+
+[fonts]
+base = "http://localhost:8200"
+
+[fonts.display]
+family = "Fraunces"
+fallback = "Georgia"
+
+[fonts.sans]
+family = "Inter"
+remote = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"

@@ -14,3 +14,7 @@ ttl = "1h"
 
 [typecheck]
 version = "7.0.2"
+
+[fonts.sans]
+family = "Inter"
+fallback = "Arial"

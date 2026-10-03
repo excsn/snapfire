@@ -13,3 +13,6 @@ ttl = "1h"
 
 [typecheck]
 version = "7.0.2"
+
+[images]
+rewrite = false

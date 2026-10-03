@@ -20,6 +20,10 @@ export default function HomePage({ cards }: RootProps) {
       <p>
         <Link href="/install">Start here</Link>
       </p>
+      <p className="plain-cover">
+        <img src={cover.src} width={cover.width / 4} height={cover.height / 4} alt="" />
+        <small>The same file as a plain <code>img</code>: with <code>[images] rewrite = false</code> the build leaves it alone.</small>
+      </p>
     </div>
   );
 }

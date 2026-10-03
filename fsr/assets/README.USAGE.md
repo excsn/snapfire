@@ -45,7 +45,7 @@ fn main() -> Result<(), snapfire_fsr_assets::Error> {
   }
 
   let inter = Face::read(Path::new("app/fonts/Inter-Regular.woff2"))?;
-  let css = inter.fallback_face("Inter Fallback", font::fallback("Arial").unwrap());
+  let css = inter.fallback_face("Inter Fallback", font::fallback("Arial").unwrap()).expect("Inter has a to z");
   println!("{css}");
   Ok(())
 }
@@ -142,11 +142,11 @@ use std::path::Path;
 
 let inter = Face::read(Path::new("app/fonts/Inter-Regular.woff2"))?;
 let arial = font::fallback("Arial").expect("a known fallback");
-let css = inter.fallback_face("Inter Fallback", arial);
+let css = inter.fallback_face("Inter Fallback", arial).expect("Inter has a to z");
 // @font-face { font-family: "Inter Fallback"; src: local("Arial"); size-adjust: 108.20%; ascent-override: 89.53%; descent-override: 22.32%; line-gap-override: 0.00%; }
 ```
 
-`size-adjust` is the ratio of the two faces' frequency-weighted average advances; the three overrides are the real face's vertical metrics divided by that scale. The fallbacks on offer are the ones `font::fallbacks` lists: Arial, Arial Black, Helvetica, Verdana, Tahoma, Trebuchet MS, Georgia, Times New Roman and Courier New, with metrics read from the files macOS and Windows ship.
+`size-adjust` is the ratio of the two faces' frequency-weighted average advances; the three overrides are the real face's vertical metrics divided by that scale. A subset with no `a` to `z` glyphs has no average advance and `fallback_face` is `None` for it. The fallbacks on offer are the ones `font::fallbacks` lists: Arial, Arial Black, Helvetica, Verdana, Tahoma, Trebuchet MS, Georgia, Times New Roman and Courier New, with metrics read from the files macOS and Windows ship.
 
 ## Naming What Is Emitted
 

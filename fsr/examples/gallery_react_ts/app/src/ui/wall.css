@@ -1,0 +1,33 @@
+@font-face {
+  font-family: "Inter Captions";
+  font-weight: 500;
+  font-display: swap;
+  src: url("../type/Inter-Medium.woff2") format("woff2");
+}
+
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background: url("../img/paper.png");
+  border-radius: 12px;
+}
+
+.wall figure {
+  margin: 0;
+  cursor: zoom-in;
+}
+
+.wall .shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+}
+
+.wall figcaption {
+  font: 500 0.9rem/1.4 "Inter Captions", var(--font-sans, sans-serif);
+  margin-top: 0.5rem;
+}

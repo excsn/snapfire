@@ -21,6 +21,7 @@ fsr serve app
 | `routes/layout.tera` | the frame, with a footer counting the notices its own loader returned |
 | `templates/nav.tera` | a partial the layout includes by path |
 | `images/board.png` | the photo the layout places with `fsr_picture`, found by the build under the images directory rather than by an import |
+| `fonts/Inter-*.woff2` | the body face, named by `[fonts.sans]` with Arial as its fallback; the host writes the `@font-face` rules, the sized fallback and `--font-sans` into every document, so the templates add nothing |
 
 ## What it does not do
 

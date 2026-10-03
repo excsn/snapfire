@@ -47,7 +47,7 @@ image     src/img/hero.png                   1600x900, 8 variants
 derived   8 files under dist/, 0 already there
 ```
 
-An SVG scales itself and an animated GIF would have every frame re-encoded, so both are served as they are, with width and height and no `<picture>`.
+An SVG scales itself and an animated GIF would have every frame re-encoded, so both are served as they are, with width and height and no `<picture>`. An SVG's size is its root element's `width` and `height`, with its `viewBox` taking over when those are missing or relative; one with neither has no size to write and is refused.
 
 A photo straight off a phone is stored on its side with an EXIF orientation tag the browser rotates by. The build reads the tag, so `width` and `height` are the size the photo displays at and every variant is written upright, since a variant carries no tag.
 
@@ -121,7 +121,7 @@ To take a family from Google Fonts, fetch it once:
 fsr fonts add app google:Inter@400,700
 ```
 
-Each subset the provider serves lands as a file with a `.range` sidecar. The build serves them as local files from then on. The build itself never reaches the network. The other shape is a provider's own stylesheet, linked rather than served:
+Each subset the provider serves lands as a file with a `.range` sidecar. A family the provider holds as a variable font comes as one file per subset whatever weights you asked for; the build declares it at the file's own weight axis, `font-weight: 100 900`, so every weight in between is yours too. The fallback is sized from the Latin subset, since a Vietnamese or Cyrillic one has no `a` to `z` to measure. The build serves them as local files from then on. The build itself never reaches the network. The other shape is a provider's own stylesheet, linked rather than served:
 
 ```toml
 [fonts.display]
@@ -160,5 +160,7 @@ icons = "assets/icons"
 The routes stay what they are. `styles`, `fonts` and `icons` are scanned; `images` is the one directory a template names a file under, since a component finds its images by import wherever they sit.
 
 ## The lab
+
+Every path this chapter names is on one of the two pages of [gallery_react_ts](../../examples/gallery_react_ts/README.md), each row of its README naming the path it exercises; `cargo test -p gallery_react_ts` asserts the markup for each. The storefront below is the production-shaped one.
 
 Run the storefront and open the catalog with the network panel on. Fourteen cards fetch fourteen AVIF files at 640 wide, 31 KB in all, against 200 KB for the originals. The first card's file was requested by the preload before the stylesheet. Narrow the window to a phone and reload: the same cards fetch the 960 variants, since the slot is full width on a two-pixel-per-CSS-pixel screen. Block `*.woff2` in the panel and reload: every heading and price sits where it did with Inter, since the fallback took the same room. Then change `widths` in `config/app.toml` to `[320]`, save and watch the report say `derived 28 files under dist/` once and `0` on the save after.
