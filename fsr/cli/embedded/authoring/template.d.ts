@@ -90,8 +90,11 @@ export interface ImageAttributes extends Attributes {
   height?: number | string;
   loading?: "eager" | "lazy";
   decoding?: "async" | "auto" | "sync";
+  fetchPriority?: "high" | "low" | "auto";
   crossOrigin?: "anonymous" | "use-credentials" | "";
   referrerPolicy?: string;
+  /** Keeps an `<img>` of an imported asset out of the `Picture` rewrite: the hashed original is served as it is. Stripped from the markup. */
+  "data-sf-raw"?: boolean;
 }
 
 export interface InputAttributes extends Attributes {
@@ -519,3 +522,28 @@ export interface LinkProps extends AnchorAttributes {
 
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch` and `native` ride as `data-sf-*` attributes. */
 export function Link(props: LinkProps): TemplateNode;
+
+/** An imported image, as the bundle binds it: the hashed original's URL and the size read from its header. */
+export interface ImageAsset {
+  src: string;
+  width: number;
+  height: number;
+  /** An APNG, which is served as it is. */
+  animated?: boolean;
+}
+
+export interface PictureProps extends Omit<ImageAttributes, "src"> {
+  /** An imported image, or a string: a URL as written, or the value a named source's template takes. */
+  src: ImageAsset | string;
+  /** The `[images.sources]` entry a string `src` goes through. */
+  source?: string;
+  /** The largest contentful image: loaded eagerly at high priority and preloaded by the server. */
+  priority?: boolean;
+  /** The widths to offer instead of the policy's; never upscaled past the image's own. */
+  widths?: number[];
+  /** The quality the build encodes this image at, which changes the bytes and never the markup. */
+  quality?: number | { avif?: number; webp?: number };
+}
+
+/** A `<picture>` with a `<source>` per format and the hashed original as its `<img>`, width and height filled from the file; an `<img>` alone for an image served as it is or a string `src`. Lowered by the build. */
+export function Picture(props: PictureProps): TemplateNode;

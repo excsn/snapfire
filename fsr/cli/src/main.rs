@@ -56,6 +56,8 @@ enum Command {
   Types(Types),
   /// The sites a shell mounts.
   Sites(Sites),
+  /// The fonts an application serves.
+  Fonts(Fonts),
 }
 
 #[derive(Args)]
@@ -219,6 +221,23 @@ struct Types {
 struct Sites {
   #[command(subcommand)]
   command: SitesCommand,
+}
+
+#[derive(Args)]
+struct Fonts {
+  #[command(subcommand)]
+  command: FontsCommand,
+}
+
+#[derive(Subcommand)]
+enum FontsCommand {
+  /// Downloads a provider's faces into the font directory, as `google:Inter@400,700,400i`, so the build serves them as local files.
+  Add {
+    /// The application directory.
+    app_dir: PathBuf,
+    /// `google:<Family>@<weights>`, a weight ending in `i` for italic.
+    spec: String,
+  },
 }
 
 #[derive(Subcommand)]
@@ -504,6 +523,18 @@ fn main() -> ExitCode {
       Err(e) => failed(e),
     },
     Command::Sites(args) => run_sites(args.command),
+    Command::Fonts(args) => match args.command {
+      FontsCommand::Add { app_dir, spec } => match snapfire_fsr_cli::assets::add(&app_dir, &spec) {
+        Ok(written) => {
+          for path in &written {
+            println!("{:<9} {}", "fetched", path.strip_prefix(&app_dir).unwrap_or(path).display());
+          }
+          println!("{:<9} {} files; `fsr build` serves them from the font directory", "fonts", written.len());
+          ExitCode::SUCCESS
+        }
+        Err(e) => refused(&e.to_string()),
+      },
+    },
   }
 }
 

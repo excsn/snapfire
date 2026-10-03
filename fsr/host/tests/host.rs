@@ -5753,3 +5753,104 @@ fn the_fonts_section_is_read_by_key_and_its_mistakes_are_named() {
     assert!(err.contains(names), "{extra}: {err}");
   }
 }
+
+const ASSETS_MANIFEST: &str = r#"{
+  "version": 1,
+  "images": { "widths": [640, 1280], "formats": ["avif", "webp"], "quality": { "avif": 60, "webp": 80 }, "base": "https://cdn.example.com", "sources": { "cms": "https://img.example.com/{src}?w={width}" } },
+  "entries": [
+    { "source": "src/img/hero.png", "src": "https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.png", "hash": "0a1b2c3d", "width": 1600, "height": 900, "widths": [640, 1280, 1600], "variants": [
+      { "width": 640, "format": "avif", "url": "https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.640.avif", "path": "src/img/hero.0a1b2c3d.640.avif" },
+      { "width": 1600, "format": "avif", "url": "https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.1600.avif", "path": "src/img/hero.0a1b2c3d.1600.avif" },
+      { "width": 640, "format": "webp", "url": "https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.640.webp", "path": "src/img/hero.0a1b2c3d.640.webp" } ] },
+    { "source": "src/img/logo.svg", "src": "/static/js/app/src/img/logo.9f9f9f9f.svg", "hash": "9f9f9f9f", "width": 120, "height": 40, "passthrough": true }
+  ],
+  "fonts": {
+    "base": "https://fonts.example.com",
+    "faces": [ { "key": "sans", "family": "Inter", "weight": 400, "style": "normal", "source": "fonts/Inter-Regular.woff2", "url": "https://fonts.example.com/static/js/app/fonts/Inter-Regular.8b1d0e77.woff2", "path": "fonts/Inter-Regular.8b1d0e77.woff2", "preload": true } ],
+    "css": "@font-face{font-family:\"Inter\";src:url(https://fonts.example.com/static/js/app/fonts/Inter-Regular.8b1d0e77.woff2) format(\"woff2\");}:root{--font-sans:\"Inter\", sans-serif;}",
+    "preload": ["https://fonts.example.com/static/js/app/fonts/Inter-Regular.8b1d0e77.woff2"],
+    "remote": [ { "key": "display", "family": "Fraunces", "href": "https://fonts.googleapis.com/css2?family=Fraunces", "preconnect": ["https://fonts.googleapis.com", "https://fonts.gstatic.com"] } ],
+    "variables": { "--font-sans": "\"Inter\", sans-serif" }
+  }
+}"#;
+
+#[tokio::test]
+async fn the_assets_manifest_puts_the_policy_the_font_css_and_the_preloads_in_the_head() {
+  let dir = csp_app("[document.csp]\ndefault-src = [\"'self'\"]", false);
+  std::fs::write(dir.join("generated/assets.json"), ASSETS_MANIFEST).unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])))).build().unwrap();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let policy = response.headers().get(header::CONTENT_SECURITY_POLICY).unwrap().to_str().unwrap().to_owned();
+  let html = body_of(response).await;
+
+  assert!(html.contains("<meta name=\"sf:images\" content=\"{&quot;widths&quot;:[640,1280],&quot;formats&quot;:[&quot;avif&quot;,&quot;webp&quot;]"), "{html}");
+  assert!(html.contains("<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"\">"), "{html}");
+  assert!(html.contains("<link rel=\"preload\" as=\"font\" href=\"https://fonts.example.com/static/js/app/fonts/Inter-Regular.8b1d0e77.woff2\" crossorigin=\"\">"), "{html}");
+  assert!(html.contains("<style data-sf-fonts=\"\">@font-face{font-family:\"Inter\";"), "{html}");
+  assert!(html.contains("<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Fraunces\">"), "{html}");
+
+  assert!(policy.contains("style-src 'self' 'sha256-"), "the inline font css is hashed into style-src: {policy}");
+  assert!(policy.contains("https://fonts.googleapis.com"), "{policy}");
+  assert!(policy.contains("font-src 'self' https://fonts.example.com"), "{policy}");
+  let img_src = policy.split("; ").find(|d| d.starts_with("img-src")).unwrap_or_default();
+  assert!(img_src.contains("https://cdn.example.com") && img_src.contains("https://img.example.com"), "{policy}");
+}
+
+#[tokio::test]
+async fn a_hashed_static_name_is_immutable_and_a_plain_one_keeps_the_configured_lifetime() {
+  let dir = tuned_app_with(false, "", "", "");
+  std::fs::write(dir.join("public/hero.0a1b2c3d.png"), b"png").unwrap();
+  std::fs::write(dir.join("public/hero.0a1b2c3d.640.avif"), b"avif").unwrap();
+  std::fs::write(dir.join("public/hero.png"), b"png").unwrap();
+  std::fs::write(dir.join("public/notes.v2.min.js"), b"js").unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  async fn cache(host: &Host, path: &str) -> Option<String> {
+    let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+    assert_eq!(response.status(), StatusCode::OK, "{path}");
+    response.headers().get(header::CACHE_CONTROL).map(|v| v.to_str().unwrap().to_owned())
+  }
+  assert_eq!(cache(&host, "/static/hero.0a1b2c3d.png").await.as_deref(), Some("public, max-age=31536000, immutable"));
+  assert_eq!(cache(&host, "/static/hero.0a1b2c3d.640.avif").await.as_deref(), Some("public, max-age=31536000, immutable"));
+  assert_eq!(cache(&host, "/static/hero.png").await.as_deref(), Some("public, max-age=3600"));
+  assert_eq!(cache(&host, "/static/notes.v2.min.js").await.as_deref(), Some("public, max-age=3600"));
+}
+
+#[tokio::test]
+async fn a_components_head_rows_reach_the_document_of_every_page_rendering_it() {
+  let dir = app_dir();
+  let mut json = read_plan(&dir);
+  json["components"] = serde_json::json!([{
+    "module": "routes/index/page.tsx#default",
+    "body": { "render": { "element": { "tag": "section", "children": [ { "text": "the index" } ] } } },
+    "head": [{ "tag": "link", "attrs": [["rel", "preload"], ["as", "image"], ["imagesrcset", "/static/js/app/img/hero.0a1b2c3d.640.avif 640w"], ["imagesizes", "100vw"], ["fetchpriority", "high"]] }]
+  }]);
+  write_plan_value(&dir, json);
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])))).build().unwrap();
+  let html = body_of(host.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
+  let head = html.split("</head>").next().unwrap();
+  assert!(head.contains("<link rel=\"preload\" as=\"image\" imagesrcset=\"/static/js/app/img/hero.0a1b2c3d.640.avif 640w\" imagesizes=\"100vw\" fetchpriority=\"high\">"), "{head}");
+  let other = body_of(host.handle(Request::get("/where").body(Bytes::new()).unwrap()).await).await;
+  assert!(!other.contains("imagesrcset"), "a page not rendering the module carries no preload: {other}");
+}
+
+#[cfg(feature = "tera")]
+#[tokio::test]
+async fn a_template_writes_a_picture_and_the_fonts_from_the_manifest() {
+  let dir = app_dir();
+  write_plan(&dir, BOARD_PLAN);
+  std::fs::write(dir.join("generated/assets.json"), ASSETS_MANIFEST).unwrap();
+  std::fs::create_dir_all(dir.join("routes/board")).unwrap();
+  std::fs::write(dir.join("routes/board/page.tera"), "{{ fsr_picture(src=\"src/img/hero.png\", alt=\"The harbour\", priority=true) }}{{ fsr_picture(src=\"src/img/logo.svg\", alt=\"logo\", class=\"mark\") }}<footer>{{ fsr_fonts() }}</footer>").unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  let html = body_of(host.handle(Request::get("/board").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("<picture><source type=\"image/avif\" srcset=\"https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.640.avif 640w, https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.1600.avif 1600w\" sizes=\"(max-width: 1600px) 100vw, 1600px\"><source type=\"image/webp\" srcset=\"https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.640.webp 640w\" sizes=\"(max-width: 1600px) 100vw, 1600px\"><img src=\"https://cdn.example.com/static/js/app/src/img/hero.0a1b2c3d.png\" width=\"1600\" height=\"900\" alt=\"The harbour\" loading=\"eager\" decoding=\"async\" fetchpriority=\"high\"></picture>"), "{html}");
+  assert!(html.contains("<img src=\"/static/js/app/src/img/logo.9f9f9f9f.svg\" width=\"120\" height=\"40\" alt=\"logo\" class=\"mark\" loading=\"lazy\" decoding=\"async\">"), "{html}");
+  assert!(html.contains("<footer><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\" crossorigin=\"\">"), "{html}");
+  assert!(html.contains("<style data-sf-fonts=\"\">@font-face{font-family:\"Inter\";"), "{html}");
+
+  std::fs::write(dir.join("routes/board/page.tera"), "{{ fsr_picture(src=\"src/img/absent.png\") }}").unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])))).build().unwrap();
+  let response = host.handle(Request::get("/board").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "an image the build did not see fails the render rather than writing a broken picture");
+}

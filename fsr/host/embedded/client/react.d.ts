@@ -1,4 +1,4 @@
-import { type AnchorHTMLAttributes, type ComponentType, type ReactElement, type ReactNode } from "react";
+import { type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { MountTiming, Mounter, Patcher, type Props, type Unmounter } from "./boot.js";
 import { type PrefetchTiming } from "./navigator.js";
 import { type StoreKey } from "./store.js";
@@ -66,6 +66,31 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes, `match` as the `data-sf-link` the navigator re-reads after each navigation and `current` as `data-sf-current` when it is the document's. */
 export declare function Link({ full, into, prefetch, native, keep, match, current, ...rest }: LinkProps): ReactElement;
+/** An imported image, as the bundle binds it: the hashed original's URL and the size read from its header. */
+export interface ImageAsset {
+	src: string;
+	width: number;
+	height: number;
+	/** An APNG, which is served as it is. */
+	animated?: boolean;
+}
+export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
+	/** An imported image, or a string: a URL as written, or the value a named source's template takes. */
+	src: ImageAsset | string;
+	/** The `[images.sources]` entry a string `src` goes through. */
+	source?: string;
+	/** The largest contentful image: loaded eagerly at high priority and preloaded by the server. */
+	priority?: boolean;
+	/** The widths to offer instead of the policy's; never upscaled past the image's own. */
+	widths?: number[];
+	/** The quality the build encodes this image at, which changes the bytes and never the markup. */
+	quality?: number | {
+		avif?: number;
+		webp?: number;
+	};
+}
+/** The markup the server wrote for the same props: a `<picture>` with a `<source>` per format and the hashed original as its `<img>`; an `<img>` alone for an image served as it is; for a string `src`, an `<img>` whose `srcset` a named source's template writes. */
+export declare function Picture({ src, source, priority, widths, quality, sizes, loading, decoding, ...rest }: PictureProps): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
 export type Hoisted = {
 	readonly [key: string]: unknown;

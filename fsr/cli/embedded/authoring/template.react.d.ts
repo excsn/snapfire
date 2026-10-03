@@ -24,5 +24,5 @@ export type TemplateNode = ReactElement;
 export type Children = ReactNode;
 export type Component<P = {}> = (props: P) => ReactElement | null;
 
-export { Island, island, Link, Slot } from "@snapfire/fsr-client/react";
-export type { IslandProps, LinkProps, SlotProps } from "@snapfire/fsr-client/react";
+export { Island, island, Link, Picture, Slot } from "@snapfire/fsr-client/react";
+export type { ImageAsset, IslandProps, LinkProps, PictureProps, SlotProps } from "@snapfire/fsr-client/react";

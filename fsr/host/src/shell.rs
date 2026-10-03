@@ -104,7 +104,7 @@ pub fn canonical(origin: Option<&str>, path: &str) -> String {
   format!("<link rel=\"canonical\" href=\"{}\">", escape(&href))
 }
 
-fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
   text
     .replace('&', "&amp;")
     .replace('<', "&lt;")

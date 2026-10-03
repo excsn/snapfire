@@ -517,11 +517,13 @@ struct Tracked<'a> {
   bundler: Bundler,
   /// Sources the compiler has not compiled yet, kept across a failed batch so the next carries them.
   pending: HashSet<PathBuf>,
+  /// The asset manifest of the last build, derived under `dist/` once the bundle has run.
+  last: Option<snapfire_fsr_host::assets::AssetsManifest>,
 }
 
 impl<'a> Tracked<'a> {
   fn new(app: &'a App) -> Self {
-    Self { app, files: None, bundler: Bundler::default(), pending: HashSet::new() }
+    Self { app, files: None, bundler: Bundler::default(), pending: HashSet::new(), last: None }
   }
 
   /// Generates and bundles, `sources` naming what changed and none of them meaning everything.
@@ -533,6 +535,7 @@ impl<'a> Tracked<'a> {
     if changed {
       print!("{}", built.report);
     }
+    self.last = Some(built.assets.clone());
     self.pending.extend(rewritten(&self.app.dir, self.files.as_deref(), &built.files));
     if changed {
       self.files = Some(built.files);
@@ -541,6 +544,9 @@ impl<'a> Tracked<'a> {
     let checked = self.app.compile_with(|| self.bundler.bundle(self.app, &batch))?;
     self.pending.clear();
     report_types(checked.as_ref());
+    if let Some(built) = self.last.as_ref() {
+      report_derived(crate::assets::derive(&self.app.dir, &self.app.dir.join("dist"), built)?);
+    }
     Ok(changed)
   }
 }
@@ -619,6 +625,7 @@ pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
         return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));
       }
     }
+    report_derived(crate::assets::derive(&app.dir, &app.dir.join("dist"), &built.assets)?);
     Ok((written, checked))
   })();
   match rest {
@@ -808,6 +815,13 @@ fn overlay(files: &[(String, String)]) -> HashMap<&str, &str> {
       Some((source.to_str()?, body.as_str()))
     })
     .collect()
+}
+
+/// One line for what the derive pass wrote under `dist/`, when it wrote anything.
+fn report_derived(derived: crate::assets::Derived) {
+  if !derived.written.is_empty() {
+    println!("{:<9} {} files under dist/, {} already there", "derived", derived.written.len(), derived.kept);
+  }
 }
 
 /// A type error is printed and the server keeps running: the bundle carries

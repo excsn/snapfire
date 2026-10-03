@@ -1,4 +1,4 @@
-import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { adoptTreeChild, discard, holdTreeChild, islandState, markerProps, patchIsland, registeredIslands, scan, serverRendered } from "./boot.js";
 import { encodeValue } from "./values.js";
@@ -271,6 +271,92 @@ export function Link({ full, into, prefetch, native, keep, match, current, ...re
         else if (rule === "prefix" && path.startsWith(`${rest.href}/`)) attrs["aria-current"] = "true";
     }
     return createElement("a", attrs);
+}
+const DEFAULT_POLICY = {
+    widths: [
+        640,
+        960,
+        1280,
+        1920,
+        2560
+    ],
+    formats: [
+        "avif",
+        "webp"
+    ],
+    sources: {}
+};
+const MIME = {
+    avif: "image/avif",
+    webp: "image/webp"
+};
+let policyRead;
+function imagePolicy() {
+    if (policyRead) return policyRead;
+    let read;
+    if (typeof document !== "undefined") {
+        const meta = document.querySelector('meta[name="sf:images"]');
+        const content = meta?.getAttribute("content");
+        if (content) {
+            try {
+                read = {
+                    ...DEFAULT_POLICY,
+                    ...JSON.parse(content)
+                };
+            } catch  {
+                read = undefined;
+            }
+        }
+    }
+    policyRead = read ?? DEFAULT_POLICY;
+    return policyRead;
+}
+const FETCH_PRIORITY = Number(version.split(".")[0]) >= 19 ? "fetchPriority" : "fetchpriority";
+function servedAsIs(asset) {
+    const ext = asset.src.split("?")[0].split("#")[0].split(".").pop()?.toLowerCase();
+    return asset.animated === true || ext === "svg" || ext === "gif";
+}
+function fillTemplate(template, src, width) {
+    return template.split("{src}").join(src).split("{width}").join(String(width));
+}
+export function Picture({ src, source, priority, widths, quality, sizes, loading, decoding, ...rest }) {
+    void quality;
+    const policy = imagePolicy();
+    const attrs = {
+        ...rest,
+        loading: loading ?? (priority ? "eager" : "lazy"),
+        decoding: decoding ?? "async"
+    };
+    if (priority) attrs[FETCH_PRIORITY] = "high";
+    if (typeof src === "string") {
+        const template = source ? policy.sources[source] : undefined;
+        if (template) {
+            const all = policy.widths.length ? policy.widths : DEFAULT_POLICY.widths;
+            attrs.src = fillTemplate(template, src, Math.max(...all));
+            attrs.srcSet = all.map((w)=>`${fillTemplate(template, src, w)} ${w}w`).join(", ");
+            attrs.sizes = sizes ?? "100vw";
+        } else {
+            attrs.src = src;
+        }
+        return createElement("img", attrs);
+    }
+    const base = policy.base ?? "";
+    const url = base && src.src.startsWith("/") ? `${base}${src.src}` : src.src;
+    attrs.src = url;
+    if (attrs.width === undefined) attrs.width = src.width;
+    if (attrs.height === undefined) attrs.height = src.height;
+    if (servedAsIs(src)) return createElement("img", attrs);
+    const chosen = (widths ?? policy.widths).filter((w)=>w > 0 && w < src.width).sort((a, b)=>a - b).filter((w, i, all)=>i === 0 || all[i - 1] !== w);
+    chosen.push(src.width);
+    const chosenSizes = sizes ?? `(max-width: ${src.width}px) 100vw, ${src.width}px`;
+    const stem = url.replace(/\.[^./]+$/, "");
+    const sources = policy.formats.map((format)=>createElement("source", {
+            key: format,
+            type: MIME[format] ?? `image/${format}`,
+            srcSet: chosen.map((w)=>`${stem}.${w}.${format} ${w}w`).join(", "),
+            sizes: chosenSizes
+        }));
+    return createElement("picture", null, ...sources, createElement("img", attrs));
 }
 const HoistContext = createContext(null);
 const HOISTED_PROP = "$h";

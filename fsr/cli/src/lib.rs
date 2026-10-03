@@ -3,6 +3,7 @@
 //! files on disk and `emit` does both and then the browser bundle, which is the
 //! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
+pub mod assets;
 pub mod dev;
 pub mod direction;
 pub mod doctor;
@@ -133,6 +134,9 @@ pub enum BuildError {
   Xwpm(String),
   #[error("{0}")]
   Dev(String),
+  /// An image or a font the build could not derive, or a `[fonts]` key it could not place.
+  #[error("assets: {0}")]
+  Assets(String),
   #[error("{0}")]
   Types(String),
   #[error("bundle: {0}")]
@@ -203,6 +207,10 @@ pub struct Report {
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
   pub types: Vec<(String, String)>,
+  /// An image the markup named: its file, then its size and how many variants it gets.
+  pub images: Vec<(String, String)>,
+  /// A face the font directory holds or a remote stylesheet, one line each.
+  pub fonts: Vec<String>,
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
@@ -230,6 +238,14 @@ impl fmt::Display for Report {
     for (i, (module, owner, detail)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {owner:<11} {detail}")?;
+    }
+    for (i, (source, detail)) in self.images.iter().enumerate() {
+      let label = if i == 0 { "image" } else { "" };
+      writeln!(f, "{label:<9} {source:<34} {detail}")?;
+    }
+    for (i, line) in self.fonts.iter().enumerate() {
+      let label = if i == 0 { "font" } else { "" };
+      writeln!(f, "{label:<9} {line}")?;
     }
     for (i, cause) in self.causes.iter().enumerate() {
       let label = if i == 0 { "client" } else { "" };
@@ -473,6 +489,8 @@ pub struct Built {
   pub defaults: SessionDefaults,
   /// The route modules the browser mounts, as files, which is all of `routes/` a bundle compiles.
   pub browser_routes: Vec<String>,
+  /// What the build derived from the images and fonts, written as `generated/assets.json`.
+  pub assets: snapfire_fsr_host::assets::AssetsManifest,
 }
 
 #[derive(Clone)]
@@ -628,7 +646,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   contract.validate()?;
 
   let elements = element_templates(app)?;
-  let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect());
+  let sections = assets::Sections::of(app);
+  let public_path = bundle_base(options.site.as_ref());
+  let resolver = std::rc::Rc::new(assets::Resolver::new(app, &public_path, sections.clone()));
+  let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect()).with_assets(resolver.clone(), sections.images.rewrite);
   describe_foreign(app, &mut set, &mut report)?;
   for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
     let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
@@ -1029,7 +1050,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
         islands.push(placed);
       }
     }
-    components.push(ComponentEntry { module, body: component, head: Vec::new() });
+    let head = set.heads.get(&module).map(|rows| rows.iter().map(|row| snapfire_fsr_plan::HeadRow { tag: row.tag.clone(), attrs: row.attrs.clone() }).collect()).unwrap_or_default();
+    components.push(ComponentEntry { module, body: component, head });
   }
   // A component a page places as an island is mounted because the page asked
   // for it, whatever its own markup would need.
@@ -1093,6 +1115,20 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     None => (manifest, contract, contracts),
   };
 
+  let (fonts, font_lines) = assets::fonts(app, &public_path, &sections)?;
+  let assets_manifest = assets::manifest(&resolver, fonts);
+  for entry in &assets_manifest.entries {
+    let detail = if entry.passthrough {
+      format!("{}x{}, served as it is", entry.width, entry.height)
+    } else {
+      format!("{}x{}, {} variants", entry.width, entry.height, entry.variants.len())
+    };
+    report.images.push((entry.source.clone(), detail));
+  }
+  report.fonts = font_lines;
+  for (path, why) in resolver.refused.borrow().iter() {
+    report.images.push((path.clone(), format!("not read: {why}")));
+  }
   let plan_text = manifest.to_sexpr();
   report.plan = Some(plan_text.len());
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
@@ -1121,6 +1157,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &trees, &set)?;
   files.extend([
     ("generated/uploads.d.ts".to_owned(), UPLOAD_DECLARATION.to_owned()),
+    ("generated/assets.d.ts".to_owned(), ASSET_DECLARATIONS.to_owned()),
+    (snapfire_fsr_host::assets::ASSETS_FILE.to_owned(), serde_json::to_string_pretty(&assets_manifest).expect("an assets manifest serializes") + "\n"),
     ("generated/native.d.ts".to_owned(), native::declarations(&natives)),
     ("generated/services.d.ts".to_owned(), declarations),
     ("generated/elements.d.ts".to_owned(), types::element_declarations(app, &layout, &elements)?),
@@ -1138,7 +1176,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut report = report;
   report.types = types::status(app)?;
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files })
+  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, assets: assets_manifest })
 }
 
 /// Writes every generated file under `<app>` and returns their paths. The
@@ -1362,6 +1400,24 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String,
 /// `Upload` as TypeScript sees it. A schema names the type without importing
 /// it, the way it names `Uint8Array`, so the declaration is global: the file
 /// has no import and no export, which is what makes it one.
+/// `generated/assets.d.ts`: what an import of an image or a font file is,
+/// which the bundle turns into a URL and, for an image, its dimensions.
+const ASSET_DECLARATIONS: &str = r#"// Written by `fsr build`. An imported image is its URL and dimensions; an imported font is its URL.
+declare module "*.png" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.jpg" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.jpeg" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.gif" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.webp" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.avif" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.svg" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.ico" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.bmp" { const asset: import("@snapfire/fsr-authoring/template").ImageAsset; export default asset; }
+declare module "*.woff2" { const url: string; export default url; }
+declare module "*.woff" { const url: string; export default url; }
+declare module "*.ttf" { const url: string; export default url; }
+declare module "*.otf" { const url: string; export default url; }
+"#;
+
 const UPLOAD_DECLARATION: &str = r#"// Generated by fsr build. Do not edit.
 
 /** One file part posted to an action as `multipart/form-data`. The host builds it from the part: a schema declares a field as `Upload` and the body receives the name the browser sent, the type it claimed, the length and the bytes. */

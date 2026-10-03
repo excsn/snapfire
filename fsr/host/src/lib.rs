@@ -2,6 +2,7 @@
 //! become a `tower::Service` over `http` types. hyper serves it, axum nests
 //! it, actix reaches it through the `actix` feature's shim.
 
+pub mod assets;
 pub mod client;
 pub mod config;
 pub mod locale;
@@ -2556,6 +2557,11 @@ impl Host {
                 response
                   .headers_mut()
                   .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+              } else if t.static_cache.is_some() && is_hashed_name(rest) {
+                response
+                  .headers_mut()
+                  .entry(header::CACHE_CONTROL)
+                  .or_insert(HeaderValue::from_static("public, max-age=31536000, immutable"));
               } else if let Some(cache) = &t.static_cache {
                 response.headers_mut().entry(header::CACHE_CONTROL).or_insert(cache.clone());
               }
@@ -4770,8 +4776,9 @@ impl HostBuilder {
     let app = app.services(services);
     #[cfg(not(feature = "tera"))]
     let stock_templates: Option<Vec<String>> = None;
+    let assets_manifest = crate::assets::AssetsManifest::read(&config.app);
     #[cfg(feature = "tera")]
-    let (app, stock_templates) = match tera::evaluator(&config.app)? {
+    let (app, stock_templates) = match tera::evaluator(&config.app, assets_manifest.as_ref())? {
       Some((evaluator, names)) if !app.covers(&ModuleId::new("probe.tera", "default")) => (app.evaluator(is_template_module, Arc::new(evaluator)), Some(names)),
       _ => (app, None),
     };
@@ -4793,6 +4800,10 @@ impl HostBuilder {
       config.document.entry.as_deref(),
     );
     head.head = config.document.head_meta()?.head;
+    let font_css = assets_manifest.as_ref().map(|m| m.fonts.css.clone()).filter(|css| !css.is_empty());
+    if let Some(manifest) = &assets_manifest {
+      head.head.extend(asset_head_rows(manifest));
+    }
     head.origin = config.origin()?;
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
@@ -4815,6 +4826,14 @@ impl HostBuilder {
       }
       if let Some(nonce) = &dev_nonce {
         policy.widen("script-src", format!("'nonce-{nonce}'"));
+      }
+      if let Some(css) = &font_css {
+        policy.widen("style-src", import_map_csp(css));
+      }
+      if let Some(manifest) = &assets_manifest {
+        for (directive, source) in asset_csp_sources(manifest) {
+          policy.widen(directive, source);
+        }
       }
       policy.header().and_then(|text| HeaderValue::from_str(&text).ok())
     };
@@ -5136,6 +5155,74 @@ fn dev_nonce() -> String {
     .unwrap_or_default();
   let digest = sha2::Sha256::digest(format!("{seed}{:?}", std::process::id()).as_bytes());
   base64::engine::general_purpose::STANDARD.encode(&digest[..16])
+}
+
+/// Whether a static path names a file the build emitted under a content
+/// hash, `hero.0a1b2c3d.png` or `hero.0a1b2c3d.640.avif`, whose bytes never
+/// change under that name.
+fn is_hashed_name(path: &str) -> bool {
+  let name = path.rsplit('/').next().unwrap_or(path);
+  let mut parts: Vec<&str> = name.split('.').collect();
+  if parts.len() < 3 {
+    return false;
+  }
+  parts.pop();
+  if parts.last().is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) && parts.len() > 2 {
+    parts.pop();
+  }
+  parts.last().is_some_and(|p| p.len() == 8 && p.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// The head rows the asset manifest asks for: the policy the page's
+/// `Picture` runtime reads, the inline font CSS, one preload per face marked
+/// for it and, for a provider's stylesheet, the preconnect and the link.
+fn asset_head_rows(manifest: &crate::assets::AssetsManifest) -> Vec<snapfire_fsr_runtime::HeadEl> {
+  use snapfire_fsr_runtime::HeadEl;
+  let row = |tag: &str, attrs: &[(&str, &str)]| HeadEl { tag: tag.to_owned(), attrs: attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), children: None };
+  let mut rows = vec![row("meta", &[("name", "sf:images"), ("content", &manifest.policy_json())])];
+  for remote in &manifest.fonts.remote {
+    for origin in &remote.preconnect {
+      rows.push(row("link", &[("rel", "preconnect"), ("href", origin), ("crossorigin", "")]));
+    }
+  }
+  for href in &manifest.fonts.preload {
+    rows.push(row("link", &[("rel", "preload"), ("as", "font"), ("href", href), ("crossorigin", "")]));
+  }
+  if !manifest.fonts.css.is_empty() {
+    rows.push(HeadEl { tag: "style".to_owned(), attrs: vec![("data-sf-fonts".to_owned(), String::new())], children: Some(manifest.fonts.css.clone()) });
+  }
+  for remote in &manifest.fonts.remote {
+    rows.push(row("link", &[("rel", "stylesheet"), ("href", &remote.href)]));
+  }
+  rows
+}
+
+/// The CSP sources the asset manifest needs: the origin fonts and images are
+/// served from when a base or a remote names one.
+fn asset_csp_sources(manifest: &crate::assets::AssetsManifest) -> Vec<(&'static str, String)> {
+  let origin = |url: &str| -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    Some(format!("{scheme}://{}", rest.split('/').next()?))
+  };
+  let mut sources = Vec::new();
+  if let Some(base) = manifest.fonts.base.as_deref().and_then(origin) {
+    sources.push(("font-src", base));
+  }
+  for remote in &manifest.fonts.remote {
+    for pre in &remote.preconnect {
+      sources.push(("font-src", pre.clone()));
+      sources.push(("style-src", pre.clone()));
+    }
+  }
+  if let Some(base) = manifest.images.base.as_deref().and_then(origin) {
+    sources.push(("img-src", base));
+  }
+  for template in manifest.images.sources.values() {
+    if let Some(host) = origin(template) {
+      sources.push(("img-src", host));
+    }
+  }
+  sources
 }
 
 /// The CSP `script-src` source for the document's inline import map, which is
