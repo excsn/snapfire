@@ -36,6 +36,22 @@ pub struct Request<'a> {
   pub overlay: Option<(&'a Path, &'a Path)>,
 }
 
+/// `path` with every `.` and `..` resolved by name, so a config in a
+/// subdirectory naming `../src/a.ts` finds the overlay's copy of `src/a.ts`.
+fn lexical(path: &Path) -> PathBuf {
+  let mut out = PathBuf::new();
+  for part in path.components() {
+    match part {
+      Component::CurDir => {}
+      Component::ParentDir => {
+        out.pop();
+      }
+      other => out.push(other.as_os_str()),
+    }
+  }
+  out
+}
+
 pub fn select(request: Request) -> Result<Selection> {
   let include_defaulted = request.include.is_none() && request.files.is_none();
 
@@ -81,7 +97,7 @@ pub fn select(request: Request) -> Result<Selection> {
     let path = request.config_dir.join(&named);
     if !path.is_file() {
       let shadowed = request.overlay.and_then(|(mirrored, overlay)| {
-        let absolute = std::path::absolute(&path).ok()?;
+        let absolute = lexical(&std::path::absolute(&path).ok()?);
         let relative = absolute.strip_prefix(mirrored).ok()?;
         overlay.join(relative).is_file().then_some(absolute)
       });

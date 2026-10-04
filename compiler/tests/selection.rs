@@ -207,3 +207,19 @@ fn a_file_files_names_that_neither_the_root_nor_the_overlay_holds_is_refused() {
 
   get_snapfirec_cmd().arg("--root").arg(root).args(["--overlay", ".overlay"]).assert().failure().stderr(predicate::str::contains("src/gone.ts"));
 }
+
+#[test]
+fn a_config_in_a_subdirectory_finds_the_overlay_copy_of_a_file_it_names_through_dot_dot() {
+  let root = tempfile::tempdir().unwrap();
+  let root = root.path();
+  fs::create_dir_all(root.join("src")).unwrap();
+  fs::create_dir_all(root.join(".overlay/src")).unwrap();
+  fs::create_dir_all(root.join(".test")).unwrap();
+  fs::write(root.join("src/page.ts"), "export const page = 1;\n").unwrap();
+  fs::write(root.join(".overlay/src/page.island0.ts"), "export const island = 2;\n").unwrap();
+  fs::write(root.join(".test/tsconfig.json"), r#"{"compilerOptions":{"outDir":"dist","rootDir":".."},"files":["../src/page.ts","../src/page.island0.ts"]}"#).unwrap();
+
+  run_snapfirec(get_snapfirec_cmd().arg("--root").arg(root).args(["--config", ".test/tsconfig.json", "--overlay", ".overlay"]));
+
+  assert!(root.join(".test/dist/src/page.island0.js").is_file());
+}
