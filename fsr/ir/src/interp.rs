@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::future::{join_all, BoxFuture};
@@ -42,18 +43,75 @@ pub struct Interpreter {
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
   consts: Option<Arc<Consts>>,
+  held: Arc<Held>,
   frameworks: Frameworks,
+}
+
+/// The value of each constant that reads nothing from a request and calls
+/// nothing, computed on its first read and shared by every read after it.
+/// A constant that is missing here is evaluated on every read.
+#[derive(Default)]
+pub(crate) struct Held {
+  cells: HashMap<String, OnceLock<Value>>,
+}
+
+impl Held {
+  fn new(consts: &Consts) -> Self {
+    let mut pure = HashMap::new();
+    for key in consts.keys() {
+      is_pure(key, consts, &mut pure);
+    }
+    Self { cells: pure.into_iter().filter(|(_, p)| *p == Some(true)).map(|(k, _)| (k, OnceLock::new())).collect() }
+  }
+
+  fn get(&self, key: &str) -> Option<&Value> {
+    self.cells.get(key)?.get()
+  }
+
+  fn hold(&self, key: &str, value: &Value) {
+    if let Some(cell) = self.cells.get(key) {
+      let _ = cell.set(value.clone());
+    }
+  }
+}
+
+fn undeclared(key: &str) -> Fail {
+  Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))
+}
+
+/// `None` in `seen` marks a constant whose answer is still being worked out,
+/// so a cycle counts as impure.
+fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>) -> bool {
+  if let Some(known) = seen.get(key) {
+    return known.unwrap_or(false);
+  }
+  let Some(expr) = consts.get(key) else { return false };
+  seen.insert(key.to_owned(), None);
+  let mut free = Vec::new();
+  expr.free_vars(&mut free);
+  let mut pure = free.is_empty();
+  let mut refs = Vec::new();
+  expr.visit(&mut |e| match e {
+    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } => pure = false,
+    Expr::Const(other) => refs.push(other.clone()),
+    _ => {}
+  });
+  if pure {
+    pure = refs.iter().all(|other| is_pure(other, consts, seen));
+  }
+  seen.insert(key.to_owned(), Some(pure));
+  pure
 }
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, frameworks: Frameworks::default() }
+    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, frameworks: Frameworks::default() }
+    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -81,6 +139,7 @@ impl Interpreter {
   /// The plan's module-level constants, which `Expr::Const` reads. A plan that
   /// named none leaves this empty and no body refers to one.
   pub fn with_consts(mut self, consts: Option<Arc<Consts>>) -> Self {
+    self.held = Arc::new(consts.as_deref().map(Held::new).unwrap_or_default());
     self.consts = consts;
     self
   }
@@ -149,6 +208,7 @@ impl Interpreter {
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
       consts: self.consts.clone(),
+      held: self.held.clone(),
     };
 
     for stmt in body {
@@ -207,6 +267,7 @@ pub(crate) struct Env {
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
   consts: Option<Arc<Consts>>,
+  held: Arc<Held>,
   /// Where a render records hoisted values; `None` in a body, which hoists nothing.
   pub(crate) hoists: Option<Hoists>,
   /// Values that stand in for a component's state `let`s, when an island in
@@ -366,6 +427,7 @@ impl Env {
       extensions: interpreter.extensions.clone(),
       catalogs: interpreter.catalogs.clone(),
       consts: interpreter.consts.clone(),
+      held: interpreter.held.clone(),
       hoists: None,
       state: None,
       probe: None,
@@ -399,6 +461,7 @@ impl Env {
       Expr::Var(name) => self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v),
       Expr::Store(key) => self.store.get(key),
       Expr::Session(key) => self.session.get(key),
+      Expr::Const(key) => self.held.get(key),
       Expr::Field(target, name) => match self.place(target)? {
         Value::Map(map) => map.get(name.as_str()),
         _ => None,
@@ -493,6 +556,7 @@ impl Env {
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
       consts: self.consts.clone(),
+      held: self.held.clone(),
       hoists: None,
       state: None,
       probe: None,
@@ -589,11 +653,14 @@ impl Env {
     }
     match expr {
       Expr::Const(key) => {
-        let held = self.consts.as_ref().and_then(|c| c.get(key)).cloned();
-        match held {
-          Some(expr) => self.eval_sync(&expr),
-          None => Err(Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))),
+        if let Some(value) = self.held.get(key) {
+          return Ok(value.clone());
         }
+        let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
+        let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };
+        let value = self.eval_sync(expr)?;
+        self.held.hold(key, &value);
+        Ok(value)
       }
       Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
       Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
@@ -666,6 +733,12 @@ impl Env {
       }
       Expr::Field(target, name) => Ok(get_field(&self.eval_sync(target)?, name)),
       Expr::Index(target, key) => {
+        if self.place(target).is_some() {
+          let key = self.eval_sync(key)?;
+          if let Some(target) = self.place(target) {
+            return index(target, &key);
+          }
+        }
         let target = self.eval_sync(target)?;
         let key = self.eval_sync(key)?;
         index(&target, &key)
@@ -895,11 +968,9 @@ impl Env {
     Box::pin(async move {
       match expr {
         Expr::Const(key) => {
-          let held = self.consts.as_ref().and_then(|c| c.get(key)).cloned();
-          match held {
-            Some(expr) => self.eval(&expr).await,
-            None => Err(Fail::new(FailureKind::Internal, format!("`{key}` is not a constant this plan declares"))),
-          }
+          let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
+          let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };
+          self.eval(expr).await
         }
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
         Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
@@ -1649,5 +1720,77 @@ fn delete_path(root: &mut Value, steps: &[Value]) -> Result<(), Fail> {
     }
     (Value::Null, _) => Ok(()),
     (root, key) => Err(type_error("session delete", "an object with a string key", if matches!(root, Value::Map(_)) { key } else { root })),
+  }
+}
+
+#[cfg(test)]
+mod held_tests {
+  use std::sync::atomic::{AtomicI64, Ordering};
+
+  use super::*;
+  use crate::ast::Lit;
+
+  struct Ticking(AtomicI64);
+
+  impl Clock for Ticking {
+    fn now(&self) -> i128 {
+      self.0.fetch_add(1, Ordering::SeqCst) as i128
+    }
+  }
+
+  fn int(n: i128) -> Expr {
+    Expr::Lit(Lit::Int(n))
+  }
+
+  fn chapters() -> Expr {
+    let lambda = Expr::Lambda { params: vec!["i".to_owned()], body: Box::new(Expr::object(vec![("n", Expr::var("i"))])) };
+    Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![int(3)] }), Box::new(lambda))
+  }
+
+  fn interpreter(consts: Vec<(&str, Expr)>) -> Interpreter {
+    let consts: Consts = consts.into_iter().map(|(k, v)| (k.to_owned(), v)).collect();
+    Interpreter::with_clock(Arc::new(Ticking(AtomicI64::new(0)))).with_consts(Some(Arc::new(consts)))
+  }
+
+  #[test]
+  fn a_pure_constant_is_held_after_its_first_read() {
+    let interpreter = interpreter(vec![("a#CHAPTERS", chapters())]);
+    assert!(interpreter.held.get("a#CHAPTERS").is_none());
+    let mut env = Env::detached(&interpreter, Vec::new());
+    let read = env.eval_sync(&Expr::Const("a#CHAPTERS".to_owned())).unwrap();
+    assert_eq!(Some(&read), interpreter.held.get("a#CHAPTERS"));
+    let mut fresh = Env::detached(&interpreter, Vec::new());
+    assert_eq!(read, fresh.eval_sync(&chapters()).unwrap());
+  }
+
+  #[test]
+  fn a_held_constant_is_indexed_in_place() {
+    let interpreter = interpreter(vec![("a#CHAPTERS", chapters())]);
+    let mut env = Env::detached(&interpreter, vec![("i".to_owned(), Value::Int(2))]);
+    let read = Expr::Const("a#CHAPTERS".to_owned()).index(Expr::var("i")).field("n");
+    assert_eq!(env.eval_sync(&read).unwrap(), Value::F64(2.0));
+    assert_eq!(env.eval_sync(&read).unwrap(), Value::F64(2.0));
+  }
+
+  #[test]
+  fn a_pure_application_is_held() {
+    let double = Expr::Lambda { params: vec!["x".to_owned()], body: Box::new(Expr::Arith(ArithOp::Mul, Box::new(Expr::var("x")), Box::new(int(2)))) };
+    let interpreter = interpreter(vec![("a#SIX", Expr::Apply { f: Box::new(double), args: vec![int(3)] })]);
+    let mut env = Env::detached(&interpreter, Vec::new());
+    env.eval_sync(&Expr::Const("a#SIX".to_owned())).unwrap();
+    assert!(interpreter.held.get("a#SIX").is_some());
+  }
+
+  #[test]
+  fn a_constant_that_reads_the_request_is_evaluated_on_every_read() {
+    let interpreter = interpreter(vec![("a#NOW", Expr::Now), ("a#LOCALE", Expr::Locale), ("a#LATER", Expr::Arith(ArithOp::Add, Box::new(Expr::Const("a#NOW".to_owned())), Box::new(int(1))))]);
+    let mut env = Env::detached(&interpreter, Vec::new());
+    let first = env.eval_sync(&Expr::Const("a#LATER".to_owned())).unwrap();
+    let second = env.eval_sync(&Expr::Const("a#LATER".to_owned())).unwrap();
+    assert_ne!(first, second);
+    env.eval_sync(&Expr::Const("a#LOCALE".to_owned())).unwrap();
+    assert!(interpreter.held.get("a#NOW").is_none());
+    assert!(interpreter.held.get("a#LATER").is_none());
+    assert!(interpreter.held.get("a#LOCALE").is_none());
   }
 }
