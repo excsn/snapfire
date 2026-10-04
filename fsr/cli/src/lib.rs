@@ -203,6 +203,10 @@ pub struct Report {
   pub hoisted: Vec<(String, usize, usize)>,
   /// Components placed as islands in server mode and how many handlers each answers.
   pub islands: Vec<(String, usize)>,
+  /// Each page or layout whose state, handlers and effects moved into an island beside it: the route module, the island and what it took.
+  pub extracted: Vec<(String, String, Vec<String>)>,
+  /// Each page or layout that holds state composition cannot and stays a framework root, with the reason.
+  pub kept: Vec<(String, String)>,
   /// Each export under `ext/` as `file#name` and whether it is `lowered`, `native render` or `native body`.
   pub extensions: Vec<(String, String)>,
   /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`, or a handler it runs as written, as `file:line:column: reason`.
@@ -277,6 +281,14 @@ impl fmt::Display for Report {
     for (i, line) in self.plugins.iter().enumerate() {
       let label = if i == 0 { "plugins" } else { "" };
       writeln!(f, "{label:<9} {line}")?;
+    }
+    for (i, (module, island, holds)) in self.extracted.iter().enumerate() {
+      let label = if i == 0 { "extracted" } else { "" };
+      writeln!(f, "{label:<9} {module:<34} {island} ({})", holds.join(", "))?;
+    }
+    for (i, (module, why)) in self.kept.iter().enumerate() {
+      let label = if i == 0 { "kept" } else { "" };
+      writeln!(f, "{label:<9} {module:<34} {why}")?;
     }
     for (i, (module, handlers)) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
@@ -977,6 +989,21 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
     }
   }
+  // A page or layout holding state, handlers or effects is split before it is
+  // lowered: they move with the markup that uses them into an island beside
+  // it, which only the bundle overlay holds.
+  let mut generated: Vec<(String, String)> = Vec::new();
+  for module in islands.iter().filter(|m| m.starts_with("routes/") && !m.contains(".tera#")) {
+    match set.extract_route(module) {
+      Ok(Some(extracted)) => {
+        report.extracted.push((module.clone(), extracted.island.clone(), extracted.holds));
+        generated.push((extracted.file, extracted.source));
+        generated.push(extracted.page);
+      }
+      Ok(None) => {}
+      Err(why) => report.kept.push((module.clone(), why)),
+    }
+  }
   for module in &islands {
     lower_into(&mut set, module, &mut report)?;
   }
@@ -1033,7 +1060,12 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     rewrite.module = format!("{}{}", options.prefix(), rewrite.module);
     report.hoisted.push((rewrite.module.clone(), rewrite.sites.len(), rewrite.chunks.len()));
   }
-  let rewritten = set.rewritten();
+  let mut rewritten = set.rewritten();
+  for (file, source) in &generated {
+    if !rewritten.iter().any(|(f, _)| f == file) {
+      rewritten.push((file.clone(), source.clone()));
+    }
+  }
   report.hoisted.sort();
   report.browser = set.remaining.iter().map(|(module, site)| (format!("{}{module}", options.prefix()), site.clone())).collect();
   for (module, component) in &set.components {
@@ -1135,6 +1167,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     .collect();
   browser_route_files.sort();
   browser_route_files.dedup();
+  let islands_generated: Vec<&String> = report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file)).map(|file| generated.iter().find(|(f, _)| f == file).map(|(f, _)| f)).flatten().collect();
+  let generated_files: Vec<String> = islands_generated.into_iter().cloned().collect();
+  browser_route_files.retain(|file| !generated_files.contains(file));
   report.causes.sort_by(|a, b| (&a.at, &a.message).cmp(&(&b.at, &b.message)));
   for cause in &mut report.causes {
     cause.pages.sort();
@@ -1216,7 +1251,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
     }
   }
-  let registry = islands_module(&islands, &static_modules, &defines, &owners, options)?;
+  let split: Vec<String> = report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file.to_owned())).collect();
+  let registry = islands_module(&islands, &static_modules, &defines, &owners, &split, options)?;
   check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &owners, &set)?;
   files.extend([
     ("generated/uploads.d.ts".to_owned(), UPLOAD_DECLARATION.to_owned()),
@@ -1232,7 +1268,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some())?),
-    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_route_files)),
+    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_route_files, &generated_files)),
   ]);
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
@@ -1917,7 +1953,7 @@ fn adapter_for(module: &str, owners: &HashMap<String, Owner>) -> Result<&'static
 /// mounts exactly what the plan file refers to. A module nothing mounts is
 /// left out and a mounter nothing registers is never imported, which is what
 /// keeps a framework off a page that has no component of it.
-fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, options: &Options) -> Result<String, BuildError> {
+fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, generated: &[String], options: &Options) -> Result<String, BuildError> {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   let registered: Vec<&String> = islands.iter().filter(|m| !static_modules.contains(m)).collect();
   let defining = registered.iter().any(|m| defines.contains(m));
@@ -1965,6 +2001,9 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
     }
     let adapter = adapter_for(module, owners)?;
     let claims = adapter.claims.map(|claims| format!(", claims: {claims}")).unwrap_or_default();
+    if generated.iter().any(|file| file == path) {
+      out.push_str("  // @ts-ignore: the bundle overlay alone holds this module, which the build split out of its page\n");
+    }
     let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {}{claims} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
   out.push_str("}\n");

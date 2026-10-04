@@ -4,6 +4,7 @@
 
 pub mod assets;
 pub mod component;
+pub mod extract;
 pub mod hoist;
 pub mod schema;
 pub mod testing;

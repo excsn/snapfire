@@ -55,7 +55,7 @@ pub struct Prepared {
 }
 
 /// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
-pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String]) -> Result<Prepared, BuildError> {
+pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], generated: &[String]) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
   let site = crate::site_beside(&app);
@@ -70,7 +70,7 @@ pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String]) -
   let dom = overrides.get("linkedom").cloned().expect("linkedom is vendored");
   let composition_files: Vec<String> = compositions.iter().filter_map(|module| module.split_once('#').map(|(file, _)| file.to_owned())).filter(|file| !browser_routes.contains(file)).collect();
   let routes: Vec<String> = browser_routes.iter().cloned().chain(composition_files).collect();
-  write_config(&app, &layout, &test_dir, &routes)?;
+  write_config(&app, &layout, &test_dir, &routes, generated)?;
   compile(&app, &test_dir, &bundle)?;
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
@@ -155,7 +155,8 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     specs.iter().any(|source| source.contains(&specifier))
   };
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/") && imported(&c.module)).map(|c| c.module.clone()).collect();
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions)?;
+  let generated: Vec<String> = built.report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file.to_owned())).collect();
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions, &generated)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
@@ -496,7 +497,7 @@ fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, speci
 }
 
 /// `.fsr-test/tsconfig.json` and `.fsr-test/importmap.json`: the browser build plus the spec files and the testing module.
-fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[String]) -> Result<(), BuildError> {
+fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[String], generated: &[String]) -> Result<(), BuildError> {
   let mut tsconfig = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
   let aliases: Vec<(String, String)> = snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("../{dir}*"))).collect();
   for (i, (from, to)) in aliases.iter().enumerate() {
@@ -506,7 +507,12 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[
   include.extend(browser_routes.iter().map(|file| format!("../{file}")));
   include.extend(["../generated/islands.ts", "../generated/client.ts", "../tests/**/*.spec.tsx", "../tests/**/*.spec.ts"].map(str::to_owned));
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
-  tsconfig.push_str(&format!("    }}\n  }},\n  \"include\": [{}]\n}}\n", include.join(", ")));
+  tsconfig.push_str(&format!("    }}\n  }},\n  \"include\": [{}]", include.join(", ")));
+  if !generated.is_empty() {
+    let files: Vec<String> = generated.iter().map(|file| format!("\"../{file}\"")).collect();
+    tsconfig.push_str(&format!(",\n  \"files\": [{}]", files.join(", ")));
+  }
+  tsconfig.push_str("\n}\n");
   let path = test_dir.join("tsconfig.json");
   std::fs::write(&path, tsconfig).map_err(|e| BuildError::Io(path, e))?;
   let mut map = vendor::read_import_map(app, layout)?;

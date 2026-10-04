@@ -17,7 +17,7 @@ test("a click from the catalog to the cart swaps the page and keeps the document
   expect(document.getElementById("app"), "the shell's DOM survived the navigation").toBe(app);
   expect(screen.queryByText("Today's picks")).toBeNull();
   expect(screen.getByText("Shopping cart")).toBeTruthy();
-  expect(document.querySelector('sf-i[data-sf-module="routes/cart/page.tsx#default"][data-sf-mounted]'), "the cart hydrated in place").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/cart/page.island0.tsx#default"][data-sf-mounted]'), "the cart's island hydrated in place").toBeTruthy();
   expect(
     c.trace.calls.map((call) => call.method),
     "each page's loader and the promo slot's ran once per document, through the mocks",
@@ -56,7 +56,7 @@ test("a click on a streamed route shows its fallback, then the fill when the res
     await settle();
     expect(document.querySelectorAll(".skeleton").length, "the resolution replaced the fallback").toEqual(0);
     expect(document.querySelector("main.product h1")?.textContent).toEqual("PLA filament");
-    expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.tsx#default"][data-sf-mounted]'), "the page hydrated once its resolution landed").toBeTruthy();
+    expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.island0.tsx#default"][data-sf-mounted]'), "the page's island hydrated once its resolution landed").toBeTruthy();
   } finally {
     globalThis.fetch = real;
   }

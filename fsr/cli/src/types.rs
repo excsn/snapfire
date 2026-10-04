@@ -578,7 +578,7 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
 /// server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
 /// `route_files` are the route modules the browser mounts; a template nothing
 /// mounts is not compiled, so it never asks the import map for a framework.
-pub fn tsconfig_build(app: &Path, route_files: &[String]) -> String {
+pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String]) -> String {
   let mut out = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
   let paths = alias_paths();
   let last = paths.len() - 1;
@@ -592,7 +592,14 @@ pub fn tsconfig_build(app: &Path, route_files: &[String]) -> String {
   include.extend(route_files.iter().cloned());
   include.extend(["generated/islands.ts".to_owned(), "generated/client.ts".to_owned()]);
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
-  out.push_str(&format!("    }}\n  }},\n  \"include\": [{}]\n}}\n", include.join(", ")));
+  out.push_str(&format!("    }}\n  }},\n  \"include\": [{}]", include.join(", ")));
+  // A module the build generated exists in the bundle overlay alone, which
+  // only `files` can name.
+  if !generated.is_empty() {
+    let files: Vec<String> = generated.iter().map(|f| format!("\"{f}\"")).collect();
+    out.push_str(&format!(",\n  \"files\": [{}]", files.join(", ")));
+  }
+  out.push_str("\n}\n");
   out
 }
 

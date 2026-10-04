@@ -249,6 +249,32 @@ impl ComponentSet {
     })
   }
 
+  /// Splits route module `module` into composition and an island module
+  /// beside it when it holds state, handlers or effects; afterwards the set
+  /// reads both from what the split wrote. `Ok(None)` when there is nothing to
+  /// move, `Err` with the reason when what there is cannot be moved.
+  pub fn extract_route(&mut self, module: &str) -> Result<Option<Extracted>, String> {
+    let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module).to_owned();
+    if self.load(&file).is_err() {
+      return Ok(None);
+    }
+    let parsed = self.parsed[&file].clone();
+    if matches!(tree_target(&parsed), Ok(Some(_))) {
+      return Ok(None);
+    }
+    let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
+    match crate::extract::extract(&parsed, &file, &slots) {
+      Ok(Some(extraction)) => {
+        self.parsed.remove(&file);
+        self.provided.insert(file.clone(), extraction.page.clone());
+        self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
+        Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
+      }
+      Ok(None) => Ok(None),
+      Err(crate::extract::Kept(why)) => Err(why),
+    }
+  }
+
   pub fn rewritten(&self) -> Vec<(String, String)> {
     let mut files: Vec<&str> = Vec::new();
     for rewrite in &self.rewrites {
@@ -985,7 +1011,7 @@ fn arrow_body(arrow: &js::ArrowExpr) -> FunctionBody<'_> {
 
 /// The exported or declared function named `export`; `default` is the
 /// default export.
-fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
+pub(crate) fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
   for item in &parsed.module.body {
     match item {
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) if export == "default" => {
@@ -1020,9 +1046,22 @@ fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
   None
 }
 
-enum Found<'a> {
+pub(crate) enum Found<'a> {
   Declared(Vec<js::Pat>, &'a [js::Stmt], Span),
   Arrow(&'a js::ArrowExpr),
+}
+
+/// A route module split by [`ComponentSet::extract_route`].
+pub struct Extracted {
+  /// The island's module id.
+  pub island: String,
+  /// The island's file and source, which only the bundle overlay holds.
+  pub file: String,
+  pub source: String,
+  /// The page's file and its source as composition.
+  pub page: (String, String),
+  /// The names the island took from the page's body.
+  pub holds: Vec<String>,
 }
 
 /// The name an `export default function Name` declaration gives itself, which

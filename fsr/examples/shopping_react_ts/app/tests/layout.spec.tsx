@@ -25,7 +25,7 @@ test("the layout is composition around its header island, keeps the header's sta
   expect(location.pathname).toEqual("/product/1");
   expect(document.querySelector("header.site-header"), "the layout's DOM survived the navigation").toBe(header);
   expect((screen.getByPlaceholderText("Search snapfire.shop") as HTMLInputElement).value, "and so did its state").toEqual("nozzle");
-  expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.tsx#default"][data-sf-mounted]'), "the new page hydrated in its own root").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.island0.tsx#default"][data-sf-mounted]'), "the new page's island hydrated in its own root").toBeTruthy();
   expect(screen.getByLabelText("Cart, 0 items").textContent?.includes("0")).toEqual(true);
 
   await fireEvent.click(screen.getByText("Add to cart"));

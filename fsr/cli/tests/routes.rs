@@ -428,7 +428,7 @@ fn an_island_no_framework_claims_is_refused() {
 fn an_island_whose_adapter_the_import_map_cannot_supply_is_refused_by_name() {
   let dir = app(&[("routes/page.tsx", HANDLED)]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r"}}"#).unwrap();
-  assert_eq!(fails(&dir).to_string(), "`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react` or `react-dom/client`; `fsr use <app dir> react` writes it");
+  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react` or `react-dom/client`; `fsr use <app dir> react` writes it");
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/":"/fsr/","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   build(&dir, &Options::default()).expect("a trailing-slash key covers the adapter beneath it");
   std::fs::remove_file(dir.join("importmap.json")).unwrap();
@@ -521,7 +521,7 @@ fn a_layout_declared_tree_registers_with_the_tree_mounter_and_its_page_with_the_
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("registerIsland(\"routes/layout.tsx#default\", { loader: () => import(\"../routes/layout.js\").then((m) => m.default), mount: reactTreeMounter, patch: reactTreePatcher, unmount: reactUnmounter, claims: reactTreeClaims });"), "{islands}");
-  assert!(islands.contains("registerIsland(\"routes/page.tsx#default\", { loader: () => import(\"../routes/page.js\").then((m) => m.default), mount: reactMounter, patch: reactPatcher, unmount: reactUnmounter });"), "{islands}");
+  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), mount: reactMounter, patch: reactPatcher, unmount: reactUnmounter });"), "{islands}");
   assert!(islands.contains("import { reactTreeMounter, reactTreePatcher, reactUnmounter, reactTreeClaims, reactMounter, reactPatcher } from \"@snapfire/fsr-client/react\";"), "one import line per adapter module: {islands}");
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/layout.tsx#default" && owner == "lowered" && detail == "tree"), "{}", built.report);
   let plan = built.files.iter().find(|(name, _)| name == "generated/plan.sexp").map(|(_, text)| text.clone()).unwrap();
@@ -530,7 +530,7 @@ fn a_layout_declared_tree_registers_with_the_tree_mounter_and_its_page_with_the_
 }
 
 #[test]
-fn a_page_with_a_handler_hydrates_and_a_component_placed_as_an_island_is_registered_whatever_it_holds() {
+fn a_handler_in_a_page_moves_into_an_island_and_a_component_placed_as_an_island_is_registered_whatever_it_holds() {
   let dir = app(&[
     (
       "routes/index/page.tsx",
@@ -540,9 +540,10 @@ fn a_page_with_a_handler_hydrates_and_a_component_placed_as_an_island_is_registe
   ]);
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"routes/index/page.tsx#default\""), "a handler the lowerer cannot lower is still the browser's to run: {islands}");
+  assert!(islands.contains("registerIsland(\"routes/index/page.island0.tsx#default\""), "a handler the lowerer cannot lower is still the browser's to run: {islands}");
   assert!(islands.contains("registerIsland(\"src/ui/Tips.tsx#Tips\""), "the page placed it as an island, so it mounts though it holds nothing: {islands}");
-  assert!(!built.report.components.iter().any(|(module, _, detail)| (module == "routes/index/page.tsx#default" || module == "src/ui/Tips.tsx#Tips") && detail == "static"), "{}", built.report);
+  assert!(built.report.components.iter().any(|(module, _, detail)| module == "routes/index/page.tsx#default" && detail == "static"), "the page is composition: {}", built.report);
+  assert!(!built.report.components.iter().any(|(module, _, detail)| module == "src/ui/Tips.tsx#Tips" && detail == "static"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -664,7 +665,7 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(built.contract.services.contains_key("billing:ledger") && built.contract.types.contains_key("billing:Invoice"), "{:?}", built.contract.services.keys().collect::<Vec<_>>());
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
   let islands = file("generated/islands.ts");
-  assert!(islands.contains("registerIsland(\"billing:routes/page.tsx#default\", { loader: () => import(\"../routes/page.js\")"), "{islands}");
+  assert!(islands.contains("registerIsland(\"billing:routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\")"), "{islands}");
   let client = file("generated/client.ts");
   assert!(client.contains("call(\"billing:$root.add\")") && client.contains("  $root: {"), "{client}");
   let declarations = file("generated/services.d.ts");
@@ -904,9 +905,9 @@ fn a_handler_the_browser_runs_as_written_is_a_browser_row() {
   let built = build(&dir, &Options::default()).unwrap();
   assert_eq!(built.report.browser.len(), 1, "{}", built.report);
   let (module, site) = &built.report.browser[0];
-  assert_eq!(module, "routes/index/page.tsx#default");
-  assert!(site.starts_with("routes/index/page.tsx:2:") && site.contains("`.log()` in a handler"), "{site}");
-  assert!(built.report.to_string().contains("browser   routes/index/page.tsx#default"), "{}", built.report);
+  assert_eq!(module, "routes/index/page.island0.tsx#default", "the handler moved into the island beside the page");
+  assert!(site.starts_with("routes/index/page.island0.tsx:") && site.contains("`.log()` in a handler"), "{site}");
+  assert!(built.report.to_string().contains("browser   routes/index/page.island0.tsx#default"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -924,10 +925,12 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
     built.report.extensions,
     vec![("ext/fmt.ts#weight".to_owned(), "lowered".to_owned()), ("ext/fmt.ts#pretty".to_owned(), "native render".to_owned()), ("ext/fmt.ts#stamp".to_owned(), "native body".to_owned())]
   );
-  assert_eq!(built.report.browser, vec![("routes/index/page.tsx#default".to_owned(), "routes/index/page.tsx:6:64".to_owned())], "{}", built.report);
-  assert_eq!(built.report.hoisted, vec![("routes/index/page.tsx#default".to_owned(), 1, 0)], "{}", built.report);
+  assert_eq!(built.report.browser.len(), 1, "{}", built.report);
+  assert_eq!(built.report.browser[0].0, "routes/index/page.island0.tsx#default", "the state and its handler moved into the island: {}", built.report);
+  assert!(built.report.browser[0].1.starts_with("routes/index/page.island0.tsx:"), "{}", built.report);
+  assert_eq!(built.report.hoisted, vec![("routes/index/page.island0.tsx#default".to_owned(), 1, 0), ("routes/index/page.tsx#default".to_owned(), 0, 0)], "{}", built.report);
   let text = built.report.to_string();
-  assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.tsx#default      routes/index/page.tsx:6:64"), "{text}");
+  assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.island0.tsx#default"), "{text}");
   let plan = built.manifest.to_json();
   assert!(plan.contains("\"ext\"") && plan.contains("\"intl\"") && plan.contains("\"time\""), "{plan}");
   std::fs::remove_dir_all(&fine).unwrap();
@@ -1006,11 +1009,11 @@ fn a_page_tera_is_refused_by_an_fsr_built_without_the_feature() {
 fn a_mounted_page_placing_the_dialects_link_needs_the_template_module_mapped() {
   const PAGE: &str = "import { useState } from \"react\";\nimport { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  const [n, set] = useState(0);\n  return <section><button onClick={() => set(n + 1)}>{n}</button><Link href=\"/\">home</Link></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", PAGE)]);
-  assert_eq!(fails(&dir).to_string(), "`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-authoring/template`; `fsr use <app dir> react` writes it");
+  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-authoring/template`; `fsr use <app dir> react` writes it");
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","@snapfire/fsr-authoring/template":"/t","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"routes/page.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
+  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

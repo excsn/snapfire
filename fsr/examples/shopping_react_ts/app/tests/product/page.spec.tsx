@@ -4,9 +4,10 @@ import { advance, ctx, expect, fireEvent, render, screen, test } from "@snapfire
 const product = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 8n, description: "A spool.", tags: ["pla"], attributes: [{ name: "Ingredients", value: "PLA" }, { name: "Weight", value: "1 kg" }] };
 const stock = { product_id: 1n, on_hand: 8n, reserved: 0n, warehouse: "Prague", bins: ["A1", "B2"] };
 
-test("the product page hydrates with its quantity select", async () => {
+test("the product page is composition and its quantity select hydrates in the island beside it", async () => {
   const r = await render(<ProductPage product={product} stock={stock} inCart={0n} />);
-  expect(r.hydrated).toEqual("routes/product/[id]/page.tsx#default");
+  expect(r.composed).toEqual("routes/product/[id]/page.tsx#default");
+  expect(r.container.querySelector('sf-i[data-sf-module="routes/product/[id]/page.island0.tsx#default"][data-sf-mounted]'), "the quantity state moved into an island").toBeTruthy();
   const select = screen.getByLabelText("Quantity") as HTMLSelectElement;
   expect(select.querySelectorAll("option").length).toEqual(8);
   expect(select.value).toEqual("1");

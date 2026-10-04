@@ -3,9 +3,10 @@ import { advance, ctx, expect, fireEvent, render, screen, test } from "@snapfire
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: null, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "", tags: [], attributes: [], quantity: 2n };
 
-test("the server renders the cart and React hydrates over it", async () => {
+test("the server renders the cart as composition and React hydrates the island holding its state", async () => {
   const r = await render(<Cart lines={[filament]} />);
-  expect(r.hydrated).toEqual("routes/cart/page.tsx#default");
+  expect(r.composed).toEqual("routes/cart/page.tsx#default");
+  expect(r.container.querySelector('sf-i[data-sf-module="routes/cart/page.island0.tsx#default"][data-sf-mounted]'), "the checkout state moved into an island beside the page").toBeTruthy();
   expect(screen.getByText("PLA filament").tagName).toEqual("A");
   expect(screen.getAllByText("$48.00").length, "the line, the subtotal and the buy box").toEqual(3);
 });

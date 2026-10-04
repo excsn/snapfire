@@ -19,7 +19,7 @@ test("a click on a product from the catalog opens it in the layout's modal slot 
   expect(modal!.textContent?.includes("Full details"), "the quick look rendered inside the modal slot").toBeTruthy();
   expect(modal!.querySelector("sf-i"), "the modal hydrates for its close and add buttons").toBeTruthy();
   expect(screen.getByText("Full details").getAttribute("aria-current"), "a link in the modal is marked by the address, which is its own page").toEqual("page");
-  expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.tsx#default"]'), "the page itself was never rendered").toBeNull();
+  expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.island0.tsx#default"]'), "the page itself was never rendered").toBeNull();
   expect(c.trace.calls.map((call) => call.method), "the catalog and promo loaders ran for the document, the product's for the modal").toEqual(["listProducts", "listProducts", "getProduct", "getStock"]);
 
   await fireEvent.click(screen.getByText("Full details"));
@@ -27,7 +27,7 @@ test("a click on a product from the catalog opens it in the layout's modal slot 
   expect(location.pathname).toEqual("/product/1");
   expect(modal!.innerHTML, "the modal slot emptied").toEqual("");
   expect(screen.queryByText("Today's picks"), "the catalog gave way to the page").toBeNull();
-  expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.tsx#default"][data-sf-mounted]'), "the full page hydrated in the content slot").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.island0.tsx#default"][data-sf-mounted]'), "the full page's island hydrated in the content slot").toBeTruthy();
 });
 
 test("a document load of the product is the full page and the modal slot stays empty", async () => {

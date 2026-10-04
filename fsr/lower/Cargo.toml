@@ -23,7 +23,7 @@ thiserror = "2"
 
 [dependencies.swc_core]
 version = "77"
-features = ["common", "ecma_ast", "ecma_parser"]
+features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
 
 [dev-dependencies]
 snapfire_fsr_core.workspace = true
