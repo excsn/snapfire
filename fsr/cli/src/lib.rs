@@ -1005,6 +1005,19 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
   }
   for module in &islands {
+    if module.starts_with("routes/") && !module.contains(".tera#") {
+      match set.lower_route(module) {
+        Ok(Some(extracted)) => {
+          report.extracted.push((module.clone(), extracted.island.clone(), extracted.holds));
+          generated.retain(|(file, _)| *file != extracted.page.0);
+          generated.push((extracted.file, extracted.source));
+          generated.push(extracted.page);
+          continue;
+        }
+        Ok(None) => continue,
+        Err(_) => {}
+      }
+    }
     lower_into(&mut set, module, &mut report)?;
   }
   for (module, component) in &set.components {

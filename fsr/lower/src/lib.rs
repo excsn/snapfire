@@ -459,6 +459,19 @@ impl Parsed {
   }
 
   /// The one-based line and column of a byte offset in the file's text.
+  /// The byte offset of a 1-based line and column as [`Parsed::position`] counts them.
+  pub(crate) fn offset(&self, line: usize, column: usize) -> Option<usize> {
+    let source = self.cm.files().first()?.src.clone();
+    let mut at = 0;
+    for (i, text) in source.split_inclusive('\n').enumerate() {
+      if i + 1 == line {
+        return Some(at + text.char_indices().nth(column.saturating_sub(1)).map(|(byte, _)| byte).unwrap_or(0));
+      }
+      at += text.len();
+    }
+    None
+  }
+
   pub(crate) fn position(&self, offset: usize) -> (usize, usize) {
     let start = self.cm.files().first().map(|f| f.start_pos).unwrap_or_default();
     let loc = self.cm.lookup_char_pos(start + swc_core::common::BytePos(offset as u32));

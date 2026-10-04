@@ -1173,3 +1173,18 @@ fn an_application_without_a_jsx_framework_refuses_a_component_that_does_not_lowe
   assert!(error.contains("`src/ui/Clock.tsx#Clock` does not lower (src/ui/Clock.tsx:2:14:") && error.contains("no JSX framework") && error.contains("Vue or Svelte component or a custom element"), "{error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_client_island() {
+  let page = "export default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone}</p></section>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "{}", built.report);
+  assert!(built.report.extracted.iter().any(|(module, island, _)| module == "routes/page.tsx#default" && island == "routes/page.island0.tsx#default"), "{}", built.report);
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), mount: fsrMounter"), "{islands}");
+  let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
+  assert!(island.starts_with("/** @jsxImportSource @snapfire/fsr-client */\n"), "{island}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

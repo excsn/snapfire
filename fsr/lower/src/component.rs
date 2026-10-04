@@ -263,7 +263,7 @@ impl ComponentSet {
       return Ok(None);
     }
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-    match crate::extract::extract(&parsed, &file, &slots) {
+    match crate::extract::extract(&parsed, &file, &slots, None) {
       Ok(Some(extraction)) => {
         self.parsed.remove(&file);
         self.provided.insert(file.clone(), extraction.page.clone());
@@ -273,6 +273,33 @@ impl ComponentSet {
       Ok(None) => Ok(None),
       Err(crate::extract::Kept(why)) => Err(why),
     }
+  }
+
+  /// Lowers route module `module`, and when its own body holds what the
+  /// lowerer cannot read, moves the part that holds it into an island beside
+  /// it and lowers the page again. The island is then a component that does
+  /// not lower, which the browser renders alone.
+  pub fn lower_route(&mut self, module: &str) -> Result<Option<Extracted>, LowerError> {
+    let error = match self.lower(module) {
+      Ok(()) => return Ok(None),
+      Err(error) => error,
+    };
+    let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module).to_owned();
+    let LowerError::Residue(residue) = &error else { return Err(error) };
+    if residue.file != file || !residue.via.is_empty() {
+      return Err(error);
+    }
+    let Some(parsed) = self.parsed.get(&file).cloned() else { return Err(error) };
+    let Some(offset) = parsed.offset(residue.line, residue.column) else { return Err(error) };
+    let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
+    let Ok(Some(extraction)) = crate::extract::extract(&parsed, &file, &slots, Some(offset)) else { return Err(error) };
+    self.failed.remove(module);
+    self.failed.remove(&file);
+    self.parsed.remove(&file);
+    self.provided.insert(file.clone(), extraction.page.clone());
+    self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
+    self.lower(module)?;
+    Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
   }
 
   pub fn rewritten(&self) -> Vec<(String, String)> {

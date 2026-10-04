@@ -98,11 +98,20 @@ struct Uses<'a> {
   stack: Vec<(Span, bool)>,
   depth: usize,
   found: Vec<Vec<(Span, bool)>>,
+  /// Where the lowerer stopped inside the markup, with the parsed file to read spans against.
+  residue: Option<(usize, &'a Parsed)>,
+  /// The elements around the residue, the deepest holding it last.
+  at: Option<Vec<(Span, bool)>>,
 }
 
 impl Visit for Uses<'_> {
   fn visit_jsx_element(&mut self, el: &js::JSXElement) {
     self.stack.push((el.span, self.depth > 0));
+    if let Some((offset, parsed)) = self.residue {
+      if parsed.range(el.span).contains(&offset) {
+        self.at = Some(self.stack.clone());
+      }
+    }
     el.visit_children_with(self);
     self.stack.pop();
   }
@@ -144,7 +153,7 @@ struct Line<'a> {
 /// Splits `file`'s default export, a page or a layout, into composition and
 /// an island. `None` when it holds nothing a framework has to run. `slots` are
 /// the layout's slot props, which composition fills and an island cannot take.
-pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String]) -> Result<Option<Extraction>, Kept> {
+pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Option<usize>) -> Result<Option<Extraction>, Kept> {
   let Some(source) = parsed.cm.files().first().map(|f| f.src.to_string()) else { return Ok(None) };
   let Some(found) = find_function(parsed, "default") else { return Ok(None) };
   let (params, stmts, ret): (Vec<js::Pat>, &[js::Stmt], &js::Expr) = match &found {
@@ -194,6 +203,14 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String]) -> Result<O
       other => lines.push(Line { stmt: other, names: Vec::new(), browser: false, function: false }),
     }
   }
+  // A statement the lowerer stopped in only the browser can run.
+  if let Some(offset) = residue {
+    for line in &mut lines {
+      if parsed.range(line.stmt.span()).contains(&offset) {
+        line.browser = true;
+      }
+    }
+  }
   let early = stmts.iter().any(|s| matches!(s, js::Stmt::If(_)));
 
   // A function an event attribute names runs in the browser, and so does
@@ -233,8 +250,14 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String]) -> Result<O
     }
   }
   let effects = lines.iter().any(|l| l.browser && l.names.is_empty());
-  let mut uses = Uses { browser: &browser, stack: Vec::new(), depth: 0, found: Vec::new() };
+  let in_markup = residue.filter(|offset| parsed.range(ret.span()).contains(offset));
+  let mut uses = Uses { browser: &browser, stack: Vec::new(), depth: 0, found: Vec::new(), residue: in_markup.map(|offset| (offset, parsed)), at: None };
   ret.visit_with(&mut uses);
+  if let Some(at) = uses.at.take() {
+    uses.found.push(at);
+  } else if in_markup.is_some() {
+    uses.found.push(Vec::new());
+  }
   if uses.found.is_empty() && !effects {
     return Ok(None);
   }

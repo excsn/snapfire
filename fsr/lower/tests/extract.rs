@@ -95,3 +95,25 @@ export default function Shell({ children, drawer }: { children: unknown; drawer:
   let why = set.extract_route("routes/layout.tsx#default").err().expect("kept");
   assert!(why.contains("`drawer`"), "{why}");
 }
+
+#[test]
+fn what_the_lowerer_cannot_read_in_a_page_body_moves_with_the_markup_that_shows_it() {
+  let page = r#"export default function Venue({ venue }: { venue: string }) {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return (
+    <section>
+      <h2>{venue}</h2>
+      <p className="clock">You are in {zone}.</p>
+    </section>
+  );
+}
+"#;
+  let mut set = set(&[("routes/venue/page.tsx", page)]);
+  let extracted = set.lower_route("routes/venue/page.tsx#default").unwrap().expect("the time zone moved");
+  assert!(extracted.source.contains("const zone = Intl.DateTimeFormat()"), "{}", extracted.source);
+  assert!(extracted.source.contains("<p className=\"clock\">"), "{}", extracted.source);
+  assert!(!extracted.source.contains("<h2>"), "{}", extracted.source);
+  let (_, page) = set.components.iter().find(|(m, _)| m == "routes/venue/page.tsx#default").expect("the page lowered around it");
+  assert!(!page.owner.hydrates());
+  assert_eq!(set.browser_only.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>(), vec!["routes/venue/page.island0.tsx#default"], "the island is what the browser renders alone");
+}
