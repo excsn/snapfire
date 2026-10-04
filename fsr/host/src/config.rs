@@ -44,6 +44,9 @@ pub struct Config {
   /// Which TypeScript `fsr` checks the application with; absent means the
   /// checker's own default version.
   pub typecheck: Option<TypecheckSection>,
+  /// `[trace]`: which requests a client may read its own trace of; absent
+  /// means none outside development.
+  pub trace: Option<TraceSection>,
   /// The application as a site: its name and the prefix its routes sit
   /// under, both fixed at build. Absent, the application is whole.
   pub site: Option<SiteSection>,
@@ -818,6 +821,16 @@ pub struct TypecheckSection {
   pub enabled: Option<bool>,
 }
 
+/// The `[trace]` section. `expose` lists the path prefixes whose requests
+/// carry an `x-sf-request` token and whose trace that token reads back from
+/// `/__fsr/trace/{token}`. Empty exposes nothing; `fsr dev` exposes every path.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TraceSection {
+  #[serde(default)]
+  pub expose: Vec<String>,
+}
+
 fn default_login() -> String {
   "/login".to_owned()
 }
@@ -840,6 +853,7 @@ const SECTIONS: &[&str] = &[
   "locales",
   "auth",
   "typecheck",
+  "trace",
   "site",
   "sites",
   "public",
@@ -1416,6 +1430,23 @@ impl Config {
         None
       };
 
+    let trace: Option<TraceSection> = if store.path_exists("trace") || !store.key_paths_with_prefix(Some("trace")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["expose"] {
+        if let Some(value) = store.get(&format!("trace.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      let section: TraceSection = serde_json::from_value(serde_json::Value::Object(json))
+        .map_err(|e| HostError::Config(at.clone(), format!("trace: {e}")))?;
+      if let Some(bad) = section.expose.iter().find(|p| !p.starts_with('/')) {
+        return Err(HostError::Config(at.clone(), format!("trace.expose `{bad}` must be a path")));
+      }
+      Some(section)
+    } else {
+      None
+    };
+
     if session.store == "service" {
       match &session.client {
         Some(client) if clients.contains_key(client) => {}
@@ -1823,6 +1854,7 @@ impl Config {
       locales,
       auth,
       typecheck,
+      trace,
       site,
       sites,
       dirs,

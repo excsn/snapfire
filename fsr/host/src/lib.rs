@@ -834,6 +834,9 @@ pub struct Host {
   /// reload sets to the list as it now reads. Absent when the application
   /// handed the builder its own.
   keyring: Option<Arc<Keyring>>,
+  /// The ring the cookies sign with, whichever made it, which also signs the
+  /// `x-sf-request` token.
+  trace_ring: Arc<Keyring>,
 }
 
 /// How a host rebuilds its tables on `Host::reload`: the builder for the
@@ -904,6 +907,9 @@ struct Tables {
   csp_report_only: Option<HeaderValue>,
   /// The nonce on the development refresh script, named by both policies.
   dev_nonce: Option<String>,
+  /// `trace.expose`: the path prefixes whose requests a client may read its
+  /// own trace of.
+  trace_expose: Vec<String>,
   prerendered: Option<PathBuf>,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
@@ -1524,6 +1530,11 @@ impl Host {
     visit: &Resolution,
   ) -> Result<Rendered, HostError> {
     let mut extra = Vec::new();
+    if matches!(mode, RenderMode::Html)
+      && let Some(token) = self.traces.as_ref().and_then(|traces| traces.current()).and_then(|trace| self.trace_token(t, &trace))
+    {
+      extra.push(snapfire_fsr_core::Node::raw(shell::request_meta(&token)));
+    }
     if let Some(facts) = &t.dev_bundle {
       extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts), t.dev_nonce.as_deref())));
     }
@@ -2482,6 +2493,28 @@ impl Host {
       .expect("an event stream")
   }
 
+  /// The `x-sf-request` token for a trace, when its request's path is one a
+  /// client may read back: `<id>.<hmac>`, since ids count up from 1 and a bare
+  /// one would let any client read other visitors' requests.
+  fn trace_token(&self, t: &Tables, trace: &trace::Trace) -> Option<String> {
+    let path = trace.root()?.fields.get("path")?.to_string();
+    let exposed = self.changed.is_some() || t.trace_expose.iter().any(|prefix| under_prefix(&path, prefix));
+    if !exposed {
+      return None;
+    }
+    let signature = self.trace_ring.sign(trace_token_input(trace.id).as_bytes());
+    (!signature.is_empty()).then(|| format!("{}.{signature}", trace.id))
+  }
+
+  /// The finished trace a token names, while the collector's ring still holds it.
+  fn trace_by_token(&self, token: &str) -> Option<trace::Trace> {
+    let (id, signature) = token.split_once('.')?;
+    let id: u64 = id.parse().ok()?;
+    self.trace_ring.verify(trace_token_input(id).as_bytes(), signature)?;
+    let traces = self.traces.as_ref()?;
+    traces.recent(traces.len()).into_iter().find(|trace| trace.id == id)
+  }
+
   pub async fn handle(&self, req: Request<Bytes>) -> Response<Body> {
     // The root of this request's trace. Everything a collector keeps for the
     // request hangs off it; with nothing listening it is an atomic load.
@@ -2494,7 +2527,14 @@ impl Host {
       status = tracing::field::Empty,
       fibre.outcome = tracing::field::Empty,
     );
-    let answered = tracing::Instrument::instrument(self.handle_in(req), root.clone()).await;
+    let token = root
+      .id()
+      .and_then(|id| self.traces.as_ref()?.of_span(id.into_u64()))
+      .and_then(|trace| self.trace_token(&self.tables(), &trace));
+    let mut answered = tracing::Instrument::instrument(self.handle_in(req), root.clone()).await;
+    if let Some(value) = token.and_then(|token| HeaderValue::from_str(&token).ok()) {
+      answered.headers_mut().insert("x-sf-request", value);
+    }
     root.record("status", answered.status().as_u16());
     root.record("fibre.outcome", if answered.status().is_success() { "ok" } else { "error" });
     answered
@@ -2521,6 +2561,20 @@ impl Host {
     #[cfg(feature = "sites_reload")]
     if path == "/__fsr/sites/reload" && req.method() == Method::POST && self.sites_mounter.is_some() {
       return self.sites_reload_response();
+    }
+    if let Some(token) = path.strip_prefix("/__fsr/trace/")
+      && req.method() == Method::GET
+      && self.traces.is_some()
+      && (self.changed.is_some() || !t.trace_expose.is_empty())
+    {
+      return match self.trace_by_token(token) {
+        Some(trace) => {
+          let mut response = json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&trace::one_value(&trace)));
+          response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+          response
+        }
+        None => text_response(StatusCode::NOT_FOUND, "no such trace".to_owned()),
+      };
     }
     if self.changed.is_some() {
       // The traces the collector kept, newest last. Development only: what a
@@ -4479,6 +4533,7 @@ impl HostBuilder {
       csrf_always: config.session.csrf == "always",
       session_shape: session_shape(&config),
       keyring: owned_ring,
+      trace_ring: ring,
       max_body: config.server.max_body,
       max_upload: config.server.max_upload,
       hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
@@ -5030,6 +5085,7 @@ impl HostBuilder {
         csp,
         csp_report_only,
         dev_nonce,
+        trace_expose: config.trace.as_ref().map(|t| t.expose.clone()).unwrap_or_default(),
         prerendered,
         warm,
         renders,
@@ -5273,6 +5329,18 @@ fn session_shape(config: &Config) -> String {
 }
 
 /// `session.key` first, then `session.previous_keys` in order.
+/// What a trace token signs. The prefix keeps a token from verifying as any
+/// other value the same ring signs, a session id among them.
+fn trace_token_input(id: u64) -> String {
+  format!("fsr.trace:{id}")
+}
+
+/// Whether `path` is `prefix` or sits beneath it; `/` covers every path.
+fn under_prefix(path: &str, prefix: &str) -> bool {
+  let prefix = prefix.trim_end_matches('/');
+  prefix.is_empty() || path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
+}
+
 fn session_keys(config: &Config) -> Vec<Vec<u8>> {
   std::iter::once(&config.session.key)
     .chain(config.session.previous_keys.iter())

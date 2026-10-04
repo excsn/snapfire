@@ -77,6 +77,29 @@ traces.on_finish(|trace| exporter.send(trace));
 
 That is also the only place tail sampling can happen, keeping the traces that failed or ran long and dropping the rest, because the decision needs the finished trace. Anything sampling when a span opens has not seen it yet. `tracing-opentelemetry` composes here or as a second layer beside the collector if you export everything.
 
+## Showing a page its own trace
+
+A page can read the trace of the request that served it, which is how a site shows a visitor what the server did for them. It works outside `fsr dev` for the paths you list:
+
+```toml
+[trace]
+expose = ["/"]
+```
+
+A response to one of those paths carries `x-sf-request`. A document carries the same value in its head as `<meta name="sf-request">`. The value is the trace id and an HMAC of it under the session key. Trace ids count up from 1, so a bare one would let anyone read every other visitor's requests. A signed one only reads back the request it came with.
+
+The request has to finish before its trace exists, so the page fetches it after load:
+
+```ts
+const token = document.querySelector<HTMLMetaElement>('meta[name="sf-request"]')?.content;
+if (token) {
+  const response = await fetch(`/__fsr/trace/${token}`);
+  if (response.ok) draw(await response.json());
+}
+```
+
+The answer is the same shape as one entry of `/__fsr/traces`. A 404 means the token did not verify or the collector's ring has moved past the trace, which on a busy host can happen within seconds, so treat it as nothing to show rather than an error. What a client sees is only what the spans carry: their names, timings and fields, with call arguments kept to their shape in production.
+
 ## The lab
 
 Start the ops console and load `/agents`, then fetch `/__fsr/traces` and find that request. Note how long the two loaders took and that they overlap.

@@ -93,6 +93,14 @@ pub fn to_value(traces: &[Trace]) -> snapfire_fsr_core::Value {
   )
 }
 
+/// One trace as `to_value` writes each of its entries.
+pub fn one_value(trace: &Trace) -> snapfire_fsr_core::Value {
+  match to_value(std::slice::from_ref(trace)) {
+    snapfire_fsr_core::Value::Seq(mut items) if items.len() == 1 => items.remove(0),
+    other => other,
+  }
+}
+
 /// `Server-Timing` for one trace: an entry per span, so per-step cost shows in
 /// devtools with no collector running. Under `fsr dev` only; nothing about a
 /// source should reach a client in production.

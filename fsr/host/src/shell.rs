@@ -59,6 +59,12 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, preload: &
   Head::new(title, Node::raw(head))
 }
 
+/// The request's trace token, which a page script reads to fetch the trace of
+/// the request that served it.
+pub fn request_meta(token: &str) -> String {
+  format!("<meta name=\"sf-request\" content=\"{}\">", escape(token))
+}
+
 /// One preload link a mounted site adds to a document on its own routes, for
 /// a module of its own bundle that the shell's links do not already cover.
 pub fn preload_link(href: &str) -> String {

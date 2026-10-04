@@ -5897,3 +5897,69 @@ async fn a_template_writes_a_picture_and_the_fonts_from_the_manifest() {
   let response = host.handle(Request::get("/board").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR, "an image the build did not see fails the render rather than writing a broken picture");
 }
+
+fn traced_host(dev: bool, trace_section: &str) -> (Host, snapfire_fsr_host::trace::Traces, tracing::subscriber::DefaultGuard) {
+  use tracing_subscriber::layer::SubscriberExt;
+  let (layer, traces) = fibre_tracing::layer();
+  let guard = tracing::subscriber::set_default(tracing_subscriber::registry().with(layer));
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  let toml = toml.replace("[server]\n", &format!("[server]\ndev = {dev}\n"));
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n{trace_section}")).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).traces(Some(traces.clone())).build().unwrap();
+  (host, traces, guard)
+}
+
+#[tokio::test]
+async fn an_exposed_page_reads_back_its_own_trace_by_the_signed_token() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\nexpose = [\"/\"]\n");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let token = response.headers().get("x-sf-request").expect("an exposed path carries the token").to_str().unwrap().to_owned();
+  let (id, signature) = token.split_once('.').unwrap();
+  assert!(id.parse::<u64>().is_ok() && signature.len() == 64, "{token}");
+  let html = body_of(response).await;
+  assert!(html.contains(&format!("<meta name=\"sf-request\" content=\"{token}\">")), "{html}");
+
+  let response = host.handle(Request::get(format!("/__fsr/trace/{token}")).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get(header::CACHE_CONTROL).unwrap(), "no-store");
+  let json: serde_json::Value = serde_json::from_str(&body_of(response).await).unwrap();
+  assert_eq!(json["id"].as_u64(), Some(id.parse().unwrap()), "{json}");
+  let spans = json["spans"].as_array().unwrap();
+  assert_eq!(spans[0]["name"], "request", "{json}");
+  assert_eq!(spans[0]["fields"]["path"], "/", "{json}");
+  assert!(spans.iter().any(|s| s["name"] == "render"), "{json}");
+
+  let forged = format!("{}.{signature}", id.parse::<u64>().unwrap() + 1);
+  let response = host.handle(Request::get(format!("/__fsr/trace/{forged}")).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "a signature does not carry over to another id");
+}
+
+#[tokio::test]
+async fn a_path_outside_trace_expose_carries_no_token_and_no_route_answers_without_the_section() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\nexpose = [\"/docs\"]\n");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-request").is_none());
+  assert!(!body_of(response).await.contains("sf-request"));
+
+  let (host, _traces, _guard) = traced_host(false, "");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-request").is_none());
+  let response = host.handle(Request::get("/__fsr/trace/1.00").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND);
+  assert!(!body_of(response).await.contains("no such trace"), "with nothing exposed the route does not exist");
+
+  let (host, _traces, _guard) = traced_host(true, "");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-request").is_some(), "development exposes every path");
+}
+
+#[test]
+fn a_trace_expose_entry_that_is_not_a_path_is_refused() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[trace]\nexpose = [\"docs\"]\n")).unwrap();
+  let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
+  assert!(err.contains("trace.expose `docs` must be a path"), "{err}");
+}

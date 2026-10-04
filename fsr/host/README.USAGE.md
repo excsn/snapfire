@@ -43,6 +43,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Testing Over a Mock Transport](#testing-over-a-mock-transport)
 * [Running Without a Backend](#running-without-a-backend)
 * [Watching What a Request Did](#watching-what-a-request-did)
+* [Showing a Page Its Own Trace](#showing-a-page-its-own-trace)
 * [Reading the Report](#reading-the-report)
 * [Error Handling](#error-handling)
 
@@ -162,6 +163,9 @@ login = "/login"                  # the application's login page, the default
 [typecheck]                       # optional: read by fsr, not by the host
 version = "7.0.2"                 # the TypeScript a build checks with; fsr records the one it resolved
 enabled = true                    # the default; false builds without checking types
+
+[trace]                           # optional: without it no client reads a trace outside dev
+expose = ["/"]                    # path prefixes whose requests a page may read its own trace of
 
 [public]                          # optional: the deployment's own values, read by a body as ctx.config.<key>
 analytics_id = ""                 # a scalar under an identifier; an overlay sets the deployment's own
@@ -1093,6 +1097,32 @@ traces.on_finish(|trace| if trace.duration > Duration::from_millis(500) { export
 ```
 
 With no collector installed the spans cost a relaxed atomic load and a branch, so leaving them in production costs nothing.
+
+## Showing a Page Its Own Trace
+
+A page can read back the trace of the request that served it, in production, for the paths `[trace] expose` lists. The collector has to be installed as above:
+
+```toml
+[trace]
+expose = ["/"]
+```
+
+A request to an exposed path carries a token in its `x-sf-request` header. A document carries the same token in its head:
+
+```html
+<meta name="sf-request" content="42.9f86d081884c7d65...">
+```
+
+The token is the trace id and an HMAC of it under the session key, so a client can only read the requests it was handed a token for. A script fetches the trace once the page has loaded, by which time the request has finished:
+
+```ts
+const token = document.querySelector<HTMLMetaElement>('meta[name="sf-request"]')?.content;
+const trace = token ? await fetch(`/__fsr/trace/${token}`).then((r) => (r.ok ? r.json() : null)) : null;
+```
+
+The answer is one trace, `{ id, ms, spans }`, with `Cache-Control: no-store`. Each span has `name`, `depth`, `at`, `ms`, `outcome` when it has one and `fields`. A token that does not verify answers 404. So does one whose trace has left the collector's ring, which holds the last 256.
+
+Without `[trace]` or with `expose` empty, no response carries a token and `/__fsr/trace/` is not a route. Under `dev` every path is exposed.
 
 ## Reading the Report
 
