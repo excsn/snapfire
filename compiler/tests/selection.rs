@@ -179,3 +179,31 @@ fn test_an_unrecognised_target_is_reported() {
   run_snapfirec(cmd.arg("--root").arg(fixture.root()))
     .stderr(predicate::str::contains(r#"'target': "es20200" is not recognised"#));
 }
+
+#[test]
+fn a_file_only_the_overlay_holds_is_compiled_when_files_names_it() {
+  let root = tempfile::tempdir().unwrap();
+  let root = root.path();
+  fs::create_dir_all(root.join("src")).unwrap();
+  fs::create_dir_all(root.join(".overlay/src")).unwrap();
+  fs::write(root.join("src/page.ts"), "export const page = 1;\n").unwrap();
+  fs::write(root.join(".overlay/src/page.island0.ts"), "import { page } from \"./page\";\nexport const island = page + 1;\n").unwrap();
+  fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"outDir":"dist"},"files":["src/page.ts","src/page.island0.ts"]}"#).unwrap();
+
+  run_snapfirec(get_snapfirec_cmd().arg("--root").arg(root).args(["--overlay", ".overlay"]));
+
+  assert_eq!(emitted(root), vec!["page.island0.js", "page.js"]);
+  let island = fs::read_to_string(root.join("dist/page.island0.js")).unwrap();
+  assert!(island.contains("from \"./page.js\""), "{island}");
+}
+
+#[test]
+fn a_file_files_names_that_neither_the_root_nor_the_overlay_holds_is_refused() {
+  let root = tempfile::tempdir().unwrap();
+  let root = root.path();
+  fs::create_dir_all(root.join("src")).unwrap();
+  fs::write(root.join("src/page.ts"), "export const page = 1;\n").unwrap();
+  fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"outDir":"dist"},"files":["src/page.ts","src/gone.ts"]}"#).unwrap();
+
+  get_snapfirec_cmd().arg("--root").arg(root).args(["--overlay", ".overlay"]).assert().failure().stderr(predicate::str::contains("src/gone.ts"));
+}

@@ -31,6 +31,9 @@ pub struct Request<'a> {
   /// Decides which matched files count as program inputs when `rootDir` has to be computed. tsc
   /// derives it from compilable files alone, so a stray README cannot drag the whole tree up.
   pub is_input: &'a dyn Fn(&Path) -> bool,
+  /// The overlay as the directory it mirrors and the directory itself. A file `files` names
+  /// that only the overlay holds is an input at its path under the mirrored directory.
+  pub overlay: Option<(&'a Path, &'a Path)>,
 }
 
 pub fn select(request: Request) -> Result<Selection> {
@@ -77,7 +80,20 @@ pub fn select(request: Request) -> Result<Selection> {
   for named in request.files.into_iter().flatten() {
     let path = request.config_dir.join(&named);
     if !path.is_file() {
-      bail!("File {:?} listed in 'files' does not exist.", named);
+      let shadowed = request.overlay.and_then(|(mirrored, overlay)| {
+        let absolute = std::path::absolute(&path).ok()?;
+        let relative = absolute.strip_prefix(mirrored).ok()?;
+        overlay.join(relative).is_file().then_some(absolute)
+      });
+      match shadowed {
+        Some(absolute) => {
+          if seen.insert(absolute.clone()) {
+            files.push(absolute);
+          }
+          continue;
+        }
+        None => bail!("File {:?} listed in 'files' does not exist.", named),
+      }
     }
     let path = path.canonicalize().with_context(|| format!("Failed to resolve {:?}", named))?;
     if seen.insert(path.clone()) {

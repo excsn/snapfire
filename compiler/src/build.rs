@@ -37,8 +37,8 @@ pub struct Options {
   /// directory's own terms, which is what keeps a build usable at any mount point.
   pub public_path: Option<String>,
   pub import_map: Option<PathBuf>,
-  /// A directory whose files are read in place of the root's at the same relative path. The file
-  /// set is still the root's, so an overlay can only replace, never add.
+  /// A directory whose files are read in place of the root's at the same relative path. A file
+  /// the config's `files` names may exist in the overlay alone; every other file is the root's.
   pub overlay: Option<PathBuf>,
   /// The driver's asset map, relative to the root. With one, every image and
   /// font a module or a stylesheet names is rewritten from its row and none is
@@ -211,6 +211,8 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
       .with_context(|| format!("Failed to resolve absolute path of {:?}", out_dir))?,
   };
 
+  let overlay_dir = opts.overlay.as_ref().map(|o| opts.root.join(o));
+  let mirrored = opts.root.canonicalize().unwrap_or_else(|_| opts.root.clone());
   let selection = sources::select(sources::Request {
     config_dir: &config_dir,
     out_dir: &out_dir,
@@ -219,6 +221,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     exclude: tsconfig.exclude,
     root_dir: compiler_options.root_dir,
     is_input: &|path| classify(path),
+    overlay: overlay_dir.as_deref().map(|dir| (mirrored.as_path(), dir)),
   })?;
 
   let targets = Browsers::load_browserslist().context("Failed to resolve browser targets")?;
@@ -255,7 +258,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     }
   }
 
-  let overlay = opts.overlay.as_ref().map(|o| (selection.root_dir.clone(), opts.root.join(o)));
+  let overlay = overlay_dir.clone().map(|dir| (mirrored.clone(), dir));
   let urls = AssetUrls { root_dir: selection.root_dir.clone(), out_dir: out_dir.clone(), public_path: opts.public_path.clone(), map: None };
   let mut build = Build {
     out_dir,
