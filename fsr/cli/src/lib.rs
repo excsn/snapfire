@@ -1164,6 +1164,31 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
   }
   static_modules.retain(|module| !placed.contains(module));
+  // An island's bundle copy imports the dialect's placements from its own
+  // framework's adapter, so no island loads another framework's.
+  for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
+    let Some(file) = module.split_once('#').map(|(file, _)| file.to_owned()) else { continue };
+    if snapfire_fsr_lower::component::is_foreign(&file) {
+      continue;
+    }
+    let runtime = adapter_for(module, &owners)?.module;
+    let quoted = format!("\"{TEMPLATE_SPECIFIER}\"");
+    let source = match rewritten.iter().find(|(f, _)| *f == file) {
+      Some((_, source)) => source.clone(),
+      None => match generated.iter().find(|(f, _)| *f == file) {
+        Some((_, source)) => source.clone(),
+        None => std::fs::read_to_string(app.join(&file)).unwrap_or_default(),
+      },
+    };
+    if !source.contains(&quoted) {
+      continue;
+    }
+    let pointed = source.replace(&quoted, &format!("\"{runtime}\""));
+    match rewritten.iter_mut().find(|(f, _)| *f == file) {
+      Some((_, held)) => *held = pointed,
+      None => rewritten.push((file, pointed)),
+    }
+  }
   for (module, _, detail) in &mut report.components {
     if placed.contains(module) && detail == "static" {
       detail.clear();
@@ -1266,7 +1291,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   let split: Vec<String> = report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file.to_owned())).collect();
   let registry = islands_module(&islands, &static_modules, &defines, &owners, &split, options)?;
-  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &owners, &set)?;
+  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &owners)?;
   files.extend([
     ("generated/uploads.d.ts".to_owned(), UPLOAD_DECLARATION.to_owned()),
     ("generated/assets.d.ts".to_owned(), ASSET_DECLARATIONS.to_owned()),
@@ -2020,7 +2045,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
 /// registry imports and the specifiers that adapter imports, looked up in the
 /// app's map and, for a site, the shell's. An app with no readable map has
 /// nothing to check against.
-fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, set: &ComponentSet) -> Result<(), BuildError> {
+fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>) -> Result<(), BuildError> {
   let Some(served) = served_specifiers(app, layout, shell) else {
     return Ok(());
   };
@@ -2028,11 +2053,6 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
   for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
     let adapter = adapter_for(module, owners)?;
     let remedy = || crate::direction::for_adapter(adapter.module).map(|d| format!("; `fsr use <app dir> {}` writes it", d.name)).unwrap_or_default();
-    // The dialect's placements have the React module as their runtime, so a
-    // mounted module importing them needs the map to say so.
-    if set.imports_value_from(module, TEMPLATE_SPECIFIER) && !resolves(&served, TEMPLATE_SPECIFIER) {
-      return Err(BuildError::IslandImports { module: module.clone(), adapter: adapter.module.to_owned(), missing: format!("`{TEMPLATE_SPECIFIER}`"), remedy: remedy() });
-    }
     if checked.contains(&adapter.module) {
       continue;
     }
@@ -2049,8 +2069,7 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
   Ok(())
 }
 
-/// The dialect's template module, whose placements a mounted module loads
-/// from the client's `template.js`.
+/// The dialect's template module, which an island's bundle copy imports from its own adapter instead.
 const TEMPLATE_SPECIFIER: &str = "@snapfire/fsr-authoring/template";
 
 /// Every specifier the app's import map serves, its scopes included, plus the

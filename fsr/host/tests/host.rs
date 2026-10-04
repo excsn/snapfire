@@ -260,9 +260,10 @@ async fn the_client_serves_the_dialects_template_entry() {
   assert_eq!(response.status(), StatusCode::OK);
   let body = response.into_body().collect().await.unwrap().to_bytes();
   let text = std::str::from_utf8(&body).unwrap();
-  // Either spelling: the minified build names its sibling `./react.min.js`.
-  let from_react = text.contains("from \"./react.js\"") || text.contains("from\"./react.min.js\"");
-  assert!(from_react && text.contains("Island") && text.contains("Link"), "{text}");
+  // Either spelling: the minified build names its sibling `./jsx-runtime.min.js`.
+  let from_fsr = text.contains("from \"./jsx-runtime.js\"") || text.contains("from\"./jsx-runtime.min.js\"");
+  assert!(from_fsr && text.contains("Island") && text.contains("Link"), "the dialect loads FSR's own runtime and no framework: {text}");
+  assert!(!text.contains("react"), "{text}");
   assert!(snapfire_fsr_host::client::TYPES.iter().any(|(name, _)| *name == "template.d.ts"));
 }
 

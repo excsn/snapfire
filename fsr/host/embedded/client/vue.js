@@ -4,6 +4,8 @@ import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe } from "./store.js";
+import { linkAttributes } from "./link.js";
+import { pictureParts } from "./picture.js";
 const held = new WeakMap();
 const RUNTIME_PROPS = [
     "$h",
@@ -180,6 +182,27 @@ export const Mount = defineComponent({
                 "data-sf-island": "",
                 "data-sf-when": props.when
             });
+    }
+});
+export const Link = defineComponent({
+    name: "SfLink",
+    inheritAttrs: false,
+    setup (_, { attrs, slots }) {
+        return ()=>h("a", linkAttributes(attrs), slots.default?.());
+    }
+});
+export const Picture = defineComponent({
+    name: "SfPicture",
+    inheritAttrs: false,
+    setup (_, { attrs }) {
+        return ()=>{
+            const { img, sources } = pictureParts(attrs);
+            if (sources === null) return h("img", img);
+            return h("picture", null, [
+                ...sources.map((source)=>h("source", source)),
+                h("img", img)
+            ]);
+        };
     }
 });
 //# sourceMappingURL=vue.js.map

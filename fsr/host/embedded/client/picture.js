@@ -1,0 +1,96 @@
+const DEFAULT_POLICY = {
+    widths: [
+        640,
+        960,
+        1280,
+        1920,
+        2560
+    ],
+    formats: [
+        "avif",
+        "webp"
+    ],
+    sources: {}
+};
+const MIME = {
+    avif: "image/avif",
+    webp: "image/webp"
+};
+let policyRead;
+function imagePolicy() {
+    if (policyRead) return policyRead;
+    let read;
+    if (typeof document !== "undefined") {
+        const meta = document.querySelector('meta[name="sf:images"]');
+        const content = meta?.getAttribute("content");
+        if (content) {
+            try {
+                read = {
+                    ...DEFAULT_POLICY,
+                    ...JSON.parse(content)
+                };
+            } catch  {
+                read = undefined;
+            }
+        }
+    }
+    policyRead = read ?? DEFAULT_POLICY;
+    return policyRead;
+}
+function servedAsIs(asset) {
+    const ext = asset.src.split("?")[0].split("#")[0].split(".").pop()?.toLowerCase();
+    return asset.animated === true || ext === "svg" || ext === "gif";
+}
+function fillTemplate(template, src, width) {
+    return template.split("{src}").join(src).split("{width}").join(String(width));
+}
+export function pictureParts(props, priority = "fetchpriority") {
+    const { src, source, priority: high, widths, quality, sizes, loading, decoding, ...rest } = props;
+    void quality;
+    const policy = imagePolicy();
+    const img = {
+        ...rest,
+        loading: loading ?? (high ? "eager" : "lazy"),
+        decoding: decoding ?? "async"
+    };
+    if (high) img[priority] = "high";
+    if (typeof src === "string") {
+        const template = source ? policy.sources[source] : undefined;
+        if (template) {
+            const all = policy.widths.length ? policy.widths : DEFAULT_POLICY.widths;
+            img.src = fillTemplate(template, src, Math.max(...all));
+            img.srcSet = all.map((w)=>`${fillTemplate(template, src, w)} ${w}w`).join(", ");
+            img.sizes = sizes ?? "100vw";
+        } else {
+            img.src = src;
+        }
+        return {
+            img,
+            sources: null
+        };
+    }
+    const base = policy.base ?? "";
+    const url = base && src.src.startsWith("/") ? `${base}${src.src}` : src.src;
+    img.src = url;
+    if (img.width === undefined) img.width = src.width;
+    if (img.height === undefined) img.height = src.height;
+    if (servedAsIs(src)) return {
+        img,
+        sources: null
+    };
+    const chosen = (widths ?? policy.widths).filter((w)=>w > 0 && w < src.width).sort((a, b)=>a - b).filter((w, i, all)=>i === 0 || all[i - 1] !== w);
+    chosen.push(src.width);
+    const chosenSizes = sizes ?? `(max-width: ${src.width}px) 100vw, ${src.width}px`;
+    const stem = url.replace(/\.[^./]+$/, "");
+    const sources = policy.formats.map((format)=>({
+            key: format,
+            type: MIME[format] ?? `image/${format}`,
+            srcSet: chosen.map((w)=>`${stem}.${w}.${format} ${w}w`).join(", "),
+            sizes: chosenSizes
+        }));
+    return {
+        img,
+        sources
+    };
+}
+//# sourceMappingURL=picture.js.map

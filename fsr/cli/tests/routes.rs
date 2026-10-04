@@ -1000,14 +1000,15 @@ fn a_page_tera_is_refused_by_an_fsr_built_without_the_feature() {
 }
 
 #[test]
-fn a_mounted_page_placing_the_dialects_link_needs_the_template_module_mapped() {
+fn an_island_takes_the_dialects_placements_from_its_own_framework() {
   const PAGE: &str = "import { useState } from \"react\";\nimport { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  const [n, set] = useState(0);\n  return <section><button onClick={() => set(n + 1)}>{n}</button><Link href=\"/\">home</Link></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", PAGE)]);
-  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-authoring/template`; `fsr use <app dir> react` writes it");
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","@snapfire/fsr-authoring/template":"/t","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
+  let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
+  assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
+  assert!(!island.contains("@snapfire/fsr-authoring/template"), "the map need not serve the dialect for an island: {island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1180,5 +1181,17 @@ fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_client_isla
   assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), mount: fsrMounter"), "{islands}");
   let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
   assert!(island.starts_with("/** @jsxImportSource @snapfire/fsr-client */\n"), "{island}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_client_island_takes_the_dialects_placements_from_fsrs_runtime() {
+  let page = "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
+  assert!(island.starts_with("/** @jsxImportSource @snapfire/fsr-client */\n"), "{island}");
+  assert!(island.contains("import { Link } from \"@snapfire/fsr-client/jsx-runtime\";"), "{island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }

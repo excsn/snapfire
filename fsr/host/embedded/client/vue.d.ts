@@ -22,3 +22,7 @@ export interface MountProps {
 * patched from here whenever its props change.
 */
 export declare const Mount: Component;
+/** An anchor with the marks the navigator reads, for a Vue island. Attributes pass through as `<a>`'s. */
+export declare const Link: Component;
+/** The `<picture>` the server writes for the same attributes, for a Vue island. */
+export declare const Picture: Component;

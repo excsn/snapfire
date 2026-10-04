@@ -4,7 +4,8 @@ import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
-import { currentAddressPath, currentDocumentPath } from "./navigator.js";
+import { linkAttributes } from "./link.js";
+import { pictureParts } from "./picture.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe } from "./store.js";
 function slotOf(el) {
@@ -251,112 +252,14 @@ export function useStore(k, initial) {
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
 }
-export function Link({ full, into, prefetch, native, keep, match, current, ...rest }) {
-    const attrs = {
-        ...rest
-    };
-    if (full) attrs["data-sf-full"] = "true";
-    if (into) attrs["data-sf-into"] = into;
-    if (prefetch) attrs["data-sf-prefetch"] = prefetch;
-    if (native) attrs["data-sf-native"] = "true";
-    if (keep !== undefined) attrs["data-sf-keep"] = keep ? "true" : "false";
-    const rule = match ?? "exact";
-    if (rule !== "none" && typeof rest.href === "string" && rest["aria-current"] === undefined) {
-        attrs["data-sf-link"] = rule;
-        if (current === "document") attrs["data-sf-current"] = "document";
-        const at = current === "document" ? currentDocumentPath() : currentAddressPath();
-        const cut = at.indexOf("?");
-        const path = cut === -1 ? at : at.slice(0, cut);
-        if (rest.href === path) attrs["aria-current"] = rule === "prefix" ? "true" : "page";
-        else if (rule === "prefix" && path.startsWith(`${rest.href}/`)) attrs["aria-current"] = "true";
-    }
-    return createElement("a", attrs);
-}
-const DEFAULT_POLICY = {
-    widths: [
-        640,
-        960,
-        1280,
-        1920,
-        2560
-    ],
-    formats: [
-        "avif",
-        "webp"
-    ],
-    sources: {}
-};
-const MIME = {
-    avif: "image/avif",
-    webp: "image/webp"
-};
-let policyRead;
-function imagePolicy() {
-    if (policyRead) return policyRead;
-    let read;
-    if (typeof document !== "undefined") {
-        const meta = document.querySelector('meta[name="sf:images"]');
-        const content = meta?.getAttribute("content");
-        if (content) {
-            try {
-                read = {
-                    ...DEFAULT_POLICY,
-                    ...JSON.parse(content)
-                };
-            } catch  {
-                read = undefined;
-            }
-        }
-    }
-    policyRead = read ?? DEFAULT_POLICY;
-    return policyRead;
+export function Link(props) {
+    return createElement("a", linkAttributes(props));
 }
 const FETCH_PRIORITY = Number(version.split(".")[0]) >= 19 ? "fetchPriority" : "fetchpriority";
-function servedAsIs(asset) {
-    const ext = asset.src.split("?")[0].split("#")[0].split(".").pop()?.toLowerCase();
-    return asset.animated === true || ext === "svg" || ext === "gif";
-}
-function fillTemplate(template, src, width) {
-    return template.split("{src}").join(src).split("{width}").join(String(width));
-}
-export function Picture({ src, source, priority, widths, quality, sizes, loading, decoding, ...rest }) {
-    void quality;
-    const policy = imagePolicy();
-    const attrs = {
-        ...rest,
-        loading: loading ?? (priority ? "eager" : "lazy"),
-        decoding: decoding ?? "async"
-    };
-    if (priority) attrs[FETCH_PRIORITY] = "high";
-    if (typeof src === "string") {
-        const template = source ? policy.sources[source] : undefined;
-        if (template) {
-            const all = policy.widths.length ? policy.widths : DEFAULT_POLICY.widths;
-            attrs.src = fillTemplate(template, src, Math.max(...all));
-            attrs.srcSet = all.map((w)=>`${fillTemplate(template, src, w)} ${w}w`).join(", ");
-            attrs.sizes = sizes ?? "100vw";
-        } else {
-            attrs.src = src;
-        }
-        return createElement("img", attrs);
-    }
-    const base = policy.base ?? "";
-    const url = base && src.src.startsWith("/") ? `${base}${src.src}` : src.src;
-    attrs.src = url;
-    if (attrs.width === undefined) attrs.width = src.width;
-    if (attrs.height === undefined) attrs.height = src.height;
-    if (servedAsIs(src)) return createElement("img", attrs);
-    const chosen = (widths ?? policy.widths).filter((w)=>w > 0 && w < src.width).sort((a, b)=>a - b).filter((w, i, all)=>i === 0 || all[i - 1] !== w);
-    chosen.push(src.width);
-    const chosenSizes = sizes ?? `(max-width: ${src.width}px) 100vw, ${src.width}px`;
-    const stem = url.replace(/\.[^./]+$/, "");
-    const sources = policy.formats.map((format)=>createElement("source", {
-            key: format,
-            type: MIME[format] ?? `image/${format}`,
-            srcSet: chosen.map((w)=>`${stem}.${w}.${format} ${w}w`).join(", "),
-            sizes: chosenSizes
-        }));
-    return createElement("picture", null, ...sources, createElement("img", attrs));
+export function Picture(props) {
+    const { img, sources } = pictureParts(props, FETCH_PRIORITY);
+    if (sources === null) return createElement("img", img);
+    return createElement("picture", null, ...sources.map((source)=>createElement("source", source)), createElement("img", img));
 }
 const HoistContext = createContext(null);
 const HOISTED_PROP = "$h";

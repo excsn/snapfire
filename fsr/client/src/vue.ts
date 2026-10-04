@@ -5,6 +5,8 @@ import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
+import { linkAttributes, type LinkOptions } from "./link.js";
+import { pictureParts, type PictureOptions } from "./picture.js";
 
 /** The reactive props an island was mounted with, so a patch re-renders it in place instead of tearing it down. */
 const held = new WeakMap<Element, Record<string, unknown>>();
@@ -187,5 +189,27 @@ export const Mount: Component = defineComponent({
     onMounted(apply);
     onUpdated(apply);
     return () => h("sf-s", { ref: region, "data-sf-island": "", "data-sf-when": props.when });
+  },
+});
+
+/** An anchor with the marks the navigator reads, for a Vue island. Attributes pass through as `<a>`'s. */
+export const Link: Component = defineComponent({
+  name: "SfLink",
+  inheritAttrs: false,
+  setup(_, { attrs, slots }) {
+    return () => h("a", linkAttributes(attrs as LinkOptions), slots.default?.());
+  },
+});
+
+/** The `<picture>` the server writes for the same attributes, for a Vue island. */
+export const Picture: Component = defineComponent({
+  name: "SfPicture",
+  inheritAttrs: false,
+  setup(_, { attrs }) {
+    return () => {
+      const { img, sources } = pictureParts(attrs as PictureOptions);
+      if (sources === null) return h("img", img);
+      return h("picture", null, [...sources.map((source) => h("source", source)), h("img", img)]);
+    };
   },
 });
