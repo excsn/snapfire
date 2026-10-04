@@ -303,7 +303,7 @@ impl Compiler {
         })
       };
 
-      let lexer = Lexer::new(syntax, EsVersion::latest(), StringInput::from(&*fm), None);
+      let lexer = Lexer::new(syntax, EsVersion::latest(), StringInput::from(&*fm), Some(&comments));
       let mut parser = Parser::new_from(lexer);
 
       let parsed = parser.parse_module();

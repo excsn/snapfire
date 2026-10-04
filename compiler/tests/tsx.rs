@@ -30,6 +30,21 @@ fn with_tsconfig(fixture: &Fixture, tsconfig: &str) {
 }
 
 #[test]
+fn a_jsx_import_source_pragma_picks_the_runtime_for_its_file() {
+  let fixture = Fixture::new("jsx-automatic");
+  let badge = fixture.root().join("input/badge.tsx");
+  let source = fs::read_to_string(&badge).unwrap();
+  fs::write(&badge, format!("/** @jsxImportSource @snapfire/fsr-client */\n{source}")).unwrap();
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()));
+
+  let content = fs::read_to_string(fixture.root().join("dist/badge.js")).unwrap();
+  assert!(content.contains(r#"from "@snapfire/fsr-client/jsx-runtime""#), "{content}");
+  assert!(!content.contains("react/jsx-runtime"), "{content}");
+}
+
+#[test]
 fn test_automatic_runtime_lowers_jsx_and_imports_the_runtime() {
   let fixture = Fixture::new("jsx-automatic");
 
