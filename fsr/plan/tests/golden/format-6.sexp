@@ -282,7 +282,7 @@
     (do side))
   (on submit))
 (component routes/layout.tsx#default
-  (owner tree)
+  (owner react)
   (render (slot content))
   (head link
     "rel"

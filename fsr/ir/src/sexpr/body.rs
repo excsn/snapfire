@@ -180,7 +180,7 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
         owned = true;
       }
       Some("static") => (out.owner, owned) = (Owner::Fsr, true),
-      Some("tree") => (out.owner, owned) = (Owner::ReactTree, true),
+      Some("tree") => (out.owner, owned) = (Owner::React, true),
       Some("vue") => (out.owner, owned) = (Owner::Vue, true),
       Some("shadow") => {
         let a = at_least(inner, "shadow", 1)?;

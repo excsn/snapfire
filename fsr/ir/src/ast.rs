@@ -258,6 +258,7 @@ impl TryFrom<ComponentRepr> for Component {
       (Some(owner), _) => owner,
       (None, Some(serde_json::Value::Bool(true))) => Owner::React,
       (None, Some(serde_json::Value::Bool(false))) => Owner::Fsr,
+      (None, Some(serde_json::Value::String(word))) if word == "tree" => Owner::React,
       (None, Some(serde_json::Value::String(word))) => Owner::of(&word).ok_or_else(|| format!("`hydrate` is a boolean, \"tree\" or \"vue\", not \"{word}\""))?,
       (None, Some(other)) => return Err(format!("`hydrate` is a boolean or a word, not {other}")),
       (None, None) => Owner::React,
@@ -306,16 +307,12 @@ impl ShadowMode {
 
 /// What renders a component in the browser. `Fsr` is composition: the server
 /// renders it and nothing renders it again. `React` and `Vue` hydrate the
-/// server's markup through their adapters. `ReactTree` is a layout the React
-/// adapter renders as one root with the page inside it, declared as
-/// `export default tree(Layout)`.
+/// server's markup through their adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Owner {
   Fsr,
   React,
-  #[serde(rename = "tree")]
-  ReactTree,
   Vue,
 }
 
@@ -325,7 +322,6 @@ impl Owner {
     match self {
       Self::Fsr => "fsr",
       Self::React => "react",
-      Self::ReactTree => "tree",
       Self::Vue => "vue",
     }
   }
@@ -334,7 +330,6 @@ impl Owner {
     match word {
       "fsr" => Some(Self::Fsr),
       "react" => Some(Self::React),
-      "tree" => Some(Self::ReactTree),
       "vue" => Some(Self::Vue),
       _ => None,
     }

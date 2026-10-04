@@ -1,4 +1,4 @@
-import { applyStyles, discard, loadEntry, patchIsland, scan, setTreeChild, treeRootOf, treeSettled } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
@@ -59,11 +59,6 @@ function replaceRegion(region, html) {
 function fillSlot(slot, node, seg) {
     const el = document.querySelector(`[data-sf-slot="${slot}"]`);
     if (!el) return;
-    const root = treeRootOf(el);
-    if (root) {
-        treeChild(root, node, seg);
-        return;
-    }
     const template = document.createElement("template");
     writeMarkup(template, seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
     discard(el);
@@ -76,36 +71,6 @@ function segmentOfSlot(seg, slot) {
         if (found !== null) return found;
     }
     return null;
-}
-function treeChild(root, node, seg) {
-    const key = seg === null ? null : escapeKey(seg.k);
-    const html = seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
-    const adopted = {
-        module: null,
-        props: {},
-        regions: null,
-        children: null,
-        html,
-        rendered: true,
-        instance: 0,
-        gen: 0,
-        marker: null,
-        key
-    };
-    const child = node.kind === "client" && seg !== null && seg.c.length === 0 ? {
-        module: node.module,
-        props: node.props,
-        encoded: node.encoded,
-        regions: regionSources(node, ids),
-        children: childrenOf(node, ids),
-        html,
-        rendered: node.ssr !== null || node.children.length > 0,
-        instance: 0,
-        gen: 0,
-        marker: null,
-        key
-    } : adopted;
-    void setTreeChild(root, child);
 }
 function pendingOf(node, slot) {
     if (node.kind === "pending") return node.slot === slot ? node : null;
@@ -166,22 +131,10 @@ function namedSlotOf(region, name) {
 function replaceChild(old, node, seg) {
     const html = ()=>seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
     const region = findRegion(old.k);
-    if (region) {
-        const root = treeRootOf(region.start);
-        if (root) {
-            treeChild(root, node, seg);
-            return true;
-        }
-        return replaceRegion(region, html());
-    }
+    if (region) return replaceRegion(region, html());
     if (old.s === undefined) return false;
     const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
     if (!el) return false;
-    const root = treeRootOf(el);
-    if (root) {
-        treeChild(root, node, seg);
-        return true;
-    }
     const template = document.createElement("template");
     writeMarkup(template, html());
     discard(el);
@@ -457,7 +410,6 @@ async function drain(rows, segments, gen) {
                 const seg = segmentOfSlot(segments, row.slot);
                 if (seg) seg.c = row.segments;
                 fillSlot(row.slot, row.node, seg);
-                await treeSettled();
                 scan(document);
                 watchLinks(document);
                 document.dispatchEvent(new CustomEvent("sf:fill", {
@@ -657,7 +609,6 @@ export async function refresh() {
     if (eager) await applyStyles(eager.styles);
     if (gen !== generation) return;
     if (!eager || !patch(eager, true, false)) return bail();
-    await treeSettled();
     announce();
     await drain(rows, eager.segments, gen);
 }
@@ -720,7 +671,6 @@ export async function navigate(href, push = true, options = {}) {
         if (options.scroll !== false) scrollToFragment(url.hash);
     }
     markLinks();
-    await treeSettled();
     announce();
     await drain(rows, eager.segments, gen);
 }

@@ -41,7 +41,7 @@ impl Markup {
   /// inside its caller's tree, so it keeps its caller's.
   pub(crate) fn of(owner: Owner, frameworks: Frameworks, caller: Markup) -> Markup {
     match owner {
-      Owner::React | Owner::ReactTree => frameworks.react.map_or(Markup::Plain, Markup::React),
+      Owner::React => frameworks.react.map_or(Markup::Plain, Markup::React),
       Owner::Vue => frameworks.vue.map_or(Markup::Plain, Markup::Vue),
       Owner::Fsr => caller,
     }

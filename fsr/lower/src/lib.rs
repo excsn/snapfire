@@ -95,6 +95,9 @@ pub enum LowerError {
   /// the build cannot read.
   #[error("{0}; every export under ext/ is an extension and must lower")]
   Extension(Residue),
+  /// A spelling FSR no longer takes, refused with what to write instead.
+  #[error("{0}")]
+  Retired(Residue),
 }
 
 pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};

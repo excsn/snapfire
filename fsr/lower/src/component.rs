@@ -259,9 +259,6 @@ impl ComponentSet {
       return Ok(None);
     }
     let parsed = self.parsed[&file].clone();
-    if matches!(tree_target(&parsed), Ok(Some(_))) {
-      return Ok(None);
-    }
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
     match crate::extract::extract(&parsed, &file, &slots, None) {
       Ok(Some(extraction)) => {
@@ -435,10 +432,9 @@ impl ComponentSet {
     // An element template has no browser half, so nothing would read what
     // hoisting records or rewrites.
     let element_template = self.elements.values().any(|m| *m == module);
-    let tree = match tree_target(&self.parsed[file].clone()) {
-      Ok(found) => found.filter(|_| export == "default"),
-      Err((span, message)) => return Err(self.parsed[file].residue(span, message).into()),
-    };
+    if let Some(span) = tree_call(&self.parsed[file].clone()).filter(|_| export == "default") {
+      return Err(LowerError::Retired(self.parsed[file].residue(span, "`tree(...)` is gone: a layout is composition and its page renders in a region of its own, so `export default` the layout itself and share state with the page through the store")));
+    }
     let ((component, refs, providers, own_heads), hoisting) = loop {
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
@@ -541,12 +537,7 @@ impl ComponentSet {
     // A provider is React state the page's islands read, so the component
     // is a root even when nothing else in it needs the browser.
     let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || self.inline_hydrates(&render);
-    let owner = match tree {
-      Some((_, span)) if !self.layouts.iter().any(|m| *m == module) => return Err(self.parsed[file].residue(span, "`tree(...)` marks a layout; this module is not one").into()),
-      Some(_) => Owner::ReactTree,
-      None if hydrates => Owner::React,
-      None => Owner::Fsr,
-    };
+    let owner = if hydrates { Owner::React } else { Owner::Fsr };
     let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, owner, shadow: component.shadow };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
@@ -1050,11 +1041,6 @@ pub(crate) fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Foun
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match &*e.expr {
         js::Expr::Arrow(arrow) => return Some(Found::Arrow(arrow)),
         js::Expr::Ident(id) => return find_function(parsed, id.sym.as_ref()),
-        js::Expr::Call(_) => {
-          if let Ok(Some((name, _))) = tree_target(parsed) {
-            return find_function(parsed, &name);
-          }
-        }
         _ => {}
       },
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => {
@@ -1103,22 +1089,15 @@ fn default_function_name(parsed: &Parsed) -> Option<&str> {
   })
 }
 
-/// `export default tree(Layout)` with `tree` from the React adapter: the
-/// component's name and the call's span. `None` for any other default export.
-fn tree_target(parsed: &Parsed) -> Result<Option<(String, Span)>, (Span, String)> {
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) = item else { continue };
-    let js::Expr::Call(call) = &*e.expr else { return Ok(None) };
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    if imported_callee(parsed, callee).filter(|(source, _)| is_template_source(source)).map(|(_, name)| name).as_deref() != Some("tree") {
-      return Ok(None);
-    }
-    return match (call.args.first().map(|a| &*a.expr), call.args.len()) {
-      (Some(js::Expr::Ident(target)), 1) => Ok(Some((target.sym.to_string(), call.span))),
-      _ => Err((call.span, "`tree(...)` takes the layout's component name and nothing else".to_owned())),
-    };
-  }
-  Ok(None)
+/// The span of `export default tree(...)` with `tree` from FSR's React
+/// module or its dialect, a spelling the build refuses.
+fn tree_call(parsed: &Parsed) -> Option<Span> {
+  parsed.module.body.iter().find_map(|item| {
+    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) = item else { return None };
+    let js::Expr::Call(call) = &*e.expr else { return None };
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    (imported_callee(parsed, callee).filter(|(source, _)| is_template_source(source)).map(|(_, name)| name).as_deref() == Some("tree")).then_some(call.span)
+  })
 }
 
 fn decl_function<'a>(decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
@@ -4204,25 +4183,15 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
-  fn tree_marks_a_layout_as_one_react_tree_and_is_refused_elsewhere() {
+  fn tree_is_refused_with_what_to_write_instead() {
     let layout = "import type { ReactNode } from \"react\";\nimport { tree } from \"@snapfire/fsr-client/react\";\nfunction Layout({ children }: { children: ReactNode }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n";
     let mut set = ComponentSet::new(&app(&[("routes/layout.tsx", layout)]));
     set.layouts.push("routes/layout.tsx#default".to_owned());
-    set.lower("routes/layout.tsx#default").unwrap();
-    assert_eq!(set.components[0].1.owner, Owner::ReactTree);
-    let Tmpl::Element { children, .. } = &set.components[0].1.render else { panic!() };
-    assert_eq!(children[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
-
-    let page = [("routes/a/page.tsx", "import { tree } from \"@snapfire/fsr-client/react\";\nfunction A() {\n  return <p>x</p>;\n}\nexport default tree(A);\n")];
-    let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
-    assert!(err.contains("marks a layout"), "{err}");
-
-    let odd = [("routes/layout.tsx", "import { tree } from \"@snapfire/fsr-client/react\";\nexport default tree(() => <p>x</p>);\n")];
-    let mut set = ComponentSet::new(&app(&odd));
-    set.layouts.push("routes/layout.tsx#default".to_owned());
-    let err = set.lower("routes/layout.tsx#default").unwrap_err().to_string();
-    assert!(err.contains("takes the layout's component name"), "{err}");
+    let err = set.lower("routes/layout.tsx#default").unwrap_err();
+    assert!(matches!(err, LowerError::Retired(_)), "a hard error, not residue that sends the layout to the browser: {err}");
+    assert!(err.to_string().contains("`tree(...)` is gone") && err.to_string().contains("export default"), "{err}");
   }
+
 
 
   #[test]

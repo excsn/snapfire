@@ -1108,7 +1108,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   for (module, component) in std::mem::take(&mut set.components) {
     let detail = match component.owner {
-      Owner::ReactTree | Owner::Vue => component.owner.as_str().to_owned(),
+      Owner::Vue => component.owner.as_str().to_owned(),
       Owner::React => String::new(),
       Owner::Fsr => "static".to_owned(),
     };
@@ -1902,17 +1902,12 @@ pub(crate) struct Adapter {
   mounter: &'static str,
   patcher: &'static str,
   unmounter: &'static str,
-  /// The entry's `claims`, for a layout mounted as one tree with its page.
-  claims: Option<&'static str>,
   needs: &'static [&'static str],
 }
 
-pub(crate) const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", claims: None, needs: &["react", "react-dom/client"] };
+pub(crate) const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", needs: &["react", "react-dom/client"] };
 
-/// A layout declared `tree(Layout)`: the React adapter's tree mounter, which renders the page inside the layout's root.
-pub(crate) const REACT_TREE: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactTreeMounter", patcher: "reactTreePatcher", unmounter: "reactUnmounter", claims: Some("reactTreeClaims"), needs: &["react", "react-dom/client"] };
-
-pub(crate) const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", claims: None, needs: &["vue"] };
+pub(crate) const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", needs: &["vue"] };
 
 const ADAPTERS: &[&Adapter] = &[&REACT, &VUE];
 
@@ -1944,7 +1939,6 @@ fn suggested_version(package: &str) -> &'static str {
 /// extension, when the client has an adapter for that framework.
 fn adapter_for(module: &str, owners: &HashMap<String, Owner>) -> Result<&'static Adapter, BuildError> {
   match owners.get(module) {
-    Some(Owner::ReactTree) => return Ok(&REACT_TREE),
     Some(Owner::Vue) => return Ok(&VUE),
     Some(Owner::React | Owner::Fsr) => return Ok(&REACT),
     None => {}
@@ -1988,7 +1982,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
         &mut imported.last_mut().unwrap().1
       }
     };
-    for name in [adapter.mounter, adapter.patcher, adapter.unmounter].into_iter().chain(adapter.claims) {
+    for name in [adapter.mounter, adapter.patcher, adapter.unmounter] {
       if !names.contains(&name) {
         names.push(name);
       }
@@ -2013,11 +2007,10 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       continue;
     }
     let adapter = adapter_for(module, owners)?;
-    let claims = adapter.claims.map(|claims| format!(", claims: {claims}")).unwrap_or_default();
     if generated.iter().any(|file| file == path) {
       out.push_str("  // @ts-ignore: the bundle overlay alone holds this module, which the build split out of its page\n");
     }
-    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {}{claims} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
+    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
   out.push_str("}\n");
   Ok(out)

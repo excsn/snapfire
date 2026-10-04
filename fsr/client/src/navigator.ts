@@ -1,4 +1,4 @@
-import { applyStyles, discard, loadEntry, patchIsland, scan, setTreeChild, treeRootOf, treeSettled, type TreeChild } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -73,11 +73,6 @@ function replaceRegion(region: Region, html: string): boolean {
 function fillSlot(slot: number, node: SfNode, seg: Segment | null): void {
   const el = document.querySelector(`[data-sf-slot="${slot}"]`);
   if (!el) return;
-  const root = treeRootOf(el);
-  if (root) {
-    treeChild(root, node, seg);
-    return;
-  }
   const template = document.createElement("template");
   writeMarkup(template, seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
   discard(el);
@@ -92,18 +87,6 @@ function segmentOfSlot(seg: Segment, slot: number): Segment | null {
     if (found !== null) return found;
   }
   return null;
-}
-
-/** Hands a tree root what its child region shows now. A page, which is a client node with no child segments, is described for the root to render; anything else is markup for it to adopt, delimited the way the region was. */
-function treeChild(root: Element, node: SfNode, seg: Segment | null): void {
-  const key = seg === null ? null : escapeKey(seg.k);
-  const html = seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
-  const adopted: TreeChild = { module: null, props: {}, regions: null, children: null, html, rendered: true, instance: 0, gen: 0, marker: null, key };
-  const child: TreeChild =
-    node.kind === "client" && seg !== null && seg.c.length === 0
-      ? { module: node.module, props: node.props, encoded: node.encoded, regions: regionSources(node, ids), children: childrenOf(node, ids), html, rendered: node.ssr !== null || node.children.length > 0, instance: 0, gen: 0, marker: null, key }
-      : adopted;
-  void setTreeChild(root, child);
 }
 
 /** The pending node a slot id names, anywhere under `node`. */
@@ -168,26 +151,14 @@ function namedSlotOf(region: Region, name: string): Element | null {
   return null;
 }
 
-/** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. `seg` is the segment `node` renders as, null for a pending node written bare. Under a tree root the node is handed to the root instead, which renders or adopts it. */
+/** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. `seg` is the segment `node` renders as, null for a pending node written bare. */
 function replaceChild(old: Segment, node: SfNode, seg: Segment | null): boolean {
   const html = () => (seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
   const region = findRegion(old.k);
-  if (region) {
-    const root = treeRootOf(region.start);
-    if (root) {
-      treeChild(root, node, seg);
-      return true;
-    }
-    return replaceRegion(region, html());
-  }
+  if (region) return replaceRegion(region, html());
   if (old.s === undefined) return false;
   const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
   if (!el) return false;
-  const root = treeRootOf(el);
-  if (root) {
-    treeChild(root, node, seg);
-    return true;
-  }
   const template = document.createElement("template");
   writeMarkup(template, html());
   discard(el);
@@ -504,7 +475,6 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
         const seg = segmentOfSlot(segments, row.slot);
         if (seg) seg.c = row.segments;
         fillSlot(row.slot, row.node, seg);
-        await treeSettled();
         scan(document);
         watchLinks(document);
         document.dispatchEvent(new CustomEvent("sf:fill", { detail: row.slot }));
@@ -761,7 +731,6 @@ export async function refresh(): Promise<void> {
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager || !patch(eager, true, false)) return bail();
-  await treeSettled();
   announce();
   await drain(rows, eager.segments, gen);
 }
@@ -830,7 +799,6 @@ export async function navigate(href: string, push = true, options: NavigateOptio
     if (options.scroll !== false) scrollToFragment(url.hash);
   }
   markLinks();
-  await treeSettled();
   announce();
   await drain(rows, eager.segments, gen);
 }
