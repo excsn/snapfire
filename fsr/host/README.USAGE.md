@@ -202,6 +202,7 @@ From the app directory, each reported at boot under `inferred`:
 | `document.import_map` | `importmap.json` in the app directory |
 | a `/static/js/vendor` root | `vendor/` in the app directory, under the site's prefix when `[site]` is set |
 | `<link rel="icon" href="data:,">` in the head | no icon under `icons/`, unless `document.empty_icon = false`; dropped when a route's `meta` names an icon |
+| `/favicon.ico` | `favicon.ico` under `icons/`, answered as `/static/icons/favicon.ico` with the same cache header, so an answer with no head, a plain 404 or a payload opened in a tab, does not log a second 404 |
 | a `/static/js/vendor` root for a site running alone | the shell's `app/vendor/`, beside the `generated/shell.json` that `[site] shell` names |
 | a `/static/css` root and `document.styles` | the `styles` directory `[dirs]` names, `styles/` by default, every `.css` in it linked from the head in name order |
 | the image policy, the font CSS and the preloads in the head | `generated/assets.json`, which `fsr build` writes from the images the components import and the fonts directory |

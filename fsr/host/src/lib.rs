@@ -886,6 +886,8 @@ struct Tables {
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
   statics: Vec<(String, ServeDir)>,
+  /// The static path `/favicon.ico` is looked up as, `config.favicon`.
+  favicon: Option<String>,
   /// The `Cache-Control` a static answer carries, from `server.static_max_age`.
   /// Absent when that is `0` or when `dev` is on, which sends `no-cache` instead.
   static_cache: Option<HeaderValue>,
@@ -2553,8 +2555,12 @@ impl Host {
       }
     }
 
+    let lookup = match &t.favicon {
+      Some(at) if path == "/favicon.ico" => at.as_str(),
+      _ => path.as_str(),
+    };
     for (route, dir) in &t.statics {
-      if let Some(rest) = path.strip_prefix(route.as_str()) {
+      if let Some(rest) = lookup.strip_prefix(route.as_str()) {
         if rest.is_empty() || rest.starts_with('/') {
           let mut inner = Request::builder()
             .method(req.method().clone())
@@ -5017,6 +5023,7 @@ impl HostBuilder {
         origin: config.origin()?,
         dev_bundle,
         statics,
+        favicon: config.favicon.clone(),
         static_cache,
         client: serve_client,
         client_minified,

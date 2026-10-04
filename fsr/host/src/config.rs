@@ -60,6 +60,11 @@ pub struct Config {
   /// URLs, so a site running alone serves this at `/static/js/vendor` to
   /// answer them. A mount, a deploy tree and a packed artifact never carry it.
   pub shell_vendor: Option<PathBuf>,
+  /// The static path `/favicon.ico` answers from, `<icons route>/favicon.ico`,
+  /// when the icons directory holds that file. A browser asks for the root
+  /// path on any answer that is not a document, a plain 404 or a payload
+  /// opened in a tab, and this stops that request logging a second 404.
+  pub favicon: Option<String>,
   /// `[public]`: the deployment's own values, which a body reads as
   /// `ctx.config.<key>`. Scalars only, one level deep.
   pub public: BTreeMap<String, PublicValue>,
@@ -1700,6 +1705,7 @@ impl Config {
       .map(|s| app.join(&s.dir))
       .filter(|dir| dir.is_dir())
       .or_else(|| app.join(&dirs.icons).is_dir().then(|| app.join(&dirs.icons)));
+    let mut favicon = None;
     if let Some(icons_dir) = icons_dir {
       if !statics.iter().any(|s| s.route == icons_route) {
         statics.push(StaticRoot {
@@ -1740,6 +1746,11 @@ impl Config {
       }
       if !linked.is_empty() {
         inferred.push(format!("document.head links [{}] from {icons_route}", linked.join(", ")));
+      }
+      if held("favicon.ico") {
+        let at = format!("{icons_route}/favicon.ico");
+        inferred.push(format!("/favicon.ico from {at}"));
+        favicon = Some(at);
       }
     }
     let has_icon = document.head.iter().any(|t| t.get("rel").is_some_and(|rel| rel.split_whitespace().any(|r| r == "icon")));
@@ -1818,6 +1829,7 @@ impl Config {
       images,
       fonts,
       shell_vendor,
+      favicon,
       public,
       bundle,
       inferred,

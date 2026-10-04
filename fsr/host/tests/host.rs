@@ -3856,6 +3856,36 @@ async fn a_favicon_ico_under_icons_is_linked() {
   assert!(html.contains(r#"<link href="/static/icons/favicon.svg" rel="icon" type="image/svg+xml">"#), "{html}");
 }
 
+#[tokio::test]
+async fn the_root_favicon_answers_from_icons() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("icons")).unwrap();
+  std::fs::write(dir.join("icons/favicon.ico"), b"ico").unwrap();
+  let host = host_at(&dir).unwrap();
+  assert!(host.report().to_string().contains("/favicon.ico from /static/icons/favicon.ico"), "{}", host.report());
+  let response = host.handle(Request::get("/favicon.ico").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(response.headers().get(header::CACHE_CONTROL).is_some(), "the icons root's cache header rides along");
+  assert_eq!(&body_of(response).await, "ico");
+
+  let host = host_at(&app_dir()).unwrap();
+  let response = host.handle(Request::get("/favicon.ico").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "no icons/ leaves the root path unanswered");
+}
+
+#[tokio::test]
+async fn a_site_alone_answers_the_root_favicon_from_under_its_prefix() {
+  let dir = site_dir();
+  std::fs::create_dir_all(dir.join("icons")).unwrap();
+  std::fs::write(dir.join("icons/favicon.ico"), b"shop").unwrap();
+  let transport = Arc::new(MockTransport::new());
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  assert!(host.report().to_string().contains("/favicon.ico from /shop/static/icons/favicon.ico"), "{}", host.report());
+  let response = host.handle(Request::get("/favicon.ico").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(&body_of(response).await, "shop");
+}
+
 const EMPTY_ICON: &str = r#"<link href="data:," rel="icon">"#;
 
 #[tokio::test]
