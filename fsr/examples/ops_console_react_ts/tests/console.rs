@@ -105,7 +105,7 @@ fn a_document_streams_the_alerts_slot_and_the_agent_page_behind_their_own_fallba
   assert!(fills.contains(&"alerts") && fills.contains(&"agent"), "{fills:?}");
   let agent = parts[1..].iter().find(|p| p.contains("class=\"page agent\"")).unwrap();
   assert!(
-    agent.contains("<sf-s data-sf-island data-sf-region=\"routes/agents/[id]/page.tsx#default|i0\" data-sf-when=\"visible\">"),
+    agent.contains("<sf-s data-sf-island data-sf-region=\"routes/agents/[id]/page.tsx#default|i1\" data-sf-when=\"visible\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/JobTimeline.tsx#JobTimeline\""),
     "the job timeline is an island of its own, in the region its placement names: {agent}"
   );
   assert!(agent.contains(";__sfHead({\"title\":\"builder-eu-1 · Ops console\""), "the page retitles the document on resolution: {agent}");

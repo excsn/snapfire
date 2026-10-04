@@ -94,7 +94,8 @@ fn a_route_renders_its_page_on_the_server_with_no_javascript_engine() {
   let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
 
   assert!(html.starts_with("<!--sf-g:shell#document--><!doctype html>"), "{}", &html[..80]);
-  assert!(html.contains("data-sf-module=\"routes/page.tsx#default\""), "the component is named for the browser");
+  assert!(!html.contains("data-sf-module=\"routes/page.tsx#default\""), "the page is composition, which nothing renders again: {html}");
+  assert!(html.contains("data-sf-module=\"src/ui/ProductCard.tsx#ProductCard\""), "the card with a handler is named for the browser: {html}");
   assert!(html.contains("<h2 class=\"card-title\"><a href=\"/product/1\">Filament</a></h2>"), "the page's own markup is rendered from the lowered tree: {html}");
   assert!(html.contains("<span class=\"price\">$24.00</span>"), "a module helper ran in Rust: {html}");
   assert!(html.contains("<span class=\"stars-rating\">4.5</span>"), "a component the page imports rendered too");
@@ -111,7 +112,7 @@ fn a_rating_rendered_inside_its_shadow_root_is_not_among_the_catalogs_hoisted_va
   let shadow = html.find("<shop-rating rating=\"4.5\" reviews=\"10\"><template shadowrootmode=\"open\">").expect(&html);
   assert!(html[shadow..].contains("<span class=\"stars-rating\">4.5</span>"), "Stars renders inside the shadow root: {html}");
 
-  let module = html.find(" data-sf-module=\"routes/page.tsx#default\"").expect(&html);
+  let module = html.find(" data-sf-module=\"src/ui/ProductCard.tsx#ProductCard\"").expect(&html);
   let id = &html[html[..module].rfind("id=\"").unwrap() + 4..module - 1];
   let open = format!("data-sf-props=\"{id}\">");
   let start = html.find(&open).expect(&html) + open.len();
@@ -146,9 +147,9 @@ fn a_route_with_a_loading_module_ships_the_document_before_its_page() {
   assert_eq!(parts.len(), 2, "the document, then one fill: {parts:?}");
   assert!(parts[0].contains("<div data-sf-slot=\"1\"><main class=\"page product\"><div class=\"product-layout\"><div class=\"skeleton skeleton-thumb\"></div>"), "the loading module holds the slot: {}", parts[0]);
   assert!(parts[0].contains("<div class=\"skeleton skeleton-thumb\"></div>"), "rendered in Rust like any component");
-  assert!(!parts[0].contains("data-sf-module=\"routes/product/[id]/page.tsx#default\""), "the page waits for its loader; the sidecar alone names it");
+  assert!(!parts[0].contains("data-sf-module=\"routes/product/[id]/page.island0.tsx#default\""), "the page's island waits for its loader: {}", parts[0]);
   assert!(parts[1].starts_with("<template data-sf-fill=\"1\">"), "{}", parts[1]);
-  assert!(parts[1].contains("data-sf-module=\"routes/product/[id]/page.tsx#default\""));
+  assert!(parts[1].contains("data-sf-module=\"routes/product/[id]/page.island0.tsx#default\""), "the island split out of the page arrives with the fill: {}", parts[1]);
   assert!(parts[1].contains("Filament"));
 }
 
@@ -454,6 +455,8 @@ fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
   assert_eq!(app.prerendered("/about", RenderMode::Html), None, "nothing written yet");
 
   let written = block_on(app.prerender(&out)).unwrap();
+  let (client, written): (Vec<_>, Vec<_>) = written.into_iter().partition(|(p, _)| p.starts_with("/static/js/fsr/"));
+  assert!(client.iter().any(|(p, _)| p == "/static/js/fsr/boot.js"), "the client lands beside the documents for a server that is not this host: {client:?}");
   assert_eq!(written.iter().map(|(p, f)| (p.as_str(), f.strip_prefix(&out).unwrap().to_string_lossy().into_owned())).collect::<Vec<_>>(), vec![("/about", "about/index.html".to_owned()), ("/about", "about/index.payload".to_owned()), ("prerendered.json", "prerendered.json".to_owned())]);
   let html = app.prerendered("/about?anything=1", RenderMode::Html).unwrap();
   assert!(html.contains("data-sf-module=\"src/About.tsx#default\""), "the document, with the Rust route's island: {html}");
