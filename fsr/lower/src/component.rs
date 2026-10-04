@@ -308,22 +308,12 @@ impl ComponentSet {
     Ok(())
   }
 
-  /// Brings every hydrate and purity verdict to what the whole graph says.
-  /// Lowering read a component still in progress as neither hydrating nor
-  /// pure, which is low for anything on a cycle: hydrate rises to the least
-  /// verdict that holds, purity falls from `stateless` to the greatest. The
-  /// chunks hoisting chose with the provisional verdicts stay, since a
+  /// Brings every purity verdict to what the whole graph says. Lowering read
+  /// a component still in progress as impure, which is low for anything on a
+  /// cycle: purity falls from `stateless` to the greatest verdict that holds.
+  /// The chunks hoisting chose with the provisional verdicts stay, since a
   /// component read as impure only keeps a subtree out of a chunk.
   fn settle(&mut self) {
-    loop {
-      let rising: Vec<usize> = (0..self.components.len()).filter(|&i| !self.components[i].1.owner.hydrates() && self.inline_hydrates(&self.components[i].1.render)).collect();
-      if rising.is_empty() {
-        break;
-      }
-      for i in rising {
-        self.components[i].1.owner = Owner::React;
-      }
-    }
     let mut pure = self.stateless.clone();
     loop {
       let falling: Vec<String> = pure
@@ -588,15 +578,13 @@ impl ComponentSet {
     Ok(component)
   }
 
-  /// Whether markup, islands aside, is something the browser mounts: an
-  /// element with an event handler (lowered or not) or a component rendered
-  /// inline that is. Its children were lowered before it, so their verdicts
-  /// are in.
+  /// Whether a component's own markup is something the browser mounts: an
+  /// element with an event handler, lowered or not. A component it renders
+  /// that a framework hydrates does not count: rendered from composition it
+  /// is placed as an island of its own.
   fn inline_hydrates(&self, tmpl: &Tmpl) -> bool {
     match tmpl {
-      Tmpl::Component { module, children, .. } => {
-        self.components.iter().any(|(m, c)| m == module && c.owner.hydrates()) || children.iter().any(|c| self.inline_hydrates(c))
-      }
+      Tmpl::Component { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n.starts_with(HANDLER_ATTR) || n == UNLOWERED_ATTR)) || children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Baked { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),

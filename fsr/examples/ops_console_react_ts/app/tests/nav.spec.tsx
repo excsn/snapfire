@@ -22,7 +22,7 @@ test("the nav is marked by the page beneath a drawer while the gear is marked by
 
   await fireEvent.click(gear);
   expect(location.pathname).toEqual("/settings");
-  expect(document.querySelector('sf-i[data-sf-module="routes/settings/page.drawer.tsx#default"]'), "the drawer opened over the list").toBeTruthy();
+  expect(document.querySelector('sf-s[data-sf-name="drawer"] sf-i[data-sf-module="src/ui/SettingsPanel.tsx#SettingsPanel"]'), "the drawer opened over the list").toBeTruthy();
   expect(mark("Agents"), "the nav describes the page beneath the drawer").toEqual("true");
   expect(gear.getAttribute("aria-current"), "the gear is judged by the address, which is its own").toEqual("page");
 

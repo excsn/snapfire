@@ -131,6 +131,8 @@ impl Interpreter {
       markup: Markup::Plain,
       in_svg: false,
       in_noscript: false,
+      in_framework: false,
+      component_path: String::new(),
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -228,6 +230,13 @@ pub(crate) struct Env {
   pub(crate) in_svg: bool,
   /// Inside `<noscript>`, where React 19 leaves them in place too.
   pub(crate) in_noscript: bool,
+  /// Inside a tree a framework renders again in the browser: an island's body
+  /// or a component that framework hydrates. Outside one, a hydrating
+  /// component is placed as an island rather than rendered inline.
+  pub(crate) in_framework: bool,
+  /// The path the component being rendered was entered at, which a handler
+  /// marker addresses whatever loop inside that component the element sits in.
+  pub(crate) component_path: String,
 }
 
 /// One step of the path a key is taken under.
@@ -362,6 +371,8 @@ impl Env {
       markup: Markup::Plain,
       in_svg: false,
       in_noscript: false,
+      in_framework: false,
+      component_path: String::new(),
     }
   }
 
@@ -486,6 +497,8 @@ impl Env {
       markup: self.markup,
       in_svg: self.in_svg,
       in_noscript: self.in_noscript,
+      in_framework: self.in_framework,
+      component_path: self.component_path.clone(),
     }
   }
 

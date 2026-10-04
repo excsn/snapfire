@@ -80,7 +80,7 @@ fn two_components_that_render_each_other_are_calls_the_renderer_makes() {
 }
 
 #[test]
-fn state_on_a_cycle_hydrates_every_component_that_renders_it() {
+fn state_on_a_cycle_hydrates_only_the_component_that_holds_it() {
   let set = lower(
     &[
       ("routes/page.tsx", "import { useState } from \"react\";\nimport Odd from \"./odd\";\nexport default function Even({ n }: { n: number }) {\n  const [open, setOpen] = useState(false);\n  return <div onClick={() => setOpen(!open)}>{n > 0 ? <Odd n={n - 1} /> : null}</div>;\n}\n"),
@@ -88,7 +88,8 @@ fn state_on_a_cycle_hydrates_every_component_that_renders_it() {
     ],
     "routes/page.tsx#default",
   );
-  assert_eq!(verdicts(&set, "routes/odd.tsx#default"), (true, Some(&false)), "Odd renders Even inline and Even has state, though Even was not done when Odd was lowered");
+  assert!(verdicts(&set, "routes/page.tsx#default").0, "Even has state");
+  assert!(!verdicts(&set, "routes/odd.tsx#default").0, "Odd renders Even inline, which places Even as an island from composition and leaves Odd to whatever renders it");
 }
 
 /// 2 MiB is a tokio worker's stack, which is where a host renders. This is a
@@ -365,3 +366,24 @@ fn a_fail_message_is_any_expression_and_the_kind_stays_a_literal() {
   assert!(refused.contains("kind as a string literal"), "{refused}");
 }
 
+
+#[test]
+fn composition_places_a_component_with_state_as_an_island_and_a_framework_renders_its_own_inline() {
+  let set = lower(
+    &[
+      ("routes/page.tsx", "import Panel from \"./panel\";\nexport default function Page() {\n  return <main><h1>title</h1><Panel label=\"one\" /></main>;\n}\n"),
+      ("routes/panel.tsx", "import { useState } from \"react\";\nimport Count from \"./count\";\nexport default function Panel({ label }: { label: string }) {\n  const [open, setOpen] = useState(false);\n  return <section onClick={() => setOpen(!open)}>{label}<Count /></section>;\n}\n"),
+      ("routes/count.tsx", "import { useState } from \"react\";\nexport default function Count() {\n  const [n, setN] = useState(0);\n  return <b onClick={() => setN(n + 1)}>{n}</b>;\n}\n"),
+    ],
+    "routes/page.tsx#default",
+  );
+  assert!(!verdicts(&set, "routes/page.tsx#default").0, "the page holds no state of its own");
+  let library = library(&set);
+  let rendered = Interpreter::default().render_module("routes/page.tsx#default", &library["routes/page.tsx#default"], &ValueMap::default(), &library).unwrap();
+  let placed: Vec<&str> = rendered.islands.iter().map(|island| island.module.as_str()).collect();
+  assert_eq!(placed, vec!["routes/panel.tsx#default"], "the page places Panel and React renders Count inside it");
+  assert!(rendered.html.starts_with("<main><h1>title</h1>"), "{}", rendered.html);
+  let panel = &rendered.islands[0];
+  assert!(panel.body.islands.is_empty(), "Count stays inline in Panel's tree");
+  assert!(panel.body.html.contains("<b") && panel.body.html.contains(">0</b>"), "{}", panel.body.html);
+}

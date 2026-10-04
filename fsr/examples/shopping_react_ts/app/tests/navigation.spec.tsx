@@ -9,7 +9,7 @@ test("a click from the catalog to the cart swaps the page and keeps the document
   const app = document.getElementById("app");
   expect(app, "the shell mounted the page under #app").toBeTruthy();
   expect(screen.getByText("Today's picks")).toBeTruthy();
-  expect(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"]'), "the catalog hydrates since its cards' add buttons run in the browser").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"]'), "the catalog is composition: its cards are the islands").toBeNull();
 
   await fireEvent.click(screen.getByLabelText("Cart, 2 items"));
 
@@ -107,39 +107,42 @@ test("a link to a fragment of another page scrolls to the element it names once 
   top.mockRestore();
 });
 
-const CATALOG = 'sf-i[data-sf-module="routes/page.tsx#default"]';
+const CARD = 'sf-i[data-sf-module="src/ui/ProductCard.tsx#ProductCard"]';
 
-test("a click that changes only the query keeps the page's island and hands it the new props", async () => {
+test("a click that changes only the query keeps the page's islands and morphs the page around them", async () => {
   await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
-  const island = document.querySelector(CATALOG);
+  const island = document.querySelector(CARD);
+  expect(island, "a card is placed").toBeTruthy();
   const chip = document.querySelectorAll("a.chip")[1];
   const href = chip.getAttribute("href") ?? "";
   await fireEvent.click(chip);
   expect(location.pathname + location.search).toEqual(href);
-  expect(document.querySelector(CATALOG), "the catalog is the island that was there").toBe(island);
-  expect(document.querySelector("a.chip-active")?.getAttribute("href"), "and it rendered the category it was sent").toEqual(href);
+  expect(document.querySelector(CARD), "the card is the island that was there").toBe(island);
+  expect(document.querySelector("a.chip-active")?.getAttribute("href"), "and the page shows the category it was sent").toEqual(href);
 });
 
-test("a navigation told not to keep replaces the page's island and one told to replace adds no history entry", async () => {
+test("a navigation told not to keep replaces the page's islands and one told to replace adds no history entry", async () => {
   await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
-  const island = document.querySelector(CATALOG);
+  const island = document.querySelector(CARD);
   const entries = history.length;
   await navigate("/?category=printing", true, { keep: false, replace: true });
   expect(location.pathname + location.search).toEqual("/?category=printing");
-  expect(document.querySelector(CATALOG), "a catalog is placed").toBeTruthy();
-  expect(document.querySelector(CATALOG), "and it is a new one").not.toBe(island);
+  expect(document.querySelector(CARD), "a card is placed").toBeTruthy();
+  expect(document.querySelector(CARD), "and it is a new one").not.toBe(island);
   expect(history.length, "in place of the entry it moved from").toEqual(entries);
 });
 
-test("a link that says not to keep replaces the page's island on a change of query", async () => {
+test("a link that says not to keep replaces the page's islands on a change of query", async () => {
   await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
-  const island = document.querySelector(CATALOG);
+  const island = document.querySelector(CARD);
+  expect(island, "a card is placed").toBeTruthy();
   const chip = document.querySelectorAll("a.chip")[1];
   const href = chip.getAttribute("href") ?? "";
   chip.setAttribute("data-sf-keep", "false");
   await fireEvent.click(chip);
   expect(location.pathname + location.search).toEqual(href);
-  expect(document.querySelector(CATALOG), "a new catalog in place of the one that was there").not.toBe(island);
+  expect(document.querySelector(CARD), "a new card in place of the one that was there").toBeTruthy();
+  expect(document.querySelector(CARD), "not the one that was there").not.toBe(island);
 });
 
 test("a navigation told not to scroll leaves the window where it was", async () => {

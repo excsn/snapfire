@@ -137,14 +137,18 @@ export interface Rendered extends BoundQueries {
 	container: HTMLElement;
 	baseElement: HTMLElement;
 	root: Root;
-	/** The module id the server rendered and React hydrated over; `null` when the component mounted fresh. */
+	/** The module id the server rendered and React hydrated over; `null` when the component mounted fresh or is composition. */
 	hydrated: string | null;
+	/** The module id of a component composition renders: the server's markup is the whole of it and only the islands inside mount. */
+	composed: string | null;
 	unmount(): void;
 	/** Renders `element` into the same root and settles. */
 	rerender(element: ReactElement): Promise<void>;
 	asFragment(): DocumentFragment;
 	debug(element?: Element, maxLength?: number): void;
 }
+/** Names a page or layout composition renders, so `render` writes the server's markup for it and mounts only the islands inside. The spec runner's boot calls it for each one. */
+export declare function registerComposition(moduleId: string, loader: () => Promise<unknown>): void;
 /** Mounts `element` under a fresh container. A page the server renders is hydrated over its own markup, so a mismatch fails here the way it would in a browser; anything else mounts fresh. */
 export declare function render(element: ReactElement, options?: {
 	ctx?: TestCtx;

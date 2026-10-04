@@ -3,14 +3,15 @@ import { advance, ctx, expect, fireEvent, load, screen, settle, test } from "@sn
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 8n, description: "A spool.", tags: ["pla"], attributes: [] };
 const stock = { product_id: 1n, on_hand: 8n, reserved: 0n, warehouse: "Prague", bins: ["A1"] };
 
-test("the layout hydrates over the page, keeps its state across a navigation and takes new props after an action", async () => {
+test("the layout is composition around its header island, keeps the header's state across a navigation and patches its props after an action", async () => {
   const c = ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament], getProduct: () => filament }, inventory: { getStock: () => stock } } });
   await load("/", { ctx: c });
 
-  const layout = document.querySelector('sf-i[data-sf-module="routes/layout.tsx#default"][data-sf-mounted]');
-  expect(layout, "the layout is an island and hydrated").toBeTruthy();
-  expect(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"]'), "the catalog hydrates since its cards' add buttons run in the browser").toBeTruthy();
-  expect(layout!.querySelector("sf-s:not([data-sf-name]):not([data-sf-island])")?.textContent?.includes("Today's picks"), "the page sits in the layout's slot").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/layout.tsx#default"]'), "the layout is composition: the server's markup is the layout").toBeNull();
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/Header.tsx#Header"][data-sf-mounted]'), "the header holds state, so the layout places it as an island").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/page.tsx#default"]'), "the catalog is composition too").toBeNull();
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/ProductCard.tsx#ProductCard"][data-sf-mounted]'), "each card's add button runs in the browser, so each card is an island").toBeTruthy();
+  expect(document.querySelector("sf-s:not([data-sf-name]):not([data-sf-island])")?.textContent?.includes("Today's picks"), "the page sits in the layout's child region").toBeTruthy();
   const header = document.querySelector("header.site-header");
   expect(header).toBeTruthy();
 

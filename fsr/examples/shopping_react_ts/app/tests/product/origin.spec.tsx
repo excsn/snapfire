@@ -8,7 +8,7 @@ test("a quick look opened from a search keeps the layout on the search", async (
   await load("/?q=PLA", { ctx: c });
   const box = document.querySelector<HTMLInputElement>('input[name="q"]')!;
   expect(box.value).toEqual("PLA");
-  const island = document.querySelector('sf-i[data-sf-module="routes/layout.tsx#default"]')!;
+  const island = document.querySelector('sf-i[data-sf-module="src/ui/Header.tsx#Header"]')!;
   const before = document.querySelector(`script[data-sf-props="${island.id}"]`)?.textContent ?? "";
   expect(before.includes('"PLA"'), before).toBeTruthy();
 
@@ -17,6 +17,6 @@ test("a quick look opened from a search keeps the layout on the search", async (
   expect(location.pathname).toEqual("/product/1");
   expect(document.querySelector('sf-s[data-sf-name="modal"]')?.textContent?.includes("Full details"), "the quick look opened").toBeTruthy();
   const after = document.querySelector(`script[data-sf-props="${island.id}"]`)?.textContent ?? "";
-  expect(after.includes('"PLA"'), `the kept layout's props still carry the search: ${after}`).toBeTruthy();
+  expect(after.includes('"PLA"'), `the kept header's props still carry the search: ${after}`).toBeTruthy();
   expect(document.querySelector<HTMLInputElement>('input[name="q"]')?.value, "the search box still holds the term").toEqual("PLA");
 });

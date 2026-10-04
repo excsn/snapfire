@@ -7,7 +7,7 @@ test("a component placed with <Island> mounts in its own root at its own timing 
   await load("/order/5001", { ctx: c });
   expect(document.querySelector('sf-i[data-sf-module="routes/order/[id]/page.tsx#default"]'), "the page has no state of its own, so it is markup rather than an island").toBeNull();
   const heading = screen.getByText("Order #5001 placed");
-  const region = document.querySelector("sf-s[data-sf-island]");
+  const region = document.querySelector('sf-i[data-sf-module="src/ui/OrderHelp.tsx#OrderHelp"]')?.closest("sf-s[data-sf-island]") ?? null;
   expect(region, "the page's markup holds the island's region").toBeTruthy();
   expect(region!.getAttribute("data-sf-when")).toEqual("visible");
   const help = region!.querySelector('sf-i[data-sf-module="src/ui/OrderHelp.tsx#OrderHelp"][data-sf-mounted]');

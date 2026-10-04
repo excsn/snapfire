@@ -1,4 +1,4 @@
-import { boot, discard, registeredIslands } from "./boot.js";
+import { boot, discard, registeredIslands, scan } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -415,11 +415,70 @@ async function moduleOf(type) {
     }
     return null;
 }
+const compositions = new Map();
+export function registerComposition(moduleId, loader) {
+    compositions.set(moduleId, loader);
+}
+async function compositionOf(type) {
+    for (const [id, loader] of compositions){
+        if (await loader() === type) return id;
+    }
+    return null;
+}
+function writeHtml(container, html) {
+    const unsafe = container.setHTMLUnsafe;
+    if (typeof unsafe === "function") unsafe.call(container, html);
+    else container.innerHTML = html;
+}
+function composedHtml(module, props) {
+    return JSON.parse(sf().render(module, JSON.stringify(encodeValue(props)))).html;
+}
+async function renderComposed(module, element, container) {
+    writeHtml(container, composedHtml(module, element.props));
+    scan(container);
+    await settle();
+    const root = {
+        render () {
+            throw new Error(`${module} is composition: nothing renders it in the browser, so rerender it instead`);
+        },
+        unmount () {
+            discard(container);
+        }
+    };
+    return {
+        ...within(container),
+        container,
+        baseElement: document.body,
+        root,
+        hydrated: null,
+        composed: module,
+        unmount () {
+            discard(container);
+            container.remove();
+        },
+        async rerender (next) {
+            discard(container);
+            writeHtml(container, composedHtml(module, next.props));
+            scan(container);
+            await settle();
+        },
+        asFragment () {
+            const template = document.createElement("template");
+            template.innerHTML = container.innerHTML;
+            return template.content;
+        },
+        debug (target, maxLength) {
+            console.log(prettyDOM(target ?? container, maxLength));
+        }
+    };
+}
 export async function render(element, options = {}) {
     sf().use(options.ctx?.id ?? 0);
     setLocale(options.ctx?.locale ?? sf().locale(0));
     const container = document.createElement("div");
     document.body.appendChild(container);
+    const composed = options.hydrate === false ? null : await compositionOf(element.type);
+    if (composed !== null) return renderComposed(composed, element, container);
     const module = options.hydrate === false ? null : await moduleOf(element.type);
     const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props)));
     const [{ createRoot, hydrateRoot }, { withHoisted }] = await Promise.all([
@@ -430,9 +489,7 @@ export async function render(element, options = {}) {
     let hydrated = null;
     if (rendered !== null) {
         const { html, hoisted } = JSON.parse(rendered);
-        const unsafe = container.setHTMLUnsafe;
-        if (typeof unsafe === "function") unsafe.call(container, html);
-        else container.innerHTML = html;
+        writeHtml(container, html);
         root = hydrateRoot(container, withHoisted(decodeValue(hoisted), element));
         hydrated = module;
     } else {
@@ -446,6 +503,7 @@ export async function render(element, options = {}) {
         baseElement: document.body,
         root,
         hydrated,
+        composed: null,
         unmount () {
             root.unmount();
             container.remove();

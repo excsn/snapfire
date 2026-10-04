@@ -255,6 +255,11 @@ struct Slot<'a> {
   /// Whether the callee placed the slot: a lowered island whose template
   /// did not carries its children apart, see `CHILDREN_HELD_OPEN`.
   placed: bool,
+  /// Whether the caller's tree is one a framework renders, which its
+  /// children are part of.
+  framework: bool,
+  /// The caller's component path, which a handler in its children addresses.
+  owner_path: String,
 }
 
 /// The region an island's children render in, which the mounter hands the
@@ -448,6 +453,17 @@ fn call(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> Result<(), Fail
 }
 
 fn render_component<'a>(env: &mut Env, component: &'a Component, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let outer = env.in_framework;
+  env.in_framework |= component.owner.hydrates();
+  let entered = env.hoists.as_ref().map(|h| h.path_key()).unwrap_or_default();
+  let outer_path = std::mem::replace(&mut env.component_path, entered);
+  let result = render_component_body(env, component, library, slots, out);
+  env.component_path = outer_path;
+  env.in_framework = outer;
+  result
+}
+
+fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let depth = env.scope.len();
   let caller = env.markup;
   env.markup = Markup::of(component.owner, env.frameworks, caller);
@@ -666,7 +682,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
     }
     if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
       if env.server_mode {
-        let path = env.hoists.as_ref().map(|h| h.path_key()).unwrap_or_default();
+        let path = &env.component_path;
         bound.push(if path.is_empty() { format!("{event}:{}", stringify(&value)?) } else { format!("{event}:{path}/{}", stringify(&value)?) });
       }
       continue;
@@ -769,7 +785,7 @@ fn render_shadow<'a>(env: &mut Env, module: &str, props: ValueMap, library: &'a 
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props))]));
   let hoists = env.hoists.take();
-  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false, placed: false });
+  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false, placed: false, framework: false, owner_path: String::new() });
   let markup = std::mem::replace(&mut env.markup, Markup::Plain);
   shadow_open(component.shadow.unwrap_or_default(), out);
   let result = in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
@@ -827,11 +843,14 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
 #[allow(clippy::too_many_arguments)]
 fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], id: u32, keyed: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+  if !env.in_framework && component.owner.hydrates() {
+    return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
+  }
   let map = self::props(env, props)?;
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone() });
   let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   slots.pop();
@@ -842,16 +861,23 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
 
 fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let Tmpl::Island { module, props, children, when, mode, id, define } = tmpl else { unreachable!("render_island is handed an island") };
-  let key = env.hoists.as_ref().map(|h| h.island_key(*id)).unwrap_or_default();
+  render_placed(env, module, props, children, when, mode, *id, *define, library, slots, out)
+}
+
+/// An island: `<Island>` in the source, or a component a framework hydrates
+/// that composition renders, which only its framework can render again.
+#[allow(clippy::too_many_arguments)]
+fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let key = env.hoists.as_ref().map(|h| h.island_key(id)).unwrap_or_default();
   let map = self::props(env, props)?;
-  if *define {
+  if define {
     let mut inner = Out::default();
     for child in children {
       render(env, child, library, slots, &mut inner)?;
     }
     let index = out.islands.len();
     let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() };
-    out.islands.push(RenderedIsland { module: module.clone(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\0"));
     return Ok(());
   }
@@ -866,18 +892,20 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
       render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
     let index = out.islands.len();
-    out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys: keys.clone(), island: true, placed: false });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys: keys.clone(), island: true, placed: false, framework: false, owner_path: String::new() });
   let mut inner = Out::default();
-  let outer_hoists = env.hoists.replace(Hoists::new(module.clone()));
+  let outer_hoists = env.hoists.replace(Hoists::new(module.to_owned()));
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
   let outer_state = env.state.take();
+  let outer_framework = std::mem::replace(&mut env.in_framework, true);
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
+  env.in_framework = outer_framework;
   let held = result.is_ok() && !children.is_empty() && component.owner == crate::ast::Owner::Vue && slots.last().is_some_and(|slot| slot.island && !slot.placed);
   let result = match held {
     true => render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_HELD_OPEN, "template"),
@@ -891,7 +919,7 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
   env.scope.truncate(depth);
   result?;
   let index = out.islands.len();
-  out.islands.push(RenderedIsland { module: module.clone(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
+  out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
 }
@@ -913,6 +941,8 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
 fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   slot.placed = true;
   let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
+  let outer_framework = std::mem::replace(&mut env.in_framework, slot.framework);
+  let outer_path = std::mem::replace(&mut env.component_path, slot.owner_path.clone());
   let result = match slot.island {
     true => render_children(env, slot.children, slot.keys.as_ref(), library, slots, out, CHILDREN_OPEN, "sf-s"),
     false => {
@@ -935,6 +965,8 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
     }
   };
   env.scope = inner;
+  env.in_framework = outer_framework;
+  env.component_path = outer_path;
   slots.push(slot);
   result
 }
@@ -947,11 +979,12 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
 #[allow(clippy::too_many_arguments)]
 fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(String, Vec<Step>)>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out, open: &str, tag: &str) -> Result<(), Fail> {
   let caller = keys.map(|(module, path)| {
-    let mut hoists = Hoists::new(module.clone());
+    let mut hoists = Hoists::new(module.to_owned());
     hoists.path = path.clone();
     hoists
   });
   let held = std::mem::replace(&mut env.hoists, caller);
+  let outer_framework = std::mem::replace(&mut env.in_framework, false);
   out.markup(open);
   let mut result = Ok(());
   for child in children {
@@ -961,6 +994,7 @@ fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(Strin
     }
   }
   out.close_tag(tag);
+  env.in_framework = outer_framework;
   env.hoists = held;
   result
 }
@@ -2098,6 +2132,34 @@ mod markup_tests {
       let page = element("x-box", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-box.tsx#default"))], Vec::new());
       assert_eq!(render_under(None, BY_REACT, page, &ValueMap::default(), &library).unwrap(), format!("<x-box>{open}in</template></x-box>"));
     }
+  }
+
+  #[test]
+  fn a_handler_bound_inside_a_loop_is_addressed_by_its_component() {
+    use crate::ast::Handler;
+    let widget = Component {
+      body: vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Int(0)) }],
+      render: Tmpl::Element {
+        tag: "ul".to_owned(),
+        attrs: Vec::new(),
+        children: vec![Tmpl::For {
+          over: Expr::Array(vec![Entry::Item(Expr::lit_str("a")), Entry::Item(Expr::lit_str("b"))]),
+          params: vec!["c".to_owned()],
+          body: Box::new(Tmpl::Element { tag: "button".to_owned(), attrs: vec![Entry::Field(format!("{HANDLER_ATTR}click"), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("c"))] }),
+        }],
+      },
+      state: vec!["n".to_owned()],
+      handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Int(7)))]))] }],
+      owner: crate::ast::Owner::React,
+      shadow: None,
+    };
+    let library = Components::new();
+    let props = ValueMap::default();
+    let step = |state: &ValueMap, handler: Option<HandlerRef>| Interpreter::default().island_step("src/Widget.tsx#Widget", &widget, &props, state, handler, &Value::Null, &library);
+    let first = step(&ValueMap::default(), None).unwrap();
+    assert_eq!(first.rendered.html, "<ul><button data-sf-on=\"click:0\">a</button><button data-sf-on=\"click:0\">b</button></ul>", "the loop's iteration is not part of the handler's address");
+    let second = step(&first.state, Some(HandlerRef::own(0))).unwrap();
+    assert_eq!(second.state.get("n"), Some(&Value::Int(7)));
   }
 
   /// A component rendered inside the island keeps state of its own under its

@@ -16,21 +16,21 @@ test("a full link renders the agent under the list, peek renders it beside the l
   await load("/agents", { ctx: c });
   const peek = document.querySelector('sf-s[data-sf-name="peek"]')!;
   expect(peek.querySelector(".peek-hint"), "the peek slot shows its fallback").toBeTruthy();
-  const list = document.querySelector('sf-i[data-sf-module="routes/agents/layout.tsx#default"]');
+  const list = document.querySelector('sf-i[data-sf-module="src/ui/AgentRows.tsx#AgentRows"]');
   expect(list && screen.getByText("Pick an agent from the list.")).toBeTruthy();
 
   await fireEvent.click(screen.getByText("builder-eu-1"));
   expect(location.pathname).toEqual("/agents/1");
   expect(document.querySelector('sf-i[data-sf-module="routes/agents/[id]/page.tsx#default"][data-sf-mounted]'), "the page took the content slot under the list").toBeTruthy();
   expect(screen.queryByText("Pick an agent from the list.")).toBeNull();
-  expect(document.querySelector('sf-i[data-sf-module="routes/agents/layout.tsx#default"]'), "the list kept its DOM").toBe(list);
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/AgentRows.tsx#AgentRows"]'), "the list kept its DOM").toBe(list);
   expect(peek.querySelector(".peek-hint"), "and the peek slot its fallback").toBeTruthy();
 
   await fireEvent.click(screen.getAllByText("peek")[1]);
   expect(location.pathname).toEqual("/agents/3");
   expect(peek.querySelector(".peek h3")?.textContent, "`into` picked the variant the nested layout declares").toEqual("builder-us-1");
   expect(peek.querySelector(".peek-hint")).toBeNull();
-  expect(document.querySelector('sf-i[data-sf-module="routes/agents/layout.tsx#default"]')).toBe(list);
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/AgentRows.tsx#AgentRows"]')).toBe(list);
   expect(document.querySelector('sf-i[data-sf-module="routes/agents/[id]/page.tsx#default"]'), "the page under the list stayed too").toBeTruthy();
   await settle();
 });

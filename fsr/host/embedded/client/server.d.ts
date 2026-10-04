@@ -20,6 +20,8 @@ export interface MorphHooks {
 	nested: (current: Element, next: Element) => void;
 	adopt?: (key: string) => Node | null;
 	drop?: (node: Node) => void;
+	/** An element the walk keeps as it stands, attributes and children alike, when the new markup places one like it there. */
+	opaque?: (current: Element) => boolean;
 }
 /** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. */
 export declare function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks): void;

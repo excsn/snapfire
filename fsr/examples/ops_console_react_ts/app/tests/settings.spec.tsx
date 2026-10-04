@@ -17,13 +17,15 @@ test("the gear opens settings in the root layout's drawer, and a document load i
 
   await fireEvent.click(screen.getByLabelText("Settings"));
   expect(location.pathname).toEqual("/settings");
-  expect(drawer.querySelector('sf-i[data-sf-module="routes/settings/page.drawer.tsx#default"][data-sf-mounted]'), "the drawer variant hydrated in the root layout's slot").toBeTruthy();
+  expect(drawer.querySelector('sf-i[data-sf-module="routes/settings/page.drawer.tsx#default"]'), "the drawer variant is composition in the root layout's slot").toBeNull();
+  expect(drawer.querySelector('sf-i[data-sf-module="src/ui/SettingsPanel.tsx#SettingsPanel"][data-sf-mounted]'), "and its settings panel is an island there").toBeTruthy();
   expect(drawer.querySelector(".watch-list .agent-name")?.textContent, "listing what the session watches").toBe("builder-eu-1");
-  expect(document.querySelector('sf-i[data-sf-module="routes/agents/layout.tsx#default"]'), "the agents page stayed under it").toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/AgentRows.tsx#AgentRows"][data-sf-mounted]'), "the agents page stayed under it").toBeTruthy();
 
   await load("/settings", { ctx: c });
   expect(document.querySelector('sf-s[data-sf-name="drawer"]')!.querySelector(".drawer"), "the drawer slot holds only its fallback").toBeNull();
-  expect(document.querySelector('sf-i[data-sf-module="routes/settings/page.tsx#default"][data-sf-mounted]')).toBeTruthy();
+  expect(document.querySelector('sf-i[data-sf-module="routes/settings/page.tsx#default"]'), "the settings page is composition").toBeNull();
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/SettingsPanel.tsx#SettingsPanel"][data-sf-mounted]'), "with its panel an island").toBeTruthy();
   await settle();
 });
 

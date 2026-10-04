@@ -176,6 +176,7 @@ function morphNode(current, next, hooks) {
         hooks.nested(current, next);
         return;
     }
+    if (hooks.opaque?.(current)) return;
     morphElement(current, next, hooks);
 }
 function isPropsScript(el) {

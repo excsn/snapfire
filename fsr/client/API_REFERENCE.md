@@ -1105,11 +1105,12 @@ The request an action runs under when a rendered page calls it or a route loads.
 ### render and renderHook
 
 * `render(element: ReactElement, options?: { ctx?: TestCtx; hydrate?: boolean }): Promise<Rendered>`
-* `interface Rendered extends BoundQueries { container: HTMLElement; baseElement: HTMLElement; root: Root; hydrated: string | null; unmount(): void; rerender(element: ReactElement): Promise<void>; asFragment(): DocumentFragment; debug(element?: Element, maxLength?: number): void }`
+* `interface Rendered extends BoundQueries { container: HTMLElement; baseElement: HTMLElement; root: Root; hydrated: string | null; composed: string | null; unmount(): void; rerender(element: ReactElement): Promise<void>; asFragment(): DocumentFragment; debug(element?: Element, maxLength?: number): void }`
+* `registerComposition(moduleId: string, loader: () => Promise<unknown>): void`
 * `renderHook(hook, options?: { initialProps?; ctx?; wrapper? }): Promise<{ result: { current: Result }; rerender(props?): Promise<void>; unmount(): void }>`
 * `act(body: () => T | Promise<T>): Promise<T>`; `cleanup(): void`
 
-`render` of a page the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
+`render` of a page the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. A page or a layout the build marked `static` is composition: `render` writes the server's markup for it, mounts the islands inside and names it in `composed`. No React root holds it, so `rerender` renders the server's markup again. The spec runner calls `registerComposition` for every such route module. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
 
 ### load
 

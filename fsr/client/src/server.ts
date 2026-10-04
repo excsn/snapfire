@@ -142,6 +142,8 @@ export interface MorphHooks {
   nested: (current: Element, next: Element) => void;
   adopt?: (key: string) => Node | null;
   drop?: (node: Node) => void;
+  /** An element the walk keeps as it stands, attributes and children alike, when the new markup places one like it there. */
+  opaque?: (current: Element) => boolean;
 }
 
 function keyOf(node: Node): string | null {
@@ -208,6 +210,7 @@ function morphNode(current: Node, next: Node, hooks: MorphHooks): void {
     hooks.nested(current, next);
     return;
   }
+  if (hooks.opaque?.(current)) return;
   morphElement(current, next, hooks);
 }
 

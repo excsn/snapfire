@@ -1,7 +1,7 @@
 import { applyStyles, discard, loadEntry, patchIsland, scan, setTreeChild, treeRootOf, treeSettled } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
-import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
+import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
 import { morphElement, morphNodes } from "./server.js";
 import { seed, transaction } from "./store.js";
 let current = null;
@@ -230,13 +230,15 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
     }
     const named = newSeg.c.every((c)=>c.n !== undefined) && oldSeg.c.every((c)=>c.n !== undefined);
     if (!named && oldSeg.c.length !== newSeg.c.length) return swap();
+    let morphAfter = false;
     if (newNode.kind === "client") {
         if (!same) {
             const region = findRegion(key);
             if (region) patchProps(region, newNode);
         }
     } else if (staticChanged(oldSeg, newSeg, same, force)) {
-        return morphStatic(key, newNode, newSeg) || swap();
+        if (newSeg.c.length === 0) return morphStatic(key, newNode, newSeg) || swap();
+        morphAfter = true;
     }
     const untouched = newSeg.keep ?? [];
     const carried = [];
@@ -276,6 +278,7 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
         if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force, keep)) return false;
     }
     newSeg.c.push(...carried);
+    if (morphAfter) return morphStatic(key, newNode, newSeg, true) || swap();
     return true;
 }
 function islandRegionsIn(region) {
@@ -301,7 +304,7 @@ function isBetween(el, region) {
     }
     return false;
 }
-function morphStatic(key, node, seg) {
+function morphStatic(key, node, seg, slotsSettled = false) {
     const region = findRegion(key);
     if (!region) return false;
     const parent = region.start.parentNode;
@@ -320,10 +323,14 @@ function morphStatic(key, node, seg) {
         adopt: (found)=>found.startsWith("region:") ? kept.get(found.slice("region:".length)) ?? null : null,
         drop: (node)=>{
             if (node instanceof Element) discard(node);
-        }
+        },
+        opaque: slotsSettled ? isSegmentSlot : undefined
     };
     morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
     return true;
+}
+function isSegmentSlot(el) {
+    return el.tagName === "SF-S" && !el.hasAttribute("data-sf-island") && !el.hasAttribute(CHILDREN_ATTR);
 }
 function takeIsland(current, next, sources, hooks) {
     const after = current.nextElementSibling;

@@ -55,7 +55,7 @@ pub struct Prepared {
 }
 
 /// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
-pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildError> {
+pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String]) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
   let site = crate::site_beside(&app);
@@ -68,7 +68,9 @@ pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildE
   std::fs::create_dir_all(&test_dir).map_err(|e| BuildError::Io(test_dir.clone(), e))?;
   let overrides = test_vendor(&app, &layout, &test_dir, shell.as_ref())?;
   let dom = overrides.get("linkedom").cloned().expect("linkedom is vendored");
-  write_config(&app, &layout, &test_dir, browser_routes)?;
+  let composition_files: Vec<String> = compositions.iter().filter_map(|module| module.split_once('#').map(|(file, _)| file.to_owned())).filter(|file| !browser_routes.contains(file)).collect();
+  let routes: Vec<String> = browser_routes.iter().cloned().chain(composition_files).collect();
+  write_config(&app, &layout, &test_dir, &routes)?;
   compile(&app, &test_dir, &bundle)?;
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
@@ -92,6 +94,14 @@ pub fn prepare(app: &Path, browser_routes: &[String]) -> Result<Prepared, BuildE
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
   }
   boot_source.push_str("import { discard } from \"@snapfire/fsr-client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
+  if !compositions.is_empty() {
+    boot_source.push_str(&format!("import {{ registerComposition }} from \"{TESTING_SPECIFIER}\";\n"));
+    for module in compositions {
+      let Some((file, export)) = module.split_once('#') else { continue };
+      let js = file.rsplit_once('.').map(|(stem, _)| format!("{stem}.js")).unwrap_or_else(|| format!("{file}.js"));
+      boot_source.push_str(&format!("registerComposition(\"{module}\", () => import(\"./dist/{js}\").then((m) => m.{export}));\n"));
+    }
+  }
   if let Some(entry) = entry_module(&app) {
     boot_source.push_str(&format!("import \"./dist/src/{entry}.js\";\n"));
   }
@@ -136,7 +146,8 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   }
   crate::write_overlay(&app, built)?;
   crate::write_generated(&app, built)?;
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes)?;
+  let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());

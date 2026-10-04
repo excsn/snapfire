@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
-import { boot, discard, registeredIslands } from "./boot.js";
+import { boot, discard, registeredIslands, scan } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -537,8 +537,10 @@ export interface Rendered extends BoundQueries {
   container: HTMLElement;
   baseElement: HTMLElement;
   root: Root;
-  /** The module id the server rendered and React hydrated over; `null` when the component mounted fresh. */
+  /** The module id the server rendered and React hydrated over; `null` when the component mounted fresh or is composition. */
   hydrated: string | null;
+  /** The module id of a component composition renders: the server's markup is the whole of it and only the islands inside mount. */
+  composed: string | null;
   unmount(): void;
   /** Renders `element` into the same root and settles. */
   rerender(element: ReactElement): Promise<void>;
@@ -554,12 +556,78 @@ async function moduleOf(type: unknown): Promise<string | null> {
   return null;
 }
 
+const compositions = new Map<string, () => Promise<unknown>>();
+
+/** Names a page or layout composition renders, so `render` writes the server's markup for it and mounts only the islands inside. The spec runner's boot calls it for each one. */
+export function registerComposition(moduleId: string, loader: () => Promise<unknown>): void {
+  compositions.set(moduleId, loader);
+}
+
+async function compositionOf(type: unknown): Promise<string | null> {
+  for (const [id, loader] of compositions) {
+    if ((await loader()) === type) return id;
+  }
+  return null;
+}
+
+function writeHtml(container: HTMLElement, html: string): void {
+  const unsafe = (container as HTMLElement & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
+  if (typeof unsafe === "function") unsafe.call(container, html);
+  else container.innerHTML = html;
+}
+
+function composedHtml(module: string, props: unknown): string {
+  return (JSON.parse(sf().render(module, JSON.stringify(encodeValue(props as SfValue)))) as { html: string }).html;
+}
+
+async function renderComposed(module: string, element: ReactElement, container: HTMLElement): Promise<Rendered> {
+  writeHtml(container, composedHtml(module, element.props));
+  scan(container);
+  await settle();
+  const root = {
+    render() {
+      throw new Error(`${module} is composition: nothing renders it in the browser, so rerender it instead`);
+    },
+    unmount() {
+      discard(container);
+    },
+  } as unknown as Root;
+  return {
+    ...within(container),
+    container,
+    baseElement: document.body,
+    root,
+    hydrated: null,
+    composed: module,
+    unmount() {
+      discard(container);
+      container.remove();
+    },
+    async rerender(next: ReactElement) {
+      discard(container);
+      writeHtml(container, composedHtml(module, next.props));
+      scan(container);
+      await settle();
+    },
+    asFragment() {
+      const template = document.createElement("template");
+      template.innerHTML = container.innerHTML;
+      return template.content;
+    },
+    debug(target?: Element, maxLength?: number) {
+      console.log(prettyDOM(target ?? container, maxLength));
+    },
+  };
+}
+
 /** Mounts `element` under a fresh container. A page the server renders is hydrated over its own markup, so a mismatch fails here the way it would in a browser; anything else mounts fresh. */
 export async function render(element: ReactElement, options: { ctx?: TestCtx; hydrate?: boolean } = {}): Promise<Rendered> {
   sf().use(options.ctx?.id ?? 0);
   setLocale(options.ctx?.locale ?? sf().locale(0));
   const container = document.createElement("div");
   document.body.appendChild(container);
+  const composed = options.hydrate === false ? null : await compositionOf(element.type);
+  if (composed !== null) return renderComposed(composed, element, container);
   const module = options.hydrate === false ? null : await moduleOf(element.type);
   const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props as SfValue)));
   // React is reached only here, so a spec suite for an application with no
@@ -569,9 +637,7 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
   let hydrated: string | null = null;
   if (rendered !== null) {
     const { html, hoisted } = JSON.parse(rendered) as { html: string; hoisted: SfValue };
-    const unsafe = (container as HTMLElement & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
-    if (typeof unsafe === "function") unsafe.call(container, html);
-    else container.innerHTML = html;
+    writeHtml(container, html);
     root = hydrateRoot(container, withHoisted(decodeValue(hoisted) as Hoisted, element));
     hydrated = module;
   } else {
@@ -585,6 +651,7 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
     baseElement: document.body,
     root,
     hydrated,
+    composed: null,
     unmount() {
       root.unmount();
       container.remove();

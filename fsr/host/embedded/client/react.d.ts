@@ -73,6 +73,11 @@ export interface ImageAsset {
 	height: number;
 	/** An APNG, which is served as it is. */
 	animated?: boolean;
+	/** The `<source>` rows the build derived, present on the server where a `meta` preloads one of them and absent in the browser. */
+	sources?: {
+		type: string;
+		srcset: string;
+	}[];
 }
 export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
 	/** An imported image, or a string: a URL as written, or the value a named source's template takes. */

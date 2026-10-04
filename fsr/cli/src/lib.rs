@@ -1087,7 +1087,19 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   if let Some(both) = placements.iter().find(|p| p.server && placements.iter().any(|q| !q.server && q.module == p.module)) {
     return Err(BuildError::ServerIsland { module: both.module.clone(), reason: "it is placed in server mode and also as a browser island, and a module has one owner".to_owned() });
   }
-  let placed: Vec<String> = placements.into_iter().filter(|p| !p.server).map(|p| p.module).collect();
+  let mut placed: Vec<String> = placements.into_iter().filter(|p| !p.server).map(|p| p.module).collect();
+  // A component a framework hydrates that composition renders inline is
+  // placed as an island by the renderer, so it mounts like any other.
+  for entry in components.iter().filter(|entry| entry.body.owner == Owner::Fsr) {
+    for module in inline_components(&entry.body.render) {
+      if owners.get(&module).is_some_and(|owner| owner.hydrates()) && !placed.contains(&module) {
+        if !islands.contains(&module) {
+          islands.push(module.clone());
+        }
+        placed.push(module);
+      }
+    }
+  }
   static_modules.retain(|module| !placed.contains(module));
   for (module, _, detail) in &mut report.components {
     if placed.contains(module) && detail == "static" {
@@ -1752,6 +1764,34 @@ fn props_name(id: &str) -> String {
 }
 
 /// Every module a component places as an island, in tree order.
+/// Every component a template renders inline, an island's children included.
+fn inline_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
+  use snapfire_fsr_ir::Tmpl;
+  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
+    match tmpl {
+      Tmpl::Component { module, children, .. } => {
+        if !out.contains(module) {
+          out.push(module.clone());
+        }
+        children.iter().for_each(|c| walk(c, out));
+      }
+      Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, out);
+        if let Some(e) = r#else {
+          walk(e, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, out),
+      Tmpl::Let { then, .. } => walk(then, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+  let mut out = Vec::new();
+  walk(tmpl, &mut out);
+  out
+}
+
 /// One `<Island>` a template places.
 struct Placement {
   module: String,

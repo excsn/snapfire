@@ -1,7 +1,7 @@
 import { applyStyles, discard, loadEntry, patchIsland, scan, setTreeChild, treeRootOf, treeSettled, type TreeChild } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
-import { childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
+import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { seed, transaction } from "./store.js";
 import { SfValue } from "./values.js";
@@ -243,13 +243,18 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean,
   }
   const named = newSeg.c.every((c) => c.n !== undefined) && oldSeg.c.every((c) => c.n !== undefined);
   if (!named && oldSeg.c.length !== newSeg.c.length) return swap();
+  // A static segment whose children are segments is morphed once they have
+  // been diffed, so each child is kept or replaced by its own rule and the
+  // morph keeps whatever islands the children now place.
+  let morphAfter = false;
   if (newNode.kind === "client") {
     if (!same) {
       const region = findRegion(key);
       if (region) patchProps(region, newNode);
     }
   } else if (staticChanged(oldSeg, newSeg, same, force)) {
-    return morphStatic(key, newNode, newSeg) || swap();
+    if (newSeg.c.length === 0) return morphStatic(key, newNode, newSeg) || swap();
+    morphAfter = true;
   }
   const untouched = newSeg.keep ?? [];
   const carried: Segment[] = [];
@@ -291,6 +296,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean,
     if (!diff(oldChild, newChild, subtreeAt(newNode, newChild.p ?? []), force, keep)) return false;
   }
   newSeg.c.push(...carried);
+  if (morphAfter) return morphStatic(key, newNode, newSeg, true) || swap();
   return true;
 }
 
@@ -320,7 +326,7 @@ function isBetween(el: Element, region: Region): boolean {
 }
 
 /** Patches a static segment's markup in place by the rules of `morph`, so every element that stands where it stood keeps its DOM, a scrolled pane its scroll and a focused control its value. An island the new payload places again, by region key, keeps its root and its state wherever in the region it stood and takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. False when the region is not in the document, which leaves the caller to swap. */
-function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
+function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = false): boolean {
   const region = findRegion(key);
   if (!region) return false;
   const parent = region.start.parentNode;
@@ -340,9 +346,15 @@ function morphStatic(key: string, node: SfNode, seg: Segment): boolean {
     drop: (node) => {
       if (node instanceof Element) discard(node);
     },
+    opaque: slotsSettled ? isSegmentSlot : undefined,
   };
   morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
   return true;
+}
+
+/** A layout's region for a child segment, its page or a named slot, whose contents the child's own diff settles. */
+function isSegmentSlot(el: Element): boolean {
+  return el.tagName === "SF-S" && !el.hasAttribute("data-sf-island") && !el.hasAttribute(CHILDREN_ATTR);
 }
 
 /** An island marker the new markup places again. A root that was scheduled, under a region the payload describes, keeps its DOM and its state: its props script and the island take the new props. Any other marker is swapped for the new one, whose props script is patched in beside it for the next scan to mount. */
