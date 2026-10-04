@@ -20,7 +20,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [000. What fsr is made of](000-what-fsr-is-made-of.md), TypeScript as the application language, Rust as the runtime, the two artifacts that are the truth, what fsr refuses to do and the vocabulary map. Everyone.
 - [001. Calling a service without a client](001-one-contract-no-client-code.md), how a service's own document becomes a typed call nobody wrote. Everyone.
 - [002. How loaders and actions are lowered](002-a-body-is-data.md), why a loader is lowered rather than run, what residue is and why the report always says where a body runs. Everyone.
-- [003. Server rendering without a JavaScript engine](003-rendered-where-it-is-cheapest.md), how a React page is rendered on the server with no JavaScript engine, what hydrates over it, what the browser reads instead of computing again and the setting that moves all rendering to the browser. Everyone.
+- [003. Server rendering without a JavaScript engine](003-rendered-where-it-is-cheapest.md), how a React page is rendered on the server with no JavaScript engine, which of its components become islands, what hydrates over them and what the browser reads instead of computing again. Everyone.
 
 **The application:**
 
@@ -42,7 +42,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [203. Sessions and identity](203-sessions-and-identity.md), the signed cookie, the store, who the request is and where a login goes. Platform developers.
 - [204. Reloading in place](204-reloading-in-place.md), the tables a request reads, what a reload swaps and what it refuses and why `fsr dev` reloads in place instead of restarting. Platform developers.
 - [205. Sites](205-sites.md), a team's application built as a site, the shell that mounts it under a path, what passes between shell and site and how a deploy switches a site to a new version. Everyone.
-- [206. What a request did](206-what-a-request-did.md), the trace behind a slow or wrong page: the four spans the framework opens, reading them with no collector wired, what they cost when nobody is watching and how to get them out. Everyone.
+- [206. What a request did](206-what-a-request-did.md), the trace behind a slow or wrong page: the seven spans the framework opens, reading them with no collector wired, what they cost when nobody is watching and how to get them out. Everyone.
 
 **Tooling:**
 

@@ -161,23 +161,36 @@ This is not `not-found.tsx`, which answers a path no route matched. A loader fai
 
 A `loading.tsx` marks the route deferred: the document ships with the loading module in the page's slot and the real page streams in when the loader finishes, filling the slot in place. Streaming is declared in the plan by the file's presence and the page and the loader do nothing for it.
 
-A `routes/not-found.tsx` answers a path no route matches. The host renders it like any page, inside the shell and hydrated, with status 404 and `params.path` carrying the path asked for; without one the answer is a line of text. It is not a route, so it has no loader and no pattern and a link to it from a page is a full load rather than a client navigation.
+A `routes/not-found.tsx` answers a path no route matches. The host renders it like any page, inside the shell with its islands, with status 404 and `params.path` carrying the path asked for; without one the answer is a line of text. It is not a route, so it has no loader and no pattern and a link to it from a page is a full load rather than a client navigation.
 
 ## Layouts
 
 `layout.tsx` in a routes directory renders around every page under it, the page appearing where the layout puts `children`. Its props come from `layout.loader.ts` beside it, independent of the page's loader: the storefront's header takes the cart count from the root layout's loader. Layouts nest by directory.
 
-A layout is an island like a page. It hydrates in its own root and the page hydrates in a root inside it, so a navigation between two pages swaps the page and leaves the layout's DOM and state alone: text typed in the header's search box survives the click. When an action revalidates, the layout takes its new props and re-renders in place, so the cart count follows the mutation without the box losing its text. A layout is keyed by its module and the route parameters its loader reads, which is why a layout that reads none stays put across every page.
+A layout is composition like a page: the server renders it and the browser never renders it again. A navigation between two pages swaps the page's region and leaves the layout's DOM alone, so the header, an island inside the layout, keeps its state: text typed in its search box survives the click. When an action revalidates, the header takes its new props in place, so the cart count follows the mutation without the box losing its text. A layout is keyed by its module and the route parameters its loader reads, which is why a layout that reads none stays put across every page.
 
-The page cannot read the layout's data and the layout cannot read the page's. Only the session and the actions pass between them, so a page under a React layout does not have to be React.
+The page cannot read the layout's data and the layout cannot read the page's. Only the session, the actions and the store pass between them, so the islands in a page and the islands in its layout need not share a framework.
 
-A React layout can give up that separation to share context. `export default tree(Layout)`, with `tree` from the React adapter, mounts the layout and its page as one React root, so a provider in the layout reaches the page and a navigation renders the new page from its props inside the live layout rather than in a root of its own. The server's markup is the same either way and the layout's state survives a click the same way. A provider tag lowers as its children, so the layout still renders on the server; a page reading the context with `useContext` renders in the browser only. The tree reaches the page directly under the layout: a layout below it is a root of its own. The conference example declares both of its layouts this way.
+A value the layout and the page both show goes in the store rather than in React context, since no framework root spans the two:
+
+```tsx
+// src/ui/ModeSwitch.tsx, placed in the layout
+import { useStore } from "@snapfire/fsr-client/react";
+import { mode } from "@src/store";
+
+export function ModeSwitch() {
+  const [current, setMode] = useStore(mode, "light");
+  return <button onClick={() => setMode(current === "light" ? "dark" : "light")}>{current}</button>;
+}
+```
+
+Any island in the page reads `useStore(mode, "light")` and follows every write. State a layout holds itself, a `useState` in its own body, moves into an island beside it at build time the way a page's does; a layout whose state reaches one of its slots cannot be split and stays a React root, which the report names under `kept`. `export default tree(Layout)` stops the build and says to export the layout itself. The conference example's two layouts are plain composition and a click from one talk to another keeps the masthead and the crumbs.
 
 ## Slots and intercepts
 
 Three rules cover what Next calls parallel and intercepting routes: a directory maps to a URL, a layout declares its slots in code and a slot that is a route of its own lives under `slots/` beside the layout.
 
-A **parallel slot** is a segment beside the page with its own loader, loading and error boundary, rendered into a region the layout places. It lives under `slots/<name>/` beside the `layout.tsx`, holding the ordinary route files: `page.tsx`, `page.loader.ts`, `loading.tsx`, `error.tsx`. The layout places it as a prop of that name or as `<Slot name>`; either way the region is `<sf-s data-sf-name>` in the markup, which the layout's root adopts and never reconciles. Children of `<Slot>` are the fallback the region shows while nothing fills it and takes back when a navigation empties it. The prop form has no fallback to offer: the `slots/` directory that makes it a slot also puts a page on every plan under the layout, so the prop is always filled and a `{promo ?? …}` right-hand side never runs. Write `{promo}` for placement and use `<Slot name>` with children for a region that can genuinely be empty. Its props type is `Layout<Name>Props` and its source id is `layout.<name>`. It is keyed, cached and kept across navigation like any segment. The storefront's `routes/slots/promo/` shows snacks under the header on every page, loaded once per document by its own loader and stays put when the page under it changes.
+A **parallel slot** is a segment beside the page with its own loader, loading and error boundary, rendered into a region the layout places. It lives under `slots/<name>/` beside the `layout.tsx`, holding the ordinary route files: `page.tsx`, `page.loader.ts`, `loading.tsx`, `error.tsx`. The layout places it as a prop of that name or as `<Slot name>`; either way the region is `<sf-s data-sf-name>` in the markup, which the navigator fills and empties. Children of `<Slot>` are the fallback the region shows while nothing fills it and takes back when a navigation empties it. The prop form has no fallback to offer: the `slots/` directory that makes it a slot also puts a page on every plan under the layout, so the prop is always filled and a `{promo ?? …}` right-hand side never runs. Write `{promo}` for placement and use `<Slot name>` with children for a region that can genuinely be empty. Its props type is `Layout<Name>Props` and its source id is `layout.<name>`. It is keyed, cached and kept across navigation like any segment. The storefront's `routes/slots/promo/` shows snacks under the header on every page, loaded once per document by its own loader and stays put when the page under it changes.
 
 The samples from here on are the storefront's, which is a React application: a project started with `fsr new <dir> --with react` or given React later with `fsr use app react`. A plain `fsr new` writes a bare application with no framework. There the same placements come from `@snapfire/fsr-authoring/template` with `Children` where a React layout writes `ReactNode`, as chapter 104 shows.
 

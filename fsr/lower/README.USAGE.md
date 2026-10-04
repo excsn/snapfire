@@ -16,6 +16,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 * [Reading a Schema](#reading-a-schema)
 * [Folding Session Defaults](#folding-session-defaults)
 * [Reading Residue](#reading-residue)
+* [Splitting a Route Module](#splitting-a-route-module)
 * [Lowering a Vue Component](#lowering-a-vue-component)
 * [Error Handling](#error-handling)
 
@@ -32,6 +33,7 @@ How to lower a loader or an actions module, what the recogniser accepts, how it 
 * **Residue** is anything else, reported with its position and never guessed at.
 * **Imports** are ignored; a name that resolves to one is residue at its use, not at the import.
 * **Schema** is a module of exported interfaces and string-literal unions that `read_schema` turns into contract types.
+* **Owner** is what renders a lowered component in the browser: `fsr` for composition, which nothing renders again, `react` or `vue` for a component a framework hydrates.
 
 ## Quick Start
 
@@ -189,6 +191,42 @@ match lower_loader("routes/x/page.loader.ts", source) {
 routes/x/page.loader.ts:5:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
 ```
 
+## Splitting a Route Module
+
+A page or a layout is composition, so what only a framework can run moves out of it into an island beside it. `extract_route` does that before the module is lowered: the smallest JSX subtree using the page's state, handlers or effects becomes `page.island0.tsx` and the page places it with the values it reads as props.
+
+```rust
+use snapfire_fsr_lower::component::ComponentSet;
+
+let mut set = ComponentSet::new(&app);
+match set.extract_route("routes/talk/[id]/page.tsx#default") {
+  Ok(Some(split)) => println!("{} took {}", split.island, split.holds.join(", ")),
+  Ok(None) => {}
+  Err(why) => println!("kept: {why}"),
+}
+set.lower("routes/talk/[id]/page.tsx#default")?;
+```
+
+```text
+routes/talk/[id]/page.island0.tsx#default took clashes, setClashes
+```
+
+`split.page` and `split.source` are the two files as the build writes them into its bundle overlay; neither is written to the app. A layout whose state reaches one of its slot props cannot be split and `Err` says so. `lower_route` handles residue in the module's own body the same way after a failed `lower`: the statement or element the lowerer stopped in moves into an island and the page lowers again.
+
+A component the page renders that does not lower does not fail the page either. The placement lands in `browser_only` and `framework_of` names the framework its file imports, which owns the island:
+
+```rust
+set.lower("routes/venue/page.tsx#default")?;
+for (module, residue) in &set.browser_only {
+  let owner = set.framework_of(module).unwrap_or("client");
+  println!("{module} is a {owner} island: {residue}");
+}
+```
+
+```text
+src/ui/LocalClock.tsx#default is a client island: src/ui/LocalClock.tsx:2:16: `Intl` is not bound here; an import the build cannot follow, or a name from outside the body
+```
+
 ## Lowering a Vue Component
 
 A `.vue` file is lowered from what `snapfirec-vue` says it is rather than from its text: ask the plugin to describe it, hand the description to the set and lower the placement. The component comes out marked for the Vue adapter and renders under Vue's markup rules.
@@ -226,7 +264,7 @@ The crate's `tests/vue.rs` renders each fixture in Rust and through Vue's own se
 
 ## Error Handling
 
-`LowerError` has three variants. `Parse` carries the parser's message with its position. `MissingExport` names the export a loader module lacks. `Residue` wraps a `Residue`, which is also its own error type with `file`, `line`, `column` and `message` fields.
+`LowerError` has six variants. `Parse` carries the parser's message with its position. `MissingExport` names the export a loader module lacks. `Residue` wraps a `Residue`, which is also its own error type with `file`, `line`, `column` and `message` fields. `Reach` and `Extension` carry the residue of an extension used where it cannot be. `Retired` is a spelling FSR does not take, such as `export default tree(Layout)`, with what to write instead.
 
 ```rust
 use snapfire_fsr_lower::{LowerError, Residue};

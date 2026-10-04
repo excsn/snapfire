@@ -346,6 +346,21 @@ The wildcards are `*`, `?` and `**`, as in tsc. Every other character matches it
 }
 ```
 
+`--overlay <dir>` reads a file from that directory in place of the one at the same path under `--root`. It replaces files and adds none, with one exception: a file `files` names may exist in the overlay alone. The path is resolved by name, `..` included, before it is looked up, so a config in a subdirectory can name a file another step generated:
+
+```json
+{
+  "include": ["src/**/*"],
+  "files": ["../routes/venue/page.island0.tsx"]
+}
+```
+
+```sh
+snapfirec --root app --config build/tsconfig.json --overlay .fsr-bundle
+```
+
+`app/routes/venue/page.island0.tsx` does not exist and `app/.fsr-bundle/routes/venue/page.island0.tsx` does, so the build compiles the overlay's copy as that input.
+
 A pattern that matches nothing is reported and skipped, so a directory produced by an earlier step can be listed before that step has run:
 
 ```json
@@ -500,6 +515,19 @@ The runtime import is injected, never written by hand. It is an ordinary bare im
 
 ```json
 { "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "preact" } }
+```
+
+A `@jsxImportSource` pragma in a comment picks the runtime for its own file, over the tsconfig's:
+
+```tsx
+/** @jsxImportSource @snapfire/fsr-client */
+export default function Clock() {
+  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;
+}
+```
+
+```javascript
+import { jsx as _jsx } from "@snapfire/fsr-client/jsx-runtime";
 ```
 
 An import referenced only by an element name (`import { Badge } from "./badge.js"` used as `<Badge/>`) is kept, so type stripping cannot leave a dangling reference.

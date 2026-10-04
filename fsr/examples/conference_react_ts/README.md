@@ -22,20 +22,23 @@ The programme is on <http://127.0.0.1:8150/>.
 | `clients/program.mock.json` | what those four methods answer, `listSponsors` with a failure |
 | `schemas/session.ts` | the session's shape and its defaults, which is what makes `session.saved` typed |
 | `schemas/program.ts` | the action's input type, named in the contract the build emits |
-| `routes/layout.tsx` | the masthead, the nav and the two panels, over `layout.loader.ts`, declared `tree` so the page renders in its React root |
+| `routes/layout.tsx` | the masthead, the nav and the two panels, over `layout.loader.ts`; composition, with the saved count an island inside it |
 | `routes/page.tsx` | the day, filtered by `?track=` |
-| `routes/talk/layout.tsx` | a second layout between the masthead and the talk, a tree too, so a click to another talk renders it under the same crumbs |
-| `routes/talk/[id]/` | the talk, its actions and the boundary that catches an id off the programme |
+| `routes/talk/layout.tsx` | a second layout between the masthead and the talk, so a click to another talk renders it under the same crumbs |
+| `routes/talk/[id]/` | the talk, its actions and the boundary that catches an id off the programme; the page's `clashes` toggle is split into an island beside it at build time |
+| `routes/venue/` | the venue, a composition page holding a client island and a Vue island |
 | `routes/saved/` | the session read back as a page, cached by nothing |
 | `routes/slots/announcements/` | a parallel segment with its own loader and fallback |
 | `routes/slots/sponsors/` | the same, behind a service that fails |
 | `src/ui/Saved.tsx` | the masthead island: store-backed count, React state for the panel |
 | `src/ui/SaveTalk.tsx` | the action call, optimistic against the store |
 | `src/ui/Feedback.tsx` | placed with `island(Feedback, { when: "visible" })` |
+| `src/ui/LocalClock.tsx` | the visitor's time zone, which only a browser knows: it does not lower and imports no framework, so FSR's JSX runtime renders it |
+| `src/ui/Floors.vue` | the rooms, a Vue island the build lowers and Vue hydrates |
 
-## Everything is lowered
+## Every body is lowered
 
-`fsr build app` prints what answers each name and every row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in.
+`fsr build app` prints what answers each name and every source and action row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in. One component row says `client`: `LocalClock` reads the visitor's time zone, which the server cannot know, so it renders in the browser alone and the venue page lowers around it.
 
 Read `app/generated/plan.sexp` to see what the server will actually do. The day's loader comes out as:
 
@@ -67,7 +70,9 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | A cached segment plus an uncached one | `listTalks` and `getConference` carry `x-sf-cache`, `listAnnouncements` and `listSponsors` do not |
 | Metadata from loader data | `export const meta` in the talk loader and the saved loader |
 | Client navigation preserving layout state | open the masthead panel, click a talk: the page region is replaced and the panel stays open |
-| One React tree for a layout and its page | both layouts are `tree(...)`: the talk hydrates in the talk layout's root with its props script consumed and a click to another talk renders the new page from its props inside the live layout; `tests/tree.spec.tsx` |
+| Layouts as composition | both layouts render on the server alone: a click to another talk keeps the masthead, the crumbs and the saved count's state and replaces the talk; `tests/navigation.spec.tsx` |
+| A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the report; the page around it stays `static` |
+| A client island and a Vue island on one page | `/venue`: `LocalClock` mounts in the browser through FSR's JSX runtime and `Floors.vue` hydrates under Vue, while the page is server markup; `tests/venue.spec.tsx` |
 
 The island timings are the one thing the test suite cannot tell apart, since the spec harness reports every observed element as in view. Scroll the talk page in a browser instead: the pace control hydrates when it comes into view and not before.
 
@@ -99,7 +104,7 @@ fsr serve dist/app
 
 ## The lab
 
-Build it and read the report: `fsr build app` names every source, action and component; each one says `lowered`.
+Build it and read the report: `fsr build app` names every source, action and component; each one says `lowered` but `LocalClock`, which says `client`.
 
 Read the cache policy where it lives. `app/generated/contracts/program.json` carries `getConference` and `listTalks` with their ttl and their `program` tag while the other two carry nothing, because the policy is a property of the method rather than of a call site. Deleting `[cache.data]` from `config/app.toml` turns every one of them off without touching a loader.
 

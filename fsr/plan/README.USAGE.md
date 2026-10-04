@@ -26,7 +26,7 @@ How to read, write and build a plan file, what each row means and how a host tur
 * **Module id** is `path#export`, the same string the browser's island registry and the build's report use.
 * **Source row** is one data source the build knows about, with an owner: `lowered` rows carry a body the host binds unless Rust overrides the name, `rust` rows are declarations Rust must answer.
 * **Action row** is the same for an action, plus the name of the input type the host checks a call against before the body runs.
-* **Component row** is a module the build lowered to a render tree, which the host renders in Rust and the browser hydrates over.
+* **Component row** is a module the build lowered to a render tree, which the host renders in Rust. Its owner says whether a framework hydrates it in the browser: `fsr` for composition, which nothing renders again, `react` or `vue` for an island's component.
 * **Owner** is `RowOwner`: `lowered`, `engine` or `rust`.
 * **Body** is `snapfire_fsr_ir::Body`, a lowered loader or action, carried inline.
 * **Format version** is the `version` field; the crate reads from `OLDEST_READABLE` to `FORMAT_VERSION` and writes the latter.
@@ -175,7 +175,7 @@ A leaf route reads as three keys per node; absent fields are absent.
 
 ## Format Versions
 
-`FORMAT_VERSION` is 3: the `clients` rows exist, one per module the build could not lower, so a host can say at boot what the build said. Format 2 added the `sources` table and made actions rows. A format 1 file lists bare action ids that read as `rust` rows and has no sources. Every earlier format still reads.
+`FORMAT_VERSION` is 6: every component names its owner, `(owner fsr)`, `(owner react)` or `(owner vue)`. A component in an older file that names none reads as React's. Format 5 added a component's `head` rows, format 4 a node's per-kind error modules and format 3 the `clients` rows, one per module the build could not lower, so a host can say at boot what the build said. Format 2 added the `sources` table and made actions rows. A format 1 file lists bare action ids that read as `rust` rows and has no sources. Every earlier format still reads.
 
 ```rust
 let old = r#"{ "version": 1, "routes": [], "actions": ["cart.checkout"] }"#;

@@ -92,7 +92,7 @@ Then read `example/dist`, which is what a browser would be served.
 | `--declaration` | Emits a `.d.ts` beside each TypeScript output. | `declaration` |
 | `--public-path <PREFIX>` | URL prefix the output is served under, used for the preload manifest. | paths, not URLs |
 | `--import-map <PATH>` | Fails the build if an external is not resolved by this map. | off |
-| `--overlay <PATH>` | Reads a file from this directory in place of the root's at the same relative path. The file set stays the root's. | off |
+| `--overlay <PATH>` | Reads a file from this directory in place of the one at the same path under `--root`. The file set stays the root's, except that a file `files` names may exist in the overlay alone. | off |
 | `--typecheck` | Runs `snapfiretc` over the same tsconfig once the build has emitted; a diagnostic fails the build. | `false` |
 | `--tsc <PATH>` | A compiler for the typechecker to use as given; its version must be the requested one. | resolved |
 | `--tsc-version <VERSION>` | The TypeScript version to typecheck with. | the checker's default |

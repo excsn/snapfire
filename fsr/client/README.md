@@ -36,6 +36,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | `@snapfire/fsr-client` | `dist/index.js` | none |
 | `@snapfire/fsr-client/react` | `dist/react.js` | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vue` |
+| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | none |
 
 `react/jsx-runtime` is not imported by this package. It is what `snapfirec` emits for a `.tsx` component compiled under `"jsx": "react-jsx"`, so an application with JSX components needs the entry even though its components carry no React import.
 

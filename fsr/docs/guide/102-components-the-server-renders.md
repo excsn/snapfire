@@ -45,7 +45,7 @@ An application can also write markup it produced itself. `<div dangerouslySetInn
 
 Children and spreads work as they do in React. A component that takes `children` places them with `{children}` and the build renders what the caller wrote between the tags in the caller's scope, so a layout can wrap a page without the page knowing. `<Header {...header} />` spreads an object into props and `<h1 {...attrs}>` into attributes, later entries winning the way React merges them and a spread's `className` and a literal `class` are one attribute.
 
-Everything else outside the vocabulary is residue and the page renders in the browser only: `new`, `useContext` or a custom hook, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. The page still works in the browser.
+Everything else outside the vocabulary is residue: `new`, `useContext` or a custom hook, a member expression as a tag whose object is not a namespace import. The report says `client` and names the line. A component holding residue renders in the browser only, as an island of the framework its file imports else of FSR's JSX runtime. The page around it still lowers. Residue in the page's own body moves into an island beside the page, the statement or element holding it with it.
 
 ## Hoisted values and subtrees
 
@@ -100,7 +100,7 @@ The first paint comes from the same template, rendered by the evaluator as the p
 
 ## Giving a component its own island
 
-A page hydrates as one React root, so a component inside it shares that root: it re-renders with the page and hydrates when the page does. To give a component a root of its own, with its own timing and state the page never touches, place it with `Island` from the React adapter:
+A page is composition: the server renders it and the browser never renders it again. A component with state or handlers that the page renders inline is placed as an island by the renderer, in a root of its own that mounts on load. To choose its timing, place it with `Island` from the React adapter:
 
 ```tsx
 import { Island } from "@snapfire/fsr-client/react";
@@ -110,7 +110,13 @@ import { Island } from "@snapfire/fsr-client/react";
 </Island>
 ```
 
-The build lowers the use: the server renders `OrderHelp` with its props as a nested island in a region of the page's markup, the page's root adopts that region and never reconciles it and the browser mounts `OrderHelp` in its own root when it scrolls into view. `island(OrderHelp, { when: "visible" })` at module level is the same thing as a component. The storefront's order page does this for its help section, which is why the checklist's island timed on visibility is there.
+The build lowers the use: the server renders `OrderHelp` with its props as an island in a region of the page's markup and the browser mounts `OrderHelp` in its own root when it scrolls into view. `island(OrderHelp, { when: "visible" })` at module level is the same thing as a component. The storefront's order page does this for its help section, which is why the checklist's island timed on visibility is there.
+
+A page's own state works the same way. The build moves the smallest part of the page's markup that uses its `useState`, its handlers or its effects into an island module beside the page, `page.island0.tsx`, which exists only in the bundle overlay. The page places it with the values it reads as props. The conference talk page holds a `clashes` toggle; the report shows where it went:
+
+```
+extracted routes/talk/[id]/page.tsx#default  routes/talk/[id]/page.island0.tsx#default (clashes, setClashes)
+```
 
 The child need not be React. A `.vue` file imported by a template and placed the same way is an island the build lowers through Vue's own parser: the server writes what Vue's server renderer would and Vue hydrates it or mounts it fresh where the file holds what the build does not read. Chapter 104 is that path, with the plugin that reads and compiles the file and the application that has no React in it.
 
@@ -151,6 +157,6 @@ Now open [`layout.tsx`](../../examples/shopping_react_ts/app/routes/layout.tsx),
 
 The header's badge is a store read. Load the catalog and view the source: the count is in the HTML and a `script[data-sf-store]` near the end carries the seed the layout's loader produced. Open a product and add it to the cart; the badge moves before the response arrives, because [`page.tsx`](../../examples/shopping_react_ts/app/routes/product/%5Bid%5D/page.tsx) writes the key optimistically from a root the header does not share.
 
-Now give the header a second hook: `const ref = useRef(null)` on the form. Check again. The report marks every page that renders the header as `client`, with the line in `Header.tsx`. Remove it.
+Now give the header a second hook: `const ref = useRef(null)` on the form. Check again. The report marks `Header` as `client`, with the line in `Header.tsx`. The layout still lowers around it and the header mounts fresh in the browser as a React island. Remove it.
 
 Place an order and open it. The help section at the bottom is [`OrderHelp`](../../examples/shopping_react_ts/app/src/ui/OrderHelp.tsx) in server mode; in the source its button carries `data-sf-on="click:0"` and its region `data-sf-mode="server"` and the network panel shows no module loaded for it. Click the button: one request to `/_sf/island/…` answers the new state and the markup, the contact options appear and the heading above them is the same DOM node it was. Change `mode="server"` to `mode="browser"` in the order page and rebuild: the same click is now React's, with the module loaded and hydrated and nothing in `OrderHelp` changed.

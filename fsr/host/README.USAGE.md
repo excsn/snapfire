@@ -102,7 +102,6 @@ prerender = "dist/prerender"      # optional: where rendered-once routes live
 dev = false                       # optional: live refresh; absent, on unless RELEASE_ENV is set to something else than development
 max_body = 1048576                # optional: bytes a request body may carry; a larger one is 413
 max_upload = 0                    # optional: bytes one uploaded part may carry, 0 for no cap beyond max_body
-render = "rust"                   # optional: `rust` evaluates a lowered component; `islands` hands every one to the browser
 http2 = false                     # optional: negotiate h2c beside http/1.1; without tls a browser needs a proxy in front
 
 [server.tls]                      # optional, and needs the host's `tls` feature; absent, the listener is plain TCP
@@ -605,7 +604,7 @@ Every document then carries the policy, the inline font CSS, the preloads and, f
 <link rel="preload" as="image" type="image/avif" imagesrcset="/static/js/app/src/img/hero.0a1b2c3d.640.avif 640w, …" imagesizes="(max-width: 1600px) 100vw, 1600px" fetchpriority="high">
 ```
 
-The inline style's hash is widened into `style-src`, so a `[document.csp]` keeps its `'self'` and nothing else inline. A file the build named with a content hash, the original, every variant and every font copy, answers `Cache-Control: public, max-age=31536000, immutable`; everything else keeps `static_max_age`.
+The inline style's hash is widened into `style-src`, so a `[document.csp]` keeps its `'self'` and nothing else inline. A file the build named with a content hash, the original, every variant and every font copy, answers `Cache-Control: public, max-age=31536000, immutable`; everything else revalidates on every request unless `static_max_age` sets a lifetime.
 
 A static tree a CDN serves sets the base at build time, since the URLs are written into the markup:
 
@@ -1040,13 +1039,14 @@ A request under a site's prefix runs the shell's middleware first, with `request
 
 ## Refreshing the Browser in Development
 
-In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers two more paths. The script opens `GET /__fsr/events`, a server-sent event stream and `POST /__fsr/changed` tells every open document that something changed. `POST /__fsr/reload` calls `reload` and answers with the new report or the error. `fsr dev` posts `changed` after a rebundle and `reload` after a change to the generated files; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same thing itself:
+In development, which is what `RELEASE_ENV` unset means, every served document carries a small script and the host answers three more paths. The script opens `GET /__fsr/events`, a server-sent event stream. `POST /__fsr/changed` tells every open document that a build landed and `POST /__fsr/failed` tells them the last build was refused, its body the reason. `POST /__fsr/reload` calls `reload` and answers with the new report or the error. `fsr dev` posts `changed` after a rebundle, `reload` after a change to the generated files and `failed` when a build is refused; a restart drops the stream and the browser reconnects on its own. A Rust host announces the same things itself:
 
 ```rust
 host.changed();
+host.failed("routes/page.loader.ts:7:17: an optional call");
 ```
 
-Every event names the bundle the server sees now, a hash over the modules `dist/.snapfire-build.json` lists. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them. Outside development they carry `public, max-age=<server.static_max_age>`, 3600 by default and off at `0`; a static URL carries no content hash, so a lifetime longer than the gap between deploys answers a stale module against fresh HTML.
+While a build is refused every document shows the reason in a panel over the page, a document opened in the meantime included. The next build that lands takes the panel away. Every event names the bundle the last build left, a hash over the modules `dist/.snapfire-build.json` lists, taken once per build rather than per request. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them. Outside development a file with no hash in its name carries `no-cache` unless `server.static_max_age` sets a lifetime. A hashed one is `immutable`.
 
 `dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
 

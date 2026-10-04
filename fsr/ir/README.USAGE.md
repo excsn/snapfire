@@ -20,7 +20,7 @@ How to write a body as IR, run it against a request, read and write its JSON for
 * [Pinning the Clock](#pinning-the-clock)
 * [Testing Against a Mock Service Layer](#testing-against-a-mock-service-layer)
 * [How Calls Are Ordered](#how-calls-are-ordered)
-* [Matching the Framework That Hydrates](#matching-the-framework-that-hydrates)
+* [Matching the Framework That Owns a Component](#matching-the-framework-that-owns-a-component)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -258,9 +258,9 @@ let body = vec![
 
 `a` and `b` are in flight at once. `c` starts when `a` has returned.
 
-## Matching the Framework That Hydrates
+## Matching the Framework That Owns a Component
 
-A lowered component is written the way the framework that mounts it in the browser would write it, so hydration finds the markup it expects. `HydratedBy` on the component names that framework, `None` for a template nothing mounts. `Frameworks` on the interpreter names the major the application vendors; the plan carries it and `AppBuilder` hands it on.
+A lowered component is written the way the framework that mounts it in the browser would write it, so hydration finds the markup it expects. `owner` on the component names that framework, `Owner::React` or `Owner::Vue`. `Owner::Fsr` is composition, which nothing mounts. `Frameworks` on the interpreter names the major the application vendors; the plan carries it and `AppBuilder` hands it on.
 
 ```rust
 use snapfire_fsr_ir::{Frameworks, Interpreter, ReactMajor};
@@ -269,7 +269,7 @@ let interpreter = Interpreter::default().with_frameworks(Frameworks { react: Som
 let html = interpreter.render(&component, &props, &library)?.html;
 ```
 
-A component nothing hydrates renders inside its caller and keeps its caller's rules. At the top that is plain markup, the renderer's own. The three sets print these differently:
+An `Fsr` component renders inside its caller and keeps its caller's rules. A component a framework hydrates that composition renders inline is placed as an island of its own, under its framework's rules. At the top that is plain markup, the renderer's own. The three sets print these differently:
 
 | Written | React 18.3 | React 19 | Plain |
 | --- | --- | --- | --- |

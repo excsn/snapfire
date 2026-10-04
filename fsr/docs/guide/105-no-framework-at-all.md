@@ -241,6 +241,6 @@ Ask for fragments with `curl`, as above. The page fragment starts at `<section` 
 
 Open the shelves in a browser, open the tally panel, click a tool and reserve it. The masthead was never touched and the panel is still open; the count moved because the fragment carried the seed. Then take the `sf:navigate` listener out of `main.ts`, rebuild and do it again: the document reloads on the reserve. Put it back.
 
-Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. The build stops with the error chapter 104 shows, since this import map has no React either.
+Add a `useState` from `react` to `routes/page.tsx` with a button that sets it and build: the state and the button move into an island beside the page, which is React's, so the registry would mount it through React. The build stops with the error chapter 104 shows, since this import map has no React either.
 
 Then the noticeboard. Run `fsr build app` there and read the report: the two pages and the layout are `template`, the three loaders are `lowered` and `generated/islands.ts` registers nothing. Run `fsr prerender app` and count the files under `dist/prerender`: the index plus one per notice, from `paths`. Start `fsr serve app` and ask for `/notice/bins` with `curl -i`: the answer carries `x-sf-prerendered: 1`. Ask for `/notice/nope`: rendered live, with the template's else branch. Rename `templates/nav.tera` and start the server again: it refuses at boot naming the template the layout includes and cannot find.

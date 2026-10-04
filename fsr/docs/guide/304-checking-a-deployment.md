@@ -6,7 +6,7 @@ The question this chapter answers: what is wrong with an application that starts
 
 ## What the host already refuses
 
-The host is strict at boot on purpose. A declared action nothing answers, a bundle carrying a server module, a route claimed twice, a plan file it cannot read, a `server.render` that is neither `rust` nor `islands`: each of those stops the process with the reason, because a boot failure is easier to notice than a deployment that partly works.
+The host is strict at boot on purpose. A declared action nothing answers, a bundle carrying a server module, a route claimed twice, a plan file it cannot read, a `[server] render` line: each of those stops the process with the reason, because a boot failure is easier to notice than a deployment that partly works.
 
 Everything the host catches is a contradiction it can see from inside a single boot. It cannot catch a setting that is coherent, loads cleanly and still cannot do the job it was written for. A locale in the table with no catalog file loads: `t` falls back and the page renders in the wrong language. An import map naming a package nothing vendored loads: the browser asks for the file and gets a 404. A plan older than the routes it was lowered from loads cleanly, then answers the old routes.
 
@@ -42,12 +42,12 @@ Each check answers from something a build already computed, so none of it needs 
 | `locales` | a locale in `[locales] supported` with no catalog under `locales/` | The application says it serves that language and every message falls back |
 | `stale` | the plan is missing or older than `routes/`, `src/`, `clients/` or `schemas/` | The host reads the plan and never the sources, so an unbuilt change is invisible until the next build |
 | `vendor` | the import map names a package with nothing under `vendor/` to answer it | The browser asks for the file the map names, so a missing one is a page that does not mount |
-| `render` | `[server] render` is `islands` and the plan carries no island | Every page is handed to the browser to render, for no reason |
 | `statics` | a `[[static]]` root whose directory is not there | Every path under that route answers 404, including the client bundle when it is served that way |
 | `shadow` | a `[[static]]` root whose route swallows an application route | A matched static prefix answers from the directory and returns, so the page underneath it never runs |
 | `bearer` | a client carries a bearer token while `[auth]` is unset | An `[auth]` provider is the only thing that writes a token into custody, so the call goes out with no `Authorization` header |
 | `cache.tags` | a call drops a cache tag no cached method names | The two sides are strings that have to agree; a typo either way leaves a write that invalidates nothing |
 | `links` | a literal internal link matching no route, static root or mounted site | The plan already holds the link and the routes, so a 404 you would otherwise find only by clicking shows up without a crawler |
+| `render` | a `[server] render` line | Every page renders on the server and every island in the browser, so no host accepts the setting and the boot stops until the line is taken out |
 | `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
 | `csp` | a policy naming `'unsafe-inline'` in `script-src` beside an import map; a policy naming `'strict-dynamic'` | The host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`. `'strict-dynamic'` makes it ignore `'self'` and every host, leaving the entry module with nothing to allow it |
 | `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
@@ -94,7 +94,7 @@ A pin the artifact does not match is reported with what to do about it. The cont
 
 ## What doctor does not do
 
-**It never fixes anything.** Every finding here has a remedy that is a judgement: whether a locale should gain a catalog or leave the table, whether an island is missing or the render mode is wrong. So doctor reports the finding and leaves the choice to you.
+**It never fixes anything.** Every finding here has a remedy that is a judgement: whether a locale should gain a catalog or leave the table, whether a link is wrong or a route is missing. So doctor reports the finding and leaves the choice to you.
 
 **It never softens a boot error.** Anything the host refuses to start over still fails at boot. Doctor reports what has nowhere else to be reported; it does not downgrade failures.
 

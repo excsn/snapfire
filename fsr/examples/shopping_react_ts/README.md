@@ -71,7 +71,7 @@ src/routes.rs           the one route added in Rust
 build.rs                runs the fsr build, so cargo build is enough
 ```
 
-The pages are rendered on the server without a JavaScript engine: the build lowers each `page.tsx` and the components under `src/ui/` to a render tree in the plan file, the host renders it in Rust and React hydrates over the markup in the browser. The `rendered` rows at boot say which modules that covers; a module the build cannot lower is listed as `client` with the line that decided it and mounts in the browser only.
+The pages are rendered on the server without a JavaScript engine: the build lowers each `page.tsx` and the components under `src/ui/` to a render tree in the plan file, the host renders it in Rust and React hydrates the islands inside the markup in the browser. The `rendered` rows at boot say which modules that covers; a module the build cannot lower is listed as `client` with the line that decided it and mounts in the browser only.
 
 Generated output is not committed. `build.rs` writes `app/generated/` on every `cargo build`: the plan file, one contract per document, the TypeScript a body is written against and both tsconfigs.
 

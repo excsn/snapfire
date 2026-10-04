@@ -49,7 +49,7 @@ What lowers is the subset a server can evaluate. In `<script setup>`: `definePro
 
 Integers need a conversion. An integer a contract types as `bigint` reaches the server as an integer and a Vue component that multiplies it by a literal fails the render, the way chapter 100 says a loader must convert one before arithmetic. The recipe page passes `serves={Number(recipe.serves)}` for that reason: the browser handles either type, but the server render fails without the conversion.
 
-`Island`, `island`, `Link` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. A page on the template module that hydrates loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
+`Island`, `island`, `Link` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. An island written on the template module loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
 
 ## The component itself
 
@@ -132,7 +132,7 @@ rendered  routes/layout.tsx#default          lowered     static
           routes/recipe/[id]/page.tsx#default lowered     static
 ```
 
-The rule is the same in a React application. The storefront's catalog page is static too; its layout is not, because it renders the header inline and the header has state. A template hydrates when it has state or handlers of its own or renders a component inline that does; an island's state is the island's.
+The rule is the same in a React application. The storefront's catalog page and its layout are static too: the header the layout renders inline has state, so the renderer places it as an island of its own. A template hydrates only when it has state or handlers of its own. A page or a layout holding them is split at build time so that it stays static.
 
 Navigation still keeps a static layout's DOM. A segment carries a digest of its own markup; a layout whose digest did not move is kept whatever changed below it. When it did move, after an action re-rendered it with a new count, the navigator replaces the layout's markup but keeps every island inside it that the new markup also places, by region key, moving the mounted element into the new markup and handing it its new props. The recipes masthead panel stays open through planning a recipe for that reason.
 
@@ -146,12 +146,12 @@ Give `Tonight.vue` a `v-model` on an input. The report keeps the page `static`, 
 
 Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the file and the line, the other two components compile and the build stops.
 
-Give `routes/page.tsx` a `useState`. Build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
+Give `routes/page.tsx` a `useState` from `react` and a button that sets it. Build: the state and the button move into `routes/page.island0.tsx`, an island beside the page. The page stays `static`. The island is React's, since its state comes from `react`. This application's import map has no React, so the build stops:
 
 ```text
-`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
+`routes/page.island0.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
 ```
 
-The static rule exists to prevent this failure. Remove the `useState` again.
+Remove the `useState` again and the application loads no React.
 
 Open the masthead panel in a browser, then click "Cook this tonight" on a recipe. The count moves, the button changes and the panel is still open: the layout re-rendered around its island and the island kept its state.

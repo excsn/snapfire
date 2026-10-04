@@ -49,7 +49,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Keep sessions somewhere else | `[session] store = "service"` behind a client or `HostBuilder::session_store` |
 | Sign users in | `[auth]` over `config/auth.toml`, `provider = "service"` asking a client or `HostBuilder::identity` with any `IdentityProvider` |
 | Send the session's token to one backend | `[clients.<name>] bearer = true` |
-| Let a browser keep a static file | `server.static_max_age`, 3600 by default and `0` for no header |
+| Let a browser keep a static file | `server.static_max_age`; left out, a file with no hash in its name revalidates every time and `0` sends no header |
 | Flatten the module waterfall before the first island mounts | `document.module_preload` |
 | Serve the readable client instead of the minified one | `document.client = "readable"` or `auto` with `server.dev` on |
 | Send a Content-Security-Policy | `[document.csp]` as directives and sources; the host adds the import map's hash and the dev nonce itself |

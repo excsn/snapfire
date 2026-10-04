@@ -193,7 +193,7 @@ export const paths = () => POSTS.map((p) => ({ slug: p.slug }));
 
 ## Writing a Layout
 
-`layout.tsx` wraps every page under its directory and renders the page where it puts `children`. Its props are what `layout.loader.ts` beside it returns, independent of the page's loader, so shared data such as a cart count lives in the layout's loader and no page carries it. A layout is an island: it hydrates, holds state and survives a navigation between the pages it wraps.
+`layout.tsx` wraps every page under its directory and renders the page where it puts `children`. Its props are what `layout.loader.ts` beside it returns, independent of the page's loader, so shared data such as a cart count lives in the layout's loader and no page carries it. A layout is composition: the server renders it, its islands hydrate and its DOM survives a navigation between the pages it wraps. State it holds moves into an island beside it at build time.
 
 ```tsx
 import type { ReactNode } from "react";
@@ -476,7 +476,7 @@ Every integer width is `bigint`, because a body runs over the value model where 
 
 ## Registering the Islands
 
-`generated/islands.ts` registers every module the browser mounts, so the browser mounts exactly what the plan refers to: the pages, layouts and boundaries with state or handlers plus every component a template places as an island. A template with neither and nothing inline that has them is `static`: nothing mounts it, so it is not registered and not compiled. A layout declared `export default tree(Layout)` is registered with the React adapter's tree mounter and `claims`, reported as `tree`, so the page under it renders in the layout's root. `main.ts` calls the registration and registers only what the build cannot know, such as the component of a route added in Rust.
+`generated/islands.ts` registers every module the browser mounts, so the browser mounts exactly what the plan refers to: every component a template places as an island, every component with state or handlers that a page or layout renders inline, every island the build split out of a page and every component that did not lower. A page, a layout or a boundary is composition: the server renders it and nothing mounts it, so it is reported `static` and is neither registered nor compiled. `main.ts` calls the registration and registers only what the build cannot know, such as the component of a route added in Rust.
 
 ```ts
 import { boot, enableNavigation } from "@snapfire/fsr-client";
@@ -487,7 +487,7 @@ boot();
 enableNavigation();
 ```
 
-The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's extension picks its mounter: a `.vue` module is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr-client/vue` and a module the build lowers with `reactMounter`, `reactPatcher` and `reactUnmounter` from `@snapfire/fsr-client/react`. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
+The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's owner picks its mounter: a Vue component is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr-client/vue`, a React component with `reactMounter`, `reactPatcher` and `reactUnmounter` from `@snapfire/fsr-client/react` and a component that did not lower and imports no framework with `fsrMounter`, `fsrPatcher` and `fsrUnmounter` from `@snapfire/fsr-client/jsx-runtime`. A component placed in server mode is not registered, since no adapter mounts it; placing one module both in server mode and as a browser island stops the build. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";
@@ -501,7 +501,7 @@ export function registerIslands(): void {
 The build refuses a registry the browser could not mount. A `.svelte` island stops it because the client has no Svelte adapter yet. A component whose extension no framework claims stops it too. When the app has an import map, every adapter the registry imports has to resolve in it along with what that adapter imports; a site may lean on the shell's map instead:
 
 ```text
-`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+`src/ui/Saved.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
 ```
 
 A `.vue` file a template imports is placed as an island and refused anywhere but inside `<Island>`. With `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`, the build asks it to describe every `.vue` file under the source directories before any route is lowered and lowers each one through the Vue front end of `snapfire_fsr_lower`: the server then writes the component's markup the way Vue's server renderer would and the browser hydrates it. The report's `rendered` row says `lowered` with `vue` in the detail column. A component holding what that front end does not read, `v-model`, a named slot or a component placed inside the template among them, stays foreign: the server writes it empty with its props, Vue mounts it fresh and the report says why under `foreign` with the line. Without the plugin every `.vue` component is foreign and the report says so under `plugins`; the bundle stops on the same binary. `types/foreign.d.ts` declares `*.vue` for the typechecker, written by the build and by `fsr types` alike. It types the props loosely, so an integer a contract types `bigint` passes where the component expects a number and fails the render's arithmetic on the server; pass `Number(value)` at the placement.
@@ -555,7 +555,7 @@ The build reads the React version back from `vendor/.fsr-vendor.json` and writes
 
 ## Adopting a Direction
 
-`fsr new` writes a bare application: no framework is vendored, the import map names the client, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
+`fsr new` writes a bare application: no framework is vendored, the import map names the client, `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
 
 ```sh
 fsr new shop
@@ -576,7 +576,7 @@ The directions are `react`, `vue`, `elements`, `htmx` and `tera`. `elements` map
 
 Running `fsr use` again changes nothing: a map line already there is `present`, a package already recorded at the pinned version is `kept`. A map entry for the adapter at another URL is refused naming both. So is a framework recorded at another version, since moving a pinned framework is `fsr add`'s job.
 
-`react` retypes what is already written and nothing has to change for it. With `react` in the map the templates are typed through React's JSX. A layout or page importing `Link`, `Island` or `Slot` from the template module keeps typechecking: the build points that specifier at a React-flavoured declaration, so `Children` reads as `ReactNode` and the placements as the React module's. The one thing that can surface is a real React error, a `bigint` child, which React cannot render. The direction also maps the specifier to the client's `template.js`, the runtime of those placements for a page that hydrates. The build refuses a hydrating page on the template module while that line is missing. `fsr new --with htmx` writes the entry module with htmx bound, so a scaffold with directions typechecks without an edit:
+`react` retypes what is already written and nothing has to change for it. With `react` in the map the templates are typed through React's JSX. A layout or page importing `Link`, `Island` or `Slot` from the template module keeps typechecking: the build points that specifier at a React-flavoured declaration, so `Children` reads as `ReactNode` and the placements as the React module's. The one thing that can surface is a real React error, a `bigint` child, which React cannot render. The direction also maps the specifier to the client's `template.js`, the runtime of those placements for an island that hydrates. The build refuses a hydrating island on the template module while that line is missing. `fsr new --with htmx` writes the entry module with htmx bound, so a scaffold with directions typechecks without an edit:
 
 ```sh
 fsr new shop --with react --with htmx
@@ -718,7 +718,7 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 "include": ["src/**/*", "routes/**/*", "schemas/**/*", "generated/**/*", "types/sweetalert2/sweetalert2.d.ts"]
 ```
 
-`tsconfig.build.json` is the browser half for snapfirec: `src/`, the route modules the browser mounts, listed one by one rather than as `routes/**/*.tsx` so a static template is never compiled, the island registry and the client module, so the server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
+`tsconfig.build.json` is the browser half for snapfirec: `src/`, the route modules the browser mounts, listed one by one rather than as `routes/**/*.tsx` so a static template is never compiled, the island registry and the client module, so the server-side bodies and their `@snapfire/fsr` import stay out of the bundle. An island the build split out of a page exists only in the bundle overlay, so `files` names it.
 
 ## Using xwpm Instead
 
@@ -777,7 +777,7 @@ fsr test app
 fsr test app cart
 ```
 
-Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, static templates left out. The DOM is linkedom with what an entry module reaches for filled in: `customElements` is the document's own registry, so an element module defines its class; `XPathEvaluator` compiles expressions that match nothing, so a library that builds one at import, htmx for one, loads and does no harm. `document.activeElement` follows `focus()` and `blur()`, which dispatch `focus`, `focusin`, `blur` and `focusout`. An input keeps what was typed apart from its `value` attribute, an input with no type or an unknown one reads as `text` and a text control's selection is its caret. `requestSubmit` fires a cancelable `submit`. A `<template shadowrootmode>` becomes its element's shadow root the way a browser's parser makes it, in a page `load()` parses and in markup written with `setHTMLUnsafe`, which is how `render()` writes the server's markup; a closed root is reachable through the element's `ElementInternals`. A spec's `fetch` of a route answers what the host would: the document, the payload with `__payload` in the query or one segment as markup with `__fragment`.
+Each context boots the way a document does: the app's extensions, then its island registry, then the application's own entry module, `src/main.ts` or `src/main.tsx`, so a `derive`, a global or a listener it wires is in place for the spec exactly as it is in a browser. An application with no entry module gets the registry alone. The runner writes the build's `generated/` files before compiling, so a spec runs against the registry of the build it was given rather than the last `fsr build`'s. It compiles the route modules the browser mounts the way the bundle does, plus every composition route module a spec imports, which the boot names with `registerComposition` so that `render` writes the server's markup for it and mounts the islands inside. The DOM is linkedom with what an entry module reaches for filled in: `customElements` is the document's own registry, so an element module defines its class; `XPathEvaluator` compiles expressions that match nothing, so a library that builds one at import, htmx for one, loads and does no harm. `document.activeElement` follows `focus()` and `blur()`, which dispatch `focus`, `focusin`, `blur` and `focusout`. An input keeps what was typed apart from its `value` attribute, an input with no type or an unknown one reads as `text` and a text control's selection is its caret. `requestSubmit` fires a cancelable `submit`. A `<template shadowrootmode>` becomes its element's shadow root the way a browser's parser makes it, in a page `load()` parses and in markup written with `setHTMLUnsafe`, which is how `render()` writes the server's markup; a closed root is reachable through the element's `ElementInternals`. A spec's `fetch` of a route answers what the host would: the document, the payload with `__payload` in the query or one segment as markup with `__fragment`.
 
 A mock may write an integer field as a number. `minutes: 35` reaches the loader as the `i64` the contract names, since a JavaScript number is a double whatever it holds; `toEqual` reads `35` and `35n` as the same value where either side is whole; the generated mock types take `number` wherever a field is `bigint`.
 
@@ -1288,18 +1288,26 @@ extensions ext/labels.ts#count      lowered
 
 Eleven sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document, `grpc` for a `.proto` and `rust` for a `#[service]` block under the crate's `src/`, whose contract the build writes to `generated/contracts/rust.json`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
-A `rendered` row says `lowered`, `client` or `foreign`; a lowered row says `static` in its detail column when nothing mounts the template: no state, no handlers and no component inline that has them; it says `vue` for a `.vue` component the build lowered. A `foreign` row is a `.vue` component the build could not lower, with the line of the residue, stated once more under `foreign` with the reason and the components that mount in the browser for it; a `plugins` row says a framework plugin was not on PATH and what that left foreign. A `client` row carries the `file:line:column` of the residue that decided it, which is often in a component the page imports rather than in the page. The client rows travel in the plan file, so the host's boot report under `fsr serve` prints the same `rendered` rows and the same `client` causes without the chain of pages. The `client` section states each of those once, whatever the number of pages that reach it:
+A `rendered` row says `lowered`, `client`, `foreign` or `template`; a lowered row says `static` in its detail column when nothing mounts the component: it is composition, a page, a layout or a template with no state and no handlers of its own; it says `vue` for a `.vue` component the build lowered. A `foreign` row is a `.vue` component the build could not lower, with the line of the residue, stated once more under `foreign` with the reason and the components that mount in the browser for it; a `plugins` row says a framework plugin was not on PATH and what that left foreign. A `client` row is a component that did not lower, with the `file:line:column` of the residue that decided it. It is an island of the framework its file imports, else of FSR's JSX runtime. The page placing it lowers around it. The client rows travel in the plan file, so the host's boot report under `fsr serve` prints the same `rendered` rows and the same `client` causes without the chain. The `client` section states each cause once, whatever the number of pages that reach it:
 
 ```
-rendered  routes/page.tsx#default            client      src/ui/Stars.tsx:2:17
+rendered  src/ui/Stars.tsx#Stars             client      src/ui/Stars.tsx:2:17
 client    src/ui/Stars.tsx:2:17              `.slice()`, which is not a builtin
           the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
-          2 pages render in the browser for it
-            routes/other/page.tsx#default    <Header> routes/other/page.tsx:6:7, <Stars> src/ui/Header.tsx:6:7
-            routes/page.tsx#default          <Header> routes/page.tsx:6:7, <Stars> src/ui/Header.tsx:6:7
+          1 module renders in the browser for it
+            src/ui/Stars.tsx#Stars           <Stars> src/ui/Header.tsx:6:7
 ```
 
-The second line is the rewrite that does the same thing in the IR. The indented rows are the pages that stopped being server rendered for it, each with the tags to follow from the page down to the cause, so a leaf three files below a page names the path rather than leaving it to be found. A page is never an error for this: it renders in the browser instead, which is why the report is the only place that says so.
+The second line is the rewrite that does the same thing in the IR. The indented rows are the modules that render in the browser for it, each with the tag that places it, so a leaf three files below a page names the path rather than leaving it to be found. A module is never an error for this: it renders in the browser instead, which is why the report is the only place that says so.
+
+A page or a layout holding state, handlers or effects is split before it is lowered: the smallest part of its markup that uses them moves into `page.island0.tsx` beside it, which only the bundle overlay holds. The page places it with the values it reads as props. Residue in the page's own body moves the same way. The `extracted` rows name each split with what the island took; a `kept` row names a module that could not be split, which stays a React root:
+
+```
+extracted routes/talk/[id]/page.tsx#default  routes/talk/[id]/page.island0.tsx#default (clashes, setClashes)
+kept      routes/shop/layout.tsx#default     its state reaches the slot `modal`, which composition fills and an island cannot take
+```
+
+`export default tree(Layout)` stops the build. A layout is composition, so it is exported as itself and state it shares with the page goes through the store.
 
 ## Reading the Plan File
 
