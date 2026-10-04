@@ -98,3 +98,25 @@ fn each_package_has_one_status_row_wherever_the_import_map_repeats_it() {
   let rows: Vec<String> = status(&dir).unwrap().into_iter().map(|(package, _)| package).collect();
   assert_eq!(rows, vec!["@snapfire/fsr-authoring", "@snapfire/fsr-client", "react"]);
 }
+
+#[test]
+fn a_build_that_rewrites_fsrs_own_declarations_records_the_version_it_wrote() {
+  let dir = app();
+  let layout = Layout::default();
+  let mut manifest = TypesManifest::read(&dir, &layout).unwrap();
+  manifest.packages.insert("@snapfire/fsr-client".into(), TypedPackage { version: "0.5.0".into(), from: "fsr".into(), entry: "index.d.ts".into(), ambient: false });
+  manifest.write(&dir, &layout).unwrap();
+
+  snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
+  let after = TypesManifest::read(&dir, &layout).unwrap();
+  assert_eq!(after.packages["@snapfire/fsr-client"].version, env!("CARGO_PKG_VERSION"), "the record names the binary whose declarations are on disk");
+  assert_eq!(after.packages["react"].version, "18.3.31", "a package fsr did not write keeps its record");
+
+  snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
+  manifest = TypesManifest::read(&dir, &layout).unwrap();
+  manifest.packages.get_mut("@snapfire/fsr-client").unwrap().version = "0.8.1".into();
+  manifest.write(&dir, &layout).unwrap();
+  snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
+  assert_eq!(TypesManifest::read(&dir, &layout).unwrap().packages["@snapfire/fsr-client"].version, env!("CARGO_PKG_VERSION"), "the files already matched, and the record still says what wrote them");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

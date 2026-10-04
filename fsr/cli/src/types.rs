@@ -228,6 +228,8 @@ pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let layout = Layout::of(app)?;
   let root = app.join(&layout.types);
   let mut refreshed = Vec::new();
+  let mut manifest = TypesManifest::read(app, &layout)?;
+  let mut recorded = false;
   for (package, files) in [("@snapfire/fsr-client", FSR_CLIENT), ("@snapfire/fsr-authoring", FSR_AUTHORING)] {
     let dir = root.join(package);
     let stale = files.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true));
@@ -235,8 +237,20 @@ pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
       write_embedded(app, &layout, package, files)?;
       refreshed.push(dir);
     }
+    if manifest.packages.get(package) != Some(&embedded_record()) {
+      manifest.packages.insert(package.to_owned(), embedded_record());
+      recorded = true;
+    }
+  }
+  if recorded && root.join(TYPES_MANIFEST).is_file() {
+    manifest.write(app, &layout)?;
   }
   Ok(refreshed)
+}
+
+/// The record of a package whose declarations this binary carries.
+fn embedded_record() -> TypedPackage {
+  TypedPackage { version: env!("CARGO_PKG_VERSION").to_owned(), from: "fsr".to_owned(), entry: "index.d.ts".to_owned(), ambient: false }
 }
 
 fn write_embedded(app: &Path, layout: &Layout, package: &str, files: &[(&str, &str)]) -> Result<(), BuildError> {
@@ -336,7 +350,7 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
     }
     if let Some(files) = embedded {
       write_embedded(app, &layout, &package, files)?;
-      manifest.packages.insert(package.clone(), TypedPackage { version: env!("CARGO_PKG_VERSION").to_owned(), from: "fsr".to_owned(), entry: "index.d.ts".to_owned(), ambient: false });
+      manifest.packages.insert(package.clone(), embedded_record());
       report.fetched.push((package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned()));
       continue;
     }
