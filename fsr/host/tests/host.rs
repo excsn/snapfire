@@ -5980,6 +5980,14 @@ async fn an_exposed_page_reads_back_its_own_trace_by_the_signed_token() {
   assert_eq!(spans[0]["name"], "request", "{json}");
   assert_eq!(spans[0]["fields"]["path"], "/", "{json}");
   assert!(spans.iter().any(|s| s["name"] == "render"), "{json}");
+  let order: Vec<String> = spans
+    .iter()
+    .filter(|s| ["session", "middleware", "match"].contains(&s["name"].as_str().unwrap()))
+    .map(|s| format!("{}{}", s["name"].as_str().unwrap(), s["fields"]["op"].as_str().map(|op| format!(":{op}")).unwrap_or_default()))
+    .collect();
+  assert_eq!(order, ["session:open", "middleware", "match", "session:save"], "{json}");
+  let matched = spans.iter().find(|s| s["name"] == "match").unwrap();
+  assert_eq!(matched["fields"]["pattern"], "/", "{json}");
 
   let forged = format!("{}.{signature}", id.parse::<u64>().unwrap() + 1);
   let response = host.handle(Request::get(format!("/__fsr/trace/{forged}")).body(Bytes::new()).unwrap()).await;

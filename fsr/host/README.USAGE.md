@@ -1067,6 +1067,16 @@ let host = Host::from(env!("CARGO_MANIFEST_DIR"))
 
 The `_logging` guard has to stay in scope: dropping it flushes the appenders. Without a log config, `trace::install()` installs the collector alone.
 
+When your application framework sets the global subscriber itself and takes extra layers, take the collector as a layer, give the layer to the framework and the handle to the host:
+
+```rust
+let (layer, traces) = snapfire_fsr_host::trace::layer();
+let subscriber = tracing_subscriber::registry().with(layer).with(my_logging);
+tracing::subscriber::set_global_default(subscriber)?;
+
+let host = Host::from_config(config)?.traces(Some(traces)).build()?;
+```
+
 Under `dev` the host then answers `GET /__fsr/traces` with the last fifty, newest last:
 
 ```
@@ -1081,7 +1091,7 @@ request 19.92ms ok GET /agents
         render routes/agents/page.tsx#default 0.10ms miss
 ```
 
-Four spans come from the framework: `request` at the root, `source` per plan node as the loaders run in parallel, `call` per service method whatever its transport and `render` nested the way the plan nests, saying whether the memo hit. Add your own with `tracing` and they join the trace they are inside.
+Seven spans come from the framework: `request` at the root, `session` when the session is opened and again when it is saved, `middleware`, `match` for the route lookup, `source` per plan node as the loaders run in parallel, `call` per service method whatever its transport and `render` nested the way the plan nests, saying whether the memo hit. Add your own with `tracing` and they join the trace they are inside.
 
 To read a trace from your own code, hold the handle:
 

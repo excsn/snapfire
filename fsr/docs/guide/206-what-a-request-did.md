@@ -48,13 +48,16 @@ The endpoint answers a JSON array. Every span carries its own `depth`, so a read
 
 Each of the three caches reports on its own span. A `source` span carries `memo: hit` or `memo: miss` when that loader is memoizable. A `call` span carries `cache: hit` or `cache: miss` when the method has a cache policy and `cache: none` when it has none, so two identical requests differ in exactly the call the data cache answered. A `render` span carries `cache: hit` or `cache: miss` when the render cache was consulted for that node. Ask for the same page again and the render subtree has fewer spans: a `cache: hit` high in the tree means the nodes beneath it were never rendered, so they have no spans at all.
 
-## The four spans
+## The spans
 
-The framework opens four and anything you open with `tracing` joins whichever request it is inside.
+The framework opens seven and anything you open with `tracing` joins whichever request it is inside.
 
 | Span | One per | Says |
 | --- | --- | --- |
 | `request` | request, the root | method, path, status and whether it succeeded |
+| `session` | session opened and again when it is saved | `op`, `open` or `save`; saving can write the session store |
+| `middleware` | page or action request | the time the application's middleware took |
+| `match` | route lookup | the `pattern` the path matched |
 | `source` | plan node with a loader | the `id`, the `node`, whether it failed and `memo` when it is memoizable |
 | `call` | service method, whatever the transport | service, method, `cache` when a policy was consulted and the failure kind when it failed |
 | `render` | plan node | the `module`, plus `cache` when the render cache was consulted |

@@ -7,7 +7,13 @@
 
 use tracing_subscriber::layer::SubscriberExt;
 
-pub use fibre_tracing::{Span, Trace, Traces};
+pub use fibre_tracing::{Span, Trace, TraceLayer, Traces};
+
+/// The collector as a layer, for an application whose framework sets the
+/// global subscriber itself and takes extra layers to compose into it.
+pub fn layer() -> (TraceLayer, Traces) {
+  fibre_tracing::layer()
+}
 
 /// The collector, set as the global subscriber. Returns the handle to read it
 /// through. Answers `None` when a subscriber is already set, which is not an

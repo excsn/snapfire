@@ -516,12 +516,13 @@ Behind the `actix` feature.
 
 ## 5. Observing a Request
 
-`snapfire_fsr_host::trace`. Collection is `fibre_tracing`; this module installs it, hands the host the handle and turns a trace into what a route or a header carries. Re-exports `Trace`, `Span` and `Traces`.
+`snapfire_fsr_host::trace`. Collection is `fibre_tracing`; this module installs it, hands the host the handle and turns a trace into what a route or a header carries. Re-exports `Trace`, `Span`, `TraceLayer` and `Traces`.
 
 ### Installing
 
 Each returns `None` when a global subscriber is already set, which is not an error: something else owns the dispatcher and nothing is collected.
 
+* `pub fn layer() -> (TraceLayer, Traces)`: the collector as a layer and its handle, setting nothing global. For an application whose framework owns the subscriber and composes extra layers into it.
 * `pub fn install() -> Option<Traces>`: the collector alone, set as the global subscriber.
 * `pub fn install_with<L>(other: L) -> Option<Traces>` where `L: Layer<Registry> + Send + Sync + 'static`: the collector composed beside a layer already handling the events. Sets the subscriber only, never the `log` bridge.
 * `pub fn observe(config: &Path) -> (Option<Traces>, Option<fibre_logging::InitResult>, Option<String>)`: `fibre_logging` from `config` and the collector, on one registry. The `InitResult` must be held, since its `Drop` flushes the appenders. A configuration that cannot be read is not fatal: the collector is installed alone and the third field says why.
@@ -539,6 +540,9 @@ Opened by the framework, all on target `fsr::trace`.
 | Span | Where | Fields |
 | --- | --- | --- |
 | `request` | `Host::handle`, the root of every trace | `method`, `path`, `status`, `fibre.outcome` of `ok` or `error` |
+| `session` | `Host::handle`, opening the session before anything reads it and saving it before the response leaves | `op` of `open` or `save` |
+| `middleware` | `Host::handle`, the application's and a mounted site's middleware for a page or action request | none |
+| `match` | resolving a path to its route's plan | `pattern`, the route the path matched |
 | `source` | per plan node, in the assembler's parallel load | `id`, `node`, `fibre.outcome` of `ok` or `failed` |
 | `render` | per plan node, nested as the plan nests | `module`, `cache` of `hit` or `miss` when the node is memoized |
 | `call` | `TraceInterceptor`, so every transport | `service`, `method`, `cache` of `hit`, `miss` or `none`, `fibre.outcome` being the failure kind or `ok` |

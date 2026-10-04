@@ -1421,7 +1421,11 @@ impl Host {
 
   /// The plan a route resolves `path` to, with its params.
   fn plan_for(&self, t: &Tables, path: &str) -> Option<(PlanNode, Params)> {
+    let span = tracing::info_span!(target: "fsr::trace", "match", pattern = tracing::field::Empty).entered();
     let matched = t.app.matcher.match_path(path)?;
+    if let Some(pattern) = t.app.patterns.get(matched.entry.0 as usize) {
+      span.record("pattern", pattern.as_str());
+    }
     let plan = t.app.resolver.resolve(matched.entry, &matched.params)?;
     Some((plan, matched.params))
   }
@@ -2704,7 +2708,11 @@ impl Host {
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let cookie = header("cookie");
     let accept_language = header("accept-language");
-    let opened = self.sessions.open(cookie.as_deref()).await;
+    let opened = tracing::Instrument::instrument(
+      self.sessions.open(cookie.as_deref()),
+      tracing::info_span!(target: "fsr::trace", "session", op = "open"),
+    )
+    .await;
 
     #[cfg(feature = "ws")]
     if path == "/_sf/socket" && req.method() == Method::GET {
@@ -2789,16 +2797,18 @@ impl Host {
     } else {
       format!("{path}?{raw_query}")
     };
-    let preflight = match self
-      .preflight_in(
+    let preflight = match tracing::Instrument::instrument(
+      self.preflight_in(
         t,
         req.method().as_str(),
         &path,
         &raw_query,
         self.incoming(opened, self.matched_host(req.headers())),
         &visit.locale,
-      )
-      .await
+      ),
+      tracing::info_span!(target: "fsr::trace", "middleware"),
+    )
+    .await
     {
       Ok(preflight) => preflight,
       Err(e) => {
@@ -3201,6 +3211,10 @@ impl Host {
   }
 
   async fn set_cookie(&self, opened: &Opened, response: &mut Response<Body>) {
+    tracing::Instrument::instrument(self.save_session(opened, response), tracing::info_span!(target: "fsr::trace", "session", op = "save")).await
+  }
+
+  async fn save_session(&self, opened: &Opened, response: &mut Response<Body>) {
     let changed = opened.cell.is_dirty() || opened.tokens.is_dirty();
     let written = if self.csrf_always {
       self.sessions.establish(opened).await
