@@ -366,13 +366,11 @@ pub struct ServerConfig {
   /// `RELEASE_ENV`: on when that is `development`, its default.
   #[serde(default)]
   pub dev: Option<bool>,
-  /// Who renders a lowered component. `rust`, the default, evaluates it
-  /// through the IR; `islands` registers no evaluator for it, so the browser
-  /// owns every component and the server sends loader data, metadata, the
-  /// store seed and the shell alone. Loaders and actions still run in Rust
-  /// either way.
-  #[serde(default = "default_render")]
-  pub render: String,
+  /// No longer read: every page renders on the server and every island in
+  /// the browser. Kept so that a configuration still naming it is refused
+  /// with that rather than as an unknown key.
+  #[serde(default)]
+  pub render: Option<String>,
   /// How long a browser may reuse a file from a `[[static]]` root without
   /// asking again, in seconds. `0` sends no `Cache-Control` at all. A static
   /// URL carries no content hash, so a lifetime longer than the gap between
@@ -446,7 +444,7 @@ impl Default for ServerConfig {
       hosts: Vec::new(),
       prerender: None,
       dev: None,
-      render: default_render(),
+      render: None,
       static_max_age: default_static_max_age(),
       http2: false,
       tls: None,
@@ -870,9 +868,6 @@ fn default_listen() -> String {
 }
 fn default_plan() -> String {
   "generated/plan.sexp".to_owned()
-}
-fn default_render() -> String {
-  "rust".to_owned()
 }
 fn default_contracts() -> String {
   "generated/contracts".to_owned()

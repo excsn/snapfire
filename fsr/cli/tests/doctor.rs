@@ -153,14 +153,10 @@ fn an_import_map_that_is_absent_or_malformed_is_reported() {
 }
 
 #[test]
-fn the_islands_render_mode_without_an_island_is_reported() {
+fn a_render_setting_is_reported_as_gone() {
   let dir = app("[server]\nrender = \"islands\"\n", &[]);
   assert_eq!(findings(&dir), vec!["render"]);
-  assert!(report(&dir).contains("carries no island"), "{}", report(&dir));
-
-  let island = "(plan 2)\n(route / (node 0 shell#document))\n(component routes/page.tsx#default (render (el div () (island src/C.tsx#C 0 nil nil ()))))\n";
-  let with = app("[server]\nrender = \"islands\"\n", &[("app/generated/plan.sexp", island)]);
-  assert!(doctor::run(&with).unwrap().is_clean(), "{}", report(&with));
+  assert!(report(&dir).contains("`server.render` is gone"), "{}", report(&dir));
 }
 
 #[test]

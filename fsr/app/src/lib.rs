@@ -306,7 +306,6 @@ pub struct AppBuilder {
   /// Registers no evaluator for the lowered components, so every one of them
   /// falls to `NullEvaluator` and the browser owns the whole render. Loaders,
   /// actions, metadata and the store still run in Rust.
-  islands_only: bool,
   /// The application's own Rust, registered by name.
   natives: snapfire_fsr_runtime::Natives,
   islands: snapfire_fsr_runtime::IslandRegistry,
@@ -369,7 +368,6 @@ impl App {
 
   pub fn builder(routes: Routes) -> AppBuilder {
     AppBuilder {
-      islands_only: false,
       natives: snapfire_fsr_runtime::Natives::new(),
       islands: snapfire_fsr_runtime::IslandRegistry::new(),
       routes,
@@ -520,14 +518,6 @@ impl AppBuilder {
     self
   }
 
-  /// Hands every lowered component to the browser instead of rendering it in
-  /// Rust: no IR evaluator is registered, so each one falls to
-  /// `NullEvaluator`. Loaders, actions, metadata and the store are unaffected,
-  /// since they never went through an evaluator.
-  pub fn islands_only(mut self, only: bool) -> Self {
-    self.islands_only = only;
-    self
-  }
 
   /// Registers a module of the application's own Rust under the name a body
   /// reaches it with, `ctx.native.<name>.<method>()`. Nothing crosses a wire,
@@ -1014,7 +1004,7 @@ impl AppBuilder {
       .collect();
     let mut components = Vec::new();
     let mut lowered = None;
-    if !self.lowered_components.is_empty() && !self.islands_only {
+    if !self.lowered_components.is_empty() {
       let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components)).with_interpreter(interpreter.clone());
       components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
       let evaluator = Arc::new(evaluator);

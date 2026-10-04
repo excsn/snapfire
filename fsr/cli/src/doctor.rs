@@ -86,12 +86,12 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("locales", catalogs(&config)),
     ("stale", stale(&config)),
     ("vendor", vendor(&config)),
-    ("render", render_mode(&config, manifest.as_ref())),
     ("statics", statics(&config)),
     ("shadow", shadow(&config, manifest.as_ref())),
     ("bearer", bearer(&config)),
     ("cache.tags", cache_tags(&config)),
     ("links", links(&config, manifest.as_ref())),
+    ("render", retired_render(&config)),
     ("tree", tree(app, &config)),
     ("sites", sites(&config)),
     ("csp", csp(&config)),
@@ -302,34 +302,12 @@ fn vendor(config: &Config) -> Vec<Finding> {
   )]
 }
 
-/// `server.render = "islands"` on an application with no island renders every
-/// page in the browser for no reason.
-fn render_mode(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
-  if config.server.render != "islands" {
+/// `server.render`, which nothing reads any more.
+fn retired_render(config: &Config) -> Vec<Finding> {
+  if config.server.render.is_none() {
     return Vec::new();
   }
-  let Some(manifest) = manifest else { return Vec::new() };
-  if manifest.components.iter().any(|entry| has_island(&entry.body.render)) {
-    return Vec::new();
-  }
-  vec![Finding::new(
-    "render",
-    "`server.render` is `islands` and the plan carries no island",
-    "set `[server] render = \"rust\"` to render pages on the server, or place an island",
-  )]
-}
-
-fn has_island(tmpl: &Tmpl) -> bool {
-  match tmpl {
-    Tmpl::Island { .. } => true,
-    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Baked { children, .. } => {
-      children.iter().any(has_island)
-    }
-    Tmpl::If { then, r#else, .. } => has_island(then) || r#else.as_deref().is_some_and(has_island),
-    Tmpl::For { body, .. } => has_island(body),
-    Tmpl::Let { then, .. } => has_island(then),
-    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => false,
-  }
+  vec![Finding::new("render", "`server.render` is gone: every page renders on the server and every island in the browser", "take the line out of `[server]`")]
 }
 
 /// Whether any body or render tree the plan carries reads `ctx.host`.

@@ -1176,16 +1176,13 @@ impl Host {
   /// only through a reloader.
   pub fn from_artifact(artifact: Artifact) -> Result<HostBuilder, HostError> {
     let config = &artifact.config;
-    let app = match config.server.render.as_str() {
-      "rust" => App::from_manifest(&artifact.plan)?,
-      "islands" => App::from_manifest(&artifact.plan)?.islands_only(true),
-      other => {
-        return Err(HostError::Config(
-          config.resolve(&config.server.plan),
-          format!("`server.render` is `rust` or `islands`, not `{other}`"),
-        ));
-      }
-    };
+    if config.server.render.is_some() {
+      return Err(HostError::Config(
+        config.resolve(&config.server.plan),
+        "`server.render` is gone: every page renders on the server and every island in the browser, so take the line out".to_owned(),
+      ));
+    }
+    let app = App::from_manifest(&artifact.plan)?;
     Ok(HostBuilder {
       artifact,
       loader: None,
