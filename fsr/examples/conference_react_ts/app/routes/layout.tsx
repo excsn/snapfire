@@ -30,6 +30,7 @@ function ConferenceLayout({
         <nav className="masthead-nav">
           <Link href="/">Schedule</Link>
           <Link href="/saved">My schedule</Link>
+          <Link href="/venue">Venue</Link>
         </nav>
         <Island when="load">
           <Saved count={saved} />

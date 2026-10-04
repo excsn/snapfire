@@ -387,3 +387,23 @@ fn composition_places_a_component_with_state_as_an_island_and_a_framework_render
   assert!(panel.body.islands.is_empty(), "Count stays inline in Panel's tree");
   assert!(panel.body.html.contains("<b") && panel.body.html.contains(">0</b>"), "{}", panel.body.html);
 }
+
+#[test]
+fn a_component_that_does_not_lower_is_placed_from_composition_and_hands_a_framework_tree_to_the_browser() {
+  let set = lower(
+    &[
+      ("routes/page.tsx", "import Clock from \"./clock\";\nimport Panel from \"./panel\";\nexport default function Page() {\n  return <main><Clock /><Panel /></main>;\n}\n"),
+      ("routes/clock.tsx", "export default function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n"),
+      ("routes/panel.tsx", "import { useState } from \"react\";\nimport Clock from \"./clock\";\nexport default function Panel() {\n  const [open, setOpen] = useState(false);\n  return <section onClick={() => setOpen(!open)}><Clock /></section>;\n}\n"),
+    ],
+    "routes/page.tsx#default",
+  );
+  assert_eq!(set.browser_only.iter().map(|(module, _)| module.as_str()).collect::<Vec<_>>(), vec!["routes/clock.tsx#default"], "the page and the panel lowered around the clock");
+  let library = library(&set);
+  let rendered = Interpreter::default().render_module("routes/page.tsx#default", &library["routes/page.tsx#default"], &ValueMap::default(), &library).unwrap();
+  let placed: Vec<&str> = rendered.islands.iter().map(|island| island.module.as_str()).collect();
+  assert_eq!(placed, vec!["routes/clock.tsx#default", "routes/panel.tsx#default"]);
+  assert!(rendered.islands[0].body.html.is_empty(), "nothing on the server can render the clock, so it mounts fresh");
+  assert!(rendered.islands[1].body.html.is_empty(), "React renders the clock inside the panel, so the server cannot write the panel either");
+  assert!(rendered.whole, "the page itself is whole: no framework renders it");
+}

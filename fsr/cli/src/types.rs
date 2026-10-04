@@ -602,7 +602,7 @@ fn alias_paths() -> Vec<(String, String)> {
 }
 
 /// Whether the import map serves React, whose declarations then type the templates' JSX.
-fn serves_react(app: &Path, layout: &Layout) -> Result<bool, BuildError> {
+pub(crate) fn serves_react(app: &Path, layout: &Layout) -> Result<bool, BuildError> {
   Ok(import_map_packages(app, layout)?.iter().any(|p| p == "react"))
 }
 

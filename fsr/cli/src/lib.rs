@@ -38,6 +38,8 @@ use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
+  #[error("`{module}` does not lower ({at}: {reason}) and the application has no JSX framework to run it in the browser; make it lower or write it as a Vue or Svelte component or a custom element")]
+  NoJsxFramework { module: String, at: String, reason: String },
   /// What `fsr doctor` found, when a bundle asked for it first. Carries the
   /// report so a caller prints the findings rather than a summary of them.
   #[error("{0}")]
@@ -255,7 +257,7 @@ impl fmt::Display for Report {
         writeln!(f, "{:<9} {hint}", "")?;
       }
       let pages = cause.pages.len();
-      writeln!(f, "{:<9} {pages} page{} render{} in the browser for it", "", if pages == 1 { "" } else { "s" }, if pages == 1 { "s" } else { "" })?;
+      writeln!(f, "{:<9} {pages} module{} render{} in the browser for it", "", if pages == 1 { "" } else { "s" }, if pages == 1 { "s" } else { "" })?;
       for (module, chain) in &cause.pages {
         writeln!(f, "{:<11} {module:<32} {chain}", "")?;
       }
@@ -1080,6 +1082,22 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
     let head = set.heads.get(&module).map(|rows| rows.iter().map(|row| snapfire_fsr_plan::HeadRow { tag: row.tag.clone(), attrs: row.attrs.clone() }).collect()).unwrap_or_default();
     components.push(ComponentEntry { module, body: component, head });
+  }
+  // A component that does not lower renders in the browser alone, as a
+  // component of the application's JSX framework. FSR is no JSX framework,
+  // so an application without one has nothing to run it with.
+  let uses_react = types::serves_react(app, &crate::xwpm::Layout::of_site(app, options.site.as_ref())?)? || owners.values().any(|owner| *owner == Owner::React);
+  for (module, residue) in std::mem::take(&mut set.browser_only) {
+    let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
+    if !uses_react {
+      return Err(BuildError::NoJsxFramework { module, at, reason: residue.message });
+    }
+    let chain = residue.chain();
+    blame(&mut report, &module, at, residue.message, residue.hint, chain);
+    owners.insert(module.clone(), Owner::React);
+    if !islands.contains(&module) {
+      islands.push(module);
+    }
   }
   // A component a page places as an island is mounted because the page asked
   // for it, whatever its own markup would need.

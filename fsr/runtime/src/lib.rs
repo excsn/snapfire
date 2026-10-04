@@ -23,7 +23,7 @@ pub use assembler::{
 pub use cache::{CacheEntry, FibreCache, LoadCache, MemoryCache, MemoryLoadCache, NoCache, NoLoadCache, NodeCache, WarmLoads, WarmRenders};
 pub use ctx::{Address, CsrfHandle, FAILURE_KEY, Identity, Locale, RequestCtx, SessionCell, unix_now, parse_query};
 pub use data::{DataSource, DataSources, LoadError, LoadKeyer, NoLoadKey};
-pub use evaluator::{Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
+pub use evaluator::{slot_regions, Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use islands::{IslandEvent, IslandHandler, IslandRegistry, island_data};
 pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
 pub use meta::{Head, HeadEl, Meta, Metadata};

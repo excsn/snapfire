@@ -655,38 +655,49 @@ fn malformed_plan_terms_are_refused() {
 /// file is regenerated with `SEXP_GOLDEN=overwrite`, alongside a bump of
 /// `FORMAT_VERSION` and a reader that still takes the old spelling, which
 /// the earlier format's file below keeps pinned.
-const GOLDEN: &str = include_str!("golden/format-5.sexp");
+const GOLDEN: &str = include_str!("golden/format-6.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_5_promises() {
+fn the_printed_bytes_are_the_ones_format_6_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-5.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-6.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 5");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 6");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 5 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 6 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
+}
+
+/// Format 5, as the builds before every component named its owner wrote it:
+/// a component that names none is React's.
+const GOLDEN_5: &str = include_str!("golden/format-5.sexp");
+
+#[test]
+fn a_format_5_plan_still_reads() {
+  let read = Manifest::from_sexpr(GOLDEN_5).expect("format 5 still reads");
+  assert_eq!(read, every_manifest());
+  assert_eq!(read.to_sexpr(), GOLDEN, "and prints as format 6");
 }
 
 /// Format 4, as the builds before a component's head rows wrote it.
 const GOLDEN_4: &str = include_str!("golden/format-4.sexp");
 
 #[test]
-fn a_format_4_plan_still_reads_and_prints_as_written() {
+fn a_format_4_plan_still_reads() {
   let read = Manifest::from_sexpr(GOLDEN_4).expect("format 4 still reads");
   let mut expected = every_manifest();
   forget_heads(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), GOLDEN_4);
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
 /// Every component's head rows dropped, which is what a plan written before
@@ -701,13 +712,13 @@ fn forget_heads(manifest: &mut Manifest) {
 const GOLDEN_3: &str = include_str!("golden/format-3.sexp");
 
 #[test]
-fn a_format_3_plan_still_reads_and_prints_as_written() {
+fn a_format_3_plan_still_reads() {
   let read = Manifest::from_sexpr(GOLDEN_3).expect("format 3 still reads");
   let mut expected = every_manifest();
   forget_error_kinds(&mut expected);
   forget_heads(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), GOLDEN_3);
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
 /// Every node's per-kind error modules dropped, which is what a plan written
@@ -728,11 +739,11 @@ fn forget_error_kinds(manifest: &mut Manifest) {
 }
 
 /// Format 2, as the builds before `client` rows wrote it: everything in it
-/// still reads and prints back byte for byte.
+/// still reads.
 const GOLDEN_2: &str = include_str!("golden/format-2.sexp");
 
 #[test]
-fn a_format_2_plan_still_reads_and_prints_as_written() {
+fn a_format_2_plan_still_reads() {
   let read = Manifest::from_sexpr(GOLDEN_2).expect("format 2 still reads");
   let mut expected = every_manifest();
   expected.version = 2;
@@ -740,5 +751,5 @@ fn a_format_2_plan_still_reads_and_prints_as_written() {
   forget_error_kinds(&mut expected);
   forget_heads(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), GOLDEN_2);
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }

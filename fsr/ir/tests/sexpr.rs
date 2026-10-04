@@ -455,8 +455,8 @@ fn every_component_names_its_owner() {
   }
   let err = component_from_sx(&parse("(component (render \"x\"))").unwrap()[0]).unwrap_err().to_string();
   assert!(err.contains("`(owner ...)`"), "{err}");
-  let err = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"}}").unwrap_err().to_string();
-  assert!(err.contains("names its `owner`"), "{err}");
+  let unnamed = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"}}").unwrap();
+  assert_eq!(unnamed.owner, snapfire_fsr_ir::Owner::React, "a JSON plan written before owners left React's flag out");
 }
 
 #[test]

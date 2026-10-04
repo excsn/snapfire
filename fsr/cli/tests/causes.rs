@@ -41,7 +41,7 @@ fn page(title: &str) -> String {
 }
 
 #[test]
-fn a_cause_names_the_leaf_and_the_path_the_page_took_to_it() {
+fn a_cause_names_the_leaf_and_where_it_is_placed_and_the_pages_lower_around_it() {
   let built = built(
     "chain",
     &[("src/ui/Stars.tsx", STARS), ("src/ui/Header.tsx", HEADER), ("routes/page.tsx", &page("Index"))],
@@ -56,9 +56,11 @@ fn a_cause_names_the_leaf_and_the_path_the_page_took_to_it() {
 
   assert_eq!(cause.pages.len(), 1, "{report}");
   let (module, chain) = &cause.pages[0];
-  assert_eq!(module, "routes/page.tsx#default");
-  assert!(chain.contains("<Header> routes/page.tsx:"), "the middle file is named: {chain}");
-  assert!(chain.contains("<Stars> src/ui/Header.tsx:"), "and so is the leaf's placement: {chain}");
+  assert_eq!(module, "src/ui/Stars.tsx#Stars", "the leaf is what renders in the browser");
+  assert!(chain.contains("<Stars> src/ui/Header.tsx:"), "the leaf's placement is named: {chain}");
+  for lowered in ["routes/page.tsx#default", "src/ui/Header.tsx#Header"] {
+    assert!(report.components.iter().any(|(module, how, _)| module == lowered && how == "lowered"), "{lowered} lowers around the leaf\n{report}");
+  }
 
   let client: Vec<&(String, String, String)> = report.components.iter().filter(|(_, how, _)| how == "client").collect();
   assert_eq!(client.len(), 1, "{report}");
@@ -80,10 +82,10 @@ fn two_pages_over_one_leaf_are_one_cause() {
   let report = &built.report;
 
   assert_eq!(report.causes.len(), 1, "one leaf is one cause however many pages reach it\n{report}");
-  let pages: Vec<&String> = report.causes[0].pages.iter().map(|(module, _)| module).collect();
-  assert_eq!(pages, vec!["routes/other/page.tsx#default", "routes/page.tsx#default"], "{report}");
+  let modules: Vec<&String> = report.causes[0].pages.iter().map(|(module, _)| module).collect();
+  assert_eq!(modules, vec!["src/ui/Stars.tsx#Stars"], "the leaf renders in the browser once for every page that reaches it\n{report}");
 
   let printed = report.to_string();
-  assert!(printed.contains("2 pages render in the browser for it"), "{printed}");
+  assert!(printed.contains("1 module renders in the browser for it"), "{printed}");
   assert_eq!(printed.matches("`.slice()`").count(), 1, "the message is printed once, not once per page\n{printed}");
 }

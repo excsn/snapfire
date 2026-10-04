@@ -45,7 +45,7 @@ impl Evaluator for NullEvaluator {
 /// markup uses. Where the marker sits inside the component is unknown here and
 /// does not matter, because the mounter copies the markup out of the region
 /// rather than moving the element.
-fn slot_regions(props: &Data) -> Vec<Node> {
+pub fn slot_regions(props: &Data) -> Vec<Node> {
   let Some(Value::Seq(slots)) = props.get("$slots") else {
     return Vec::new();
   };

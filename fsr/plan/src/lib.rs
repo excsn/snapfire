@@ -523,17 +523,8 @@ impl Manifest {
   }
 
   pub fn from_json(source: &str) -> Result<Self, PlanError> {
-    let mut json: serde_json::Value = serde_json::from_str(source).map_err(|e| PlanError::Malformed(e.to_string()))?;
-    if json.get("version").and_then(|v| v.as_u64()).is_some_and(|v| v < u64::from(OWNERS_NAMED)) {
-      for entry in json.get_mut("components").and_then(|c| c.as_array_mut()).into_iter().flatten() {
-        if let Some(body) = entry.get_mut("body").and_then(|b| b.as_object_mut()) {
-          if !body.contains_key("owner") && !body.contains_key("hydrate") {
-            body.insert("hydrate".to_owned(), serde_json::Value::Bool(true));
-          }
-        }
-      }
-    }
-    let manifest: Manifest = serde_json::from_value(json).map_err(|e| PlanError::Malformed(e.to_string()))?;
+    let manifest: Manifest =
+      serde_json::from_str(source).map_err(|e| PlanError::Malformed(e.to_string()))?;
     if !(OLDEST_READABLE..=FORMAT_VERSION).contains(&manifest.version) {
       return Err(PlanError::Version { found: manifest.version });
     }

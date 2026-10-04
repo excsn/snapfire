@@ -133,6 +133,7 @@ impl Interpreter {
       in_noscript: false,
       in_framework: false,
       component_path: String::new(),
+      unrendered: false,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -237,6 +238,10 @@ pub(crate) struct Env {
   /// The path the component being rendered was entered at, which a handler
   /// marker addresses whatever loop inside that component the element sits in.
   pub(crate) component_path: String,
+  /// Set when a tree a framework renders reached a component the build could
+  /// not lower: the server cannot write that tree, so the island holding it
+  /// mounts fresh.
+  pub(crate) unrendered: bool,
 }
 
 /// One step of the path a key is taken under.
@@ -373,6 +378,7 @@ impl Env {
       in_noscript: false,
       in_framework: false,
       component_path: String::new(),
+      unrendered: false,
     }
   }
 
@@ -499,6 +505,7 @@ impl Env {
       in_noscript: self.in_noscript,
       in_framework: self.in_framework,
       component_path: self.component_path.clone(),
+      unrendered: false,
     }
   }
 

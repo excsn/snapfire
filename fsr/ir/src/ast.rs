@@ -232,7 +232,7 @@ pub struct Component {
 
 /// A component as a JSON plan spells it: `owner`, or in a plan written before
 /// owners the `hydrate` flag, `false` for nothing, `true` for React and
-/// `"tree"` or `"vue"`.
+/// `"tree"` or `"vue"`, left out for React.
 #[derive(Deserialize)]
 struct ComponentRepr {
   #[serde(default)]
@@ -260,7 +260,7 @@ impl TryFrom<ComponentRepr> for Component {
       (None, Some(serde_json::Value::Bool(false))) => Owner::Fsr,
       (None, Some(serde_json::Value::String(word))) => Owner::of(&word).ok_or_else(|| format!("`hydrate` is a boolean, \"tree\" or \"vue\", not \"{word}\""))?,
       (None, Some(other)) => return Err(format!("`hydrate` is a boolean or a word, not {other}")),
-      (None, None) => return Err("a component names its `owner`".to_owned()),
+      (None, None) => Owner::React,
     };
     Ok(Component { body: repr.body, render: repr.render, state: repr.state, handlers: repr.handlers, owner, shadow: repr.shadow })
   }

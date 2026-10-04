@@ -146,7 +146,15 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
   }
   crate::write_overlay(&app, built)?;
   crate::write_generated(&app, built)?;
-  let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
+  // A spec names a page or layout by importing it, so only those it imports
+  // are compiled: composition is otherwise no module the browser loads.
+  let specs: Vec<String> = files.iter().filter_map(|file| std::fs::read_to_string(file).ok()).collect();
+  let imported = |module: &str| {
+    let stem = module.split_once('#').map(|(file, _)| file).unwrap_or(module).trim_start_matches("routes/").rsplit_once('.').map(|(stem, _)| stem.to_owned()).unwrap_or_default();
+    let specifier = format!("\"@routes/{stem}\"");
+    specs.iter().any(|source| source.contains(&specifier))
+  };
+  let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/") && imported(&c.module)).map(|c| c.module.clone()).collect();
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };

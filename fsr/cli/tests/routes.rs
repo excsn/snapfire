@@ -1074,26 +1074,25 @@ fn a_service_method_naming_a_type_outside_the_value_model_fails_the_build() {
 }
 
 #[test]
-fn a_page_that_does_not_lower_travels_in_the_plan_with_its_cause() {
+fn a_module_that_does_not_lower_travels_in_the_plan_with_its_cause() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <Stars />;\n}\n"),
     ("routes/other/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <div><Stars /></div>;\n}\n"),
     ("src/ui/Stars.tsx", "export function Stars() {\n  return <p>{[1, 2, 3].slice(1).length}</p>;\n}\n"),
   ]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let cause = built.report.causes.iter().find(|c| c.at.starts_with("src/ui/Stars.tsx:")).unwrap_or_else(|| panic!("{}", built.report));
   let mut clients: Vec<(&str, &str, &str, Option<&str>)> = built.manifest.clients.iter().map(|c| (c.module.as_str(), c.at.as_str(), c.message.as_str(), c.hint.as_deref())).collect();
   clients.sort();
   assert_eq!(
     clients,
-    vec![
-      ("routes/index/page.tsx#default", cause.at.as_str(), cause.message.as_str(), cause.hint.as_deref()),
-      ("routes/other/page.tsx#default", cause.at.as_str(), cause.message.as_str(), cause.hint.as_deref()),
-    ]
+    vec![("src/ui/Stars.tsx#Stars", cause.at.as_str(), cause.message.as_str(), cause.hint.as_deref())],
+    "the pages lower around the component, which travels alone"
   );
   let plan = built.files.iter().find(|(n, _)| n == "generated/plan.sexp").map(|(_, t)| t.clone()).unwrap();
-  assert!(plan.contains("(client routes/index/page.tsx#default") && plan.contains(&format!("\"{}\"", cause.at)), "{plan}");
+  assert!(plan.contains("(client src/ui/Stars.tsx#Stars") && plan.contains(&format!("\"{}\"", cause.at)), "{plan}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1143,5 +1142,31 @@ fn a_routes_own_boundary_owns_every_kind() {
     page.get("error_kinds").is_none(),
     "the root's not-found does not pair with a route's own error page: {page}"
   );
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_component_that_does_not_lower_is_a_component_of_the_apps_jsx_framework() {
+  let page = "import { Clock } from \"../src/ui/Clock\";\nimport { Ticker } from \"../src/ui/Ticker\";\nexport default function Page() {\n  return <main><Clock /><Ticker /></main>;\n}\n";
+  let dir = app(&[
+    ("routes/page.tsx", page),
+    ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n"),
+    ("src/ui/Ticker.tsx", "import { useEffect } from \"react\";\nexport function Ticker() {\n  return <p>{window.location.host}</p>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "the page lowers around them: {}", built.report);
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("registerIsland(\"src/ui/Clock.tsx#Clock\", { loader: () => import(\"../src/ui/Clock.js\").then((m) => m.Clock), mount: reactMounter"), "JSX that imports nothing is the app's framework's: {islands}");
+  assert!(islands.contains("registerIsland(\"src/ui/Ticker.tsx#Ticker\", { loader: () => import(\"../src/ui/Ticker.js\").then((m) => m.Ticker), mount: reactMounter"), "{islands}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_application_without_a_jsx_framework_refuses_a_component_that_does_not_lower() {
+  let page = "import { Clock } from \"../src/ui/Clock\";\nexport default function Page() {\n  return <main><Clock /></main>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page), ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n")]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  let error = fails(&dir).to_string();
+  assert!(error.contains("`src/ui/Clock.tsx#Clock` does not lower (src/ui/Clock.tsx:2:14:") && error.contains("no JSX framework") && error.contains("Vue or Svelte component or a custom element"), "{error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }

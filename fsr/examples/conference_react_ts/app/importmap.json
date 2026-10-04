@@ -6,6 +6,8 @@
     "@snapfire/fsr-client/store": "/static/js/fsr/store.js",
     "react": "/static/js/vendor/react/react.bundle.mjs",
     "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
-    "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs"
+    "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs",
+    "@snapfire/fsr-client/vue": "/static/js/fsr/vue.js",
+    "vue": "/static/js/vendor/vue/vue.bundle.mjs"
   }
 }

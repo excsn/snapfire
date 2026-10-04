@@ -79,6 +79,10 @@ pub struct ComponentSet {
   /// Described components that did not lower, with why: each stays foreign
   /// and the report says so.
   pub foreign_residue: Vec<(String, Residue)>,
+  /// Components that did not lower, each with the residue that stopped it,
+  /// placed by one that did. Only the browser renders one: from composition
+  /// it is an island that mounts fresh.
+  pub browser_only: Vec<(String, Residue)>,
   /// Files the plugin refused to describe, with what it said, so a placement
   /// of one is foreign for that reason.
   undescribed: HashMap<String, String>,
@@ -101,7 +105,7 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -443,10 +447,15 @@ impl ComponentSet {
           }
         }
       } else {
-        self.lower(&module).map_err(|error| match error {
-          LowerError::Residue(residue) => LowerError::Residue(residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() })),
-          other => other,
-        })?;
+        match self.lower(&module) {
+          Ok(()) => {}
+          Err(LowerError::Residue(residue)) => {
+            if !self.browser_only.iter().any(|(m, _)| *m == module) {
+              self.browser_only.push((module.clone(), residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() })));
+            }
+          }
+          Err(other) => return Err(other),
+        }
       }
       let placed = format!("{file}#{name}");
       if let Some(timing) = island {

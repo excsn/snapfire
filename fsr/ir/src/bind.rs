@@ -362,6 +362,13 @@ impl Evaluator for IrEvaluator {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
       let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
+      if component.owner.hydrates() && !rendered.whole {
+        let children = snapfire_fsr_runtime::slot_regions(&props);
+        let mut props = props;
+        props.shift_remove("$slots");
+        props.shift_remove("$store");
+        return Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }));
+      }
       let mut props = props;
       props.shift_remove("$slots");
       props.shift_remove("$store");

@@ -98,6 +98,10 @@ pub struct Rendered {
   /// The values the markup's hoisted expressions took, keyed as `Hoists::key`
   /// does; the island's props carry them under `$h`.
   pub hoisted: ValueMap,
+  /// False when the component's own tree, which a framework renders again,
+  /// reached a component the build could not lower: the markup is not the
+  /// component's and the browser mounts it fresh.
+  pub whole: bool,
 }
 
 /// The props key an island's hoisted values ride under.
@@ -287,7 +291,7 @@ impl Interpreter {
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
-    Ok(Rendered { html: out.html, islands: out.islands, hoisted })
+    Ok(Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered })
   }
 
   fn env_for(&self, module: &str, props: &ValueMap) -> Env {
@@ -373,7 +377,7 @@ impl Interpreter {
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
-    Ok(Stepped { state: out.state, rendered: Rendered { html: out.html, islands: out.islands, hoisted }, acts })
+    Ok(Stepped { state: out.state, rendered: Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered }, acts })
   }
 }
 
@@ -842,7 +846,13 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
 
 #[allow(clippy::too_many_arguments)]
 fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], id: u32, keyed: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
-  let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
+  let Some(component) = library.get(module) else {
+    if env.in_framework {
+      env.unrendered = true;
+      return Ok(());
+    }
+    return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
+  };
   if !env.in_framework && component.owner.hydrates() {
     return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
   }
@@ -876,7 +886,7 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
       render(env, child, library, slots, &mut inner)?;
     }
     let index = out.islands.len();
-    let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() };
+    let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\0"));
     return Ok(());
@@ -892,7 +902,7 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
       render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
     let index = out.islands.len();
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default() } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
@@ -904,8 +914,10 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
   let outer_state = env.state.take();
   let outer_framework = std::mem::replace(&mut env.in_framework, true);
+  let outer_unrendered = std::mem::replace(&mut env.unrendered, false);
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
   env.in_framework = outer_framework;
+  let unrendered = std::mem::replace(&mut env.unrendered, outer_unrendered);
   let held = result.is_ok() && !children.is_empty() && component.owner == crate::ast::Owner::Vue && slots.last().is_some_and(|slot| slot.island && !slot.placed);
   let result = match held {
     true => render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_HELD_OPEN, "template"),
@@ -919,7 +931,16 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
   env.scope.truncate(depth);
   result?;
   let index = out.islands.len();
-  out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted } });
+  if unrendered {
+    let mut held = Out::default();
+    if !children.is_empty() {
+      render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
+    }
+    let body = Rendered { html: held.html, islands: held.islands, hoisted: ValueMap::default(), whole: true };
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), key, body });
+  } else {
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
+  }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
 }
