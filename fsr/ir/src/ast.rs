@@ -211,12 +211,12 @@ fn is_zero(n: &u32) -> bool {
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
 /// `state` names the `let`s the browser can change, `useState` and `useStore`
 /// bindings in order; `handlers` are its event handlers as bodies, for an
-/// island in server mode, each returning the state it sets. `hydrated_by` is
-/// what mounts the component over the server's markup in the browser: `None`
-/// for a template with no state and no handlers, which then has no browser
-/// twin and pulls no framework into the page. `shadow` is the shadow root an
-/// element template declares with its root `<template shadowrootmode>`.
+/// island in server mode, each returning the state it sets. `owner` is what
+/// renders the component in the browser, if anything does. `shadow` is the
+/// shadow root an element template declares with its root
+/// `<template shadowrootmode>`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "ComponentRepr")]
 pub struct Component {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub body: Body,
@@ -225,10 +225,45 @@ pub struct Component {
   pub state: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<Handler>,
-  #[serde(rename = "hydrate", default = "by_react", skip_serializing_if = "is_by_react", with = "hydrated_as_flag")]
-  pub hydrated_by: Option<HydratedBy>,
+  pub owner: Owner,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub shadow: Option<ShadowRoot>,
+}
+
+/// A component as a JSON plan spells it: `owner`, or in a plan written before
+/// owners the `hydrate` flag, `false` for nothing, `true` for React and
+/// `"tree"` or `"vue"`.
+#[derive(Deserialize)]
+struct ComponentRepr {
+  #[serde(default)]
+  body: Body,
+  render: Tmpl,
+  #[serde(default)]
+  state: Vec<String>,
+  #[serde(default)]
+  handlers: Vec<Handler>,
+  #[serde(default)]
+  owner: Option<Owner>,
+  #[serde(default)]
+  hydrate: Option<serde_json::Value>,
+  #[serde(default)]
+  shadow: Option<ShadowRoot>,
+}
+
+impl TryFrom<ComponentRepr> for Component {
+  type Error = String;
+
+  fn try_from(repr: ComponentRepr) -> Result<Self, String> {
+    let owner = match (repr.owner, repr.hydrate) {
+      (Some(owner), _) => owner,
+      (None, Some(serde_json::Value::Bool(true))) => Owner::React,
+      (None, Some(serde_json::Value::Bool(false))) => Owner::Fsr,
+      (None, Some(serde_json::Value::String(word))) => Owner::of(&word).ok_or_else(|| format!("`hydrate` is a boolean, \"tree\" or \"vue\", not \"{word}\""))?,
+      (None, Some(other)) => return Err(format!("`hydrate` is a boolean or a word, not {other}")),
+      (None, None) => return Err("a component names its `owner`".to_owned()),
+    };
+    Ok(Component { body: repr.body, render: repr.render, state: repr.state, handlers: repr.handlers, owner, shadow: repr.shadow })
+  }
 }
 
 /// The declarative shadow root the server writes around an element template.
@@ -269,62 +304,45 @@ impl ShadowMode {
   }
 }
 
-/// What mounts a component over the server's markup. A template is TSX,
-/// which runs as React when it needs the browser. `ReactTree` is a layout
-/// the React adapter renders as one root with the page inside it, declared
-/// as `export default tree(Layout)`. `Vue` is a single-file component the
-/// build lowered, which the Vue adapter hydrates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HydratedBy {
+/// What renders a component in the browser. `Fsr` is composition: the server
+/// renders it and nothing renders it again. `React` and `Vue` hydrate the
+/// server's markup through their adapters. `ReactTree` is a layout the React
+/// adapter renders as one root with the page inside it, declared as
+/// `export default tree(Layout)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Owner {
+  Fsr,
   React,
+  #[serde(rename = "tree")]
   ReactTree,
   Vue,
 }
 
-impl HydratedBy {
-  /// The word the plan's `(tree)` section and the JSON `hydrate` field use.
-  pub const TREE: &'static str = "tree";
-  /// The word the plan's `(vue)` section and the JSON `hydrate` field use.
-  pub const VUE: &'static str = "vue";
-}
-
-fn by_react() -> Option<HydratedBy> {
-  Some(HydratedBy::React)
-}
-
-fn is_by_react(by: &Option<HydratedBy>) -> bool {
-  *by == Some(HydratedBy::React)
-}
-
-/// `hydrated_by` in the JSON plan as the `hydrate` flag it replaced: `false`
-/// for nothing, `true` for React and `"tree"` for a React tree root.
-mod hydrated_as_flag {
-  use serde::{Deserialize, Deserializer, Serializer};
-
-  use super::HydratedBy;
-
-  #[derive(Deserialize)]
-  #[serde(untagged)]
-  enum Flag {
-    Bool(bool),
-    Word(String),
-  }
-
-  pub fn serialize<S: Serializer>(by: &Option<HydratedBy>, s: S) -> Result<S::Ok, S::Error> {
-    match by {
-      Some(HydratedBy::ReactTree) => s.serialize_str(HydratedBy::TREE),
-      Some(HydratedBy::Vue) => s.serialize_str(HydratedBy::VUE),
-      other => s.serialize_bool(other.is_some()),
+impl Owner {
+  /// The word the plan's `(owner ...)` section and the JSON `owner` field use.
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Self::Fsr => "fsr",
+      Self::React => "react",
+      Self::ReactTree => "tree",
+      Self::Vue => "vue",
     }
   }
 
-  pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<HydratedBy>, D::Error> {
-    match Flag::deserialize(d)? {
-      Flag::Bool(on) => Ok(on.then_some(HydratedBy::React)),
-      Flag::Word(word) if word == HydratedBy::TREE => Ok(Some(HydratedBy::ReactTree)),
-      Flag::Word(word) if word == HydratedBy::VUE => Ok(Some(HydratedBy::Vue)),
-      Flag::Word(word) => Err(serde::de::Error::custom(format!("`hydrate` is a boolean, \"tree\" or \"vue\", not \"{word}\""))),
+  pub fn of(word: &str) -> Option<Self> {
+    match word {
+      "fsr" => Some(Self::Fsr),
+      "react" => Some(Self::React),
+      "tree" => Some(Self::ReactTree),
+      "vue" => Some(Self::Vue),
+      _ => None,
     }
+  }
+
+  /// Whether a framework mounts the component over the server's markup.
+  pub fn hydrates(self) -> bool {
+    self != Self::Fsr
   }
 }
 
@@ -339,8 +357,8 @@ pub struct Handler {
 }
 
 impl Component {
-  pub fn new(body: Body, render: Tmpl) -> Self {
-    Self { body, render, state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(HydratedBy::React), shadow: None }
+  pub fn new(owner: Owner, body: Body, render: Tmpl) -> Self {
+    Self { body, render, state: Vec::new(), handlers: Vec::new(), owner, shadow: None }
   }
 }
 

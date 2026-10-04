@@ -248,16 +248,17 @@ fn shadow_root() -> BoxedStrategy<snapfire_fsr_ir::ShadowRoot> {
 
 fn component() -> BoxedStrategy<Component> {
   (body(), tmpl(), prop::collection::vec(text(), 0..3),
-   prop::collection::vec((text(), body()), 0..3), 0u8..3, prop::option::of(shadow_root()))
+   prop::collection::vec((text(), body()), 0..3), 0u8..4, prop::option::of(shadow_root()))
     .prop_map(|(body, render, state, handlers, hydrate, shadow)| Component {
       body,
       render,
       state,
       handlers: handlers.into_iter().map(|(event, body)| Handler { event, body }).collect(),
-      hydrated_by: match hydrate {
-        0 => None,
-        1 => Some(snapfire_fsr_ir::HydratedBy::React),
-        _ => Some(snapfire_fsr_ir::HydratedBy::ReactTree),
+      owner: match hydrate {
+        0 => snapfire_fsr_ir::Owner::Fsr,
+        1 => snapfire_fsr_ir::Owner::React,
+        2 => snapfire_fsr_ir::Owner::Vue,
+        _ => snapfire_fsr_ir::Owner::ReactTree,
       },
       shadow,
     })
@@ -442,16 +443,32 @@ fn malformed_templates_and_statements_are_refused() {
 }
 
 #[test]
-fn a_tree_root_is_its_own_section() {
-  let component = Component { hydrated_by: Some(snapfire_fsr_ir::HydratedBy::ReactTree), ..Component::new(Vec::new(), Tmpl::Text("x".to_owned())) };
-  let text = print(std::slice::from_ref(&component_to_sx(&component)));
-  assert!(text.contains("(tree)"), "{text}");
-  assert!(!text.contains("(static)"), "{text}");
-  assert_eq!(component_from_sx(&parse(&text).unwrap()[0]).unwrap(), component);
-  let json = serde_json::to_string(&component).unwrap();
-  assert!(json.contains("\"hydrate\":\"tree\""), "{json}");
-  assert_eq!(serde_json::from_str::<Component>(&json).unwrap(), component);
-  assert!(!serde_json::to_string(&Component::new(Vec::new(), Tmpl::Text("x".to_owned()))).unwrap().contains("hydrate"), "React alone is the default and is left out");
+fn every_component_names_its_owner() {
+  for owner in [snapfire_fsr_ir::Owner::Fsr, snapfire_fsr_ir::Owner::React, snapfire_fsr_ir::Owner::ReactTree, snapfire_fsr_ir::Owner::Vue] {
+    let component = Component::new(owner, Vec::new(), Tmpl::Text("x".to_owned()));
+    let text = print(std::slice::from_ref(&component_to_sx(&component)));
+    assert!(text.contains(&format!("(owner {})", owner.as_str())), "{text}");
+    assert_eq!(component_from_sx(&parse(&text).unwrap()[0]).unwrap(), component);
+    let json = serde_json::to_string(&component).unwrap();
+    assert!(json.contains(&format!("\"owner\":\"{}\"", owner.as_str())), "{json}");
+    assert_eq!(serde_json::from_str::<Component>(&json).unwrap(), component);
+  }
+  let err = component_from_sx(&parse("(component (render \"x\"))").unwrap()[0]).unwrap_err().to_string();
+  assert!(err.contains("`(owner ...)`"), "{err}");
+  let err = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"}}").unwrap_err().to_string();
+  assert!(err.contains("names its `owner`"), "{err}");
+}
+
+#[test]
+fn a_component_written_before_owners_reads_by_its_old_tags() {
+  let read = |text: &str| component_from_sx(&parse(text).unwrap()[0]).unwrap().owner;
+  assert_eq!(read("(component (static) (render \"x\"))"), snapfire_fsr_ir::Owner::Fsr);
+  assert_eq!(read("(component (tree) (render \"x\"))"), snapfire_fsr_ir::Owner::ReactTree);
+  assert_eq!(read("(component (vue) (render \"x\"))"), snapfire_fsr_ir::Owner::Vue);
+  let json = |flag: &str| serde_json::from_str::<Component>(&format!("{{\"render\":{{\"text\":\"x\"}},\"hydrate\":{flag}}}")).unwrap().owner;
+  assert_eq!(json("true"), snapfire_fsr_ir::Owner::React);
+  assert_eq!(json("false"), snapfire_fsr_ir::Owner::Fsr);
+  assert_eq!(json("\"tree\""), snapfire_fsr_ir::Owner::ReactTree);
   let err = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"},\"hydrate\":\"vine\"}").unwrap_err().to_string();
   assert!(err.contains("boolean, \"tree\" or \"vue\""), "{err}");
 }

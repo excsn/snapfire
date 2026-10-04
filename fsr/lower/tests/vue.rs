@@ -11,7 +11,7 @@ use snapfire_compiler_wire::{Described, Lang, Options, Outcome};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::ast::{Component, Entry, Expr, Tmpl};
 use snapfire_fsr_ir::render::Components;
-use snapfire_fsr_ir::{Frameworks, HydratedBy, Interpreter, VueMajor};
+use snapfire_fsr_ir::{Frameworks, Interpreter, Owner, VueMajor};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::LowerError;
 use snapfire_vue::Compiler;
@@ -60,7 +60,7 @@ fn lower(compiler: &Compiler, dir: &Path, file: &str, source: &str) -> Result<Co
 /// A page placing `module` as an island with `props` and `children`, the way a
 /// template does, so the render writes the island's markup with its region.
 fn host(module: &str, children: Vec<Tmpl>) -> Component {
-  Component { body: Vec::new(), render: Tmpl::Island { module: module.to_owned(), props: vec![Entry::Spread(Expr::var("$props"))], children, when: None, mode: None, id: 0, define: false }, state: Vec::new(), handlers: Vec::new(), hydrated_by: None, shadow: None }
+  Component { body: Vec::new(), render: Tmpl::Island { module: module.to_owned(), props: vec![Entry::Spread(Expr::var("$props"))], children, when: None, mode: None, id: 0, define: false }, state: Vec::new(), handlers: Vec::new(), owner: Owner::Fsr, shadow: None }
 }
 
 fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec<Tmpl>) -> String {
@@ -252,11 +252,11 @@ fn a_lowered_component_is_marked_for_the_vue_adapter_with_its_state() {
   let dir = app("shape", &[("src/store.ts", STORE)]);
   let set = lower(&compiler, &dir, "src/ui/Tonight.vue", TONIGHT).unwrap();
   let (_, component) = set.components.iter().find(|(m, _)| m == "src/ui/Tonight.vue#default").unwrap();
-  assert_eq!(component.hydrated_by, Some(HydratedBy::Vue));
+  assert_eq!(component.owner, Owner::Vue);
   assert_eq!(component.state, vec!["held".to_owned(), "open".to_owned()]);
   assert!(set.foreign.is_empty(), "a lowered component is not foreign: {:?}", set.foreign);
   let plan = serde_json::to_string(component).unwrap();
-  assert!(plan.contains("\"hydrate\":\"vue\""), "{plan}");
+  assert!(plan.contains("\"owner\":\"vue\""), "{plan}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

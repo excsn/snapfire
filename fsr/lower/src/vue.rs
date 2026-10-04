@@ -10,7 +10,7 @@ use serde::Deserialize;
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::render::RAW_ATTR;
-use snapfire_fsr_ir::HydratedBy;
+use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
 
@@ -116,7 +116,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn component(&mut self) -> Lowered<Component> {
     self.script()?;
     let render = self.template()?;
-    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), handlers: Vec::new(), hydrated_by: Some(HydratedBy::Vue), shadow: None })
+    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), handlers: Vec::new(), owner: Owner::Vue, shadow: None })
   }
 
   fn at(&self, line: usize, column: usize, message: impl Into<String>) -> Residue {

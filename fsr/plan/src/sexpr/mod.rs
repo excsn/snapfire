@@ -130,7 +130,11 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           return Err(err("a component needs a module id"));
         }
         let (heads, sections): (Vec<&Sx>, Vec<&Sx>) = items[2..].iter().partition(|s| head_of(s).ok().as_deref() == Some("head"));
-        let sections: Vec<Sx> = sections.into_iter().cloned().collect();
+        let mut sections: Vec<Sx> = sections.into_iter().cloned().collect();
+        let named = sections.iter().any(|s| matches!(head_of(s).ok().as_deref(), Some("owner" | "static" | "tree" | "vue")));
+        if !named && manifest.version < crate::OWNERS_NAMED {
+          sections.push(form("owner", vec![sym("react".to_owned())]));
+        }
         let mut head = Vec::new();
         for row in heads {
           let terms = as_list(row)?;

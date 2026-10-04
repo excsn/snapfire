@@ -1,6 +1,6 @@
 //! Statements and whole components, both directions.
 
-use crate::ast::{Body, Component, Expr, Handler, Lit, ShadowMode, ShadowRoot, Stmt, Tmpl};
+use crate::ast::{Body, Component, Expr, Handler, Lit, Owner, ShadowMode, ShadowRoot, Stmt, Tmpl};
 
 use super::atoms::*;
 use super::expr::{expr_from_sx, expr_to_sx};
@@ -62,12 +62,7 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
 /// between the head and these.
 pub fn component_sections(component: &Component) -> Vec<Sx> {
   let mut rest = Vec::new();
-  match component.hydrated_by {
-    None => rest.push(form("static", Vec::new())),
-    Some(crate::ast::HydratedBy::ReactTree) => rest.push(form(crate::ast::HydratedBy::TREE, Vec::new())),
-    Some(crate::ast::HydratedBy::Vue) => rest.push(form(crate::ast::HydratedBy::VUE, Vec::new())),
-    Some(crate::ast::HydratedBy::React) => {}
-  }
+  rest.push(form("owner", vec![Sx::sym(component.owner.as_str())]));
   if let Some(shadow) = &component.shadow {
     let mut terms = vec![Sx::sym(shadow.mode.as_str())];
     for (on, option) in [(shadow.delegates_focus, "delegatesfocus"), (shadow.clonable, "clonable"), (shadow.serializable, "serializable")] {
@@ -172,14 +167,21 @@ pub fn component_from_sx(sx: &Sx) -> Res<Component> {
 }
 
 pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
-  let mut out = Component { body: Vec::new(), render: Tmpl::Fragment(Vec::new()), state: Vec::new(), handlers: Vec::new(), hydrated_by: Some(crate::ast::HydratedBy::React), shadow: None };
+  let mut out = Component::new(Owner::Fsr, Vec::new(), Tmpl::Fragment(Vec::new()));
+  let mut owned = false;
   let mut rendered = false;
   for section in items {
     let inner = section.as_list()?;
     match section.head() {
-      Some("static") => out.hydrated_by = None,
-      Some("tree") => out.hydrated_by = Some(crate::ast::HydratedBy::ReactTree),
-      Some("vue") => out.hydrated_by = Some(crate::ast::HydratedBy::Vue),
+      Some("owner") => {
+        let a = args(inner, "owner", 1)?;
+        let word = sym_of(&a[0])?;
+        out.owner = Owner::of(&word).ok_or_else(|| SexprError::shape(format!("`{word}` is not an owner")))?;
+        owned = true;
+      }
+      Some("static") => (out.owner, owned) = (Owner::Fsr, true),
+      Some("tree") => (out.owner, owned) = (Owner::ReactTree, true),
+      Some("vue") => (out.owner, owned) = (Owner::Vue, true),
       Some("shadow") => {
         let a = at_least(inner, "shadow", 1)?;
         let mode = sym_of(&a[0])?;
@@ -211,6 +213,9 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
   }
   if !rendered {
     return Err(SexprError::shape("a component needs a `(render ...)` section"));
+  }
+  if !owned {
+    return Err(SexprError::shape("a component needs an `(owner ...)` section"));
   }
   Ok(out)
 }

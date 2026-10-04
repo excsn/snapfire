@@ -13,7 +13,11 @@ pub mod sexpr;
 /// with bare action ids and no sources, still reads. Format 4 adds a node's
 /// `error-kind` sections, which a format 3 reader refuses by name rather than
 /// ignoring, so the version is what tells an older host to say so plainly.
-pub const FORMAT_VERSION: u32 = 5;
+/// Format 6 names every component's owner; in an older file a component that
+/// names none is React's.
+pub const FORMAT_VERSION: u32 = 6;
+/// The first format in which a component must name its owner.
+pub(crate) const OWNERS_NAMED: u32 = 6;
 const OLDEST_READABLE: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -519,8 +523,17 @@ impl Manifest {
   }
 
   pub fn from_json(source: &str) -> Result<Self, PlanError> {
-    let manifest: Manifest =
-      serde_json::from_str(source).map_err(|e| PlanError::Malformed(e.to_string()))?;
+    let mut json: serde_json::Value = serde_json::from_str(source).map_err(|e| PlanError::Malformed(e.to_string()))?;
+    if json.get("version").and_then(|v| v.as_u64()).is_some_and(|v| v < u64::from(OWNERS_NAMED)) {
+      for entry in json.get_mut("components").and_then(|c| c.as_array_mut()).into_iter().flatten() {
+        if let Some(body) = entry.get_mut("body").and_then(|b| b.as_object_mut()) {
+          if !body.contains_key("owner") && !body.contains_key("hydrate") {
+            body.insert("hydrate".to_owned(), serde_json::Value::Bool(true));
+          }
+        }
+      }
+    }
+    let manifest: Manifest = serde_json::from_value(json).map_err(|e| PlanError::Malformed(e.to_string()))?;
     if !(OLDEST_READABLE..=FORMAT_VERSION).contains(&manifest.version) {
       return Err(PlanError::Version { found: manifest.version });
     }

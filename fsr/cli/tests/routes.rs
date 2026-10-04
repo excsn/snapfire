@@ -251,7 +251,7 @@ fn a_custom_element_with_a_template_under_elements_is_marked_where_it_is_placed(
   let json = built.manifest.to_json();
   assert!(json.contains("\"$shadow\"") && json.contains("elements/x-grid.tsx#default"), "{json}");
   let template = built.manifest.components.iter().find(|c| c.module == "elements/x-grid.tsx#default").expect("the template is lowered");
-  assert!(template.body.hydrated_by.is_none(), "an element template is static");
+  assert_eq!(template.body.owner, snapfire_fsr_ir::Owner::Fsr, "an element template is static");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -525,7 +525,7 @@ fn a_layout_declared_tree_registers_with_the_tree_mounter_and_its_page_with_the_
   assert!(islands.contains("import { reactTreeMounter, reactTreePatcher, reactUnmounter, reactTreeClaims, reactMounter, reactPatcher } from \"@snapfire/fsr-client/react\";"), "one import line per adapter module: {islands}");
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/layout.tsx#default" && owner == "lowered" && detail == "tree"), "{}", built.report);
   let plan = built.files.iter().find(|(name, _)| name == "generated/plan.sexp").map(|(_, text)| text.clone()).unwrap();
-  assert!(plan.contains("(component routes/layout.tsx#default (tree)"), "{plan}");
+  assert!(plan.contains("(component routes/layout.tsx#default (owner tree)"), "{plan}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -764,6 +764,34 @@ fn two_rows_claiming_one_id_are_refused_by_name() {
     }
     other => panic!("{other}"),
   }
+}
+
+#[test]
+fn an_island_in_server_mode_needs_no_framework_in_the_map_and_has_no_registry_entry() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
+  let dir = app(&[
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
+  ]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/c"}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(!islands.contains("src/Widget.tsx#Widget"), "the server renders every step, so nothing mounts it: {islands}");
+  assert!(!islands.contains("reactMounter"), "{islands}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_module_placed_in_server_mode_and_as_a_browser_island_is_refused() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <div><Island mode=\"server\"><Widget /></Island><Island><Widget /></Island></div>;\n}\n";
+  let dir = app(&[
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
+  ]);
+  let err = fails(&dir).to_string();
+  assert!(err.contains("src/Widget.tsx#Widget") && err.contains("has one owner"), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

@@ -9,7 +9,7 @@ use snapfire_fsr_core::Value;
 use super::react::ReactMajor;
 use super::vue::VueMajor;
 use super::BOOLEAN;
-use crate::ast::HydratedBy;
+use crate::ast::Owner;
 
 /// The frameworks an application vendors, each at the major whose markup the
 /// renderer writes. A framework left `None` is one the application does not
@@ -39,11 +39,11 @@ impl Markup {
   /// The rules a component renders under. A component a vendored framework
   /// hydrates takes that framework's rules. One nothing hydrates renders
   /// inside its caller's tree, so it keeps its caller's.
-  pub(crate) fn of(hydrated_by: Option<HydratedBy>, frameworks: Frameworks, caller: Markup) -> Markup {
-    match hydrated_by {
-      Some(HydratedBy::React | HydratedBy::ReactTree) => frameworks.react.map_or(Markup::Plain, Markup::React),
-      Some(HydratedBy::Vue) => frameworks.vue.map_or(Markup::Plain, Markup::Vue),
-      None => caller,
+  pub(crate) fn of(owner: Owner, frameworks: Frameworks, caller: Markup) -> Markup {
+    match owner {
+      Owner::React | Owner::ReactTree => frameworks.react.map_or(Markup::Plain, Markup::React),
+      Owner::Vue => frameworks.vue.map_or(Markup::Plain, Markup::Vue),
+      Owner::Fsr => caller,
     }
   }
 

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use snapfire_compiler_wire::Described;
-use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Owner, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
@@ -316,12 +316,12 @@ impl ComponentSet {
   /// component read as impure only keeps a subtree out of a chunk.
   fn settle(&mut self) {
     loop {
-      let rising: Vec<usize> = (0..self.components.len()).filter(|&i| self.components[i].1.hydrated_by.is_none() && self.inline_hydrates(&self.components[i].1.render)).collect();
+      let rising: Vec<usize> = (0..self.components.len()).filter(|&i| !self.components[i].1.owner.hydrates() && self.inline_hydrates(&self.components[i].1.render)).collect();
       if rising.is_empty() {
         break;
       }
       for i in rising {
-        self.components[i].1.hydrated_by = Some(snapfire_fsr_ir::HydratedBy::React);
+        self.components[i].1.owner = Owner::React;
       }
     }
     let mut pure = self.stateless.clone();
@@ -489,12 +489,13 @@ impl ComponentSet {
     // A provider is React state the page's islands read, so the component
     // is a root even when nothing else in it needs the browser.
     let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || self.inline_hydrates(&render);
-    let hydrated_by = match tree {
+    let owner = match tree {
       Some((_, span)) if !self.layouts.iter().any(|m| *m == module) => return Err(self.parsed[file].residue(span, "`tree(...)` marks a layout; this module is not one").into()),
-      Some(_) => Some(snapfire_fsr_ir::HydratedBy::ReactTree),
-      None => hydrates.then_some(snapfire_fsr_ir::HydratedBy::React),
+      Some(_) => Owner::ReactTree,
+      None if hydrates => Owner::React,
+      None => Owner::Fsr,
     };
-    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, hydrated_by, shadow: component.shadow };
+    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, owner, shadow: component.shadow };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
       return Err(LowerError::Residue(Residue {
@@ -594,7 +595,7 @@ impl ComponentSet {
   fn inline_hydrates(&self, tmpl: &Tmpl) -> bool {
     match tmpl {
       Tmpl::Component { module, children, .. } => {
-        self.components.iter().any(|(m, c)| m == module && c.hydrated_by.is_some()) || children.iter().any(|c| self.inline_hydrates(c))
+        self.components.iter().any(|(m, c)| m == module && c.owner.hydrates()) || children.iter().any(|c| self.inline_hydrates(c))
       }
       Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n.starts_with(HANDLER_ATTR) || n == UNLOWERED_ATTR)) || children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
@@ -1743,7 +1744,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers), hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React), shadow: None }, std::mem::take(&mut self.refs)))
+    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None }, std::mem::take(&mut self.refs)))
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
@@ -4129,7 +4130,7 @@ export default function Order({ id }: { id: number }) {
     let Tmpl::Element { tag, children, .. } = &items[0] else { panic!("{:?}", items[0]) };
     assert_eq!(tag, "div");
     assert_eq!(children[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
-    assert_eq!(layout.hydrated_by, Some(snapfire_fsr_ir::HydratedBy::React), "a provider only exists in the browser, so the layout is a root");
+    assert_eq!(layout.owner, Owner::React, "a provider only exists in the browser, so the layout is a root");
   }
 
   #[test]
@@ -4145,7 +4146,7 @@ export default function Order({ id }: { id: number }) {
     let mut set = ComponentSet::new(&app(&[("routes/layout.tsx", layout)]));
     set.layouts.push("routes/layout.tsx#default".to_owned());
     set.lower("routes/layout.tsx#default").unwrap();
-    assert_eq!(set.components[0].1.hydrated_by, Some(snapfire_fsr_ir::HydratedBy::ReactTree));
+    assert_eq!(set.components[0].1.owner, Owner::ReactTree);
     let Tmpl::Element { children, .. } = &set.components[0].1.render else { panic!() };
     assert_eq!(children[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
 

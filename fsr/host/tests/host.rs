@@ -28,7 +28,7 @@ fn read_plan(dir: &std::path::Path) -> serde_json::Value {
 }
 
 fn write_plan_value(dir: &std::path::Path, json: serde_json::Value) {
-  let manifest: snapfire_fsr_plan::Manifest = serde_json::from_value(json).expect("a plan");
+  let manifest = snapfire_fsr_plan::Manifest::from_json(&json.to_string()).expect("a plan");
   std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
 }
 
@@ -4260,7 +4260,7 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
     render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] },
     state: Vec::new(),
     handlers: Vec::new(),
-    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    owner: snapfire_fsr_ir::Owner::React,
     shadow: None,
   };
   let evaluator = IrEvaluator::new([("src/Frame.tsx#Frame".to_owned(), frame)]);
@@ -4292,7 +4292,7 @@ fn a_lowered_island_step_runs_a_handler_branch_both_ways() {
         Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Ternary(Box::new(open()), Box::new(bumped), Box::new(n())))])),
       ],
     }],
-    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    owner: snapfire_fsr_ir::Owner::React,
     shadow: None,
   };
   let evaluator = IrEvaluator::new([("src/Gate.tsx#Gate".to_owned(), gate)]);
@@ -4330,7 +4330,7 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
     render: Tmpl::Element { tag: "i".to_owned(), attrs: vec![Entry::Field("$on:click".to_owned(), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("x"))] },
     state: vec!["x".to_owned()],
     handlers: vec![bump("x")],
-    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    owner: snapfire_fsr_ir::Owner::React,
     shadow: None,
   };
   let widget = Component {
@@ -4342,7 +4342,7 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
     },
     state: vec!["n".to_owned()],
     handlers: vec![bump("n")],
-    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    owner: snapfire_fsr_ir::Owner::React,
     shadow: None,
   };
   let evaluator = IrEvaluator::new([("src/Widget.tsx#Widget".to_owned(), widget), ("src/Inner.tsx#Inner".to_owned(), inner)]);

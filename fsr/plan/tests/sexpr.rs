@@ -227,10 +227,10 @@ fn every_manifest() -> Manifest {
       Handler { event: "click".to_owned(), body: body.clone() },
       Handler { event: "submit".to_owned(), body: Vec::new() },
     ],
-    hydrated_by: Some(snapfire_fsr_ir::HydratedBy::React),
+    owner: snapfire_fsr_ir::Owner::React,
     shadow: Some(snapfire_fsr_ir::ShadowRoot { mode: snapfire_fsr_ir::ShadowMode::Closed, delegates_focus: true, clonable: true, serializable: true }),
   };
-  let tree = Component { hydrated_by: Some(snapfire_fsr_ir::HydratedBy::ReactTree), ..Component::new(Vec::new(), Tmpl::Slot("content".to_owned())) };
+  let tree = Component::new(snapfire_fsr_ir::Owner::ReactTree, Vec::new(), Tmpl::Slot("content".to_owned()));
   let node = Node {
     id: 0,
     module: "shell#document".to_owned(),

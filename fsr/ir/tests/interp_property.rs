@@ -11,7 +11,7 @@ use snapfire_fsr_ir::Interpreter;
 
 /// Evaluates `expr` with `$props` bound, through the only public path.
 fn eval(expr: Expr, props: ValueMap) -> Result<String, String> {
-  let component = Component::new(Vec::new(), Tmpl::Expr(expr));
+  let component = Component::new(snapfire_fsr_ir::Owner::React, Vec::new(), Tmpl::Expr(expr));
   Interpreter::default()
     .render(&component, &props, &Components::new())
     .map(|r| r.html)

@@ -9,7 +9,7 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_core::{Value, ValueMap};
 
 fn render(attrs: Vec<Entry>, props: ValueMap) -> Result<String, String> {
-  let component = Component::new(
+  let component = Component::new(snapfire_fsr_ir::Owner::React, 
     Vec::new(),
     Tmpl::Element { tag: "div".to_owned(), attrs, children: vec![Tmpl::Text("in".to_owned())] },
   );
@@ -30,7 +30,7 @@ fn map_of(pairs: &[(&str, Value)]) -> ValueMap {
 /// Text a value carries cannot open or close a tag.
 #[test]
 fn a_value_in_text_cannot_reach_the_markup() {
-  let component = Component::new(
+  let component = Component::new(snapfire_fsr_ir::Owner::React, 
     Vec::new(),
     Tmpl::Element {
       tag: "div".to_owned(),

@@ -30,7 +30,8 @@ use std::path::{Path, PathBuf};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::{builtin_types, read_schema, read_session_defaults, LowerError, SessionDefaults, EXT_DIR, UPLOAD};
 use snapfire_fsr_ir::ast::Consts;
-use snapfire_fsr_ir::HydratedBy;
+use snapfire_fsr_ir::Owner;
+use std::collections::HashMap;
 use snapfire_fsr_plan::{ActionEntry, Child, ComponentEntry, HandlerEntry, Manifest, Node, RouteEntry, RowOwner, SourceEntry};
 use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
@@ -689,7 +690,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     set.lower(module)?;
     let refused = |reason: String| BuildError::ElementTemplate { module: module.clone(), reason };
     let Some((_, component)) = set.components.iter_mut().find(|(m, _)| m == module) else { continue };
-    if component.hydrated_by.is_some() {
+    if component.owner.hydrates() {
       return Err(refused("it holds state or a handler, which belong in the element's class".to_owned()));
     }
     component.shadow = snapfire_fsr_ir::ShadowRoot::take(&mut component.render).map_err(|e| refused(e.to_string()))?;
@@ -1048,8 +1049,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   // island registry and out of the bundle, so a page of such templates loads
   // no framework at all.
   let mut static_modules: Vec<String> = Vec::new();
-  // Layouts declared `tree(Layout)`: the React adapter mounts each as one root with its page.
-  let mut trees: Vec<String> = Vec::new();
+  // What renders each lowered module in the browser, which picks its adapter.
+  let mut owners: HashMap<String, Owner> = HashMap::new();
   for (module, residue) in std::mem::take(&mut set.foreign_residue) {
     let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
     report.components.push((module.clone(), "foreign".to_owned(), at.clone()));
@@ -1059,25 +1060,22 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
   }
   for (module, component) in std::mem::take(&mut set.components) {
-    let detail = match component.hydrated_by {
-      Some(HydratedBy::ReactTree) => HydratedBy::TREE.to_owned(),
-      Some(HydratedBy::Vue) => HydratedBy::VUE.to_owned(),
-      Some(HydratedBy::React) => String::new(),
-      None => "static".to_owned(),
+    let detail = match component.owner {
+      Owner::ReactTree | Owner::Vue => component.owner.as_str().to_owned(),
+      Owner::React => String::new(),
+      Owner::Fsr => "static".to_owned(),
     };
     report.components.push((module.clone(), "lowered".to_owned(), detail));
-    if component.hydrated_by.is_none() {
+    if !component.owner.hydrates() {
       static_modules.push(module.clone());
     }
-    if component.hydrated_by == Some(HydratedBy::ReactTree) {
-      trees.push(module.clone());
-    }
-    for (placed, define) in island_modules(&component.render) {
-      if define && !defines.contains(&placed) {
-        defines.push(placed.clone());
+    owners.insert(module.clone(), component.owner);
+    for placement in island_modules(&component.render) {
+      if placement.define && !defines.contains(&placement.module) {
+        defines.push(placement.module.clone());
       }
-      if !islands.contains(&placed) {
-        islands.push(placed);
+      if !placement.server && !islands.contains(&placement.module) {
+        islands.push(placement.module);
       }
     }
     let head = set.heads.get(&module).map(|rows| rows.iter().map(|row| snapfire_fsr_plan::HeadRow { tag: row.tag.clone(), attrs: row.attrs.clone() }).collect()).unwrap_or_default();
@@ -1085,7 +1083,11 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   // A component a page places as an island is mounted because the page asked
   // for it, whatever its own markup would need.
-  let placed: Vec<String> = components.iter().flat_map(|entry| island_modules(&entry.body.render)).map(|(module, _)| module).collect();
+  let placements: Vec<Placement> = components.iter().flat_map(|entry| island_modules(&entry.body.render)).collect();
+  if let Some(both) = placements.iter().find(|p| p.server && placements.iter().any(|q| !q.server && q.module == p.module)) {
+    return Err(BuildError::ServerIsland { module: both.module.clone(), reason: "it is placed in server mode and also as a browser island, and a module has one owner".to_owned() });
+  }
+  let placed: Vec<String> = placements.into_iter().filter(|p| !p.server).map(|p| p.module).collect();
   static_modules.retain(|module| !placed.contains(module));
   for (module, _, detail) in &mut report.components {
     if placed.contains(module) && detail == "static" {
@@ -1184,8 +1186,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
     }
   }
-  let registry = islands_module(&islands, &static_modules, &defines, &trees, options)?;
-  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &trees, &set)?;
+  let registry = islands_module(&islands, &static_modules, &defines, &owners, options)?;
+  check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &owners, &set)?;
   files.extend([
     ("generated/uploads.d.ts".to_owned(), UPLOAD_DECLARATION.to_owned()),
     ("generated/assets.d.ts".to_owned(), ASSET_DECLARATIONS.to_owned()),
@@ -1750,14 +1752,23 @@ fn props_name(id: &str) -> String {
 }
 
 /// Every module a component places as an island, in tree order.
-fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<(String, bool)> {
+/// One `<Island>` a template places.
+struct Placement {
+  module: String,
+  /// Placed with `define`: a custom element the browser imports.
+  define: bool,
+  /// Placed with `mode="server"`: the server renders every step and no adapter mounts it.
+  server: bool,
+}
+
+fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<Placement> {
   use snapfire_fsr_ir::Tmpl;
   let mut out = Vec::new();
-  fn walk(tmpl: &Tmpl, out: &mut Vec<(String, bool)>) {
+  fn walk(tmpl: &Tmpl, out: &mut Vec<Placement>) {
     match tmpl {
       Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
-      Tmpl::Island { module, children, define, .. } => {
-        out.push((module.clone(), *define));
+      Tmpl::Island { module, children, define, mode, .. } => {
+        out.push(Placement { module: module.clone(), define: *define, server: mode.as_deref() == Some(snapfire_fsr_ir::render::SERVER_MODE) });
         children.iter().for_each(|c| walk(c, out));
       }
       Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
@@ -1824,10 +1835,16 @@ fn suggested_version(package: &str) -> &'static str {
 /// The adapter a module is registered with. A source the lowerer reads is
 /// React's; a foreign one belongs to the framework whose plugin claims its
 /// extension, when the client has an adapter for that framework.
-fn adapter_for(module: &str, trees: &[String]) -> Result<&'static Adapter, BuildError> {
+fn adapter_for(module: &str, owners: &HashMap<String, Owner>) -> Result<&'static Adapter, BuildError> {
+  match owners.get(module) {
+    Some(Owner::ReactTree) => return Ok(&REACT_TREE),
+    Some(Owner::Vue) => return Ok(&VUE),
+    Some(Owner::React | Owner::Fsr) => return Ok(&REACT),
+    None => {}
+  }
   let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
   if !snapfire_fsr_lower::component::is_foreign(file) {
-    return Ok(if trees.iter().any(|m| m == module) { &REACT_TREE } else { &REACT });
+    return Ok(&REACT);
   }
   let ext = Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
   match snapfire_compiler_wire::claimed(&ext) {
@@ -1842,7 +1859,7 @@ fn adapter_for(module: &str, trees: &[String]) -> Result<&'static Adapter, Build
 /// mounts exactly what the plan file refers to. A module nothing mounts is
 /// left out and a mounter nothing registers is never imported, which is what
 /// keeps a framework off a page that has no component of it.
-fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], trees: &[String], options: &Options) -> Result<String, BuildError> {
+fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, options: &Options) -> Result<String, BuildError> {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   let registered: Vec<&String> = islands.iter().filter(|m| !static_modules.contains(m)).collect();
   let defining = registered.iter().any(|m| defines.contains(m));
@@ -1856,7 +1873,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
   }
   let mut imported: Vec<(&'static str, Vec<&'static str>)> = Vec::new();
   for module in registered.iter().filter(|m| !defines.contains(**m)) {
-    let adapter = adapter_for(module, trees)?;
+    let adapter = adapter_for(module, owners)?;
     let names = match imported.iter_mut().find(|(seen, _)| *seen == adapter.module) {
       Some((_, names)) => names,
       None => {
@@ -1888,7 +1905,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\"), mount: defineMounter }});");
       continue;
     }
-    let adapter = adapter_for(module, trees)?;
+    let adapter = adapter_for(module, owners)?;
     let claims = adapter.claims.map(|claims| format!(", claims: {claims}")).unwrap_or_default();
     let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {}{claims} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
@@ -1900,13 +1917,13 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
 /// registry imports and the specifiers that adapter imports, looked up in the
 /// app's map and, for a site, the shell's. An app with no readable map has
 /// nothing to check against.
-fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String], trees: &[String], set: &ComponentSet) -> Result<(), BuildError> {
+fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>, islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, set: &ComponentSet) -> Result<(), BuildError> {
   let Some(served) = served_specifiers(app, layout, shell) else {
     return Ok(());
   };
   let mut checked: Vec<&str> = Vec::new();
   for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
-    let adapter = adapter_for(module, trees)?;
+    let adapter = adapter_for(module, owners)?;
     let remedy = || crate::direction::for_adapter(adapter.module).map(|d| format!("; `fsr use <app dir> {}` writes it", d.name)).unwrap_or_default();
     // The dialect's placements have the React module as their runtime, so a
     // mounted module importing them needs the map to say so.
