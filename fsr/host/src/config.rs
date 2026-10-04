@@ -371,13 +371,15 @@ pub struct ServerConfig {
   /// with that rather than as an unknown key.
   #[serde(default)]
   pub render: Option<String>,
-  /// How long a browser may reuse a file from a `[[static]]` root without
-  /// asking again, in seconds. `0` sends no `Cache-Control` at all. A static
-  /// URL carries no content hash, so a lifetime longer than the gap between
-  /// deploys answers a stale module against fresh HTML. Ignored under `dev`,
-  /// where every static answer is `no-cache`.
-  #[serde(default = "default_static_max_age")]
-  pub static_max_age: u64,
+  /// How long a browser may reuse a file from a `[[static]]` root whose name
+  /// carries no content hash without asking again, in seconds. Left out, it
+  /// asks every time (`no-cache`), so a deploy never pairs fresh HTML with a
+  /// module the browser kept from the one before; the answer is a 304 while
+  /// the file is unchanged. A hashed name is `immutable` either way. `0` sends
+  /// no `Cache-Control` at all. Ignored under `dev`, where every static
+  /// answer is `no-cache`.
+  #[serde(default)]
+  pub static_max_age: Option<u64>,
   /// Whether `serve` negotiates HTTP/2 on the connection as well as HTTP/1.1.
   /// Without `[server.tls]` this is h2c: a client that opens with the HTTP/2
   /// preface is served and a browser, which wants ALPN over TLS, is not.
@@ -445,7 +447,7 @@ impl Default for ServerConfig {
       prerender: None,
       dev: None,
       render: None,
-      static_max_age: default_static_max_age(),
+      static_max_age: None,
       http2: false,
       tls: None,
     }
@@ -880,9 +882,6 @@ fn default_key() -> String {
 }
 fn default_reload() -> String {
   "hup".to_owned()
-}
-fn default_static_max_age() -> u64 {
-  3600
 }
 
 fn default_max_body() -> usize {

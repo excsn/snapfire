@@ -4981,8 +4981,9 @@ impl HostBuilder {
     };
     let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
     let static_cache = match config.server.static_max_age {
-      0 => None,
-      seconds => HeaderValue::from_str(&format!("public, max-age={seconds}")).ok(),
+      None => Some(HeaderValue::from_static("no-cache")),
+      Some(0) => None,
+      Some(seconds) => HeaderValue::from_str(&format!("public, max-age={seconds}")).ok(),
     };
 
     let locale_rows = match &config.locales {

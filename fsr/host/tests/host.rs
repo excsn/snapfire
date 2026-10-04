@@ -5179,9 +5179,14 @@ async fn a_zero_lifetime_sends_no_cache_control() {
 }
 
 #[tokio::test]
-async fn the_default_lifetime_is_an_hour() {
+async fn an_unhashed_file_revalidates_by_default_and_an_unchanged_one_answers_304() {
   let host = tuned_host(&tuned_app(false, "", ""));
-  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=3600"));
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("no-cache"), "a deploy never pairs fresh HTML with a module the browser kept");
+  assert_eq!(header_of(&host, "/static/js/fsr/index.js", "cache-control").await.as_deref(), Some("no-cache"), "the client's own modules are unhashed too");
+  let first = host.handle(Request::get("/static/app.js").body(Bytes::new()).unwrap()).await;
+  let modified = first.headers().get(header::LAST_MODIFIED).expect("a static answer says when its file changed").clone();
+  let again = host.handle(Request::get("/static/app.js").header(header::IF_MODIFIED_SINCE, modified).body(Bytes::new()).unwrap()).await;
+  assert_eq!(again.status(), StatusCode::NOT_MODIFIED, "asking again costs a round trip and no body");
 }
 
 #[tokio::test]
@@ -5877,7 +5882,7 @@ async fn the_assets_manifest_puts_the_policy_the_font_css_and_the_preloads_in_th
 }
 
 #[tokio::test]
-async fn a_hashed_static_name_is_immutable_and_a_plain_one_keeps_the_configured_lifetime() {
+async fn a_hashed_static_name_is_immutable_and_a_plain_one_revalidates() {
   let dir = tuned_app_with(false, "", "", "");
   std::fs::write(dir.join("public/hero.0a1b2c3d.png"), b"png").unwrap();
   std::fs::write(dir.join("public/hero.0a1b2c3d.640.avif"), b"avif").unwrap();
@@ -5891,8 +5896,8 @@ async fn a_hashed_static_name_is_immutable_and_a_plain_one_keeps_the_configured_
   }
   assert_eq!(cache(&host, "/static/hero.0a1b2c3d.png").await.as_deref(), Some("public, max-age=31536000, immutable"));
   assert_eq!(cache(&host, "/static/hero.0a1b2c3d.640.avif").await.as_deref(), Some("public, max-age=31536000, immutable"));
-  assert_eq!(cache(&host, "/static/hero.png").await.as_deref(), Some("public, max-age=3600"));
-  assert_eq!(cache(&host, "/static/notes.v2.min.js").await.as_deref(), Some("public, max-age=3600"));
+  assert_eq!(cache(&host, "/static/hero.png").await.as_deref(), Some("no-cache"));
+  assert_eq!(cache(&host, "/static/notes.v2.min.js").await.as_deref(), Some("no-cache"));
 
   async fn cors(host: &Host, path: &str) -> Option<String> {
     let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
