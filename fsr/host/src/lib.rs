@@ -746,17 +746,47 @@ impl Topics {
   }
 }
 
-/// The same shape for the one signal the dev loop sends.
+/// The same shape for the one signal the dev loop sends, with what the last
+/// build left: the bundle id, held until the next build lands, and why the
+/// last build was refused, when it was.
 struct Reload {
   tx: fibre::spmc::topic::AsyncTopicSender<(), ()>,
   rx: fibre::spmc::topic::AsyncTopicReceiver<(), ()>,
+  state: Arc<parking_lot::RwLock<DevState>>,
+}
+
+#[derive(Default)]
+struct DevState {
+  bundle: Option<String>,
+  failure: Option<String>,
 }
 
 impl Reload {
   fn new(mailbox: usize) -> Self {
     let (tx, rx) = fibre::spmc::topic::channel_async(mailbox);
-    Self { tx, rx }
+    Self { tx, rx, state: Arc::default() }
   }
+}
+
+/// The bundle id the last build left, hashed the first time anything asks
+/// after it landed.
+fn held_bundle(state: &parking_lot::RwLock<DevState>, facts: &Path) -> String {
+  if let Some(id) = state.read().bundle.clone() {
+    return id;
+  }
+  let id = bundle_id(facts);
+  state.write().bundle = Some(id.clone());
+  id
+}
+
+/// One `/__fsr/events` message: the bundle id and, while the last build is refused, why.
+fn dev_event(state: &parking_lot::RwLock<DevState>, facts: &Path) -> String {
+  let bundle = held_bundle(state, facts);
+  let mut event = serde_json::json!({ "bundle": bundle });
+  if let Some(failure) = state.read().failure.clone() {
+    event["error"] = serde_json::Value::String(failure);
+  }
+  format!("data: {event}\n\n")
 }
 
 pub struct Host {
@@ -1533,7 +1563,11 @@ impl Host {
       extra.push(snapfire_fsr_core::Node::raw(shell::request_meta(&token)));
     }
     if let Some(facts) = &t.dev_bundle {
-      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle_id(facts), t.dev_nonce.as_deref())));
+      let bundle = match &self.changed {
+        Some(reload) => held_bundle(&reload.state, facts),
+        None => bundle_id(facts),
+      };
+      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle, t.dev_nonce.as_deref())));
     }
     if visit.prefixed && visit.locale.is_default {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(self.origin.as_deref(), &visit.path)));
@@ -2348,6 +2382,17 @@ impl Host {
   /// refreshes its route in place. Nothing happens when `dev` is off.
   pub fn changed(&self) {
     if let Some(reload) = &self.changed {
+      *reload.state.write() = DevState::default();
+      let _ = reload.tx.send((), ());
+    }
+  }
+
+  /// Tells every open development document that the last build was refused
+  /// and why, which it shows over the page until a build lands. Nothing
+  /// happens when `dev` is off.
+  pub fn failed(&self, message: impl Into<String>) {
+    if let Some(reload) = &self.changed {
+      reload.state.write().failure = Some(message.into());
       let _ = reload.tx.send((), ());
     }
   }
@@ -2461,21 +2506,18 @@ impl Host {
       .expect("an event stream")
   }
 
-  /// A server-sent event stream: one event on open and one per `changed`
-  /// call, each `data: {"bundle":"<id>"}` with the bundle id of that moment,
-  /// until the client goes away.
+  /// A server-sent event stream: one event on open and one per `changed` or
+  /// `failed` call, each `data: {"bundle":"<id>"}` with the bundle id the
+  /// last build left, plus `"error"` while that build is refused, until the
+  /// client goes away.
   fn events(&self, t: &Tables) -> Response<Body> {
     let (Some(reload), Some(facts)) = (&self.changed, t.dev_bundle.clone()) else {
       return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned());
     };
     let rx = reload.rx.clone();
     rx.subscribe(());
-    let event = move || {
-      Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(format!(
-        "data: {{\"bundle\":\"{}\"}}\n\n",
-        bundle_id(&facts)
-      ))))
-    };
+    let state = reload.state.clone();
+    let event = move || Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(dev_event(&state, &facts))));
     let greeting = event();
     let opened = futures_util::stream::once(async move { greeting });
     let changes = futures_util::stream::unfold((rx, event), |(rx, event)| async move {
@@ -2585,6 +2627,13 @@ impl Host {
       }
       if path == "/__fsr/changed" && req.method() == Method::POST {
         self.changed();
+        return Response::builder()
+          .status(StatusCode::NO_CONTENT)
+          .body(Body::default())
+          .expect("an empty response");
+      }
+      if path == "/__fsr/failed" && req.method() == Method::POST {
+        self.failed(String::from_utf8_lossy(req.body()).into_owned());
         return Response::builder()
           .status(StatusCode::NO_CONTENT)
           .body(Body::default())

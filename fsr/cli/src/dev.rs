@@ -143,12 +143,28 @@ impl App {
   /// refresh. Best effort: a server that is not up yet or has `dev` off
   /// simply does not hear it.
   fn notify_changed(&self) {
+    self.tell("/__fsr/changed", "");
+  }
+
+  /// Tells the running server the last build was refused, with what refused
+  /// it, so open documents show it. Best effort, as `notify_changed` is.
+  fn notify_failed(&self, message: &str) {
+    self.tell("/__fsr/failed", message);
+  }
+
+  fn tell(&self, path: &str, body: &str) {
     let root = crate::serve::project_root(&self.dir);
     let Ok(config) = Config::load(&root) else { return };
     let listen = config.server.listen;
     let Ok(mut stream) = std::net::TcpStream::connect(&listen) else { return };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-    let _ = std::io::Write::write_all(&mut stream, format!("POST /__fsr/changed HTTP/1.1\r\nHost: {listen}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes());
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    let head = format!("POST {path} HTTP/1.1\r\nHost: {listen}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+    let _ = std::io::Write::write_all(&mut stream, head.as_bytes());
+    let _ = std::io::Write::write_all(&mut stream, body.as_bytes());
+    // A server drops a request whose client went away before it was
+    // answered, so the answer is waited for.
+    let _ = std::io::Read::read_to_end(&mut stream, &mut Vec::new());
   }
 
   /// Asks the running server to rebuild its tables from disk. `Err` when it
@@ -767,12 +783,14 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       let mut restart = want.project || server.child.is_none();
       let mut reload = false;
       let mut failed = false;
+      let mut refusals: Vec<String> = Vec::new();
       for (state, sources) in tracked.iter_mut().zip(want.apps.iter_mut()) {
         let Some(sources) = sources.take() else { continue };
         match state.rebuild(sources) {
           Ok(changed) => reload |= changed,
           Err(e) => {
             eprintln!("{e}");
+            refusals.push(e.to_string());
             failed = true;
           }
         }
@@ -796,6 +814,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
           }
           Err(e) => {
             eprintln!("{e}");
+            refusals.push(e.to_string());
             failed = true;
           }
         }
@@ -803,6 +822,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
         project.shell().notify_changed();
       }
       if failed {
+        project.shell().notify_failed(&refusals.join("\n\n"));
         println!("dev: waiting for changes");
       }
     }

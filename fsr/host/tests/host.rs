@@ -819,6 +819,50 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
 }
 
 #[tokio::test]
+async fn a_development_document_carries_the_bundle_id_the_last_build_left_until_the_next_one_lands() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("dist")).unwrap();
+  std::fs::write(dir.join("dist/.snapfire-build.json"), "{\"outputs\":[\"main.js\"]}").unwrap();
+  std::fs::write(dir.join("dist/main.js"), "one").unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  let id = |html: &str| html.split("var b=\"").nth(1).and_then(|rest| rest.split('"').next()).unwrap().to_owned();
+  let first = id(&host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap());
+  std::fs::write(dir.join("dist/main.js"), "two").unwrap();
+  let held = id(&host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap());
+  assert_eq!(held, first, "a write nothing announced leaves the id as the last build left it, so no request hashes the outputs");
+  host.changed();
+  let next = id(&host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap());
+  assert_ne!(next, first, "the build that landed has an id of its own");
+}
+
+#[tokio::test]
+async fn a_refused_build_reaches_every_open_document_and_the_next_build_clears_it() {
+  use http_body_util::BodyExt;
+
+  let dir = app_dir();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("sf-dev-error"), "the document can show a refusal: {html}");
+  let mut body = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await.into_body();
+  let _greeting = body.frame().await.unwrap().unwrap().into_data().unwrap();
+
+  let told = host.handle(Request::post("/__fsr/failed").body(Bytes::from_static(b"routes/page.loader.ts:3:7: an optional call")).unwrap()).await;
+  assert_eq!(told.status(), StatusCode::NO_CONTENT);
+  let refused = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert_eq!(refused, "data: {\"bundle\":\"-\",\"error\":\"routes/page.loader.ts:3:7: an optional call\"}\n\n");
+
+  let mut late = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await.into_body();
+  let greeting = String::from_utf8(late.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert!(greeting.contains("an optional call"), "a document opened after the refusal is told on arrival: {greeting}");
+
+  host.changed();
+  let cleared = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert_eq!(cleared, "data: {\"bundle\":\"-\"}\n\n", "a build that lands clears it");
+}
+
+#[tokio::test]
 async fn dev_off_in_the_configuration_drops_the_script_and_the_endpoints() {
   let dir = app_dir();
   let base = std::fs::read_to_string(dir.join("app.toml")).unwrap();
