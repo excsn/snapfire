@@ -311,6 +311,8 @@ The frameworks an application vendors, each at the major whose server markup the
 
 | Written | React 18.3 | React 19 | Plain |
 | --- | --- | --- | --- |
+| adjacent text runs | `<!-- -->` between them | `<!-- -->` between them | joined |
+| a void element | `<br/>` | `<br/>` | `<br>` |
 | custom element, array or object | `'' + value`: `"1,2"`, `"[object Object]"` | omitted | `Internal`, naming the element and the attribute |
 | custom element, `true` | `attr="true"` | `attr=""` | `attr="true"` |
 | custom element, `false` | `attr="false"` | omitted | omitted |

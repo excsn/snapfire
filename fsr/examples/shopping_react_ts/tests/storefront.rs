@@ -185,7 +185,7 @@ fn an_unmatched_path_renders_the_not_found_page() {
   let chunks = block_on(app.render_not_found("/nope?x=1", RenderMode::Html, SessionCell::default())).unwrap().expect("routes/not-found.tsx is the page");
   let html = block_on(chunks.collect::<Vec<String>>()).concat();
   assert!(html.contains("<!--sf-g:routes/not%2Dfound.tsx#default?path=/nope&x=1--><main class=\"page failed\">"), "{html}");
-  assert!(html.contains("No page at <!-- -->/nope"), "the path reaches the page as params.path: {html}");
+  assert!(html.contains("No page at /nope"), "the path reaches the page as params.path: {html}");
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn the_order_page_reads_the_placed_order_back() {
 
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(html.contains("<!--sf-g:routes/order/[id]/page.tsx#default?id=5001--><main class=\"page order\">"), "{html}");
-  assert!(html.contains("Order #<!-- -->5001<!-- --> placed"), "the heading is rendered in Rust: {html}");
+  assert!(html.contains("Order #5001 placed"), "the heading is rendered in Rust: {html}");
   assert!(html.contains("<a href=\"/product/1\">Filament</a>"), "each line links back to its product");
   assert!(html.contains("$48.00"));
   let calls = transport.calls();

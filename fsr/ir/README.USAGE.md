@@ -273,6 +273,8 @@ An `Fsr` component renders inside its caller and keeps its caller's rules. A com
 
 | Written | React 18.3 | React 19 | Plain |
 | --- | --- | --- | --- |
+| adjacent text runs | `<!-- -->` between them | `<!-- -->` between them | joined |
+| a void element | `<br/>` | `<br/>` | `<br>` |
 | custom element, array or object | `'' + value`: `"1,2"`, `"[object Object]"` | omitted | refused, naming the element and the attribute |
 | custom element, `true` | `attr="true"` | `attr=""` | `attr="true"` |
 | custom element, `false` | `attr="false"` | omitted | omitted |

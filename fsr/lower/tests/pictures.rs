@@ -152,14 +152,14 @@ export default function Page() {
   assert_eq!(string(attr(attrs, "width")), "1600");
   assert_eq!(string(attr(attrs, "height")), "900");
   let out = html(&set, "src/ui/Page.tsx#default");
-  assert!(out.contains("<img src=\"/static/js/app/src/img/hero.0a1b2c3d.png\" alt=\"b\" width=\"1600\" height=\"900\"/>"), "{out}");
+  assert!(out.contains("<img src=\"/static/js/app/src/img/hero.0a1b2c3d.png\" alt=\"b\" width=\"1600\" height=\"900\">"), "{out}");
 
   let (set, _) = lower_with(&[("src/ui/Page.tsx", page)], "src/ui/Page.tsx#default", false);
   let Tmpl::Element { children, .. } = render_of(&set, "src/ui/Page.tsx#default") else { panic!() };
   let Tmpl::Element { tag, .. } = &children[0] else { panic!() };
   assert_eq!(tag, "img", "with the rewrite off a plain img is a plain img");
   let out = html(&set, "src/ui/Page.tsx#default");
-  assert!(out.starts_with("<div><img src=\"/static/js/app/src/img/hero.0a1b2c3d.png\" alt=\"a\"/>"), "{out}");
+  assert!(out.starts_with("<div><img src=\"/static/js/app/src/img/hero.0a1b2c3d.png\" alt=\"a\">"), "{out}");
 }
 
 #[test]
@@ -223,7 +223,7 @@ export default function Page() {
 "#;
   let (set, _) = lower_with(&[("src/ui/Page.tsx", page)], "src/ui/Page.tsx#default", true);
   let out = html(&set, "src/ui/Page.tsx#default");
-  assert_eq!(out, "<img src=\"/static/js/app/src/img/logo.9f9f9f9f.svg\" width=\"120\" height=\"40\" alt=\"logo\" loading=\"lazy\" decoding=\"async\"/>");
+  assert_eq!(out, "<img src=\"/static/js/app/src/img/logo.9f9f9f9f.svg\" width=\"120\" height=\"40\" alt=\"logo\" loading=\"lazy\" decoding=\"async\">");
 }
 
 #[test]
@@ -238,7 +238,7 @@ export default function Page() {
   let out = html(&set, "src/ui/Page.tsx#default");
   assert_eq!(
     out,
-    "<img src=\"https://img.example.com/shots/dock.jpg?w=1280&amp;auto=format\" srcset=\"https://img.example.com/shots/dock.jpg?w=640&amp;auto=format 640w, https://img.example.com/shots/dock.jpg?w=1280&amp;auto=format 1280w\" sizes=\"100vw\" alt=\"dock\" width=\"800\" height=\"600\" loading=\"lazy\" decoding=\"async\"/>"
+    "<img src=\"https://img.example.com/shots/dock.jpg?w=1280&amp;auto=format\" srcset=\"https://img.example.com/shots/dock.jpg?w=640&amp;auto=format 640w, https://img.example.com/shots/dock.jpg?w=1280&amp;auto=format 1280w\" sizes=\"100vw\" alt=\"dock\" width=\"800\" height=\"600\" loading=\"lazy\" decoding=\"async\">"
   );
 }
 

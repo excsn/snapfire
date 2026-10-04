@@ -77,7 +77,7 @@ fn escape_attr(input: &str, out: &mut String) {
 }
 
 /// The output and whether the last thing written was text, which decides
-/// whether the next text needs React's `<!-- -->` between them.
+/// whether the next text under React's rules needs `<!-- -->` between them.
 #[derive(Default)]
 struct Out {
   html: String,
@@ -208,20 +208,22 @@ pub const ISLAND_MARK: &str = "\u{0}sf-island:";
 impl Out {
   /// Text under `markup`'s rules: React separates two adjacent runs with an
   /// empty comment and escapes three characters; Vue joins them and escapes
-  /// five.
+  /// five; plain markup joins them and escapes three.
   fn text(&mut self, text: &str, markup: Markup) {
     if text.is_empty() {
       return;
     }
-    if markup.is_vue() {
-      vue::escape(text, &mut self.html);
-      return;
+    match markup {
+      Markup::Vue(_) => vue::escape(text, &mut self.html),
+      Markup::Plain => escape_text(text, &mut self.html),
+      Markup::React(_) => {
+        if self.text_open {
+          self.html.push_str("<!-- -->");
+        }
+        escape_text(text, &mut self.html);
+        self.text_open = true;
+      }
     }
-    if self.text_open {
-      self.html.push_str("<!-- -->");
-    }
-    escape_text(text, &mut self.html);
-    self.text_open = true;
   }
 
   fn markup(&mut self, html: &str) {
@@ -713,7 +715,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'
     attribute(markup, tag, "data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
   }
   if VOID.contains(&tag) {
-    open.push_str(if markup.is_vue() { ">" } else { "/>" });
+    open.push_str(if matches!(markup, Markup::React(_)) { "/>" } else { ">" });
     out.markup(&open);
     return Ok(());
   }
@@ -1062,7 +1064,6 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
     Tmpl::Element { tag, attrs, children } => {
       let children: Vec<Tmpl> = children.iter().map(prepare_tmpl).collect();
       match baked_open(tag, attrs) {
-        Some(open) if VOID.contains(&tag.as_str()) => Tmpl::Baked { open, tag: None, children: Vec::new() },
         Some(open) => Tmpl::Baked { open, tag: Some(tag.clone()), children },
         None => Tmpl::Element { tag: tag.clone(), attrs: attrs.clone(), children },
       }
@@ -1124,10 +1125,7 @@ fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
     }
     open.push_str(&agreed.unwrap_or_default());
   }
-  match VOID.contains(&tag) {
-    true => open.push_str("/>"),
-    false => open.push('>'),
-  }
+  open.push('>');
   Some(open)
 }
 
@@ -1442,8 +1440,10 @@ mod tests {
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
       }, state: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
     };
-    let html = (Interpreter::default().render(&component, &props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]), &Components::new())).unwrap().html;
-    assert_eq!(html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
+    let values = props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]);
+    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
+    assert_eq!(react.render(&component, &values, &Components::new()).unwrap().html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
+    assert_eq!(Interpreter::default().render(&component, &values, &Components::new()).unwrap().html, "<p class=\"count\">2 results &lt;3</p>", "plain markup joins adjacent text");
   }
 
   #[test]
@@ -1535,7 +1535,7 @@ mod tests {
     attrs.insert("hidden".to_owned(), Value::Bool(true));
     let items = Value::seq(vec![Value::Map(props(&[("name", Value::str("A")), ("attrs", Value::Map(attrs))])), Value::Map(props(&[("name", Value::str("B")), ("attrs", Value::Null)]))]);
     let html = (Interpreter::default().render(&page, &props(&[("items", items), ("title", Value::str("outer"))]), &library)).unwrap().html;
-    assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p><p class=\"item\" dataId=\"7\" hidden=\"\">A<!-- --> for <!-- -->outer</p><p class=\"item\">B<!-- --> for <!-- -->outer</p></div></main>");
+    assert_eq!(html, "<main class=\"catalog\"><h1>Picks</h1><div class=\"card\"><p class=\"item\" dataId=\"7\" hidden=\"\">A for outer</p><p class=\"item\">B for outer</p><p class=\"item\" dataId=\"7\" hidden=\"\">A for outer</p><p class=\"item\">B for outer</p></div></main>");
   }
 
   #[test]
@@ -1549,8 +1549,9 @@ mod tests {
         Tmpl::Expr(Expr::Lit(Lit::Null)),
       ]), state: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
     };
-    let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
-    assert_eq!(html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
+    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
+    assert_eq!(react.render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
+    assert_eq!(Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"><br>", "plain markup closes no void element");
   }
 
   #[test]
@@ -1603,7 +1604,7 @@ mod tests {
       (Expr::Builtin { name: Builtin::Join, args: vec![Expr::Array(vec![crate::ast::Entry::Item(Expr::lit_str("A1")), crate::ast::Entry::Item(Expr::lit_str("B2"))]), Expr::lit_str(", ")] }, "A1, B2"),
       (Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![Expr::lit_str("a b&c/é")] }, "a%20b%26c%2F%C3%A9"),
       (Expr::Builtin { name: Builtin::Min, args: vec![Expr::Lit(Lit::Int(12)), Expr::Lit(Lit::Float(10.0))] }, "10"),
-      (Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(3.0))] }), Box::new(Expr::lambda(&["_", "i"], Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var("i")), Box::new(Expr::Lit(Lit::Float(1.0))))))), "1<!-- -->2<!-- -->3"),
+      (Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(3.0))] }), Box::new(Expr::lambda(&["_", "i"], Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var("i")), Box::new(Expr::Lit(Lit::Float(1.0))))))), "123"),
     ];
     for (expr, expected) in cases {
       let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None };
@@ -1648,7 +1649,7 @@ mod hoist_tests {
     props.insert("prices".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
     props.insert("taxes".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(1.5)]));
     let rendered = Interpreter::default().render_module("src/ui/Bill.tsx#Bill", &component, &props, &Components::new()).unwrap();
-    assert_eq!(rendered.html, "2.5<!-- -->1.0<!-- -->1.5<!-- -->2.0<!-- -->3.0");
+    assert_eq!(rendered.html, "2.51.01.52.03.0");
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["src/ui/Bill.tsx#Bill|0", "src/ui/Bill.tsx#Bill|1@0.0", "src/ui/Bill.tsx#Bill|1@0.1", "src/ui/Bill.tsx#Bill|1@1.0", "src/ui/Bill.tsx#Bill|1@1.1"]);
     assert_eq!(rendered.hoisted["src/ui/Bill.tsx#Bill|1@1.1"], Value::str("3.0"));
@@ -1674,7 +1675,7 @@ mod hoist_tests {
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(2.0), Value::F64(3.0)]));
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &props, &library).unwrap();
-    assert_eq!(rendered.html, "1.0<!-- -->2.0<!-- -->3.0<!-- -->9.0");
+    assert_eq!(rendered.html, "1.02.03.09.0");
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["src/ui/Price.tsx#Price|0", "src/ui/Price.tsx#Price|0@0", "src/ui/Price.tsx#Price|0@1", "routes/index/page.tsx#default|0"]);
     assert_eq!(rendered.hoisted["src/ui/Price.tsx#Price|0@1"], Value::str("3.0"));
@@ -2028,7 +2029,7 @@ mod island_tests {
     let rendered = Interpreter::default().render(&page, &props, &library).unwrap();
     assert_eq!(rendered.html, format!("<main>before{ISLAND_MARK}0\u{0}after</main>"));
     assert_eq!(rendered.islands.len(), 1);
-    assert_eq!(rendered.islands[0].body.html, "<p>help <!-- -->7</p>");
+    assert_eq!(rendered.islands[0].body.html, "<p>help 7</p>");
     assert_eq!(rendered.islands[0].when.as_deref(), Some("visible"));
 
     let nodes = rendered_nodes(&rendered);
@@ -2038,7 +2039,7 @@ mod island_tests {
     let Node::Client { module, props: island_props, ssr: Some(body), .. } = &nodes[2] else { panic!("{:?}", nodes[2]) };
     assert_eq!(module.to_string(), "src/ui/Help.tsx#Help");
     assert_eq!(island_props.get("id"), Some(&Value::int(7i64)));
-    assert_eq!(**body, Node::raw("<p>help <!-- -->7</p>"));
+    assert_eq!(**body, Node::raw("<p>help 7</p>"));
     assert_eq!(nodes[3], Node::raw("</sf-s>"));
     assert_eq!(nodes[4], Node::raw("after</main>"));
   }
@@ -2097,7 +2098,7 @@ mod markup_tests {
     let html = |react| render_under(react, BY_REACT, tree.clone(), &ValueMap::default(), &Components::new()).unwrap();
     assert_eq!(html(Some(ReactMajor::V18)), "<div></div><img src=\"\"/><a href=\"\"></a>");
     assert_eq!(html(Some(ReactMajor::V19)), "<div inert=\"\"></div><img/><a href=\"\"></a>");
-    assert_eq!(html(None), "<div inert=\"true\"></div><img src=\"\"/><a href=\"\"></a>");
+    assert_eq!(html(None), "<div inert=\"true\"></div><img src=\"\"><a href=\"\"></a>");
   }
 
   #[test]

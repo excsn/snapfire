@@ -165,7 +165,7 @@ fn ordinary_sizes_still_work() {
   map.insert("a".to_owned(), Value::F64(1.5));
   map.insert("b".to_owned(), Value::F64(2.0));
   assert_eq!(eval(Expr::Builtin { name: Builtin::ToFixed, args: vec![prop("a"), prop("b")] }, map.clone()), Ok("1.50".to_owned()));
-  assert_eq!(eval(Expr::Builtin { name: Builtin::Range, args: vec![prop("b")] }, map.clone()), Ok("0<!-- -->1".to_owned()));
+  assert_eq!(eval(Expr::Builtin { name: Builtin::Range, args: vec![prop("b")] }, map.clone()), Ok("01".to_owned()));
   let mut text = ValueMap::default();
   text.insert("a".to_owned(), Value::str("ab"));
   text.insert("b".to_owned(), Value::F64(3.0));
