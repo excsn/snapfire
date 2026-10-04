@@ -403,7 +403,10 @@ pub fn fonts(app: &Path, public_path: &str, sections: &Sections) -> Result<(Font
       if !["woff2", "woff", "ttf", "otf"].contains(&ext.as_str()) {
         continue;
       }
-      let face = Face::read(&file).map_err(|e| BuildError::Assets(e.to_string()))?;
+      let mut face = Face::read(&file).map_err(|e| BuildError::Assets(e.to_string()))?;
+      if let Some(family) = std::fs::read_to_string(file.with_extension(format!("{ext}.family"))).ok().map(|f| f.trim().to_owned()).filter(|f| !f.is_empty()) {
+        face.family = family;
+      }
       let bytes = std::fs::read(&file).map_err(|e| BuildError::Io(file.clone(), e))?;
       let range = std::fs::read_to_string(file.with_extension(format!("{ext}.range"))).ok().map(|r| r.trim().to_owned()).filter(|r| !r.is_empty());
       let name = file.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -662,7 +665,8 @@ pub fn add_from(app: &Path, spec: &str, provider_base: &str) -> Result<Vec<PathB
     // whole variable file, the same bytes under every weight asked for, so
     // one file per subset is kept and its name carries no weight: the
     // build reads the range off the file's own axis.
-    let variable = Face::from_bytes(Path::new(file_url), &bytes, &ext).ok().and_then(|face| face.weight_range).is_some();
+    let read = Face::from_bytes(Path::new(file_url), &bytes, &ext).ok();
+    let variable = read.as_ref().and_then(|face| face.weight_range).is_some();
     let name = if variable {
       format!("{}{italic}-{subset}.{ext}", family.replace(' ', ""))
     } else {
@@ -676,6 +680,15 @@ pub fn add_from(app: &Path, spec: &str, provider_base: &str) -> Result<Vec<PathB
     if let Some(range) = field("unicode-range") {
       let sidecar = dir.join(format!("{name}.range"));
       std::fs::write(&sidecar, format!("{range}\n")).map_err(|e| BuildError::Io(sidecar, e))?;
+    }
+    // A file's own name table can name a family the provider does not, as
+    // Bricolage Grotesque's names its default optical size, so the provider's
+    // name is kept beside it for `[fonts] family` to match.
+    if let Some(declared) = field("font-family")
+      && read.as_ref().is_none_or(|face| face.family != declared)
+    {
+      let sidecar = dir.join(format!("{name}.family"));
+      std::fs::write(&sidecar, format!("{declared}\n")).map_err(|e| BuildError::Io(sidecar, e))?;
     }
     written.push(path);
   }

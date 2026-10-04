@@ -899,7 +899,7 @@ The build reads each file's own tables, writes the `@font-face` rules, an `Inter
 fsr fonts add app google:Inter@400,700
 ```
 
-Each subset lands as its own file with a `.range` sidecar; a variable family lands as one file per subset, declared at its whole weight axis. The build serves them as local files from then on. `[dirs]` moves any of the four directories:
+Each subset lands as its own file with a `.range` sidecar and with a `.family` sidecar when the file names its family differently from the provider; a variable family lands as one file per subset, declared at its whole weight axis. The build serves them as local files from then on. `[dirs]` moves any of the four directories:
 
 ```toml
 [dirs]

@@ -121,7 +121,7 @@ To take a family from Google Fonts, fetch it once:
 fsr fonts add app google:Inter@400,700
 ```
 
-Each subset the provider serves lands as a file with a `.range` sidecar. A family the provider holds as a variable font comes as one file per subset whatever weights you asked for; the build declares it at the file's own weight axis, `font-weight: 100 900`, so every weight in between is yours too. The fallback is sized from the Latin subset, since a Vietnamese or Cyrillic one has no `a` to `z` to measure. The build serves them as local files from then on. The build itself never reaches the network. The other shape is a provider's own stylesheet, linked rather than served:
+Each subset the provider serves lands as a file with a `.range` sidecar. When the file's own name table calls the family something else, as Bricolage Grotesque's does after its default optical size, a `.family` sidecar keeps the provider's name, so `family = "Bricolage Grotesque"` still finds it. A family the provider holds as a variable font comes as one file per subset whatever weights you asked for; the build declares it at the file's own weight axis, `font-weight: 100 900`, so every weight in between is yours too. The fallback is sized from the Latin subset, since a Vietnamese or Cyrillic one has no `a` to `z` to measure. The build serves them as local files from then on. The build itself never reaches the network. The other shape is a provider's own stylesheet, linked rather than served:
 
 ```toml
 [fonts.display]

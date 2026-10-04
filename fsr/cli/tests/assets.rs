@@ -273,7 +273,7 @@ fn a_dirs_entry_moves_the_font_directory_and_a_base_prefixes_every_url() {
 
 /// A provider standing in for Google Fonts on a local port: one stylesheet
 /// with two subsets and the files it names.
-fn provider(woff2: Vec<u8>) -> String {
+fn provider(woff2: Vec<u8>, family: &'static str) -> String {
   use std::io::{Read, Write};
   let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
   let base = format!("http://{}", listener.local_addr().unwrap());
@@ -287,7 +287,7 @@ fn provider(woff2: Vec<u8>) -> String {
       let path = request.lines().next().unwrap_or_default().split_whitespace().nth(1).unwrap_or("/").to_owned();
       let (kind, body): (&str, Vec<u8>) = if path.starts_with("/css2") {
         let css = format!(
-          "/* latin-ext */\n@font-face {{\n  font-family: 'Inter';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url({css_base}/s/inter/ext.woff2) format('woff2');\n  unicode-range: U+0100-02BA;\n}}\n/* latin */\n@font-face {{\n  font-family: 'Inter';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url({css_base}/s/inter/latin.woff2) format('woff2');\n  unicode-range: U+0000-00FF;\n}}\n"
+          "/* latin-ext */\n@font-face {{\n  font-family: '{family}';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url({css_base}/s/inter/ext.woff2) format('woff2');\n  unicode-range: U+0100-02BA;\n}}\n/* latin */\n@font-face {{\n  font-family: '{family}';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url({css_base}/s/inter/latin.woff2) format('woff2');\n  unicode-range: U+0000-00FF;\n}}\n"
         );
         ("text/css", css.into_bytes())
       } else {
@@ -305,7 +305,7 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
   let root = root("fonts-add");
   create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
   let app = root.join("app");
-  let base = provider(fixture("Inter-Regular.woff2"));
+  let base = provider(fixture("Inter-Regular.woff2"), "Inter");
   let written = assets::add_from(&app, "google:Inter@400", &base).unwrap();
   let names: Vec<String> = written.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
   assert_eq!(names, ["Inter-400-latin-ext.woff2", "Inter-400-latin.woff2"]);
@@ -318,12 +318,13 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
   assert!(fonts.css.contains("unicode-range:U+0100-02BA;"), "{}", fonts.css);
   assert_eq!(fonts.variables["--font-inter"], "\"Inter\", \"Inter Fallback\", sans-serif");
   assert_eq!(fonts.preload.len(), 1, "one subset is the regular face the default preloads: {:?}", fonts.preload);
+  assert!(!app.join("fonts/Inter-400-latin.woff2.family").exists(), "a file naming the provider's family gets no sidecar");
 
   let second = std::env::temp_dir().join(format!("fsr-cli-assets-{}-variable", std::process::id()));
   let _ = std::fs::remove_dir_all(&second);
   create(&second, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
   let app = second.join("app");
-  let base = provider(fixture("Fraunces-vietnamese.woff2"));
+  let base = provider(fixture("Fraunces-vietnamese.woff2"), "Fraunces");
   let written = assets::add_from(&app, "google:Fraunces@400,700", &base).unwrap();
   let names: Vec<String> = written.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
   assert_eq!(names, ["Fraunces-latin-ext.woff2", "Fraunces-latin.woff2"], "a variable file is one per subset, with no weight in its name");
@@ -336,4 +337,22 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
   assert_eq!(fonts.variables["--font-fraunces"], "\"Fraunces\", sans-serif");
   assert!(lines.iter().any(|l| l.starts_with("Fraunces: no fallback face sized")), "{lines:?}");
   assert!(lines.iter().any(|l| l == "Fraunces 100-900 normal from fonts/Fraunces-latin.woff2"), "{lines:?}");
+}
+
+#[test]
+fn fonts_add_keeps_the_providers_family_when_the_file_names_another() {
+  let root = root("fonts-add-family");
+  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  let app = root.join("app");
+  let base = provider(fixture("Inter-Regular.woff2"), "Display Sans");
+  assets::add_from(&app, "google:Display Sans@400", &base).unwrap();
+  assert_eq!(std::fs::read_to_string(app.join("fonts/DisplaySans-400-latin.woff2.family")).unwrap().trim(), "Display Sans");
+
+  let config = root.join("config/app.toml");
+  let toml = std::fs::read_to_string(&config).unwrap();
+  std::fs::write(&config, format!("{toml}\n[fonts.display]\nfamily = \"Display Sans\"\n")).unwrap();
+  let (fonts, _) = assets::fonts(&app, "/static/js/app", &assets::Sections::of(&app)).unwrap();
+  assert_eq!(fonts.faces.len(), 2, "both subsets match the provider's family, not the file's `Inter`");
+  assert!(fonts.css.contains("font-family:\"Display Sans\""), "{}", fonts.css);
+  assert_eq!(fonts.variables["--font-display"], "\"Display Sans\", \"Display Sans Fallback\", sans-serif");
 }
