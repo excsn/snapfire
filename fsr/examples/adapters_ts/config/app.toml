@@ -1,0 +1,16 @@
+[server]
+listen = "127.0.0.1:8210"
+
+[document]
+title = "adapters"
+
+[session]
+key = "adapters_ts-development-key-not-a-secret"
+ttl = "24h"
+
+[cache]
+capacity = 1000
+ttl = "1m"
+
+[typecheck]
+version = "7.0.2"

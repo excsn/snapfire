@@ -1,0 +1,49 @@
+:root {
+  color-scheme: light dark;
+  --ink: #16181d;
+  --paper: #fbfbfd;
+  --line: #e3e4e8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e9ed;
+    --paper: #14161a;
+    --line: #2a2d34;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.bar {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 24px;
+}
+
+.brand {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.content {
+  margin: 0 auto;
+  max-width: 46rem;
+  padding: 48px 24px;
+}
+
+.hero h1 {
+  font-size: 2rem;
+  margin: 0 0 12px;
+}
+
+code {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 4px;
+  padding: 2px 5px;
+}
