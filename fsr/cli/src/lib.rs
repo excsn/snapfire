@@ -1017,6 +1017,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
           continue;
         }
         Ok(None) => continue,
+        // A page or layout is composition and never renders in the browser,
+        // so a residue nothing could move into an island stops the build. An
+        // island split out of a page is not composition.
+        Err(e) if !generated.iter().any(|(file, _)| module.split_once('#').is_some_and(|(f, _)| f == file)) => return Err(e.into()),
         Err(_) => {}
       }
     }

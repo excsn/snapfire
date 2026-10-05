@@ -1201,3 +1201,13 @@ fn an_island_takes_the_dialects_placements_from_its_own_framework_wherever_it_re
   assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_page_whose_residue_no_island_can_hold_is_refused_with_that_residue() {
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nexport default function Page({ rooms }: { rooms: string[] }) {\n  return (\n    <main>\n      <Island define=\"@src/elements/room-count.ts\">\n        <room-count n={new Set(rooms).size}>rooms</room-count>\n      </Island>\n    </main>\n  );\n}\n";
+  let dir = app(&[("routes/page.tsx", page), ("src/elements/room-count.ts", "customElements.define(\"room-count\", class extends HTMLElement {});\n")]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
+  let error = fails(&dir).to_string();
+  assert!(error.contains("routes/page.tsx:6:") && error.contains("`new`"), "the residue that started it, not what the split left behind: {error}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

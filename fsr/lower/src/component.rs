@@ -321,12 +321,25 @@ impl ComponentSet {
     let Some(offset) = parsed.offset(residue.line, residue.column) else { return Err(error) };
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
     let Ok(Some(extraction)) = crate::extract::extract(&parsed, &file, &slots, Some(offset)) else { return Err(error) };
-    self.failed.remove(module);
-    self.failed.remove(&file);
-    self.parsed.remove(&file);
-    self.provided.insert(file.clone(), extraction.page.clone());
+    let forget = |set: &mut Self| {
+      set.failed.remove(module);
+      set.failed.remove(&file);
+      set.parsed.remove(&file);
+    };
+    forget(self);
+    let before = self.provided.insert(file.clone(), extraction.page.clone());
     self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
-    self.lower(module)?;
+    if self.lower(module).is_err() {
+      forget(self);
+      self.failed.remove(&extraction.island_file);
+      self.parsed.remove(&extraction.island_file);
+      self.provided.remove(&extraction.island_file);
+      match before {
+        Some(source) => self.provided.insert(file.clone(), source),
+        None => self.provided.remove(&file),
+      };
+      return Err(error);
+    }
     Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
   }
 
