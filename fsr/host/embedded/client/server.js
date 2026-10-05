@@ -27,9 +27,8 @@ export async function patchServer(el, props, encoded) {
     const island = islands.get(el);
     if (!island) return false;
     const carried = encoded ?? encodeValue(props);
-    const { [STATE_PROP]: state, ...own } = carried;
+    const { [STATE_PROP]: _initial, ...own } = carried;
     island.props = own;
-    if (state !== undefined) island.state = state;
     await step(el, island, null, null);
     return true;
 }
