@@ -30,6 +30,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
+* [Building Strictly](#building-strictly)
 * [Typechecking](#typechecking)
 * [Running the Specs](#running-the-specs)
 * [Serving Images and Fonts](#serving-images-and-fonts)
@@ -732,6 +733,28 @@ An `xwpm.wmf` in the app directory marks it as an application xwpm manages. `fsr
 fsr build app
 fsr check app
 ```
+
+## Building Strictly
+
+A component that does not lower still works: it renders in the browser alone, as a `client` row for TSX or a `foreign` row for a `.vue` file. The page around it is still server-rendered. Its markup is missing from the document until the bundle runs, which costs the content in the HTML and a shift when it appears. Strict mode makes that a build error instead, naming each cause and the components it leaves in the browser:
+
+```toml
+[build]
+strict = true
+```
+
+```sh
+fsr build app --strict
+fsr check app --strict
+```
+
+```text
+strict: these components render in the browser alone, which `[build] strict` refuses; make each lower or drop `strict`
+  client   src/ui/Clock.tsx:4:9: `useTransition`
+             src/ui/Clock.tsx#Clock
+```
+
+The key covers `build`, `check`, `dev`, `test` and `bundle`; `--strict` turns it on for one run of `build`, `check` or `dev`. A framework plugin missing from PATH counts too, since it leaves its components foreign. A component the build keeps as a framework root and a call the browser still makes after hoisting are server-rendered and are not refused.
 
 ## Typechecking
 

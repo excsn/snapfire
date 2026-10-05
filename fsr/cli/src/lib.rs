@@ -148,6 +148,9 @@ pub enum BuildError {
   Tool(String),
   #[error("typecheck: {0}")]
   Typecheck(String),
+  /// `[build] strict` and what it refused, one cause per line.
+  #[error("strict: {0}")]
+  Strict(String),
   #[error("{0}")]
   Serve(String),
   #[error("{0}")]
@@ -357,6 +360,8 @@ pub struct Options {
   pub shell: String,
   /// The slot of the shell a page lands in.
   pub slot: String,
+  /// Refuses a component that renders in the browser alone: one that did not lower, a `.vue` file left foreign and a plugin missing from PATH. `[build] strict` in the configuration or `--strict`.
+  pub strict: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,6 +411,7 @@ impl Options {
   pub fn beside(app: &Path) -> Self {
     let mut options = Self::default();
     options.site = site_beside(app);
+    options.strict = config_beside(app).and_then(|config| config.build).and_then(|build| build.strict).unwrap_or(false);
     options
   }
 }
@@ -417,15 +423,18 @@ pub fn unprefixed(service: &str) -> &str {
   service.rsplit_once(':').map(|(_, rest)| rest).unwrap_or(service)
 }
 
-/// The `[site]` section of the configuration beside `app`, when one names
-/// this app directory.
-pub fn site_beside(app: &Path) -> Option<SiteOptions> {
+/// The configuration beside `app`, when it names this app directory.
+fn config_beside(app: &Path) -> Option<snapfire_fsr_host::config::Config> {
   let root = serve::project_root(app);
   let config = snapfire_fsr_host::config::Config::load(&root).ok()?;
   let given = app.canonicalize().ok()?;
-  if config.app.canonicalize().ok()? != given {
-    return None;
-  }
+  (config.app.canonicalize().ok()? == given).then_some(config)
+}
+
+/// The `[site]` section of the configuration beside `app`, when one names
+/// this app directory.
+pub fn site_beside(app: &Path) -> Option<SiteOptions> {
+  let config = config_beside(app)?;
   let root = config.root.clone();
   config.site.map(|s| SiteOptions { name: s.name, at: s.at, shell: s.shell.as_ref().map(|rel| root.join(rel)) })
 }
@@ -489,6 +498,7 @@ impl Default for Options {
       site: None,
       shell: "shell#document".to_owned(),
       slot: "content".to_owned(),
+      strict: false,
     }
   }
 }
@@ -1148,6 +1158,11 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     owners.insert(module.clone(), Owner::React);
     if !islands.contains(&module) {
       islands.push(module);
+    }
+  }
+  if options.strict {
+    if let Some(refused) = strict_refusal(&report) {
+      return Err(BuildError::Strict(refused));
     }
   }
   // A component a page places as an island is mounted because the page asked
@@ -2567,6 +2582,29 @@ fn lower_into(set: &mut ComponentSet, module: &str, report: &mut Report) -> Resu
 
 /// Marks `module` client and files it under the cause at `at`, which several
 /// modules reach when they import their way to the same unlowerable line.
+/// What `[build] strict` refuses in `report`: each cause that leaves a component to render in the browser alone, with the components it leaves there.
+fn strict_refusal(report: &Report) -> Option<String> {
+  if report.causes.is_empty() && report.foreign.is_empty() && report.plugins.is_empty() {
+    return None;
+  }
+  let mut out = String::from("these components render in the browser alone, which `[build] strict` refuses; make each lower or drop `strict`");
+  for (kind, causes) in [("client", &report.causes), ("foreign", &report.foreign)] {
+    for cause in causes {
+      out.push_str(&format!("\n  {kind:<8} {}: {}", cause.at, cause.message));
+      if let Some(hint) = &cause.hint {
+        out.push_str(&format!("\n           {hint}"));
+      }
+      for (module, _) in &cause.pages {
+        out.push_str(&format!("\n             {module}"));
+      }
+    }
+  }
+  for plugin in &report.plugins {
+    out.push_str(&format!("\n  plugins  {plugin}"));
+  }
+  Some(out)
+}
+
 fn blame(report: &mut Report, module: &str, at: String, message: String, hint: Option<String>, chain: String) {
   report.components.push((module.to_owned(), "client".to_owned(), at.clone()));
   let page = (module.to_owned(), chain);

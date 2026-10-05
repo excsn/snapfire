@@ -91,6 +91,9 @@ struct New {
 struct Build {
   /// The application directory.
   app_dir: PathBuf,
+  /// Refuses a component that renders in the browser alone, as `[build] strict` does.
+  #[arg(long)]
+  strict: bool,
   /// The module id of the shell the routes render into.
   #[arg(long)]
   shell: Option<String>,
@@ -111,6 +114,9 @@ struct Build {
 struct Check {
   /// The application directory.
   app_dir: PathBuf,
+  /// Refuses a component that renders in the browser alone, as `[build] strict` does.
+  #[arg(long)]
+  strict: bool,
   /// The module id of the shell the routes render into.
   #[arg(long)]
   shell: Option<String>,
@@ -383,6 +389,7 @@ impl Build {
       options.snapfirec = Some(snapfirec.clone());
     }
     self.typecheck.apply(&mut options.typecheck);
+    options.build.strict |= self.strict;
     options
   }
 }
@@ -608,6 +615,7 @@ fn run_bundle(args: Bundle) -> ExitCode {
 
 fn run_check(args: Check) -> ExitCode {
   let mut options = Options::beside(&args.app_dir);
+  options.strict |= args.strict;
   if let Some(shell) = &args.shell {
     options.shell = shell.clone();
   }

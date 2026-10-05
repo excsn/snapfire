@@ -44,6 +44,8 @@ pub struct Config {
   /// Which TypeScript `fsr` checks the application with; absent means the
   /// checker's own default version.
   pub typecheck: Option<TypecheckSection>,
+  /// `[build]`: how `fsr` builds the application; absent means the defaults.
+  pub build: Option<BuildSection>,
   /// `[trace]`: which requests a client may read its own trace of; absent
   /// means none outside development.
   pub trace: Option<TraceSection>,
@@ -803,6 +805,15 @@ pub struct AuthSection {
 
 pub const PROVIDERS: &[&str] = &["file", "service"];
 
+/// `[build]`: build-time choices that are not the type checker's.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildSection {
+  /// Refuses a component that renders in the browser alone; off when absent.
+  #[serde(default)]
+  pub strict: Option<bool>,
+}
+
 /// The `[typecheck]` section, read by `fsr` rather than by the host: the
 /// TypeScript a build checks with, the integrity of a version the checker
 /// pins no hash for and a compiler to use as given on a machine that cannot
@@ -853,6 +864,7 @@ const SECTIONS: &[&str] = &[
   "locales",
   "auth",
   "typecheck",
+  "build",
   "trace",
   "site",
   "sites",
@@ -1424,6 +1436,18 @@ impl Config {
         None
       };
 
+    let build: Option<BuildSection> = if store.path_exists("build") || !store.key_paths_with_prefix(Some("build")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["strict"] {
+        if let Some(value) = store.get(&format!("build.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("build: {e}")))?)
+    } else {
+      None
+    };
+
     let trace: Option<TraceSection> = if store.path_exists("trace") || !store.key_paths_with_prefix(Some("trace")).is_empty() {
       let mut json = serde_json::Map::new();
       for key in ["expose"] {
@@ -1848,6 +1872,7 @@ impl Config {
       locales,
       auth,
       typecheck,
+      build,
       trace,
       site,
       sites,

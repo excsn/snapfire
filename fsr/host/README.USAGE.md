@@ -163,6 +163,9 @@ login = "/login"                  # the application's login page, the default
 version = "7.0.2"                 # the TypeScript a build checks with; fsr records the one it resolved
 enabled = true                    # the default; false builds without checking types
 
+[build]                           # optional: read by fsr, not by the host
+strict = false                    # the default; true refuses a component that renders in the browser alone
+
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/"]                    # path prefixes whose requests a page may read its own trace of
 

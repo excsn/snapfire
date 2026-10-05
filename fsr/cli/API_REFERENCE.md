@@ -81,15 +81,16 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr build
 
-* `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
+* `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--strict] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * Runs the build, prints the report to stdout, writes `<app dir>/generated/plan.sexp`, `generated/contracts/<client>.json` per document and `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/fsr.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, prints `wrote <path>` for each, then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
 * The bundle follows the generation because it compiles the island registry the generation writes. `--public-path` defaults to `/static/js/app` or `<at>/static/js/app` for a site; `--snapfirec` defaults to `$SNAPFIREC`, else beside this binary, else `PATH`.
 * Exit 0 on success, 1 on any `BuildError`, 2 on a usage error.
+* `--strict` sets `Options::strict` for the run, as `[build] strict` does.
 * The typecheck prints one `typecheck <row>` line, a `recorded` line when it wrote the version into the configuration and nothing at all when no checker is installed beyond a note on stderr.
 
 ### fsr check
 
-* `fsr check <app dir> [--shell <module id>] [--slot <name>] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
+* `fsr check <app dir> [--shell <module id>] [--slot <name>] [--strict] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * Runs the build and prints the report; writes nothing, so the typecheck reads whichever `tsconfig.json` is on disk. Same exit codes, plus 1 when a diagnostic is an error.
 
 ### fsr doctor
@@ -151,8 +152,9 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Options
 
-* `pub struct Options { pub site: Option<SiteOptions>, pub shell: String, pub slot: String }`
-* `Default` is no site, `shell#document` and `content`.
+* `pub struct Options { pub site: Option<SiteOptions>, pub shell: String, pub slot: String, pub strict: bool }`
+* `Default` is no site, `shell#document`, `content` and not strict. `Options::beside(app)` reads `site` from `[site]` and `strict` from `[build] strict` in the configuration beside `app`.
+* `strict` refuses the build with `BuildError::Strict` when the report holds a `client` cause, a `foreign` cause or a `plugins` row.
 
 ### SiteOptions
 
@@ -478,3 +480,4 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `VendorUrl { map: String, specifier: String, found: String, base: String, want: String }`, an import map entry for a package the vendor manifest records that does not sit under the layout's base, with the URL it should carry. A site's base is its own prefix, so a map written before the `[site]` section is named here.
 * `Xwpm(String)`, an `xwpm` command that could not start or failed.
 * `Typecheck(String)`, the checker that could not be read or the diagnostics of a check that found an error, the row first.
+* `Strict(String)`, what `Options::strict` refused: one line per `client` or `foreign` cause with its hint and the components it leaves in the browser, then each `plugins` row.

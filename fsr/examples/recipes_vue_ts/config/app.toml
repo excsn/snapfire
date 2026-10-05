@@ -22,3 +22,6 @@ transport = "mock"
 
 [typecheck]
 version = "7.0.2"
+
+[build]
+strict = true
