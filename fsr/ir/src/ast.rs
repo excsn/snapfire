@@ -302,6 +302,24 @@ pub struct Component {
   pub owner: Owner,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub shadow: Option<ShadowRoot>,
+  /// The scoped style a Vue component carries, when it has one.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub scope: Option<ScopedStyle>,
+}
+
+/// A Vue component's scoped style: the attribute its rules select on and whether any rule is `:slotted()`, which Vue answers by stamping `<id>-s` on the content its slots render.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScopedStyle {
+  pub id: String,
+  #[serde(default, skip_serializing_if = "is_false")]
+  pub slotted: bool,
+}
+
+impl ScopedStyle {
+  /// The attribute Vue stamps on slot content under a `:slotted()` rule.
+  pub fn slotted_attr(&self) -> String {
+    format!("{}-s", self.id)
+  }
 }
 
 /// A component as a JSON plan spells it: `owner`, or in a plan written before
@@ -324,6 +342,8 @@ struct ComponentRepr {
   hydrate: Option<serde_json::Value>,
   #[serde(default)]
   shadow: Option<ShadowRoot>,
+  #[serde(default)]
+  scope: Option<ScopedStyle>,
 }
 
 impl TryFrom<ComponentRepr> for Component {
@@ -339,7 +359,7 @@ impl TryFrom<ComponentRepr> for Component {
       (None, Some(other)) => return Err(format!("`hydrate` is a boolean or a word, not {other}")),
       (None, None) => Owner::React,
     };
-    Ok(Component { body: repr.body, render: repr.render, state: repr.state, stores: repr.stores, handlers: repr.handlers, owner, shadow: repr.shadow })
+    Ok(Component { body: repr.body, render: repr.render, state: repr.state, stores: repr.stores, handlers: repr.handlers, owner, shadow: repr.shadow, scope: repr.scope })
   }
 }
 
@@ -429,7 +449,7 @@ pub struct Handler {
 
 impl Component {
   pub fn new(owner: Owner, body: Body, render: Tmpl) -> Self {
-    Self { body, render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner, shadow: None }
+    Self { body, render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner, shadow: None, scope: None }
   }
 
   /// The store key `name` reads when it is a `useStore` binding.

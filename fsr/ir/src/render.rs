@@ -14,7 +14,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 
 use snapfire_fsr_runtime::FailureKind;
 
-use crate::ast::{Component, Entry, ShadowMode, ShadowRoot, Stmt, Tmpl};
+use crate::ast::{Component, Entry, ScopedStyle, ShadowMode, ShadowRoot, Stmt, Tmpl};
 use crate::interp::{Env, Fail, Hoists, Interpreter, Probe, Step, stringify, truthy};
 
 mod markup;
@@ -286,6 +286,8 @@ struct Slot<'a> {
   framework: bool,
   /// The caller's component path, which a handler in its children addresses.
   owner_path: String,
+  /// The caller's scoped style, which a `<slot>` in its children stamps by.
+  scoped: Option<ScopedStyle>,
 }
 
 /// The region an island's children render in, which the mounter hands the
@@ -323,7 +325,7 @@ impl Interpreter {
     let mut env = self.env_for(module, props);
     let mut out = Out::default();
     let scope = Rc::new(env.scope.clone());
-    let mut slots = vec![Slot { children: &[], scope, keys: None, island: true, placed: false, framework: false, owner_path: String::new() }];
+    let mut slots = vec![Slot { children: &[], scope, keys: None, island: true, placed: false, framework: false, owner_path: String::new(), scoped: None }];
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     Ok(Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered })
@@ -680,20 +682,9 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       let value = env.eval_sync(expr)?;
       interpolate(&value, out, env.markup)?;
     }
-    Tmpl::Element { tag, attrs, children } => match env.stamp.take() {
-      Some(scope) => render_element(env, tag, &stamped(attrs, &scope), children, library, slots, out)?,
-      None => render_element(env, tag, attrs, children, library, slots, out)?,
-    },
+    Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
-      match env.stamp.take() {
-        Some(scope) => {
-          let mut open = open.clone();
-          let at = open.rfind(" data-v-").unwrap_or(open.len() - 1);
-          open.insert_str(at, &format!(" {scope}"));
-          out.markup(&open);
-        }
-        None => out.markup(open),
-      }
+      write_baked_open(env, open, out);
       if let Some(tag) = tag {
         let context = enter(env, tag);
         for child in children {
@@ -704,7 +695,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       }
     }
     Tmpl::Fragment(children) => {
-      env.stamp = None;
+      env.stamp.clear();
       for child in children {
         render(env, child, library, slots, out)?;
       }
@@ -865,7 +856,7 @@ fn render_shadow<'a>(env: &mut Env, module: &str, props: ValueMap, library: &'a 
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props))]));
   let hoists = env.hoists.take();
-  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false, placed: false, framework: false, owner_path: String::new() });
+  slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false, placed: false, framework: false, owner_path: String::new(), scoped: None });
   let markup = std::mem::replace(&mut env.markup, Markup::Plain);
   shadow_open(component.shadow.unwrap_or_default(), out);
   let result = in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
@@ -933,18 +924,26 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
   }
   let map = self::props(env, props)?;
-  let stamp = match map.get(PARENT_SCOPE_PROP) {
-    Some(Value::Str(scope)) if component.owner == crate::ast::Owner::Vue => Some(scope.to_string()),
-    _ => None,
+  let stamp = match (&env.slot_owner, map.get(PARENT_SCOPE_PROP)) {
+    _ if component.owner != crate::ast::Owner::Vue => Vec::new(),
+    (Some(owner), _) => owner.clone(),
+    (None, Some(Value::Str(scope))) => vec![scope.to_string()],
+    (None, _) => Vec::new(),
   };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone() });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone(), scoped: env.scoped.clone() });
   let held = std::mem::replace(&mut env.stamp, stamp);
+  let held_slotted = std::mem::take(&mut env.slotted);
+  let held_owner = env.slot_owner.take();
+  let held_scoped = std::mem::replace(&mut env.scoped, component.scope.clone());
   let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   env.stamp = held;
+  env.slotted = held_slotted;
+  env.slot_owner = held_owner;
+  env.scoped = held_scoped;
   slots.pop();
   env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
   env.scope.truncate(depth);
@@ -955,11 +954,58 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
 pub const PARENT_SCOPE_PROP: &str = "$scope";
 
 /// `attrs` with `scope` before the element's own `data-v-` attribute, or last.
-fn stamped(attrs: &[Entry], scope: &str) -> Vec<Entry> {
+fn render_stamped_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let root = std::mem::take(&mut env.stamp);
+  if root.is_empty() && env.slotted.is_empty() {
+    return render_element(env, tag, attrs, children, library, slots, out);
+  }
+  let attrs = stamped(attrs, &root, &env.slotted);
+  render_element(env, tag, &attrs, children, library, slots, out)
+}
+
+/// A baked element's opening tag with the stamps waiting for it: the root's before the element's own scope, the slotted ones last.
+fn write_baked_open(env: &mut Env, open: &str, out: &mut Out) {
+  let root = std::mem::take(&mut env.stamp);
+  if root.is_empty() && env.slotted.is_empty() {
+    out.markup(open);
+    return;
+  }
+  let mut open = open.to_owned();
+  if !root.is_empty() {
+    let at = open.rfind(" data-v-").unwrap_or(open.len() - 1);
+    open.insert_str(at, &format!(" {}", root.join(" ")));
+  }
+  if !env.slotted.is_empty() {
+    let at = open.len() - 1;
+    open.insert_str(at, &format!(" {}", env.slotted.join(" ")));
+  }
+  out.markup(&open);
+}
+
+/// `attrs` with `root` inserted before the element's own scope, where Vue writes a root's inherited stamps. `slotted` goes after everything.
+fn stamped(attrs: &[Entry], root: &[String], slotted: &[String]) -> Vec<Entry> {
+  let present = |name: &str| Entry::Field(name.to_owned(), crate::ast::Expr::Lit(crate::ast::Lit::Bool(true)));
   let mut attrs = attrs.to_vec();
-  let at = attrs.iter().rposition(|a| matches!(a, Entry::Field(n, crate::ast::Expr::Lit(crate::ast::Lit::Bool(true))) if n.starts_with("data-v-"))).unwrap_or(attrs.len());
-  attrs.insert(at, Entry::Field(scope.to_owned(), crate::ast::Expr::Lit(crate::ast::Lit::Bool(true))));
+  if !root.is_empty() {
+    let at = attrs.iter().rposition(|a| matches!(a, Entry::Field(n, crate::ast::Expr::Lit(crate::ast::Lit::Bool(true))) if n.starts_with("data-v-"))).unwrap_or(attrs.len());
+    for (i, name) in root.iter().enumerate() {
+      attrs.insert(at + i, present(name));
+    }
+  }
+  attrs.extend(slotted.iter().map(|name| present(name)));
   attrs
+}
+
+/// What slot content renders under: the stamps a component placed in it takes on its root and the slotted stamp every element in it carries, from the scoped style of the component whose `<slot>` it fills.
+fn content_stamps(env: &Env) -> (Vec<String>, Vec<String>) {
+  let Some(scope) = &env.scoped else { return (Vec::new(), Vec::new()) };
+  let mut root = vec![scope.id.clone()];
+  let mut slotted = Vec::new();
+  if scope.slotted {
+    root.push(scope.slotted_attr());
+    slotted.push(scope.slotted_attr());
+  }
+  (root, slotted)
 }
 
 fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
@@ -1010,7 +1056,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
-  slots.push(Slot { children, scope: Rc::clone(&outer), keys: keys.clone(), island: true, placed: false, framework: false, owner_path: String::new() });
+  slots.push(Slot { children, scope: Rc::clone(&outer), keys: keys.clone(), island: true, placed: false, framework: false, owner_path: String::new(), scoped: None });
   let mut inner = Out::default();
   let outer_hoists = env.hoists.replace(Hoists::new(module.to_owned()));
   let outer_mode = std::mem::replace(&mut env.server_mode, mode.as_deref() == Some(SERVER_MODE));
@@ -1158,6 +1204,10 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
       let inner = std::mem::replace(&mut env.scope, scope);
       let outer_framework = std::mem::replace(&mut env.in_framework, slot.framework);
       let outer_path = std::mem::replace(&mut env.component_path, slot.owner_path.clone());
+      let (owner, slotted) = content_stamps(env);
+      let outer_slotted = std::mem::replace(&mut env.slotted, slotted);
+      let outer_owner = std::mem::replace(&mut env.slot_owner, Some(owner));
+      let outer_scoped = std::mem::replace(&mut env.scoped, slot.scoped.clone());
       let mut result = Ok(());
       for child in content {
         result = render(env, child, library, slots, out);
@@ -1168,6 +1218,9 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
       env.scope = inner;
       env.in_framework = outer_framework;
       env.component_path = outer_path;
+      env.slotted = outer_slotted;
+      env.slot_owner = outer_owner;
+      env.scoped = outer_scoped;
       slots.push(slot);
       result
     }
@@ -1194,6 +1247,10 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
         (Some((module, path)), Some(h)) => Some((std::mem::replace(&mut h.module, module.clone()), std::mem::replace(&mut h.path, path.clone()))),
         _ => None,
       };
+      let (owner, slotted) = content_stamps(env);
+      let outer_slotted = std::mem::replace(&mut env.slotted, slotted);
+      let outer_owner = std::mem::replace(&mut env.slot_owner, Some(owner));
+      let outer_scoped = std::mem::replace(&mut env.scoped, slot.scoped.clone());
       let mut result = Ok(());
       for child in slot.children {
         let child = match child {
@@ -1205,6 +1262,9 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
           break;
         }
       }
+      env.slotted = outer_slotted;
+      env.slot_owner = outer_owner;
+      env.scoped = outer_scoped;
       if let (Some((module, path)), Some(h)) = (callee_keys, &mut env.hoists) {
         h.module = module;
         h.path = path;
@@ -1281,7 +1341,7 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
 /// when a component is put into a [`Components`] library and an element it
 /// cannot bake is left exactly as it was.
 pub fn prepare(component: &Component) -> Component {
-  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), stores: component.stores.clone(), handlers: component.handlers.clone(), owner: component.owner, shadow: component.shadow }
+  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), stores: component.stores.clone(), handlers: component.handlers.clone(), owner: component.owner, shadow: component.shadow, scope: component.scope.clone() }
 }
 
 fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
@@ -1637,7 +1697,7 @@ mod tests {
       stores: Vec::new(),
       handlers: Vec::new(),
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let html = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html;
     assert_eq!(html, "<path marker-end=\"url(#a)\" stroke-width=\"2\" viewBox=\"0 0 8 8\"></path>");
@@ -1652,7 +1712,7 @@ mod tests {
       stores: Vec::new(),
       handlers: Vec::new(),
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let render = |component: &Component, props: &ValueMap| Interpreter::default().render(component, props, &Components::new()).unwrap().html;
 
@@ -1674,7 +1734,7 @@ mod tests {
         tag: "p".to_owned(),
         attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("count")), Entry::Field("hidden".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("title".to_owned(), Expr::Lit(Lit::Null))],
         children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Text(" result".to_owned()), Tmpl::Expr(Expr::Ternary(Box::new(Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Float(1.0))))), Box::new(Expr::lit_str("")), Box::new(Expr::lit_str("s")))), Tmpl::Text(" <3".to_owned())],
-      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let values = props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]);
     let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
@@ -1702,7 +1762,7 @@ mod tests {
             }),
           }),
         }],
-      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let lines = Value::seq(vec![Value::Map(props(&[("quantity", Value::Int(1))])), Value::Map(props(&[("quantity", Value::Int(3))]))]);
     let html = (Interpreter::default().render(&component, &props(&[("lines", lines)]), &Components::new())).unwrap().html;
@@ -1720,12 +1780,12 @@ mod tests {
           tag: "span".to_owned(),
           attrs: vec![Entry::Field("title".to_owned(), Expr::Template(vec![Expr::Builtin { name: Builtin::ToFixed, args: vec![p("rating"), Expr::Lit(Lit::Float(1.0))] }, Expr::lit_str(" out of 5")]))],
           children: vec![Tmpl::Expr(Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::Builtin { name: Builtin::Repeat, args: vec![Expr::lit_str("★"), Expr::var("full")] }), Box::new(Expr::Builtin { name: Builtin::Repeat, args: vec![Expr::lit_str("☆"), Expr::Arith(crate::ast::ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(5.0))), Box::new(Expr::var("full")))] })))],
-        }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+        }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
       }),
     );
     let page = Component {
       body: Vec::new(),
-      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0, keyed: false }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      render: Tmpl::Fragment(vec![Tmpl::Component { module: "src/ui/Stars.tsx#Stars".to_owned(), props: vec![Entry::Field("rating".to_owned(), p("product").field("rating"))], children: Vec::new(), id: 0, keyed: false }, Tmpl::Expr(p("product").field("name"))]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let product = Value::Map(props(&[("rating", Value::F64(4.5)), ("name", Value::str("Filament"))]));
     let html = (Interpreter::default().render(&page, &props(&[("product", product)]), &library)).unwrap().html;
@@ -1743,12 +1803,12 @@ mod tests {
           tag: "main".to_owned(),
           attrs: vec![Entry::Field("class".to_owned(), p("className"))],
           children: vec![Tmpl::Element { tag: "h1".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(p("title"))] }, Tmpl::Component { module: "src/ui/Card.tsx#Card".to_owned(), props: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())], id: 0, keyed: false }],
-        }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+        }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
       }),
     );
     library.insert(
       "src/ui/Card.tsx#Card".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "div".to_owned(), attrs: vec![Entry::Field("class".to_owned(), Expr::lit_str("card"))], children: vec![Tmpl::Slot("content".to_owned()), Tmpl::Slot("content".to_owned())] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None }),
     );
     let page = Component {
       body: vec![Stmt::Let { name: "header".to_owned(), expr: Expr::Object(vec![Entry::Field("title".to_owned(), Expr::lit_str("Picks")), Entry::Field("className".to_owned(), Expr::lit_str("wrong"))]) }],
@@ -1762,7 +1822,7 @@ mod tests {
         }],
         id: 0,
         keyed: false,
-      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let mut attrs = ValueMap::default();
     attrs.insert("className".to_owned(), Value::str("ignored"));
@@ -1783,7 +1843,7 @@ mod tests {
         Tmpl::Element { tag: "br".to_owned(), attrs: Vec::new(), children: Vec::new() },
         Tmpl::Expr(Expr::Lit(Lit::Bool(true))),
         Tmpl::Expr(Expr::Lit(Lit::Null)),
-      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
     assert_eq!(react.render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
@@ -1793,7 +1853,7 @@ mod tests {
   #[test]
   fn a_store_read_takes_the_seed_and_falls_back_without_one() {
     let read = Expr::Coalesce(Box::new(Expr::Store("cart/count".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0))));
-    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None };
+    let inner = Component { body: vec![Stmt::Let { name: "n".to_owned(), expr: read.clone() }], render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n"))] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None };
     let mut library = Components::new();
     library.insert("src/ui/Badge.tsx#Badge".to_owned(), Arc::new(inner));
     let outer = Component {
@@ -1801,7 +1861,7 @@ mod tests {
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(Expr::var("n")),
         Tmpl::Component { module: "src/ui/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), id: 0, keyed: false },
-      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let render = |props: ValueMap| Interpreter::default().render(&outer, &props, &library).unwrap().html;
     assert_eq!(render(ValueMap::default()), "0<b>0</b>", "no seed leaves both reads on the fallback");
@@ -1817,7 +1877,7 @@ mod tests {
     let filled = Expr::Builtin { name: Builtin::Includes, args: vec![Expr::Coalesce(Box::new(Expr::Var("$props".to_owned()).field("$slots")), Box::new(Expr::Array(Vec::new()))), Expr::lit_str("modal")] };
     let component = Component {
       body: Vec::new(),
-      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      render: Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot("modal".to_owned())), r#else: Some(Box::new(Tmpl::Text("closed".to_owned()))) }] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let render = |props: ValueMap| Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
     assert_eq!(render(ValueMap::default()), "<sf-s>closed</sf-s>", "no $slots at all shows the fallback");
@@ -1832,7 +1892,7 @@ mod tests {
   fn an_island_rendered_alone_writes_an_empty_children_region_where_it_places_its_children() {
     let component = Component {
       body: Vec::new(),
-      render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let island = Interpreter::default().render_island("src/ui/Box.tsx#default", &component, &ValueMap::default(), &Components::new()).unwrap();
     assert_eq!(island.html, format!("<div>{CHILDREN_OPEN}</sf-s></div>"));
@@ -1855,7 +1915,7 @@ mod tests {
       (Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(3.0))] }), Box::new(Expr::lambda(&["_", "i"], Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var("i")), Box::new(Expr::Lit(Lit::Float(1.0))))))), "123"),
     ];
     for (expr, expected) in cases {
-      let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None };
+      let component = Component { body: Vec::new(), render: Tmpl::Expr(expr.clone()), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None };
       let html = (Interpreter::default().render(&component, &ValueMap::default(), &Components::new())).unwrap().html;
       assert_eq!(html, expected, "{expr:?}");
     }
@@ -1890,7 +1950,7 @@ mod hoist_tests {
             body: Box::new(Tmpl::Expr(hoist(1, fixed(Expr::Arith(crate::ast::ArithOp::Mul, Box::new(Expr::var("p")), Box::new(Expr::var("t"))))))),
           }),
         },
-      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let mut props = ValueMap::default();
     props.insert("total".to_owned(), Value::F64(2.5));
@@ -1909,7 +1969,7 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Price.tsx#Price".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("cents")))), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None }),
     );
     let price = |cents: Expr| Tmpl::Component { module: "src/ui/Price.tsx#Price".to_owned(), props: vec![Entry::Field("cents".to_owned(), cents)], children: Vec::new(), id: 0, keyed: false };
     let page = Component {
@@ -1918,7 +1978,7 @@ mod hoist_tests {
         price(Expr::Lit(Lit::Float(1.0))),
         Tmpl::For { over: Expr::var("$props").field("items"), params: vec!["it".to_owned()], body: Box::new(price(Expr::var("it"))) },
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(9.0))))),
-      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(2.0), Value::F64(3.0)]));
@@ -1928,7 +1988,7 @@ mod hoist_tests {
     assert_eq!(keys, ["src/ui/Price.tsx#Price|0", "src/ui/Price.tsx#Price|0@0", "src/ui/Price.tsx#Price|0@1", "routes/index/page.tsx#default|0"]);
     assert_eq!(rendered.hoisted["src/ui/Price.tsx#Price|0@1"], Value::str("3.0"));
 
-    let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None };
+    let twice = Component { body: Vec::new(), render: Tmpl::Fragment(vec![price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(1.0))), price(Expr::Lit(Lit::Float(2.0)))]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &twice, &ValueMap::default(), &library).unwrap();
     assert!(rendered.hoisted.is_empty(), "Price placed three times outside a loop shares one key: 1.0 twice agrees, 2.0 drops it: {:?}", rendered.hoisted);
   }
@@ -1949,7 +2009,7 @@ mod hoist_tests {
             children: vec![Tmpl::Expr(hoist(1, fixed(Expr::var("it"))))],
           }),
         }],
-      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let mut props = ValueMap::default();
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
@@ -1964,14 +2024,14 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None }),
     );
     let page = Component {
       body: Vec::new(),
       render: Tmpl::Fragment(vec![
         Tmpl::Expr(hoist(0, fixed(Expr::Lit(Lit::Float(1.0))))),
         Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Float(2.0)))], children: Vec::new(), when: None, mode: None, id: 9, define: false },
-      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
     let keys: Vec<&String> = rendered.hoisted.keys().collect();
@@ -1988,7 +2048,7 @@ mod hoist_tests {
     let mut library = Components::new();
     library.insert(
       "elements/x-box.tsx#default".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Fsr, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(hoist(0, fixed(Expr::var("$props").field("n")))), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Fsr, shadow: None, scope: None }),
     );
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
@@ -2003,7 +2063,7 @@ mod hoist_tests {
         stores: Vec::new(),
         handlers: Vec::new(),
         owner: crate::ast::Owner::React,
-        shadow: None,
+        shadow: None, scope: None,
       }),
     );
     let page = Component {
@@ -2013,7 +2073,7 @@ mod hoist_tests {
       stores: Vec::new(),
       handlers: Vec::new(),
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
     let island = &rendered.islands[0].body;
@@ -2041,7 +2101,7 @@ mod server_tests {
       stores: Vec::new(),
       handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("open".to_owned(), Expr::Not(Box::new(Expr::var("open"))))]))] }],
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     }
   }
 
@@ -2049,7 +2109,7 @@ mod server_tests {
   fn handler_markers_and_keys_print_only_in_server_mode() {
     let mut library = Components::new();
     library.insert("src/ui/Help.tsx#Help".to_owned(), Arc::new(help()));
-    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9, define: false }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None };
+    let island = |mode: Option<&str>| Component { body: Vec::new(), render: Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::Lit(Lit::Int(7)))], children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 9, define: false }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None };
     let browser = Interpreter::default().render_module("page", &island(None), &ValueMap::default(), &library).unwrap();
     assert_eq!(browser.islands[0].body.html, "<section>order 7<button>Show</button></section>");
     assert!(browser.islands[0].mode.is_none() && !browser.islands[0].mount_props().contains_key(STATE_PROP));
@@ -2116,7 +2176,7 @@ mod island_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Body.tsx#Body".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Expr(Expr::var("$props").field("text")), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None }),
     );
     let page = Component {
       body: Vec::new(),
@@ -2129,7 +2189,7 @@ mod island_tests {
       stores: Vec::new(),
       handlers: Vec::new(),
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let mut props = ValueMap::default();
     props.insert("blips".to_owned(), Value::seq(vec![Value::str("one"), Value::str("two"), Value::str("three")]));
@@ -2262,7 +2322,7 @@ mod island_tests {
     let mut library = Components::new();
     library.insert(
       "src/ui/Help.tsx#Help".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("help ".to_owned()), Tmpl::Expr(Expr::var("$props").field("id"))] }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None }),
     );
     let page = Component {
       body: Vec::new(),
@@ -2274,7 +2334,7 @@ mod island_tests {
           Tmpl::Island { module: "src/ui/Help.tsx#Help".to_owned(), props: vec![Entry::Field("id".to_owned(), Expr::var("$props").field("id"))], children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 9, define: false },
           Tmpl::Text("after".to_owned()),
         ],
-      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+      }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let mut props = ValueMap::default();
     props.insert("id".to_owned(), Value::int(7i64));
@@ -2317,7 +2377,7 @@ mod markup_tests {
   }
 
   fn render_under(react: Option<ReactMajor>, owner: crate::ast::Owner, render: Tmpl, props: &ValueMap, library: &Components) -> Result<String, Fail> {
-    let component = Component { body: Vec::new(), render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner, shadow: None };
+    let component = Component { body: Vec::new(), render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner, shadow: None, scope: None };
     Interpreter::default().with_frameworks(Frameworks { react, vue: None }).render(&component, props, library).map(|rendered| rendered.html)
   }
 
@@ -2382,7 +2442,7 @@ mod markup_tests {
     let mut library = Components::new();
     library.insert(
       "elements/x-grid.tsx#default".to_owned(),
-      Arc::new(Component { body: Vec::new(), render: Tmpl::Fragment(vec![element("b", Vec::new(), vec![Tmpl::Expr(p("title"))]), Tmpl::Expr(Expr::Length(Box::new(p("rows"))))]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Fsr, shadow: None }),
+      Arc::new(Component { body: Vec::new(), render: Tmpl::Fragment(vec![element("b", Vec::new(), vec![Tmpl::Expr(p("title"))]), Tmpl::Expr(Expr::Length(Box::new(p("rows"))))]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Fsr, shadow: None, scope: None }),
     );
     let page = element("x-grid", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-grid.tsx#default")), ("title", Expr::lit_str("t")), ("rows", p("rows"))], vec![Tmpl::Text("light".to_owned())]);
     let values = props(&[("rows", Value::seq(vec![Value::int(1i64), Value::int(2i64)]))]);
@@ -2401,7 +2461,7 @@ mod markup_tests {
       let mut library = Components::new();
       library.insert(
         "elements/x-box.tsx#default".to_owned(),
-        Arc::new(Component { body: Vec::new(), render: Tmpl::Text("in".to_owned()), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Fsr, shadow: Some(shadow) }),
+        Arc::new(Component { body: Vec::new(), render: Tmpl::Text("in".to_owned()), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Fsr, shadow: Some(shadow), scope: None }),
       );
       let page = element("x-box", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-box.tsx#default"))], Vec::new());
       assert_eq!(render_under(None, BY_REACT, page, &ValueMap::default(), &library).unwrap(), format!("<x-box>{open}in</template></x-box>"));
@@ -2420,7 +2480,7 @@ mod markup_tests {
       stores: vec![("n".to_owned(), "cart/count".to_owned()), ("who".to_owned(), "user/name".to_owned())],
       handlers: Vec::new(),
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let mut library = Components::new();
     library.insert("src/Badge.tsx#Badge".to_owned(), Arc::new(badge));
@@ -2452,7 +2512,7 @@ mod markup_tests {
       stores: vec![("n".to_owned(), "cart/count".to_owned())],
       handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Arith(crate::ast::ArithOp::Add, Box::new(Expr::var("n")), Box::new(Expr::Lit(Lit::Int(1)))))]))] }],
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let mut library = Components::new();
     library.insert("src/Counter.tsx#Counter".to_owned(), Arc::new(counter.clone()));
@@ -2498,7 +2558,7 @@ mod markup_tests {
       stores: Vec::new(),
       handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("n".to_owned(), Expr::Lit(Lit::Int(7)))]))] }],
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let library = Components::new();
     let props = ValueMap::default();
@@ -2523,7 +2583,7 @@ mod markup_tests {
       stores: Vec::new(),
       handlers: vec![bump("x")],
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let place = |id: u32, start: Expr| Tmpl::Component { module: "src/Inner.tsx#Inner".to_owned(), props: vec![Entry::Field("start".to_owned(), start)], children: Vec::new(), id, keyed: true };
     let widget = Component {
@@ -2541,7 +2601,7 @@ mod markup_tests {
       stores: Vec::new(),
       handlers: vec![bump("n")],
       owner: crate::ast::Owner::React,
-      shadow: None,
+      shadow: None, scope: None,
     };
     let mut library = Components::new();
     library.insert("src/Inner.tsx#Inner".to_owned(), Arc::new(inner));

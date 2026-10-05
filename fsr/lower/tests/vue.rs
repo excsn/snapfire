@@ -60,7 +60,7 @@ fn lower(compiler: &Compiler, dir: &Path, file: &str, source: &str) -> Result<Co
 /// A page placing `module` as an island with `props` and `children`, the way a
 /// template does, so the render writes the island's markup with its region.
 fn host(module: &str, children: Vec<Tmpl>) -> Component {
-  Component { body: Vec::new(), render: Tmpl::Island { module: module.to_owned(), props: vec![Entry::Spread(Expr::var("$props"))], children, when: None, mode: None, id: 0, define: false }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: Owner::Fsr, shadow: None }
+  Component { body: Vec::new(), render: Tmpl::Island { module: module.to_owned(), props: vec![Entry::Spread(Expr::var("$props"))], children, when: None, mode: None, id: 0, define: false }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: Owner::Fsr, shadow: None, scope: None }
 }
 
 fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec<Tmpl>) -> String {
@@ -273,7 +273,6 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
     }
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
-  assert_eq!(refused("Named", "<template><div><slot :[which]=\"1\" /></div></template>\n"), "1:22: a slot prop whose name is an expression");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
   assert!(refused("Options", "<script>\nexport default { data() { return {}; } };\n</script>\n<template><p /></template>\n").ends_with("a `<script>` without `setup`"));
   assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\", () => \"x\", true);\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:31: `inject` with a default factory");
@@ -963,5 +962,99 @@ fn provide_and_inject_render_as_vue_does() {
   let files = [("src/ui/Themed.vue", "", THEMED), ("src/ui/Badge.vue", "Badge.vue", BADGE)];
   let html = agree_tree(&compiler, &dir, &files, "src/ui/Themed.vue", &props(&[("mode", Value::str("dark"))]));
   assert!(html.contains("dark kg fallback"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const CHIP: &str = r#"<script setup lang="ts">
+defineProps<{ label: string; title?: string; field: string }>();
+</script>
+
+<template>
+  <span class="chip" :title="title"><slot :[field]="label">{{ label }}</slot></span>
+</template>
+"#;
+
+const TAGGED: &str = r#"<script setup lang="ts">
+import Chip from "./Chip.vue";
+const props = defineProps<{ attr: string; value: string; prop: string }>();
+</script>
+
+<template>
+  <div class="tagged" :[attr]="value">
+    <Chip :[prop]="value" label="x" field="k"><template #default="{ k }">{{ k }}!</template></Chip>
+    <Chip :[prop]="value" label="y" field="k" />
+  </div>
+</template>
+"#;
+
+#[test]
+fn a_bound_attribute_whose_name_is_an_expression_renders_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("dynamic_attr", &[("src/ui/Tagged.vue", TAGGED), ("src/ui/Chip.vue", CHIP)]);
+  let files = [("src/ui/Tagged.vue", "", TAGGED), ("src/ui/Chip.vue", "Chip.vue", CHIP)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Tagged.vue", &props(&[("attr", Value::str("data-mark")), ("value", Value::str("m")), ("prop", Value::str("title"))]));
+  assert!(html.contains("data-mark=\"m\"") && html.contains("title=\"m\"") && html.contains("x!") && html.contains(">y<"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const SLOTTED_CARD: &str = r#"<script setup lang="ts">
+defineProps<{ title: string }>();
+</script>
+
+<template>
+  <section class="card">
+    <h3>{{ title }}</h3>
+    <slot />
+    <footer><slot name="foot"><i>none</i></slot></footer>
+  </section>
+</template>
+
+<style scoped>
+.card { color: red; }
+:slotted(.note) { color: blue; }
+</style>
+"#;
+
+const USES_SLOTTED: &str = r#"<script setup lang="ts">
+import Card from "./Card.vue";
+import Pill from "./Pill.vue";
+</script>
+
+<template>
+  <div class="row">
+    <Card title="t">
+      <p class="note">body <b>bold</b></p>
+      <Pill label="x" />
+      <template #foot><em class="note">f</em></template>
+    </Card>
+    <Card title="u" />
+  </div>
+</template>
+
+<style scoped>
+.row { color: green; }
+</style>
+"#;
+
+#[test]
+fn a_slotted_style_stamps_the_slot_content_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let pill = "<script setup lang=\"ts\">\ndefineProps<{ label: string }>();\n</script>\n\n<template>\n  <span class=\"pill\"><b>{{ label }}</b></span>\n</template>\n\n<style scoped>\n.pill { color: blue; }\n</style>\n";
+  let dir = app("slotted", &[("src/ui/Uses.vue", USES_SLOTTED), ("src/ui/Card.vue", SLOTTED_CARD), ("src/ui/Pill.vue", pill)]);
+  let files = [("src/ui/Uses.vue", "", USES_SLOTTED), ("src/ui/Card.vue", "Card.vue", SLOTTED_CARD), ("src/ui/Pill.vue", "Pill.vue", pill)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Uses.vue", &ValueMap::default());
+  assert!(html.contains("-s"), "the slotted stamp is on the content: {html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_child_placed_in_a_scoped_owner_s_slot_content_takes_the_owner_s_scope_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let card = SLOTTED_CARD.replace(":slotted(.note) { color: blue; }\n", "");
+  let pill = "<script setup lang=\"ts\">\ndefineProps<{ label: string }>();\n</script>\n\n<template>\n  <span class=\"pill\"><b>{{ label }}</b></span>\n</template>\n\n<style scoped>\n.pill { color: blue; }\n</style>\n";
+  let dir = app("slot_owner_scope", &[("src/ui/Uses.vue", USES_SLOTTED), ("src/ui/Card.vue", &card), ("src/ui/Pill.vue", pill)]);
+  let files = [("src/ui/Uses.vue", "", USES_SLOTTED), ("src/ui/Card.vue", "Card.vue", &card), ("src/ui/Pill.vue", "Pill.vue", pill)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Uses.vue", &ValueMap::default());
+  assert!(!html.contains("-s"), "no slotted rule, no slotted stamp: {html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -39,4 +39,28 @@ describe("the vue page", () => {
     expect(texts(".tile .badge")).toEqual(["2 left"]);
     expect(document.querySelector(".tile")?.getAttribute("data-left")).toEqual("2");
   });
+
+  test("writes a bound attribute whose name is an expression and moves it when the name changes", async () => {
+    await load("/vue");
+    await settle();
+    const tiles = [...document.querySelectorAll(".tile")];
+    expect(tiles.map((t) => t.getAttribute("data-plenty"))).toEqual(["pantry", null]);
+    expect(tiles.map((t) => t.getAttribute("data-low"))).toEqual([null, "pantry"]);
+    await fireEvent.click(document.querySelectorAll(".take")[0]!);
+    await settle();
+    expect(tiles[0]!.getAttribute("data-plenty")).toEqual(null);
+    expect(tiles[0]!.getAttribute("data-low")).toEqual("pantry");
+  });
+
+  test("stamps slot content for the child's :slotted() rules the way Vue does", async () => {
+    await load("/vue");
+    await settle();
+    const tile = document.querySelector(".tile")!;
+    const own = [...tile.attributes].map((a) => a.name).find((n) => /^data-v-[0-9a-f]+$/.test(n) && !document.querySelector("ul.shelf")?.hasAttribute(n));
+    expect(own, "the tile carries its own scope").toBeTruthy();
+    const note = tile.querySelector(".note")!;
+    expect(note.hasAttribute(`${own}-s`), `the note carries ${own}-s`).toBeTruthy();
+    expect([...document.querySelectorAll(".badge")].every((b) => b.hasAttribute(`${own}-s`)), "named slot content too").toBeTruthy();
+    expect(tile.querySelector(".name")!.hasAttribute(`${own}-s`), "the tile's own elements do not").toBeFalsy();
+  });
 });

@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
-use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, ScopedStyle, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{CONTEXT_PREFIX, HANDLER_ATTR, RAW_ATTR, SLOT_CONTENT_PREFIX, SLOT_OUT_PREFIX, SLOT_PROPS, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
@@ -230,7 +230,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn component(&mut self) -> Lowered<Component> {
     self.script()?;
     let render = self.template()?;
-    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: std::mem::take(&mut self.handlers), owner: Owner::Vue, shadow: None })
+    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: std::mem::take(&mut self.handlers), owner: Owner::Vue, shadow: None, scope: self.described.scope.as_ref().map(|id| ScopedStyle { id: id.clone(), slotted: self.described.slotted }) })
   }
 
   fn at(&self, line: usize, column: usize, message: impl Into<String>) -> Residue {
@@ -783,7 +783,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
               names.push(name);
             }
             (None, _) => props.push(Entry::Spread(value)),
-            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a bound prop whose name is an expression")),
+            (Some(arg), false) => props.push(Entry::Computed(self.expr_at(arg, prop.line, prop.column)?, value)),
           }
         }
         other => return Err(self.at(prop.line, prop.column, format!("`v-{other}` on `<{}>`", node.tag))),
@@ -871,7 +871,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             (Some(arg), true) if arg == "name" => return Err(self.at(prop.line, prop.column, "a slot whose name is an expression")),
             (Some(arg), true) => props.push(Entry::Field(camel(arg), value)),
             (None, _) => props.push(Entry::Spread(value)),
-            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a slot prop whose name is an expression")),
+            (Some(arg), false) => props.push(Entry::Computed(self.expr_at(arg, prop.line, prop.column)?, value)),
           }
         }
         (_, other) => return Err(self.at(prop.line, prop.column, format!("`{other}` on `<slot>`"))),
@@ -926,9 +926,6 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           }
         },
         "bind" => {
-          if !prop.arg_static {
-            return Err(self.at(prop.line, prop.column, "a bound attribute whose name is an expression"));
-          }
           if prop.modifiers.iter().any(|m| m == "prop") {
             return Err(self.at(prop.line, prop.column, "`.prop`, which sets a property the markup never shows"));
           }
@@ -939,6 +936,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             continue;
           };
           let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
+          if !prop.arg_static {
+            let name = self.expr_at(arg, prop.line, prop.column)?;
+            attrs.push(Entry::Computed(name, value));
+            continue;
+          }
           match arg.as_str() {
             "class" => {
               let mut items = vec![Entry::Item(value)];

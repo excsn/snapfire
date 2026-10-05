@@ -4307,7 +4307,7 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
     stores: Vec::new(),
     handlers: Vec::new(),
     owner: snapfire_fsr_ir::Owner::React,
-    shadow: None,
+    shadow: None, scope: None,
   };
   let evaluator = IrEvaluator::new([("src/Frame.tsx#Frame".to_owned(), frame)]);
   let Err((status, json)) = snapfire_fsr_host::island_step(Some(&evaluator), "src/Frame.tsx#Frame", br#"{"props":{},"state":{},"handler":null,"event":null}"#, "en") else {
@@ -4340,7 +4340,7 @@ fn a_lowered_island_step_runs_a_handler_branch_both_ways() {
       ],
     }],
     owner: snapfire_fsr_ir::Owner::React,
-    shadow: None,
+    shadow: None, scope: None,
   };
   let evaluator = IrEvaluator::new([("src/Gate.tsx#Gate".to_owned(), gate)]);
   let step = |state: &str| {
@@ -4379,7 +4379,7 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
     stores: Vec::new(),
     handlers: vec![bump("x")],
     owner: snapfire_fsr_ir::Owner::React,
-    shadow: None,
+    shadow: None, scope: None,
   };
   let widget = Component {
     body: vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Int(1)) }],
@@ -4392,7 +4392,7 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
     stores: Vec::new(),
     handlers: vec![bump("n")],
     owner: snapfire_fsr_ir::Owner::React,
-    shadow: None,
+    shadow: None, scope: None,
   };
   let evaluator = IrEvaluator::new([("src/Widget.tsx#Widget".to_owned(), widget), ("src/Inner.tsx#Inner".to_owned(), inner)]);
   let step = |body: &str| snapfire_fsr_host::island_step(Some(&evaluator), "src/Widget.tsx#Widget", body.as_bytes(), "en");

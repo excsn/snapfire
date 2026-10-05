@@ -1,6 +1,6 @@
 //! Statements and whole components, both directions.
 
-use crate::ast::{Body, Component, Expr, Handler, Lit, Owner, ShadowMode, ShadowRoot, Stmt, Tmpl};
+use crate::ast::{Body, Component, Expr, Handler, Lit, Owner, ScopedStyle, ShadowMode, ShadowRoot, Stmt, Tmpl};
 
 use super::atoms::*;
 use super::expr::{expr_from_sx, expr_to_sx};
@@ -72,6 +72,13 @@ pub fn component_sections(component: &Component) -> Vec<Sx> {
       }
     }
     rest.push(form("shadow", terms));
+  }
+  if let Some(scope) = &component.scope {
+    let mut terms = vec![Sx::Str(scope.id.clone())];
+    if scope.slotted {
+      terms.push(Sx::sym("slotted"));
+    }
+    rest.push(form("scope", terms));
   }
   if !component.state.is_empty() {
     rest.push(form("state", component.state.iter().map(|s| Sx::Sym(s.clone())).collect()));
@@ -204,6 +211,17 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
           }
         }
         out.shadow = Some(shadow);
+      }
+      Some("scope") => {
+        let a = at_least(inner, "scope", 1)?;
+        let mut slotted = false;
+        for option in &a[1..] {
+          match sym_of(option)?.as_str() {
+            "slotted" => slotted = true,
+            other => return Err(SexprError::shape(format!("`{other}` is not a scoped style option"))),
+          }
+        }
+        out.scope = Some(ScopedStyle { id: str_of(&a[0])?, slotted });
       }
       Some("state") => out.state = inner[1..].iter().map(sym_of).collect::<Res<_>>()?,
       Some("stores") => {

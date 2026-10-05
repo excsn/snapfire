@@ -257,8 +257,8 @@ fn shadow_root() -> BoxedStrategy<snapfire_fsr_ir::ShadowRoot> {
 
 fn component() -> BoxedStrategy<Component> {
   (body(), tmpl(), prop::collection::vec(text(), 0..3), prop::collection::vec((text(), text()), 0..2),
-   prop::collection::vec((text(), body()), 0..3), 0u8..3, prop::option::of(shadow_root()))
-    .prop_map(|(body, render, state, stores, handlers, hydrate, shadow)| Component {
+   prop::collection::vec((text(), body()), 0..3), 0u8..3, prop::option::of(shadow_root()), prop::option::of((text(), any::<bool>())))
+    .prop_map(|(body, render, state, stores, handlers, hydrate, shadow, scope)| Component {
       body,
       render,
       state,
@@ -270,6 +270,7 @@ fn component() -> BoxedStrategy<Component> {
         _ => snapfire_fsr_ir::Owner::Vue,
       },
       shadow,
+      scope: scope.map(|(id, slotted)| snapfire_fsr_ir::ScopedStyle { id, slotted }),
     })
   .boxed()
 }

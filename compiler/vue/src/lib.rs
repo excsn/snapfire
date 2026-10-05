@@ -278,11 +278,13 @@ fn decode(answer: &str, filename: &str) -> Result<Outcome, VueError> {
     bindings: BTreeMap<String, String>,
     #[serde(default)]
     scope: Option<String>,
+    #[serde(default)]
+    slotted: bool,
   }
   let answer: Answer = serde_json::from_str(answer).map_err(|e| VueError::Js(format!("{filename}: the driver answered {e}")))?;
   match answer.status.as_str() {
     "needs" => Ok(Outcome::Needs { files: answer.files }),
-    "described" => Ok(Outcome::Described(Described { template: answer.template, script: answer.script, bindings: answer.bindings, scope: answer.scope, deps: answer.deps, diagnostics: answer.diagnostics })),
+    "described" => Ok(Outcome::Described(Described { template: answer.template, script: answer.script, bindings: answer.bindings, scope: answer.scope, slotted: answer.slotted, deps: answer.deps, diagnostics: answer.diagnostics })),
     "ok" => Ok(Outcome::Ok(Compiled {
       js: answer.js,
       lang: answer.lang,

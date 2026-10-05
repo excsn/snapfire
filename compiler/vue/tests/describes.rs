@@ -59,6 +59,17 @@ fn a_description_carries_the_script_block_the_bindings_and_the_scope() {
 }
 
 #[test]
+fn a_description_says_when_a_scoped_style_has_a_slotted_rule() {
+  let described = describe("<template><p><slot /></p></template>\n<style scoped>\n.p { color: red; }\n:slotted(.x) { color: blue; }\n</style>\n");
+  assert!(described.scope.is_some());
+  assert!(described.slotted);
+  let plain = describe(SCALER);
+  assert!(plain.scope.is_some() && !plain.slotted, "a scoped style without `:slotted()`");
+  let unscoped = describe("<template><p><slot /></p></template>\n<style>\n:slotted(.x) { color: blue; }\n</style>\n");
+  assert!(unscoped.scope.is_none() && !unscoped.slotted, "`:slotted()` outside a scoped style stamps nothing");
+}
+
+#[test]
 fn a_description_carries_the_template_as_a_tree_with_directives_still_on_their_elements() {
   let described = describe(SCALER);
   let template = described.template.expect("a template");

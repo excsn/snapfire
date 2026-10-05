@@ -94,8 +94,8 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 
 ### Described
 
-* `pub struct Described { pub template: Option<serde_json::Value>, pub script: Option<Script>, pub bindings: BTreeMap<String, String>, pub scope: Option<String>, pub deps: Vec<String>, pub diagnostics: Vec<Diagnostic> }`
-* A component as its framework's parser reads it. `template` is a tree in the plugin's own shape, carried as JSON and read by the host's front end for that framework; `bindings` says per name the script binds how the template reads it, in the framework's own words; `scope` is the attribute a scoped style selects on; `deps` and `diagnostics` are the compile's. Every optional field is absent from the JSON when `None` or empty. `Default` describes nothing.
+* `pub struct Described { pub template: Option<serde_json::Value>, pub script: Option<Script>, pub bindings: BTreeMap<String, String>, pub scope: Option<String>, pub slotted: bool, pub deps: Vec<String>, pub diagnostics: Vec<Diagnostic> }`
+* A component as its framework's parser reads it. `template` is a tree in the plugin's own shape, carried as JSON and read by the host's front end for that framework; `bindings` says per name the script binds how the template reads it, in the framework's own words; `scope` is the attribute a scoped style selects on and `slotted` whether one of its rules is `:slotted()`, so the host stamps the content the component's slots render; `deps` and `diagnostics` are the compile's. Every optional field is absent from the JSON when `None` or empty. `Default` describes nothing.
 
 ### Script
 

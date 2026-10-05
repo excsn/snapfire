@@ -12,6 +12,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Component](#component)
   * [Owner](#owner)
   * [ShadowRoot](#shadowroot)
+  * [ScopedStyle](#scopedstyle)
   * [ShadowMode](#shadowmode)
   * [Entry](#entry)
   * [Lit](#lit)
@@ -119,10 +120,11 @@ A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, 
 
 ### Component
 
-* `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub stores: Vec<(String, String)>, pub handlers: Vec<Handler>, pub owner: Owner, pub shadow: Option<ShadowRoot> }`; `Component::new(owner: Owner, body: Body, render: Tmpl)` has no state, no handlers and no shadow root.
+* `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub stores: Vec<(String, String)>, pub handlers: Vec<Handler>, pub owner: Owner, pub shadow: Option<ShadowRoot>, pub scope: Option<ScopedStyle> }`; `Component::new(owner: Owner, body: Body, render: Tmpl)` has no state, no handlers and no shadow root.
 * `stores` are the `useStore` bindings among `state`, each with the store key it reads; `Component::store_key(&self, name) -> Option<&str>`. The plan writes them as `(stores (count "cart/count") ...)` and the JSON form as `"stores": [["count", "cart/count"]]`. A store binding is never island state: it reads the render's store every time.
 * `owner` is what renders the component in the browser, if anything does; see [Owner](#owner). The plan writes it as `(owner fsr)`, `(owner react)` or `(owner vue)` and the JSON form as `"owner": "fsr"`. A plan older than format 5 reads as before: a component with no section is `React`, `(static)` is `Fsr`, `(tree)` is `React` and `(vue)` is `Vue`. In the JSON form a component with neither `owner` nor `hydrate` is `React`, `"hydrate": false` is `Fsr`, `true` and `"tree"` are `React` and `"vue"` is `Vue`. The renderer takes its markup rules from it; see [Frameworks](#frameworks).
 * `shadow` is the shadow root an element template declares, read from its root `<template>` by `ShadowRoot::take` at build time. It is `None` for every other component and for an element template whose root is anything else, which the renderer wraps in an open root. See [ShadowRoot](#shadowroot).
+* `scope` is a Vue component's scoped style; see [ScopedStyle](#scopedstyle). `None` for every other component.
 * `state` names the body `let`s the browser can change, the `useState` and `useStore` bindings in order. `handlers` are the component's event handlers as bodies, for an island in server mode, each `Handler { event, body }` running with `$props`, `$state` and `$event` bound after the body's `let`s and returning an object whose keys are the state names it sets, with any `Act` it holds collected for the host to dispatch. An element binds one through an attribute `$on:<event>` holding the handler's index; an element whose handler did not lower carries `$unlowered` with the line and the reason; an element's React `key` is kept as `$key`; an element's `dangerouslySetInnerHTML` is kept as `$html` holding the `__html` expression; a placement of a custom element whose template sits under `elements/` carries `$shadow` holding the template's module. `render::HANDLER_ATTR`, `render::UNLOWERED_ATTR`, `render::KEY_ATTR`, `render::RAW_ATTR` and `render::SHADOW_ATTR` name them.
 
 ### Owner
@@ -142,6 +144,14 @@ The declarative shadow root the server writes around an element template.
 * `ShadowRoot::take(render: &mut Tmpl) -> Result<Option<ShadowRoot>, ShadowRootError>` reads an element template's root `<template>` as its shadow root and leaves that template's children as the render. The root is the render itself or the only child of a root `Fragment`. `Ok(None)` when the root is anything else. A `<template shadowrootmode>` deeper in the tree is markup and is left alone.
 * `shadowrootmode` must be the literal string `open` or `closed`. `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` must be literal booleans, a bare attribute being `true`. Any other attribute is refused. So are a spread, a root `<template>` without `shadowrootmode` and a `<template shadowrootmode>` beside other root nodes or in a branch of a root `If`. See [ShadowRootError](#shadowrooterror).
 * The JSON form is `{"mode": "closed", "delegates_focus": true}` with the false options left out. The plan writes `(shadow closed delegatesfocus)` after `(owner ...)`, naming each option that is true.
+
+### ScopedStyle
+
+A Vue component's scoped style.
+
+* `pub struct ScopedStyle { pub id: String, pub slotted: bool }`; derives `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`. `id` is the `data-v-<hash>` attribute its rules select on. `slotted` is true when one of them is `:slotted()`.
+* `ScopedStyle::slotted_attr(&self) -> String` is `<id>-s`, which the renderer writes on every element of the content the component's slots render when `slotted` holds. A `.vue` child placed in that content takes `id` on its root. Under `slotted` it takes `<id>-s` there too.
+* The plan writes `(scope "data-v-1a2b" slotted)` after `(owner ...)` and `(shadow ...)`, `slotted` only when true. The JSON form is `"scope": {"id": "data-v-1a2b", "slotted": true}` with a false `slotted` left out.
 
 ### ShadowMode
 

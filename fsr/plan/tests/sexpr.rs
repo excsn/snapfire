@@ -230,6 +230,7 @@ fn every_manifest() -> Manifest {
     ],
     owner: snapfire_fsr_ir::Owner::React,
     shadow: Some(snapfire_fsr_ir::ShadowRoot { mode: snapfire_fsr_ir::ShadowMode::Closed, delegates_focus: true, clonable: true, serializable: true }),
+    scope: None,
   };
   let tree = Component::new(snapfire_fsr_ir::Owner::React, Vec::new(), Tmpl::Slot("content".to_owned()));
   let node = Node {

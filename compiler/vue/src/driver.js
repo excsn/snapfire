@@ -238,6 +238,7 @@ globalThis.__vue_describe = function (filename, source, options, files) {
     const descriptor = opened.descriptor;
     const answer = { status: "described", deps: opened.deps, diagnostics: opened.diagnostics, bindings: {} };
     if (opened.hasScoped) answer.scope = opened.scopeId;
+    if (opened.hasScoped && descriptor.slotted) answer.slotted = true;
     if (descriptor.script || descriptor.scriptSetup) {
       const compiled = sfc.compileScript(descriptor, { id: opened.hash, isProd: false, inlineTemplate: false, genDefaultAs: "_sfc_main" });
       for (const name of Object.keys(compiled.bindings || {})) {

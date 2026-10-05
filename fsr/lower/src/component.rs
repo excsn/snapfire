@@ -660,7 +660,7 @@ impl ComponentSet {
       },
       _ => render,
     };
-    let mut component = Component { body: component.body, render, state: component.state, stores: component.stores, handlers: component.handlers, owner, shadow: component.shadow };
+    let mut component = Component { body: component.body, render, state: component.state, stores: component.stores, handlers: component.handlers, owner, shadow: component.shadow, scope: component.scope };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
       return Err(LowerError::Residue(Residue {
@@ -2675,7 +2675,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None }, std::mem::take(&mut self.refs)))
+    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None, scope: None }, std::mem::take(&mut self.refs)))
   }
 
   /// The statements from a branching `return` on, as the tree each path returns: a branch is a `Tmpl::If`, a declaration a `Tmpl::Let` over what follows it, a write to a local a `Tmpl::Let` of its new value. A path that ends without a `return` renders nothing.

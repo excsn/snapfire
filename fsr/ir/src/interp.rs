@@ -8,7 +8,7 @@ use snapfire_fsr_runtime::{FailureKind, RequestCtx, SessionCell};
 
 use crate::catalog::Catalogs;
 use crate::ext::{Ambient, Extensions};
-use crate::ast::{ArithOp, Body, Builtin, CompareOp, Consts, Entry, Expr, Lit, LogicOp, Stmt};
+use crate::ast::{ArithOp, Body, Builtin, CompareOp, Consts, Entry, Expr, Lit, LogicOp, ScopedStyle, Stmt};
 use crate::bind::kind_name;
 use crate::render::{Frameworks, Markup};
 
@@ -194,7 +194,10 @@ impl Interpreter {
       component_path: String::new(),
       unrendered: false,
       contexts: Vec::new(),
-      stamp: None,
+      stamp: Vec::new(),
+      slotted: Vec::new(),
+      slot_owner: None,
+      scoped: None,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -307,8 +310,14 @@ pub(crate) struct Env {
   pub(crate) unrendered: bool,
   /// The values the providers around the render point hold, by context, innermost last.
   pub(crate) contexts: Vec<(String, Value)>,
-  /// A Vue parent's scoped-style attribute waiting for the first element the child it placed renders, its root.
-  pub(crate) stamp: Option<String>,
+  /// Attributes waiting for the first element the component just placed renders, its root: a Vue parent's scoped-style id. Inside slot content they are the slot owner's id and its slotted stamp.
+  pub(crate) stamp: Vec<String>,
+  /// The slotted stamps every element of the slot content being rendered carries.
+  pub(crate) slotted: Vec<String>,
+  /// Set while slot content renders: the root stamps a component placed in it takes, in place of the parent scope its placement carries.
+  pub(crate) slot_owner: Option<Vec<String>>,
+  /// The scoped style of the component whose template is being rendered, which its slots stamp their content by.
+  pub(crate) scoped: Option<ScopedStyle>,
 }
 
 /// One step of the path a key is taken under.
@@ -448,7 +457,10 @@ impl Env {
       component_path: String::new(),
       unrendered: false,
       contexts: Vec::new(),
-      stamp: None,
+      stamp: Vec::new(),
+      slotted: Vec::new(),
+      slot_owner: None,
+      scoped: None,
     }
   }
 
@@ -579,7 +591,10 @@ impl Env {
       component_path: self.component_path.clone(),
       unrendered: false,
       contexts: self.contexts.clone(),
-      stamp: None,
+      stamp: Vec::new(),
+      slotted: Vec::new(),
+      slot_owner: None,
+      scoped: None,
     }
   }
 

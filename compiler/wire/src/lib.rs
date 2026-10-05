@@ -176,6 +176,9 @@ pub struct Described {
   /// The attribute a scoped style selects on, when any style is scoped.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scope: Option<String>,
+  /// Whether a scoped style has a `:slotted()` rule, so the framework stamps the content its slots render.
+  #[serde(default)]
+  pub slotted: bool,
   /// Specifiers the plugin found that the source does not contain.
   #[serde(default)]
   pub deps: Vec<String>,

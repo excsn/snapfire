@@ -131,6 +131,7 @@ fn describe(unit: &snapfire_compiler_wire::Unit) -> Outcome {
     script: Some(Script { content: "const n = 1;".to_owned(), lang: Lang::Js, line: 2, column: 1, setup: true, plain: false }),
     bindings: [("n".to_owned(), "setup-const".to_owned())].into_iter().collect(),
     scope: None,
+    slotted: false,
     deps: Vec::new(),
     diagnostics: Vec::new(),
   })
