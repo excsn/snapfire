@@ -2,10 +2,10 @@
 listen = "127.0.0.1:8210"
 
 [document]
-title = "adapters"
+title = "adapters on React 18"
 
 [session]
-key = "adapters_ts-development-key-not-a-secret"
+key = "adapters_react18_ts-development-key-not-a-secret"
 ttl = "24h"
 
 [cache]
