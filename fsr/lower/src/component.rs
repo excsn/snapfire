@@ -757,14 +757,17 @@ impl ComponentSet {
       let at = |message: String| LowerError::Residue(Residue { file: file.to_owned(), line: child.line, column: child.column, message, hint: None, via: Vec::new() });
       let (target, _) = self.component_module(file, &child.local).map_err(at)?;
       let child_file = target.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_else(|| target.clone());
-      let declared: Vec<String> = self.described.get(&child_file).map(|d| d.bindings.iter().filter(|(_, kind)| kind.as_str() == "props").map(|(name, _)| name.clone()).collect()).unwrap_or_default();
-      if let Some(stray) = child.attrs.iter().find(|a| !declared.contains(a)) {
-        return Err(at(format!("`{stray}` on `<{}>`, which it does not declare as a prop, so Vue would fall it through onto its root element", child.local)));
-      }
       match self.lower(&target) {
         Ok(()) => {}
         Err(LowerError::Residue(residue)) => return Err(at(format!("`<{}>` does not lower: {}:{}:{}: {}", child.local, residue.file, residue.line, residue.column, residue.message))),
         Err(other) => return Err(other),
+      }
+      let mut declared: Vec<String> = self.described.get(&child_file).map(|d| d.bindings.iter().filter(|(_, kind)| kind.as_str() == "props").map(|(name, _)| name.clone()).collect()).unwrap_or_default();
+      if let Some(parsed) = self.parsed.get(&child_file) {
+        declared.extend(crate::vue::model_props(parsed));
+      }
+      if let Some(stray) = child.attrs.iter().find(|a| !declared.contains(a)) {
+        return Err(at(format!("`{stray}` on `<{}>`, which it does not declare as a prop, so Vue would fall it through onto its root element", child.local)));
       }
       modules.insert(child.local, target);
     }

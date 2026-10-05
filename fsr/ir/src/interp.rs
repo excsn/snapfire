@@ -2321,6 +2321,20 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       };
       Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
     }
+    Builtin::LooseMatch => {
+      let wanted = stringify(args.get(1).unwrap_or(&Value::Null))?;
+      match arg(0)? {
+        Value::Seq(items) => Value::Bool(items.iter().any(|item| stringify(item).is_ok_and(|text| text == wanted))),
+        other => Value::Bool(stringify(other).is_ok_and(|text| text == wanted)),
+      }
+    }
+    Builtin::Checked => match arg(0)? {
+      Value::Seq(items) => {
+        let wanted = stringify(args.get(1).unwrap_or(&Value::Null))?;
+        Value::Bool(items.iter().any(|item| stringify(item).is_ok_and(|text| text == wanted)))
+      }
+      other => Value::Bool(truthy(other)),
+    },
     Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
     Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),
     Builtin::Trunc => whole(number(name, arg(0)?)?.trunc()),

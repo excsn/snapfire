@@ -124,6 +124,8 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::MatchAll => "match-all",
     Builtin::Search => "search",
     Builtin::ReplaceAll => "replace-all",
+    Builtin::Checked => "checked",
+    Builtin::LooseMatch => "loose-match",
   }
 }
 
@@ -177,6 +179,8 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "match-all" => Builtin::MatchAll,
     "search" => Builtin::Search,
     "replace-all" => Builtin::ReplaceAll,
+    "checked" => Builtin::Checked,
+    "loose-match" => Builtin::LooseMatch,
     _ => return None,
   })
 }

@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
-use snapfire_fsr_ir::ast::{CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{HANDLER_ATTR, RAW_ATTR, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
@@ -114,6 +114,35 @@ pub(crate) struct ChildRef {
   pub(crate) column: usize,
 }
 
+/// The props a `<script setup>` declares through `defineModel`: its name, `modelValue` when it names none.
+pub(crate) fn model_props(parsed: &crate::Parsed) -> Vec<String> {
+  let mut out = Vec::new();
+  for item in &parsed.module.body {
+    let js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) = item else { continue };
+    for decl in &var.decls {
+      let Some(js::Expr::Call(call)) = decl.init.as_deref().map(unwrap_types) else { continue };
+      let js::Callee::Expr(callee) = &call.callee else { continue };
+      if !matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "defineModel") {
+        continue;
+      }
+      out.push(match call.args.first().map(|a| unwrap_types(&a.expr)) {
+        Some(js::Expr::Lit(js::Lit::Str(s))) => s.value.to_atom_lossy().to_string(),
+        _ => "modelValue".to_owned(),
+      });
+    }
+  }
+  out
+}
+
+/// A property key's name when it is written out.
+fn prop_name_of_key(key: &js::PropName) -> Option<String> {
+  match key {
+    js::PropName::Ident(i) => Some(i.sym.to_string()),
+    js::PropName::Str(s) => Some(s.value.to_atom_lossy().to_string()),
+    _ => None,
+  }
+}
+
 /// `child-card` as `ChildCard`, the binding a kebab-case tag resolves to.
 fn pascal(tag: &str) -> String {
   tag.split('-').map(|part| {
@@ -161,6 +190,8 @@ pub(crate) struct VueLowerer<'a, 'p> {
   calling: Vec<String>,
   /// The Vue children the template placed, for the set to resolve and lower.
   pub(crate) child_refs: Vec<ChildRef>,
+  /// The model of the `<select v-model>` the options being lowered sit in.
+  select_model: Option<Expr>,
   assets: Rc<dyn AssetResolver>,
   /// The head rows the template asks for, a priority image's preload.
   pub(crate) heads: Vec<HeadRow>,
@@ -191,7 +222,7 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, assets, heads: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -261,7 +292,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         if let js::Expr::Call(call) = &*e.expr {
           match self.callee(call) {
             Some((name, _)) if BROWSER_CALLS.contains(&name.as_str()) => return Ok(()),
-            Some((name, _)) if name == "defineModel" => return Err(self.lowerer.residue(call.span, "`defineModel`, which is `v-model` on the component; the build does not lower two-way binding")),
+            Some((name, _)) if name == "defineModel" => return Ok(()),
             _ => {}
           }
         }
@@ -407,7 +438,34 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             return Ok(());
           }
           "defineEmits" => return Ok(()),
-          "defineModel" => return Err(self.lowerer.residue(call.span, "`defineModel`, which is `v-model` on the component; the build does not lower two-way binding")),
+          "defineModel" => {
+            let (prop, options) = match call.args.first().map(|a| unwrap_types(&a.expr)) {
+              Some(js::Expr::Lit(js::Lit::Str(s))) => (s.value.to_atom_lossy().to_string(), call.args.get(1).map(|a| unwrap_types(&a.expr))),
+              Some(js::Expr::Object(_)) => ("modelValue".to_owned(), call.args.first().map(|a| unwrap_types(&a.expr))),
+              None => ("modelValue".to_owned(), None),
+              Some(other) => return Err(self.lowerer.residue(other.span(), "a `defineModel` name that is not a string literal")),
+            };
+            let read = Expr::Var("$props".to_owned()).field(prop);
+            let expr = match options {
+              Some(js::Expr::Object(obj)) => {
+                let default = obj.props.iter().find_map(|p| match p {
+                  js::PropOrSpread::Prop(p) => match &**p {
+                    js::Prop::KeyValue(kv) if prop_name_of_key(&kv.key).as_deref() == Some("default") => Some(&*kv.value),
+                    _ => None,
+                  },
+                  _ => None,
+                });
+                match default {
+                  Some(default) => Expr::Coalesce(Box::new(read), Box::new(self.lowerer.expr(default)?)),
+                  None => read,
+                }
+              }
+              _ => read,
+            };
+            self.lets.push(Stmt::Let { name: name.clone(), expr });
+            self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
+            return Ok(());
+          }
           "toRef" | "toRefs" | "customRef" | "useTemplateRef" | "useId" if from_vue => return Err(self.lowerer.residue(call.span, format!("`{callee}`"))),
           "inject" | "useAttrs" | "useSlots" if from_vue => return Err(self.lowerer.residue(call.span, format!("`{callee}`, which reads what a parent component provides; a lowered component has its props alone"))),
           _ => {}
@@ -568,6 +626,20 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     }
   }
 
+  /// An element's own `value`: the static attribute as text or `:value` as its expression.
+  fn own_value(&mut self, node: &Node) -> Lowered<Option<Expr>> {
+    for prop in &node.props {
+      if prop.prop == "attribute" && prop.name == "value" {
+        return Ok(Some(Expr::lit_str(prop.value.clone().unwrap_or_default())));
+      }
+      if prop.binds("value") {
+        let Some(exp) = &prop.exp else { return Ok(None) };
+        return Ok(Some(self.expr_at(exp, prop.exp_line, prop.exp_column)?));
+      }
+    }
+    Ok(None)
+  }
+
   /// `<Child :prop="x">content</Child>` with `Child` a `.vue` file the script imports: a `Tmpl::Component` named by the import's local name, which the set resolves, lowers and checks the attributes of.
   fn child_component(&mut self, node: &Node) -> Lowered<Tmpl> {
     let local = pascal(&node.tag);
@@ -589,6 +661,17 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       }
       match prop.name.as_str() {
         "if" | "else-if" | "else" | "for" | "on" => {}
+        "model" => {
+          let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-model` without a binding")) };
+          let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
+          let name = match (&prop.arg, prop.arg_static) {
+            (None, _) => "modelValue".to_owned(),
+            (Some(arg), true) => camel(arg),
+            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a `v-model` whose name is an expression")),
+          };
+          props.push(Entry::Field(name.clone(), value));
+          names.push(name);
+        }
         "bind" => {
           let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without a value")) };
           let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
@@ -690,6 +773,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     let mut styles: Vec<Expr> = Vec::new();
     let mut style_at: Option<usize> = None;
     let mut text: Option<Tmpl> = None;
+    let mut select_model: Option<Expr> = None;
     for prop in &node.props {
       if prop.prop == "attribute" {
         match prop.name.as_str() {
@@ -778,7 +862,28 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             attrs.len() - 1
           });
         }
-        "model" => return Err(self.at_with(prop.line, prop.column, "`v-model`", "bind `:value` for the markup and handle the input event in the browser; two-way binding is not lowered")),
+        "model" => {
+          let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-model` without a binding")) };
+          let model = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
+          let kind = node.props.iter().find(|p| p.prop == "attribute" && p.name == "type").and_then(|p| p.value.clone());
+          if node.props.iter().any(|p| p.binds("type")) {
+            return Err(self.at(prop.line, prop.column, "`v-model` on an input whose `type` is bound"));
+          }
+          match (node.tag.as_str(), kind.as_deref()) {
+            ("input", Some("checkbox")) => {
+              let own = self.own_value(node)?.unwrap_or(Expr::Lit(Lit::Null));
+              attrs.push(Entry::Field("checked".to_owned(), bound_attr(true, Expr::Builtin { name: Builtin::Checked, args: vec![model, own] })));
+            }
+            ("input", Some("radio")) => {
+              let Some(own) = self.own_value(node)? else { return Err(self.at(prop.line, prop.column, "a radio's `v-model` without a `value`")) };
+              attrs.push(Entry::Field("checked".to_owned(), bound_attr(true, Expr::Builtin { name: Builtin::LooseMatch, args: vec![model, own] })));
+            }
+            ("input", _) => attrs.push(Entry::Field("value".to_owned(), bound_attr(false, model))),
+            ("textarea", _) => text = Some(Tmpl::Expr(model)),
+            ("select", _) => select_model = Some(model),
+            (tag, _) => return Err(self.at(prop.line, prop.column, format!("`v-model` on `<{tag}>`"))),
+          }
+        }
         "slot" => return Err(self.at(prop.line, prop.column, "`v-slot` on an element")),
         "pre" => return Err(self.at(prop.line, prop.column, "`v-pre`")),
         other => return Err(self.at(prop.line, prop.column, format!("`v-{other}`, a directive the build does not read"))),
@@ -787,14 +892,26 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     if let Some(at) = style_at {
       attrs[at] = Entry::Field("style".to_owned(), Expr::Array(styles.into_iter().map(Entry::Item).collect()));
     }
+    if node.tag == "option" {
+      if let (Some(model), Some(own)) = (self.select_model.clone(), self.own_value(node)?) {
+        attrs.push(Entry::Field("selected".to_owned(), bound_attr(true, Expr::Builtin { name: Builtin::LooseMatch, args: vec![model, own] })));
+      }
+    }
     if let Some(scope) = &self.described.scope {
       attrs.push(Entry::Field(scope.clone(), Expr::Lit(Lit::Bool(true))));
     }
-    let children = match text {
-      Some(text) => vec![text],
-      None => self.children(&node.children)?,
+    let inner = match select_model {
+      Some(model) => Some(model),
+      None if node.tag == "select" => None,
+      None => self.select_model.clone(),
     };
-    Ok(Tmpl::Element { tag: node.tag.clone(), attrs, children })
+    let outer = std::mem::replace(&mut self.select_model, inner);
+    let children = match text {
+      Some(text) => Ok(vec![text]),
+      None => self.children(&node.children),
+    };
+    self.select_model = outer;
+    Ok(Tmpl::Element { tag: node.tag.clone(), attrs, children: children? })
   }
 }
 

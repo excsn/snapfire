@@ -219,6 +219,10 @@ pub enum Builtin {
   Search,
   /// `s.replaceAll(from, to)` with a string `from`.
   ReplaceAll,
+  /// A checkbox's `v-model`: whether an array model holds the box's value by Vue's loose equality, else whether the model is truthy.
+  Checked,
+  /// A radio's or an option's `v-model`: whether an array model holds the value, else whether the two are equal as text.
+  LooseMatch,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

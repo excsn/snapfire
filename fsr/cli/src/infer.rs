@@ -314,7 +314,7 @@ impl<'a> Inferer<'a> {
       }
       Expr::Builtin { name, args } => match name {
         Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max | Builtin::Pow | Builtin::Sqrt | Builtin::Trunc | Builtin::Sign | Builtin::IndexOf | Builtin::MinOf | Builtin::MaxOf | Builtin::DateMs | Builtin::DatePart => Ts::Num,
-        Builtin::HasKey | Builtin::RegexTest => Ts::Bool,
+        Builtin::HasKey | Builtin::RegexTest | Builtin::Checked | Builtin::LooseMatch => Ts::Bool,
         Builtin::Search => Ts::Num,
         Builtin::Match | Builtin::MatchAll => Ts::List(Box::new(Ts::Unknown)),
         Builtin::Unique => args.first().map(|a| non_null(self.expr(a, env))).unwrap_or(Ts::Unknown),

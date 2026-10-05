@@ -272,7 +272,7 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
       Ok(set) => panic!("{tag} should be residue: it lowered to {:?}", set.components.iter().map(|(m, _)| m).collect::<Vec<_>>()),
     }
   };
-  assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><input v-model=\"text\" /></template>\n"), "5:18: `v-model`", "the directive's own position, not its expression's");
+  assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
   assert_eq!(refused("Named", "<template><div><slot name=\"aside\" /></div></template>\n"), "1:22: `<slot name=\"aside\">`, a named slot; an island's children fill the default slot alone");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
   assert!(refused("Options", "<script>\nexport default { data() { return {}; } };\n</script>\n<template><p /></template>\n").ends_with("a `<script>` without `setup`"));
@@ -286,14 +286,14 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
 fn a_page_placing_a_described_component_that_does_not_lower_keeps_it_foreign_and_says_why() {
   let compiler = Compiler::new().expect("the compiler boots");
   let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Box from \"@src/ui/Box.vue\";\nexport default function Page() {\n  return <main><Island><Box /></Island></main>;\n}\n";
-  let dir = app("page", &[("routes/page.tsx", page), ("src/ui/Box.vue", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><input v-model=\"text\" /></template>\n")]);
+  let dir = app("page", &[("routes/page.tsx", page), ("src/ui/Box.vue", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n")]);
   let mut set = ComponentSet::new(&dir);
   set.describe("src/ui/Box.vue", describe(&compiler, "src/ui/Box.vue", &std::fs::read_to_string(dir.join("src/ui/Box.vue")).unwrap()));
   set.lower("routes/page.tsx#default").expect("the page lowers with the box foreign");
   assert_eq!(set.foreign, vec!["src/ui/Box.vue#default".to_owned()]);
   let (module, residue) = &set.foreign_residue[0];
   assert_eq!(module, "src/ui/Box.vue#default");
-  assert_eq!((residue.line, residue.message.as_str()), (5, "`v-model`"));
+  assert_eq!((residue.line, residue.message.as_str()), (5, "`v-model` on `<div>`"));
   assert!(!set.components.iter().any(|(m, _)| m == "src/ui/Box.vue#default"));
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -737,5 +737,89 @@ fn a_scoped_parent_placing_a_child_of_several_roots_renders_as_vue_does() {
   let dir = app("scoped_fragment", &[("src/ui/Row.vue", parent), ("src/ui/Pair.vue", PAIR)]);
   let files = [("src/ui/Row.vue", "", parent), ("src/ui/Pair.vue", "Pair.vue", PAIR)];
   agree_tree(&compiler, &dir, &files, "src/ui/Row.vue", &ValueMap::default());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const FORM: &str = r#"<script setup lang="ts">
+import { ref } from "vue";
+const props = defineProps<{ name: string; agree: boolean; picks: string[]; size: string; count: number; note: string }>();
+const name = ref(props.name);
+const agree = ref(props.agree);
+const picks = ref(props.picks);
+const size = ref(props.size);
+const count = ref(props.count);
+const note = ref(props.note);
+</script>
+
+<template>
+  <form>
+    <input class="name" v-model="name" />
+    <input type="number" v-model.number="count" />
+    <input type="checkbox" class="agree" v-model="agree" />
+    <input type="checkbox" value="pear" v-model="picks" />
+    <input type="checkbox" value="fig" v-model="picks" />
+    <input type="radio" value="s" v-model="size" />
+    <input type="radio" :value="'l'" v-model="size" />
+    <textarea v-model="note"></textarea>
+    <select v-model="size"><option value="s">Small</option><option>l</option></select>
+    <select v-model="picks" multiple><option value="pear">Pear</option><option value="fig">Fig</option></select>
+  </form>
+</template>
+"#;
+
+#[test]
+fn v_model_renders_the_value_vue_writes() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("form", &[]);
+  for (agreed, picks, size) in [(true, vec!["fig"], "l"), (false, vec![], "s")] {
+    let given = props(&[
+      ("name", Value::str("Ada \"A\"")),
+      ("agree", Value::Bool(agreed)),
+      ("picks", Value::seq(picks.iter().map(|p| Value::str(*p)).collect::<Vec<_>>())),
+      ("size", Value::str(size)),
+      ("count", Value::F64(3.0)),
+      ("note", Value::str("a <note>")),
+    ]);
+    agree(&compiler, &dir, "src/ui/Form.vue", FORM, &given, "");
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const FIELD: &str = r#"<script setup lang="ts">
+const model = defineModel<string>();
+const title = defineModel<string>("title", { default: "Untitled" });
+</script>
+
+<template>
+  <label><span>{{ title }}</span><input v-model="model" /></label>
+</template>
+"#;
+
+const EDITOR: &str = r#"<script setup lang="ts">
+import { ref } from "vue";
+import Field from "./Field.vue";
+const props = defineProps<{ draft: string; heading?: string }>();
+const text = ref(props.draft);
+const title = ref(props.heading);
+</script>
+
+<template>
+  <div><Field v-model="text" /><Field v-model="text" v-model:title="title" /></div>
+</template>
+"#;
+
+#[test]
+fn v_model_on_a_child_and_define_model_in_it_render_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("models", &[("src/ui/Editor.vue", EDITOR), ("src/ui/Field.vue", FIELD)]);
+  let files = [("src/ui/Editor.vue", "", EDITOR), ("src/ui/Field.vue", "Field.vue", FIELD)];
+  for heading in [None, Some("Notes")] {
+    let mut given = props(&[("draft", Value::str("hello"))]);
+    if let Some(heading) = heading {
+      given.insert("heading".to_owned(), Value::str(heading));
+    }
+    let html = agree_tree(&compiler, &dir, &files, "src/ui/Editor.vue", &given);
+    assert!(html.contains("value=\"hello\""), "{html}");
+  }
   std::fs::remove_dir_all(&dir).unwrap();
 }
