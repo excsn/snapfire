@@ -7,6 +7,8 @@ export interface Sf {
   calls(id: number): string;
   render(module: string, props: string): string | null;
   load(html: string, url: string): void;
+  /** Evaluates the application's entry module again, as a browser does on every page it loads; absent when the application has none. */
+  entry?(load: number): Promise<unknown>;
   idle(): Promise<void>;
   advance(ms: number): Promise<void>;
 }

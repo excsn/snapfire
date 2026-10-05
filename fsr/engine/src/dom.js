@@ -340,6 +340,60 @@ if (typeof globalThis.CSSStyleSheet !== "function") {
     }
   };
 }
+// QuickJS has no abort controller. htmx 4 makes one for every request; the runner's fetch answers before any abort could reach it, so a signal only records that it was aborted.
+if (typeof globalThis.AbortController !== "function") {
+  class AbortSignal {
+    constructor() {
+      this.aborted = false;
+      this.reason = undefined;
+      this.onabort = null;
+      this.listeners = [];
+    }
+    addEventListener(type, listener) {
+      if (type === "abort") this.listeners.push(listener);
+    }
+    removeEventListener(type, listener) {
+      if (type === "abort") this.listeners = this.listeners.filter((held) => held !== listener);
+    }
+    throwIfAborted() {
+      if (this.aborted) throw this.reason;
+    }
+    static abort(reason) {
+      const controller = new AbortController();
+      controller.abort(reason);
+      return controller.signal;
+    }
+    static timeout(ms) {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new Error("signal timed out")), ms);
+      return controller.signal;
+    }
+    static any(signals) {
+      const controller = new AbortController();
+      for (const signal of signals) {
+        if (signal.aborted) controller.abort(signal.reason);
+        else signal.addEventListener("abort", () => controller.abort(signal.reason));
+      }
+      return controller.signal;
+    }
+  }
+  class AbortController {
+    constructor() {
+      this.signal = new AbortSignal();
+    }
+    abort(reason = new Error("aborted")) {
+      const signal = this.signal;
+      if (signal.aborted) return;
+      signal.aborted = true;
+      signal.reason = reason;
+      const event = { type: "abort", target: signal };
+      if (typeof signal.onabort === "function") signal.onabort(event);
+      for (const listener of signal.listeners) listener(event);
+    }
+  }
+  globalThis.AbortSignal = AbortSignal;
+  globalThis.AbortController = AbortController;
+}
 if (!("adoptedStyleSheets" in documentProto)) {
   const ADOPTED = new WeakMap();
   Object.defineProperty(documentProto, "adoptedStyleSheets", {

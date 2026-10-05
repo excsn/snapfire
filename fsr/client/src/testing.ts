@@ -791,7 +791,10 @@ export function cleanup(): void {
   document.body.innerHTML = "";
 }
 
-/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, navigation enabled, so a click on a link is a client navigation. The islands of the page showing until now are ended first, as leaving a page ends them in a browser. Needs the configuration beside the app, since the host that renders is the one that serves. */
+/** How many documents `load` has installed, which names each evaluation of the entry module. */
+let loads = 0;
+
+/** Loads a route the way a browser does: the document the host renders for `path` under `ctx`, its islands mounted, the application's entry module evaluated again and navigation enabled, so a click on a link is a client navigation and whatever the entry wires is wired to this document. The islands of the page showing until now are ended first, as leaving a page ends them in a browser. Needs the configuration beside the app, since the host that renders is the one that serves. */
 export async function load(path: string, options: { ctx?: TestCtx } = {}): Promise<{ status: number; path: string }> {
   sf().use(options.ctx?.id ?? 0);
   let res = await fetch(path);
@@ -808,6 +811,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   clearRouterCache();
   reset();
   const late = applyFills();
+  await sf().entry?.(++loads);
   boot();
   enableNavigation();
   for (const run of late) run();

@@ -68,13 +68,53 @@ globalThis.console = {
   },
 };
 
+/** A browser's `Headers`: names case-insensitive, iterable as `[name, value]` pairs with the names lower-cased. */
+class Headers {
+  constructor(init) {
+    this.map = new Map();
+    if (!init) return;
+    const pairs = init instanceof Headers || Array.isArray(init) ? init : Object.entries(init);
+    for (const [k, v] of pairs) this.append(k, v);
+  }
+  append(name, value) {
+    const k = String(name).toLowerCase();
+    this.map.set(k, this.map.has(k) ? `${this.map.get(k)}, ${value}` : String(value));
+  }
+  set(name, value) {
+    this.map.set(String(name).toLowerCase(), String(value));
+  }
+  get(name) {
+    return this.map.get(String(name).toLowerCase()) ?? null;
+  }
+  has(name) {
+    return this.map.has(String(name).toLowerCase());
+  }
+  delete(name) {
+    this.map.delete(String(name).toLowerCase());
+  }
+  forEach(fn) {
+    for (const [k, v] of this.map) fn(v, k, this);
+  }
+  entries() {
+    return this.map.entries();
+  }
+  keys() {
+    return this.map.keys();
+  }
+  values() {
+    return this.map.values();
+  }
+  [Symbol.iterator]() {
+    return this.map.entries();
+  }
+}
+if (typeof globalThis.Headers !== "function") globalThis.Headers = Headers;
+
 globalThis.fetch = (url, init = {}) =>
   new Promise((resolve, reject) => {
     const body = init.body === undefined || init.body === null ? null : String(init.body);
     const headers = [];
-    const given = init.headers || {};
-    const entries = Array.isArray(given) ? given : Object.entries(given);
-    for (const [k, v] of entries) headers.push(String(k), String(v));
+    for (const [k, v] of new Headers(init.headers)) headers.push(k, v);
     const id = __sf_fetch(String(url), String(init.method || "GET").toUpperCase(), body, headers);
     pending.set(id, { resolve, reject });
   });
@@ -90,7 +130,7 @@ globalThis.__sf_complete = (id, status, body, headers) => {
     ok: status < 400,
     status,
     statusText: "",
-    headers: { get: (name) => (pairs.find(([k]) => k.toLowerCase() === String(name).toLowerCase()) || [null, null])[1] },
+    headers: new Headers(pairs),
     json: async () => JSON.parse(body),
     text: async () => body,
   });

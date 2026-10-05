@@ -955,7 +955,7 @@ Makes htmx and the client aware of each other's markup, in both directions. Retu
 
 On `htmx:after:settle`, htmx 4's settle event, or `htmx:afterSettle`, htmx 2's, on `document.body`: `adopt()` reads every store seed nothing has read yet, since a fragment ends with the same inert seed script a document carries, then `scan(document)` mounts any island the swapped markup placed.
 
-On `sf:navigate` and `sf:fill`, on `document`: `htmx.process(document.body)`, so htmx wires the `hx-` attributes in markup the navigator wrote. Without this direction a form or an anchor reached by a soft navigation is markup htmx never processed, so the browser submits or follows it natively.
+Once as it binds and then on `sf:navigate` and `sf:fill` on `document`: `htmx.process(document.body)`, so htmx wires the `hx-` attributes in markup the navigator wrote. htmx leaves an element it already processed alone. Without this direction a form or an anchor reached by a soft navigation is markup htmx never processed, so the browser submits or follows it natively.
 
 ## 14. The Standard Library
 
@@ -1087,7 +1087,7 @@ The request an action runs under when a rendered page calls it or a route loads.
 
 * `load(path: string, options?: { ctx?: TestCtx }): Promise<{ status: number; path: string }>`
 
-Fetches the document the stock host renders for `path`, following up to five redirects, ends the islands of the page showing until now, installs the new document, mounts its islands and enables navigation. Throws when the response is not a document.
+Fetches the document the stock host renders for `path`, following up to five redirects, ends the islands of the page showing until now, installs the new document, evaluates the application's entry module again as a browser does on every page, so what it wires is wired to this document, mounts its islands and enables navigation. Throws when the response is not a document.
 
 ### Queries
 

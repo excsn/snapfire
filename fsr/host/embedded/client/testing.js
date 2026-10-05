@@ -638,6 +638,7 @@ export function cleanup() {
     discard(document.body);
     document.body.innerHTML = "";
 }
+let loads = 0;
 export async function load(path, options = {}) {
     sf().use(options.ctx?.id ?? 0);
     let res = await fetch(path);
@@ -654,6 +655,7 @@ export async function load(path, options = {}) {
     clearRouterCache();
     reset();
     const late = applyFills();
+    await sf().entry?.(++loads);
     boot();
     enableNavigation();
     for (const run of late)run();

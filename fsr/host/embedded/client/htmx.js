@@ -13,6 +13,7 @@ export function bindHtmx(htmx) {
     for (const name of SETTLED)document.body.addEventListener(name, settled);
     document.addEventListener("sf:navigate", rewire);
     document.addEventListener("sf:fill", rewire);
+    rewire();
     return ()=>{
         for (const name of SETTLED)document.body.removeEventListener(name, settled);
         document.removeEventListener("sf:navigate", rewire);

@@ -116,7 +116,7 @@ pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], g
     }
   }
   if let Some(entry) = entry_module(&app) {
-    boot_source.push_str(&format!("import \"./dist/src/{entry}.js\";\n"));
+    boot_source.push_str(&format!("import \"./dist/src/{entry}.js\";\nglobalThis.__sf.entry = (load) => import(`./dist/src/{entry}.js?load=${{load}}`);\n"));
   }
   std::fs::write(&boot, boot_source).map_err(|e| BuildError::Io(boot.clone(), e))?;
   Ok(Prepared { app, test_dir, dist, resolution, dom, boot })

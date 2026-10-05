@@ -97,8 +97,11 @@ fn normalise(path: &Path) -> String {
 struct FileLoader;
 
 impl Loader for FileLoader {
+  /// A query on a path names another instance of the file's module, which
+  /// evaluates again: `main.js?load=2` is read from `main.js`.
   fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _attributes: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<Module<'js>> {
-    let source = std::fs::read_to_string(name).map_err(|e| Exception::throw_message(ctx, &format!("{name}: {e}")))?;
+    let path = name.split_once('?').map(|(path, _)| path).unwrap_or(name);
+    let source = std::fs::read_to_string(path).map_err(|e| Exception::throw_message(ctx, &format!("{name}: {e}")))?;
     Module::declare(ctx.clone(), name, source)
   }
 }

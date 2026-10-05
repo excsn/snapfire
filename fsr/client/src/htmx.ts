@@ -12,7 +12,8 @@ export interface HtmxProcessor {
  * carried and mounts any island it placed; after the navigator applies a
  * payload htmx processes what it wrote, without which a form or an anchor
  * reached by a soft navigation is markup htmx never saw and the browser
- * follows it natively.
+ * follows it natively. The document is processed once as it binds; htmx
+ * leaves an element it already processed alone.
  *
  * htmx 4 names the settle event `htmx:after:settle` and htmx 2
  * `htmx:afterSettle`; each fires only its own, so both are heard.
@@ -30,6 +31,7 @@ export function bindHtmx(htmx: HtmxProcessor): () => void {
   for (const name of SETTLED) document.body.addEventListener(name, settled);
   document.addEventListener("sf:navigate", rewire);
   document.addEventListener("sf:fill", rewire);
+  rewire();
   return () => {
     for (const name of SETTLED) document.body.removeEventListener(name, settled);
     document.removeEventListener("sf:navigate", rewire);
