@@ -223,6 +223,7 @@ fn every_manifest() -> Manifest {
     body: body.clone(),
     render: Tmpl::Fragment(every_tmpl()),
     state: vec!["count".to_owned(), "open".to_owned()],
+    stores: Vec::new(),
     handlers: vec![
       Handler { event: "click".to_owned(), body: body.clone() },
       Handler { event: "submit".to_owned(), body: Vec::new() },

@@ -1,5 +1,5 @@
 import { adoptCatalog, adoptLocale } from "./locale.js";
-import { isServerIsland, mountServer, patchServer } from "./server.js";
+import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt } from "./store.js";
 import { decodeValue } from "./values.js";
 const mounted = new WeakMap();
@@ -66,6 +66,7 @@ export function discard(root) {
     for (const el of markers.reverse()){
         pending.get(el)?.();
         pending.delete(el);
+        endServer(el);
         const island = mounted.get(el);
         if (!island) continue;
         island.gone = true;

@@ -4304,6 +4304,7 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
     body: Vec::new(),
     render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] },
     state: Vec::new(),
+    stores: Vec::new(),
     handlers: Vec::new(),
     owner: snapfire_fsr_ir::Owner::React,
     shadow: None,
@@ -4330,6 +4331,7 @@ fn a_lowered_island_step_runs_a_handler_branch_both_ways() {
     body: vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Int(0)) }, Stmt::Let { name: "open".to_owned(), expr: Expr::Lit(Lit::Bool(false)) }],
     render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(n())] },
     state: vec!["n".to_owned(), "open".to_owned()],
+    stores: Vec::new(),
     handlers: vec![Handler {
       event: "click".to_owned(),
       body: vec![
@@ -4374,6 +4376,7 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
     body: vec![Stmt::Let { name: "x".to_owned(), expr: Expr::var("$props").field("start") }],
     render: Tmpl::Element { tag: "i".to_owned(), attrs: vec![Entry::Field("$on:click".to_owned(), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("x"))] },
     state: vec!["x".to_owned()],
+    stores: Vec::new(),
     handlers: vec![bump("x")],
     owner: snapfire_fsr_ir::Owner::React,
     shadow: None,
@@ -4386,6 +4389,7 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
       children: vec![Tmpl::Component { module: "src/Inner.tsx#Inner".to_owned(), props: vec![Entry::Field("start".to_owned(), Expr::var("n"))], children: Vec::new(), id: 1, keyed: true }],
     },
     state: vec!["n".to_owned()],
+    stores: Vec::new(),
     handlers: vec![bump("n")],
     owner: snapfire_fsr_ir::Owner::React,
     shadow: None,

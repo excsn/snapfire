@@ -108,6 +108,8 @@ pub(crate) struct VueLowerer<'a, 'p> {
   described: &'a Described,
   lets: Vec<Stmt>,
   state: Vec<String>,
+  /// The `useStore` bindings among `state`, with the key each reads.
+  stores: Vec<(String, String)>,
   /// How the template reads each name the script bound: a `ref` unwrapped,
   /// a store holder through `.value`.
   template_scope: Vec<(String, Expr)>,
@@ -141,13 +143,13 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), template_scope: Vec::new(), assets, heads: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), assets, heads: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
     self.script()?;
     let render = self.template()?;
-    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), handlers: Vec::new(), owner: Owner::Vue, shadow: None })
+    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: Vec::new(), owner: Owner::Vue, shadow: None })
   }
 
   fn at(&self, line: usize, column: usize, message: impl Into<String>) -> Residue {
@@ -339,8 +341,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
               Some(a) => self.lowerer.expr(&a.expr)?,
               None => Expr::Lit(Lit::Null),
             };
-            self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Store(key)), Box::new(initial)) });
+            self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Store(key.clone())), Box::new(initial)) });
             self.state.push(name.clone());
+            self.stores.push((name.clone(), key));
             self.bind(name.clone(), Self::holder(&name), Self::holder(&name));
             return Ok(());
           }

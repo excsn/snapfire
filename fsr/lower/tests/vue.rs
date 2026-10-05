@@ -60,7 +60,7 @@ fn lower(compiler: &Compiler, dir: &Path, file: &str, source: &str) -> Result<Co
 /// A page placing `module` as an island with `props` and `children`, the way a
 /// template does, so the render writes the island's markup with its region.
 fn host(module: &str, children: Vec<Tmpl>) -> Component {
-  Component { body: Vec::new(), render: Tmpl::Island { module: module.to_owned(), props: vec![Entry::Spread(Expr::var("$props"))], children, when: None, mode: None, id: 0, define: false }, state: Vec::new(), handlers: Vec::new(), owner: Owner::Fsr, shadow: None }
+  Component { body: Vec::new(), render: Tmpl::Island { module: module.to_owned(), props: vec![Entry::Spread(Expr::var("$props"))], children, when: None, mode: None, id: 0, define: false }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: Owner::Fsr, shadow: None }
 }
 
 fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec<Tmpl>) -> String {

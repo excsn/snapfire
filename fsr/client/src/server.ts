@@ -1,5 +1,6 @@
 import { patchIsland, type Props } from "./boot.js";
 import { refresh } from "./navigator.js";
+import { get, key, set, subscribe, transaction } from "./store.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
 /** An island in server mode: the browser holds its props and state, every event round-trips to the server and the markup that comes back is patched into place. No component code runs here. `state` is kept encoded, exactly as the server wrote it, since decoding a double and encoding it again would hand back an integer: JavaScript has one number type and the tag is the only thing that says which this was. */
@@ -9,10 +10,23 @@ interface ServerIsland {
   state: unknown;
   pending: boolean;
   listening: Set<string>;
+  /** The store keys the component reads, sent with each step. */
+  reads: string[];
+  /** Set when another island writes a key this one reads while a step of its own is out, so it steps again once that one lands. */
+  stale: boolean;
+  /** Set while the island sets the keys its own step wrote, which it already rendered from. */
+  applying: boolean;
+  unsubscribe: (() => void)[];
 }
 
 /** The props key the initial state arrives under. */
 const STATE_PROP = "$s";
+
+/** The props key the store keys the component reads arrive under. */
+const READS_PROP = "$sk";
+
+/** The props key a step carries the browser's values of those keys under. */
+const STORE_PROP = "$store";
 
 const islands = new WeakMap<Element, ServerIsland>();
 
@@ -32,9 +46,18 @@ export function isServerIsland(el: Element): boolean {
  */
 export function mountServer(el: Element, module: string, encoded: unknown): void {
   const carried = (encoded ?? {}) as { [key: string]: unknown };
-  const { [STATE_PROP]: state, ...props } = carried;
-  const island: ServerIsland = { module, props, state: state ?? {}, pending: false, listening: new Set() };
+  const { [STATE_PROP]: state, [READS_PROP]: reads, ...props } = carried;
+  const island: ServerIsland = { module, props, state: state ?? {}, pending: false, listening: new Set(), reads: Array.isArray(reads) ? reads.map(String) : [], stale: false, applying: false, unsubscribe: [] };
   islands.set(el, island);
+  for (const read of island.reads) {
+    island.unsubscribe.push(
+      subscribe(read, () => {
+        if (island.applying) return;
+        if (island.pending) island.stale = true;
+        else void step(el, island, null, null);
+      }),
+    );
+  }
   // A marker the renderer left empty: the component was placed by something
   // that cannot render it, a template of another tier for one, so the first
   // render is a step of its own. A marker the server filled is left alone.
@@ -50,10 +73,28 @@ export async function patchServer(el: Element, props: Props, encoded?: unknown):
   const island = islands.get(el);
   if (!island) return false;
   const carried = (encoded ?? encodeValue(props as SfValue)) as { [key: string]: unknown };
-  const { [STATE_PROP]: _initial, ...own } = carried;
+  const { [STATE_PROP]: _initial, [READS_PROP]: _reads, ...own } = carried;
   island.props = own;
   await step(el, island, null, null);
   return true;
+}
+
+/** Forgets the server island mounted at `el` and stops it following the store, as `discard` does for a mounted root. */
+export function endServer(el: Element): void {
+  const island = islands.get(el);
+  if (!island) return;
+  for (const stop of island.unsubscribe) stop();
+  islands.delete(el);
+}
+
+/** The browser's value of each store key the island reads, encoded for the step. */
+function storeFor(island: ServerIsland): { [key: string]: unknown } {
+  const out: { [key: string]: unknown } = {};
+  for (const read of island.reads) {
+    const value = get(key(read));
+    if (value !== undefined) out[read] = encodeValue(value as SfValue);
+  }
+  return out;
 }
 
 function eventsBound(el: Element): Set<string> {
@@ -109,23 +150,39 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
     // Everything but the state is encoded here; the state is already the
     // server's own encoding, carried back untouched so a double stays one.
     const named = handler !== null && !/^\d+$/.test(handler);
-    const body = JSON.stringify({ props: island.props, state: island.state, handler: handler === null || named ? handler : Number(handler), event: encodeValue(event as SfValue) });
+    const props = island.reads.length === 0 ? island.props : { ...island.props, [STORE_PROP]: storeFor(island) };
+    const body = JSON.stringify({ props, state: island.state, handler: handler === null || named ? handler : Number(handler), event: encodeValue(event as SfValue) });
     const res = await fetch(`/_sf/island/${encodeURIComponent(island.module)}`, { method: "POST", headers, body });
     const text = await res.text();
     if (!res.ok) {
       console.warn(`sf: island ${island.module} step failed with ${res.status}: ${text}`);
       return;
     }
-    const answer = JSON.parse(text) as { state: unknown; html: string; revalidate?: boolean };
+    const answer = JSON.parse(text) as { state: unknown; store?: { [key: string]: unknown }; html: string; revalidate?: boolean };
     island.state = answer.state;
     morph(el, answer.html);
     listen(el, island);
+    const written = Object.entries(answer.store ?? {});
+    if (written.length > 0) {
+      island.applying = true;
+      try {
+        transaction(() => {
+          for (const [k, v] of written) set(key(k), decodeValue(v as SfValue));
+        });
+      } finally {
+        island.applying = false;
+      }
+    }
     // The handler called an action and the host ran it before answering, so
     // the page's data may have moved: refresh the way a browser-mode call does.
     if (answer.revalidate) await refresh();
   } finally {
     island.pending = false;
     el.removeAttribute("data-sf-pending");
+  }
+  if (island.stale && islands.get(el) === island) {
+    island.stale = false;
+    await step(el, island, null, null);
   }
 }
 

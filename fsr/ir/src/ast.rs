@@ -210,7 +210,9 @@ fn is_zero(n: &u32) -> bool {
 
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
 /// `state` names the `let`s the browser can change, `useState` and `useStore`
-/// bindings in order; `handlers` are its event handlers as bodies, for an
+/// bindings in order, and `stores` the `useStore` bindings among them with the
+/// store key each reads, which a server-mode island reads and writes through
+/// the store rather than holding; `handlers` are its event handlers as bodies, for an
 /// island in server mode, each returning the state it sets. `owner` is what
 /// renders the component in the browser, if anything does. `shadow` is the
 /// shadow root an element template declares with its root
@@ -223,6 +225,8 @@ pub struct Component {
   pub render: Tmpl,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub state: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stores: Vec<(String, String)>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<Handler>,
   pub owner: Owner,
@@ -240,6 +244,8 @@ struct ComponentRepr {
   render: Tmpl,
   #[serde(default)]
   state: Vec<String>,
+  #[serde(default)]
+  stores: Vec<(String, String)>,
   #[serde(default)]
   handlers: Vec<Handler>,
   #[serde(default)]
@@ -263,7 +269,7 @@ impl TryFrom<ComponentRepr> for Component {
       (None, Some(other)) => return Err(format!("`hydrate` is a boolean or a word, not {other}")),
       (None, None) => Owner::React,
     };
-    Ok(Component { body: repr.body, render: repr.render, state: repr.state, handlers: repr.handlers, owner, shadow: repr.shadow })
+    Ok(Component { body: repr.body, render: repr.render, state: repr.state, stores: repr.stores, handlers: repr.handlers, owner, shadow: repr.shadow })
   }
 }
 
@@ -353,7 +359,12 @@ pub struct Handler {
 
 impl Component {
   pub fn new(owner: Owner, body: Body, render: Tmpl) -> Self {
-    Self { body, render, state: Vec::new(), handlers: Vec::new(), owner, shadow: None }
+    Self { body, render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner, shadow: None }
+  }
+
+  /// The store key `name` reads when it is a `useStore` binding.
+  pub fn store_key(&self, name: &str) -> Option<&str> {
+    self.stores.iter().find(|(binding, _)| binding == name).map(|(_, key)| key.as_str())
   }
 }
 

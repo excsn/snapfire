@@ -247,12 +247,13 @@ fn shadow_root() -> BoxedStrategy<snapfire_fsr_ir::ShadowRoot> {
 }
 
 fn component() -> BoxedStrategy<Component> {
-  (body(), tmpl(), prop::collection::vec(text(), 0..3),
+  (body(), tmpl(), prop::collection::vec(text(), 0..3), prop::collection::vec((text(), text()), 0..2),
    prop::collection::vec((text(), body()), 0..3), 0u8..3, prop::option::of(shadow_root()))
-    .prop_map(|(body, render, state, handlers, hydrate, shadow)| Component {
+    .prop_map(|(body, render, state, stores, handlers, hydrate, shadow)| Component {
       body,
       render,
       state,
+      stores,
       handlers: handlers.into_iter().map(|(event, body)| Handler { event, body }).collect(),
       owner: match hydrate {
         0 => snapfire_fsr_ir::Owner::Fsr,

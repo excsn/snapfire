@@ -544,7 +544,7 @@ impl ComponentSet {
         lowerer.hoisting = (!element_template).then(Candidates::default);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new() };
         let result = cl.component(&function);
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
@@ -646,7 +646,7 @@ impl ComponentSet {
       },
       _ => render,
     };
-    let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, owner, shadow: component.shadow };
+    let mut component = Component { body: component.body, render, state: component.state, stores: component.stores, handlers: component.handlers, owner, shadow: component.shadow };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
       return Err(LowerError::Residue(Residue {
@@ -1711,6 +1711,8 @@ struct ComponentLowerer<'a, 'p> {
   hook: Option<Hook>,
   /// The `useState` and `useStore` bindings, in order: a server-mode island's state.
   state_bindings: Vec<String>,
+  /// The `useStore` bindings among `state_bindings`, with the key each reads.
+  store_bindings: Vec<(String, String)>,
   /// Each setter and the state it sets.
   setters: Vec<(String, String)>,
   /// Handler functions declared in the component, by name, for `onClick={add}`.
@@ -1888,7 +1890,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None }, std::mem::take(&mut self.refs)))
+    Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None }, std::mem::take(&mut self.refs)))
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
@@ -2062,6 +2064,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     self.state.push(name.clone());
     self.state_bindings.push(name.clone());
+    self.store_bindings.push((name.clone(), key.clone()));
     self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
     Ok(Some(Stmt::Let { name, expr: Expr::Coalesce(Box::new(Expr::Store(key)), Box::new(initial)) }))
   }
@@ -3787,6 +3790,7 @@ export default function Order({ id }: { id: number }) {
       ],
       "a key() through an import and a literal both lower to the key"
     );
+    assert_eq!(component.stores, [("items".to_owned(), "cart/count".to_owned()), ("name".to_owned(), "user/name".to_owned())], "each binding is recorded with the key it reads");
     let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
     assert!(plain(attrs).is_empty(), "the setter is a handler: {attrs:?}");
   }

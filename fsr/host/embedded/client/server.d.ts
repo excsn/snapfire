@@ -13,6 +13,8 @@ export declare function isServerIsland(el: Element): boolean;
 export declare function mountServer(el: Element, module: string, encoded: unknown): void;
 /** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. */
 export declare function patchServer(el: Element, props: Props, encoded?: unknown): Promise<boolean>;
+/** Forgets the server island mounted at `el` and stops it following the store, as `discard` does for a mounted root. */
+export declare function endServer(el: Element): void;
 /** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
 export declare function morph(el: Element, html: string): void;
 /** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. `drop` is told of each node the walk is about to remove, before it goes. */

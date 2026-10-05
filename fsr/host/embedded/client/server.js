@@ -1,22 +1,36 @@
 import { patchIsland } from "./boot.js";
 import { refresh } from "./navigator.js";
+import { get, key, set, subscribe, transaction } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 const STATE_PROP = "$s";
+const READS_PROP = "$sk";
+const STORE_PROP = "$store";
 const islands = new WeakMap();
 export function isServerIsland(el) {
     return islands.has(el);
 }
 export function mountServer(el, module, encoded) {
     const carried = encoded ?? {};
-    const { [STATE_PROP]: state, ...props } = carried;
+    const { [STATE_PROP]: state, [READS_PROP]: reads, ...props } = carried;
     const island = {
         module,
         props,
         state: state ?? {},
         pending: false,
-        listening: new Set()
+        listening: new Set(),
+        reads: Array.isArray(reads) ? reads.map(String) : [],
+        stale: false,
+        applying: false,
+        unsubscribe: []
     };
     islands.set(el, island);
+    for (const read of island.reads){
+        island.unsubscribe.push(subscribe(read, ()=>{
+            if (island.applying) return;
+            if (island.pending) island.stale = true;
+            else void step(el, island, null, null);
+        }));
+    }
     if (!el.firstElementChild) {
         void step(el, island, null, null);
         return;
@@ -27,10 +41,24 @@ export async function patchServer(el, props, encoded) {
     const island = islands.get(el);
     if (!island) return false;
     const carried = encoded ?? encodeValue(props);
-    const { [STATE_PROP]: _initial, ...own } = carried;
+    const { [STATE_PROP]: _initial, [READS_PROP]: _reads, ...own } = carried;
     island.props = own;
     await step(el, island, null, null);
     return true;
+}
+export function endServer(el) {
+    const island = islands.get(el);
+    if (!island) return;
+    for (const stop of island.unsubscribe)stop();
+    islands.delete(el);
+}
+function storeFor(island) {
+    const out = {};
+    for (const read of island.reads){
+        const value = get(key(read));
+        if (value !== undefined) out[read] = encodeValue(value);
+    }
+    return out;
 }
 function eventsBound(el) {
     const types = new Set();
@@ -84,8 +112,12 @@ async function step(el, island, handler, event) {
         };
         if (typeof window !== "undefined") headers["x-sf-from"] = `${window.location.pathname}${window.location.search}`;
         const named = handler !== null && !/^\d+$/.test(handler);
+        const props = island.reads.length === 0 ? island.props : {
+            ...island.props,
+            [STORE_PROP]: storeFor(island)
+        };
         const body = JSON.stringify({
-            props: island.props,
+            props,
             state: island.state,
             handler: handler === null || named ? handler : Number(handler),
             event: encodeValue(event)
@@ -104,10 +136,25 @@ async function step(el, island, handler, event) {
         island.state = answer.state;
         morph(el, answer.html);
         listen(el, island);
+        const written = Object.entries(answer.store ?? {});
+        if (written.length > 0) {
+            island.applying = true;
+            try {
+                transaction(()=>{
+                    for (const [k, v] of written)set(key(k), decodeValue(v));
+                });
+            } finally{
+                island.applying = false;
+            }
+        }
         if (answer.revalidate) await refresh();
     } finally{
         island.pending = false;
         el.removeAttribute("data-sf-pending");
+    }
+    if (island.stale && islands.get(el) === island) {
+        island.stale = false;
+        await step(el, island, null, null);
     }
 }
 export function morph(el, html) {

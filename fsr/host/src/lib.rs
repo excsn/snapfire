@@ -3806,15 +3806,19 @@ fn shares_layouts(intercept: &PlanNode, from: &PlanNode) -> bool {
 /// the actions the handler called, in order, for the caller to dispatch.
 pub struct IslandStep {
   pub state: ValueMap,
+  /// The store keys the handler wrote, with their values.
+  pub store: ValueMap,
   pub html: String,
   pub acts: Vec<(String, Value)>,
 }
 
 impl IslandStep {
-  /// The JSON a step answers with: `{ state, html, revalidate }`, the last
-  /// true when an action ran, so the browser refreshes the page's data.
+  /// The JSON a step answers with: `{ state, store, html, revalidate }`,
+  /// `store` the keys the handler wrote for the browser to set and
+  /// `revalidate` true when an action ran, so the browser refreshes the
+  /// page's data.
   pub fn json(&self) -> serde_json::Value {
-    serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(self.state.clone())), "html": self.html, "revalidate": !self.acts.is_empty() })
+    serde_json::json!({ "state": snapfire_fsr_payload::value_to_json(&Value::Map(self.state.clone())), "store": snapfire_fsr_payload::value_to_json(&Value::Map(self.store.clone())), "html": self.html, "revalidate": !self.acts.is_empty() })
   }
 }
 
@@ -3943,7 +3947,7 @@ pub fn island_step(
         return Err((StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({ "kind": "internal", "message": message })));
       }
       let html = snapfire_fsr_payload::html_serialize(&nodes);
-      Ok(IslandStep { state: stepped.state, html, acts: stepped.acts })
+      Ok(IslandStep { state: stepped.state, store: stepped.store, html, acts: stepped.acts })
     }
     Err(fail) => Err((
       StatusCode::from_u16(fail.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),

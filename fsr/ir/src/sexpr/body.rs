@@ -75,6 +75,9 @@ pub fn component_sections(component: &Component) -> Vec<Sx> {
   if !component.state.is_empty() {
     rest.push(form("state", component.state.iter().map(|s| Sx::Sym(s.clone())).collect()));
   }
+  if !component.stores.is_empty() {
+    rest.push(form("stores", component.stores.iter().map(|(name, key)| Sx::List(vec![Sx::Sym(name.clone()), Sx::Str(key.clone())])).collect()));
+  }
   if !component.body.is_empty() {
     rest.push(form("body", body_to_sx(&component.body)));
   }
@@ -198,6 +201,14 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
         out.shadow = Some(shadow);
       }
       Some("state") => out.state = inner[1..].iter().map(sym_of).collect::<Res<_>>()?,
+      Some("stores") => {
+        for binding in &inner[1..] {
+          match binding.as_list()? {
+            [name, key] => out.stores.push((sym_of(name)?, str_of(key)?)),
+            _ => return Err(SexprError::shape("a store binding is `(name \"key\")`")),
+          }
+        }
+      }
       Some("body") => out.body = body_from_sx(&inner[1..])?,
       Some("render") => {
         out.render = tmpl_from_sx(&args(inner, "render", 1)?[0])?;
