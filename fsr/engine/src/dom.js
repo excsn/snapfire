@@ -317,7 +317,42 @@ if (typeof globalThis.XPathEvaluator !== "function") {
     }
   };
 }
-const rect = () => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 });
+// linkedom has no constructable stylesheet. htmx 4 builds one at import and adopts it on the document; nothing here lays out, so the rules are held as text.
+if (typeof globalThis.CSSStyleSheet !== "function") {
+  const rulesOf = (text) => text.split("}").map((rule) => rule.trim()).filter(Boolean).map((rule) => ({ cssText: `${rule}}` }));
+  globalThis.CSSStyleSheet = class CSSStyleSheet {
+    constructor() {
+      this.cssRules = [];
+    }
+    replaceSync(text) {
+      this.cssRules = rulesOf(String(text));
+    }
+    replace(text) {
+      this.replaceSync(text);
+      return Promise.resolve(this);
+    }
+    insertRule(rule, index = 0) {
+      this.cssRules.splice(index, 0, ...rulesOf(String(rule)));
+      return index;
+    }
+    deleteRule(index) {
+      this.cssRules.splice(index, 1);
+    }
+  };
+}
+if (!("adoptedStyleSheets" in documentProto)) {
+  const ADOPTED = new WeakMap();
+  Object.defineProperty(documentProto, "adoptedStyleSheets", {
+    configurable: true,
+    get() {
+      return ADOPTED.get(this) ?? [];
+    },
+    set(sheets) {
+      ADOPTED.set(this, [...sheets]);
+    },
+  });
+}
+const rect =() => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 });
 const layout = {
   getClientRects: { value: () => [], writable: true },
   getBoundingClientRect: { value: rect, writable: true },
