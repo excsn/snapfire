@@ -1475,49 +1475,63 @@ fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: Funct
   Ok(Expr::Lambda { params: names, body: Box::new(result?) })
 }
 
-fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowered<Vec<String>> {
+pub(crate) fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowered<Vec<String>> {
   let mut names = Vec::new();
   for (i, pat) in params.iter().enumerate() {
-    let positional = format!("${i}");
     match pat {
       js::Pat::Ident(id) => {
         let name = id.id.sym.to_string();
         lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
         names.push(name);
       }
-      js::Pat::Assign(assign) => {
-        let js::Pat::Ident(id) = &*assign.left else {
-          return Err(lowerer.residue(assign.span, "a default on a destructured parameter"));
-        };
+      js::Pat::Assign(assign) if matches!(&*assign.left, js::Pat::Ident(_)) => {
+        let js::Pat::Ident(id) = &*assign.left else { unreachable!() };
         let name = id.id.sym.to_string();
         let default = lowerer.expr(&assign.right)?;
         lowerer.scope.push((name.clone(), Expr::Coalesce(Box::new(Expr::Var(name.clone())), Box::new(default))));
         names.push(name);
       }
-      js::Pat::Object(obj) => {
-        bind_object(lowerer, obj, Expr::Var(positional.clone()))?;
+      js::Pat::Rest(rest) => return Err(lowerer.residue(rest.span, "a rest parameter")),
+      pattern => {
+        let positional = format!("${i}");
+        bind_pattern(lowerer, pattern, Expr::Var(positional.clone()))?;
         names.push(positional);
       }
-      js::Pat::Array(arr) => {
-        for (j, elem) in arr.elems.iter().enumerate() {
-          let Some(js::Pat::Ident(id)) = elem else {
-            if elem.is_some() {
-              return Err(lowerer.residue(pat.span(), "a nested pattern in a parameter"));
-            }
-            continue;
-          };
-          lowerer.scope.push((id.id.sym.to_string(), Expr::Var(positional.clone()).index(Expr::Lit(Lit::Int(j as i128)))));
-        }
-        names.push(positional);
-      }
-      other => return Err(lowerer.residue(other.span(), "a parameter pattern")),
     }
   }
   Ok(names)
 }
 
-/// `{ a, b = x, c: d }` over `target`: each name reads a field, a default
-/// applies when the field is null or absent.
+/// Binds each name `pat` declares to the part of `target` it reads: a field, an item, the rest of an object or of an array. A default applies when the part is null or absent.
+pub(crate) fn bind_pattern(lowerer: &mut Lowerer<'_>, pat: &js::Pat, target: Expr) -> Lowered<()> {
+  match pat {
+    js::Pat::Ident(id) => {
+      lowerer.scope.push((id.id.sym.to_string(), target));
+      Ok(())
+    }
+    js::Pat::Assign(assign) => {
+      let default = lowerer.expr(&assign.right)?;
+      bind_pattern(lowerer, &assign.left, Expr::Coalesce(Box::new(target), Box::new(default)))
+    }
+    js::Pat::Object(obj) => bind_object(lowerer, obj, target),
+    js::Pat::Array(arr) => {
+      for (j, elem) in arr.elems.iter().enumerate() {
+        match elem {
+          None => {}
+          Some(js::Pat::Rest(rest)) => {
+            let tail = Expr::Builtin { name: Builtin::Slice, args: vec![target.clone(), Expr::Lit(Lit::Float(j as f64))] };
+            bind_pattern(lowerer, &rest.arg, tail)?;
+          }
+          Some(pat) => bind_pattern(lowerer, pat, target.clone().index(Expr::Lit(Lit::Float(j as f64))))?,
+        }
+      }
+      Ok(())
+    }
+    other => Err(lowerer.residue(other.span(), "a pattern the build does not read")),
+  }
+}
+
+/// `{ a, b = x, c: d, e: { f }, ...rest }` over `target`: each name reads a field, a nested pattern reads within it, a default applies when the field is null or absent.
 pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> Lowered<()> {
   let mut taken: Vec<String> = Vec::new();
   for prop in &obj.props {
@@ -1535,26 +1549,12 @@ pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target
       js::ObjectPatProp::KeyValue(kv) => {
         let key = prop_name(&kv.key).ok_or_else(|| lowerer.residue(kv.key.span(), "a computed field in a pattern"))?;
         taken.push(key.clone());
-        let read = target.clone().field(key);
-        match &*kv.value {
-          js::Pat::Ident(local) => lowerer.scope.push((local.id.sym.to_string(), read)),
-          js::Pat::Assign(assign) => {
-            let js::Pat::Ident(local) = &*assign.left else {
-              return Err(lowerer.residue(assign.span, "a nested pattern in a parameter"));
-            };
-            let default = lowerer.expr(&assign.right)?;
-            lowerer.scope.push((local.id.sym.to_string(), Expr::Coalesce(Box::new(read), Box::new(default))));
-          }
-          other => return Err(lowerer.residue(other.span(), "a nested pattern in a parameter")),
-        }
+        bind_pattern(lowerer, &kv.value, target.clone().field(key))?;
       }
       js::ObjectPatProp::Rest(r) => {
-        let js::Pat::Ident(id) = &*r.arg else {
-          return Err(lowerer.residue(r.span, "a pattern in a rest"));
-        };
         let mut args = vec![target.clone()];
         args.extend(taken.iter().map(|key| Expr::lit_str(key.clone())));
-        lowerer.scope.push((id.id.sym.to_string(), Expr::Builtin { name: Builtin::Omit, args }));
+        bind_pattern(lowerer, &r.arg, Expr::Builtin { name: Builtin::Omit, args })?;
       }
     }
   }
@@ -1633,16 +1633,10 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered
   };
   match first {
     js::Stmt::Decl(js::Decl::Var(var)) => {
-      if var.decls.len() != 1 {
-        return Err(lowerer.residue(var.span, "one binding per declaration"));
-      }
-      let decl = &var.decls[0];
-      let init = decl.init.as_deref().ok_or_else(|| lowerer.residue(decl.span, "a declaration without a value"))?;
-      let expr = lowerer.expr(init)?;
-      match &decl.name {
-        js::Pat::Ident(name) => lowerer.scope.push((name.id.sym.to_string(), expr)),
-        js::Pat::Object(obj) => bind_object(lowerer, obj, expr)?,
-        other => return Err(lowerer.residue(other.span(), "a destructuring the build does not read")),
+      for decl in &var.decls {
+        let init = decl.init.as_deref().ok_or_else(|| lowerer.residue(decl.span, "a declaration without a value"))?;
+        let expr = lowerer.expr(init)?;
+        bind_pattern(lowerer, &decl.name, expr)?;
       }
       block_to_expr_inner(lowerer, rest)
     }
@@ -1990,15 +1984,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(Some(Stmt::Let { name: local, expr }))
       }
       js::Pat::Array(arr) => {
-        let js::Expr::Call(call) = init else {
-          return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState` or `useStore`"));
-        };
         let called = hook_call(self.lowerer.parsed, init).map(|(name, _)| name).unwrap_or_default();
+        let js::Expr::Call(call) = init else { return self.pattern_stmt(&decl.name, init) };
         if called == "useStore" {
           return self.store_stmt(decl, arr, call);
         }
         if called != "useState" {
-          return Err(self.lowerer.residue(decl.span, "an array destructuring of something other than `useState` or `useStore`"));
+          if !called.is_empty() {
+            return Err(self.lowerer.residue(decl.span, format!("`{called}`")));
+          }
+          return self.pattern_stmt(&decl.name, init);
         }
         let expr = match call.args.first() {
           Some(a) => match &*a.expr {
@@ -2026,14 +2021,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
         Ok(Some(Stmt::Let { name, expr }))
       }
-      js::Pat::Object(obj) => {
-        let expr = self.lowerer.expr(init)?;
-        let name = format!("$let{}", self.lowerer.scope.len());
-        bind_object(&mut self.lowerer, obj, Expr::Var(name.clone()))?;
-        Ok(Some(Stmt::Let { name, expr }))
-      }
-      other => Err(self.lowerer.residue(other.span(), "a declaration pattern the build does not read")),
+      pattern => self.pattern_stmt(pattern, init),
     }
+  }
+
+  /// A destructuring in a component body: the value under a temporary each name reads a part of.
+  fn pattern_stmt(&mut self, pattern: &js::Pat, init: &js::Expr) -> Lowered<Option<Stmt>> {
+    if let Some((hook, _)) = hook_call(self.lowerer.parsed, init) {
+      return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`")));
+    }
+    let expr = self.lowerer.expr(init)?;
+    let name = self.lowerer.temp();
+    bind_pattern(&mut self.lowerer, pattern, Expr::Var(name.clone()))?;
+    Ok(Some(Stmt::Let { name, expr }))
   }
 
   /// `const [x, setX] = useStore(key, initial)` as `let x = <store key> ?? initial`,
@@ -2130,20 +2130,32 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     match first {
       js::Stmt::Decl(js::Decl::Var(var)) => {
-        if var.decls.len() != 1 {
-          return Err(self.lowerer.residue(var.span, "one binding per declaration"));
+        let depth = self.lowerer.scope.len();
+        let mut lets = Vec::new();
+        for decl in &var.decls {
+          let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+          let expr = self.lowerer.expr(init)?;
+          let name = match &decl.name {
+            js::Pat::Ident(name) => {
+              let name = name.id.sym.to_string();
+              self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+              name
+            }
+            pattern => {
+              let name = self.lowerer.temp();
+              bind_pattern(&mut self.lowerer, pattern, Expr::Var(name.clone()))?;
+              name
+            }
+          };
+          lets.push((name, expr));
         }
-        let decl = &var.decls[0];
-        let js::Pat::Ident(name) = &decl.name else {
-          return Err(self.lowerer.residue(decl.name.span(), "a destructuring declaration; bind the whole value and read its fields"));
-        };
-        let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
-        let expr = self.lowerer.expr(init)?;
-        let name = name.id.sym.to_string();
-        self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
-        let then = self.block_tree(rest)?;
-        self.lowerer.scope.pop();
-        Ok(Tmpl::Let { name, expr, then: Box::new(then) })
+        let then = self.block_tree(rest);
+        self.lowerer.scope.truncate(depth);
+        let mut tree = then?;
+        for (name, expr) in lets.into_iter().rev() {
+          tree = Tmpl::Let { name, expr, then: Box::new(tree) };
+        }
+        Ok(tree)
       }
       js::Stmt::Return(ret) => match &ret.arg {
         Some(arg) => self.child_expr(arg),
@@ -3661,10 +3673,10 @@ export default function Page({ title, kind = "note", ...rest }: { title: string;
     let lowered = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap();
     let component = &lowered[0].1;
     let props = Expr::var("$props");
-    assert_eq!(component.body, vec![Stmt::Let { name: "$let3".to_owned(), expr: Expr::Builtin { name: Builtin::Omit, args: vec![props.clone(), Expr::lit_str("title"), Expr::lit_str("kind")] } }]);
+    assert_eq!(component.body, vec![Stmt::Let { name: "$d1".to_owned(), expr: Expr::Builtin { name: Builtin::Omit, args: vec![props.clone(), Expr::lit_str("title"), Expr::lit_str("kind")] } }]);
     let Tmpl::Element { attrs, .. } = &component.render else { panic!("{:?}", component.render) };
-    assert_eq!(attrs[0], Entry::Field("data-id".to_owned(), Expr::var("$let3").field("id")));
-    assert_eq!(attrs[1], Entry::Spread(Expr::Builtin { name: Builtin::Omit, args: vec![Expr::var("$let3"), Expr::lit_str("id")] }));
+    assert_eq!(attrs[0], Entry::Field("data-id".to_owned(), Expr::var("$d1").field("id")));
+    assert_eq!(attrs[1], Entry::Spread(Expr::Builtin { name: Builtin::Omit, args: vec![Expr::var("$d1"), Expr::lit_str("id")] }));
   }
 
   #[test]

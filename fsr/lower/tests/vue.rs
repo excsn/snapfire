@@ -444,3 +444,50 @@ fn the_array_and_string_methods_render_what_javascript_computes() {
   assert!(html.contains("<p class=\"callbacks\">10,9,1,3 20 true true 3,1,9,10</p>"), "a callback gets the index and the array: {html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const PATTERNS: &str = r#"<script setup lang="ts">
+const props = defineProps<{ items: { name: string; price: number; extra?: { note?: string } }[]; nums: number[] }>();
+const { name, price: cost, extra: { note = "none" } = {} } = props.items[0];
+const [first, , third = 0, ...others] = props.nums;
+const { items: [, second], ...restOf } = props;
+const totals = props.items.map(({ name: label, price = 0, extra: { note: inner = "-" } = {} }) => `${label}:${price}:${inner}`);
+const pairs = props.nums.map((n, i) => [n, i]).map(([n, i]) => n * i);
+const a = 1, b = a + 1;
+</script>
+
+<template>
+  <p class="object">{{ name }} {{ cost }} {{ note }}</p>
+  <p class="array">{{ first }} {{ third }} {{ others.join() }}</p>
+  <p class="nested">{{ second.name }} {{ Object.keys(restOf).join() }}</p>
+  <p class="params">{{ totals.join(" ") }} {{ pairs.join() }}</p>
+  <p class="many">{{ a }} {{ b }}</p>
+</template>
+"#;
+
+#[test]
+fn destructuring_renders_what_javascript_binds() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("patterns", &[]);
+  let item = |name: &str, price: Option<f64>, note: Option<&str>| {
+    let mut fields = vec![("name", Value::str(name))];
+    if let Some(price) = price {
+      fields.push(("price", Value::F64(price)));
+    }
+    if let Some(note) = note {
+      fields.push(("extra", Value::Map(props(&[("note", Value::str(note))]))));
+    }
+    Value::Map(props(&fields))
+  };
+  let given = props(&[
+    ("items", Value::seq(vec![item("pear", Some(3.0), None), item("fig", None, Some("dried")), item("kiwi", Some(2.0), Some("ripe"))])),
+    ("nums", Value::seq(vec![Value::F64(4.0), Value::F64(5.0), Value::F64(6.0), Value::F64(7.0), Value::F64(8.0)])),
+  ]);
+  let html = agree(&compiler, &dir, "src/ui/Patterns.vue", PATTERNS, &given, "");
+  assert!(html.contains("<p class=\"object\">pear 3 none</p>"), "{html}");
+  assert!(html.contains("<p class=\"array\">4 6 7,8</p>"), "{html}");
+  assert!(html.contains("<p class=\"params\">pear:3:- fig:0:dried kiwi:2:ripe 0,5,12,21,32</p>"), "{html}");
+  let short = props(&[("items", Value::seq(vec![item("pear", Some(3.0), None), item("fig", None, None)])), ("nums", Value::seq(vec![Value::F64(4.0)]))]);
+  let html = agree(&compiler, &dir, "src/ui/Patterns.vue", PATTERNS, &short, "");
+  assert!(html.contains("<p class=\"array\">4 0 </p>"), "a missing item takes its default and the rest is empty: {html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

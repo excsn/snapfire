@@ -190,3 +190,19 @@ fn math_min_and_max_take_a_spread_and_other_calls_do_not() {
   let err = lowered("concat_spread", "params.tags.concat(...params.more)").unwrap_err();
   assert!(err.contains("a spread argument"), "{err}");
 }
+
+#[test]
+fn a_body_destructures_a_value_once_and_reads_its_parts() {
+  let dir = app(
+    "body_patterns",
+    &[(
+      "routes/a/page.loader.ts",
+      "export async function load({ params }) {\n  const { slug, rest: [head, ...tail] = [] } = params.page;\n  const a = 1, b = a + 1;\n  for (const { n, by = 1 } of params.rows) {\n    if (n * by > 9) fail(\"invalid\", \"too big\");\n  }\n  return { slug, head, tail, a, b };\n}\n",
+    )],
+  );
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { name, expr: Expr::Param(_) } if name.starts_with("$d")), "the value is bound once: {body:?}");
+  assert!(matches!(&body[1], Stmt::Let { name, .. } if name == "a"), "{body:?}");
+  assert!(matches!(&body[2], Stmt::Let { name, .. } if name == "b"), "{body:?}");
+  assert!(body.iter().any(|s| matches!(s, Stmt::ForOf { name, .. } if name.starts_with("$d"))), "{body:?}");
+}

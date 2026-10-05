@@ -698,13 +698,15 @@ pub(crate) struct Lowerer<'a> {
   /// The last residue was a `body` extension on a render path, which the
   /// set reports as `LowerError::Reach` rather than a client downgrade.
   pub(crate) reach_violation: bool,
+  /// How many temporaries a destructuring has bound, so each gets a name of its own.
+  pub(crate) temps: usize,
 }
 
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0 }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -824,10 +826,44 @@ impl<'a> Lowerer<'a> {
     let depth = self.scope.len();
     let mut out = Vec::with_capacity(stmts.len());
     for stmt in stmts {
-      out.push(self.stmt(stmt)?);
+      match stmt {
+        js::Stmt::Decl(js::Decl::Var(var)) => {
+          for decl in &var.decls {
+            out.push(self.declare(decl)?);
+          }
+        }
+        stmt => out.push(self.stmt(stmt)?),
+      }
     }
     self.scope.truncate(depth);
     Ok(out)
+  }
+
+  /// A fresh name for a value a destructuring reads its fields from.
+  pub(crate) fn temp(&mut self) -> String {
+    self.temps += 1;
+    format!("$d{}", self.temps)
+  }
+
+  /// One declarator as a `let`: a name binds the value; a pattern binds it under a temporary and each name it declares reads a part of that.
+  fn declare(&mut self, decl: &js::VarDeclarator) -> Lowered<Stmt> {
+    let Some(init) = &decl.init else {
+      return Err(self.residue(decl.span, "a declaration without a value"));
+    };
+    let expr = self.expr(init)?;
+    let name = match &decl.name {
+      js::Pat::Ident(name) => {
+        let name = name.id.sym.to_string();
+        self.scope.push((name.clone(), Expr::Var(name.clone())));
+        name
+      }
+      pattern => {
+        let name = self.temp();
+        crate::component::bind_pattern(self, pattern, Expr::Var(name.clone()))?;
+        name
+      }
+    };
+    Ok(Stmt::Let { name, expr })
   }
 
   pub(crate) fn stmt(&mut self, stmt: &js::Stmt) -> Lowered<Stmt> {
@@ -836,17 +872,7 @@ impl<'a> Lowerer<'a> {
         if var.decls.len() != 1 {
           return Err(self.residue(var.span, "one binding per declaration"));
         }
-        let decl = &var.decls[0];
-        let js::Pat::Ident(name) = &decl.name else {
-          return Err(self.residue(decl.name.span(), "a destructuring declaration; bind the whole value and read its fields"));
-        };
-        let Some(init) = &decl.init else {
-          return Err(self.residue(decl.span, "a declaration without a value"));
-        };
-        let expr = self.expr(init)?;
-        let name = name.id.sym.to_string();
-        self.scope.push((name.clone(), Expr::Var(name.clone())));
-        Ok(Stmt::Let { name, expr })
+        self.declare(&var.decls[0])
       }
       js::Stmt::If(if_stmt) => {
         if let Some((kind, message)) = self.as_fail(&if_stmt.cons) {
@@ -869,15 +895,26 @@ impl<'a> Lowerer<'a> {
         let js::ForHead::VarDecl(decl) = &for_of.left else {
           return Err(self.residue(for_of.span, "`for...of` must declare its variable"));
         };
-        let Some(js::Pat::Ident(name)) = decl.decls.first().map(|d| &d.name) else {
-          return Err(self.residue(decl.span, "`for...of` over a destructuring"));
+        let Some(pattern) = decl.decls.first().map(|d| &d.name) else {
+          return Err(self.residue(decl.span, "`for...of` must declare its variable"));
         };
         let over = self.expr(&for_of.right)?;
-        let name = name.id.sym.to_string();
-        self.scope.push((name.clone(), Expr::Var(name.clone())));
-        let body = self.branch(&for_of.body)?;
-        self.scope.pop();
-        Ok(Stmt::ForOf { name, over, body })
+        let depth = self.scope.len();
+        let name = match pattern {
+          js::Pat::Ident(name) => {
+            let name = name.id.sym.to_string();
+            self.scope.push((name.clone(), Expr::Var(name.clone())));
+            name
+          }
+          pattern => {
+            let name = self.temp();
+            crate::component::bind_pattern(self, pattern, Expr::Var(name.clone()))?;
+            name
+          }
+        };
+        let body = self.branch(&for_of.body);
+        self.scope.truncate(depth);
+        Ok(Stmt::ForOf { name, over, body: body? })
       }
       js::Stmt::Return(ret) => match &ret.arg {
         Some(arg) => Ok(Stmt::Return(self.expr(arg)?)),
@@ -895,7 +932,7 @@ impl<'a> Lowerer<'a> {
   fn branch(&mut self, stmt: &js::Stmt) -> Lowered<Body> {
     match stmt {
       js::Stmt::Block(block) => self.block(&block.stmts),
-      single => Ok(vec![self.stmt(single)?]),
+      single => self.block(std::slice::from_ref(single)),
     }
   }
 
@@ -1703,40 +1740,13 @@ impl<'a> Lowerer<'a> {
 
   pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
     let depth = self.scope.len();
-    let mut params = Vec::new();
-    for (i, pat) in arrow.params.iter().enumerate() {
-      let positional = format!("${i}");
-      match pat {
-        js::Pat::Ident(id) => {
-          let name = id.id.sym.to_string();
-          self.scope.push((name.clone(), Expr::Var(name.clone())));
-          params.push(name);
-        }
-        js::Pat::Array(arr) => {
-          for (j, elem) in arr.elems.iter().enumerate() {
-            let Some(js::Pat::Ident(id)) = elem else {
-              if elem.is_some() {
-                return Err(self.residue(pat.span(), "a nested pattern in a parameter"));
-              }
-              continue;
-            };
-            self.scope.push((id.id.sym.to_string(), Expr::Var(positional.clone()).index(Expr::Lit(Lit::Float(j as f64)))));
-          }
-          params.push(positional);
-        }
-        js::Pat::Object(obj) => {
-          for prop in &obj.props {
-            let js::ObjectPatProp::Assign(a) = prop else {
-              return Err(self.residue(prop.span(), "a renamed or nested field in a parameter"));
-            };
-            let name = a.key.id.sym.to_string();
-            self.scope.push((name.clone(), Expr::Var(positional.clone()).field(name)));
-          }
-          params.push(positional);
-        }
-        other => return Err(self.residue(other.span(), "a parameter pattern")),
+    let params = match crate::component::bind_params(self, &arrow.params) {
+      Ok(params) => params,
+      Err(residue) => {
+        self.scope.truncate(depth);
+        return Err(residue);
       }
-    }
+    };
     let body = match &*arrow.body {
       js::ArrowFunctionBody::Expr(e) => self.expr(e),
       js::ArrowFunctionBody::FunctionBody(b) => crate::component::block_to_expr(self, &b.stmts),

@@ -21,7 +21,7 @@ use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
 
 use crate::assets::AssetResolver;
-use crate::component::{action_alias_of, arrow_body, bind_object, block_to_expr, find_import, generated_action_of, holds_act, imported_as, is_template_source, patterns, reach_under, FunctionBody, HandlerWalk, HeadRow};
+use crate::component::{action_alias_of, arrow_body, bind_object, bind_pattern, block_to_expr, find_import, generated_action_of, holds_act, imported_as, is_template_source, patterns, reach_under, FunctionBody, HandlerWalk, HeadRow};
 use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{Lowered, Lowerer, Residue};
 
@@ -254,18 +254,18 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     let init = unwrap_types(init);
     match &decl.name {
       js::Pat::Ident(name) => self.setup_binding(name.id.sym.to_string(), init, decl.span),
-      js::Pat::Object(obj) => {
+      pattern @ (js::Pat::Object(_) | js::Pat::Array(_)) => {
         let before = self.lowerer.scope.len();
-        match self.props_call(init) {
-          Some((call, defaults)) => {
+        match (pattern, self.props_call(init)) {
+          (js::Pat::Object(obj), Some((call, defaults))) => {
             self.props_defaults(call, defaults)?;
             bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned()))?;
           }
-          None => {
+          _ => {
             let expr = self.lowerer.expr(init)?;
-            let name = format!("$let{}", self.lowerer.scope.len());
+            let name = self.lowerer.temp();
             self.lets.push(Stmt::Let { name: name.clone(), expr });
-            bind_object(&mut self.lowerer, obj, Expr::Var(name))?;
+            bind_pattern(&mut self.lowerer, pattern, Expr::Var(name))?;
           }
         }
         for (name, expr) in self.lowerer.scope[before..].to_vec() {
@@ -273,7 +273,6 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         }
         Ok(())
       }
-      js::Pat::Array(arr) => Err(self.lowerer.residue(arr.span, "an array destructuring in `<script setup>`")),
       other => Err(self.lowerer.residue(other.span(), "a declaration pattern the build does not read")),
     }
   }
