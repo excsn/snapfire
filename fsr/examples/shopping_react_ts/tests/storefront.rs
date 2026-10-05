@@ -512,7 +512,7 @@ fn the_layouts_store_seeds_the_cart_count_and_follows_the_session() {
   assert!(held.contains("badge\">3<"), "{held}");
 
   let payload = block_on(app.render_to_string("/cart", RenderMode::Payload, session)).unwrap();
-  assert!(payload.contains("\nT {\"cart/count\":{\"$\":\"f\",\"v\":3.0}}\n"), "the navigation carries the seed: {payload}");
+  assert!(payload.contains("\nT [{\"k\":\"routes/layout.tsx#default\",\"p\":[\"content\"],\"v\":{\"cart/count\":{\"$\":\"f\",\"v\":3.0}}}]\n"), "the navigation carries the seed: {payload}");
 }
 
 #[test]

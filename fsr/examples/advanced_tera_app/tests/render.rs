@@ -34,7 +34,7 @@ fn payload_mode_serves_wire_rows() {
   let host = app();
   let payload = block_on(host.render_to_string("/dash/servers", RenderMode::Payload, SessionCell::default())).unwrap();
 
-  assert!(payload.starts_with("V {\"fmt\":1,\"enc\":\"json\"}\nN "), "version row then tree row: {payload}");
+  assert!(payload.starts_with("V {\"fmt\":2,\"enc\":\"json\"}\nN "), "version row then tree row: {payload}");
   assert!(payload.contains("[\"c\",{\"m\":\"components/ServerChart.tsx#default\""), "island rides as a client row");
   assert!(payload.contains("\"$\":\"ta\""), "typed array props survive the JSON-backed template context");
 }

@@ -18,7 +18,7 @@ fn chunks(path: &str, mode: RenderMode) -> Vec<String> {
 fn slow_route_streams_wire_rows() {
   let rows = chunks("/slow/servers", RenderMode::Payload);
   assert_eq!(rows.len(), 2, "tree row then one resolution: {rows:?}");
-  assert!(rows[0].starts_with("V {\"fmt\":1,\"enc\":\"json\"}\nN "));
+  assert!(rows[0].starts_with("V {\"fmt\":2,\"enc\":\"json\"}\nN "));
   assert!(rows[0].contains("[\"p\",1,"), "Pending slot in the tree: {}", rows[0]);
   assert!(rows[0].contains("loading latency"), "fallback rendered from the loading template");
   assert!(rows[1].starts_with("S 1 "));

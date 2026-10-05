@@ -102,7 +102,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   assert!(html.contains("Billing") && html.contains("/billing") && !html.contains("billing.css"), "{html}");
 
   let payload = body_of(portal.handle(Request::get("/billing/invoice/1?__payload").body(Bytes::new()).unwrap()).await).await;
-  assert!(payload.contains("Northwind") && payload.contains("T {") && payload.contains("portal/who"), "the site's page carries the portal's seed: {payload}");
+  assert!(payload.contains("Northwind") && payload.contains("\nT [{") && payload.contains("portal/who"), "the site's page carries the portal's seed: {payload}");
 }
 
 #[tokio::test]

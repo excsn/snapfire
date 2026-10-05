@@ -57,7 +57,7 @@ fn encoding_negotiation_only_admits_what_exists() {
   let host = app();
   let response = get(&host, "/dash/servers?__payload&enc=json", None);
   assert_eq!(response.status(), 200);
-  assert!(text(response).starts_with("V {\"fmt\":1,\"enc\":\"json\"}"));
+  assert!(text(response).starts_with("V {\"fmt\":2,\"enc\":\"json\"}"));
   let response = get(&host, "/dash/servers?__payload&enc=cbor", None);
   assert_eq!(response.status(), 406);
   assert!(text(response).contains("unsupported payload encoding `cbor`"));
