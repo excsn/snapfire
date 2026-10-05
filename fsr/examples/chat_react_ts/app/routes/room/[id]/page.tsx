@@ -13,7 +13,7 @@ export default function RoomPage({ room, messages, me, words, longest }: RoomIdP
       <p className="about">{room.about}</p>
       {messages.length > 0 && (
         <p className="digest">
-          <span className="words">{String(words)} words</span>, the longest <span className="longest">{String(longest)}</span>
+          <span className="words">{String(words)} words</span>, the longest <span className="longest">{longest}</span>
         </p>
       )}
       <ol className="transcript">

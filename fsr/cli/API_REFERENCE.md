@@ -314,9 +314,9 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Inferer
 
-* `pub struct infer::Inferer<'a> { pub contract: &'a Contract, pub session: Option<&'a str>, pub input: Option<&'a str>, pub input_type: Option<Ts>, pub consts: &'a Consts, pub config: &'a [(String, Ts)] }`: `config` is `[public]` as the build read it, what `ctx.config.<key>` is typed as; a key it lacks is `unknown`.
+* `pub struct infer::Inferer<'a> { pub contract: &'a Contract, pub session: Option<&'a str>, pub input: Option<&'a str>, pub input_type: Option<Ts>, pub consts: &'a Consts, pub config: &'a [(String, Ts)], pub natives: &'a [NativeModule] }`: `config` is `[public]` as the build read it, what `ctx.config.<key>` is typed as; a key it lacks is `unknown`. `natives` are the `#[native]` modules, so a `ctx.native` call types as the method's declared return; the shell contract's store passes none, since a native struct is not declared where a site reads it.
 * `Inferer::returns(&self, body: &Body) -> Ts`: the union of every `return`, `Null` when none.
-* `Inferer::expr(&self, expr: &Expr, env: &[(String, Ts)]) -> Ts`. Reads type by their root, a call by its method's return, a session key by the `Session` record, `map` by its lambda's body over the element, `filter` by its operand, `Object.entries` as `[string, V][]`, an object literal as a record intersected with its spreads, a coalesce against an empty object or array as its left side. Anything else is `Unknown`, which absorbs a union it joins.
+* `Inferer::expr(&self, expr: &Expr, env: &[(String, Ts)]) -> Ts`. Reads type by their root, a call by its method's return, a native call by its Rust return, a session key by the `Session` record, `map` by its lambda's body over the element, `filter` by its operand, `Object.entries` as `[string, V][]`, an object literal as a record intersected with its spreads, a coalesce against an empty object or array as its left side. Anything else is `Unknown`, which absorbs a union it joins.
 
 ## 5. Typechecking
 

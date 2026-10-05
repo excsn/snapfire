@@ -1266,3 +1266,25 @@ fn a_component_another_framework_mounts_takes_no_children_from_a_react_island() 
   assert!(error.contains("`Chart` is a component another framework mounts, so it takes no children from a React component"), "{error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const DIGEST: &str = "use snapfire_fsr_macros::native;\n\npub struct Summary {\n  pub words: i64,\n  pub longest: String,\n}\n\npub struct Digest;\n\n#[native]\nimpl Digest {\n  pub fn words(&self, bodies: Vec<String>) -> i64 {\n    bodies.len() as i64\n  }\n\n  pub fn summary(&self, bodies: Vec<String>) -> Summary {\n    Summary { words: bodies.len() as i64, longest: String::new() }\n  }\n}\n";
+
+const DIGEST_LOADER: &str = "import type { Ctx } from \"@snapfire/fsr\";\n\nexport async function load({ native }: Ctx<\"/\">) {\n  return { words: native.digest.words({ bodies: [\"a b\"] }), summary: native.digest.summary({ bodies: [] }) };\n}\n";
+
+#[test]
+fn a_pages_props_type_a_native_result_as_the_rust_returns_it() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::rename(project.join("importmap.json"), dir.join("importmap.json")).unwrap();
+  std::fs::rename(project.join("vendor"), dir.join("vendor")).unwrap();
+  for (name, source) in [("app/routes/page.tsx", PAGE), ("app/routes/page.loader.ts", DIGEST_LOADER), ("src/native.rs", DIGEST)] {
+    std::fs::create_dir_all(project.join(name).parent().unwrap()).unwrap();
+    std::fs::write(project.join(name), source).unwrap();
+  }
+  let built = build(&dir, &Options::default()).unwrap();
+  let client = built.files.iter().find(|(n, _)| n == "generated/client.ts").map(|(_, t)| t.clone()).unwrap();
+  assert!(client.contains("import type { Summary } from \"./native\";\n"), "{client}");
+  assert!(client.contains("= { words: bigint | number; summary: Summary };"), "{client}");
+  std::fs::remove_dir_all(&project).unwrap();
+}

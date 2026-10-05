@@ -7,6 +7,8 @@ use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, Consts, Entry, Expr, Lit, Stm
 use snapfire_fsr_service::typescript::{type_name_for, Flavour};
 use snapfire_fsr_service::{Contract, Type, TypeDef};
 
+use crate::native::NativeModule;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ts {
   Str,
@@ -133,6 +135,8 @@ pub struct Inferer<'a> {
   /// The plan's named constants, so `Expr::Const` types as what it holds
   /// rather than as unknown.
   pub consts: &'a Consts,
+  /// The application's `#[native]` modules, so `ctx.native.<module>.<method>()` types as what the Rust returns.
+  pub natives: &'a [NativeModule],
 }
 
 impl<'a> Inferer<'a> {
@@ -278,10 +282,20 @@ impl<'a> Inferer<'a> {
         .method(service, method)
         .map(|m| Ts::from_contract(&m.returns))
         .unwrap_or(Ts::Unknown),
-      // A native module's shape is read off the Rust rather than the contract,
-      // so the generated declaration types the call site and inference here
-      // has nothing better to say.
-      Expr::NativeCall { .. } => Ts::Unknown,
+      Expr::NativeCall { module, method, .. } => self
+        .natives
+        .iter()
+        .find(|m| m.name == *module)
+        .and_then(|m| m.methods.iter().find(|m| m.name == *method))
+        .map(|m| match m.returns.as_str() {
+          "string" => Ts::Str,
+          "number" => Ts::Num,
+          "bigint" => Ts::Big,
+          "boolean" => Ts::Bool,
+          "unknown" => Ts::Unknown,
+          other => Ts::TsExpr(other.to_owned()),
+        })
+        .unwrap_or(Ts::Unknown),
       Expr::Lambda { .. } => Ts::Unknown,
       Expr::Hoist { expr, .. } => self.expr(expr, env),
       Expr::Map(over, f) => {
@@ -397,7 +411,7 @@ mod tests {
   #[test]
   fn a_join_over_the_session_types_its_lines() {
     let c = contract();
-    let inferer = Inferer { contract: &c, session: Some("Session"), input: None, input_type: None, consts: &Consts::new(), config: &[] };
+    let inferer = Inferer { contract: &c, session: Some("Session"), input: None, input_type: None, consts: &Consts::new(), config: &[], natives: &[] };
     let held = || Expr::Session("cart".into()).index(Expr::Str(Box::new(Expr::var("p").field("id"))));
     let body = vec![
       Stmt::Let { name: "catalog".into(), expr: Expr::call("shop", "list", vec![]) },
@@ -414,9 +428,21 @@ mod tests {
   }
 
   #[test]
+  fn a_native_call_types_as_what_the_rust_returns() {
+    use crate::native::{NativeMethod, NativeModule};
+    let c = contract();
+    let method = |name: &str, returns: &str| NativeMethod { name: name.into(), args: Vec::new(), returns: returns.into(), is_sync: true };
+    let natives = [NativeModule { name: "digest".into(), rust_type: "Digest".into(), methods: vec![method("words", "bigint"), method("longest", "string"), method("summary", "Summary")] }];
+    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None, consts: &Consts::new(), config: &[], natives: &natives };
+    let call = |m: &str| Expr::native_call("digest", m, vec![], true);
+    let body = vec![Stmt::Return(Expr::object(vec![("w", call("words")), ("l", call("longest")), ("s", call("summary")), ("x", call("missing"))]))];
+    assert_eq!(inferer.returns(&body).print(Flavour::Client), "{ w: bigint | number; l: string; s: Summary; x: unknown }");
+  }
+
+  #[test]
   fn what_cannot_be_settled_is_unknown() {
     let c = contract();
-    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None, consts: &Consts::new(), config: &[] };
+    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None, consts: &Consts::new(), config: &[], natives: &[] };
     let body = vec![Stmt::Return(Expr::object(vec![("a", Expr::Session("cart".into())), ("b", Expr::call("nope", "x", vec![]))]))];
     assert_eq!(inferer.returns(&body).print(Flavour::Server), "{ a: unknown; b: unknown }");
   }
