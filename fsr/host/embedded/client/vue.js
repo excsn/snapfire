@@ -4,6 +4,7 @@ import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe } from "./store.js";
+import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes } from "./link.js";
 import { pictureParts } from "./picture.js";
 const held = new WeakMap();
@@ -136,6 +137,13 @@ export function useStore(key, initial) {
             return true;
         }
     });
+}
+export function useLocale() {
+    const locale = ref(currentLocale());
+    onScopeDispose(subscribeLocale((next)=>{
+        locale.value = next;
+    }));
+    return locale;
 }
 let placed = 0;
 export const Mount = defineComponent({

@@ -1,4 +1,4 @@
-import { type Component } from "vue";
+import { type Component, type Ref } from "vue";
 import { type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { type StoreKey } from "./store.js";
 export declare const vueMounter: Mounter;
@@ -8,6 +8,8 @@ export declare const vuePatcher: Patcher;
 export declare function useStore<T>(key: StoreKey<T>, initial: T): {
 	value: T;
 };
+/** The document's locale as a Vue ref, following every navigation that changes it. Call it in `setup`, so the subscription ends with the component. */
+export declare function useLocale(): Readonly<Ref<string>>;
 /** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, plus the timing that schedules it. */
 export interface MountProps {
 	module: string;

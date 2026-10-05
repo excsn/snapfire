@@ -5,6 +5,7 @@ import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
+import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
 import { pictureParts, type PictureOptions } from "./picture.js";
 
@@ -139,6 +140,15 @@ export function useStore<T>(key: StoreKey<T>, initial: T): { value: T } {
       return true;
     },
   });
+}
+
+/** The document's locale as a Vue ref, following every navigation that changes it. Call it in `setup`, so the subscription ends with the component. */
+export function useLocale(): Readonly<Ref<string>> {
+  const locale = ref(currentLocale());
+  onScopeDispose(subscribeLocale((next) => {
+    locale.value = next;
+  }));
+  return locale;
 }
 
 /** Ids for the markers this module writes, which no server rendered. */
