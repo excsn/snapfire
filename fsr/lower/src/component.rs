@@ -27,6 +27,13 @@ use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, lower_paths_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
 use snapfire_fsr_ir::Body;
 
+/// An import of components another framework mounts: the declaration as
+/// written and each binding it makes, as the local name and the module id.
+pub struct ForeignImport {
+  pub text: String,
+  pub bindings: Vec<(String, String)>,
+}
+
 /// The cursor over one application: parsed files, finished components and the
 /// resolution stack that turns recursion into a diagnostic.
 pub struct ComponentSet {
@@ -75,6 +82,10 @@ pub struct ComponentSet {
   /// them, as `file#export`: placed as islands, mounted rather than hydrated,
   /// compiled for the browser by whichever plugin claims the extension.
   pub foreign: Vec<String>,
+  /// Components of another framework a React component renders inline, as
+  /// `file#export`: lowered to the empty region `Mount` writes, which the
+  /// browser fills through the module's registry entry.
+  pub mounted: Vec<String>,
   /// Foreign components the plugin described, by file, which the set lowers
   /// through the framework's own front end instead of leaving foreign.
   described: HashMap<String, Described>,
@@ -107,7 +118,7 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -280,6 +291,47 @@ impl ComponentSet {
       .filter_map(|src| self.resolve_import(file, src.value.to_atom_lossy().as_ref()))
       .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)))
       .collect()
+  }
+
+  /// The value imports in `file` of components a plugin's language holds, a
+  /// `.vue` file among them; none when it does not parse. A namespace import
+  /// is left out, since it names no component.
+  pub fn foreign_imports(&mut self, file: &str) -> Vec<ForeignImport> {
+    if self.load(file).is_err() {
+      return Vec::new();
+    }
+    let parsed = self.parsed[file].clone();
+    let Some(source) = parsed.cm.files().first().map(|f| f.src.clone()) else { return Vec::new() };
+    let mut out = Vec::new();
+    for item in &parsed.module.body {
+      let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+      if import.type_only || import.specifiers.iter().any(|spec| matches!(spec, js::ImportSpecifier::Namespace(_))) {
+        continue;
+      }
+      let Some(target) = self.resolve_import(file, import.src.value.to_atom_lossy().as_ref()) else { continue };
+      let ext = Path::new(&target).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+      if snapfire_compiler_wire::claimed(&ext).is_none() {
+        continue;
+      }
+      let bindings = import
+        .specifiers
+        .iter()
+        .filter_map(|spec| match spec {
+          js::ImportSpecifier::Default(default) => Some((default.local.sym.to_string(), format!("{target}#default"))),
+          js::ImportSpecifier::Named(named) if !named.is_type_only => {
+            let imported = match &named.imported {
+              Some(js::ModuleExportName::Ident(id)) => id.sym.to_string(),
+              Some(js::ModuleExportName::Str(name)) => name.value.to_atom_lossy().to_string(),
+              None => named.local.sym.to_string(),
+            };
+            Some((named.local.sym.to_string(), format!("{target}#{imported}")))
+          }
+          _ => None,
+        })
+        .collect();
+      out.push(ForeignImport { text: source[parsed.range(import.span)].to_owned(), bindings });
+    }
+    out
   }
 
   /// Splits route module `module` into composition and an island module
@@ -584,6 +636,16 @@ impl ComponentSet {
     // is a root even when nothing else in it needs the browser.
     let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || self.inline_hydrates(&render);
     let owner = if hydrates { Owner::React } else { Owner::Fsr };
+    let render = match owner {
+      Owner::React => match mount_foreign(render, &mut self.mounted) {
+        Ok(render) => render,
+        Err(placed) => {
+          let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
+          return Err(LowerError::ForeignChildren(Residue { file: file.to_owned(), line, column, message: format!("`{name}` is a component another framework mounts, so it takes no children from a React component"), hint: None, via: Vec::new() }));
+        }
+      },
+      _ => render,
+    };
     let mut component = Component { body: component.body, render, state: component.state, handlers: component.handlers, owner, shadow: component.shadow };
     if let Some(placed) = inline_foreign(&component.render) {
       let (name, (line, column)) = refs_by_module(&modules, &placed, &refs_positions).unwrap_or((placed.clone(), (1, 1)));
@@ -923,6 +985,31 @@ pub fn is_foreign(module: &str) -> bool {
   !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs")
 }
 
+/// `tmpl` with each component of another framework it renders inline as the
+/// empty region `Mount` writes, its module added to `mounted`; `Err` with the
+/// module of one that is given children, which cannot cross into it.
+fn mount_foreign(tmpl: Tmpl, mounted: &mut Vec<String>) -> Result<Tmpl, String> {
+  let walk = |children: Vec<Tmpl>, mounted: &mut Vec<String>| children.into_iter().map(|c| mount_foreign(c, mounted)).collect::<Result<Vec<_>, _>>();
+  Ok(match tmpl {
+    Tmpl::Component { module, children, .. } if is_foreign(&module) => {
+      if !children.is_empty() {
+        return Err(module);
+      }
+      if !mounted.contains(&module) {
+        mounted.push(module);
+      }
+      Tmpl::Element { tag: "sf-s".to_owned(), attrs: vec![Entry::Field("data-sf-island".to_owned(), Expr::lit_str(""))], children: Vec::new() }
+    }
+    Tmpl::Component { module, props, children, id, keyed } => Tmpl::Component { module, props, children: walk(children, mounted)?, id, keyed },
+    Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children, mounted)? },
+    Tmpl::Fragment(children) => Tmpl::Fragment(walk(children, mounted)?),
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(mount_foreign(*then, mounted)?), r#else: r#else.map(|e| mount_foreign(*e, mounted).map(Box::new)).transpose()? },
+    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(mount_foreign(*body, mounted)?) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(mount_foreign(*then, mounted)?) },
+    other => other,
+  })
+}
+
 /// The first foreign component rendered inline rather than as an island.
 fn inline_foreign(tmpl: &Tmpl) -> Option<String> {
   match tmpl {
@@ -1222,10 +1309,6 @@ fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
   None
 }
 
-/// `(source, imported name)` for whatever `expr` names, whether it is a local
-/// binding of a named import or a member of a namespace import. The imported
-/// name is what the build recognises a call by, so `import { action as act }`
-/// and `import * as fsr` reach the same place as `import { action }`.
 /// The specifier string of every value import, `export * from` and
 /// `export { .. } from` in `module`.
 fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
@@ -1240,6 +1323,10 @@ fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
   })
 }
 
+/// `(source, imported name)` for whatever `expr` names, whether it is a local
+/// binding of a named import or a member of a namespace import. The imported
+/// name is what the build recognises a call by, so `import { action as act }`
+/// and `import * as fsr` reach the same place as `import { action }`.
 pub(crate) fn imported_callee(parsed: &Parsed, expr: &js::Expr) -> Option<(String, String)> {
   match expr {
     js::Expr::Ident(id) => find_import(parsed, id.sym.as_ref()),

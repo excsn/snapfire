@@ -99,6 +99,10 @@ pub enum LowerError {
   /// A spelling FSR no longer takes, refused with what to write instead.
   #[error("{0}")]
   Retired(Residue),
+  /// Children a React component gives a component another framework mounts,
+  /// which cannot cross into it.
+  #[error("{0}")]
+  ForeignChildren(Residue),
 }
 
 pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};

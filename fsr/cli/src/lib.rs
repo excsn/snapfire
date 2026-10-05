@@ -1169,11 +1169,24 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
       }
     }
   }
+  for module in std::mem::take(&mut set.mounted) {
+    if !islands.contains(&module) {
+      islands.push(module);
+    }
+  }
   static_modules.retain(|module| !placed.contains(module));
   for (file, text) in dialect_rewrites(app, &mut set, &islands, &static_modules, &defines, &owners, &rewritten)? {
     match rewritten.iter_mut().find(|(f, _)| *f == file) {
       Some((_, held)) => *held = text,
       None => rewritten.push((file, text)),
+    }
+  }
+  if types::jsx_source(app, &crate::xwpm::Layout::of_site(app, options.site.as_ref())?)? == "react" {
+    for (file, text) in foreign_rewrites(app, &mut set, &rewritten)? {
+      match rewritten.iter_mut().find(|(f, _)| *f == file) {
+        Some((_, held)) => *held = text,
+        None => rewritten.push((file, text)),
+      }
     }
   }
   for (module, _, detail) in &mut report.components {
@@ -1936,6 +1949,56 @@ fn dialect_rewrites(app: &Path, set: &mut ComponentSet, islands: &[String], stat
     }
   }
   Ok(out)
+}
+
+/// Every JSX file under `app` that imports a component another framework
+/// mounts, with each such import replaced by a `foreign` component of React's
+/// adapter, by path in the bundle overlay. React's `jsx` takes no other
+/// framework's component, so `<Chart />` from `Chart.vue` places it by id.
+fn foreign_rewrites(app: &Path, set: &mut ComponentSet, rewritten: &[(String, String)]) -> Result<Vec<(String, String)>, BuildError> {
+  let mut files = Vec::new();
+  jsx_files(app, app, &mut files)?;
+  let mut out = Vec::new();
+  for file in files {
+    let imports = set.foreign_imports(&file);
+    if imports.is_empty() {
+      continue;
+    }
+    let mut source = match rewritten.iter().find(|(f, _)| *f == file) {
+      Some((_, text)) => text.clone(),
+      None => {
+        let path = app.join(&file);
+        std::fs::read_to_string(&path).map_err(|e| BuildError::Io(path, e))?
+      }
+    };
+    for import in imports {
+      let consts: String = import.bindings.iter().map(|(local, module)| format!("const {local} = __sfForeign({module:?});")).collect::<Vec<_>>().join(" ");
+      source = source.replacen(&import.text, &consts, 1);
+    }
+    out.push((file, format!("import {{ foreign as __sfForeign }} from \"{}\";\n{source}", REACT.module)));
+  }
+  Ok(out)
+}
+
+/// The `.tsx` and `.jsx` files under `dir`, relative to `app`, leaving out
+/// what the build and the vendor step write.
+fn jsx_files(app: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), BuildError> {
+  let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).map_err(|e| BuildError::Io(dir.to_path_buf(), e))?.flatten().map(|e| e.path()).collect();
+  entries.sort();
+  for path in entries {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if path.is_dir() {
+      if name.starts_with('.') || (path.parent() == Some(app) && ["generated", "dist", "types", "vendor", "node_modules"].contains(&name.as_str())) {
+        continue;
+      }
+      jsx_files(app, &path, out)?;
+    } else if name.ends_with(".tsx") || name.ends_with(".jsx") {
+      if let Ok(relative) = path.strip_prefix(app) {
+        out.push(relative.to_string_lossy().replace('\\', "/"));
+      }
+    }
+  }
+  Ok(())
 }
 
 /// A client module that mounts one framework's components: the three exports

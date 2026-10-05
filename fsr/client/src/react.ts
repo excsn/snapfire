@@ -256,6 +256,18 @@ export function Mount({ module, props = {}, when }: MountProps): ReactElement {
   return createElement("sf-s", attrs);
 }
 
+/** The property a `foreign` component carries its module id under. */
+export const FOREIGN: unique symbol = Symbol.for("sf.foreign") as never;
+
+/** A component another framework mounts, as a React component placing it by module id through `Mount`. The build writes `const Chart = foreign("src/ui/Chart.vue#default")` in place of a React-JSX file's import of one, so `<Chart />` places that island. Children cannot cross into another framework's component. */
+export function foreign<P extends Props>(module: string): ((props: P) => ReactElement) & { [FOREIGN]: string } {
+  const Foreign = (props: P): ReactElement => {
+    if ((props as { children?: unknown }).children !== undefined) throw new Error(`${module} is mounted by another framework, so it takes no React children`);
+    return createElement(Mount, { module, props });
+  };
+  return Object.assign(Foreign, { [FOREIGN]: module });
+}
+
 /** `component` as a component that places it as an island with `options.when` and `options.mode` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
 export function island<P extends object>(component: ComponentType<P>, options: { when?: MountTiming; mode?: "server" } = {}): (props: P) => ReactElement {
   return function IslandOf(props: P): ReactElement {

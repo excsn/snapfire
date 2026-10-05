@@ -400,6 +400,25 @@ held.value += 1;
 
 Call it in `setup`: the subscription ends with the component's scope. Writing `.value` writes the store, so every other island reading that key follows, React or Vue.
 
+A React island uses a Vue component as JSX. In an application that serves React, the build turns the import into a `foreign` component that places the Vue island by id, mounted fresh in the region the server leaves empty for it:
+
+```tsx
+import { useState } from "react";
+import Chart from "./Chart.vue";
+
+export function Panel() {
+  const [n, setN] = useState(0);
+  return (
+    <section>
+      <button onClick={() => setN(n + 1)}>{n}</button>
+      <Chart label="sales" />
+    </section>
+  );
+}
+```
+
+`Chart` takes props and no children: React children cannot cross into a Vue component. The build refuses them.
+
 ## Writing a Mounter for Another Framework
 
 A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:

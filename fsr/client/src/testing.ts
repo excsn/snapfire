@@ -549,6 +549,8 @@ export interface Rendered extends BoundQueries {
 }
 
 async function moduleOf(type: unknown): Promise<string | null> {
+  const foreign = (type as { [key: symbol]: unknown } | null)?.[Symbol.for("sf.foreign")];
+  if (typeof foreign === "string") return foreign;
   for (const [id, entry] of registeredIslands()) {
     const mod = await entry.loader();
     if (mod === type) return id;

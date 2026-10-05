@@ -95,6 +95,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Link](#link)
   * [Picture](#picture)
   * [Mount](#mount)
+  * [foreign](#foreign)
   * [reactPatcher](#reactpatcher)
   * [reactUnmounter](#reactunmounter)
 * [11. The Vue Mounter](#11-the-vue-mounter)
@@ -850,6 +851,13 @@ The policy is read once from the document's `<meta name="sf:images">`, which the
 
 Places an island by module id rather than by component, for a tree holding an island another framework mounts. Renders `<sf-s data-sf-island>` with a marker and a props script inside it, then scans that region, so the registry entry for `module` decides the mounter and this component renders none of it. A later render with different `props` patches the island in place. The Vue entry exports the same component for the other direction.
 
+### foreign
+
+* `function foreign<P extends Props>(module: string): ((props: P) => ReactElement) & { [FOREIGN]: string }`
+* `const FOREIGN: unique symbol`, `Symbol.for("sf.foreign")`
+
+A component another framework mounts, as a React component that renders `Mount` for `module` with its props. In an application that serves React, `fsr build` replaces each import of a component in a plugin's language, a `.vue` file among them, in every `.tsx` and `.jsx` file with `const Name = foreign("<file>#<export>")`, so `<Chart />` in a React island or a spec places that island. Throws when given `children`, which cannot cross into another framework's component. `render` takes it as the island its module names.
+
 ### reactPatcher
 
 * `const reactPatcher: Patcher`
@@ -1073,7 +1081,7 @@ The request an action runs under when a rendered page calls it or a route loads.
 * `renderHook(hook, options?: { initialProps?; ctx?; wrapper? }): Promise<{ result: { current: Result }; rerender(props?): Promise<void>; unmount(): void }>`
 * `act(body: () => T | Promise<T>): Promise<T>`; `cleanup(): void`
 
-`render` takes the element a spec's JSX builds, React's or FSR's. A registered island of any framework is placed the way a page places one and mounted through its own adapter: the server's markup for those props is written first when the module lowers and the adapter hydrates over it, so a mismatch fails the test with the framework's message, while a React component the build could not lower mounts fresh. `rerender` patches the island in place and `root` throws, since no React root holds it. A React component no registry knows mounts in a React root, hydrating when the build lowered it. So does a registered one whose props cannot be encoded, such as children elements. Anything rendered with `hydrate: false` mounts fresh. Any other component is refused. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. `hydrated` names the module that hydrated. A page or a layout the build marked `static` is composition: `render` writes the server's markup for it, mounts the islands inside and names it in `composed`. No React root holds it, so `rerender` renders the server's markup again. The spec runner calls `registerComposition` for every composition route module a spec imports. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
+`render` takes the element a spec's JSX builds, React's or FSR's, a `foreign` component's among them. A registered island of any framework is placed the way a page places one and mounted through its own adapter: the server's markup for those props is written first when the module lowers and the adapter hydrates over it, so a mismatch fails the test with the framework's message, while a React component the build could not lower mounts fresh. `rerender` patches the island in place and `root` throws, since no React root holds it. A React component no registry knows mounts in a React root, hydrating when the build lowered it. So does a registered one whose props cannot be encoded, such as children elements. Anything rendered with `hydrate: false` mounts fresh. Any other component is refused. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. `hydrated` names the module that hydrated. A page or a layout the build marked `static` is composition: `render` writes the server's markup for it, mounts the islands inside and names it in `composed`. No React root holds it, so `rerender` renders the server's markup again. The spec runner calls `registerComposition` for every composition route module a spec imports. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
 
 ### load
 

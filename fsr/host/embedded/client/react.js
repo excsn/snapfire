@@ -212,6 +212,19 @@ export function Mount({ module, props = {}, when }) {
     if (when) attrs["data-sf-when"] = when;
     return createElement("sf-s", attrs);
 }
+export const FOREIGN = Symbol.for("sf.foreign");
+export function foreign(module) {
+    const Foreign = (props)=>{
+        if (props.children !== undefined) throw new Error(`${module} is mounted by another framework, so it takes no React children`);
+        return createElement(Mount, {
+            module,
+            props
+        });
+    };
+    return Object.assign(Foreign, {
+        [FOREIGN]: module
+    });
+}
 export function island(component, options = {}) {
     return function IslandOf(props) {
         return createElement(Island, {

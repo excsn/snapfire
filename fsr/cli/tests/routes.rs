@@ -1211,3 +1211,40 @@ fn a_page_whose_residue_no_island_can_hold_is_refused_with_that_residue() {
   assert!(error.contains("routes/page.tsx:6:") && error.contains("`new`"), "the residue that started it, not what the split left behind: {error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const PANEL_PAGE: &str = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport { Panel } from \"../src/ui/Panel\";\nexport default function Page() {\n  return <main><Island><Panel /></Island></main>;\n}\n";
+
+const REACT_AND_VUE: &str = r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/vue":"/v","vue":"/v"}}"#;
+
+fn panel_app(chart: &str) -> PathBuf {
+  let dir = app(&[("routes/page.tsx", PANEL_PAGE), ("src/ui/Panel.tsx", &panel(chart)), ("src/ui/Chart.vue", "<template><p /></template>\n")]);
+  std::fs::write(dir.join("importmap.json"), REACT_AND_VUE).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"},"vue":{"version":"3.5.13"}}}"#).unwrap();
+  dir
+}
+
+fn panel(chart: &str) -> String {
+  format!("import {{ useState }} from \"react\";\nimport Chart from \"./Chart.vue\";\nexport function Panel() {{\n  const [n, setN] = useState(0);\n  return <section><button onClick={{() => setN(n + 1)}}>{{n}}</button>{chart}</section>;\n}}\n")
+}
+
+#[test]
+fn a_react_island_places_a_component_another_framework_mounts_through_foreign() {
+  let dir = panel_app("<Chart label=\"x\" />");
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = generated(&built, "generated/islands.ts").unwrap();
+  assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "the build registers what the island mounts by id: {islands}");
+  let copy = generated(&built, ".fsr-bundle/src/ui/Panel.tsx").expect("the island's bundle copy");
+  assert!(copy.contains("const Chart = __sfForeign(\"src/ui/Chart.vue#default\");") && !copy.contains("import Chart"), "{copy}");
+  let plan = serde_json::from_str::<serde_json::Value>(&built.manifest.to_json()).unwrap();
+  let render = plan["components"].as_array().unwrap().iter().find(|c| c["module"] == "src/ui/Panel.tsx#Panel").map(|c| c["body"]["render"].to_string()).unwrap();
+  assert!(render.contains("\"sf-s\"") && render.contains("data-sf-island") && !render.contains("Chart.vue"), "the server writes the empty region Mount fills: {render}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_component_another_framework_mounts_takes_no_children_from_a_react_island() {
+  let dir = panel_app("<Chart label=\"x\"><b>y</b></Chart>");
+  let error = fails(&dir).to_string();
+  assert!(error.contains("`Chart` is a component another framework mounts, so it takes no children from a React component"), "{error}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
