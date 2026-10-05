@@ -29,6 +29,12 @@ test("a room renders its transcript and marks what this reader said", async () =
   expect(document.querySelector(".said .body")?.textContent).toEqual("Morning.");
 });
 
+test("the room shows the figures the loader asked ctx.native for", async () => {
+  await load("/room/lobby", { ctx: room("alice") });
+  expect(document.querySelector(".digest .words")?.textContent).toEqual("4 words");
+  expect(document.querySelector(".digest .longest")?.textContent).toEqual("Coffee is on.");
+});
+
 test("the room carries the island that follows it", async () => {
   await load("/room/lobby", { ctx: room("alice") });
   expect(document.querySelector(".live"), "the live pill is on the room").toBeTruthy();

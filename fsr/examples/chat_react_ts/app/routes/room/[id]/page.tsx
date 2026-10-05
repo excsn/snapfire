@@ -3,7 +3,7 @@ import type { RoomIdProps } from "@generated/client";
 import Say from "@src/ui/Say";
 import Follow from "@src/ui/Follow";
 
-export default function RoomPage({ room, messages, me }: RoomIdProps) {
+export default function RoomPage({ room, messages, me, words, longest }: RoomIdProps) {
   return (
     <div className="page room">
       <div className="room-head">
@@ -11,6 +11,11 @@ export default function RoomPage({ room, messages, me }: RoomIdProps) {
         <Follow room={room.id} />
       </div>
       <p className="about">{room.about}</p>
+      {messages.length > 0 && (
+        <p className="digest">
+          <span className="words">{String(words)} words</span>, the longest <span className="longest">{String(longest)}</span>
+        </p>
+      )}
       <ol className="transcript">
         {messages.map((message) => (
           <li key={message.id} className={message.who === me ? "said mine" : "said"}>
