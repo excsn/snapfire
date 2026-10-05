@@ -27,4 +27,16 @@ describe("the vue page", () => {
     await settle();
     expect(texts(".tile .name")).toEqual(["fig"]);
   });
+
+  test("fills a named slot with the props the child hands it, falls back where it is not given and reads what the parent provides", async () => {
+    await load("/vue");
+    await settle();
+    expect(texts(".tile .badge")).toEqual(["3 left"]);
+    expect(texts(".tile .shelf")).toEqual(["pantry", "pantry"]);
+    expect([...document.querySelectorAll(".tile")].map((t) => t.getAttribute("data-name"))).toEqual(["pear", "fig"]);
+    await fireEvent.click(document.querySelectorAll(".take")[0]!);
+    await settle();
+    expect(texts(".tile .badge")).toEqual(["2 left"]);
+    expect(document.querySelector(".tile")?.getAttribute("data-left")).toEqual("2");
+  });
 });
