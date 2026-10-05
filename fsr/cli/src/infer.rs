@@ -199,7 +199,7 @@ impl<'a> Inferer<'a> {
         Some(name) => self.field_of(&Ts::Named(name.to_owned()), key),
         None => Ts::Unknown,
       },
-      Expr::Store(_) => Ts::Unknown,
+      Expr::Store(_) | Expr::Context(_) => Ts::Unknown,
       Expr::Locale => Ts::Str,
       Expr::Identity(path) => match path.first().map(String::as_str) {
         Some("subject") => Ts::Str,

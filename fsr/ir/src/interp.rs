@@ -193,6 +193,7 @@ impl Interpreter {
       in_framework: false,
       component_path: String::new(),
       unrendered: false,
+      contexts: Vec::new(),
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -303,6 +304,8 @@ pub(crate) struct Env {
   /// not lower: the server cannot write that tree, so the island holding it
   /// mounts fresh.
   pub(crate) unrendered: bool,
+  /// The values the providers around the render point hold, by context, innermost last.
+  pub(crate) contexts: Vec<(String, Value)>,
 }
 
 /// One step of the path a key is taken under.
@@ -441,6 +444,7 @@ impl Env {
       in_framework: false,
       component_path: String::new(),
       unrendered: false,
+      contexts: Vec::new(),
     }
   }
 
@@ -570,6 +574,7 @@ impl Env {
       in_framework: self.in_framework,
       component_path: self.component_path.clone(),
       unrendered: false,
+      contexts: self.contexts.clone(),
     }
   }
 
@@ -673,6 +678,7 @@ impl Env {
       Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
       Expr::Locale => Ok(self.locale()),
       Expr::Path => Ok(Value::str(self.ctx.path.clone())),
       Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
@@ -1040,6 +1046,7 @@ impl Env {
         Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
+        Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
         Expr::Locale => Ok(self.locale()),
         Expr::Path => Ok(Value::str(self.ctx.path.clone())),
         Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),

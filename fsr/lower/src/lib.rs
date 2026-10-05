@@ -1263,6 +1263,7 @@ impl<'a> Lowerer<'a> {
       js::Expr::Paren(p) => self.expr(&p.expr),
       js::Expr::Await(a) => self.expr(&a.arg),
       js::Expr::TsAs(a) => self.expr(&a.expr),
+      js::Expr::TsConstAssertion(a) => self.expr(&a.expr),
       js::Expr::TsNonNull(a) => self.expr(&a.expr),
       js::Expr::TsSatisfies(a) => self.expr(&a.expr),
       js::Expr::TsTypeAssertion(a) => self.expr(&a.expr),
@@ -2289,6 +2290,6 @@ fn describe_expr(expr: &js::Expr) -> (&'static str, &'static str) {
     js::Expr::TaggedTpl(_) => ("a tagged template", "a plain template literal, or a module-level helper the build can follow"),
     js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => ("JSX in a body", "a body returns data; the page it feeds is where the markup goes"),
     js::Expr::MetaProp(_) => ("`import.meta`", "the build resolves every import, so nothing reads them while serving"),
-    _ => ("an expression outside the IR", "IR.md lists what a body may say"),
+    _ => ("an expression outside the IR", "section 2 of snapfire_fsr_lower's API reference lists what a body may say"),
   }
 }

@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Owner, Stmt, Tmpl};
-use snapfire_fsr_ir::render::{html_attr_name, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
+use snapfire_fsr_ir::render::{html_attr_name, CONTEXT_PREFIX, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
@@ -533,7 +533,10 @@ impl ComponentSet {
     if let Some(span) = tree_call(&self.parsed[file].clone()).filter(|_| export == "default") {
       return Err(LowerError::Retired(self.parsed[file].residue(span, "`tree(...)` is gone: a layout is composition and its page renders in a region of its own, so `export default` the layout itself and share state with the page through the store")));
     }
+    let mut hook_files: Vec<(String, String, String)> = Vec::new();
     let ((component, refs, providers, own_heads), hoisting) = loop {
+      let contexts = self.contexts_in(file);
+      let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
         let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
@@ -544,7 +547,7 @@ impl ComponentSet {
         lowerer.hoisting = (!element_template).then(Candidates::default);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), contexts, hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None };
         let result = cl.component(&function);
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
@@ -552,12 +555,23 @@ impl ComponentSet {
           Err(residue) if cl.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
           other => other,
         };
-        (result, cl.lowerer.unbound.take(), hoisting)
+        (result, (cl.lowerer.unbound.take(), cl.wanted_hook.take(), cl.unbound_in.take()), hoisting)
       };
+      let (unbound, wanted_hook, unbound_in) = unbound;
       match result {
         Ok(done) => break (done, hoisting),
         Err(residue) => {
+          if let Some((name, from)) = wanted_hook {
+            if !hook_files.iter().any(|(n, _, _)| *n == name) {
+              if let Some(found) = self.hook_source(&from, &name) {
+                hook_files.push((name, found.0, found.1));
+                continue;
+              }
+            }
+            return Err(residue.into());
+          }
           let Some(name) = unbound else { return Err(residue.into()) };
+          let file = unbound_in.as_deref().unwrap_or(file);
           if globals.iter().any(|(n, _)| *n == name) {
             return Err(residue.into());
           }
@@ -808,6 +822,72 @@ impl ComponentSet {
   /// such name.
   /// Whether `name` in `file` is a module-level `createContext(...)` from
   /// `react`, followed through imports.
+  /// Where the custom hook `name`, called in `file`, is declared: the file and its export there.
+  fn hook_source(&mut self, file: &str, name: &str) -> Option<(String, String)> {
+    let parsed = self.parsed.get(file)?.clone();
+    if let Some((source, imported)) = find_import(&parsed, name) {
+      let target = self.resolve_import(file, &source)?;
+      self.load(&target).ok()?;
+      let held = self.parsed.get(&target)?.clone();
+      return find_function(&held, &imported).map(|_| (target, imported));
+    }
+    find_function(&parsed, name).map(|_| (file.to_owned(), name.to_owned()))
+  }
+
+  /// The `createContext` value `name` in `file` is, followed through imports: its id (`file#name` where it is declared) and its default value lowered, null when that does not lower.
+  fn context_of(&mut self, file: &str, name: &str) -> Option<(String, Expr)> {
+    let parsed = self.parsed.get(file)?.clone();
+    if let Some((source, imported)) = find_import(&parsed, name) {
+      let target = self.resolve_import(file, &source)?;
+      self.load(&target).ok()?;
+      return self.context_of(&target, &imported);
+    }
+    let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return None };
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    if !imported_callee(&parsed, callee).is_some_and(|(source, imported)| source == "react" && imported == "createContext") {
+      return None;
+    }
+    let defaults = self.defaults.clone();
+    let default = match call.args.first() {
+      Some(arg) => Lowerer::new(&parsed, &defaults).expr(&arg.expr).unwrap_or(Expr::Lit(Lit::Null)),
+      None => Expr::Lit(Lit::Null),
+    };
+    Some((format!("{file}#{name}"), default))
+  }
+
+  /// The contexts a file names, by local name, for a file that provides or reads one.
+  fn contexts_in(&mut self, file: &str) -> HashMap<String, (String, Expr)> {
+    let Some(parsed) = self.parsed.get(file).cloned() else { return HashMap::new() };
+    let text = parsed.cm.files().first().map(|f| f.src.to_string()).unwrap_or_default();
+    if !text.contains("useContext") && !text.contains(".Provider") {
+      return HashMap::new();
+    }
+    let mut names: Vec<String> = Vec::new();
+    for item in &parsed.module.body {
+      match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
+          for spec in &import.specifiers {
+            let local = match spec {
+              js::ImportSpecifier::Named(n) => &n.local,
+              js::ImportSpecifier::Default(d) => &d.local,
+              js::ImportSpecifier::Namespace(_) => continue,
+            };
+            names.push(local.sym.to_string());
+          }
+        }
+        js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) => {
+          for decl in &var.decls {
+            if let js::Pat::Ident(id) = &decl.name {
+              names.push(id.id.sym.to_string());
+            }
+          }
+        }
+        _ => {}
+      }
+    }
+    names.into_iter().filter_map(|name| self.context_of(file, &name).map(|found| (name, found))).collect()
+  }
+
   fn context_binding(&mut self, file: &str, name: &str) -> Result<bool, LowerError> {
     let parsed = self.parsed[file].clone();
     if let Some((source, imported)) = find_import(&parsed, name) {
@@ -1978,6 +2058,340 @@ fn early_return(branch: &js::IfStmt) -> Option<&js::ReturnStmt> {
   }
 }
 
+/// What an inlined custom hook returned: a value, a handler the browser runs or an object or array literal of either, part by part.
+enum Returned {
+  Value(Expr),
+  Handler(String),
+  Object(Vec<(String, Part)>),
+  Array(Vec<Option<Part>>),
+}
+
+enum Part {
+  Value(Expr),
+  Handler(String),
+}
+
+/// React's own hooks and FSR client's; any other `use` call is the application's.
+const LIBRARY_HOOKS: &[&str] = &["useState", "useStore", "useMemo", "useRef", "useCallback", "useLocale", "useContext", "useReducer", "useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle", "useId", "useTransition", "useDeferredValue", "useSyncExternalStore", "useOptimistic", "useActionState", "useFormStatus", "useHoisted", "use"];
+
+impl<'a, 'p> ComponentLowerer<'a, 'p> {
+  /// Whether a `use` call names one of the application's own hooks rather than React's or FSR client's.
+  fn custom_hook(&self, name: &str) -> bool {
+    match find_import(self.lowerer.parsed, name) {
+      Some((source, _)) => !(source == "react" || source.starts_with("react-dom") || source.starts_with("@snapfire/") || source.starts_with("preact")),
+      None => !LIBRARY_HOOKS.contains(&name),
+    }
+  }
+
+  /// A custom hook's call inlined: its body binds under a prefix of its own so two calls hold two sets of state. What it returns binds at the call site. A returned setter or function is a handler there, run by the browser.
+  fn inline_hook(&mut self, hook: &str, call: &'p js::CallExpr, pattern: Option<&'p js::Pat>) -> Lowered<Option<Stmt>> {
+    let Some((_, parsed, export)) = self.hooks.iter().find(|(n, _, _)| n == hook).cloned() else {
+      self.wanted_hook = Some((hook.to_owned(), self.lowerer.parsed.file.clone()));
+      return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
+    };
+    let Some(found) = find_function(parsed, &export) else { return Err(self.lowerer.residue(call.span, format!("`{hook}` is not a function the build can read"))) };
+    let (params, body): (Vec<js::Pat>, FunctionBody<'p>) = match found {
+      Found::Declared(params, stmts, _) => (params, FunctionBody::Block(stmts)),
+      Found::Arrow(arrow) => (arrow.params.clone(), arrow_body(arrow)),
+    };
+    let mut args = Vec::with_capacity(call.args.len());
+    for arg in &call.args {
+      args.push(self.lowerer.expr(&arg.expr)?);
+    }
+    self.hook_calls += 1;
+    let prefix = format!("{hook}${}$", self.hook_calls);
+    let outer = self.lowerer.parsed;
+    let hoisting = self.lowerer.hoisting.take();
+    let depth = self.lowerer.scope.len();
+    self.lowerer.parsed = parsed;
+    let returned = self.hook_body(&prefix, &params, body, args);
+    self.lowerer.parsed = outer;
+    self.lowerer.hoisting = hoisting;
+    self.lowerer.scope.truncate(depth);
+    let returned = match returned {
+      Ok(returned) => returned,
+      Err(residue) => {
+        if self.lowerer.unbound.is_some() && self.unbound_in.is_none() {
+          self.unbound_in = Some(parsed.file.clone());
+        }
+        return Err(residue);
+      }
+    };
+    if let Some(pattern) = pattern {
+      self.bind_returned(pattern, returned, &prefix)?;
+    }
+    Ok(None)
+  }
+
+  fn hook_body(&mut self, prefix: &str, params: &[js::Pat], body: FunctionBody<'p>, args: Vec<Expr>) -> Lowered<Returned> {
+    for (i, param) in params.iter().enumerate() {
+      let arg = args.get(i).cloned().unwrap_or(Expr::Lit(Lit::Null));
+      bind_pattern(&mut self.lowerer, param, arg)?;
+    }
+    let stmts = match body {
+      FunctionBody::Expr(e) => return self.returned(e, &[]),
+      FunctionBody::Block(stmts) => stmts,
+    };
+    let floor = self.lowerer.scope.len();
+    let mut renames: Vec<(String, String)> = Vec::new();
+    for stmt in stmts {
+      match stmt {
+        js::Stmt::Decl(js::Decl::Var(var)) => {
+          for decl in &var.decls {
+            self.hook_let(decl, prefix, &mut renames)?;
+          }
+        }
+        js::Stmt::Decl(js::Decl::Fn(f)) => {
+          let bound = format!("{prefix}{}", f.ident.sym);
+          if let Some(body) = &f.function.body {
+            self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+          }
+          self.handlers.push(bound.clone());
+          renames.push((f.ident.sym.to_string(), bound));
+        }
+        js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
+        js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
+          let (hook, call) = hook_call(self.lowerer.parsed, &e.expr).expect("checked");
+          self.inline_hook(hook, call, None)?;
+        }
+        js::Stmt::Return(ret) => {
+          return match ret.arg.as_deref() {
+            Some(arg) => self.returned(arg, &renames),
+            None => Ok(Returned::Value(Expr::Lit(Lit::Null))),
+          };
+        }
+        js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) if holds_return(stmt) => {
+          return Err(self.lowerer.residue(stmt.span(), "a `return` inside a branch of a custom hook"));
+        }
+        js::Stmt::Expr(_) | js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => {
+          let mut held = std::mem::take(&mut self.pending_lets);
+          let result = self.rebound(stmt, floor, &[], &mut held, &|_, expr| expr);
+          self.pending_lets = held;
+          result?;
+        }
+        other => return Err(self.lowerer.residue(other.span(), "a statement a custom hook cannot hold; it holds hooks, `const`s, `let`s, functions and a `return`")),
+      }
+    }
+    Ok(Returned::Value(Expr::Lit(Lit::Null)))
+  }
+
+  /// One declaration inside a hook: lowered as the component's are, then every name it bound renamed under the call's prefix.
+  fn hook_let(&mut self, decl: &'p js::VarDeclarator, prefix: &str, renames: &mut Vec<(String, String)>) -> Lowered<()> {
+    let (state, bindings, stores, setters, handlers, scope) = (self.state.len(), self.state_bindings.len(), self.store_bindings.len(), self.setters.len(), self.handlers.len(), self.lowerer.scope.len());
+    let fns: Vec<String> = self.handler_fns.keys().cloned().collect();
+    let stmt = self.let_stmt(decl)?;
+    let mut map: Vec<(String, String)> = Vec::new();
+    let rename = |map: &mut Vec<(String, String)>, name: &str| -> String {
+      if let Some((_, to)) = map.iter().find(|(from, _)| from == name) {
+        return to.clone();
+      }
+      let to = format!("{prefix}{name}");
+      map.push((name.to_owned(), to.clone()));
+      to
+    };
+    for name in self.state[state..].iter_mut() {
+      *name = rename(&mut map, name);
+    }
+    for name in self.state_bindings[bindings..].iter_mut() {
+      *name = rename(&mut map, name);
+    }
+    for (name, _) in self.store_bindings[stores..].iter_mut() {
+      *name = rename(&mut map, name);
+    }
+    for (setter, held) in self.setters[setters..].iter_mut() {
+      *setter = rename(&mut map, setter);
+      *held = rename(&mut map, held);
+    }
+    for name in self.handlers[handlers..].iter_mut() {
+      *name = rename(&mut map, name);
+    }
+    let added: Vec<String> = self.handler_fns.keys().filter(|k| !fns.contains(k)).cloned().collect();
+    for key in added {
+      if let Some(f) = self.handler_fns.remove(&key) {
+        let to = rename(&mut map, &key);
+        self.handler_fns.insert(to, f);
+      }
+    }
+    if let Some(Stmt::Let { name, expr }) = stmt {
+      let to = if name.starts_with("$d") { name } else { rename(&mut map, &name) };
+      self.pending_lets.push(Stmt::Let { name: to, expr });
+    }
+    for (_, bound) in self.lowerer.scope[scope..].iter_mut() {
+      if let Expr::Var(var) = bound {
+        if let Some((_, to)) = map.iter().find(|(from, _)| from == var) {
+          *var = to.clone();
+        }
+      }
+    }
+    renames.extend(map);
+    Ok(())
+  }
+
+  /// A hook's return as values and handlers, part by part where it is an object or array literal.
+  fn returned(&mut self, e: &'p js::Expr, renames: &[(String, String)]) -> Lowered<Returned> {
+    let handler = |this: &Self, e: &js::Expr| -> Option<String> {
+      let js::Expr::Ident(id) = e else { return None };
+      let bound = renames.iter().rev().find(|(from, _)| from == id.sym.as_ref()).map(|(_, to)| to.clone())?;
+      this.handlers.contains(&bound).then_some(bound)
+    };
+    let part = |this: &mut Self, e: &'p js::Expr| -> Lowered<Part> {
+      if let js::Expr::Arrow(arrow) = e {
+        this.hook_calls += 1;
+        let bound = format!("$hook{}", this.hook_calls);
+        this.handler_fns.insert(bound.clone(), (arrow.params.clone(), arrow_body(arrow)));
+        this.handlers.push(bound.clone());
+        return Ok(Part::Handler(bound));
+      }
+      Ok(match handler(this, e) {
+        Some(bound) => Part::Handler(bound),
+        None => Part::Value(this.lowerer.expr(e)?),
+      })
+    };
+    match e {
+      js::Expr::Paren(p) => self.returned(&p.expr, renames),
+      js::Expr::TsAs(a) => self.returned(&a.expr, renames),
+      js::Expr::TsConstAssertion(a) => self.returned(&a.expr, renames),
+      js::Expr::TsSatisfies(a) => self.returned(&a.expr, renames),
+      js::Expr::Object(obj) => {
+        let mut parts = Vec::with_capacity(obj.props.len());
+        for prop in &obj.props {
+          let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(obj.span, "a spread in what a custom hook returns")) };
+          match &**prop {
+            js::Prop::Shorthand(id) => {
+              let ident = js::Expr::Ident(id.clone());
+              let p = match handler(self, &ident) {
+                Some(bound) => Part::Handler(bound),
+                None => Part::Value(self.lowerer.expr(&ident)?),
+              };
+              parts.push((id.sym.to_string(), p));
+            }
+            js::Prop::KeyValue(kv) => {
+              let key = prop_name(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed key in what a custom hook returns"))?;
+              parts.push((key, part(self, &kv.value)?));
+            }
+            other => return Err(self.lowerer.residue(other.span(), "a method in what a custom hook returns")),
+          }
+        }
+        Ok(Returned::Object(parts))
+      }
+      js::Expr::Array(arr) => {
+        let mut parts = Vec::with_capacity(arr.elems.len());
+        for elem in &arr.elems {
+          match elem {
+            None => parts.push(None),
+            Some(e) if e.spread.is_some() => return Err(self.lowerer.residue(e.expr.span(), "a spread in what a custom hook returns")),
+            Some(e) => parts.push(Some(part(self, &e.expr)?)),
+          }
+        }
+        Ok(Returned::Array(parts))
+      }
+      other => Ok(match handler(self, other) {
+        Some(bound) => Returned::Handler(bound),
+        None => Returned::Value(self.lowerer.expr(other)?),
+      }),
+    }
+  }
+
+  /// `local` at the call site is the handler `bound` inside the hook: the same function, the same state when it is a setter.
+  fn alias_handler(&mut self, local: &str, bound: &str) {
+    self.handlers.push(local.to_owned());
+    if let Some(f) = self.handler_fns.get(bound).cloned() {
+      self.handler_fns.insert(local.to_owned(), f);
+    }
+    if let Some((_, state)) = self.setters.iter().find(|(s, _)| s == bound).cloned() {
+      self.setters.push((local.to_owned(), state));
+    }
+  }
+
+  fn bind_value(&mut self, pattern: &js::Pat, value: Expr) -> Lowered<()> {
+    let name = self.lowerer.temp();
+    self.pending_lets.push(Stmt::Let { name: name.clone(), expr: value });
+    bind_pattern(&mut self.lowerer, pattern, Expr::Var(name))
+  }
+
+  fn bind_returned(&mut self, pattern: &'p js::Pat, returned: Returned, prefix: &str) -> Lowered<()> {
+    let part_into = |this: &mut Self, pattern: &js::Pat, part: Option<Part>| -> Lowered<()> {
+      match part {
+        Some(Part::Handler(bound)) => match pattern {
+          js::Pat::Ident(id) => {
+            this.alias_handler(id.id.sym.as_ref(), &bound);
+            Ok(())
+          }
+          other => Err(this.lowerer.residue(other.span(), "a function a custom hook returns bound to a pattern")),
+        },
+        Some(Part::Value(value)) => this.bind_value(pattern, value),
+        None => this.bind_value(pattern, Expr::Lit(Lit::Null)),
+      }
+    };
+    match (pattern, returned) {
+      (js::Pat::Ident(id), Returned::Handler(bound)) => {
+        self.alias_handler(id.id.sym.as_ref(), &bound);
+        Ok(())
+      }
+      (js::Pat::Ident(id), Returned::Value(value)) => {
+        let name = format!("{prefix}{}", id.id.sym);
+        self.pending_lets.push(Stmt::Let { name: name.clone(), expr: value });
+        self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var(name)));
+        Ok(())
+      }
+      (js::Pat::Object(obj), Returned::Object(mut parts)) => {
+        for prop in &obj.props {
+          match prop {
+            js::ObjectPatProp::Assign(a) => {
+              let key = a.key.id.sym.to_string();
+              let part = parts.iter().position(|(k, _)| *k == key).map(|at| parts.remove(at).1);
+              let target = js::Pat::Ident(a.key.clone());
+              match (part, &a.value) {
+                (Some(Part::Value(value)), Some(default)) => {
+                  let default = self.lowerer.expr(default)?;
+                  self.bind_value(&target, Expr::Coalesce(Box::new(value), Box::new(default)))?;
+                }
+                (part, _) => part_into(self, &target, part)?,
+              }
+            }
+            js::ObjectPatProp::KeyValue(kv) => {
+              let key = prop_name(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed field in a pattern"))?;
+              let part = parts.iter().position(|(k, _)| *k == key).map(|at| parts.remove(at).1);
+              part_into(self, &kv.value, part)?;
+            }
+            js::ObjectPatProp::Rest(r) => return Err(self.lowerer.residue(r.span, "a rest of what a custom hook returns")),
+          }
+        }
+        Ok(())
+      }
+      (js::Pat::Array(arr), Returned::Array(mut parts)) => {
+        for (i, elem) in arr.elems.iter().enumerate() {
+          let part = if i < parts.len() { parts[i].take() } else { None };
+          match elem {
+            None => {}
+            Some(js::Pat::Rest(r)) => return Err(self.lowerer.residue(r.span, "a rest of what a custom hook returns")),
+            Some(pattern) => part_into(self, pattern, part)?,
+          }
+        }
+        Ok(())
+      }
+      (pattern, Returned::Object(parts)) => {
+        let mut entries = Vec::new();
+        for (key, part) in parts {
+          if let Part::Value(value) = part {
+            entries.push(Entry::Field(key, value));
+          }
+        }
+        self.bind_value(pattern, Expr::Object(entries))
+      }
+      (pattern, Returned::Array(parts)) => {
+        let items = parts.into_iter().map(|p| Entry::Item(match p {
+          Some(Part::Value(value)) => value,
+          _ => Expr::Lit(Lit::Null),
+        })).collect();
+        self.bind_value(pattern, Expr::Array(items))
+      }
+      (pattern, Returned::Value(value)) => self.bind_value(pattern, value),
+      (pattern, Returned::Handler(_)) => Err(self.lowerer.residue(pattern.span(), "a function a custom hook returns bound to a pattern")),
+    }
+  }
+}
+
 struct ComponentLowerer<'a, 'p> {
   lowerer: Lowerer<'p>,
   file: &'a str,
@@ -2014,6 +2428,18 @@ struct ComponentLowerer<'a, 'p> {
   lowered_handlers: Vec<Handler>,
   /// Custom element tags with a shadow template, to the template's module.
   elements: Rc<HashMap<String, String>>,
+  /// The contexts this file names, by local name: the id and the default value.
+  contexts: HashMap<String, (String, Expr)>,
+  /// Custom hooks resolved so far: the name a call uses, the module that declares it and its export there.
+  hooks: Vec<(String, &'p Parsed, String)>,
+  /// A custom hook a call named that `hooks` does not hold yet, with the file the call is in, so the set can find it and lower again.
+  wanted_hook: Option<(String, String)>,
+  /// Lets an inlined custom hook bound, which the body places before the declaration that called it.
+  pending_lets: Vec<Stmt>,
+  /// How many custom hook calls have been inlined, which names each call's bindings apart.
+  hook_calls: usize,
+  /// The file a name the lowerer could not bind was met in, when that is a hook's rather than the component's.
+  unbound_in: Option<String>,
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
   providers: Vec<(String, (usize, usize))>,
@@ -2183,10 +2609,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                     return Err(self.lowerer.residue(decl.span, format!("`{hook}` after an early `return`, which React refuses since the hooks would change between renders")));
                   }
                 }
-                if let Some(Stmt::Let { name, expr }) = self.let_stmt(decl)? {
+                let stmt = self.let_stmt(decl)?;
+                for pending in std::mem::take(&mut self.pending_lets) {
+                  if let Stmt::Let { name, expr } = pending {
+                    lets.push(Stmt::Let { name, expr: guarded(&early, expr) });
+                  }
+                }
+                if let Some(Stmt::Let { name, expr }) = stmt {
                   lets.push(Stmt::Let { name, expr: guarded(&early, expr) });
                 }
               }
+            }
+            js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
+              let (hook, call) = hook_call(self.lowerer.parsed, &e.expr).expect("checked");
+              self.inline_hook(hook, call, None)?;
+              lets.append(&mut self.pending_lets);
             }
             js::Stmt::Expr(e) if !hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
             js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
@@ -2199,7 +2636,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
             js::Stmt::Decl(js::Decl::Var(var)) => {
               for decl in &var.decls {
-                if let Some(stmt) = self.let_stmt(decl)? {
+                let stmt = self.let_stmt(decl)?;
+                lets.append(&mut self.pending_lets);
+                if let Some(stmt) = stmt {
                   lets.push(stmt);
                 }
               }
@@ -2424,6 +2863,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))
           }
           Some(("useLocale", _)) => Expr::Locale,
+          Some(("useContext", call)) => {
+            let context = match call.args.first().map(|a| &*a.expr) {
+              Some(js::Expr::Ident(id)) => self.contexts.get(id.sym.as_ref()).cloned(),
+              _ => None,
+            };
+            let Some((id, default)) = context else {
+              return Err(self.lowerer.residue(decl.span, "`useContext` of something the build cannot follow to a `createContext`"));
+            };
+            Expr::Coalesce(Box::new(Expr::Context(id)), Box::new(default))
+          }
+          Some(("useId", _)) => {
+            return Err(self.lowerer.residue_with(decl.span, "`useId`, whose value React derives from the shape of the tree at hydration", "the server cannot write the id React will expect; take an id from a prop or the loader's data"));
+          }
+          Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(&decl.name)),
           Some((hook, _)) if hook != "useState" => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
           _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
             match init {
@@ -2451,6 +2904,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let js::Expr::Call(call) = init else { return self.pattern_stmt(&decl.name, init) };
         if called == "useStore" {
           return self.store_stmt(decl, arr, call);
+        }
+        if called == "useReducer" {
+          return self.reducer_stmt(arr, call);
+        }
+        if !called.is_empty() && called != "useState" && self.custom_hook(called) {
+          return self.inline_hook(called, call, Some(&decl.name));
         }
         if called != "useState" {
           if !called.is_empty() {
@@ -2488,9 +2947,38 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// `const [state, dispatch] = useReducer(reducer, initial, init?)`: state the way `useState` holds it, starting at `initial` or `init(initial)`, with `dispatch` a handler the browser runs.
+  fn reducer_stmt(&mut self, arr: &js::ArrayPat, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
+    let initial = match call.args.get(1) {
+      Some(a) => self.lowerer.expr(&a.expr)?,
+      None => return Err(self.lowerer.residue(call.span, "`useReducer` without an initial state")),
+    };
+    let expr = match call.args.get(2).map(|a| &*a.expr) {
+      None => initial,
+      Some(js::Expr::Arrow(arrow)) => Expr::Apply { f: Box::new(self.lowerer.lambda(arrow)?), args: vec![initial] },
+      Some(init) => Expr::Apply { f: Box::new(self.lowerer.expr(init)?), args: vec![initial] },
+    };
+    let mut names = arr.elems.iter().map(|e| match e {
+      Some(js::Pat::Ident(id)) => Some(id.id.sym.to_string()),
+      _ => None,
+    });
+    let state = names.next().flatten();
+    if let Some(dispatch) = names.next().flatten() {
+      self.handlers.push(dispatch);
+    }
+    let Some(name) = state else { return Ok(None) };
+    self.state.push(name.clone());
+    self.state_bindings.push(name.clone());
+    self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+    Ok(Some(Stmt::Let { name, expr }))
+  }
+
   /// A destructuring in a component body: the value under a temporary each name reads a part of.
-  fn pattern_stmt(&mut self, pattern: &js::Pat, init: &js::Expr) -> Lowered<Option<Stmt>> {
-    if let Some((hook, _)) = hook_call(self.lowerer.parsed, init) {
+  fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
+    if let Some((hook, call)) = hook_call(self.lowerer.parsed, init) {
+      if self.custom_hook(hook) {
+        return self.inline_hook(hook, call, Some(pattern));
+      }
       return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`")));
     }
     let expr = self.lowerer.expr(init)?;
@@ -2645,7 +3133,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         if find_namespace_import(self.lowerer.parsed, obj.sym.as_ref()).is_none() {
           let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
           self.providers.push((obj.sym.to_string(), (loc.line, loc.col_display + 1)));
-          return Ok(Tmpl::Fragment(self.children(&el.children)?));
+          let children = Tmpl::Fragment(self.children(&el.children)?);
+          let Some((id, _)) = self.contexts.get(obj.sym.as_ref()).cloned() else { return Ok(children) };
+          let mut value = Expr::Lit(Lit::Null);
+          for attr in &el.opening.attrs {
+            if let js::JSXAttrOrSpread::JSXAttr(attr) = attr {
+              if attr_name(&attr.name) == "value" {
+                value = self.attr_value(attr)?;
+              }
+            }
+          }
+          return Ok(Tmpl::Let { name: format!("{CONTEXT_PREFIX}{id}"), expr: value, then: Box::new(children) });
         }
       }
     }
@@ -4407,7 +4905,7 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
-  fn a_provider_tag_lowers_to_its_children_and_the_component_hydrates() {
+  fn a_provider_tag_binds_its_value_around_its_children_and_the_component_hydrates() {
     let files = [
       ("src/theme.ts", "import { createContext } from \"react\";\nexport const Theme = createContext(\"light\");\n"),
       (
@@ -4419,11 +4917,59 @@ export default function Order({ id }: { id: number }) {
     set.layouts.push("routes/layout.tsx#default".to_owned());
     set.lower("routes/layout.tsx#default").unwrap();
     let layout = &set.components[0].1;
-    let Tmpl::Fragment(items) = &layout.render else { panic!("{:?}", layout.render) };
+    let Tmpl::Let { name, expr, then } = &layout.render else { panic!("{:?}", layout.render) };
+    assert_eq!(name, "$ctx:src/theme.ts#Theme", "the context is named where `createContext` declares it");
+    assert_eq!(expr, &Expr::var("$props").field("mode"));
+    let Tmpl::Fragment(items) = &**then else { panic!("{then:?}") };
     let Tmpl::Element { tag, children, .. } = &items[0] else { panic!("{:?}", items[0]) };
     assert_eq!(tag, "div");
     assert_eq!(children[0], Tmpl::Element { tag: "sf-s".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] });
     assert_eq!(layout.owner, Owner::React, "a provider only exists in the browser, so the layout is a root");
+  }
+
+  #[test]
+  fn a_custom_hook_inlines_with_state_of_its_own_per_call_and_its_returned_setter_is_a_handler() {
+    let files = [
+      ("src/hooks.ts", "import { useState } from \"react\";\nexport function useCount(start: number) {\n  const [n, setN] = useState(start);\n  return { n, twice: n * 2, setN };\n}\n"),
+      (
+        "routes/a/page.tsx",
+        "import { useCount } from \"../../src/hooks\";\nexport default function A() {\n  const one = useCount(1);\n  const { n, twice, setN } = useCount(5);\n  return <button onClick={() => setN(n + 1)}>{one.n} {n} {twice}</button>;\n}\n",
+      ),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap().1;
+    assert_eq!(page.state, vec!["useCount$1$n".to_owned(), "useCount$2$n".to_owned()], "each call holds its own state: {:?}", page.body);
+    assert_eq!(page.handlers.len(), 1, "the returned setter is a handler the button's arrow calls: {:?}", page.render);
+    let Tmpl::Element { attrs, .. } = &page.render else { panic!("{:?}", page.render) };
+    assert!(attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n == "$on:click")), "{attrs:?}");
+  }
+
+  #[test]
+  fn use_reducer_holds_its_initial_state_and_use_context_reads_the_nearest_provider() {
+    let files = [
+      ("src/theme.ts", "import { createContext } from \"react\";\nexport const Theme = createContext(\"light\");\n"),
+      ("src/Label.tsx", "import { useContext } from \"react\";\nimport { Theme } from \"./theme\";\nexport function Label() {\n  const theme = useContext(Theme);\n  return <i>{theme}</i>;\n}\n"),
+      (
+        "routes/a/page.tsx",
+        "import { useReducer } from \"react\";\nimport { Theme } from \"../../src/theme\";\nimport { Label } from \"../../src/Label\";\nexport default function A() {\n  const [n, dispatch] = useReducer((s: number, a: number) => s + a, 2);\n  return <Theme.Provider value=\"dark\"><b onClick={() => dispatch(1)}>{n}</b><Label /></Theme.Provider>;\n}\n",
+      ),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap().1;
+    assert_eq!(page.state, vec!["n".to_owned()]);
+    assert_eq!(page.body, vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Float(2.0)) }]);
+    let label = &lowered.iter().find(|(m, _)| m == "src/Label.tsx#Label").unwrap().1;
+    assert_eq!(label.body, vec![Stmt::Let { name: "theme".to_owned(), expr: Expr::Coalesce(Box::new(Expr::Context("src/theme.ts#Theme".to_owned())), Box::new(Expr::lit_str("light"))) }]);
+  }
+
+  #[test]
+  fn use_id_and_a_hook_the_build_cannot_follow_stay_residue() {
+    let id = [("routes/a/page.tsx", "import { useId } from \"react\";\nexport default function A() {\n  const id = useId();\n  return <label htmlFor={id}>x</label>;\n}\n")];
+    let err = lower(&id, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`useId`"), "{err}");
+    let unknown = [("routes/a/page.tsx", "import { useThing } from \"thing-lib\";\nexport default function A() {\n  const t = useThing();\n  return <p>{t}</p>;\n}\n")];
+    let err = lower(&unknown, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`useThing`, a hook the build cannot follow"), "{err}");
   }
 
   #[test]

@@ -697,9 +697,14 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
       let depth = env.scope.len();
+      let provided = env.contexts.len();
+      if let Some(context) = name.strip_prefix(CONTEXT_PREFIX) {
+        env.contexts.push((context.to_owned(), value.clone()));
+      }
       env.scope.push((name.clone(), value));
       render(env, then, library, slots, out)?;
       env.scope.truncate(depth);
+      env.contexts.truncate(provided);
     }
     Tmpl::Component { module, props, children, id, keyed } => render_call(env, module, props, children, *id, *keyed, library, slots, out)?,
     Tmpl::Island { .. } => render_island(env, tmpl, library, slots, out)?,
@@ -919,8 +924,17 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
 
 /// An island: `<Island>` in the source, or a component a framework hydrates
 /// that composition renders, which only its framework can render again.
+/// The browser mounts an island in a root of its own, so no provider outside it reaches it; the server renders it the same way.
 #[allow(clippy::too_many_arguments)]
 fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let provided = std::mem::take(&mut env.contexts);
+  let result = render_placed_in(env, module, props, children, when, mode, id, define, library, slots, out);
+  env.contexts = provided;
+  result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let key = env.hoists.as_ref().map(|h| h.island_key(id)).unwrap_or_default();
   let map = self::props(env, props)?;
   if define {
@@ -1238,6 +1252,8 @@ pub const SHADOW_ATTR: &str = "$shadow";
 /// holding the handler's index. Printed as `data-sf-on="click:0"` in server
 /// mode and never otherwise.
 pub const HANDLER_ATTR: &str = "$on:";
+/// A `Tmpl::Let` named with this prefix and a context, `$ctx:file#name`, is a provider: what it binds is the value `Expr::Context` reads anywhere beneath it, inside nested components too.
+pub const CONTEXT_PREFIX: &str = "$ctx:";
 /// An element's React `key`, printed as `data-sf-key` in server mode so the
 /// browser's patch keeps a moved element and never otherwise.
 pub const KEY_ATTR: &str = "$key";

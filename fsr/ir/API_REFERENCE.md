@@ -87,6 +87,7 @@ One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`
 One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`; serialised externally tagged in `snake_case`.
 
 * `Param(String)`, `Query(String)`, `Session(String)`, `Identity(Vec<String>)`, `Locale`, `Path`, `Document`, `Origin`, `Input`, `Now`, `Var(String)`.
+* `Context(String)`: the value the nearest provider of a context holds around the render point, `Value::Null` under none. A `Tmpl::Let` whose name is `render::CONTEXT_PREFIX` and the context id is a provider; nested components see it and an island does not, since the browser mounts each island in a root of its own.
 * `Lit(Lit)`.
 * `Object(Vec<Entry>)` takes `Field`, `Computed` and `Spread` entries; `Array(Vec<Entry>)` takes `Item` and `Spread` entries. A wrong entry kind is `Internal`.
 * `Field(Box<Expr>, String)`, `Index(Box<Expr>, Box<Expr>)`.
