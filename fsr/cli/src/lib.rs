@@ -8,6 +8,7 @@ pub mod dev;
 pub mod direction;
 pub mod doctor;
 pub mod new;
+pub mod plugins;
 pub mod serve;
 pub mod sites;
 pub mod spec;
@@ -628,7 +629,14 @@ fn error_kind_modules(dir: &Path, rel: &str) -> Vec<(String, String)> {
   found
 }
 
+/// Builds `app` with plugins started for this build alone; [`build_with`] takes a command's pool.
 pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
+  build_with(app, options, &mut plugins::Plugins::new())
+}
+
+/// Builds `app`, reading each framework component through `plugins`, the pool the command keeps for
+/// the compiler it drives as well.
+pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins) -> Result<Built, BuildError> {
   let routes_dir = app.join("routes");
   if !routes_dir.is_dir() {
     return Err(BuildError::NoRoutes(app.to_path_buf()));
@@ -716,7 +724,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let public_path = bundle_base(options.site.as_ref());
   let resolver = std::rc::Rc::new(assets::Resolver::new(app, &public_path, sections.clone()));
   let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect()).with_assets(resolver.clone(), sections.images.rewrite);
-  describe_foreign(app, &mut set, &mut report)?;
+  describe_foreign(app, &mut set, &mut report, plugins)?;
   for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
     let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
     report.extensions.extend(set.lower_extensions(&rel)?);
@@ -2344,8 +2352,7 @@ fn majors_text(majors: &[String]) -> String {
 /// source directories, so the set lowers them rather than leaving them
 /// foreign. A plugin that is not on PATH leaves its components foreign and
 /// the report says so; the bundle names the same binary when it needs it.
-fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> Result<(), BuildError> {
-  use snapfire_compiler_wire::host::{HostError, Worker};
+fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report, plugins: &mut plugins::Plugins) -> Result<(), BuildError> {
   use snapfire_compiler_wire::{Outcome, Unit};
   let mut by_ext: std::collections::BTreeMap<&'static str, Vec<PathBuf>> = std::collections::BTreeMap::new();
   for dir in types::source_dirs(app) {
@@ -2353,14 +2360,6 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> 
   }
   for (ext, mut files) in by_ext {
     files.sort();
-    let mut worker = match Worker::start(ext) {
-      Ok(worker) => worker,
-      Err(HostError::NotFound { binary, hint }) => {
-        report.plugins.push(format!("`{binary}` is not on PATH, so no `.{ext}` component was read or compiled; `{hint}` puts it there, and until it does the bundle stops on the module the registry imports"));
-        continue;
-      }
-      Err(e) => return Err(BuildError::Plugin(e.to_string())),
-    };
     let mut units = Vec::new();
     for path in &files {
       let filename = path.strip_prefix(app).unwrap_or(path).to_string_lossy().replace('\\', "/");
@@ -2368,7 +2367,14 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> 
       units.push(Unit { filename, path: path.to_string_lossy().into_owned(), source, options: Default::default(), files: Default::default() });
     }
     for round in 0..2 {
-      let outcomes = worker.describe(units.clone()).map_err(|e| BuildError::Plugin(e.to_string()))?;
+      let outcomes = match plugins.describe(ext, units.clone()) {
+        Ok(outcomes) => outcomes,
+        Err(plugins::Refusal::Missing { binary, hint }) => {
+          report.plugins.push(format!("`{binary}` is not on PATH, so no `.{ext}` component was read or compiled; `{hint}` puts it there, and until it does the bundle stops on the module the registry imports"));
+          break;
+        }
+        Err(plugins::Refusal::Failed(why)) => return Err(BuildError::Plugin(why)),
+      };
       let mut again = Vec::new();
       for (mut unit, outcome) in units.into_iter().zip(outcomes) {
         match outcome {
@@ -2382,7 +2388,7 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> 
           }
           Outcome::Needs { files } => {
             if round == 1 {
-              set.undescribed(unit.filename, format!("{} asked for {} again after being given it", worker.name(), files.join(", ")));
+              set.undescribed(unit.filename, format!("{} asked for {} again after being given it", plugins.name(ext), files.join(", ")));
               continue;
             }
             let base = Path::new(&unit.path).parent().map(Path::to_path_buf).unwrap_or_default();
@@ -2400,7 +2406,7 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report) -> 
               None => again.push(unit),
             }
           }
-          Outcome::Ok(_) => return Err(BuildError::Plugin(format!("{} compiled `{}` where it was asked to describe it", worker.name(), unit.filename))),
+          Outcome::Ok(_) => return Err(BuildError::Plugin(format!("{} compiled `{}` where it was asked to describe it", plugins.name(ext), unit.filename))),
         }
       }
       units = again;

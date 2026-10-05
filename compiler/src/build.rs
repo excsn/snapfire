@@ -45,6 +45,8 @@ pub struct Options {
   /// emitted here; a reference the map does not name fails the source and is
   /// reported, under `--driven`, for the driver to define.
   pub asset_map: Option<PathBuf>,
+  /// The driver owns the framework plugins and the build asks it for each, under `--driven`.
+  pub driven: bool,
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
@@ -280,7 +282,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     surfaces: HashMap::new(),
     emitted: 0,
     has_error: false,
-    plugins: crate::plugin::Plugins::new(),
+    plugins: if opts.driven { crate::plugin::Plugins::driven() } else { crate::plugin::Plugins::new() },
     compiled: HashMap::new(),
     plugin_cache: HashMap::new(),
     plugin_deps: HashMap::new(),

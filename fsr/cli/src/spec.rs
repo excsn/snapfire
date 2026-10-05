@@ -60,7 +60,7 @@ pub struct Prepared {
 }
 
 /// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
-pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], generated: &[String]) -> Result<Prepared, BuildError> {
+pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], generated: &[String], plugins: &mut crate::plugins::Plugins) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
   let site = crate::site_beside(&app);
@@ -76,7 +76,7 @@ pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], g
   let composition_files: Vec<String> = compositions.iter().filter_map(|module| module.split_once('#').map(|(file, _)| file.to_owned())).filter(|file| !browser_routes.contains(file)).collect();
   let routes: Vec<String> = browser_routes.iter().cloned().chain(composition_files).collect();
   write_config(&app, &layout, &test_dir, &routes, generated)?;
-  compile(&app, &test_dir, &bundle)?;
+  compile(&app, &test_dir, &bundle, plugins)?;
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
@@ -150,7 +150,7 @@ pub fn test_bundle(app: &Path, specifier: &str, version: &str, url: &str) -> Res
 }
 
 /// Runs every spec file under `app` whose name matches `filter`, adding to `summary`.
-pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&str>, runtime: &tokio::runtime::Runtime, summary: &mut Summary) -> Result<(), BuildError> {
+pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&str>, runtime: &tokio::runtime::Runtime, summary: &mut Summary, plugins: &mut crate::plugins::Plugins) -> Result<(), BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let mut files = Vec::new();
   discover(&app, &app, &mut files)?;
@@ -168,7 +168,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     specs.iter().any(|source| source.contains(&specifier))
   };
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/") && imported(&c.module)).map(|c| c.module.clone()).collect();
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions, &built.added)?;
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions, &built.added, plugins)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
@@ -555,7 +555,8 @@ fn imports_of(map: &serde_json::Map<String, serde_json::Value>) -> serde_json::M
   map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default()
 }
 
-fn compile(app: &Path, test_dir: &Path, bundle: &str) -> Result<(), BuildError> {
+/// One driven build of the spec configuration, its plugin requests answered from the command's pool.
+fn compile(app: &Path, test_dir: &Path, bundle: &str, plugins: &mut crate::plugins::Plugins) -> Result<(), BuildError> {
   let snapfirec = dev::find_snapfirec(None);
   let config = format!("{TEST_DIR}/tsconfig.json");
   let import_map = format!("{TEST_DIR}/importmap.json");
@@ -564,13 +565,9 @@ fn compile(app: &Path, test_dir: &Path, bundle: &str) -> Result<(), BuildError> 
   if app.join(dev::BUNDLE_OVERLAY).is_dir() {
     command.args(["--overlay", dev::BUNDLE_OVERLAY]);
   }
-  let output = command
-    .output()
-    .map_err(|e| BuildError::Dev(format!("{}: {e}; put snapfirec beside fsr or on PATH", snapfirec.display())))?;
-  if !output.status.success() {
-    return Err(BuildError::Dev(format!("snapfirec failed compiling the spec files into {}:\n{}{}", test_dir.display(), String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))));
-  }
-  Ok(())
+  dev::Driven::spawn(command, &snapfirec, &mut |_: &[String]| Ok(()), plugins, true)
+    .map(drop)
+    .map_err(|e| BuildError::Dev(format!("compiling the spec files into {}: {e}", test_dir.display())))
 }
 
 #[derive(Deserialize)]

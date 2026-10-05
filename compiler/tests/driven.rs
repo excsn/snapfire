@@ -147,3 +147,60 @@ fn test_driven_exits_when_its_input_closes() {
   let status = driven.child.wait().unwrap();
   assert!(status.success());
 }
+
+/// A driver that answers the compiler's plugin requests itself, with a module it made up.
+fn answering(root: &Path, seen: &mut Vec<String>) -> String {
+  let mut cmd: Command = get_snapfirec_cmd();
+  let mut child = cmd
+    .arg("--root")
+    .arg(root)
+    .arg("--driven")
+    .env("PATH", "/usr/bin:/bin")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .spawn()
+    .expect("failed to start the compiler");
+  let mut stdin = child.stdin.take().unwrap();
+  let mut stdout = BufReader::new(child.stdout.take().unwrap());
+  let mut line = String::new();
+  let outcome = loop {
+    line.clear();
+    assert!(stdout.read_line(&mut line).unwrap() > 0, "the compiler closed its output without ending the batch");
+    let text = line.trim_end().to_owned();
+    if text == REBUILT || text == FAILED {
+      break text;
+    }
+    if text != snapfire_compiler_wire::driven::PLUGIN {
+      continue;
+    }
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    let answer = match serde_json::from_str::<snapfire_compiler_wire::driven::PluginRequest>(&line).expect("a request on one line") {
+      snapfire_compiler_wire::driven::PluginRequest::Hello { ext } => {
+        seen.push(format!("hello {ext}"));
+        serde_json::json!({ "answer": "hello", "hello": { "protocol": snapfire_compiler_wire::PROTOCOL, "name": "vue", "version": "9.9.9", "compiler": "the driver", "extensions": [".vue"] } })
+      }
+      snapfire_compiler_wire::driven::PluginRequest::Compile { ext, units } => {
+        seen.push(format!("compile {ext} {}", units.iter().map(|u| u.filename.clone()).collect::<Vec<_>>().join(" ")));
+        let outcomes: Vec<serde_json::Value> = units.iter().map(|_| serde_json::json!({ "status": "ok", "js": "export default { from: \"the driver\" };\n" })).collect();
+        serde_json::json!({ "answer": "compiled", "outcomes": outcomes })
+      }
+    };
+    writeln!(stdin, "{answer}").unwrap();
+    stdin.flush().unwrap();
+  };
+  drop(stdin);
+  let _ = child.wait();
+  outcome
+}
+
+#[test]
+fn a_driven_compiler_asks_its_driver_for_the_plugin_rather_than_starting_one() {
+  let fixture = Fixture::new("vue-plugin");
+  let mut seen = Vec::new();
+  assert_eq!(answering(fixture.root(), &mut seen), REBUILT);
+  assert_eq!(seen, ["hello vue", "compile vue src/Card.vue"], "one hello, then one batch per extension");
+  let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
+  assert!(module.contains("the driver"), "the module is the driver's answer: {module}");
+}

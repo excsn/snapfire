@@ -142,11 +142,13 @@ What `snapfirec --driven` and the process driving it say to each other, in `driv
 
 ### Lines
 
-* `driven::PROTOCOL: u32`, 2. The compiler announces it first; a driver refuses another number by name.
+* `driven::PROTOCOL: u32`, 3. The compiler announces it first; a driver refuses another number by name.
 * `driven::HELLO`, `snapfirec: driven`; `fn hello() -> String`, the first line with the version; `fn parse_hello(line: &str) -> Option<u32>`, the version a hello line announces, `None` for any other line.
 * `driven::REBUILT`, `driven::FAILED`: one of them ends every batch.
 * `driven::REFERENCES`: written before the status line when a batch referenced an asset the map does not name, followed by one path per line under the compiler's root directory and an empty line; the compiler then waits.
 * `driven::MAPPED`: the driver's answer once it has rewritten the map, after which the compiler reads the map again and compiles the sources that were waiting.
+* `driven::PLUGIN`, `snapfirec: plugin`: the compiler needs a framework plugin; the next line is a `PluginRequest` as JSON and the driver answers one line, a `PluginAnswer`. Under `--driven` the compiler starts no plugin of its own.
+* `enum PluginRequest { Hello { ext }, Compile { ext, units: Vec<Unit> } }`, tagged `ask` in lowercase. `enum PluginAnswer { Hello { hello: Hello }, Compiled { outcomes: Vec<Outcome> }, Refused { why: String } }`, tagged `answer` in lowercase. Each derives `Debug`, `Clone`, `Serialize` and `Deserialize` and fits on one line.
 
 ### AssetMap
 

@@ -1396,7 +1396,7 @@ A tool that already watches the filesystem, `fsr dev` for one, holds one compile
 snapfirec --driven
 ```
 
-The first line on stdout announces the protocol, `snapfirec: driven 2`, so a driver written against another version refuses the compiler by name rather than misreading its output. Then the first build runs at once. After it, every line on stdin is a path, relative to the root or absolute; an empty line ends a batch. A batch is compiled the way `--watch` compiles what its watcher reported: a path already in the selection recompiles that file alone, a new or deleted file, `tsconfig.json` or `.browserslistrc` rebuilds everything, as does an empty batch. When the batch has been compiled one line is printed on stdout and flushed:
+The first line on stdout announces the protocol, `snapfirec: driven 3`, so a driver written against another version refuses the compiler by name rather than misreading its output. Then the first build runs at once. After it, every line on stdin is a path, relative to the root or absolute; an empty line ends a batch. A batch is compiled the way `--watch` compiles what its watcher reported: a path already in the selection recompiles that file alone, a new or deleted file, `tsconfig.json` or `.browserslistrc` rebuilds everything, as does an empty batch. When the batch has been compiled one line is printed on stdout and flushed:
 
 ```text
 snapfirec: rebuilt
@@ -1415,6 +1415,17 @@ fonts/inter.woff2
 ```
 
 The driver defines each path, rewrites the map and answers one line, `mapped`. The compiler reads the map again, compiles the sources that were waiting on it and then prints `rebuilt` or `failed`. A path the driver did not define is printed as a miss and the batch fails. The constants and the map types are in `snapfire_compiler_wire::driven`, so a driver and the compiler agree on every line.
+
+Under `--driven` the driver owns the framework plugins. The compiler starts none of its own: whenever it needs one it prints `snapfirec: plugin` and a request on the next line as JSON, then reads the driver's answer from stdin as one JSON line.
+
+```text
+snapfirec: plugin
+{"ask":"hello","ext":"vue"}
+snapfirec: plugin
+{"ask":"compile","ext":"vue","units":[{"filename":"src/Card.vue","path":"/app/src/Card.vue","source":"…","options":{}}]}
+```
+
+The driver answers `{"answer":"hello","hello":{…}}` to a hello and `{"answer":"compiled","outcomes":[…]}` to a compile, one outcome per unit. `{"answer":"refused","why":"…"}` answers either when the plugin cannot, which fails the files of that extension. A driver that reads components itself, as `fsr` does to lower them, then runs one worker per extension for both jobs. The plugin cache works as it does under `--watch`.
 
 ## Loading the Output in a Browser
 

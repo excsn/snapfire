@@ -1,7 +1,7 @@
 use crate::build::{self, Build, Options};
 use crate::watch;
 
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -13,8 +13,7 @@ use snapfire_compiler_wire::driven::{FAILED, MAPPED, REBUILT, REFERENCES};
 /// `snapfire_compiler_wire::driven`; the hello line was written before the first build.
 pub fn run(opts: &Options, mut build: Build) -> Result<()> {
   let config_path = opts.root.join(&opts.config_path);
-  let stdin = std::io::stdin();
-  let mut lines = stdin.lock().lines();
+  let mut lines = Lines;
   let mut changed: Vec<PathBuf> = Vec::new();
 
   if !settle(opts, &mut build, &mut lines)? {
@@ -56,6 +55,27 @@ pub fn run(opts: &Options, mut build: Build) -> Result<()> {
   }
 
   Ok(())
+}
+
+/// Stdin a line at a time, each read taking the lock and letting it go, so a plugin request made in
+/// the middle of a batch reads its answer from the same input.
+struct Lines;
+
+impl Iterator for Lines {
+  type Item = std::io::Result<String>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+      Ok(0) => None,
+      Ok(_) => {
+        let trimmed = line.trim_end_matches(['\n', '\r']).len();
+        line.truncate(trimmed);
+        Some(Ok(line))
+      }
+      Err(e) => Some(Err(e)),
+    }
+  }
 }
 
 /// Ends a batch. A source waiting on an asset the map does not define is

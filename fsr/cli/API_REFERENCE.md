@@ -24,6 +24,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [write](#write)
   * [write_overlay](#write_overlay)
   * [emit](#emit)
+  * [Plugins](#plugins)
   * [assets](#assets)
   * [Report](#report)
 * [3. Discovery Rules](#3-discovery-rules)
@@ -172,9 +173,10 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### build
 
 * `pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError>`
+* `pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins) -> Result<Built, BuildError>`: `build` reading components through a command's pool; `build` is `build_with` over a pool of its own.
 * With `options.site` set, after every generated TypeScript is written unprefixed, the plan file is `Manifest::namespaced`, every contract file `Contract::namespaced`, the islands registry registers `<name>:<module>` and the generated call sites call `<name>:<action id>`; with `site.shell` set, `generated/shell.d.ts` is written from the shell contract. Without a site, `generated/shell.json` is written: every store key a `store` export seeds, typed by inferring the loader's return and then the store body, the app's import map, the version it vendors of every framework package a client adapter imports and the fsr version.
 * Imports `app/clients`, reads `app/schemas`, validates the contract, walks `app/routes`, lowers every `page.loader.ts` and `actions.ts` and returns everything without writing. The first error in any file fails the whole build.
-* Before any route is lowered, every file under the source directories whose extension a plugin claims (`snapfire_compiler_wire::claimed`) is sent to that plugin in one describe batch through `snapfire_compiler_wire::host::Worker`. Each description is handed to `ComponentSet::describe`, so a placement of the file lowers through the framework's front end. A plugin not on PATH leaves its files foreign and adds a `Report.plugins` line; a plugin that starts and then fails is `BuildError::Plugin`. A file the plugin refuses is `ComponentSet::undescribed` with its diagnostics, so a placement of it is foreign for that reason. A `Needs` answer is met once with the sibling files read beside the source.
+* Before any route is lowered, every file under the source directories whose extension a plugin claims (`snapfire_compiler_wire::claimed`) is sent to that plugin in one describe batch through the `plugins::Plugins` pool. Each description is handed to `ComponentSet::describe`, so a placement of the file lowers through the framework's front end. A plugin not on PATH leaves its files foreign and adds a `Report.plugins` line; a plugin that starts and then fails is `BuildError::Plugin`. A file the plugin refuses is `ComponentSet::undescribed` with its diagnostics, so a placement of it is foreign for that reason. A `Needs` answer is met once with the sibling files read beside the source.
 
 ### Built
 
@@ -207,6 +209,11 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * The whole artifact a host reads and what a `build.rs` calls when `dev::owns_build()` is false. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.
 * The typecheck runs beside the bundle rather than after it, since neither reads the other's output and `Emitted::checked` carries what it found. `BuildError::Typecheck` when a diagnostic is an error, carrying the row and every diagnostic.
 * `Dev` naming the compiler when it cannot start or its exit status when it fails.
+
+### Plugins
+
+* `pub struct plugins::Plugins`: one `snapfire_compiler_wire::host::Worker` per extension, started on first use and kept for the command. `Plugins::new()`. The build describes through it and the driven compiler's `snapfirec: plugin` requests are answered from it, so `fsr build`, `fsr dev` across every rebuild and `fsr test` with its spec compile each start a plugin once. A worker that fails a request is dropped and the next request starts it again.
+* `pub enum plugins::Refusal { Missing { binary, hint }, Failed(String) }`, why a plugin cannot answer, remembered so a command reports it once; `Display` names the binary and its install command for `Missing`.
 
 ### Report
 

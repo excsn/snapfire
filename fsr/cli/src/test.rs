@@ -20,7 +20,7 @@ use snapfire_fsr_plan::Manifest;
 use snapfire_fsr_runtime::{FailureKind, Identity, RequestCtx, ServiceError, SessionCell};
 use snapfire_fsr_service::{Call, Contract, Services, Transport};
 
-use crate::{BuildError, Options, build};
+use crate::{BuildError, Options};
 
 /// How one test ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +83,8 @@ impl fmt::Display for Summary {
 
 /// Runs every test file under `app` whose name matches `filter`, when given.
 pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summary, BuildError> {
-  let built = build(app, options)?;
+  let mut plugins = crate::plugins::Plugins::new();
+  let built = crate::build_with(app, options, &mut plugins)?;
   let contract = Arc::new(built.contract.clone());
   let mut files = Vec::new();
   discover(app, app, &mut files)?;
@@ -134,7 +135,7 @@ pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summar
       summary.record(&rel, &name, Outcome::Failed(failure));
     }
   }
-  crate::spec::run(app, &built, &contract, filter, &runtime, &mut summary)?;
+  crate::spec::run(app, &built, &contract, filter, &runtime, &mut summary, &mut plugins)?;
   Ok(summary)
 }
 

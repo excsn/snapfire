@@ -188,6 +188,13 @@ loop {
   match line.trim_end() {
     driven::REBUILT => break,
     driven::FAILED => panic!("the batch failed"),
+    driven::PLUGIN => {
+      line.clear();
+      stdout.read_line(&mut line)?;
+      let request: driven::PluginRequest = serde_json::from_str(&line)?;
+      let answer = plugins.answer(request);
+      writeln!(stdin, "{}", serde_json::to_string(&answer)?)?;
+    }
     driven::REFERENCES => {
       let mut paths = Vec::new();
       loop {
@@ -208,7 +215,7 @@ loop {
 }
 ```
 
-The map is keyed by each file's path under the compiler's root directory. A row for an image carries the width and height the driver read; a font's carries the URL alone. `MAP_VERSION` is written into the file and a compiler reading another version refuses it.
+`plugins` stands for whatever the driver keeps its workers in: under `--driven` the compiler asks the driver for every framework plugin rather than starting one, so a driver that also reads components runs one worker per extension. The map is keyed by each file's path under the compiler's root directory. A row for an image carries the width and height the driver read; a font's carries the URL alone. `MAP_VERSION` is written into the file and a compiler reading another version refuses it.
 
 ## Error Handling
 

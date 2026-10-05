@@ -110,7 +110,7 @@ impl Driven {
     let stdin = child.stdin.take();
     let stdout = BufReader::new(child.stdout.take().unwrap());
     let mut driven = Driven { child, stdin, stdout };
-    assert_eq!(driven.line(), "snapfirec: driven 2", "the hello comes before anything else");
+    assert_eq!(driven.line(), snapfire_compiler_wire::driven::hello(), "the hello comes before anything else");
     driven
   }
 

@@ -130,6 +130,7 @@ fn main() -> Result<()> {
     import_map: args.import_map,
     overlay: args.overlay,
     asset_map: args.asset_map,
+    driven: args.driven,
   };
 
   if args.driven {
