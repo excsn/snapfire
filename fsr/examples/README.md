@@ -47,6 +47,16 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | --- | --- | --- |
 | [uni](uni/README.md) | A desk board under a Tera layout | Three interaction models on one page: a React island, a Vue island and an htmx region, one store between the two runtimes, one router replacing a Vue segment with a React one, plus the measured weight of all three |
 
+### Conformance
+
+Three applications that pin down behaviour rather than show an application. Each is `fsr dev` or `fsr test` on its own directory; none has a cargo target.
+
+| | What it pins down |
+| --- | --- |
+| [conformance/adapters_react18](conformance/adapters_react18/) | The client's React adapter on React 18, beside the Vue adapter and a custom element on one page: one store between them, nested islands across frameworks, the request context in specs and a server island reading the store. `fsr/client`'s type check reads its declarations |
+| [conformance/adapters_react19](conformance/adapters_react19/) | The same pages and specs on React 19 |
+| [conformance/lowering](conformance/lowering/) | What the build lowers, one route per kind: array and string methods, destructuring, statements, dates, `Intl`, `Map` and `Set`, regular expressions, hooks and Vue children, slots and models. It builds with `[build] strict`, so anything on it falling back to the browser stops the build |
+
 ## Running one
 
 Install the two tools once, then make the browser build of the client library, which git does not carry:
@@ -88,6 +98,9 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8180 | `uni` |
 | 8190 | `noticeboard_tera`, which has no binary of its own |
 | 8199 | the portal's site store, a file server over `portal_react_ts/deploy/store` |
+| 8210 | `conformance/adapters_react18` |
+| 8220 | `conformance/adapters_react19` |
+| 8230 | `conformance/lowering` |
 
 ## The portal and its sites
 

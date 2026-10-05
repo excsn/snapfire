@@ -10,8 +10,8 @@ if [ -z "${FSR:-}" ]; then
 fi
 
 failed=()
-for config in */config/app.toml; do
-  ex=${config%%/*}
+for config in */config/app.toml conformance/*/config/app.toml; do
+  ex=${config%/config/app.toml}
   [ -d "$ex/app" ] || continue
   shell_app=$(sed -n 's|^shell = "\(.*\)/generated/shell.json"$|\1|p' "$config")
   if [ -n "$shell_app" ] && [ ! -f "$ex/$shell_app/generated/shell.json" ]; then

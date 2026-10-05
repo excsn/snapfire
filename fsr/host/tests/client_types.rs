@@ -1,5 +1,5 @@
 //! The client this host embeds type-checks clean against the declarations
-//! `examples/adapters_react18_ts` fetched, through `client/tsconfig.check.json`.
+//! `examples/conformance/adapters_react18` fetched, through `client/tsconfig.check.json`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,9 +12,9 @@ fn the_embedded_client_type_checks_clean() {
     eprintln!("skipped: no snapfiretc at {}; `cargo build -p snapfire_typecheck` in the snapfire root builds it", snapfiretc.display());
     return;
   }
-  let declarations = fsr.join("examples/adapters_react18_ts/app/types/.fsr-types.json");
+  let declarations = fsr.join("examples/conformance/adapters_react18/app/types/.fsr-types.json");
   if !declarations.is_file() {
-    eprintln!("skipped: no declarations at {}; `fsr types app` in examples/adapters_react18_ts fetches them", declarations.display());
+    eprintln!("skipped: no declarations at {}; `fsr types app` in examples/conformance/adapters_react18 fetches them", declarations.display());
     return;
   }
   let client = fsr.join("client");

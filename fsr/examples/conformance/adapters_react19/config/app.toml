@@ -5,7 +5,7 @@ listen = "127.0.0.1:8220"
 title = "adapters on React 19"
 
 [session]
-key = "adapters_react19_ts-development-key-not-a-secret"
+key = "conformance-adapters_react19-development-key-not-a-secret"
 ttl = "24h"
 
 [cache]

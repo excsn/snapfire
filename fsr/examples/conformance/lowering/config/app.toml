@@ -5,7 +5,7 @@ listen = "127.0.0.1:8230"
 title = "lowering"
 
 [session]
-key = "lowering_react_ts-development-key-not-a-secret"
+key = "conformance-lowering-development-key-not-a-secret"
 ttl = "24h"
 
 [typecheck]

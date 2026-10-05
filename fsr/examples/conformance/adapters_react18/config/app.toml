@@ -5,7 +5,7 @@ listen = "127.0.0.1:8210"
 title = "adapters on React 18"
 
 [session]
-key = "adapters_react18_ts-development-key-not-a-secret"
+key = "conformance-adapters_react18-development-key-not-a-secret"
 ttl = "24h"
 
 [cache]
