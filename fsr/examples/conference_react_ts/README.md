@@ -26,15 +26,17 @@ The programme is on <http://127.0.0.1:8150/>.
 | `routes/page.tsx` | the day, filtered by `?track=` |
 | `routes/talk/layout.tsx` | a second layout between the masthead and the talk, so a click to another talk renders it under the same crumbs |
 | `routes/talk/[id]/` | the talk, its actions and the boundary that catches an id off the programme; the page's `clashes` toggle is split into an island beside it at build time |
-| `routes/venue/` | the venue, a composition page holding a client island and a Vue island |
+| `routes/venue/` | the venue, a composition page holding a React island the server cannot render, a Vue island, a custom element and a server island under the layout's React island |
 | `routes/saved/` | the session read back as a page, cached by nothing |
 | `routes/slots/announcements/` | a parallel segment with its own loader and fallback |
 | `routes/slots/sponsors/` | the same, behind a service that fails |
 | `src/ui/Saved.tsx` | the masthead island: store-backed count, React state for the panel |
 | `src/ui/SaveTalk.tsx` | the action call, optimistic against the store |
 | `src/ui/Feedback.tsx` | placed with `island(Feedback, { when: "visible" })` |
-| `src/ui/LocalClock.tsx` | the visitor's time zone, which only a browser knows: it does not lower and imports no framework, so FSR's JSX runtime renders it |
+| `src/ui/LocalClock.tsx` | the visitor's time zone, which only a browser knows: it does not lower, so React renders it in the browser alone; it imports nothing, and JSX that imports nothing is this React application's |
 | `src/ui/Floors.vue` | the rooms, a Vue island the build lowers and Vue hydrates |
+| `src/elements/talk-count.ts` | the day's talks in words, a custom element the venue page defines at load through `<Island define>` |
+| `src/ui/AskDesk.tsx` | the help desk, a server island: its state lives on the server and each click is a round trip |
 
 ## Every body is lowered
 
@@ -72,7 +74,7 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | Client navigation preserving layout state | open the masthead panel, click a talk: the page region is replaced and the panel stays open |
 | Layouts as composition | both layouts render on the server alone: a click to another talk keeps the masthead, the crumbs and the saved count's state and replaces the talk; `tests/navigation.spec.tsx` |
 | A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the report; the page around it stays `static` |
-| A client island and a Vue island on one page | `/venue`: `LocalClock` mounts in the browser through FSR's JSX runtime and `Floors.vue` hydrates under Vue, while the page is server markup; `tests/venue.spec.tsx` |
+| An island of every owner on one page | `/venue`: `Saved` in the layout hydrates under React, `LocalClock` mounts fresh under React, `Floors.vue` hydrates under Vue, `talk-count` defines itself and `AskDesk` steps on the server, while the page is server markup; `tests/venue.spec.tsx` |
 
 The island timings are the one thing the test suite cannot tell apart, since the spec harness reports every observed element as in view. Scroll the talk page in a browser instead: the pace control hydrates when it comes into view and not before.
 

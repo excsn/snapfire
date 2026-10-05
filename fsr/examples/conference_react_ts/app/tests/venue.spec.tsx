@@ -33,9 +33,25 @@ test("the venue page is composition with an island the browser renders alone and
   expect(document.querySelectorAll(".floors-talks li").length, "the island's own state").toEqual(2);
 });
 
-test("the clock renders on its own through FSR's runtime, with nothing from the server to hydrate", async () => {
+test("one page under one layout holds an island of every owner", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const owner = (module: string) => document.querySelector(`sf-i[data-sf-module="${module}"]`);
+  expect(owner("src/ui/Saved.tsx#default")?.hasAttribute("data-sf-mounted"), "React, in the layout").toEqual(true);
+  expect(owner("src/ui/Floors.vue#default")?.hasAttribute("data-sf-mounted"), "Vue").toEqual(true);
+  expect(owner("src/ui/LocalClock.tsx#default")?.hasAttribute("data-sf-mounted"), "React, mounted fresh since the server cannot render it").toEqual(true);
+  const count = document.querySelector("talk-count");
+  expect(count?.hasAttribute("data-upgraded"), "the custom element defined itself").toEqual(true);
+  expect(count?.textContent).toEqual("3 talks today");
+  expect(owner("src/ui/AskDesk.tsx#default")?.closest("sf-s")?.getAttribute("data-sf-mode"), "the help desk steps on the server").toEqual("server");
+  await fireEvent.click(screen.getByText("Ask the help desk"));
+  await settle();
+  expect(screen.getByText("Asked 1 time"), "the server answered the click").toBeTruthy();
+});
+
+test("the clock renders on its own through React, with nothing from the server to hydrate", async () => {
   const r = await render(<LocalClock />);
-  expect(r.hydrated, "a client island has no server markup").toBeNull();
-  expect(r.container.querySelector("sf-i")?.hasAttribute("data-sf-mounted"), "FSR's mounter ran").toEqual(true);
+  expect(r.hydrated, "the server could not render it").toBeNull();
+  expect(r.container.querySelector("sf-i")?.hasAttribute("data-sf-mounted"), "React's mounter ran").toEqual(true);
   expect(r.getByText(/You are in/).textContent).toMatch(/Times are the venue's\. You are in .+\./);
 });
