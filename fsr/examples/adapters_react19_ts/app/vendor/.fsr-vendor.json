@@ -1,0 +1,30 @@
+{
+  "packages": {
+    "react": {
+      "version": "19.1.0",
+      "externals": [
+        "react"
+      ],
+      "entries": {
+        "react": "react/react.bundle.mjs",
+        "react/jsx-runtime": "react/jsx-runtime.bundle.mjs"
+      }
+    },
+    "react-dom": {
+      "version": "19.1.0",
+      "externals": [
+        "react"
+      ],
+      "entries": {
+        "react-dom/client": "react-dom/client.bundle.mjs"
+      }
+    },
+    "vue": {
+      "version": "3.5.13",
+      "externals": [],
+      "entries": {
+        "vue": "vue/vue.bundle.mjs"
+      }
+    }
+  }
+}

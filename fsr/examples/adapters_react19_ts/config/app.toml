@@ -1,0 +1,27 @@
+[server]
+listen = "127.0.0.1:8220"
+
+[document]
+title = "adapters on React 19"
+
+[session]
+key = "adapters_react19_ts-development-key-not-a-secret"
+ttl = "24h"
+
+[cache]
+capacity = 1000
+ttl = "1m"
+
+[[static]]
+route = "/pictures"
+dir = "pictures"
+
+[typecheck]
+version = "7.0.2"
+
+[locales]
+supported = ["en", "fr"]
+default = "en"
+
+[clients.probe]
+transport = "mock"
