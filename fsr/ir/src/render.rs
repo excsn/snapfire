@@ -296,6 +296,19 @@ impl Interpreter {
     Ok(Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered })
   }
 
+  /// `render_module` for an island placed with no children, as a page
+  /// places one: a slot it renders writes an empty children region, where a
+  /// root component's writes `slot_mark`.
+  pub fn render_island(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
+    let mut env = self.env_for(module, props);
+    let mut out = Out::default();
+    let scope = Rc::new(env.scope.clone());
+    let mut slots = vec![Slot { children: &[], scope, keys: None, island: true, placed: false, framework: false, owner_path: String::new() }];
+    render_component(&mut env, component, library, &mut slots, &mut out)?;
+    let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
+    Ok(Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered })
+  }
+
   fn env_for(&self, module: &str, props: &ValueMap) -> Env {
     let mut env = Env::detached(self, vec![("$props".to_owned(), Value::Map(props.clone()))]);
     if let Some(Value::Map(store)) = props.get("$store") {
@@ -1590,6 +1603,18 @@ mod tests {
     assert_eq!(render(props.clone()), "<sf-s>closed</sf-s>");
     props.insert("$slots".to_owned(), Value::seq(vec![Value::str("content"), Value::str("modal")]));
     assert_eq!(render(props), format!("<sf-s>{}</sf-s>", slot_mark("modal")));
+  }
+
+  #[test]
+  fn an_island_rendered_alone_writes_an_empty_children_region_where_it_places_its_children() {
+    let component = Component {
+      body: Vec::new(),
+      render: Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("content".to_owned())] }, state: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None
+    };
+    let island = Interpreter::default().render_island("src/ui/Box.tsx#default", &component, &ValueMap::default(), &Components::new()).unwrap();
+    assert_eq!(island.html, format!("<div>{CHILDREN_OPEN}</sf-s></div>"));
+    let root = Interpreter::default().render_module("src/ui/Box.tsx#default", &component, &ValueMap::default(), &Components::new()).unwrap();
+    assert_eq!(root.html, format!("<div>{}</div>", slot_mark("content")), "a root component still leaves the mark its caller fills");
   }
 
   #[test]

@@ -878,7 +878,11 @@ impl Hooks for SpecHooks {
     if let Ok(current) = self.get(self.current.load(Ordering::Relaxed)) {
       props.entry("locale".to_owned()).or_insert_with(|| Value::str(current.ctx.locale.tag.clone()));
     }
-    let rendered = self.interpreter.render_module(module, &component, &props, &self.components).map_err(|f| format!("rendering {module}: {}", f.message))?;
+    let rendered = match component.owner.hydrates() {
+      true => self.interpreter.render_island(module, &component, &props, &self.components),
+      false => self.interpreter.render_module(module, &component, &props, &self.components),
+    }
+    .map_err(|f| format!("rendering {module}: {}", f.message))?;
     let hoisted = value_to_json(&Value::Map(rendered.hoisted.clone()));
     let html = if rendered.islands.is_empty() { rendered.html } else { snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(snapfire_fsr_ir::rendered_nodes(&rendered))) };
     Ok(Some(serde_json::json!({ "html": html, "hoisted": hoisted }).to_string()))
