@@ -1,4 +1,4 @@
-import { describe, expect, fireEvent, load, settle, test } from "@snapfire/fsr-client/testing";
+import { describe, expect, fireEvent, load, settle, test, userEvent } from "@snapfire/fsr-client/testing";
 
 const texts = (selector: string) => [...document.querySelectorAll(selector)].map((e) => e.textContent);
 
@@ -17,5 +17,14 @@ describe("the vue page", () => {
     await fireEvent.click(document.querySelectorAll(".take")[1]!);
     await settle();
     expect(texts(".tile .left")).toEqual(["3", "0"]);
+  });
+
+  test("binds a child's defineModel to the parent through v-model", async () => {
+    await load("/vue");
+    await settle();
+    expect((document.querySelector(".query") as HTMLInputElement).value).toEqual("");
+    await userEvent.type(document.querySelector(".query")!, "fi");
+    await settle();
+    expect(texts(".tile .name")).toEqual(["fig"]);
   });
 });
