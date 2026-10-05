@@ -83,7 +83,7 @@ fn watching(session: &SessionCell, ids: &[i64]) {
 fn two_layouts_seed_the_store_and_the_inner_one_wins_the_region() {
   let app = console(fleet());
   let home = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
-  assert!(home.contains("data-sf-store>{\"alerts/open\":{\"$\":\"f\",\"v\":2.0},\"fleet/watching\":{\"$\":\"f\",\"v\":0.0},\"fleet/region\":\"all\",\"ui/density\":\"comfortable\",\"fleet/headline\":\"2 to look at\"}</script>"), "{home}");
+  assert!(home.contains("data-sf-store>[{\"k\":\"routes/layout.tsx#default\",\"p\":[\"content\"],\"v\":{\"alerts/open\":{\"$\":\"f\",\"v\":2.0},\"fleet/watching\":{\"$\":\"f\",\"v\":0.0},\"fleet/region\":\"all\",\"ui/density\":\"comfortable\",\"fleet/headline\":\"2 to look at\"}}]</script>"), "{home}");
   assert!(home.contains("<p class=\"headline\">2 to look at</p>"), "the header renders the seeded headline: {home}");
 
   let session = SessionCell::default();

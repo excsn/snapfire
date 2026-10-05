@@ -99,7 +99,7 @@ fn a_deferred_slot_streams_its_resolution_row() {
 
   let rows = collect(wire_stream(assembly));
   assert_eq!(rows.len(), 2);
-  assert!(rows[0].starts_with("V {\"fmt\":1,\"enc\":\"json\"}\nN "));
+  assert!(rows[0].starts_with("V {\"fmt\":2,\"enc\":\"json\"}\nN "));
   assert!(
     rows[0].contains("[\"p\",1,[\"r\",\"<skl></skl>\"]]"),
     "fallback rides inside Pending: {}",

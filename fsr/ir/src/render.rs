@@ -122,6 +122,10 @@ pub struct RenderedIsland {
   /// The store keys a server-mode island reads, which the browser sends with
   /// each step and watches for a write by any other island, as `$sk`.
   pub reads: Vec<String>,
+  /// The store values the island's markup was rendered from, the keys it
+  /// reads that the store held, as `$sv`: what a framework hydrates against
+  /// when the browser's store has moved on since.
+  pub rendered_store: ValueMap,
   /// The region this placement owns, keyed as `Hoists::key` keys a hoist: the
   /// enclosing component's module, the placement's id and the loop path. The
   /// browser derives the same string, which is how a re-render pairs an
@@ -139,6 +143,9 @@ pub const KEY_PROP: &str = "$k";
 /// The props key a server-mode island's store keys ride under.
 pub const READS_PROP: &str = "$sk";
 
+/// The props key the store values an island was rendered from ride under.
+pub const RENDERED_STORE_PROP: &str = "$sv";
+
 impl RenderedIsland {
   /// The props the browser mounts the island with: its own plus `$h` when
   /// anything was hoisted and `$s` in server mode.
@@ -152,6 +159,8 @@ impl RenderedIsland {
       if !self.reads.is_empty() {
         props.insert(READS_PROP.to_owned(), Value::seq(self.reads.iter().map(|key| Value::str(key.clone())).collect::<Vec<_>>()));
       }
+    } else if !self.rendered_store.is_empty() {
+      props.insert(RENDERED_STORE_PROP.to_owned(), Value::Map(self.rendered_store.clone()));
     }
     if !self.key.is_empty() {
       props.insert(KEY_PROP.to_owned(), Value::str(self.key.clone()));
@@ -980,7 +989,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     }
     let index = out.islands.len();
     let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), reads: Vec::new(), key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\0"));
     return Ok(());
   }
@@ -995,7 +1004,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
       render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
     let index = out.islands.len();
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
@@ -1024,24 +1033,33 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   env.scope.truncate(depth);
   result?;
   let index = out.islands.len();
-  let reads = if mode.as_deref() == Some(SERVER_MODE) { store_keys(component, library) } else { Vec::new() };
+  let read = store_keys(component, library);
+  let rendered_store = rendered_store(&env.store, &read);
+  let reads = if mode.as_deref() == Some(SERVER_MODE) { read } else { Vec::new() };
   if unrendered {
     let mut held = Out::default();
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
     let body = Rendered { html: held.html, islands: held.islands, hoisted: ValueMap::default(), whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, key, body });
   } else {
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, reads, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
   }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
 }
 
+/// Of `keys`, the ones `store` holds, with their values: what an island's
+/// markup was rendered from.
+pub fn rendered_store(store: &ValueMap, keys: &[String]) -> ValueMap {
+  keys.iter().filter_map(|key| store.get(key).map(|value| (key.clone(), value.clone()))).collect()
+}
+
 /// The store keys `component` reads, in its body and its tree and in every
 /// component it renders inline, sorted: what a server-mode island needs from
-/// the browser's store on each step.
+/// the browser's store on each step and what a hydrating one is told it was
+/// rendered from.
 pub fn store_keys(component: &Component, library: &Components) -> Vec<String> {
   fn walk(component: &Component, library: &Components, seen: &mut Vec<String>, keys: &mut std::collections::BTreeSet<String>) {
     component.visit(&mut |expr| {
@@ -2388,6 +2406,40 @@ mod markup_tests {
       let page = element("x-box", vec![(SHADOW_ATTR, Expr::lit_str("elements/x-box.tsx#default"))], Vec::new());
       assert_eq!(render_under(None, BY_REACT, page, &ValueMap::default(), &library).unwrap(), format!("<x-box>{open}in</template></x-box>"));
     }
+  }
+
+  #[test]
+  fn an_island_carries_the_store_values_it_was_rendered_from() {
+    let badge = Component {
+      body: vec![
+        Stmt::Let { name: "n".to_owned(), expr: Expr::Coalesce(Box::new(Expr::Store("cart/count".to_owned())), Box::new(Expr::Lit(Lit::Int(0)))) },
+        Stmt::Let { name: "who".to_owned(), expr: Expr::Coalesce(Box::new(Expr::Store("user/name".to_owned())), Box::new(Expr::lit_str("guest"))) },
+      ],
+      render: Tmpl::Element { tag: "b".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(Expr::var("n")), Tmpl::Expr(Expr::var("who"))] },
+      state: vec!["n".to_owned(), "who".to_owned()],
+      stores: vec![("n".to_owned(), "cart/count".to_owned()), ("who".to_owned(), "user/name".to_owned())],
+      handlers: Vec::new(),
+      owner: crate::ast::Owner::React,
+      shadow: None,
+    };
+    let mut library = Components::new();
+    library.insert("src/Badge.tsx#Badge".to_owned(), Arc::new(badge));
+    let place = |mode: Option<&str>| Component::new(crate::ast::Owner::Fsr, Vec::new(), Tmpl::Island { module: "src/Badge.tsx#Badge".to_owned(), props: Vec::new(), children: Vec::new(), when: None, mode: mode.map(str::to_owned), id: 0, define: false });
+    let mut seeded = ValueMap::default();
+    seeded.insert("$store".to_owned(), Value::Map([("cart/count".to_owned(), Value::Int(2)), ("other".to_owned(), Value::Int(9))].into_iter().collect()));
+    let placed = Interpreter::default().render_module("routes/page.tsx#default", &place(None), &seeded, &library).unwrap();
+    let mounted = placed.islands[0].mount_props();
+    assert_eq!(placed.islands[0].body.html, "<b>2guest</b>");
+    assert_eq!(mounted.get(RENDERED_STORE_PROP), Some(&Value::Map([("cart/count".to_owned(), Value::Int(2))].into_iter().collect())), "the keys it reads that the store held, and only those: {mounted:?}");
+    assert!(!mounted.contains_key(READS_PROP));
+
+    let server = Interpreter::default().render_module("routes/page.tsx#default", &place(Some(SERVER_MODE)), &seeded, &library).unwrap();
+    let mounted = server.islands[0].mount_props();
+    assert!(!mounted.contains_key(RENDERED_STORE_PROP), "a server island sends the live values with each step instead: {mounted:?}");
+    assert!(mounted.contains_key(READS_PROP));
+
+    let unseeded = Interpreter::default().render_module("routes/page.tsx#default", &place(None), &ValueMap::default(), &library).unwrap();
+    assert!(!unseeded.islands[0].mount_props().contains_key(RENDERED_STORE_PROP), "nothing held, nothing carried: the browser falls back to `initial` as the server did");
   }
 
   #[test]

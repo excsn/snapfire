@@ -39,7 +39,7 @@ How to encode SnapFire FSR values and payload trees, what every tag on the wire 
 * **Row**: the wire encoding of one node, a JSON array whose first element is a one-letter kind.
 * **Wire response**: newline-terminated rows, one per line, each line a one-letter row tag then a space then JSON.
 * **HtmlSession**: the counter that hands out island ids, held across every chunk of one response so no two islands collide.
-* **FORMAT_VERSION**: the integer announced in the `V` row, currently `1`.
+* **FORMAT_VERSION**: the integer announced in the `V` row, currently `2`.
 * **Fingerprint**: `snapfire_fsr_core`'s canonical hash, which is how the round trip tests compare a value with its decoded self.
 
 ## Quick Start
@@ -96,7 +96,7 @@ use snapfire_fsr_payload::serialize_page;
 let page = Node::Seq(vec![Node::raw("<main>"), Node::text("hello"), Node::raw("</main>")]);
 let wire = serialize_page(&page);
 
-assert!(wire.starts_with("V {\"fmt\":1,\"enc\":\"json\"}\n"));
+assert!(wire.starts_with("V {\"fmt\":2,\"enc\":\"json\"}\n"));
 assert!(wire.contains("N [\"q\","));
 ```
 
@@ -419,7 +419,7 @@ use snapfire_fsr_core::Node;
 use snapfire_fsr_payload::serialize_page;
 
 let wire = serialize_page(&Node::text("hi"));
-assert_eq!(wire, "V {\"fmt\":1,\"enc\":\"json\"}\nN [\"t\",\"hi\"]\n");
+assert_eq!(wire, "V {\"fmt\":2,\"enc\":\"json\"}\nN [\"t\",\"hi\"]\n");
 ```
 
 ## Decoding Wire Rows Back to Nodes

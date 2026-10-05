@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
+import { createApp, createSSRApp, defineComponent, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -11,8 +11,10 @@ const held = new WeakMap();
 const RUNTIME_PROPS = [
     "$h",
     "$k",
-    "$s"
+    "$s",
+    "$sv"
 ];
+const RENDERED_STORE = Symbol("sf-rendered-store");
 function ownProps(props) {
     const own = {};
     for (const key of Object.keys(props)){
@@ -93,6 +95,8 @@ function componentOf(module) {
 export const vueMounter = (module, props, el, hydrate)=>{
     const { root, props: state, children } = rootFor(componentOf(module), props, el);
     const app = hydrate ? createSSRApp(root) : createApp(root);
+    const rendered = props.$sv;
+    app.provide(RENDERED_STORE, hydrate && rendered ? rendered : null);
     held.set(el, state);
     childrenHeld.set(el, children);
     app.mount(el);
@@ -116,8 +120,10 @@ export const vuePatcher = (handle, module, props, el)=>{
     if (fresh !== null && children) children.value = fresh;
 };
 export function useStore(key, initial) {
+    const rendered = inject(RENDERED_STORE, null);
+    const live = ()=>get(key) ?? initial;
     const state = reactive({
-        value: get(key) ?? initial
+        value: rendered !== null && key in rendered ? rendered[key] : live()
     });
     let ours = false;
     const off = subscribe(key, (next)=>{
@@ -125,6 +131,12 @@ export function useStore(key, initial) {
         state.value = next;
     });
     onScopeDispose(off);
+    if (rendered !== null) {
+        onMounted(()=>{
+            const now = live();
+            if (!Object.is(state.value, now)) state.value = now;
+        });
+    }
     return new Proxy(state, {
         get: (target, name)=>target[name],
         set: (target, name, value)=>{

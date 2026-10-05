@@ -16,7 +16,7 @@ use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
-use crate::store::Seeds;
+use crate::store::{Contribution, Seeds, merge_contributions};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AssembleError {
@@ -235,8 +235,10 @@ pub struct Resolved {
   /// What the resolved subtree says about the document, when a segment in
   /// it has metadata; the streams patch the title and description with it.
   pub meta: Meta,
-  /// The store keys the resolved subtree seeds; the streams write them.
-  pub store: Data,
+  /// What the resolved subtree's own segments seeded; the streams write them
+  /// ahead of its markup, so the browser holds them before it mounts anything
+  /// rendered from them.
+  pub contributions: Vec<Contribution>,
 }
 
 pub struct Assembly {
@@ -245,7 +247,9 @@ pub struct Assembly {
   pub segments: SegmentInfo,
   /// The title and description the eager wave settled on, defaults included.
   pub meta: Meta,
-  /// The store keys the eager wave settled on, outermost segment first.
+  /// What each eager segment seeded, one entry per seeding segment.
+  pub contributions: Vec<Contribution>,
+  /// The store the eager wave rendered from: `contributions` merged by position.
   pub store: Data,
   pub locale: crate::ctx::Locale,
   /// The head's `entry`: a module the browser loads for this response's islands.
@@ -376,18 +380,35 @@ fn seeding_nodes<'p>(
   plan: &'p PlanNode,
   loaded: &Loaded,
   is_root: bool,
-  out: &mut Vec<&'p PlanNode>,
+  path: &mut Vec<String>,
+  out: &mut Vec<(&'p PlanNode, Vec<String>)>,
 ) {
   if plan.deferred && !is_root {
     return;
   }
   if let Some(source) = &plan.data_source {
     if runtime.stores.contains_key(&source.0) && loaded.data.contains_key(&plan.id.0) {
-      out.push(plan);
+      out.push((plan, path.clone()));
     }
   }
-  for (_, child) in &plan.children {
-    seeding_nodes(runtime, child, loaded, false, out);
+  for (slot, child) in &plan.children {
+    path.push(slot.0.clone());
+    seeding_nodes(runtime, child, loaded, false, path, out);
+    path.pop();
+  }
+}
+
+/// The store a subtree renders from: what the segments around it already
+/// seeded plus its own, merged by position.
+struct Seeded {
+  contributions: Vec<Contribution>,
+  merged: Data,
+}
+
+impl Seeded {
+  fn new(contributions: Vec<Contribution>) -> Self {
+    let merged = merge_contributions(&contributions);
+    Self { contributions, merged }
   }
 }
 
@@ -560,22 +581,25 @@ impl Session {
     })
   }
 
-  fn defer(self: &Arc<Self>, child: PlanNode, slot: SlotId, key: String) -> PendingResolution {
+  /// A deferred child's resolution. It renders from what the wave around it
+  /// seeded, `around`, plus its own segments' seeds, so a component in it
+  /// reads a layout's key the way it would had the segment not been deferred.
+  fn defer(self: &Arc<Self>, child: PlanNode, slot: SlotId, key: String, path: Vec<String>, around: Vec<Contribution>) -> PendingResolution {
     let session = Arc::clone(self);
     let resolved_key = key.clone();
     PendingResolution {
       slot,
       key,
       future: Box::pin(async move {
-        match session.resolve_subtree(&child).await {
-          Ok((node, pending, segments, meta, store, _digest, _failed)) => Resolved {
+        match session.resolve_subtree(&child, path, around).await {
+          Ok((node, pending, segments, meta, contributions, _digest, _failed)) => Resolved {
             slot,
             key: resolved_key,
             node,
             segments,
             pending,
             meta,
-            store,
+            contributions,
           },
           Err(e) => Resolved {
             slot,
@@ -584,40 +608,46 @@ impl Session {
             segments: Vec::new(),
             pending: Vec::new(),
             meta: Meta::default(),
-            store: Data::default(),
+            contributions: Vec::new(),
           },
         }
       }),
     }
   }
 
+  /// Renders `plan`, at `path` from the route's root, from `around` plus what
+  /// its own segments seed. The contributions returned are the subtree's own.
   async fn resolve_subtree(
     self: &Arc<Self>,
     plan: &PlanNode,
-  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Data, u64, Option<FailureKind>), AssembleError> {
+    path: Vec<String>,
+    around: Vec<Contribution>,
+  ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Vec<Contribution>, u64, Option<FailureKind>), AssembleError> {
     let loaded = self.load_eager(plan).await?;
     let meta = self.describe(plan, &loaded).await;
-    let store = self.seed(plan, &loaded).await;
+    let own = self.seed(plan, path.clone(), &loaded).await;
+    let mut all = around;
+    all.extend(own.iter().cloned());
+    let seeded = Seeded::new(all);
     let mut pending = Vec::new();
-    let (node, children, _used_head, digest) = self.build(plan, &loaded, &mut pending, &meta, &store).await?;
+    let (node, children, _used_head, digest) = self.build(plan, &path, &loaded, &mut pending, &meta, &seeded).await?;
     let failed = loaded.failed.get(&page_of(plan).id.0).map(|e| e.kind);
-    Ok((node, pending, children, meta, store, digest, failed))
+    Ok((node, pending, children, meta, own, digest, failed))
   }
 
-  /// The store keys every seeding segment of `plan` settled on, an inner
-  /// segment winning a key an outer one also sets. A failing seed costs its
-  /// keys rather than the page.
-  async fn seed(&self, plan: &PlanNode, loaded: &Loaded) -> Data {
+  /// What every seeding segment of `plan` seeds, each with the slot path
+  /// that places it. A failing seed costs its keys rather than the page.
+  async fn seed(&self, plan: &PlanNode, mut path: Vec<String>, loaded: &Loaded) -> Vec<Contribution> {
     let mut nodes = Vec::new();
-    seeding_nodes(&self.runtime, plan, loaded, true, &mut nodes);
-    let mut out = Data::default();
-    for node in nodes {
+    seeding_nodes(&self.runtime, plan, loaded, true, &mut path, &mut nodes);
+    let mut out = Vec::new();
+    for (node, path) in nodes {
       let source = node.data_source.as_ref().expect("a seeding node has a source");
       match self.runtime.stores[&source.0]
         .seed(self.ctx_of(node.id.0), &loaded.data[&node.id.0])
         .await
       {
-        Ok(seeded) => out.extend(seeded),
+        Ok(values) => out.push(Contribution { segment: self.segment_key(node), path, values }),
         Err(e) => tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment store failed"),
       }
     }
@@ -752,12 +782,13 @@ impl Session {
     self: &'a Arc<Self>,
     node: Node,
     plan: &'a PlanNode,
+    plan_path: &'a [String],
     loaded: &'a Loaded,
     out_pending: &'a mut Vec<PendingResolution>,
     segments: &'a mut Vec<SegmentInfo>,
     path: &'a mut Vec<u32>,
     meta: &'a Meta,
-    store: &'a Data,
+    seeded: &'a Seeded,
   ) -> BoxFuture<'a, Result<(Node, bool), AssembleError>> {
     Box::pin(async move {
       let mut used_head = false;
@@ -768,10 +799,12 @@ impl Session {
           };
           let key = self.segment_key(child);
           let keep = SegmentInfo::keep_of(child);
+          let mut child_path = plan_path.to_vec();
+          child_path.push(slot.0.clone());
           if child.deferred {
             let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
-            let fallback = self.fallback_node(child, store).await?;
-            out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
+            let fallback = self.fallback_node(child, &seeded.merged).await?;
+            out_pending.push(self.defer(child.clone(), slot_id, key.clone(), child_path, seeded.contributions.clone()));
             segments.push(SegmentInfo {
               key,
               digest: 0,
@@ -790,7 +823,7 @@ impl Session {
             ))
           } else {
             let (child_node, grandchildren, child_used_head, digest) =
-              self.build(child, loaded, out_pending, meta, store).await?;
+              self.build(child, &child_path, loaded, out_pending, meta, seeded).await?;
             segments.push(SegmentInfo {
               key,
               digest,
@@ -808,7 +841,7 @@ impl Session {
           for (i, item) in items.into_iter().enumerate() {
             path.push(i as u32);
             let (filled, head) = self
-              .fill_slots(item, plan, loaded, out_pending, segments, path, meta, store)
+              .fill_slots(item, plan, plan_path, loaded, out_pending, segments, path, meta, seeded)
               .await?;
             path.pop();
             used_head |= head;
@@ -826,7 +859,7 @@ impl Session {
           for (i, item) in children.into_iter().enumerate() {
             path.push(i as u32);
             let (filled, head) = self
-              .fill_slots(item, plan, loaded, out_pending, segments, path, meta, store)
+              .fill_slots(item, plan, plan_path, loaded, out_pending, segments, path, meta, seeded)
               .await?;
             path.pop();
             used_head |= head;
@@ -850,10 +883,11 @@ impl Session {
   fn build<'a>(
     self: &'a Arc<Self>,
     node: &'a PlanNode,
+    plan_path: &'a [String],
     loaded: &'a Loaded,
     out_pending: &'a mut Vec<PendingResolution>,
     meta: &'a Meta,
-    store: &'a Data,
+    seeded: &'a Seeded,
   ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool, u64), AssembleError>> {
     Box::pin(async move {
       if let Some(failure) = loaded.failed.get(&node.id.0) {
@@ -867,7 +901,7 @@ impl Session {
       let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
       let cache_key = match self.runtime.head_users.lock().contains(&node.id.0) {
         true => None,
-        false => self.cache_key_for(node, loaded, store, shape, reads),
+        false => self.cache_key_for(node, loaded, &seeded.merged, shape, reads),
       };
       let render = tracing::info_span!(target: "fsr::trace", "render", module = %node.module, cache = tracing::field::Empty);
       let _rendering = render.enter();
@@ -883,7 +917,7 @@ impl Session {
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
       self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path), reads.is_none_or(|r| r.csrf));
-      inject_store(&mut props, store, reads);
+      inject_store(&mut props, &seeded.merged, reads);
       if !node.children.is_empty() || !node.keep.is_empty() {
         let slots = node
           .children
@@ -918,7 +952,7 @@ impl Session {
             let idx = parts.len();
             let mut inner: Vec<SegmentInfo> = Vec::new();
             let (filled, child_used_head) = self
-              .fill_slots(n, node, loaded, out_pending, &mut inner, &mut Vec::new(), meta, store)
+              .fill_slots(n, node, plan_path, loaded, out_pending, &mut inner, &mut Vec::new(), meta, seeded)
               .await?;
             used_head |= child_used_head;
             parts.push(filled);
@@ -943,14 +977,16 @@ impl Session {
             };
             let key = self.segment_key(child);
             let keep = SegmentInfo::keep_of(child);
+            let mut child_path = plan_path.to_vec();
+            child_path.push(slot.0.clone());
             if child.deferred {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
-              let fallback = self.fallback_node(child, store).await?;
+              let fallback = self.fallback_node(child, &seeded.merged).await?;
               parts.push(Node::Pending {
                 slot: slot_id,
                 fallback: Box::new(fallback),
               });
-              out_pending.push(self.defer(child.clone(), slot_id, key.clone()));
+              out_pending.push(self.defer(child.clone(), slot_id, key.clone(), child_path, seeded.contributions.clone()));
               segments.push((
                 usize::MAX,
                 SegmentInfo {
@@ -965,7 +1001,7 @@ impl Session {
               ));
             } else {
               let (child_node, grandchildren, child_used_head, child_digest) =
-                self.build(child, loaded, out_pending, meta, store).await?;
+                self.build(child, &child_path, loaded, out_pending, meta, seeded).await?;
               used_head |= child_used_head;
               let idx = parts.len();
               parts.push(child_node);
@@ -1064,7 +1100,8 @@ async fn assemble_in(
     head: head.clone(),
     next_slot: AtomicU32::new(1),
   });
-  let (tree, pending, children, meta, store, digest, failed) = session.resolve_subtree(plan).await?;
+  let (tree, pending, children, meta, contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
+  let store = merge_contributions(&contributions);
   let segments = SegmentInfo {
     key: session.segment_key(plan),
     digest,
@@ -1086,6 +1123,7 @@ async fn assemble_in(
     pending,
     segments,
     meta,
+    contributions,
     store,
     locale: ctx.locale.clone(),
     entry: head.entry.clone(),

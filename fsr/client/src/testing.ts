@@ -8,7 +8,7 @@ import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { prettyDOM, waitFor, within, type BoundQueries, type WaitForOptions } from "./queries.js";
 import type { Hoisted } from "./react.js";
-import { reset, seed } from "./store.js";
+import { contribute, decodeContributions, reset } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 export { f64 } from "./values.js";
@@ -819,23 +819,24 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   return { status: res.status, path };
 }
 
-/** What a browser's script engine does with a streamed document: moves each resolved template into its slot and returns what its fill script would have said about the head and the store, to run once the document's own seed is in. linkedom runs no scripts, so the runner does this by hand. */
+/** What a browser's script engine does with a streamed document: takes each resolution's seed, moves its template into its slot and returns what its fill script would have said about the head, to run once the document is up. linkedom runs no scripts, so the runner does this by hand. The seed lands before anything is mounted, as the fill script orders it. */
 function applyFills(): (() => void)[] {
   const late: (() => void)[] = [];
   for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))) {
     const id = template.getAttribute("data-sf-fill");
     const slot = document.querySelector(`[data-sf-slot="${id}"]`);
     const script = template.nextElementSibling;
+    const calls = script?.tagName === "SCRIPT" && script.textContent?.includes("__sfFill(") ? script.textContent.split(/;?__sf/).filter(Boolean) : [];
+    for (const call of calls) {
+      if (!call.startsWith("Store(")) continue;
+      contribute(decodeContributions(JSON.parse(call.slice("Store(".length, call.lastIndexOf(")")))));
+    }
     if (slot) slot.replaceWith((template as HTMLTemplateElement).content);
     template.remove();
-    if (script?.tagName !== "SCRIPT" || !script.textContent?.startsWith("__sfFill(")) continue;
-    for (const call of script.textContent.split(";__sf").slice(1)) {
-      const open = call.indexOf("(");
-      const body = call.slice(open + 1, call.lastIndexOf(")"));
-      if (call.startsWith("Head(")) late.push(() => applyHead(JSON.parse(body)));
-      if (call.startsWith("Store(")) late.push(() => seed(decodeValue(JSON.parse(body)) as { [key: string]: SfValue }));
+    for (const call of calls) {
+      if (call.startsWith("Head(")) late.push(() => applyHead(JSON.parse(call.slice("Head(".length, call.lastIndexOf(")")))));
     }
-    script.remove();
+    if (calls.length > 0) script?.remove();
   }
   return late;
 }

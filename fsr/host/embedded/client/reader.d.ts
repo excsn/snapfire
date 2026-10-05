@@ -1,3 +1,4 @@
+import { type Contribution } from "./store.js";
 import { SfValue } from "./values.js";
 export type SfNode = {
 	kind: "text";
@@ -47,10 +48,8 @@ export interface Payload {
 	segments: Segment | null;
 	/** The document's title and description, from the eager wave then from each resolution that set them, in order. */
 	heads: Head[];
-	/** The store keys the route seeds, from the eager wave then from each resolution that seeded, in order. */
-	seeds: {
-		[key: string]: SfValue;
-	}[];
+	/** What the route's segments seeded, one list per `T` row: the eager wave's, then each resolution's ahead of its `S` row, in order. */
+	seeds: Contribution[][];
 	/** The locale the response was rendered in, as the application spells it; null when the server has none. */
 	locale: string | null;
 	/** The locale's message table, a `D` row, sent when the request did not say it already holds it; null otherwise. */
@@ -82,9 +81,7 @@ export type Row = {
 	head: Head;
 } | {
 	tag: "T";
-	seed: {
-		[key: string]: SfValue;
-	};
+	contributions: Contribution[];
 } | {
 	tag: "L";
 	locale: string;

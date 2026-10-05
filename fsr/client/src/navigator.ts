@@ -3,8 +3,7 @@ import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
-import { seed, transaction } from "./store.js";
-import { SfValue } from "./values.js";
+import { contribute, retain, transaction, type Contribution } from "./store.js";
 
 let current: Segment | null = null;
 const ids: IdAlloc = { next: 0 };
@@ -394,7 +393,7 @@ interface Eager {
   tree: SfNode;
   segments: Segment;
   heads: Head[];
-  seeds: { [key: string]: SfValue }[];
+  seeds: Contribution[][];
   locale: string | null;
   catalog: { [key: string]: string } | null;
   entry: string | null;
@@ -419,7 +418,7 @@ async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
         eager.heads.push(row.head);
         break;
       case "T":
-        eager.seeds.push(row.seed);
+        eager.seeds.push(row.contributions);
         break;
       case "L":
         eager.locale = row.locale;
@@ -445,10 +444,11 @@ async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
 function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   if (!current) return false;
   transaction(() => {
-    for (const values of eager.seeds) seed(values);
+    for (const list of eager.seeds) contribute(list);
   });
   if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
   current = eager.segments;
+  retain(segmentKeys(current));
   documentSidecar = false;
   openSlot = interceptSlot(eager.segments);
   for (const head of eager.heads) applyHead(head);
@@ -460,6 +460,13 @@ function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   scan(document);
   watchLinks(document);
   return true;
+}
+
+/** Every segment key in `seg`'s tree, the kept children included once `diff` carried them over. */
+function segmentKeys(seg: Segment): string[] {
+  const out = [seg.k];
+  for (const child of seg.c) out.push(...segmentKeys(child));
+  return out;
 }
 
 /** Counts navigations, so the rows still arriving for one stop applying once a later one has taken the document. */
@@ -481,7 +488,7 @@ async function drain(rows: AsyncGenerator<string>, segments: Segment, gen: numbe
       } else if (row.tag === "H") {
         applyHead(row.head);
       } else if (row.tag === "T") {
-        seed(row.seed);
+        contribute(row.contributions);
       }
     }
   } catch (err) {

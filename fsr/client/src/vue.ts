@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, defineComponent, h, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type Ref } from "vue";
+import { createApp, createSSRApp, defineComponent, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref } from "vue";
 
 import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
@@ -12,8 +12,11 @@ import { pictureParts, type PictureOptions } from "./picture.js";
 /** The reactive props an island was mounted with, so a patch re-renders it in place instead of tearing it down. */
 const held = new WeakMap<Element, Record<string, unknown>>();
 
-/** What the server rides on an island's props for the runtime rather than the component: the hoisted table, the region key and a server-mode island's state. */
-const RUNTIME_PROPS = ["$h", "$k", "$s"];
+/** What the server rides on an island's props for the runtime rather than the component: the hoisted table, the region key, a server-mode island's state and the store values the island was rendered from. */
+const RUNTIME_PROPS = ["$h", "$k", "$s", "$sv"];
+
+/** The store values a hydrating app's markup was rendered from, `$sv` on its props, provided to the app so `useStore` starts from them. Null when the app mounts fresh. */
+const RENDERED_STORE: InjectionKey<{ [key: string]: unknown } | null> = Symbol("sf-rendered-store");
 
 function ownProps(props: Props): Record<string, unknown> {
   const own: Record<string, unknown> = {};
@@ -94,6 +97,8 @@ function componentOf(module: unknown): Component {
 export const vueMounter: Mounter = (module, props, el, hydrate) => {
   const { root, props: state, children } = rootFor(componentOf(module), props, el);
   const app: App = hydrate ? createSSRApp(root) : createApp(root);
+  const rendered = (props as { $sv?: { [key: string]: unknown } }).$sv;
+  app.provide(RENDERED_STORE, hydrate && rendered ? rendered : null);
   held.set(el, state);
   childrenHeld.set(el, children);
   app.mount(el);
@@ -119,15 +124,23 @@ export const vuePatcher: Patcher = (handle, module, props, el) => {
   if (fresh !== null && children) children.value = fresh;
 };
 
-/** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. Call it in `setup`, so the subscription ends with the component. */
+/** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. A hydrating island starts from the value the server rendered it from, which its props carry, and moves to the store's once mounted, so a key that moved in the meantime never fails the hydration. Call it in `setup`, so the subscription ends with the component. */
 export function useStore<T>(key: StoreKey<T>, initial: T): { value: T } {
-  const state = reactive({ value: get(key) ?? initial }) as { value: T };
+  const rendered = inject(RENDERED_STORE, null);
+  const live = () => get(key) ?? initial;
+  const state = reactive({ value: rendered !== null && key in rendered ? (rendered[key] as T) : live() }) as { value: T };
   let ours = false;
   const off = subscribe(key, (next) => {
     if (ours) return;
     state.value = next as T;
   });
   onScopeDispose(off);
+  if (rendered !== null) {
+    onMounted(() => {
+      const now = live();
+      if (!Object.is(state.value, now)) state.value = now;
+    });
+  }
   return new Proxy(state, {
     get: (target, name) => (target as Record<string | symbol, unknown>)[name],
     set: (target, name, value) => {

@@ -279,7 +279,7 @@ A parsed response.
 * `tree: SfNode`, the `N` row.
 * `segments: Segment | null`, the `G` row when the response carried one.
 * `heads: Head[]`, the `H` rows in arrival order: the eager wave's, then one per resolution that described the document.
-* `seeds: { [key: string]: SfValue }[]`, the `T` rows in arrival order, each already decoded.
+* `seeds: Contribution[][]`, the `T` rows in arrival order, each a list of contributions already decoded.
 * `locale: string | null`, the `L` row, the locale the response was rendered in as the application spells it; `null` when the server sent none.
 * `entry: string | null`, the `E` row, a module to load before the response's islands can mount, a mounted site's entry; `null` when the document's own entry covers them.
 * `catalog: { [key: string]: string } | null`, the `D` row; `null` when the server sent none.
@@ -303,7 +303,7 @@ Reads a whole response body, one row per line, skipping empty lines, through `pa
 
 ### Row
 
-* `type Row = { tag: "V"; format: number; encoding: string } | { tag: "N"; tree: SfNode } | { tag: "G"; segments: Segment } | { tag: "H"; head: Head } | { tag: "T"; seed: { [key: string]: SfValue } } | { tag: "L"; locale: string } | { tag: "E"; entry: string } | { tag: "D"; catalog: { [key: string]: string } } | { tag: "S"; slot: number; node: SfNode; segments: Segment[] }`
+* `type Row = { tag: "V"; format: number; encoding: string } | { tag: "N"; tree: SfNode } | { tag: "G"; segments: Segment } | { tag: "H"; head: Head } | { tag: "T"; contributions: Contribution[] } | { tag: "L"; locale: string } | { tag: "E"; entry: string } | { tag: "D"; catalog: { [key: string]: string } } | { tag: "S"; slot: number; node: SfNode; segments: Segment[] }`
 
 One row of a payload, discriminated by its tag.
 
@@ -329,7 +329,7 @@ Each row is a tag character, a space, then its body, terminated by a newline. Th
 | `N` | one node row | The initial tree |
 | `G` | one segment object | The segment sidecar |
 | `H` | `{"title":…,"description":…}` | What the route says about the document |
-| `T` | an encoded value map | The store keys the route seeded |
+| `T` | a list of `{k, p, v}` objects | What the route's segments seeded, one entry per segment, ahead of the `S` row it rendered |
 | `L` | a JSON string | The locale the response was rendered in |
 | `E` | a JSON string | A module to import before the response's islands can mount, a mounted site's entry |
 | `D` | a JSON object of strings | The locale's message catalog, dotted keys to messages, sent unless the request's `x-sf-catalog` named that locale |
@@ -615,7 +615,13 @@ Failures and `revalidate` behave as `action`'s do.
 
 One keyed map per document, outside every island root, so two islands can show the same value. Its own entry point, `@snapfire/fsr-client/store`, re-exported from the core entry. Module state: there is one store per document, not one per import.
 
-A route seeds it from its loaders. The server renders components against the same seed, so a seeded key hydrates without a flash. The seed reaches the browser as `script[data-sf-store]` in a document, as a `T` row in a payload and as a `__sfStore(…)` call in a streamed resolution.
+A route seeds it from its loaders, one contribution per segment. The store is the merge of the contributions it holds, a deeper segment winning a key an outer one also sets and, at one depth, the later slot name, so it comes out the same whatever order the segments arrived in; a segment's contribution leaves with the segment. Over the merge sit the writes islands make, each standing until a contribution names its key again. The contributions reach the browser as `script[data-sf-store]` in a document, as `T` rows in a payload and as `__sfStore(…)` calls in a streamed resolution, each ahead of the markup it rendered. An island's props carry the values its markup was rendered from as `$sv`, which the adapters hydrate against, so a key that moved in between never fails a hydration.
+
+### Contribution
+
+* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown } }`
+
+What one segment seeded: `k` its segment key, `p` the slot names from the root down to it and `v` the values, decoded.
 
 ### StoreKey
 
@@ -671,23 +677,35 @@ Registers a key computed from others and computes it once now. It recomputes whe
 
 Sets the key to `guess`, awaits `remote` and returns its result. A rejection restores what the key held or clears it when it held nothing and rethrows. A success leaves the guess in place: the revalidation an action runs carries the seed that replaces it.
 
+### contribute
+
+* `contribute(list: Contribution[]): void`
+
+Takes what a response's segments seeded, each contribution replacing the one its segment held, in one transaction. A key a contribution names loses whatever an island wrote to it. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value.
+
+### retain
+
+* `retain(segments: Iterable<string>): void`
+
+Drops the contribution of every segment not named, notifying the keys that moved. The navigator calls it with the keys of the tree it has just applied, kept segments included, so a page that seeds nothing does not inherit what the page before it seeded and an intercept's seed goes when it closes. The contribution `seed` writes stays.
+
 ### seed
 
 * `seed(values: { [key: string]: SfValue }): void`
 
-Writes a whole map in one transaction. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value.
+Writes a whole map in one transaction as a contribution outside any segment, outermost of all and patched by each call, so an application or a test can seed by hand.
 
 ### adopt
 
 * `adopt(root?: ParentNode): void`
 
-Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then any seed a streamed resolution left on `window.__sfSeed` before this module loaded and installs `window.__sfSeedApply` so later resolutions seed as they arrive. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. Idempotent.
+Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then every list a streamed resolution left on `window.__sfSeed` before this module loaded and installs `window.__sfSeedApply` so later resolutions contribute as they arrive. `decodeContributions(encoded: unknown): Contribution[]` is the decoding it applies, exported for a reader of the same encoding. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. Idempotent.
 
 ### reset
 
 * `reset(): void`
 
-Forgets every key and notifies nobody, which is what a new document calls for: the listeners of the old one went with its roots and the derived keys stay registered for the next seed. The spec runner's `load` calls it before each document.
+Forgets every contribution, write and derived value and notifies nobody, which is what a new document calls for: the listeners of the old one went with its roots and the derived keys stay registered for the next seed. The spec runner's `load` calls it before each document.
 
 ### snapshot
 
@@ -814,7 +832,7 @@ A named slot of a layout: the region a parallel segment under `slots/<name>/` re
 
 A store key as component state, over `useSyncExternalStore`. Reads the store's value or `initial` while nothing has set the key; `initial` is captured on the first render, so a fresh object literal there is safe. The setter writes the store, which re-renders every component reading that key in any root.
 
-The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback, which is why a seeded key hydrates without a flash. The setter is dropped by lowering, like any handler.
+The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback and the island's props carry the values it was rendered from as `$sv`, which is what hydration compares the markup against; the store's live value takes over once hydrated, so a key another island wrote or a later segment seeded in between moves the island instead of failing it. The setter is dropped by lowering, like any handler.
 
 ### useLocale
 

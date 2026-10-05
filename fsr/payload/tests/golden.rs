@@ -21,7 +21,7 @@ const SERIES_B64: &str = "AAAAAAAA8D8AAAAAAAAEQAAAAAAAAAhA";
 #[test]
 fn wire_rows_are_stable() {
   let expected = format!(
-    "V {{\"fmt\":1,\"enc\":\"json\"}}\n\
+    "V {{\"fmt\":2,\"enc\":\"json\"}}\n\
      N [\"q\",[[\"r\",\"<main><h1>Servers</h1>\"],[\"c\",{{\"m\":\"components/ServerChart.tsx#default\",\"p\":{{\"series\":{{\"$\":\"ta\",\"k\":\"f64\",\"v\":\"{SERIES_B64}\"}}}},\"ch\":[],\"s\":null}}],[\"r\",\"</main>\"]]]\n"
   );
   assert_eq!(serialize_page(&walked_page()), expected);

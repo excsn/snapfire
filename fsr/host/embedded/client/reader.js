@@ -1,3 +1,4 @@
+import { decodeContributions } from "./store.js";
 import { decodeValue } from "./values.js";
 export function decodeNode(row) {
     const arr = row;
@@ -69,7 +70,7 @@ export function parseRow(line) {
         case "T":
             return {
                 tag,
-                seed: decodeValue(JSON.parse(line.slice(2)))
+                contributions: decodeContributions(JSON.parse(line.slice(2)))
             };
         case "L":
             return {
@@ -163,7 +164,7 @@ export function parsePayload(text) {
                 heads.push(row.head);
                 break;
             case "T":
-                seeds.push(row.seed);
+                seeds.push(row.contributions);
                 break;
             case "L":
                 locale = row.locale;

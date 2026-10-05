@@ -33,5 +33,5 @@ pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Native
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use paths::Paths;
 pub use reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
-pub use store::Seeds;
-pub use stream::{FILL_SCRIPT, fragment_html, html_stream, meta_to_json, seed_to_json, segments_from_json, segments_to_json, wire_stream};
+pub use store::{Contribution, Seeds, contribution_order, merge_contributions};
+pub use stream::{FILL_SCRIPT, fragment_html, html_stream, contributions_to_json, meta_to_json, segments_from_json, segments_to_json, wire_stream};

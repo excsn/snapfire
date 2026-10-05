@@ -1,3 +1,4 @@
+import { decodeContributions, type Contribution } from "./store.js";
 import { decodeValue, SfValue } from "./values.js";
 
 export type SfNode =
@@ -41,8 +42,8 @@ export interface Payload {
   segments: Segment | null;
   /** The document's title and description, from the eager wave then from each resolution that set them, in order. */
   heads: Head[];
-  /** The store keys the route seeds, from the eager wave then from each resolution that seeded, in order. */
-  seeds: { [key: string]: SfValue }[];
+  /** What the route's segments seeded, one list per `T` row: the eager wave's, then each resolution's ahead of its `S` row, in order. */
+  seeds: Contribution[][];
   /** The locale the response was rendered in, as the application spells it; null when the server has none. */
   locale: string | null;
   /** The locale's message table, a `D` row, sent when the request did not say it already holds it; null otherwise. */
@@ -60,7 +61,7 @@ export type Row =
   | { tag: "N"; tree: SfNode }
   | { tag: "G"; segments: Segment }
   | { tag: "H"; head: Head }
-  | { tag: "T"; seed: { [key: string]: SfValue } }
+  | { tag: "T"; contributions: Contribution[] }
   | { tag: "L"; locale: string }
   | { tag: "E"; entry: string }
   | { tag: "C"; styles: string[] }
@@ -109,7 +110,7 @@ export function parseRow(line: string): Row {
     case "H":
       return { tag, head: JSON.parse(line.slice(2)) };
     case "T":
-      return { tag, seed: decodeValue(JSON.parse(line.slice(2))) as { [key: string]: SfValue } };
+      return { tag, contributions: decodeContributions(JSON.parse(line.slice(2))) };
     case "L":
       return { tag, locale: JSON.parse(line.slice(2)) as string };
     case "E":
@@ -163,7 +164,7 @@ export function parsePayload(text: string): Payload {
   let segments: Segment | null = null;
   const resolutions: { slot: number; node: SfNode }[] = [];
   const heads: Head[] = [];
-  const seeds: { [key: string]: SfValue }[] = [];
+  const seeds: Contribution[][] = [];
   let locale: string | null = null;
   let catalog: { [key: string]: string } | null = null;
   let entry: string | null = null;
@@ -187,7 +188,7 @@ export function parsePayload(text: string): Payload {
         heads.push(row.head);
         break;
       case "T":
-        seeds.push(row.seed);
+        seeds.push(row.contributions);
         break;
       case "L":
         locale = row.locale;

@@ -13,6 +13,11 @@ export type { ImageAsset } from "./picture.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 
+/** The store values this root's markup was rendered from, `$sv` on its props: what `useStore` hydrates against, since the live store may have moved on by the time a root hydrates. Null for a root the server did not render. */
+const RenderedStoreContext = createContext<{ [key: string]: unknown } | null>(null);
+
+const RENDERED_STORE_PROP = "$sv";
+
 /** The `<sf-s>` a layout renders its child segment into or an island's children render in, `data-sf-children`: the first one under `el` that is not inside a nested island, is not an island's own region and is not a named slot. */
 function slotOf(el: Element): Element | null {
   for (const slot of Array.from(el.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-name])"))) {
@@ -293,14 +298,16 @@ export function Slot({ name }: SlotProps): ReactElement {
   return createElement("sf-s", { "data-sf-name": name, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
 }
 
-/** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
+/** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. Hydration reads the value the server rendered this island from, which its props carry, so a key another island wrote or a later segment seeded in the meantime moves the island after it hydrates rather than failing it; the build lowers this call, so the key must be a literal or a `key()`. */
 export function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void] {
   const [fallback] = useState(initial);
+  const rendered = useContext(RenderedStoreContext);
   const read = () => {
     const held = get(k);
     return held === undefined ? fallback : held;
   };
-  const value = useSyncExternalStore((changed: () => void) => subscribe(k, changed), read, read);
+  const renderedRead = () => (rendered !== null && k in rendered ? (rendered[k] as T) : fallback);
+  const value = useSyncExternalStore((changed: () => void) => subscribe(k, changed), read, renderedRead);
   return [value, useCallback((next: T) => set(k, next), [k])];
 }
 
@@ -431,10 +438,10 @@ export function withHoisted(table: Hoisted | null, element: ReactElement): React
   return createElement(HoistContext.Provider, { value: table }, element);
 }
 
-/** `props` with the hoisted table and the region key removed, plus the table itself. */
-function splitHoisted(props: object): [object, Hoisted | null] {
-  const { [HOISTED_PROP]: hoisted, [REGION_KEY]: _key, ...rest } = props as { [HOISTED_PROP]?: Hoisted; [REGION_KEY]?: unknown };
-  return [rest, hoisted ?? null];
+/** `props` with the hoisted table, the region key and the rendered store values removed, plus the table and the values themselves. */
+function splitHoisted(props: object): [object, Hoisted | null, { [key: string]: unknown } | null] {
+  const { [HOISTED_PROP]: hoisted, [REGION_KEY]: _key, [RENDERED_STORE_PROP]: rendered, ...rest } = props as { [HOISTED_PROP]?: Hoisted; [REGION_KEY]?: unknown; [RENDERED_STORE_PROP]?: { [key: string]: unknown } };
+  return [rest, hoisted ?? null, rendered ?? null];
 }
 
 /** `element` under this root's region state, with the regions the payload behind a patch describes taken as the current generation: `sources` when the caller holds them, else what the boot runtime recorded for `el`. */
@@ -448,9 +455,10 @@ function withRegions(el: Element, element: ReactElement, patched: boolean, sourc
 }
 
 function islandElement(component: unknown, props: object, el: Element, patched: boolean, sources?: Map<string, RegionSource> | null): ReactElement {
-  const [own, hoisted] = splitHoisted(props);
+  const [own, hoisted, rendered] = splitHoisted(props);
   const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, childrenFor(el));
-  return createElement(Mounting, { el }, withRegions(el, withHoisted(hoisted, element), patched, sources));
+  const under = createElement(RenderedStoreContext.Provider, { value: rendered }, withHoisted(hoisted, element));
+  return createElement(Mounting, { el }, withRegions(el, under, patched, sources));
 }
 
 /** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */

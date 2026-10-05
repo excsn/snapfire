@@ -7,7 +7,7 @@ use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalEr
 
 use crate::ast::{Body, Component};
 use crate::interp::Interpreter;
-use crate::render::{Components, Rendered, HOISTED_PROP, ISLAND_MARK, SLOT_MARK};
+use crate::render::{rendered_store, store_keys, Components, Rendered, HOISTED_PROP, ISLAND_MARK, RENDERED_STORE_PROP, SLOT_MARK};
 
 /// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
 /// where a root slot sits and, where an island sits, its region: an
@@ -362,6 +362,12 @@ impl Evaluator for IrEvaluator {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
       let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
+      // A root a framework hydrates is told what it was rendered from, as a
+      // placed island is through `mount_props`.
+      let from_store = match (&props.get("$store"), component.owner.hydrates()) {
+        (Some(Value::Map(store)), true) => rendered_store(store, &store_keys(&component, &components)),
+        _ => Data::default(),
+      };
       if component.owner.hydrates() && !rendered.whole {
         let children = snapfire_fsr_runtime::slot_regions(&props);
         let mut props = props;
@@ -374,6 +380,9 @@ impl Evaluator for IrEvaluator {
       props.shift_remove("$store");
       if !rendered.hoisted.is_empty() {
         props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
+      }
+      if !from_store.is_empty() {
+        props.insert(RENDERED_STORE_PROP.to_owned(), Value::Map(from_store));
       }
       // A component nothing mounts is its markup and nothing else: no island
       // wrapper to claim, no props script to carry, no module for the browser

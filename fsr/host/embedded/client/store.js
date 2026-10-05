@@ -2,7 +2,11 @@ import { decodeValue } from "./values.js";
 export function key(id) {
     return id;
 }
-const values = new Map();
+const PLAIN = "$seed";
+const contributions = new Map();
+let merged = new Map();
+const writes = new Map();
+const derivedValues = new Map();
 const listeners = new Map();
 const derived = new Map();
 let depth = 0;
@@ -20,34 +24,71 @@ function dispatch(k) {
     }
     const set = listeners.get(k);
     if (!set) return;
-    for (const listener of Array.from(set))listener(values.get(k), k);
+    for (const listener of Array.from(set))listener(effective(k), k);
 }
 function recompute(id) {
     const entry = derived.get(id);
     if (!entry) return;
-    write(id, entry.compute((k)=>values.get(k)));
+    const before = effective(id);
+    const value = entry.compute((k)=>effective(k));
+    derivedValues.set(id, value);
+    if (!Object.is(before, value)) notify(id);
 }
-function write(k, value) {
-    if (values.has(k) && Object.is(values.get(k), value)) return;
-    values.set(k, value);
-    notify(k);
+function effective(k) {
+    if (writes.has(k)) return writes.get(k);
+    if (derivedValues.has(k)) return derivedValues.get(k);
+    return merged.get(k);
+}
+function has(k) {
+    return writes.has(k) || derivedValues.has(k) || merged.has(k);
+}
+function order(a, b) {
+    if (a.p.length !== b.p.length) return a.p.length - b.p.length;
+    for(let i = 0; i < a.p.length; i++){
+        if (a.p[i] !== b.p[i]) return a.p[i] < b.p[i] ? -1 : 1;
+    }
+    return 0;
+}
+function remerge(touched) {
+    const before = new Map();
+    for (const k of touched)before.set(k, effective(k));
+    const next = new Map();
+    for (const c of Array.from(contributions.values()).sort(order)){
+        for (const [k, value] of Object.entries(c.v))next.set(k, value);
+    }
+    merged = next;
+    for (const k of touched){
+        if (!Object.is(before.get(k), effective(k)) || before.has(k) !== has(k)) notify(k);
+    }
 }
 export function get(k) {
-    return values.get(k);
+    return effective(k);
 }
 export function set(k, value) {
-    write(k, value);
+    if (has(k) && Object.is(effective(k), value)) return;
+    writes.set(k, value);
+    notify(k);
 }
 export function clear(k) {
-    if (!values.has(k)) return;
-    values.delete(k);
+    if (!has(k)) return;
+    writes.delete(k);
+    derivedValues.delete(k);
+    for (const c of contributions.values())delete c.v[k];
+    merged.delete(k);
     notify(k);
 }
 export function reset() {
-    values.clear();
+    contributions.clear();
+    merged = new Map();
+    writes.clear();
+    derivedValues.clear();
 }
 export function snapshot() {
-    return Object.fromEntries(values);
+    const out = {};
+    for (const k of merged.keys())out[k] = effective(k);
+    for (const k of derivedValues.keys())out[k] = effective(k);
+    for (const k of writes.keys())out[k] = effective(k);
+    return out;
 }
 export function subscribe(k, listener) {
     let set = listeners.get(k);
@@ -85,8 +126,8 @@ export function derive(k, sources, compute) {
     recompute(k);
 }
 export async function optimistic(k, guess, remote) {
-    const had = values.has(k);
-    const before = values.get(k);
+    const had = has(k);
+    const before = effective(k);
     set(k, guess);
     try {
         return await remote();
@@ -99,16 +140,69 @@ export async function optimistic(k, guess, remote) {
         throw err;
     }
 }
-export function seed(values) {
+export function contribute(list) {
     transaction(()=>{
-        for (const [k, value] of Object.entries(values))write(k, value);
+        const touched = new Set();
+        for (const c of list){
+            const old = contributions.get(c.k);
+            if (old) for (const k of Object.keys(old.v))touched.add(k);
+            for (const k of Object.keys(c.v)){
+                touched.add(k);
+                writes.delete(k);
+            }
+            contributions.set(c.k, {
+                k: c.k,
+                p: c.p.slice(),
+                v: {
+                    ...c.v
+                }
+            });
+        }
+        remerge(touched);
+    });
+}
+export function retain(segments) {
+    const keep = new Set(segments);
+    keep.add(PLAIN);
+    transaction(()=>{
+        const touched = new Set();
+        for (const [segment, c] of Array.from(contributions)){
+            if (keep.has(segment)) continue;
+            for (const k of Object.keys(c.v))touched.add(k);
+            contributions.delete(segment);
+        }
+        if (touched.size > 0) remerge(touched);
+    });
+}
+export function seed(values) {
+    const held = contributions.get(PLAIN);
+    contribute([
+        {
+            k: PLAIN,
+            p: [],
+            v: {
+                ...held?.v ?? {},
+                ...values
+            }
+        }
+    ]);
+}
+export function decodeContributions(encoded) {
+    if (!Array.isArray(encoded)) return [];
+    return encoded.map((item)=>{
+        const entry = item;
+        return {
+            k: String(entry.k ?? ""),
+            p: Array.isArray(entry.p) ? entry.p.map(String) : [],
+            v: decodeValue(entry.v ?? {}) ?? {}
+        };
     });
 }
 export function adopt(root) {
     if (typeof document !== "undefined") {
         for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))){
             if (script.textContent) {
-                seed(decodeValue(JSON.parse(script.textContent)));
+                contribute(decodeContributions(JSON.parse(script.textContent)));
             }
             script.setAttribute("data-sf-adopted", "");
         }
@@ -116,10 +210,10 @@ export function adopt(root) {
     if (typeof globalThis === "undefined") return;
     const g = globalThis;
     const held = g.__sfSeed;
-    g.__sfSeedApply = (encoded)=>seed(decodeValue(encoded));
+    g.__sfSeedApply = (encoded)=>contribute(decodeContributions(encoded));
     if (held) {
         delete g.__sfSeed;
-        g.__sfSeedApply(held);
+        for (const encoded of held)g.__sfSeedApply(encoded);
     }
 }
 adopt();

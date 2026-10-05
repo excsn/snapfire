@@ -283,7 +283,8 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 * **Head.** `Chunk::Slot(SlotName("head"))` substitutes `head.node(&meta)`, the head's `rest` followed by the title and description and marks the subtree head-using, which propagates to ancestors through non-deferred children.
 * **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
 * **Slots inside an island.** A `Chunk::Node` holding a `Node::Slot` anywhere under it has each slot answered the way a `Chunk::Slot` is, in place, the child segment's path counting into the island's `children`; this is how a layout's page sits inside the layout's own markup.
-* **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props alone or `Node::raw("")` when it has none. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`.
+* **Seeding.** Every node whose data source has a `Seeds` registered and whose data loaded, deferred children excluded, contributes what its `seed` returns as one `Contribution`, placed by the slot names from the root down to it. The wave renders from the merge of its contributions by [`contribution_order`](#contribution): a deeper segment wins a key an outer one also sets and, at one depth, the later slot name. A failing seed is logged on target `fsr::load` and costs its keys, not the page.
+* **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props and the wave's store; a child with no fallback gets `Node::raw("")`. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`. When it resolves it renders from the contributions of the wave around it plus its own segments', merged by the same rule, so a component in it reads a layout's key as it would had the segment not been deferred; its own contributions are what `Resolved::contributions` carries.
 * **Collapse.** A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq` and each non-deferred child segment records `path: [index]`.
 
 Cache lookup and store happen per plan node that carries a `cache_key`. The composed key is:
@@ -320,6 +321,13 @@ pub async fn assemble_under(
 
 `pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`. The document's request and the ids of the plan nodes that render under it, which a host takes from the layouts the origin's route shares with the intercept's, from the root down to the one declaring the slot.
 
+### `Contribution`
+
+`pub struct Contribution { pub segment: String, pub path: Vec<String>, pub values: Data }`: what one segment seeded, `segment` its key as the sidecar and its region carry it and `path` the slot names from the route's root down to it. `Debug`, `Clone`, `PartialEq`.
+
+* `pub fn contribution_order(a: &[String], b: &[String]) -> Ordering`: by depth, then by the slot names; the browser merges by the same rule, so the two agree whatever order contributions arrive in.
+* `pub fn merge_contributions(contributions: &[Contribution]) -> Data`: the store they merge to, each applied in that order.
+
 ### `Assembly`
 
 * `catalog: Option<String>`: the head's `catalog`, written as the `D` row.
@@ -331,6 +339,8 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 * `pub pending: Vec<PendingResolution>`
 * `pub segments: SegmentInfo`: the root sidecar, keyed by `runtime.keyer` from the plan root and the request params.
 * `pub meta: Meta`: the document's title and description as the eager wave settled them, the head's defaults where no segment said otherwise.
+* `pub contributions: Vec<Contribution>`: what each eager segment seeded, for the `T` row and the seed script.
+* `pub store: Data`: `contributions` merged, what the eager wave rendered from.
 * `pub locale: Locale`: the request's, for the `L` row.
 * `pub entry: Option<String>`: the head's `entry`, for the `E` row.
 
@@ -348,6 +358,7 @@ A deferred slot's eventual content.
 * `pub key: String`
 * `pub node: Node`
 * `pub segments: Vec<SegmentInfo>`: the child segments of the resolved subtree, positioned in `node`. The deferred subtree's own identity is the slot-addressed `SegmentInfo` already in the first response; these are the segments under it, which that sidecar could not name.
+* `pub contributions: Vec<Contribution>`: what the subtree's own segments seeded, written ahead of its markup.
 * `pub pending: Vec<PendingResolution>`: nested deferral, new slots the resolution itself introduced.
 * `pub meta: Meta`: what the resolved subtree said about the document; empty when no segment in it has metadata.
 
@@ -640,21 +651,21 @@ The wire encoding of a streamed response. The first item is the eager wave, newl
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
 * `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` has a title or a description.
-* `T <value map json>`, from [`seed_to_json`](#seed_to_json), when `assembly.store` holds a key.
+* `T <contributions json>`, from [`contributions_to_json`](#contributions_to_json), when `assembly.contributions` is not empty.
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
 * `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
 * `D <catalog json>`, the head's catalog, when the head holds one.
 * `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json), always and always last: it closes the eager wave, so a navigator applies the tree the moment it reads it.
 
-Then one item per resolution, `S <slot id> {"n": <node row json>, "g": [<segment json>...]}\n`, `g` present when the resolved subtree has child segments of its own, followed by an `H` row when `Resolved::meta` is not empty and a `T` row when `Resolved::store` is not, in completion order rather than plan order. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+Then one item per resolution: a `T` row when `Resolved::contributions` is not empty, then `S <slot id> {"n": <node row json>, "g": [<segment json>...]}\n`, `g` present when the resolved subtree has child segments of its own, then an `H` row when `Resolved::meta` is not empty, in completion order rather than plan order. The seed goes ahead of the markup it rendered, so a reader holds it before it mounts anything from the fill. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
 
 ### `meta_to_json`
 
 `pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only the fields that are set, `title` then `description`.
 
-### `seed_to_json`
+### `contributions_to_json`
 
-`pub fn seed_to_json(seed: &Data) -> serde_json::Value`: the store keys a segment seeded, encoded as one value map the way `snapfire_fsr_payload::value_to_json` encodes a `Value::Map`.
+`pub fn contributions_to_json(contributions: &[Contribution]) -> serde_json::Value`: an array with one object per contribution, `k` the segment key, `p` the slot path as an array of strings and `v` the values encoded the way `snapfire_fsr_payload::value_to_json` encodes a `Value::Map`.
 
 ### `html_stream`
 
@@ -662,13 +673,15 @@ Then one item per resolution, `S <slot id> {"n": <node row json>, "g": [<segment
 pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send
 ```
 
-The first-response encoding. The first item is the tree serialized with each segment wrapped in `<!--sf-g:{key}-->` and `<!--/sf-g-->`, followed by the sidecar as `<script type="application/json" data-sf-segments>...</script>`, followed by [`FILL_SCRIPT`](#fill_script) when `assembly.pending` is non-empty.
+The first-response encoding. The first item is the tree serialized with each segment wrapped in `<!--sf-g:{key}-->` and `<!--/sf-g-->`, followed by the sidecar as `<script type="application/json" data-sf-segments>...</script>`, followed by `<script type="application/json" data-sf-store>` holding [`contributions_to_json`](#contributions_to_json) of `assembly.contributions` when there are any, followed by [`FILL_SCRIPT`](#fill_script) when `assembly.pending` is non-empty.
 
 Then one item per resolution:
 
 ```text
-<template data-sf-fill="{slot}">{subtree}</template><script>__sfFill({slot})</script>
+<template data-sf-fill="{slot}">{subtree}</template><script>__sfStore({contributions json});__sfFill({slot})</script>
 ```
+
+The `__sfStore` call is written only when the resolution seeded and comes first, so the store holds the segment's seed before the fill wakes the boot runtime.
 
 The subtree is wrapped in the segment's own delimiters with every child segment delimited inside it. When there are child segments the call is `__sfFill({slot}, [<segment json>...])`, so the fill script can write them into the document's sidecar. When the resolution carries metadata the script also calls `__sfHead({meta json})`, with `<` escaped as `\u003c`, so a streamed page retitles the document once it arrives.
 

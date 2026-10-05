@@ -67,7 +67,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Action**: a server function with a stable id. The client holds the id, never a URL shape.
 * **Revalidation**: re-fetching the current route after a mutation and replacing the top-level segment regions, so the layout's DOM and its island state survive.
 * **Store**: one keyed map for the whole document, outside every island root. Islands do not share React context, so this is how two of them show the same number.
-* **Seed**: what a route's loaders settled the store on for this request, rendered into the document as `script[data-sf-store]` and carried by a navigation's `T` row. The server renders from it, so a component reading a key hydrates without a flash.
+* **Seed**: what a route's segments settled the store on for this request, one contribution per segment merged by position, rendered into the document as `script[data-sf-store]` and carried by a navigation's `T` rows ahead of the markup. The server renders from it and each island's props carry the values it was rendered from, so a component reading a key hydrates without a flash or a mismatch.
 
 ## Quick Start
 

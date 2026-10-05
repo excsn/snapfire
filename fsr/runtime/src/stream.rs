@@ -8,14 +8,37 @@ use snapfire_fsr_payload::{FORMAT_VERSION, HtmlSession, node_to_row_json};
 use crate::assembler::{Assembly, PendingResolution};
 use crate::meta::Meta;
 use crate::segments::SegmentInfo;
+use crate::store::Contribution;
 
 /// Installed once, ahead of the first fill. Moves a resolved template's content
 /// into its slot and wakes the boot runtime to rescan.
-pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{g.__sfSeed=Object.assign(g.__sfSeed||{},o)}}</script>";
+pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}</script>";
 
-/// The `T` row's body: the store keys a route seeded, as a value map.
-pub fn seed_to_json(seed: &snapfire_fsr_core::Data) -> Json {
-  snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(seed.clone()))
+/// The `T` row's body and the seed script's: one entry per seeding segment,
+/// `k` its key, `p` the slot names from the root to it and `v` what it seeded
+/// as a value map, so a reader merges them by position whatever order they
+/// arrived in.
+pub fn contributions_to_json(contributions: &[Contribution]) -> Json {
+  Json::Array(
+    contributions
+      .iter()
+      .map(|c| {
+        json!({
+          "k": c.segment,
+          "p": c.path,
+          "v": snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(c.values.clone())),
+        })
+      })
+      .collect(),
+  )
+}
+
+/// The seed script a document and a fragment carry, inert for the parser.
+fn seed_script(contributions: &[Contribution]) -> String {
+  format!(
+    "<script type=\"application/json\" data-sf-store>{}</script>",
+    contributions_to_json(contributions).to_string().replace('<', "\\u003c")
+  )
 }
 
 /// The `H` row's body: only the fields a segment set, so a reader leaves
@@ -144,8 +167,8 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   if !assembly.meta.is_empty() {
     header.push_str(&format!("H {}\n", meta_to_json(&assembly.meta)));
   }
-  if !assembly.store.is_empty() {
-    header.push_str(&format!("T {}\n", seed_to_json(&assembly.store)));
+  if !assembly.contributions.is_empty() {
+    header.push_str(&format!("T {}\n", contributions_to_json(&assembly.contributions)));
   }
   if !assembly.locale.tag.is_empty() {
     header.push_str(&format!("L {}\n", json!(assembly.locale.tag)));
@@ -168,12 +191,13 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     for p in resolved.pending {
       state.set.push(p.future);
     }
-    let mut row = format!("S {} {}\n", resolved.slot.0, fill_to_row_json(&resolved.node, &resolved.segments));
+    let mut row = String::new();
+    if !resolved.contributions.is_empty() {
+      row.push_str(&format!("T {}\n", contributions_to_json(&resolved.contributions)));
+    }
+    row.push_str(&format!("S {} {}\n", resolved.slot.0, fill_to_row_json(&resolved.node, &resolved.segments)));
     if !resolved.meta.is_empty() {
       row.push_str(&format!("H {}\n", meta_to_json(&resolved.meta)));
-    }
-    if !resolved.store.is_empty() {
-      row.push_str(&format!("T {}\n", seed_to_json(&resolved.store)));
     }
     Some((row, state))
   }))
@@ -250,11 +274,8 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     "<script type=\"application/json\" data-sf-segments>{}</script>",
     segments_to_json(&assembly.segments).to_string().replace('<', "\\u003c")
   ));
-  if !assembly.store.is_empty() {
-    first.push_str(&format!(
-      "<script type=\"application/json\" data-sf-store>{}</script>",
-      seed_to_json(&assembly.store).to_string().replace('<', "\\u003c")
-    ));
+  if !assembly.contributions.is_empty() {
+    first.push_str(&seed_script(&assembly.contributions));
   }
   if !assembly.pending.is_empty() {
     first.push_str(FILL_SCRIPT);
@@ -286,17 +307,18 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     } else {
       format!(",{}", Json::Array(info.children.iter().map(segments_to_json).collect()).to_string().replace('<', "\\u003c"))
     };
-    let mut chunk = format!("<template data-sf-fill=\"{slot}\">{body}</template><script>__sfFill({slot}{nested})");
+    let mut chunk = format!("<template data-sf-fill=\"{slot}\">{body}</template><script>");
+    if !resolved.contributions.is_empty() {
+      chunk.push_str(&format!(
+        "__sfStore({});",
+        contributions_to_json(&resolved.contributions).to_string().replace('<', "\\u003c")
+      ));
+    }
+    chunk.push_str(&format!("__sfFill({slot}{nested})"));
     if !resolved.meta.is_empty() {
       chunk.push_str(&format!(
         ";__sfHead({})",
         meta_to_json(&resolved.meta).to_string().replace('<', "\\u003c")
-      ));
-    }
-    if !resolved.store.is_empty() {
-      chunk.push_str(&format!(
-        ";__sfStore({})",
-        seed_to_json(&resolved.store).to_string().replace('<', "\\u003c")
       ));
     }
     chunk.push_str("</script>");
@@ -320,14 +342,14 @@ const CONTENT: &str = "content";
 /// the same inert script a document carries, so whatever swaps the fragment in
 /// can adopt it. `None` when the route has no slot by that name.
 pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<String> {
-  let Assembly { tree, pending, segments, mut store, .. } = assembly;
+  let Assembly { tree, pending, segments, mut contributions, .. } = assembly;
   let mut fills: HashMap<u32, Node> = HashMap::new();
   let mut set = PendingSet::new(pending);
   while let Some(resolved) = set.set.next().await {
     for p in resolved.pending {
       set.set.push(p.future);
     }
-    store.extend(resolved.store);
+    contributions.extend(resolved.contributions);
     fills.insert(resolved.slot.0, resolved.node);
   }
   let target = match slot {
@@ -337,11 +359,8 @@ pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<Str
   let mut target = target.clone();
   fill(&mut target, &fills);
   let mut out = HtmlSession::new().serialize(&target);
-  if !store.is_empty() {
-    out.push_str(&format!(
-      "<script type=\"application/json\" data-sf-store>{}</script>",
-      seed_to_json(&store).to_string().replace('<', "\\u003c")
-    ));
+  if !contributions.is_empty() {
+    out.push_str(&seed_script(&contributions));
   }
   Some(out)
 }

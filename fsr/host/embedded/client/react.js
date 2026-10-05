@@ -8,6 +8,8 @@ import { linkAttributes } from "./link.js";
 import { pictureParts } from "./picture.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, set, subscribe } from "./store.js";
+const RenderedStoreContext = createContext(null);
+const RENDERED_STORE_PROP = "$sv";
 function slotOf(el) {
     for (const slot of Array.from(el.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-name])"))){
         if (slot.parentElement?.closest("sf-i") === el) return slot;
@@ -250,11 +252,13 @@ export function Slot({ name }) {
 }
 export function useStore(k, initial) {
     const [fallback] = useState(initial);
+    const rendered = useContext(RenderedStoreContext);
     const read = ()=>{
         const held = get(k);
         return held === undefined ? fallback : held;
     };
-    const value = useSyncExternalStore((changed)=>subscribe(k, changed), read, read);
+    const renderedRead = ()=>rendered !== null && k in rendered ? rendered[k] : fallback;
+    const value = useSyncExternalStore((changed)=>subscribe(k, changed), read, renderedRead);
     return [
         value,
         useCallback((next)=>set(k, next), [
@@ -346,10 +350,11 @@ export function withHoisted(table, element) {
     }, element);
 }
 function splitHoisted(props) {
-    const { [HOISTED_PROP]: hoisted, [REGION_KEY]: _key, ...rest } = props;
+    const { [HOISTED_PROP]: hoisted, [REGION_KEY]: _key, [RENDERED_STORE_PROP]: rendered, ...rest } = props;
     return [
         rest,
-        hoisted ?? null
+        hoisted ?? null,
+        rendered ?? null
     ];
 }
 function withRegions(el, element, patched, sources) {
@@ -363,14 +368,17 @@ function withRegions(el, element, patched, sources) {
     }, element);
 }
 function islandElement(component, props, el, patched, sources) {
-    const [own, hoisted] = splitHoisted(props);
+    const [own, hoisted, rendered] = splitHoisted(props);
     const element = createElement(component, {
         ...own,
         ...slotPropsFor(el)
     }, childrenFor(el));
+    const under = createElement(RenderedStoreContext.Provider, {
+        value: rendered
+    }, withHoisted(hoisted, element));
     return createElement(Mounting, {
         el
-    }, withRegions(el, withHoisted(hoisted, element), patched, sources));
+    }, withRegions(el, under, patched, sources));
 }
 function Mounting({ el, children }) {
     useEffect(()=>{

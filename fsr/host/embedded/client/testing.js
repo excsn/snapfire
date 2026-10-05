@@ -4,7 +4,7 @@ import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, rest
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { prettyDOM, waitFor, within } from "./queries.js";
-import { reset, seed } from "./store.js";
+import { contribute, decodeContributions, reset } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 export { f64 } from "./values.js";
 export { advance, AssertionError, settle, show } from "./harness.js";
@@ -671,16 +671,17 @@ function applyFills() {
         const id = template.getAttribute("data-sf-fill");
         const slot = document.querySelector(`[data-sf-slot="${id}"]`);
         const script = template.nextElementSibling;
+        const calls = script?.tagName === "SCRIPT" && script.textContent?.includes("__sfFill(") ? script.textContent.split(/;?__sf/).filter(Boolean) : [];
+        for (const call of calls){
+            if (!call.startsWith("Store(")) continue;
+            contribute(decodeContributions(JSON.parse(call.slice("Store(".length, call.lastIndexOf(")")))));
+        }
         if (slot) slot.replaceWith(template.content);
         template.remove();
-        if (script?.tagName !== "SCRIPT" || !script.textContent?.startsWith("__sfFill(")) continue;
-        for (const call of script.textContent.split(";__sf").slice(1)){
-            const open = call.indexOf("(");
-            const body = call.slice(open + 1, call.lastIndexOf(")"));
-            if (call.startsWith("Head(")) late.push(()=>applyHead(JSON.parse(body)));
-            if (call.startsWith("Store(")) late.push(()=>seed(decodeValue(JSON.parse(body))));
+        for (const call of calls){
+            if (call.startsWith("Head(")) late.push(()=>applyHead(JSON.parse(call.slice("Head(".length, call.lastIndexOf(")")))));
         }
-        script.remove();
+        if (calls.length > 0) script?.remove();
     }
     return late;
 }

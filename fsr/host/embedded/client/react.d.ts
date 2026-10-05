@@ -52,7 +52,7 @@ export interface SlotProps {
 }
 /** A named slot of a layout: the region a parallel route renders into or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands and navigation fills and empties it without React reconciling it. */
 export declare function Slot({ name }: SlotProps): ReactElement;
-/** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. The server renders from the seed its loaders settled on, so the first paint and the hydration agree; the build lowers this call, so the key must be a literal or a `key()`. */
+/** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. Hydration reads the value the server rendered this island from, which its props carry, so a key another island wrote or a later segment seeded in the meantime moves the island after it hydrates rather than failing it; the build lowers this call, so the key must be a literal or a `key()`. */
 export declare function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void];
 /** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */
 export declare function useLocale(): string;

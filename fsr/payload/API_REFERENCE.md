@@ -34,7 +34,7 @@ Modules: `html`, `json`, `rows`.
 
 The wire format announced in a response's `V` line.
 
-* `pub const FORMAT_VERSION: u32`, value `1`.
+* `pub const FORMAT_VERSION: u32`, value `2`.
 
 ### Re-exports
 
@@ -196,7 +196,7 @@ The wire encoding of one complete page: a version line, then the tree line. Infa
 
 Constraints:
 
-* Emits exactly two lines, `V {"fmt":1,"enc":"json"}` and `N {tree row}`, each ending in `\n`.
+* Emits exactly two lines, `V {"fmt":2,"enc":"json"}` and `N {tree row}`, each ending in `\n`.
 * Emits no `G` line and no `S` line. A page with unresolved slots needs the streaming writer in `snapfire_fsr_runtime`.
 
 ### Node Row Kinds

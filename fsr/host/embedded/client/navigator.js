@@ -3,7 +3,7 @@ import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
 import { morphElement, morphNodes } from "./server.js";
-import { seed, transaction } from "./store.js";
+import { contribute, retain, transaction } from "./store.js";
 let current = null;
 const ids = {
     next: 0
@@ -356,7 +356,7 @@ async function eagerOf(rows) {
                 eager.heads.push(row.head);
                 break;
             case "T":
-                eager.seeds.push(row.seed);
+                eager.seeds.push(row.contributions);
                 break;
             case "L":
                 eager.locale = row.locale;
@@ -384,10 +384,11 @@ async function eagerOf(rows) {
 function applyEager(eager, force, keep) {
     if (!current) return false;
     transaction(()=>{
-        for (const values of eager.seeds)seed(values);
+        for (const list of eager.seeds)contribute(list);
     });
     if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
     current = eager.segments;
+    retain(segmentKeys(current));
     documentSidecar = false;
     openSlot = interceptSlot(eager.segments);
     for (const head of eager.heads)applyHead(head);
@@ -399,6 +400,13 @@ function applyEager(eager, force, keep) {
     scan(document);
     watchLinks(document);
     return true;
+}
+function segmentKeys(seg) {
+    const out = [
+        seg.k
+    ];
+    for (const child of seg.c)out.push(...segmentKeys(child));
+    return out;
 }
 let generation = 0;
 async function drain(rows, segments, gen) {
@@ -418,7 +426,7 @@ async function drain(rows, segments, gen) {
             } else if (row.tag === "H") {
                 applyHead(row.head);
             } else if (row.tag === "T") {
-                seed(row.seed);
+                contribute(row.contributions);
             }
         }
     } catch (err) {

@@ -502,13 +502,13 @@ fn the_layouts_store_seeds_the_cart_count_and_follows_the_session() {
   let app = app_over(transport);
 
   let empty = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
-  assert!(empty.contains("<script type=\"application/json\" data-sf-store>{\"cart/count\":{\"$\":\"f\",\"v\":0.0}}</script>"), "{empty}");
+  assert!(empty.contains("<script type=\"application/json\" data-sf-store>[{\"k\":\"routes/layout.tsx#default\",\"p\":[\"content\"],\"v\":{\"cart/count\":{\"$\":\"f\",\"v\":0.0}}}]</script>"), "{empty}");
   assert!(empty.contains("badge badge-empty\">0<"), "the header renders from the seed: {empty}");
 
   let session = SessionCell::default();
   hold(&session, 1, 3);
   let held = block_on(app.render_to_string("/", RenderMode::Html, session.clone())).unwrap();
-  assert!(held.contains("data-sf-store>{\"cart/count\":{\"$\":\"f\",\"v\":3.0}}</script>"), "{held}");
+  assert!(held.contains("data-sf-store>[{\"k\":\"routes/layout.tsx#default\",\"p\":[\"content\"],\"v\":{\"cart/count\":{\"$\":\"f\",\"v\":3.0}}}]</script>"), "{held}");
   assert!(held.contains("badge\">3<"), "{held}");
 
   let payload = block_on(app.render_to_string("/cart", RenderMode::Payload, session)).unwrap();

@@ -137,14 +137,15 @@ fn a_seeding_segment_reaches_the_wire_and_the_document() {
   let assembly = assembled(None, false);
   assert_eq!(assembly.store.get("cart/count"), Some(&Value::Int(2)));
   let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
-  assert!(wire.contains("\nT {\"cart/count\":2,\"owner\":\"layout\"}\n"), "{wire}");
+  assert!(wire.contains(&format!("\nT {SHELL_SEED}\n")), "{wire}");
 
   let html: String = block_on(html_stream(assembled(None, false)).collect::<Vec<_>>()).concat();
-  assert!(
-    html.contains("<script type=\"application/json\" data-sf-store>{\"cart/count\":2,\"owner\":\"layout\"}</script>"),
-    "{html}"
-  );
+  assert!(html.contains(&format!("<script type=\"application/json\" data-sf-store>{SHELL_SEED}</script>")), "{html}");
 }
+
+/// The shell's contribution as the streams write it: the segment's key, its slot path from the root and what it seeded.
+const SHELL_SEED: &str = "[{\"k\":\"shell#document\",\"p\":[],\"v\":{\"cart/count\":2,\"owner\":\"layout\"}}]";
+const PAGE_SEED: &str = "[{\"k\":\"page#default\",\"p\":[\"content\"],\"v\":{\"owner\":\"page\"}}]";
 
 #[test]
 fn an_inner_segment_wins_the_key_it_shares_with_an_outer_one() {
@@ -175,18 +176,39 @@ fn a_failing_seed_costs_its_keys_and_not_the_page() {
 #[test]
 fn a_deferred_segment_seeds_when_it_resolves() {
   let wire: Vec<String> = block_on(wire_stream(assembled(Some(Arc::new(FieldSeed("owner", "where"))), true)).collect());
-  assert!(
-    wire[0].contains("\nT {\"cart/count\":2,\"owner\":\"layout\"}\n"),
-    "{}",
-    wire[0]
-  );
-  assert!(wire[1].starts_with("S 1 "), "{}", wire[1]);
-  assert!(wire[1].ends_with("\nT {\"owner\":\"page\"}\n"), "{}", wire[1]);
+  assert!(wire[0].contains(&format!("\nT {SHELL_SEED}\n")), "{}", wire[0]);
+  assert!(wire[1].starts_with(&format!("T {PAGE_SEED}\nS 1 ")), "the seed goes ahead of the markup it rendered: {}", wire[1]);
 
   let html: Vec<String> = block_on(html_stream(assembled(Some(Arc::new(FieldSeed("owner", "where"))), true)).collect());
-  assert!(
-    html[1].ends_with("<script>__sfFill(1);__sfStore({\"owner\":\"page\"})</script>"),
-    "{}",
-    html[1]
-  );
+  assert!(html[1].ends_with(&format!("<script>__sfStore({PAGE_SEED});__sfFill(1)</script>")), "{}", html[1]);
+}
+
+#[test]
+fn a_deferred_segment_renders_from_the_wave_around_it_plus_its_own_seed() {
+  let html: Vec<String> = block_on(html_stream(assembled(Some(Arc::new(FieldSeed("owner", "where"))), true)).collect());
+  assert!(html[1].contains("(\"cart/count\", Int(2))"), "the layout's key reaches the deferred page: {}", html[1]);
+  assert!(html[1].contains("(\"owner\", Str(\"page\"))"), "its own seed wins the key it shares: {}", html[1]);
+  assert!(!html[1].contains("Str(\"layout\")"), "{}", html[1]);
+}
+
+#[test]
+fn contributions_merge_by_position_whatever_order_they_came_in() {
+  use snapfire_fsr_runtime::{Contribution, merge_contributions};
+  let at = |segment: &str, path: &[&str], key: &str, value: &str| Contribution {
+    segment: segment.to_owned(),
+    path: path.iter().map(|p| (*p).to_owned()).collect(),
+    values: [(key.to_owned(), Value::str(value))].into_iter().collect(),
+  };
+  let layout = at("layout", &[], "owner", "layout");
+  let page = at("page", &["content"], "owner", "page");
+  let modal = at("modal", &["modal"], "owner", "modal");
+  let inner = at("inner", &["content", "content"], "owner", "inner");
+  for order in [vec![&layout, &page, &modal, &inner], vec![&inner, &modal, &page, &layout], vec![&modal, &layout, &inner, &page]] {
+    let merged = merge_contributions(&order.into_iter().cloned().collect::<Vec<_>>());
+    assert_eq!(merged.get("owner"), Some(&Value::str("inner")), "the deepest segment wins");
+  }
+  let siblings = merge_contributions(&[modal.clone(), page.clone()]);
+  assert_eq!(siblings.get("owner"), Some(&Value::str("modal")), "at one depth the later slot name wins, whichever resolved first");
+  let siblings = merge_contributions(&[page, modal]);
+  assert_eq!(siblings.get("owner"), Some(&Value::str("modal")));
 }
