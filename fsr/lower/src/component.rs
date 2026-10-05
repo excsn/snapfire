@@ -735,6 +735,7 @@ impl ComponentSet {
         if result.is_ok() && !vue.heads.is_empty() {
           self.heads.insert(module.clone(), std::mem::take(&mut vue.heads));
         }
+        let result = result.map(|component| (component, std::mem::take(&mut vue.child_refs)));
         (result, vue.lowerer.unbound.take())
       };
       match result {
@@ -750,6 +751,26 @@ impl ComponentSet {
         }
       }
     };
+    let (mut component, children) = component;
+    let mut modules: HashMap<String, String> = HashMap::new();
+    for child in children {
+      let at = |message: String| LowerError::Residue(Residue { file: file.to_owned(), line: child.line, column: child.column, message, hint: None, via: Vec::new() });
+      let (target, _) = self.component_module(file, &child.local).map_err(at)?;
+      let child_file = target.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_else(|| target.clone());
+      let declared: Vec<String> = self.described.get(&child_file).map(|d| d.bindings.iter().filter(|(_, kind)| kind.as_str() == "props").map(|(name, _)| name.clone()).collect()).unwrap_or_default();
+      if let Some(stray) = child.attrs.iter().find(|a| !declared.contains(a)) {
+        return Err(at(format!("`{stray}` on `<{}>`, which it does not declare as a prop, so Vue would fall it through onto its root element", child.local)));
+      }
+      match self.lower(&target) {
+        Ok(()) => {}
+        Err(LowerError::Residue(residue)) => return Err(at(format!("`<{}>` does not lower: {}:{}:{}: {}", child.local, residue.file, residue.line, residue.column, residue.message))),
+        Err(other) => return Err(other),
+      }
+      modules.insert(child.local, target);
+    }
+    if !modules.is_empty() {
+      component.render = rewrite_modules(component.render, &modules, &HashMap::new());
+    }
     self.keys.insert(module.clone(), false);
     self.pure.insert(module.clone(), false);
     self.stateless.insert(module, component.state.is_empty());

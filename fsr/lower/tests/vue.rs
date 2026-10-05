@@ -274,7 +274,7 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><input v-model=\"text\" /></template>\n"), "5:18: `v-model`", "the directive's own position, not its expression's");
   assert_eq!(refused("Named", "<template><div><slot name=\"aside\" /></div></template>\n"), "1:22: `<slot name=\"aside\">`, a named slot; an island's children fill the default slot alone");
-  assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `<Row>`, a component placed inside a Vue template; the build lowers a file's own template and the browser mounts what it places");
+  assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
   assert!(refused("Options", "<script>\nexport default { data() { return {}; } };\n</script>\n<template><p /></template>\n").ends_with("a `<script>` without `setup`"));
   assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\");\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:15: `inject`, which reads what a parent component provides; a lowered component has its props alone");
   let bare = refused("Bare", "<template><p>{{ nowhere }}</p></template>\n");
@@ -631,5 +631,111 @@ fn regular_expressions_render_what_javascript_matches() {
   let given = props(&[("title", Value::str("Hello, World of FSR!")), ("csv", Value::str("1, 22 ,333,4")), ("code", Value::str("ab-12 cd"))]);
   let html = agree(&compiler, &dir, "src/ui/Patterns.vue", PATTERNS_RE, &given, "");
   assert!(html.contains("<p class=\"slug\">hello-world-of-fsr</p>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Lowers `root` with every file in `files` described, renders it in Rust and with Vue's server renderer, each child's server module given under the specifier the parent imports it by, and compares the two.
+fn agree_tree(compiler: &Compiler, dir: &Path, files: &[(&str, &str, &str)], root: &str, props: &ValueMap) -> String {
+  let mut set = ComponentSet::new(dir);
+  for (file, _, source) in files {
+    set.describe(*file, describe(compiler, file, source));
+  }
+  set.lower(&format!("{root}#default")).unwrap_or_else(|e| panic!("{root} lowers: {e}"));
+  let rust = render_rust(&set, &format!("{root}#default"), props, Vec::new());
+  let mut modules = runtime();
+  for (file, specifier, source) in files.iter().filter(|(f, _, _)| *f != root) {
+    let Outcome::Ok(module) = compiler.ssr_module(file, source, &Options::default(), &Default::default()).expect("the driver answers") else { panic!("{file} compiles for the server") };
+    let js = match module.lang {
+      Lang::Ts => strip_types(&module.js),
+      Lang::Js => module.js,
+    };
+    modules.insert((*specifier).to_owned(), js);
+  }
+  let (_, _, source) = files.iter().find(|(f, _, _)| *f == root).expect("the root is among the files");
+  let Outcome::Ok(module) = compiler.ssr_module(root, source, &Options::default(), &Default::default()).expect("the driver answers") else { panic!("{root} compiles for the server") };
+  let js = match module.lang {
+    Lang::Ts => strip_types(&module.js),
+    Lang::Js => module.js,
+  };
+  let vue = compiler.render_module(&js, &json(props), Some(""), &modules).expect("Vue renders");
+  let held = "<template data-sf-children></template>";
+  let rust = rust.strip_suffix(held).map(str::to_owned).unwrap_or(rust);
+  assert_eq!(rust, vue, "\n rust: {rust}\n  vue: {vue}\n");
+  rust
+}
+
+const CARD: &str = r#"<script setup lang="ts">
+import { ref } from "vue";
+const props = defineProps<{ title: string; itemCount: number; tags?: string[] }>();
+const open = ref(false);
+</script>
+
+<template>
+  <article class="card">
+    <h3>{{ title }} ({{ itemCount }})</h3>
+    <ul v-if="tags"><li v-for="tag in tags" :key="tag">{{ tag }}</li></ul>
+    <slot />
+    <p v-if="open">open</p>
+  </article>
+</template>
+"#;
+
+const PAIR: &str = r#"<script setup lang="ts">
+defineProps<{ left: string; right: string }>();
+</script>
+
+<template>
+  <b>{{ left }}</b>
+  <i>{{ right }}</i>
+</template>
+"#;
+
+const BOARD: &str = r#"<script setup lang="ts">
+import Card from "./Card.vue";
+import Pair from "./Pair.vue";
+const props = defineProps<{ rows: { name: string; n: number; tags: string[] }[] }>();
+</script>
+
+<template>
+  <section class="board">
+    <Card v-for="row in rows" :key="row.name" :title="row.name" :item-count="row.n" :tags="row.tags" @select="() => {}">
+      <em>{{ row.name }} inside</em>
+    </Card>
+    <card title="plain" :item-count="0" />
+    <Pair left="a" right="b" />
+  </section>
+</template>
+"#;
+
+#[test]
+fn a_vue_child_renders_inline_as_vue_renders_it() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("children", &[("src/ui/Board.vue", BOARD), ("src/ui/Card.vue", CARD), ("src/ui/Pair.vue", PAIR)]);
+  let row = |name: &str, n: f64, tags: &[&str]| Value::Map(props(&[("name", Value::str(name)), ("n", Value::F64(n)), ("tags", Value::seq(tags.iter().map(|t| Value::str(*t)).collect::<Vec<_>>()))]));
+  let given = props(&[("rows", Value::seq(vec![row("pear", 2.0, &["green"]), row("fig", 1.0, &[])]))]);
+  let files = [("src/ui/Board.vue", "", BOARD), ("src/ui/Card.vue", "Card.vue", CARD), ("src/ui/Pair.vue", "Pair.vue", PAIR)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Board.vue", &given);
+  assert!(html.contains("<h3>pear (2)</h3>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_scoped_parent_stamps_its_id_on_a_child_root_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let parent = "<script setup lang=\"ts\">\nimport Pill from \"./Pill.vue\";\n</script>\n\n<template>\n  <div class=\"row\"><Pill label=\"x\" /></div>\n</template>\n\n<style scoped>\n.row { color: red; }\n</style>\n";
+  let pill = "<script setup lang=\"ts\">\ndefineProps<{ label: string }>();\n</script>\n\n<template>\n  <span class=\"pill\"><b>{{ label }}</b></span>\n</template>\n\n<style scoped>\n.pill { color: blue; }\n</style>\n";
+  let dir = app("scoped_children", &[("src/ui/Row.vue", parent), ("src/ui/Pill.vue", pill)]);
+  let files = [("src/ui/Row.vue", "", parent), ("src/ui/Pill.vue", "Pill.vue", pill)];
+  agree_tree(&compiler, &dir, &files, "src/ui/Row.vue", &ValueMap::default());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_scoped_parent_placing_a_child_of_several_roots_renders_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let parent = "<script setup lang=\"ts\">\nimport Pair from \"./Pair.vue\";\n</script>\n\n<template>\n  <div class=\"row\"><Pair left=\"a\" right=\"b\" /></div>\n</template>\n\n<style scoped>\n.row { color: red; }\n</style>\n";
+  let dir = app("scoped_fragment", &[("src/ui/Row.vue", parent), ("src/ui/Pair.vue", PAIR)]);
+  let files = [("src/ui/Row.vue", "", parent), ("src/ui/Pair.vue", "Pair.vue", PAIR)];
+  agree_tree(&compiler, &dir, &files, "src/ui/Row.vue", &ValueMap::default());
   std::fs::remove_dir_all(&dir).unwrap();
 }

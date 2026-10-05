@@ -106,6 +106,42 @@ enum Placed {
   Else { cond: Option<Expr>, body: Tmpl },
 }
 
+/// A Vue child the template placed: the import's local name, the attributes it was given by their prop spelling and where.
+pub(crate) struct ChildRef {
+  pub(crate) local: String,
+  pub(crate) attrs: Vec<String>,
+  pub(crate) line: usize,
+  pub(crate) column: usize,
+}
+
+/// `child-card` as `ChildCard`, the binding a kebab-case tag resolves to.
+fn pascal(tag: &str) -> String {
+  tag.split('-').map(|part| {
+    let mut chars = part.chars();
+    match chars.next() {
+      Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+      None => String::new(),
+    }
+  }).collect()
+}
+
+/// `item-count` as `itemCount`, the prop a kebab-case attribute names.
+fn camel(name: &str) -> String {
+  let mut out = String::with_capacity(name.len());
+  let mut upper = false;
+  for c in name.chars() {
+    if c == '-' {
+      upper = true;
+    } else if upper {
+      out.extend(c.to_uppercase());
+      upper = false;
+    } else {
+      out.push(c);
+    }
+  }
+  out
+}
+
 pub(crate) struct VueLowerer<'a, 'p> {
   pub(crate) lowerer: Lowerer<'p>,
   described: &'a Described,
@@ -123,6 +159,8 @@ pub(crate) struct VueLowerer<'a, 'p> {
   handlers: Vec<Handler>,
   /// The setup functions a handler is inside, outermost first.
   calling: Vec<String>,
+  /// The Vue children the template placed, for the set to resolve and lower.
+  pub(crate) child_refs: Vec<ChildRef>,
   assets: Rc<dyn AssetResolver>,
   /// The head rows the template asks for, a priority image's preload.
   pub(crate) heads: Vec<HeadRow>,
@@ -153,7 +191,7 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), assets, heads: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -526,8 +564,54 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         let attrs = self.placement_attrs(node)?;
         placements::mount(self, &attrs, At::Line(node.line, node.column))
       }
-      _ => Err(self.at(node.line, node.column, format!("`<{}>`, a component placed inside a Vue template; the build lowers a file's own template and the browser mounts what it places", node.tag))),
+      _ => self.child_component(node),
     }
+  }
+
+  /// `<Child :prop="x">content</Child>` with `Child` a `.vue` file the script imports: a `Tmpl::Component` named by the import's local name, which the set resolves, lowers and checks the attributes of.
+  fn child_component(&mut self, node: &Node) -> Lowered<Tmpl> {
+    let local = pascal(&node.tag);
+    let source = find_import(self.lowerer.parsed, &local).map(|(source, _)| source);
+    if !source.as_deref().is_some_and(|s| s.ends_with(".vue")) {
+      return Err(self.at(node.line, node.column, format!("`<{}>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else", node.tag)));
+    }
+    let mut props = Vec::new();
+    let mut names = Vec::new();
+    for prop in &node.props {
+      if prop.prop == "attribute" {
+        let name = camel(&prop.name);
+        props.push(Entry::Field(name.clone(), match &prop.value {
+          Some(value) => Expr::lit_str(value.clone()),
+          None => Expr::Lit(Lit::Bool(true)),
+        }));
+        names.push(name);
+        continue;
+      }
+      match prop.name.as_str() {
+        "if" | "else-if" | "else" | "for" | "on" => {}
+        "bind" => {
+          let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without a value")) };
+          let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
+          match (&prop.arg, prop.arg_static) {
+            (Some(arg), true) if arg == "key" => {}
+            (Some(arg), true) => {
+              let name = camel(arg);
+              props.push(Entry::Field(name.clone(), value));
+              names.push(name);
+            }
+            (None, _) => props.push(Entry::Spread(value)),
+            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a bound prop whose name is an expression")),
+          }
+        }
+        other => return Err(self.at(prop.line, prop.column, format!("`v-{other}` on `<{}>`", node.tag))),
+      }
+    }
+    if let Some(scope) = &self.described.scope {
+      props.push(Entry::Field(snapfire_fsr_ir::render::PARENT_SCOPE_PROP.to_owned(), Expr::lit_str(scope.clone())));
+    }
+    let children = self.children(&node.children)?;
+    self.child_refs.push(ChildRef { local: local.clone(), attrs: names, line: node.line, column: node.column });
+    Ok(Tmpl::Component { module: local, props, children, id: 0, keyed: false })
   }
 
   /// A placement's props as the shared placements read them: a static

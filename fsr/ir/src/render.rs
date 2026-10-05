@@ -666,9 +666,20 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       let value = env.eval_sync(expr)?;
       interpolate(&value, out, env.markup)?;
     }
-    Tmpl::Element { tag, attrs, children } => render_element(env, tag, attrs, children, library, slots, out)?,
+    Tmpl::Element { tag, attrs, children } => match env.stamp.take() {
+      Some(scope) => render_element(env, tag, &stamped(attrs, &scope), children, library, slots, out)?,
+      None => render_element(env, tag, attrs, children, library, slots, out)?,
+    },
     Tmpl::Baked { open, tag, children } => {
-      out.markup(open);
+      match env.stamp.take() {
+        Some(scope) => {
+          let mut open = open.clone();
+          let at = open.rfind(" data-v-").unwrap_or(open.len() - 1);
+          open.insert_str(at, &format!(" {scope}"));
+          out.markup(&open);
+        }
+        None => out.markup(open),
+      }
       if let Some(tag) = tag {
         let context = enter(env, tag);
         for child in children {
@@ -679,6 +690,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       }
     }
     Tmpl::Fragment(children) => {
+      env.stamp = None;
       for child in children {
         render(env, child, library, slots, out)?;
       }
@@ -713,7 +725,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   Ok(())
 }
 
-fn render_element<'a>(env: &mut Env, tag: &str, attrs: &'a [Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let mut open = String::with_capacity(tag.len() + 32);
   open.push('<');
   open.push_str(tag);
@@ -905,16 +917,33 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
   }
   let map = self::props(env, props)?;
+  let stamp = match map.get(PARENT_SCOPE_PROP) {
+    Some(Value::Str(scope)) if component.owner == crate::ast::Owner::Vue => Some(scope.to_string()),
+    _ => None,
+  };
   let depth = env.scope.len();
   let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
   slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone() });
+  let held = std::mem::replace(&mut env.stamp, stamp);
   let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
+  env.stamp = held;
   slots.pop();
   env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
   env.scope.truncate(depth);
   result
+}
+
+/// The scoped-style attribute of the Vue parent that placed a child, which Vue writes on the child's root element after the child's own attributes and before the child's own scope.
+pub const PARENT_SCOPE_PROP: &str = "$scope";
+
+/// `attrs` with `scope` before the element's own `data-v-` attribute, or last.
+fn stamped(attrs: &[Entry], scope: &str) -> Vec<Entry> {
+  let mut attrs = attrs.to_vec();
+  let at = attrs.iter().rposition(|a| matches!(a, Entry::Field(n, crate::ast::Expr::Lit(crate::ast::Lit::Bool(true))) if n.starts_with("data-v-"))).unwrap_or(attrs.len());
+  attrs.insert(at, Entry::Field(scope.to_owned(), crate::ast::Expr::Lit(crate::ast::Lit::Bool(true))));
+  attrs
 }
 
 fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {

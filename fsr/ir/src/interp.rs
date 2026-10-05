@@ -194,6 +194,7 @@ impl Interpreter {
       component_path: String::new(),
       unrendered: false,
       contexts: Vec::new(),
+      stamp: None,
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -306,6 +307,8 @@ pub(crate) struct Env {
   pub(crate) unrendered: bool,
   /// The values the providers around the render point hold, by context, innermost last.
   pub(crate) contexts: Vec<(String, Value)>,
+  /// A Vue parent's scoped-style attribute waiting for the first element the child it placed renders, its root.
+  pub(crate) stamp: Option<String>,
 }
 
 /// One step of the path a key is taken under.
@@ -445,6 +448,7 @@ impl Env {
       component_path: String::new(),
       unrendered: false,
       contexts: Vec::new(),
+      stamp: None,
     }
   }
 
@@ -575,6 +579,7 @@ impl Env {
       component_path: self.component_path.clone(),
       unrendered: false,
       contexts: self.contexts.clone(),
+      stamp: None,
     }
   }
 
