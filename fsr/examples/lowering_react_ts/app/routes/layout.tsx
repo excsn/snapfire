@@ -12,6 +12,7 @@ export default function Layout({ children }: { children: Children }) {
           <Link href="/patterns">patterns</Link>
           <Link href="/statements">statements</Link>
           <Link href="/made">made</Link>
+          <Link href="/regex">regex</Link>
         </nav>
       </header>
       <main className="content">{children}</main>
