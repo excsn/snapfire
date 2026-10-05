@@ -215,6 +215,7 @@ fn tmpl() -> BoxedStrategy<Tmpl> {
 fn stmt() -> BoxedStrategy<Stmt> {
   let leaf = prop_oneof![
     (text(), expr()).prop_map(|(name, e)| Stmt::Let { name, expr: e }),
+    (text(), expr()).prop_map(|(name, e)| Stmt::Set { name, expr: e }),
     expr().prop_map(Stmt::Return),
     expr().prop_map(Stmt::Expr),
     (expr(), text(), expr()).prop_map(|(cond, kind, message)| Stmt::Guard { cond, kind, message }),

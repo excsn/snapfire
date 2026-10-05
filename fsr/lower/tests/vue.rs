@@ -491,3 +491,71 @@ fn destructuring_renders_what_javascript_binds() {
   assert!(html.contains("<p class=\"array\">4 0 </p>"), "a missing item takes its default and the rest is empty: {html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const STATEMENTS: &str = r#"<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{ stock: number; kind: string; scores: number[] }>();
+const label = computed(() => {
+  let out = "Buy";
+  if (props.stock === 0) out = "Sold out";
+  else if (props.stock < 3) {
+    const left = props.stock;
+    out = "Last " + left;
+  }
+  switch (props.kind) {
+    case "a":
+      out += "!";
+      break;
+    case "b":
+    case "c":
+      out = out.toUpperCase();
+      break;
+    default:
+      out = out + "?";
+  }
+  let n = 0;
+  n++;
+  n += 2;
+  const tags: string[] = [];
+  tags.push("x");
+  tags.push(...["y", "z"]);
+  tags.unshift("w");
+  return `${out} ${n} ${tags.join()}`;
+});
+const grades = props.scores.map((score) => {
+  if (score > 90) return "A";
+  else if (score > 80) {
+    const b = "B";
+    return b;
+  }
+  switch (Math.floor(score / 10)) {
+    case 7:
+      return "C";
+    case 6:
+    case 5:
+      return "D";
+  }
+  return "F";
+});
+</script>
+
+<template>
+  <p class="label">{{ label }}</p>
+  <p class="grades">{{ grades.join() }}</p>
+</template>
+"#;
+
+#[test]
+fn statements_render_what_javascript_runs() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("statements", &[]);
+  let scores = Value::seq(vec![Value::F64(95.0), Value::F64(85.0), Value::F64(75.0), Value::F64(55.0), Value::F64(10.0)]);
+  for (stock, kind, want) in [(0.0, "a", "Sold out! 3 w,x,y,z"), (2.0, "b", "LAST 2 3 w,x,y,z"), (9.0, "z", "Buy? 3 w,x,y,z"), (1.0, "c", "LAST 1 3 w,x,y,z")] {
+    let given = props(&[("stock", Value::F64(stock)), ("kind", Value::str(kind)), ("scores", scores.clone())]);
+    let html = agree(&compiler, &dir, "src/ui/Statements.vue", STATEMENTS, &given, "");
+    assert!(html.contains(&format!("<p class=\"label\">{want}</p>")), "{html}");
+    assert!(html.contains("<p class=\"grades\">A,B,C,D,F</p>"), "{html}");
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}

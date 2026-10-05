@@ -71,6 +71,7 @@ The statements of one loader or action, in order.
 One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`; serialised externally tagged in `snake_case`.
 
 * `Let { name: String, expr: Expr }` binds a name for the rest of the enclosing block.
+* `Set { name: String, expr: Expr }` gives the nearest binding of `name` a new value, so a write inside a branch or a loop outlives it. A name nothing has bound is `Internal`.
 * `If { cond: Expr, then: Body, else: Body }`; `else` is omitted from JSON when empty.
 * `ForOf { name: String, over: Expr, body: Body }`; `over` must evaluate to `Value::Seq`.
 * `Return(Expr)` ends the body, from any depth.
@@ -360,7 +361,7 @@ The frameworks an application vendors, each at the major whose server markup the
 
 ### Operators
 
-* `Arith` accepts `Int` with `Int` or `F64` with `F64`, plus `Str` with `Str` for `Add` only. Anything else is `Internal`. Integer overflow and division by zero are `Internal`.
+* `Arith` accepts `Int` with `Int` or `F64` with `F64`, plus, for `Add` only, a `Str` on either side, which concatenates the other operand as `String(x)` writes it unless it is an array or an object. Anything else is `Internal`. Integer overflow and division by zero are `Internal`.
 * `Compare` accepts two `Int`, two `F64`, two `Str`, two `Bool` or two `Null`. `Null` against anything else is `Eq` false and `Ne` true; any ordering against it is `Internal`. Other mixed pairs are `Internal`.
 * `Template` concatenates the string form of each part, per `Str`.
 * `Field` on a non-map is `Value::Null`. `Index` accepts a `Map` with a `Str` key or a `Seq` with an `Int`, `UInt` or integral `F64` index, out of range reads `Value::Null`; `Index` on `Null` is `Null`; other targets are `Internal`.

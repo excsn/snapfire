@@ -12,6 +12,9 @@ pub type Consts = std::collections::BTreeMap<String, Expr>;
 #[serde(rename_all = "snake_case")]
 pub enum Stmt {
   Let { name: String, expr: Expr },
+  /// `name = expr` where `name` is already bound: the nearest binding takes
+  /// the value, so a write inside a branch or a loop outlives it.
+  Set { name: String, expr: Expr },
   If { cond: Expr, then: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] r#else: Body },
   ForOf { name: String, over: Expr, body: Body },
   Return(Expr),
@@ -443,7 +446,7 @@ impl Component {
 pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
   for stmt in body {
     match stmt {
-      Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit(f),
+      Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit(f),
       Stmt::If { cond, then, r#else } => {
         cond.visit(f);
         body_visit(then, f);
@@ -778,7 +781,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
     for stmt in body {
       let mut exprs: Vec<&Expr> = Vec::new();
       match stmt {
-        Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => exprs.push(expr),
+        Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => exprs.push(expr),
         Stmt::Guard { cond, message, .. } => {
           exprs.push(cond);
           exprs.push(message);
@@ -803,6 +806,11 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
       }
       match stmt {
         Stmt::Let { name, .. } => bound.push(name.clone()),
+        Stmt::Set { name, .. } => {
+          if !bound.contains(name) && !out.contains(name) {
+            out.push(name.clone());
+          }
+        }
         Stmt::If { then, r#else, .. } => {
           walk(then, bound, out);
           walk(r#else, bound, out);
@@ -826,7 +834,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
 /// session, so the body's result is not the same for every request.
 pub fn body_reads_request(body: &Body) -> bool {
   body.iter().any(|stmt| match stmt {
-    Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.reads_request(),
+    Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.reads_request(),
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
     Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
@@ -855,7 +863,7 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
   fn exprs<'a>(body: &'a Body, into: &mut Vec<&'a Expr>) {
     for stmt in body {
       match stmt {
-        Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => into.push(expr),
+        Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => into.push(expr),
         Stmt::If { cond, then, r#else } => {
           into.push(cond);
           exprs(then, into);

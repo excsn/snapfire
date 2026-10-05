@@ -220,7 +220,7 @@ impl Interpreter {
             env.guard(cond, kind, message).await?;
           }
         }
-        Stmt::Let { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
+        Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
         Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => break,
       }
     }
@@ -582,6 +582,13 @@ impl Env {
       Stmt::Let { name, expr } => {
         let value = self.eval(expr).await?;
         self.scope.push((name.clone(), value));
+      }
+      Stmt::Set { name, expr } => {
+        let value = self.eval(expr).await?;
+        let Some(slot) = self.scope.iter_mut().rev().find(|(n, _)| n == name) else {
+          return Err(Fail::internal(format!("`{name}` is set before it is bound")));
+        };
+        slot.1 = value;
       }
       Stmt::If { cond, then, r#else } => {
         let branch = if truthy(&self.eval(cond).await?) { then } else { r#else };
@@ -1462,6 +1469,9 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
     (Value::UInt(a), Value::F64(b)) => Ok(Value::F64(float(op, a as f64, b))),
     (Value::F64(a), Value::UInt(b)) => Ok(Value::F64(float(op, a, b as f64))),
     (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => Ok(Value::str(format!("{a}{b}"))),
+    // `+` with a string on either side concatenates the other as `String(x)` does.
+    (Value::Str(a), other) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{a}{}", stringify(&other)?))),
+    (other, Value::Str(b)) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{}{b}", stringify(&other)?))),
     (l, r) => Err(Fail::internal(format!(
       "{:?} wants two integers, two numbers or two strings, got {} and {}",
       op,

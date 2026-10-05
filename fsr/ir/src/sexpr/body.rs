@@ -15,6 +15,7 @@ pub(super) fn body_to_sx(body: &Body) -> Vec<Sx> {
 pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
   match stmt {
     Stmt::Let { name, expr } => form("let", vec![Sx::Sym(name.clone()), expr_to_sx(expr)]),
+    Stmt::Set { name, expr } => form("set", vec![Sx::Sym(name.clone()), expr_to_sx(expr)]),
     Stmt::If { cond, then, r#else } => {
       let mut rest = vec![expr_to_sx(cond), Sx::list(body_to_sx(then))];
       if !r#else.is_empty() {
@@ -105,6 +106,10 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
     "let" => {
       let a = args(items, head, 2)?;
       Stmt::Let { name: sym_of(&a[0])?, expr: expr_from_sx(&a[1])? }
+    }
+    "set" => {
+      let a = args(items, head, 2)?;
+      Stmt::Set { name: sym_of(&a[0])?, expr: expr_from_sx(&a[1])? }
     }
     "if" => {
       let a = at_least(items, head, 2)?;

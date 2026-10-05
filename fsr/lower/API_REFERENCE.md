@@ -20,6 +20,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 * [2. The Recognised Language](#2-the-recognised-language)
   * [Modules](#modules)
   * [Statements](#statements)
+  * [Component Bodies](#component-bodies)
   * [Expressions](#expressions)
   * [Extensions](#extensions)
   * [Hoisting](#hoisting)
@@ -148,11 +149,20 @@ Where the lowerer looks an imported image or font up, `assets::AssetResolver`. T
 * `for (const x of e) body`, `x` a name or a pattern bound the same way.
 * `if (c) fail("kind", msg)`, with the call bare or in a one-statement block and no `else`, is a guard; the kind is a string literal, since it is matched at build time, and the message is any expression, a template naming the value that failed for one; any other `if`, with or without `else`, is a conditional whose branches are blocks or single statements.
 * `return e` or `return`.
+* `x = e`, `x += e` and every compound assignment, `x++`, `x--`, `x.field = e`, `x.push(...)` and `x.unshift(...)` as a statement, `x` a name the body declared, is `Stmt::Set`: the nearest binding takes the new value, so a write inside a branch or a loop outlives it. A field write rebinds `x` to a copy with that field and a push to a copy with the items, so another name holding the same object does not see either. A write at a computed index is residue.
+* `switch (d) { ... }` binds `d` under a temporary and is an `if` chain over its arms, each `case` compared with `===`. Cases with no statements share the next one's. An arm ends with a `break` (dropped), a `return` or the end of the last arm; one that falls into the next, a `break` before the end of its arm and a `default` before the last `case` are residue.
 * `session.key = e`, `session.key.sub = e`, `session.key[e] = e`, plus the same through `ctx.session`; `delete session.key[e]`, `delete session.key?.[e]` and `delete session.key.sub`.
 * `session.extend(e)` or `ctx.session.extend(e)` as a statement is `Stmt::SessionExtend` in an action, a route handler or middleware, `e` the seconds. In a loader or any other body it is residue naming the three, since a loader runs on every navigation; more or fewer than one argument is residue.
 * `fail("kind", msg)` as a bare statement is a guard whose condition is `true`.
 * Any other expression statement, typically an awaited call, is `Stmt::Expr`.
-* `try`, `throw`, `while`, `for`, `for...in`, `switch`, nested functions, classes, `break`, `continue`, labels and bare blocks are residue.
+* `try`, `throw`, `while`, `for`, `for...in`, nested functions, classes, `break` outside a `switch`, `continue`, labels and bare blocks are residue.
+
+### Component Bodies
+
+* A component's body before the tree holds `const`s, `let`s, inner functions, effect hooks, blocks, writes to its own locals and `if` and `switch` with no `return` inside. A write rebinds its name at build time: the value after an `if` is a `Ternary` over the branches and after a `switch` a chain of them. Each name written is bound by a `Let` of its own. A write to a prop's name works the same way; a write to state is residue, since its setter owns it.
+* `if (c) return t;` with no `else` is an early return: the tree is an `If` choosing `t` when `c` holds. A `let` or a write after one is computed only where no early return fired, since the body binds every value before the tree picks a branch; a hook after one is residue.
+* Any other `if`, `switch` or block that returns makes the rest of the body a tree: each `return` a leaf, a branch a `Tmpl::If` over the paths through it and what follows it, a declaration or a write a `Tmpl::Let` over what follows. A path that ends without a `return` renders nothing; a hook or a function declared there is residue.
+* A helper's body and a lambda's block lower the same way to one expression: a `return` inside a branch is a `Ternary` over the paths, a write rebinds its name and a path with no `return` is `null`.
 
 ### Expressions
 
@@ -191,8 +201,8 @@ Where the lowerer looks an imported image or font up, `assets::AssetResolver`. T
 
 ### Lambdas
 
-* An arrow function in a builtin position. Parameters are identifiers, array patterns of identifiers or object patterns of shorthand identifiers; a pattern parameter is named `$<index>` and each element reads as an index or field of it.
-* The body is one expression or a block whose only statement is a `return`.
+* An arrow function in a builtin position. A parameter is an identifier, an identifier with a default or any pattern a declaration takes; a pattern parameter is named `$<index>` and each name it declares reads a part of it.
+* The body is one expression or a block lowered as a helper's is.
 * An arrow anywhere else is residue.
 
 ### Schemas

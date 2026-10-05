@@ -229,7 +229,7 @@ export async function load({ services }: Ctx) {
 "#;
   let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
   assert_eq!(r.line, 4);
-  assert!(r.message.contains("a statement a helper cannot hold"), "{r}");
+  assert!(r.message.contains("a statement a straight-line body cannot hold"), "{r}");
 }
 
 #[test]

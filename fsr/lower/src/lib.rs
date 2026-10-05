@@ -832,10 +832,37 @@ impl<'a> Lowerer<'a> {
             out.push(self.declare(decl)?);
           }
         }
+        js::Stmt::Switch(sw) => out.extend(self.switch(sw)?),
         stmt => out.push(self.stmt(stmt)?),
       }
     }
     self.scope.truncate(depth);
+    Ok(out)
+  }
+
+  /// `switch` as its discriminant under a temporary and an `if` chain over the arms, each compared with `===`.
+  fn switch(&mut self, sw: &js::SwitchStmt) -> Lowered<Vec<Stmt>> {
+    let disc = self.expr(&sw.discriminant)?;
+    let held = self.temp();
+    let (arms, default) = crate::component::switch_arms(self, sw)?;
+    let mut otherwise = match default {
+      Some(body) => self.block(body)?,
+      None => Vec::new(),
+    };
+    for (tests, body) in arms.into_iter().rev() {
+      let mut cond: Option<Expr> = None;
+      for test in tests {
+        let eq = Expr::Compare(CompareOp::Eq, Box::new(Expr::Var(held.clone())), Box::new(self.expr(test)?));
+        cond = Some(match cond {
+          None => eq,
+          Some(c) => Expr::Logic(LogicOp::Or, Box::new(c), Box::new(eq)),
+        });
+      }
+      let then = self.block(body)?;
+      otherwise = vec![Stmt::If { cond: cond.unwrap_or(Expr::Lit(Lit::Bool(false))), then, r#else: otherwise }];
+    }
+    let mut out = vec![Stmt::Let { name: held, expr: disc }];
+    out.extend(otherwise);
     Ok(out)
   }
 
@@ -963,6 +990,32 @@ impl<'a> Lowerer<'a> {
   /// `fail` or an awaited call for its effect.
   fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
     match expr {
+      js::Expr::Assign(assign) if self.local_target(&assign.left).is_some() => self.local_assign(assign),
+      js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.is_local(id.sym.as_ref())) => {
+        let js::Expr::Ident(id) = &*update.arg else { unreachable!() };
+        let op = match update.op {
+          js::UpdateOp::PlusPlus => js::BinaryOp::Add,
+          js::UpdateOp::MinusMinus => js::BinaryOp::Sub,
+        };
+        let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
+        let expr = self.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
+        Ok(Stmt::Set { name: id.sym.to_string(), expr })
+      }
+      js::Expr::Call(call) if self.local_push(call).is_some() => {
+        let (name, method) = self.local_push(call).expect("checked");
+        let mut items = Vec::with_capacity(call.args.len() + 1);
+        for arg in &call.args {
+          let value = self.expr(&arg.expr)?;
+          items.push(if arg.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
+        }
+        let held = Entry::Spread(Expr::Var(name.clone()));
+        if method == "push" {
+          items.insert(0, held);
+        } else {
+          items.push(held);
+        }
+        Ok(Stmt::Set { name, expr: Expr::Array(items) })
+      }
       js::Expr::Assign(assign) => {
         if assign.op != js::AssignOp::Assign {
           return Err(self.residue(assign.span, "a compound assignment; write the full expression"));
@@ -1006,6 +1059,54 @@ impl<'a> Lowerer<'a> {
       }
       other => Ok(Stmt::Expr(self.expr(other)?)),
     }
+  }
+
+  /// Whether `name` is a binding the body declared, which a write may rebind.
+  fn is_local(&self, name: &str) -> bool {
+    matches!(self.scope.iter().rev().find(|(n, _)| n == name), Some((_, Expr::Var(var))) if var == name)
+  }
+
+  /// The local a write lands on: `x` or `x.field` with `x` declared in the body.
+  fn local_target(&self, target: &js::AssignTarget) -> Option<String> {
+    match target {
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.is_local(id.id.sym.as_ref()).then(|| id.id.sym.to_string()),
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match &*m.obj {
+        js::Expr::Ident(id) if self.is_local(id.sym.as_ref()) => Some(id.sym.to_string()),
+        _ => None,
+      },
+      _ => None,
+    }
+  }
+
+  /// `x = e`, `x += e` and their kin on a local; `x.field = e` rebinds `x` to a copy with that field.
+  fn local_assign(&mut self, assign: &js::AssignExpr) -> Lowered<Stmt> {
+    let name = self.local_target(&assign.left).expect("checked");
+    let read = match &assign.left {
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => js::Expr::Ident(id.id.clone()),
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => js::Expr::Member(m.clone()),
+      _ => unreachable!("local_target answers for these two"),
+    };
+    let value = match assign.op.to_update() {
+      None => self.expr(&assign.right)?,
+      Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(read.clone()), right: assign.right.clone() }))?,
+    };
+    let js::Expr::Member(member) = &read else {
+      return Ok(Stmt::Set { name, expr: value });
+    };
+    let Some(field) = self.member_name(member) else {
+      return Err(self.residue_with(member.span, "a write at a computed index of a local", "build the new value whole with `map` or a spread and assign that"));
+    };
+    let expr = Expr::Object(vec![Entry::Spread(Expr::Var(name.clone())), Entry::Field(field, value)]);
+    Ok(Stmt::Set { name, expr })
+  }
+
+  /// `x.push(...)` or `x.unshift(...)` with `x` a local: the local and the method.
+  fn local_push(&self, call: &js::CallExpr) -> Option<(String, String)> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = &**callee else { return None };
+    let js::Expr::Ident(obj) = &*member.obj else { return None };
+    let method = self.member_name(member)?;
+    (matches!(method.as_str(), "push" | "unshift") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), method))
   }
 
   /// `session.extend(...)` or `ctx.session.extend(...)`.

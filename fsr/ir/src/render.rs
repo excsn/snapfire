@@ -425,6 +425,13 @@ fn eval_body_sync(env: &mut Env, body: &[Stmt]) -> Result<Value, Fail> {
         let value = env.eval_sync(expr)?;
         env.scope.push((name.clone(), value));
       }
+      Stmt::Set { name, expr } => {
+        let value = env.eval_sync(expr)?;
+        let Some(slot) = env.scope.iter_mut().rev().find(|(n, _)| n == name) else {
+          return Err(Fail::internal(format!("`{name}` is set before it is bound")));
+        };
+        slot.1 = value;
+      }
       Stmt::Return(expr) => return env.eval_sync(expr),
       Stmt::Expr(expr) => {
         env.eval_sync(expr)?;

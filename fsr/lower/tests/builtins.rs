@@ -206,3 +206,27 @@ fn a_body_destructures_a_value_once_and_reads_its_parts() {
   assert!(matches!(&body[2], Stmt::Let { name, .. } if name == "b"), "{body:?}");
   assert!(body.iter().any(|s| matches!(s, Stmt::ForOf { name, .. } if name.starts_with("$d"))), "{body:?}");
 }
+
+#[test]
+fn a_body_writes_its_locals_and_switches() {
+  let dir = app(
+    "body_writes",
+    &[(
+      "routes/a/page.loader.ts",
+      "export async function load({ params }) {\n  let total = 0;\n  const seen = [];\n  for (const row of params.rows) {\n    total += row.n;\n    seen.push(row.id);\n    switch (row.kind) {\n      case \"a\":\n      case \"b\":\n        total++;\n        break;\n      default:\n        total = total - 1;\n    }\n  }\n  return { total, seen };\n}\n",
+    )],
+  );
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap();
+  let Stmt::ForOf { body: inner, .. } = &body[2] else { panic!("{body:?}") };
+  assert!(matches!(&inner[0], Stmt::Set { name, expr: Expr::Arith(..) } if name == "total"), "{inner:?}");
+  assert!(matches!(&inner[1], Stmt::Set { name, expr: Expr::Array(_) } if name == "seen"), "{inner:?}");
+  assert!(matches!(&inner[2], Stmt::Let { name, .. } if name.starts_with("$d")), "the discriminant is held once: {inner:?}");
+  assert!(matches!(&inner[3], Stmt::If { then, r#else, .. } if matches!(&then[0], Stmt::Set { .. }) && matches!(&r#else[0], Stmt::Set { .. })), "{inner:?}");
+}
+
+#[test]
+fn a_case_that_falls_through_into_the_next_is_residue() {
+  let dir = app("write_param", &[("routes/a/page.loader.ts", "export async function load({ params }) {\n  switch (params.k) {\n    case \"a\":\n      params.k;\n    case \"b\":\n      break;\n  }\n  return {};\n}\n")]);
+  let err = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_err().to_string();
+  assert!(err.contains("a `case` that falls through into the next"), "{err}");
+}
