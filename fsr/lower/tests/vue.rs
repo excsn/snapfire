@@ -560,6 +560,45 @@ fn statements_render_what_javascript_runs() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
+const COERCED: &str = r#"<script setup lang="ts">
+const props = defineProps<{ s: string; e: string; junk: string; hex: string; inf: string; sci: string; t: boolean; f: boolean; n: null; x: number; k: number }>();
+const product = props.s * 2;
+const parsed = [Number(props.e), Number(props.junk), Number(props.hex), Number(props.inf), Number(props.sci), Number(props.n), Number(props.t)];
+</script>
+
+<template>
+  <p class="mixed">{{ product }} {{ x - s }} {{ s - 1 }} {{ s / 2 }} {{ t + 1 }} {{ f * 5 }} {{ n + 1 }} {{ t + t }} {{ junk * 2 }} {{ e - 1 }} {{ hex % 7 }} {{ s ** 2 }}</p>
+  <p class="text">{{ s + 1 }} {{ 1 + s }} {{ t + s }} {{ n + s }}</p>
+  <p class="number">{{ parsed.join() }} {{ inf * 1 }} {{ 1 / 0 }}</p>
+  <p class="compare">{{ x > s }} {{ s < 10 }} {{ x === s }} {{ x !== s }} {{ n < 1 }} {{ junk < 1 }} {{ junk >= 1 }} {{ t > f }} {{ k > 2.5 }} {{ k === 3 }} {{ k !== 3 }} {{ n === 0 }}</p>
+</template>
+"#;
+
+#[test]
+fn mixed_operands_coerce_and_compare_as_javascript_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("coerced", &[]);
+  let given = props(&[
+    ("s", Value::str(" 3 ")),
+    ("e", Value::str("")),
+    ("junk", Value::str("abc")),
+    ("hex", Value::str("0x1f")),
+    ("inf", Value::str("-Infinity")),
+    ("sci", Value::str("1.5e3")),
+    ("t", Value::Bool(true)),
+    ("f", Value::Bool(false)),
+    ("n", Value::Null),
+    ("x", Value::F64(10.0)),
+    ("k", Value::Int(3)),
+  ]);
+  let html = agree(&compiler, &dir, "src/ui/Coerced.vue", COERCED, &given, "");
+  assert!(html.contains("<p class=\"mixed\">6 7 2 1.5 2 0 1 2 NaN -1 3 9</p>"), "{html}");
+  assert!(html.contains("<p class=\"text\"> 3 1 1 3  true 3  null 3 </p>"), "{html}");
+  assert!(html.contains("<p class=\"number\">0,NaN,31,-Infinity,1500,0,1 -Infinity Infinity</p>"), "{html}");
+  assert!(html.contains("<p class=\"compare\">true true false true true false false true true true false false</p>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
 const MADE: &str = r#"<script setup lang="ts">
 const props = defineProps<{ at: number; iso: string; rows: { id: string; n: number }[] }>();
 const when = new Date(props.at);

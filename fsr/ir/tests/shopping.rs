@@ -379,14 +379,16 @@ fn a_query_read_is_a_string_or_null() {
 }
 
 #[test]
-fn adding_a_string_concatenates_and_other_mixed_operands_are_an_internal_failure() {
+fn mixed_scalar_operands_coerce_and_an_array_operand_is_an_internal_failure() {
   let c = ctx(Arc::new(Mock::default()), &[], ValueMap::default());
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Add, Box::new(Expr::lit_int(1)), Box::new(Expr::lit_str("1"))))];
-  assert_eq!(run(&body, &c, None).unwrap(), Value::str("11"), "`+` with a string concatenates, as JavaScript does");
+  assert_eq!(run(&body, &c, None).unwrap(), Value::str("11"));
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Sub, Box::new(Expr::lit_int(1)), Box::new(Expr::lit_str("1"))))];
+  assert_eq!(run(&body, &c, None).unwrap(), Value::F64(0.0));
+  let body = vec![Stmt::Return(Expr::Arith(ArithOp::Sub, Box::new(Expr::lit_int(1)), Box::new(Expr::Array(Vec::new()))))];
   let fail = run(&body, &c, None).unwrap_err();
   assert_eq!(fail.kind, FailureKind::Internal);
-  assert!(fail.message.contains("int and string"), "{}", fail.message);
+  assert!(fail.message.contains("int and array"), "{}", fail.message);
 }
 
 #[test]

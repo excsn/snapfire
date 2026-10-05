@@ -363,15 +363,15 @@ The frameworks an application vendors, each at the major whose server markup the
 
 ### Operators
 
-* `Arith` accepts `Int` with `Int` or `F64` with `F64`, plus, for `Add` only, a `Str` on either side, which concatenates the other operand as `String(x)` writes it unless it is an array or an object. Anything else is `Internal`. Integer overflow and division by zero are `Internal`.
-* `Compare` accepts two `Int`, two `F64`, two `Str`, two `Bool` or two `Null`. `Null` against anything else is `Eq` false and `Ne` true; any ordering against it is `Internal`. Other mixed pairs are `Internal`.
+* `Arith` on two `Int` stays `Int`; integer overflow and division by zero are `Internal`. `Add` with a `Str` on either side concatenates the other operand as `String(x)` writes it. Any other pair of numbers, strings, booleans and `Null` is read through JavaScript's `ToNumber` and yields `F64`: `Null` is 0, a boolean 0 or 1 and a string its numeric literal, empty as 0 and anything else as NaN. An array or an object operand is `Internal`.
+* `Compare` orders two numbers of any representation by value, two `Str` by code unit and two `Bool` as 0 and 1. `Eq` and `Ne` between values of different kinds are false and true, as `===` and `!==` are. An ordering between other scalars reads both through `ToNumber`, so `"2" < 10` is true and anything against NaN is false. A comparison involving an array or an object is `Internal`.
 * `Template` concatenates the string form of each part, per `Str`.
 * `Field` on a non-map is `Value::Null`. `Index` accepts a `Map` with a `Str` key or a `Seq` with an `Int`, `UInt` or integral `F64` index, out of range reads `Value::Null`; `Index` on `Null` is `Null`; other targets are `Internal`.
 
 ### Conversions
 
-* `Str` renders `Null` as `null`, booleans, integers and strings as themselves and integral floats without a fraction; a collection is `Internal`.
-* `Num` produces `F64` from integers, floats, booleans and parseable strings; an unparseable string is `Invalid`.
+* `Str` renders `Null` as `null`, booleans, integers and strings as themselves, integral floats without a fraction and the infinities as `Infinity` and `-Infinity`; a collection is `Internal`.
+* `Num` is JavaScript's `Number(x)`: `F64` from integers, floats, booleans, `Null` and strings, an unparseable string as NaN; a collection is `Internal`.
 * `BigInt` produces `Int` from integers, integral floats, booleans and parseable strings; a fractional float or an unparseable string is `Invalid`.
 
 ### Builtins

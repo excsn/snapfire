@@ -986,16 +986,8 @@ impl Env {
       },
       Expr::Str(e) => stringify(&self.eval_sync(e)?).map(Value::str),
       Expr::Num(e) => match self.eval_sync(e)? {
-        Value::Int(n) => Ok(Value::F64(n as f64)),
-        Value::UInt(n) => Ok(Value::F64(n as f64)),
-        v @ (Value::F32(_) | Value::F64(_)) => Ok(v),
-        Value::Bool(b) => Ok(Value::F64(if b { 1.0 } else { 0.0 })),
-        Value::Str(s) => s
-          .trim()
-          .parse::<f64>()
-          .map(Value::F64)
-          .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not a number"))),
-        other => Err(type_error("Number", "a number, a string or a boolean", &other)),
+        v @ Value::F32(_) => Ok(v),
+        v => to_number(&v).map(Value::F64).ok_or_else(|| type_error("Number", "a number, a string, a boolean or null", &v)),
       },
       Expr::BigInt(e) => match self.eval_sync(e)? {
         v @ Value::Int(_) => Ok(v),
@@ -1354,16 +1346,8 @@ impl Env {
         },
         Expr::Str(e) => stringify(&self.eval(e).await?).map(Value::str),
         Expr::Num(e) => match self.eval(e).await? {
-          Value::Int(n) => Ok(Value::F64(n as f64)),
-          Value::UInt(n) => Ok(Value::F64(n as f64)),
-          v @ (Value::F32(_) | Value::F64(_)) => Ok(v),
-          Value::Bool(b) => Ok(Value::F64(if b { 1.0 } else { 0.0 })),
-          Value::Str(s) => s
-            .trim()
-            .parse::<f64>()
-            .map(Value::F64)
-            .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not a number"))),
-          other => Err(type_error("Number", "a number, a string or a boolean", &other)),
+          v @ Value::F32(_) => Ok(v),
+          v => to_number(&v).map(Value::F64).ok_or_else(|| type_error("Number", "a number, a string, a boolean or null", &v)),
         },
         Expr::BigInt(e) => match self.eval(e).await? {
           v @ Value::Int(_) => Ok(v),
@@ -1515,13 +1499,53 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
     // `+` with a string on either side concatenates the other as `String(x)` does.
     (Value::Str(a), other) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{a}{}", stringify(&other)?))),
     (other, Value::Str(b)) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{}{b}", stringify(&other)?))),
-    (l, r) => Err(Fail::internal(format!(
-      "{:?} wants two integers, two numbers or two strings, got {} and {}",
-      op,
-      kind_name(&l),
-      kind_name(&r)
-    ))),
+    (l, r) => match (to_number(&l), to_number(&r)) {
+      (Some(a), Some(b)) => Ok(Value::F64(float(op, a, b))),
+      _ => Err(Fail::internal(format!("{:?} wants numbers, strings, booleans or null, got {} and {}", op, kind_name(&l), kind_name(&r)))),
+    },
   }
+}
+
+fn is_number(value: &Value) -> bool {
+  matches!(value, Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_))
+}
+
+/// JavaScript's `ToNumber` of a scalar: null is 0, a boolean 0 or 1 and a string its numeric literal or NaN. `None` for anything else.
+fn to_number(value: &Value) -> Option<f64> {
+  match value {
+    Value::Null => Some(0.0),
+    Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+    Value::Int(n) => Some(*n as f64),
+    Value::UInt(n) => Some(*n as f64),
+    Value::F32(f) => Some(*f as f64),
+    Value::F64(f) => Some(*f),
+    Value::Str(s) => Some(string_number(s)),
+    _ => None,
+  }
+}
+
+/// JavaScript's `StringToNumber`: surrounding whitespace is dropped, empty is 0, `0x`, `0o` and `0b` read unsigned in their base, `Infinity` may carry a sign and anything else that is not a decimal literal is NaN.
+fn string_number(s: &str) -> f64 {
+  let s = s.trim();
+  if s.is_empty() {
+    return 0.0;
+  }
+  for (prefix, radix) in [("0x", 16), ("0X", 16), ("0o", 8), ("0O", 8), ("0b", 2), ("0B", 2)] {
+    if let Some(digits) = s.strip_prefix(prefix) {
+      if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+        return f64::NAN;
+      }
+      return digits.chars().fold(0.0, |n, c| n * f64::from(radix) + f64::from(c.to_digit(radix).expect("checked digit")));
+    }
+  }
+  let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+  if unsigned == "Infinity" {
+    return if s.starts_with('-') { f64::NEG_INFINITY } else { f64::INFINITY };
+  }
+  if !unsigned.starts_with(|c: char| c.is_ascii_digit() || c == '.') || !unsigned.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-')) {
+    return f64::NAN;
+  }
+  s.parse().unwrap_or(f64::NAN)
 }
 
 fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
@@ -1532,20 +1556,12 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
     (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
     (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
     (Value::Null, Value::Null) => Some(Ordering::Equal),
-    (Value::Null, _) | (_, Value::Null) => {
-      return match op {
-        CompareOp::Eq => Ok(false),
-        CompareOp::Ne => Ok(true),
-        _ => Err(Fail::internal("ordering against null")),
-      };
-    }
-    (l, r) => {
-      return Err(Fail::internal(format!(
-        "comparing {} with {} is not defined",
-        kind_name(l),
-        kind_name(r)
-      )));
-    }
+    (l, r) if is_number(l) && is_number(r) => to_number(l).zip(to_number(r)).and_then(|(a, b)| a.partial_cmp(&b)),
+    (l, r) if matches!(op, CompareOp::Eq | CompareOp::Ne) && kind_name(l) != kind_name(r) => return Ok(op == CompareOp::Ne),
+    (l, r) => match (to_number(l), to_number(r)) {
+      (Some(a), Some(b)) if op != CompareOp::Eq && op != CompareOp::Ne => a.partial_cmp(&b),
+      _ => return Err(Fail::internal(format!("comparing {} with {} is not defined", kind_name(l), kind_name(r)))),
+    },
   };
   let Some(ordering) = ordering else {
     return Ok(matches!(op, CompareOp::Ne));
@@ -2376,8 +2392,10 @@ pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
     Value::Int(n) => n.to_string(),
     Value::UInt(n) => n.to_string(),
     Value::F64(f) if *f == 0.0 => "0".to_owned(),
+    Value::F64(f) if f.is_infinite() => if *f > 0.0 { "Infinity" } else { "-Infinity" }.to_owned(),
     Value::F64(f) => f.to_string(),
     Value::F32(f) if *f == 0.0 => "0".to_owned(),
+    Value::F32(f) if f.is_infinite() => if *f > 0.0 { "Infinity" } else { "-Infinity" }.to_owned(),
     Value::F32(f) => (*f as f64).to_string(),
     Value::Str(s) => s.to_string(),
     other => return Err(type_error("String", "a scalar", other)),
