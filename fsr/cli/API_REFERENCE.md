@@ -383,7 +383,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 | `react` | `@snapfire/fsr-client/react` and `@snapfire/fsr-authoring/template`, the latter at the client's `template.js`, the runtime of the dialect's placements | `react@19.1.0`, `react@19.1.0/jsx-runtime`, `react-dom@19.1.0/client` | nothing |
 | `vue` | `@snapfire/fsr-client/vue` | `vue@3.5.13` | nothing |
 | `elements` | `@snapfire/fsr-client/elements` | nothing | nothing |
-| `htmx` | `@snapfire/fsr-client/htmx` | `htmx.org@2.0.10` | `src/main.ts`: the htmx import, the `bindHtmx` import and `bindHtmx(htmx)` after `enableNavigation()` |
+| `htmx` | `@snapfire/fsr-client/htmx` | `htmx.org@4.0.0` | `src/main.ts`: the htmx import, the `bindHtmx` import and `bindHtmx(htmx)` after `enableNavigation()` |
 | `tera` | nothing | nothing | nothing; present only under the `tera` feature |
 
 * `pub const direction::REACT`, `direction::VUE`, `direction::HTMX`: the pinned versions, stated once. The `fsr add` command a build suggests for an unrecorded React names `REACT`.

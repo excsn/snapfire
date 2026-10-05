@@ -56,7 +56,7 @@ fn with_adopts_each_direction_after_the_template() {
   assert!(map["imports"].get("@snapfire/fsr-client/vue").is_none(), "{map}");
   assert!(!created.next.iter().any(|s| s.starts_with("fsr use")), "a scaffold with a direction is not told to add one: {:?}", created.next);
   let add = created.next.iter().find(|s| s.starts_with("fsr add")).expect("the vendoring step is named offline");
-  assert!(add.contains("react@19.1.0/jsx-runtime") && add.contains("react-dom@19.1.0/client") && add.contains("htmx.org@2.0.10"), "{add}");
+  assert!(add.contains("react@19.1.0/jsx-runtime") && add.contains("react-dom@19.1.0/client") && add.contains("htmx.org@4.0.0"), "{add}");
   let main = std::fs::read_to_string(root.join("app/src/main.ts")).unwrap();
   assert!(main.contains("import htmx from \"htmx.org\";") && main.ends_with("enableNavigation();\nbindHtmx(htmx);\n"), "{main}");
   let layout = std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap();

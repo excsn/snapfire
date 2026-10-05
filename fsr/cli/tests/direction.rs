@@ -50,7 +50,7 @@ fn adopting_twice_changes_nothing() {
   let dir = bare(&[]);
   adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"},"react-dom":{"version":"19.1.0"},"htmx.org":{"version":"2.0.10"}}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"},"react-dom":{"version":"19.1.0"},"htmx.org":{"version":"4.0.0"}}}"#).unwrap();
   let before = std::fs::read(dir.join("importmap.json")).unwrap();
   let again = adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   assert!(again.mapped.is_empty(), "{:?}", again.mapped);

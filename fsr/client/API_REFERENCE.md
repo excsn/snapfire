@@ -953,7 +953,7 @@ The one method the binding calls. htmx's own default export satisfies it.
 
 Makes htmx and the client aware of each other's markup, in both directions. Returns the function that takes the listeners off again.
 
-On `htmx:afterSettle`, on `document.body`: `adopt()` reads every store seed nothing has read yet, since a fragment ends with the same inert seed script a document carries, then `scan(document)` mounts any island the swapped markup placed.
+On `htmx:after:settle`, htmx 4's settle event, or `htmx:afterSettle`, htmx 2's, on `document.body`: `adopt()` reads every store seed nothing has read yet, since a fragment ends with the same inert seed script a document carries, then `scan(document)` mounts any island the swapped markup placed.
 
 On `sf:navigate` and `sf:fill`, on `document`: `htmx.process(document.body)`, so htmx wires the `hx-` attributes in markup the navigator wrote. Without this direction a form or an anchor reached by a soft navigation is markup htmx never processed, so the browser submits or follows it natively.
 

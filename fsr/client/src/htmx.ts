@@ -14,19 +14,24 @@ export interface HtmxProcessor {
  * reached by a soft navigation is markup htmx never saw and the browser
  * follows it natively.
  *
- * Returns the function that takes the three listeners off again.
+ * htmx 4 names the settle event `htmx:after:settle` and htmx 2
+ * `htmx:afterSettle`; each fires only its own, so both are heard.
+ *
+ * Returns the function that takes the listeners off again.
  */
+const SETTLED = ["htmx:after:settle", "htmx:afterSettle"];
+
 export function bindHtmx(htmx: HtmxProcessor): () => void {
   const settled = () => {
     adopt();
     scan(document);
   };
   const rewire = () => htmx.process(document.body);
-  document.body.addEventListener("htmx:afterSettle", settled);
+  for (const name of SETTLED) document.body.addEventListener(name, settled);
   document.addEventListener("sf:navigate", rewire);
   document.addEventListener("sf:fill", rewire);
   return () => {
-    document.body.removeEventListener("htmx:afterSettle", settled);
+    for (const name of SETTLED) document.body.removeEventListener(name, settled);
     document.removeEventListener("sf:navigate", rewire);
     document.removeEventListener("sf:fill", rewire);
   };

@@ -12,7 +12,7 @@ use crate::{types, Adapter, BuildError};
 /// The React runtime a direction vendors, pinned the way the examples pin it.
 pub const REACT: &str = "19.1.0";
 pub const VUE: &str = "3.5.13";
-pub const HTMX: &str = "2.0.10";
+pub const HTMX: &str = "4.0.0";
 
 pub struct Direction {
   pub name: &'static str,
