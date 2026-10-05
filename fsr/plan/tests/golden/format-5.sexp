@@ -227,6 +227,7 @@
 (const src/x.ts#c8 (host))
 (const src/x.ts#c9 (input))
 (component routes/page.tsx#default
+  (owner react)
   (shadow closed delegatesfocus clonable serializable)
   (state count open)
   (body
@@ -281,7 +282,7 @@
     (do side))
   (on submit))
 (component routes/layout.tsx#default
-  (tree)
+  (owner react)
   (render (slot content))
   (head link
     "rel"

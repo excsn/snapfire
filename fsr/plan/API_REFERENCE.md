@@ -28,8 +28,8 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 ### FORMAT_VERSION
 
-* `pub const FORMAT_VERSION: u32 = 6`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows; format 6 makes every component name its owner, `(owner fsr|react|vue|client)`.
-* A component in a file older than format 6 that names no owner reads as `Owner::React`; `(static)` reads as `Owner::Fsr`, `(tree)` as `Owner::React` and `(vue)` as `Owner::Vue`.
+* `pub const FORMAT_VERSION: u32 = 5`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows and makes every component name its owner, `(owner fsr|react|vue)`.
+* A component in a file older than format 5 that names no owner reads as `Owner::React`; `(static)` reads as `Owner::Fsr`, `(tree)` as `Owner::React` and `(vue)` as `Owner::Vue`.
 * A file from version 1 up to `FORMAT_VERSION` reads; anything else is `PlanError::Version`. A format 1 file's bare action ids read as `rust` rows.
 
 ## 2. The Manifest

@@ -655,37 +655,37 @@ fn malformed_plan_terms_are_refused() {
 /// file is regenerated with `SEXP_GOLDEN=overwrite`, alongside a bump of
 /// `FORMAT_VERSION` and a reader that still takes the old spelling, which
 /// the earlier format's file below keeps pinned.
-const GOLDEN: &str = include_str!("golden/format-6.sexp");
+const GOLDEN: &str = include_str!("golden/format-5.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_6_promises() {
+fn the_printed_bytes_are_the_ones_format_5_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-6.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-5.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 6");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 5");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 6 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 5 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
 }
 
-/// Format 5, as the builds before every component named its owner wrote it:
-/// a component that names none is React's.
-const GOLDEN_5: &str = include_str!("golden/format-5.sexp");
+/// The same plan with no component naming its owner, as the builds before
+/// format 5 wrote it: a component that names none is React's.
+const UNOWNED: &str = include_str!("golden/unowned.sexp");
 
 #[test]
-fn a_format_5_plan_still_reads() {
-  let read = Manifest::from_sexpr(GOLDEN_5).expect("format 5 still reads");
+fn a_plan_whose_components_name_no_owner_still_reads() {
+  let read = Manifest::from_sexpr(UNOWNED).expect("a plan without owners still reads");
   assert_eq!(read, every_manifest());
-  assert_eq!(read.to_sexpr(), GOLDEN, "and prints as format 6");
+  assert_eq!(read.to_sexpr(), GOLDEN, "and prints as format 5");
 }
 
 /// Format 4, as the builds before a component's head rows wrote it.
@@ -697,7 +697,7 @@ fn a_format_4_plan_still_reads() {
   let mut expected = every_manifest();
   forget_heads(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
 }
 
 /// Every component's head rows dropped, which is what a plan written before
@@ -718,7 +718,7 @@ fn a_format_3_plan_still_reads() {
   forget_error_kinds(&mut expected);
   forget_heads(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
 }
 
 /// Every node's per-kind error modules dropped, which is what a plan written
@@ -751,5 +751,5 @@ fn a_format_2_plan_still_reads() {
   forget_error_kinds(&mut expected);
   forget_heads(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
 }
