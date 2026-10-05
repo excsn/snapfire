@@ -433,3 +433,39 @@ fn a_function_returning_markup_by_calling_itself_is_residue_with_its_line() {
   let err = set.lower("routes/page.tsx#default").unwrap_err().to_string();
   assert!(err.starts_with("routes/page.tsx:4:16: `nest` returns markup by calling itself"), "{err}");
 }
+
+const PANEL: &str = "import { useState } from \"react\";\nimport Row from \"./Row\";\n\nexport default function Panel() {\n  const [open, setOpen] = useState(\"\");\n  const toggle = (e: unknown) => setOpen(open === \"a\" ? \"\" : \"a\");\n  function pick() {\n    setOpen(\"b\");\n  }\n  return (\n    <div>\n      <Row label=\"a\" shown={open === \"a\"} toggle={toggle} />\n      <Row label=\"b\" shown={open === \"b\"} toggle={pick} />\n      <Row label=\"c\" shown={open === \"c\"} toggle={(e: unknown) => setOpen(\"c\")} />\n    </div>\n  );\n}\n";
+
+const ROW: &str = "export default function Row({ label, shown, toggle }: { label: string; shown: boolean; toggle: (e: unknown) => void }) {\n  return (\n    <button className={shown ? \"row open\" : \"row\"} onClick={toggle}>\n      {label}\n    </button>\n  );\n}\n";
+
+#[test]
+fn a_handler_passed_as_a_prop_is_bound_where_the_child_places_it() {
+  let page = |mode: &str| format!("import {{ Island }} from \"@snapfire/fsr-authoring/template\";\nimport Panel from \"@src/ui/Panel\";\nexport default function Page() {{\n  return <Island{mode}><Panel /></Island>;\n}}\n");
+  for (mode, marks) in [("", false), (" mode=\"server\"", true)] {
+    let source = page(mode);
+    let set = lower(&[("routes/page.tsx", &source), ("src/ui/Panel.tsx", PANEL), ("src/ui/Row.tsx", ROW)], "routes/page.tsx#default");
+    let library = library(&set);
+    let rendered = Interpreter::default().render_module("routes/page.tsx#default", &library["routes/page.tsx#default"], &ValueMap::default(), &library).unwrap();
+    let island = &rendered.islands[0];
+    assert!(!island.mount_props().values().any(|v| matches!(v, Value::Variant { .. })), "a handler does not cross into an island's props");
+    let html = &island.body.html;
+    match marks {
+      false => assert_eq!(html, "<div><button class=\"row\">a</button><button class=\"row\">b</button><button class=\"row\">c</button></div>"),
+      true => {
+        assert_eq!(html, "<div><button class=\"row\" data-sf-on=\"click:0\">a</button><button class=\"row\" data-sf-on=\"click:1\">b</button><button class=\"row\" data-sf-on=\"click:2\">c</button></div>", "each button names the panel's handler, not one of the row's");
+        let panel = &library["src/ui/Panel.tsx#default"];
+        let stepped = Interpreter::default().island_step("src/ui/Panel.tsx#default", panel, &ValueMap::default(), &island.state, Some(snapfire_fsr_ir::render::HandlerRef::own(1)), &Value::Null, &library).unwrap();
+        assert!(stepped.rendered.html.contains("<button class=\"row open\" data-sf-on=\"click:1\">b</button>"), "{}", stepped.rendered.html);
+      }
+    }
+  }
+}
+
+#[test]
+fn a_handler_prop_that_does_not_lower_leaves_its_reason_on_the_placement() {
+  let panel = "import Row from \"./Row\";\nexport default function Panel() {\n  return <div><Row label=\"a\" shown={false} toggle={(e: unknown) => console.log(e)} /></div>;\n}\n";
+  let set = lower(&[("src/ui/Panel.tsx", panel), ("src/ui/Row.tsx", ROW)], "src/ui/Panel.tsx#default");
+  let Tmpl::Element { children, .. } = render_of(&set, "src/ui/Panel.tsx#default") else { panic!() };
+  let Tmpl::Component { props, .. } = &children[0] else { panic!("{children:?}") };
+  assert!(props.iter().any(|e| matches!(e, Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == snapfire_fsr_ir::render::UNLOWERED_ATTR && why.starts_with("3:"))), "{props:?}");
+}

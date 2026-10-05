@@ -3229,6 +3229,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if is_handler_name(&raw) {
         bound = true;
         let event = raw[2..].to_ascii_lowercase();
+        if let Some(reference) = self.handler_reference(attr) {
+          attrs.push(Entry::Field(format!("{HANDLER_ATTR}{event}"), reference));
+          continue;
+        }
         match self.handler_attr(attr) {
           Ok(index) => attrs.push(Entry::Field(format!("{HANDLER_ATTR}{event}"), Expr::Lit(Lit::Int(index as i128)))),
           Err(residue) => {
@@ -3366,6 +3370,48 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Expr::Lit(Lit::Str(mode)) if mode == "browser" => Ok(None),
       _ => Err(self.lowerer.residue(span, "an island's `mode` is \"browser\" or \"server\", written out")),
     }
+  }
+
+  /// A prop whose value is a function (an arrow, a `function` or the name of one the component declares) lowered as a handler of this component: its index or why it does not lower. `None` for a prop holding anything else.
+  fn handler_prop(&mut self, attr: &'p js::JSXAttr, name: &str) -> Option<Lowered<usize>> {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return None };
+    let js::JSXExpr::Expr(e) = &c.expr else { return None };
+    let mut inner: &'p js::Expr = e;
+    while let js::Expr::Paren(p) = inner {
+      inner = &p.expr;
+    }
+    let function = match inner {
+      js::Expr::Arrow(_) | js::Expr::Fn(_) => true,
+      js::Expr::Ident(id) => self.handler_fns.contains_key(id.sym.as_ref()),
+      _ => false,
+    };
+    if !function {
+      return None;
+    }
+    Some(self.handler_body(inner).map(|body| {
+      self.lowered_handlers.push(Handler { event: name.to_owned(), body });
+      self.lowered_handlers.len() - 1
+    }))
+  }
+
+  /// An `on*` attribute naming a handler the component was handed rather than one it declares: a prop or a local read by name or through a member, its value the reference the placement passed.
+  fn handler_reference(&mut self, attr: &'p js::JSXAttr) -> Option<Expr> {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return None };
+    let js::JSXExpr::Expr(e) = &c.expr else { return None };
+    let mut root: &js::Expr = e;
+    loop {
+      match root {
+        js::Expr::Paren(p) => root = &p.expr,
+        js::Expr::Member(m) => root = &m.obj,
+        _ => break,
+      }
+    }
+    let js::Expr::Ident(id) = root else { return None };
+    let name = id.sym.as_ref();
+    if self.handler_fns.contains_key(name) || !self.lowerer.scope.iter().any(|(bound, _)| bound == name) {
+      return None;
+    }
+    self.lowerer.expr(e).ok()
   }
 
   /// An `on*` attribute's handler as a lowered body or why it is not one.
@@ -3698,11 +3744,25 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
       };
       let raw = attr_name(&attr.name);
-      if raw == "key" || raw == "ref" || is_handler_name(&raw) {
+      if raw == "key" || raw == "ref" {
         continue;
       }
       if raw == "children" {
         return Err(self.lowerer.residue(attr.span, "`children` as a prop; pass them between the tags"));
+      }
+      if let Some(lowered) = self.handler_prop(attr, &raw) {
+        match lowered {
+          Ok(index) => props.push(Entry::Field(raw, Expr::Handler(index as u32))),
+          Err(residue) => {
+            if !props.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
+              props.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{}:{}: {}", residue.line, residue.column, residue.message))));
+            }
+          }
+        }
+        continue;
+      }
+      if is_handler_name(&raw) {
+        continue;
       }
       let value = self.attr_value(attr)?;
       props.push(Entry::Field(raw, value));

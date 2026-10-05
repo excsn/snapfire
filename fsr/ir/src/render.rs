@@ -150,7 +150,7 @@ impl RenderedIsland {
   /// The props the browser mounts the island with: its own plus `$h` when
   /// anything was hoisted and `$s` in server mode.
   pub fn mount_props(&self) -> ValueMap {
-    let mut props = self.props.clone();
+    let mut props: ValueMap = self.props.iter().filter(|(_, value)| handler_token(value).is_none()).map(|(name, value)| (name.clone(), value.clone())).collect();
     if !self.body.hoisted.is_empty() {
       props.insert(HOISTED_PROP.to_owned(), Value::Map(self.body.hoisted.clone()));
     }
@@ -604,6 +604,7 @@ fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
   let mut map = snapfire_fsr_core::Fields::with_capacity_and_hasher(entries.len(), Default::default());
   for entry in entries {
     match entry {
+      Entry::Field(name, _) if name == UNLOWERED_ATTR => {}
       Entry::Field(name, expr) => {
         let value = env.eval_sync(expr)?;
         if name != "children" {
@@ -754,8 +755,16 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     if let Some(event) = name.strip_prefix(HANDLER_ATTR) {
       if env.server_mode {
         let path = &env.component_path;
-        bound.push(if path.is_empty() { format!("{event}:{}", stringify(&value)?) } else { format!("{event}:{path}/{}", stringify(&value)?) });
+        match (&value, handler_token(&value)) {
+          (_, Some(token)) => bound.push(format!("{event}:{token}")),
+          (Value::Int(_), None) if path.is_empty() => bound.push(format!("{event}:{}", stringify(&value)?)),
+          (Value::Int(_), None) => bound.push(format!("{event}:{path}/{}", stringify(&value)?)),
+          _ => {}
+        }
       }
+      continue;
+    }
+    if handler_token(&value).is_some() {
       continue;
     }
     if name == KEY_ATTR {
@@ -1436,6 +1445,25 @@ pub const SHADOW_ATTR: &str = "$shadow";
 /// holding the handler's index. Printed as `data-sf-on="click:0"` in server
 /// mode and never otherwise.
 pub const HANDLER_ATTR: &str = "$on:";
+/// The variant tag of a handler reference, the value `Expr::Handler` evaluates to: its payload is the token a server island's `data-sf-on` names it by, `<index>` or `<path>/<index>`.
+pub const HANDLER_VALUE: &str = "$handler";
+
+/// A reference to handler `index` of the component rendered at `path`.
+pub fn handler_value(path: &str, index: u32) -> Value {
+  let token = if path.is_empty() { index.to_string() } else { format!("{path}/{index}") };
+  Value::Variant { tag: HANDLER_VALUE.to_owned(), payload: Some(Box::new(Value::str(token))) }
+}
+
+/// The token of a handler reference; `None` for any other value.
+pub fn handler_token(value: &Value) -> Option<&str> {
+  match value {
+    Value::Variant { tag, payload: Some(payload) } if tag == HANDLER_VALUE => match &**payload {
+      Value::Str(token) => Some(token.as_str()),
+      _ => None,
+    },
+    _ => None,
+  }
+}
 /// A `Tmpl::Let` among a Vue placement's children named with this prefix and a slot is the caller's content for that slot; `default` is the default slot's when it takes props.
 pub const SLOT_CONTENT_PREFIX: &str = "$slot:";
 /// A `Tmpl::Let` in a Vue template named with this prefix and a slot is that `<slot>`: its value the props it hands the caller's content, its body the fallback written when the caller gave none.
@@ -1545,6 +1573,7 @@ fn interpolate(value: &Value, out: &mut Out, markup: Markup) -> Result<(), Fail>
   }
   match value {
     Value::Null | Value::Bool(_) => Ok(()),
+    _ if handler_token(value).is_some() => Ok(()),
     Value::Seq(items) => {
       for item in items {
         interpolate(item, out, markup)?;

@@ -44,4 +44,18 @@ describe("the statements page", () => {
     expect(skus()).toEqual(["span:pear", "span:fig", "b:LEEK", "span:salt"]);
     expect(document.querySelectorAll(".share .bar.hot").length).toEqual(1);
   });
+
+  test("a server island's child binds the handlers its parent passed it", async () => {
+    await load("/statements");
+    expect(text(".picked")).toEqual("none");
+    expect([...document.querySelectorAll(".choice")].map((c) => c.getAttribute("data-sf-on"))).toEqual(["click:0", "click:1", "click:2"]);
+    await settle();
+    await fireEvent.click(document.querySelectorAll(".choice")[1]!);
+    await settle();
+    expect(text(".picked")).toEqual("fig");
+    expect(document.querySelector(".choice.chosen")?.textContent).toEqual("fig");
+    await fireEvent.click(document.querySelectorAll(".choice")[2]!);
+    await settle();
+    expect(text(".picked")).toEqual("leek");
+  });
 });

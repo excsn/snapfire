@@ -832,6 +832,7 @@ impl Env {
         }
       }
       Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+      Expr::Handler(index) => Ok(crate::render::handler_value(&self.component_path, *index)),
       Expr::Hoist { id, expr } => {
         let value = self.eval_sync(expr)?;
         if let Some(hoists) = &mut self.hoists {
@@ -1199,6 +1200,7 @@ impl Env {
         }
         Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
         Expr::Hoist { expr, .. } => self.eval(expr).await,
+        Expr::Handler(_) => Err(Fail::internal("a handler is a value in a render only")),
         Expr::Apply { f, args } => {
           let mut values = Vec::with_capacity(args.len());
           for arg in args {

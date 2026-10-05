@@ -2689,8 +2689,8 @@ fn unlowered_handler(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
   unlowered_handlers(tmpl).into_iter().next()
 }
 
-/// The line and reason left on every element whose handler did not lower, in
-/// document order.
+/// The line and reason left on every element whose handler did not lower and
+/// on every placement handed a function that did not, in document order.
 fn unlowered_handlers(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
   use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
   use snapfire_fsr_ir::Tmpl;
@@ -2703,7 +2703,14 @@ fn unlowered_handlers(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
         }));
         children.iter().for_each(|c| walk(c, out));
       }
-      Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Component { props, children, .. } => {
+        out.extend(props.iter().filter_map(|e| match e {
+          Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == snapfire_fsr_ir::render::UNLOWERED_ATTR => Some(why.clone()),
+          _ => None,
+        }));
+        children.iter().for_each(|c| walk(c, out));
+      }
+      Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {

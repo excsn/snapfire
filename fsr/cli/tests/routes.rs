@@ -790,6 +790,23 @@ fn a_module_placed_in_server_mode_and_as_a_browser_island_is_refused() {
 }
 
 #[test]
+fn an_island_in_server_mode_is_refused_over_a_handler_it_passes_a_child_that_did_not_lower() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/index/page.tsx", page),
+    ("src/Widget.tsx", "import { useState } from \"react\";\nimport { Pill } from \"./Pill\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <Pill n={n} press={() => alert(n)} />;\n}\n"),
+    ("src/Pill.tsx", "export function Pill({ n, press }: { n: number; press: () => void }) {\n  return <button onClick={press}>{n}</button>;\n}\n"),
+  ]);
+  let err = match build(&dir, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(err.contains("`src/Widget.tsx#Widget` cannot be an island in server mode") && err.contains("a handler did not lower") && err.contains("a call to `alert`"), "{err}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_impure_component_inside() {
   let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
   let shouting = app(&[
