@@ -1414,7 +1414,7 @@ impl<'a> Lowerer<'a> {
       js::Lit::BigInt(b) => Lit::Int(self.bigint(b)?),
       js::Lit::Bool(b) => Lit::Bool(b.value),
       js::Lit::Null(_) => Lit::Null,
-      js::Lit::Regex(_) => return Err(self.residue(span, "a regular expression")),
+      js::Lit::Regex(re) => return regex_value(self, re.exp.as_ref(), re.flags.as_ref(), span),
       js::Lit::JSXText(_) => return Err(self.residue(span, "JSX")),
     }))
   }
@@ -1890,6 +1890,41 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Builtin { name, args })
       }
+      "test" | "match" | "matchAll" | "search" => {
+        let arg = call.args.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without an argument")))?;
+        let arg = self.expr(&arg.expr)?;
+        Ok(match method.as_str() {
+          "test" => Expr::Builtin { name: Builtin::RegexTest, args: vec![*target, arg] },
+          "match" => Expr::Builtin { name: Builtin::Match, args: vec![*target, arg] },
+          "matchAll" => Expr::Builtin { name: Builtin::MatchAll, args: vec![*target, arg] },
+          _ => Expr::Builtin { name: Builtin::Search, args: vec![*target, arg] },
+        })
+      }
+      "replace" | "replaceAll" if call.args.len() == 2 && matches!(&*call.args[1].expr, js::Expr::Arrow(_)) => {
+        let js::Expr::Arrow(arrow) = &*call.args[1].expr else { unreachable!("checked") };
+        let pattern = match (&*call.args[0].expr, method.as_str()) {
+          (js::Expr::Lit(js::Lit::Str(s)), "replaceAll") => regex_value(self, &escape_regex(s.value.to_atom_lossy().as_ref()), "g", call.span)?,
+          (js::Expr::Lit(js::Lit::Regex(re)), "replaceAll") if !re.flags.contains('g') => return Err(self.residue(call.span, "`replaceAll` of a regular expression without `g`, which JavaScript throws on")),
+          (pattern, "replaceAll") if !matches!(pattern, js::Expr::Lit(js::Lit::Regex(_))) => return Err(self.residue(call.span, "`replaceAll` of a pattern the build cannot read with a function")),
+          (pattern, _) => self.expr(pattern)?,
+        };
+        let f = self.lambda(arrow)?;
+        Ok(Expr::ReplaceWith(target, Box::new(pattern), Box::new(f)))
+      }
+      "replaceAll" => {
+        let [from, to] = call.args.as_slice() else { return Err(self.residue(call.span, format!("`replaceAll` takes 2 arguments, got {}", call.args.len()))) };
+        let to = self.expr(&to.expr)?;
+        match &*from.expr {
+          js::Expr::Lit(js::Lit::Regex(re)) => {
+            if !re.flags.contains('g') {
+              return Err(self.residue(call.span, "`replaceAll` of a regular expression without `g`, which JavaScript throws on"));
+            }
+            let pattern = self.expr(&from.expr)?;
+            Ok(Expr::Builtin { name: Builtin::Replace, args: vec![*target, pattern, to] })
+          }
+          other => Ok(Expr::Builtin { name: Builtin::ReplaceAll, args: vec![*target, self.expr(other)?, to] }),
+        }
+      }
       "split" | "startsWith" | "endsWith" | "replace" => {
         let (name, arity) = match method.as_str() {
           "split" => (Builtin::Split, 1),
@@ -2114,6 +2149,29 @@ impl<'a> Lowerer<'a> {
     self.scope.truncate(depth);
     Ok(Expr::Lambda { params, body: Box::new(body?) })
   }
+}
+
+/// A regular expression literal as the value the regex builtins read, refused here when the interpreter could not match it as JavaScript does.
+fn regex_value(lowerer: &Lowerer<'_>, pattern: &str, flags: &str, span: Span) -> Lowered<Expr> {
+  if let Err(why) = snapfire_fsr_ir::jsregex::compiled(pattern, flags) {
+    return Err(lowerer.residue_with(span, format!("a regular expression with {why}"), "write it without that construct; the server matches it with a different engine than the browser's, so only the shared part is lowered"));
+  }
+  Ok(Expr::Object(vec![
+    Entry::Field(snapfire_fsr_ir::jsregex::PATTERN.to_owned(), Expr::lit_str(pattern)),
+    Entry::Field(snapfire_fsr_ir::jsregex::FLAGS.to_owned(), Expr::lit_str(flags)),
+  ]))
+}
+
+/// A string as the source of a regular expression that matches it literally.
+fn escape_regex(text: &str) -> String {
+  let mut out = String::with_capacity(text.len());
+  for c in text.chars() {
+    if "\\^$.*+?()[]{}|/-".contains(c) {
+      out.push('\\');
+    }
+    out.push(c);
+  }
+  out
 }
 
 /// `e` with each optional member link made plain, the object of each link pushed to `guards`, outermost first.

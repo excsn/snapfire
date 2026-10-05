@@ -79,7 +79,8 @@ fn builtins() -> BoxedStrategy<Builtin> {
     Just(Builtin::Slice), Just(Builtin::At), Just(Builtin::IndexOf), Just(Builtin::Concat), Just(Builtin::Reverse),
     Just(Builtin::PadStart), Just(Builtin::PadEnd), Just(Builtin::Substring), Just(Builtin::Json),
     Just(Builtin::Pow), Just(Builtin::Sqrt), Just(Builtin::Trunc), Just(Builtin::Sign), Just(Builtin::MinOf), Just(Builtin::MaxOf),
-    Just(Builtin::DateMs), Just(Builtin::DatePart), Just(Builtin::IsoString), Just(Builtin::FromEntries), Just(Builtin::Unique), Just(Builtin::HasKey), Just(Builtin::FormEncode)
+    Just(Builtin::DateMs), Just(Builtin::DatePart), Just(Builtin::IsoString), Just(Builtin::FromEntries), Just(Builtin::Unique), Just(Builtin::HasKey), Just(Builtin::FormEncode),
+    Just(Builtin::RegexTest), Just(Builtin::Match), Just(Builtin::MatchAll), Just(Builtin::Search), Just(Builtin::ReplaceAll)
   ]
   .boxed()
 }

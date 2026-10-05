@@ -284,7 +284,7 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
       strip(a, tainted, kept, in_lambda, in_hoist);
       strip(b, tainted, kept, in_lambda, in_hoist);
     }
-    Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => {
+    Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => {
       strip(a, tainted, kept, in_lambda, in_hoist);
       strip(b, tainted, kept, in_lambda, in_hoist);
       strip(c, tainted, kept, in_lambda, in_hoist);

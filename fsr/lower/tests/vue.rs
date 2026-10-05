@@ -594,3 +594,42 @@ fn dates_maps_and_sets_render_what_javascript_makes() {
   assert!(html.contains("<p class=\"set\">true false 3 1,2,3 1,2,3</p>"), "{html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const PATTERNS_RE: &str = r#"<script setup lang="ts">
+const props = defineProps<{ title: string; csv: string; code: string }>();
+const SLUG = /[^a-z0-9]+/g;
+const slug = props.title.toLowerCase().replace(SLUG, "-").replace(/^-|-$/g, "");
+const caps = props.title.replace(/\b\w/g, (c) => c.toUpperCase());
+const swapped = props.code.replace(/(\w+)-(\d+)/, "$2:$1 [$&] <$`|$'> $$");
+const named = props.code.replace(/(?<word>[a-z]+)/, "<$<word>>");
+const parts = props.csv.split(/\s*,\s*/);
+const kept = props.csv.split(/(,)/);
+const found = props.code.match(/(\w+)-(\d+)/);
+const all = props.csv.match(/\d+/g);
+const every = [...props.code.matchAll(/([a-z])(\d)?/g)].map((m) => m[1] + (m[2] ?? "_"));
+const offsets = props.title.replace(/o/g, (m, at) => `${at}`);
+</script>
+
+<template>
+  <p class="slug">{{ slug }}</p>
+  <p class="caps">{{ caps }}</p>
+  <p class="swapped">{{ swapped }}</p>
+  <p class="named">{{ named }}</p>
+  <p class="split">{{ parts.join("|") }} {{ kept.join("|") }} {{ "a1b22c".split(/\d+/).join("|") }} {{ "abc".split(/(?:)/).join("|") }}</p>
+  <p class="match">{{ found ? found.join("/") : "none" }} {{ all ? all.join("/") : "none" }} {{ every.join() }} {{ "xyz".match(/q/) ?? "none" }}</p>
+  <p class="test">{{ /^\d{3}$/.test(code) }} {{ /zz/i.test("aZz") }} {{ code.search(/\d/) }} {{ "café latte".search(/latte/) }}</p>
+  <p class="all">{{ csv.replaceAll(",", ";") }} {{ csv.replaceAll(/\s/g, "") }} {{ "a.b.c".replaceAll(".", (m) => "[" + m + "]") }}</p>
+  <p class="offsets">{{ offsets }}</p>
+  <p class="dots">{{ "a\nb".replace(/a.b/, "x") }} {{ "a\nb".replace(/a.b/s, "x") }} {{ "Ünï x9".replace(/\w/g, "*") }}</p>
+</template>
+"#;
+
+#[test]
+fn regular_expressions_render_what_javascript_matches() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("regex", &[]);
+  let given = props(&[("title", Value::str("Hello, World of FSR!")), ("csv", Value::str("1, 22 ,333,4")), ("code", Value::str("ab-12 cd"))]);
+  let html = agree(&compiler, &dir, "src/ui/Patterns.vue", PATTERNS_RE, &given, "");
+  assert!(html.contains("<p class=\"slug\">hello-world-of-fsr</p>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

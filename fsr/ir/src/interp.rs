@@ -842,6 +842,20 @@ impl Env {
         }
         Ok(Value::seq(out))
       }
+      Expr::ReplaceWith(subject, pattern, f) => {
+        let subject = self.eval_sync(subject)?;
+        let pattern = self.eval_sync(pattern)?;
+        let (s, found) = replacements(&subject, &pattern)?;
+        let mut out = String::with_capacity(s.len());
+        let mut last = 0;
+        for (start, end, args) in found {
+          out.push_str(&s[last..start]);
+          out.push_str(&stringify(&self.apply_sync(f, args)?)?);
+          last = end;
+        }
+        out.push_str(&s[last..]);
+        Ok(Value::str(out))
+      }
       Expr::FlatMap(over, f) => {
         let items = self.seq_sync(over, "flatMap")?; let whole = array_arg(f, &items);
         let mut out = Vec::with_capacity(items.len());
@@ -1195,6 +1209,20 @@ impl Env {
           }
           Ok(Value::seq(out))
         }
+        Expr::ReplaceWith(subject, pattern, f) => {
+          let subject = self.eval(subject).await?;
+          let pattern = self.eval(pattern).await?;
+          let (s, found) = replacements(&subject, &pattern)?;
+          let mut out = String::with_capacity(s.len());
+          let mut last = 0;
+          for (start, end, args) in found {
+            out.push_str(&s[last..start]);
+            out.push_str(&stringify(&self.apply(f, args).await?)?);
+            last = end;
+          }
+          out.push_str(&s[last..]);
+          Ok(Value::str(out))
+        }
         Expr::FlatMap(over, f) => {
           let items = self.seq(over, "flatMap").await?; let whole = array_arg(f, &items);
           let mut out = Vec::with_capacity(items.len());
@@ -1518,6 +1546,36 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
     CompareOp::Gt => ordering == Ordering::Greater,
     CompareOp::Ge => ordering != Ordering::Less,
   })
+}
+
+/// The matches `s.replace(pattern, f)` replaces, each with its byte range and the arguments `f` receives: the match, each group, the UTF-16 offset and the subject.
+fn replacements<'v>(subject: &'v Value, pattern: &Value) -> Result<(&'v str, Vec<(usize, usize, Vec<Value>)>), Fail> {
+  let Value::Str(s) = subject else { return Err(type_error("replace", "a string", subject)) };
+  let s: &str = s;
+  let whole = Value::str(s);
+  let mut found = Vec::new();
+  match crate::jsregex::of(pattern) {
+    Some((source, flags)) => {
+      let re = crate::jsregex::compiled(source, flags).map_err(Fail::internal)?;
+      for caps in re.captures_iter(s) {
+        let m = caps.get(0).expect("a match has its whole");
+        let mut args: Vec<Value> = caps.iter().map(|g| g.map_or(Value::Null, |g| Value::str(g.as_str()))).collect();
+        args.push(Value::F64(crate::jsregex::utf16_index(s, m.start()) as f64));
+        args.push(whole.clone());
+        found.push((m.start(), m.end(), args));
+        if !flags.contains('g') {
+          break;
+        }
+      }
+    }
+    None => {
+      let from = stringify(pattern)?;
+      if let Some(at) = s.find(from.as_str()) {
+        found.push((at, at + from.len(), vec![Value::str(from.clone()), Value::F64(crate::jsregex::utf16_index(s, at) as f64), whole.clone()]));
+      }
+    }
+  }
+  Ok((s, found))
 }
 
 /// The array a callback receives last, `(item, index, array)` or `(acc, item, index, array)`, when its lambda names more than two parameters; an argument past the last parameter is dropped.
@@ -1875,7 +1933,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     },
     Builtin::StartsWith => Value::Bool(text(name, arg(0)?)?.starts_with(text(name, arg(1)?)?)),
     Builtin::EndsWith => Value::Bool(text(name, arg(0)?)?.ends_with(text(name, arg(1)?)?)),
-    Builtin::Split => {
+    Builtin::Split if crate::jsregex::of(arg(1)?).is_none() => {
       let s = text(name, arg(0)?)?;
       let sep = text(name, arg(1)?)?;
       // JavaScript splits an empty separator into UTF-16 code units, so an
@@ -1889,6 +1947,99 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         return Err(Fail::internal(format!("{name:?} would build {pieces} pieces")));
       }
       Value::Seq(s.split(sep).map(Value::str).collect())
+    }
+    Builtin::Replace if crate::jsregex::of(arg(1)?).is_some() => {
+      let s = text(name, arg(0)?)?;
+      let (pattern, flags) = crate::jsregex::of(arg(1)?).expect("checked");
+      let re = crate::jsregex::compiled(pattern, flags).map_err(Fail::internal)?;
+      let to = stringify(arg(2)?)?;
+      let names = re.capture_names().any(|n| n.is_some());
+      let mut out = String::with_capacity(s.len());
+      let mut last = 0;
+      for caps in re.captures_iter(s) {
+        let whole = caps.get(0).expect("a match has its whole");
+        out.push_str(&s[last..whole.start()]);
+        crate::jsregex::expand(&mut out, &to, s, &caps, names);
+        last = whole.end();
+        if !flags.contains('g') {
+          break;
+        }
+      }
+      out.push_str(&s[last..]);
+      Value::str(out)
+    }
+    Builtin::ReplaceAll => {
+      let s = text(name, arg(0)?)?;
+      let from = text(name, arg(1)?)?;
+      let to = stringify(arg(2)?)?;
+      let mut out = String::with_capacity(s.len());
+      if from.is_empty() {
+        for (i, c) in s.char_indices() {
+          substitute(&mut out, &to, &s[..i], "", &s[i..]);
+          out.push(c);
+        }
+        substitute(&mut out, &to, s, "", "");
+      } else {
+        let mut last = 0;
+        for (at, _) in s.match_indices(from) {
+          out.push_str(&s[last..at]);
+          substitute(&mut out, &to, &s[..at], from, &s[at + from.len()..]);
+          last = at + from.len();
+        }
+        out.push_str(&s[last..]);
+      }
+      Value::str(out)
+    }
+    Builtin::Split => {
+      let s = text(name, arg(0)?)?;
+      let (pattern, flags) = crate::jsregex::of(arg(1)?).expect("checked");
+      let re = crate::jsregex::compiled(pattern, flags).map_err(Fail::internal)?;
+      let mut out = Vec::new();
+      if s.is_empty() {
+        if !re.is_match(s) {
+          out.push(Value::str(""));
+        }
+        return Ok(Value::seq(out));
+      }
+      let mut last = 0;
+      for caps in re.captures_iter(s) {
+        let whole = caps.get(0).expect("a match has its whole");
+        if whole.end() == last || whole.start() >= s.len() {
+          continue;
+        }
+        out.push(Value::str(&s[last..whole.start()]));
+        for group in caps.iter().skip(1) {
+          out.push(group.map_or(Value::Null, |m| Value::str(m.as_str())));
+        }
+        last = whole.end();
+        if out.len() > MAX_SPLIT {
+          return Err(Fail::internal(format!("{name:?} would build more than {MAX_SPLIT} pieces")));
+        }
+      }
+      out.push(Value::str(&s[last..]));
+      Value::seq(out)
+    }
+    Builtin::RegexTest | Builtin::Match | Builtin::MatchAll | Builtin::Search => {
+      let (re_at, s_at) = if name == Builtin::RegexTest { (0, 1) } else { (1, 0) };
+      let s = text(name, arg(s_at)?)?;
+      let Some((pattern, flags)) = crate::jsregex::of(arg(re_at)?) else { return Err(type_error(&format!("{name:?}"), "a regular expression", arg(re_at)?)) };
+      let re = crate::jsregex::compiled(pattern, flags).map_err(Fail::internal)?;
+      let groups = |caps: &regex::Captures<'_>| Value::seq(caps.iter().map(|g| g.map_or(Value::Null, |m| Value::str(m.as_str()))).collect::<Vec<_>>());
+      match name {
+        Builtin::RegexTest => Value::Bool(re.is_match(s)),
+        Builtin::Search => whole(re.find(s).map_or(-1.0, |m| crate::jsregex::utf16_index(s, m.start()) as f64)),
+        Builtin::Match if flags.contains('g') => {
+          let all: Vec<Value> = re.find_iter(s).map(|m| Value::str(m.as_str())).collect();
+          if all.is_empty() { Value::Null } else { Value::seq(all) }
+        }
+        Builtin::Match => re.captures(s).map_or(Value::Null, |caps| groups(&caps)),
+        _ => {
+          if !flags.contains('g') {
+            return Err(Fail::internal("matchAll of a regular expression without `g`, which JavaScript throws on"));
+          }
+          Value::seq(re.captures_iter(s).map(|caps| groups(&caps)).collect::<Vec<_>>())
+        }
+      }
     }
     Builtin::Replace => {
       let s = text(name, arg(0)?)?;

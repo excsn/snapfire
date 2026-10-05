@@ -141,9 +141,17 @@ fn split_on_an_empty_separator_is_residue() {
 }
 
 #[test]
-fn replace_over_a_regular_expression_is_still_residue() {
-  let err = lowered("replace_regex", "params.slug.replace(/ /g, \"-\")").unwrap_err();
-  assert!(err.contains("a regular expression"), "{err}");
+fn a_regular_expression_lowers_and_one_the_server_cannot_match_alike_is_residue() {
+  assert_eq!(builtin_of(&lowered("replace_regex", "params.slug.replace(/ /g, \"-\")").unwrap()), snapfire_fsr_ir::ast::Builtin::Replace);
+  for (tag, expr, says) in [
+    ("backref", "/(a)\\1/.test(params.slug)", "a backreference"),
+    ("lookahead", "params.slug.replace(/a(?=b)/, \"\")", "a lookahead"),
+    ("sticky", "/a/y.test(params.slug)", "the sticky flag"),
+    ("all_without_g", "params.slug.replaceAll(/a/, \"b\")", "without `g`"),
+  ] {
+    let err = lowered(tag, expr).unwrap_err();
+    assert!(err.contains(says), "{tag}: {err}");
+  }
 }
 
 #[test]

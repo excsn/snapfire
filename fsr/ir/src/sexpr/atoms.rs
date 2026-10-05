@@ -119,6 +119,11 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::Unique => "unique",
     Builtin::HasKey => "has-key",
     Builtin::FormEncode => "form-encode",
+    Builtin::RegexTest => "regex-test",
+    Builtin::Match => "match",
+    Builtin::MatchAll => "match-all",
+    Builtin::Search => "search",
+    Builtin::ReplaceAll => "replace-all",
   }
 }
 
@@ -167,6 +172,11 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "unique" => Builtin::Unique,
     "has-key" => Builtin::HasKey,
     "form-encode" => Builtin::FormEncode,
+    "regex-test" => Builtin::RegexTest,
+    "match" => Builtin::Match,
+    "match-all" => Builtin::MatchAll,
+    "search" => Builtin::Search,
+    "replace-all" => Builtin::ReplaceAll,
     _ => return None,
   })
 }

@@ -126,6 +126,7 @@ fn expr() -> BoxedStrategy<Expr> {
       (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::Every(Box::new(a), Box::new(b))),
       (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::Sort(Box::new(a), Box::new(b))),
       (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::FlatMap(Box::new(a), Box::new(b))),
+      (inner.clone(), inner.clone(), inner.clone()).prop_map(|(a, b, c)| Expr::ReplaceWith(Box::new(a), Box::new(b), Box::new(c))),
       inner.clone().prop_map(|e| Expr::Entries(Box::new(e))),
       inner.clone().prop_map(|e| Expr::Keys(Box::new(e))),
       inner.clone().prop_map(|e| Expr::Values(Box::new(e))),
@@ -179,7 +180,8 @@ fn builtin() -> BoxedStrategy<Builtin> {
     Just(Builtin::Slice), Just(Builtin::At), Just(Builtin::IndexOf), Just(Builtin::Concat), Just(Builtin::Reverse),
     Just(Builtin::PadStart), Just(Builtin::PadEnd), Just(Builtin::Substring), Just(Builtin::Json),
     Just(Builtin::Pow), Just(Builtin::Sqrt), Just(Builtin::Trunc), Just(Builtin::Sign), Just(Builtin::MinOf), Just(Builtin::MaxOf),
-    Just(Builtin::DateMs), Just(Builtin::DatePart), Just(Builtin::IsoString), Just(Builtin::FromEntries), Just(Builtin::Unique), Just(Builtin::HasKey), Just(Builtin::FormEncode)
+    Just(Builtin::DateMs), Just(Builtin::DatePart), Just(Builtin::IsoString), Just(Builtin::FromEntries), Just(Builtin::Unique), Just(Builtin::HasKey), Just(Builtin::FormEncode),
+    Just(Builtin::RegexTest), Just(Builtin::Match), Just(Builtin::MatchAll), Just(Builtin::Search), Just(Builtin::ReplaceAll)
   ]
   .boxed()
 }

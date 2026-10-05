@@ -115,6 +115,8 @@ pub enum Expr {
   Sort(Box<Expr>, Box<Expr>),
   /// `flatMap(f)`: each result an array spread one level, anything else kept.
   FlatMap(Box<Expr>, Box<Expr>),
+  /// `s.replace(pattern, f)`: each match replaced by `String(f(match, ...groups, offset, s))`, every match for a regular expression with `g`, the first otherwise.
+  ReplaceWith(Box<Expr>, Box<Expr>, Box<Expr>),
   Entries(Box<Expr>),
   Keys(Box<Expr>),
   Values(Box<Expr>),
@@ -205,6 +207,16 @@ pub enum Builtin {
   HasKey,
   /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
   FormEncode,
+  /// `re.test(s)`.
+  RegexTest,
+  /// `s.match(re)`: the first match and its groups, every match with `g`, null for none.
+  Match,
+  /// `s.matchAll(re)`: each match with its groups.
+  MatchAll,
+  /// `s.search(re)`: the UTF-16 index of the first match, -1 for none.
+  Search,
+  /// `s.replaceAll(from, to)` with a string `from`.
+  ReplaceAll,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is
@@ -672,7 +684,7 @@ impl Expr {
         a.free_vars(out);
         b.free_vars(out);
       }
-      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => {
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => {
         a.free_vars(out);
         b.free_vars(out);
         c.free_vars(out);
@@ -718,7 +730,7 @@ impl Expr {
         a.visit(f);
         b.visit(f);
       }
-      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => {
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => {
         a.visit(f);
         b.visit(f);
         c.visit(f);
@@ -754,7 +766,7 @@ impl Expr {
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
       | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
       | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => a.reads_request() || b.reads_request(),
-      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.reads_request() || b.reads_request() || c.reads_request(),
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => a.reads_request() || b.reads_request() || c.reads_request(),
       Expr::Template(parts) => parts.iter().any(Expr::reads_request),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::reads_request),
       Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
@@ -776,7 +788,7 @@ impl Expr {
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
       | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
       | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => a.has_call() || b.has_call(),
-      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.has_call() || b.has_call() || c.has_call(),
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => a.has_call() || b.has_call() || c.has_call(),
       Expr::Template(parts) => parts.iter().any(Expr::has_call),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::has_call),
       Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),

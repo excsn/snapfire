@@ -6,6 +6,7 @@ pub mod bind;
 pub mod catalog;
 pub mod ext;
 pub mod interp;
+pub mod jsregex;
 pub mod std;
 pub mod render;
 pub mod sexpr;
