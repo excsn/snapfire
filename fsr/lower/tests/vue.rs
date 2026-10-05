@@ -559,3 +559,38 @@ fn statements_render_what_javascript_runs() {
   }
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const MADE: &str = r#"<script setup lang="ts">
+const props = defineProps<{ at: number; iso: string; rows: { id: string; n: number }[] }>();
+const when = new Date(props.at);
+const parsed = new Date(props.iso);
+const parts = [when.getUTCFullYear(), when.getUTCMonth(), when.getUTCDate(), when.getUTCDay(), when.getUTCHours(), when.getUTCMinutes(), when.getUTCSeconds(), when.getUTCMilliseconds()];
+const byId = new Map(props.rows.map((r) => [r.id, r.n]));
+const seen = new Set(props.rows.map((r) => r.n));
+const counts = Object.fromEntries(props.rows.map((r) => [r.id, r.n * 2]));
+</script>
+
+<template>
+  <p class="date">{{ when.toISOString() }} {{ when.getTime() }} {{ parts.join() }} {{ parsed.getTime() }} {{ Date.parse(iso) }}</p>
+  <p class="map">{{ byId.get("b") }} {{ byId.has("a") }} {{ byId.has("z") }} {{ byId.size }} {{ [...byId.keys()].join() }} {{ [...byId.values()].join() }} {{ [...byId].map(([k, v]) => k + v).join() }}</p>
+  <p class="set">{{ seen.has(2) }} {{ seen.has(9) }} {{ seen.size }} {{ [...seen].join() }} {{ Array.from(seen).join() }}</p>
+  <p class="rest">{{ counts.a }} {{ (42).toString() }} {{ Array.from(byId).length }}</p>
+</template>
+"#;
+
+#[test]
+fn dates_maps_and_sets_render_what_javascript_makes() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("made", &[]);
+  let row = |id: &str, n: f64| Value::Map(props(&[("id", Value::str(id)), ("n", Value::F64(n))]));
+  let given = props(&[
+    ("at", Value::F64(1_791_199_808_333.0)),
+    ("iso", Value::str("2026-02-28T23:59:59.5Z")),
+    ("rows", Value::seq(vec![row("a", 1.0), row("b", 2.0), row("c", 2.0), row("a", 3.0)])),
+  ]);
+  let html = agree(&compiler, &dir, "src/ui/Made.vue", MADE, &given, "");
+  assert!(html.contains("2026-10-05T"), "{html}");
+  assert!(html.contains("<p class=\"map\">2 true false 3 a,b,c 3,2,2 a3,b2,c2</p>"), "a later key replaces an earlier one in place: {html}");
+  assert!(html.contains("<p class=\"set\">true false 3 1,2,3 1,2,3</p>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

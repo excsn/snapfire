@@ -112,6 +112,13 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::Sign => "sign",
     Builtin::MinOf => "min-of",
     Builtin::MaxOf => "max-of",
+    Builtin::DateMs => "date-ms",
+    Builtin::DatePart => "date-part",
+    Builtin::IsoString => "iso-string",
+    Builtin::FromEntries => "from-entries",
+    Builtin::Unique => "unique",
+    Builtin::HasKey => "has-key",
+    Builtin::FormEncode => "form-encode",
   }
 }
 
@@ -153,6 +160,13 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "sign" => Builtin::Sign,
     "min-of" => Builtin::MinOf,
     "max-of" => Builtin::MaxOf,
+    "date-ms" => Builtin::DateMs,
+    "date-part" => Builtin::DatePart,
+    "iso-string" => Builtin::IsoString,
+    "from-entries" => Builtin::FromEntries,
+    "unique" => Builtin::Unique,
+    "has-key" => Builtin::HasKey,
+    "form-encode" => Builtin::FormEncode,
     _ => return None,
   })
 }

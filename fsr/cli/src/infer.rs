@@ -312,7 +312,10 @@ impl<'a> Inferer<'a> {
         self.apply(f, args, env)
       }
       Expr::Builtin { name, args } => match name {
-        Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max | Builtin::Pow | Builtin::Sqrt | Builtin::Trunc | Builtin::Sign | Builtin::IndexOf | Builtin::MinOf | Builtin::MaxOf => Ts::Num,
+        Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max | Builtin::Pow | Builtin::Sqrt | Builtin::Trunc | Builtin::Sign | Builtin::IndexOf | Builtin::MinOf | Builtin::MaxOf | Builtin::DateMs | Builtin::DatePart => Ts::Num,
+        Builtin::HasKey => Ts::Bool,
+        Builtin::Unique => args.first().map(|a| non_null(self.expr(a, env))).unwrap_or(Ts::Unknown),
+        Builtin::FromEntries => Ts::Map(Box::new(Ts::Unknown)),
         Builtin::Slice | Builtin::Concat | Builtin::Reverse => args.first().map(|a| non_null(self.expr(a, env))).unwrap_or(Ts::Unknown),
         Builtin::At => match args.first().map(|a| non_null(self.expr(a, env))) {
           Some(Ts::Str) => Ts::Str,

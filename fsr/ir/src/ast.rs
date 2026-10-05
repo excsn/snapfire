@@ -191,6 +191,20 @@ pub enum Builtin {
   MinOf,
   /// `Math.max(...items)` over one array; `-Infinity` when it is empty.
   MaxOf,
+  /// `new Date(x)` as milliseconds since the epoch: a number as it is, an ISO 8601 string parsed, anything else NaN.
+  DateMs,
+  /// A UTC part of a date's milliseconds, named by the second argument: `year`, `month` (from 0), `date`, `day` (0 is Sunday), `hours`, `minutes`, `seconds` or `milliseconds`.
+  DatePart,
+  /// `date.toISOString()` of milliseconds since the epoch.
+  IsoString,
+  /// `Object.fromEntries(pairs)` and `new Map(pairs)`: each key as `String(key)`.
+  FromEntries,
+  /// `new Set(items)`: the items without repeats, first occurrence kept.
+  Unique,
+  /// `map.has(key)` over an object a `Map` lowered to.
+  HasKey,
+  /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
+  FormEncode,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

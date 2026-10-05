@@ -952,7 +952,7 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert!(err.contains("routes/index/page.tsx:3:14: `id.new` on a render path") && err.contains("runs on the server only"), "{err}");
   std::fs::remove_dir_all(&reach).unwrap();
 
-  let unlowerable = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("ext/bad.ts", "export function stamp(): string {\n  return new Date().toISOString();\n}\n")]);
+  let unlowerable = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("ext/bad.ts", "export function stamp(): string {\n  return String(new WeakMap());\n}\n")]);
   let err = fails(&unlowerable).to_string();
   assert!(err.contains("ext/bad.ts:2:") && err.contains("must lower"), "{err}");
   std::fs::remove_dir_all(&unlowerable).unwrap();
@@ -1222,11 +1222,11 @@ fn an_island_takes_the_dialects_placements_from_its_own_framework_wherever_it_re
 
 #[test]
 fn a_page_whose_residue_no_island_can_hold_is_refused_with_that_residue() {
-  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nexport default function Page({ rooms }: { rooms: string[] }) {\n  return (\n    <main>\n      <Island define=\"@src/elements/room-count.ts\">\n        <room-count n={new Set(rooms).size}>rooms</room-count>\n      </Island>\n    </main>\n  );\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nexport default function Page({ rooms }: { rooms: string[] }) {\n  return (\n    <main>\n      <Island define=\"@src/elements/room-count.ts\">\n        <room-count n={new WeakSet(rooms) ? 1 : 0}>rooms</room-count>\n      </Island>\n    </main>\n  );\n}\n";
   let dir = app(&[("routes/page.tsx", page), ("src/elements/room-count.ts", "customElements.define(\"room-count\", class extends HTMLElement {});\n")]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
   let error = fails(&dir).to_string();
-  assert!(error.contains("routes/page.tsx:6:") && error.contains("`new`"), "the residue that started it, not what the split left behind: {error}");
+  assert!(error.contains("routes/page.tsx:6:") && error.contains("`new WeakSet`"), "the residue that started it, not what the split left behind: {error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -1648,6 +1648,9 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         let init = decl.init.as_deref().ok_or_else(|| lowerer.residue(decl.span, "a declaration without a value"))?;
         let expr = lowerer.expr(init)?;
         bind_pattern(lowerer, &decl.name, expr)?;
+        if let js::Pat::Ident(id) = &decl.name {
+          lowerer.note_kind(id.id.sym.as_ref(), init);
+        }
       }
       Ok(())
     }
@@ -1909,6 +1912,9 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
         let init = decl.init.as_deref().ok_or_else(|| lowerer.residue(decl.span, "a declaration without a value"))?;
         let expr = lowerer.expr(init)?;
         bind_pattern(lowerer, &decl.name, expr)?;
+        if let js::Pat::Ident(id) = &decl.name {
+          lowerer.note_kind(id.id.sym.as_ref(), init);
+        }
       }
       block_to_expr_inner(lowerer, rest, floor)
     }
@@ -2284,6 +2290,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Pat::Ident(id) => {
               let name = id.id.sym.to_string();
               self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+              self.lowerer.note_kind(&name, init);
               name
             }
             pattern => {
@@ -2436,6 +2443,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           _ => self.lowerer.expr(init)?,
         };
         self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
+        self.lowerer.note_kind(&local, init);
         Ok(Some(Stmt::Let { name: local, expr }))
       }
       js::Pat::Array(arr) => {
@@ -2594,6 +2602,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Pat::Ident(name) => {
               let name = name.id.sym.to_string();
               self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+              self.lowerer.note_kind(&name, init);
               name
             }
             pattern => {
@@ -4103,9 +4112,9 @@ export function Page(props: { className: string; children: React.ReactNode; cart
 
   #[test]
   fn residue_names_the_line_and_the_construct() {
-    let page = "export default function Page() {\n  const params = new URLSearchParams();\n  return <a href={params.toString()}>x</a>;\n}\n";
+    let page = "export default function Page() {\n  const params = new WeakMap();\n  return <a href={String(params)}>x</a>;\n}\n";
     let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
-    assert_eq!(err.to_string(), "routes/index/page.tsx:2:18: `new`");
+    assert_eq!(err.to_string(), "routes/index/page.tsx:2:18: `new WeakMap`");
     let page = "import { Chart } from \"chart-lib\";\nexport default function Page() {\n  return <Chart />;\n}\n";
     let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
     assert!(err.to_string().contains("`Chart` comes from `chart-lib`, which the build cannot follow"), "{err}");

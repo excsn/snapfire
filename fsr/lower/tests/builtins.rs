@@ -230,3 +230,56 @@ fn a_case_that_falls_through_into_the_next_is_residue() {
   let err = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_err().to_string();
   assert!(err.contains("a `case` that falls through into the next"), "{err}");
 }
+
+#[test]
+fn new_lowers_dates_collections_and_query_strings_and_refuses_the_rest() {
+  use snapfire_fsr_ir::ast::Builtin;
+  assert_eq!(builtin_of(&lowered("date_of", "new Date(params.at)").unwrap()), Builtin::DateMs);
+  assert_eq!(builtin_of(&lowered("query", "new URLSearchParams({ q: params.q })").unwrap_or_else(|e| panic!("{e}"))), Builtin::FormEncode);
+  assert!(matches!(&lowered("now", "new Date().getTime()").unwrap()[0], Stmt::Let { expr: Expr::Num(_), .. }), "a body reads the request's clock");
+  let err = lowered("local_getter", "new Date(params.at).getFullYear()").unwrap_err();
+  assert!(err.contains("reads the viewer's time zone") && err.contains("`.getUTCFullYear()`"), "{err}");
+  let err = lowered("fields", "new Date(2026, 9, 5)").unwrap_err();
+  assert!(err.contains("`new Date(year, month, ...)`"), "{err}");
+  let err = lowered("other_new", "new WeakMap()").unwrap_err();
+  assert!(err.contains("`new WeakMap`"), "{err}");
+  let err = lowered("kept", "new Intl.NumberFormat()").unwrap_err();
+  assert!(err.contains("an `Intl` formatter kept as a value"), "{err}");
+}
+
+#[test]
+fn an_intl_formatter_lowers_to_the_intl_member_that_formats_alike() {
+  let ext = |tag: &str, expr: &str| match lowered(tag, expr).unwrap_or_else(|e| panic!("{e}")).remove(0) {
+    Stmt::Let { expr: Expr::Ext { module, name, .. }, .. } => format!("{module}.{name}"),
+    other => panic!("{other:?}"),
+  };
+  assert_eq!(ext("number", "new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(params.n)"), "intl.number");
+  assert_eq!(ext("currency", "new Intl.NumberFormat(undefined, { style: \"currency\", currency: \"EUR\", currencyDisplay: \"code\" }).format(params.n)"), "intl.currency");
+  assert_eq!(ext("date", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\" }).format(new Date(params.at))"), "intl.date");
+  assert_eq!(ext("locale_date", "new Date(params.at).toLocaleDateString(undefined, { dateStyle: \"short\", timeZone: \"UTC\" })"), "intl.date");
+  for (tag, expr, says) in [
+    ("named_locale", "new Intl.NumberFormat(\"de-DE\").format(params.n)", "a locale named where it formats"),
+    ("symbol", "new Intl.NumberFormat(undefined, { style: \"currency\", currency: \"EUR\" }).format(params.n)", "a currency formatted with a symbol"),
+    ("no_style", "new Date(params.at).toLocaleDateString()", "without a `dateStyle`"),
+    ("zone", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\", timeZone: \"Europe/Paris\" }).format(params.at)", "`timeZone`"),
+    ("percent", "new Intl.NumberFormat(undefined, { style: \"percent\" }).format(params.n)", "`style`"),
+  ] {
+    let err = lowered(tag, expr).unwrap_err();
+    assert!(err.contains(says), "{tag}: {err}");
+  }
+}
+
+#[test]
+fn a_body_writes_its_local_map_and_set() {
+  let dir = app(
+    "collection_writes",
+    &[(
+      "routes/a/page.loader.ts",
+      "export async function load({ params }) {\n  const seen = new Set();\n  const totals = new Map();\n  for (const row of params.rows) {\n    seen.add(row.kind);\n    totals.set(row.kind, (totals.get(row.kind) ?? 0) + row.n);\n  }\n  return { kinds: [...seen], totals: Object.fromEntries(totals), size: totals.size };\n}\n",
+    )],
+  );
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap();
+  let Stmt::ForOf { body: inner, .. } = &body[2] else { panic!("{body:?}") };
+  assert!(matches!(&inner[0], Stmt::Set { name, .. } if name == "seen"), "{inner:?}");
+  assert!(matches!(&inner[1], Stmt::Set { name, expr: Expr::Object(_) } if name == "totals"), "{inner:?}");
+}

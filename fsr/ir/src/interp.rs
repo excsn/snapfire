@@ -1430,6 +1430,9 @@ fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
   }
 }
 
+/// The furthest instant a JavaScript `Date` holds, in milliseconds either side of the epoch; past it a date is invalid.
+const MAX_DATE_MS: f64 = 8.64e15;
+
 /// The most items `range` may build, for the same reason as [`MAX_REPEAT`].
 const MAX_RANGE: usize = 1_000_000;
 
@@ -1530,6 +1533,39 @@ fn with_array(mut args: Vec<Value>, whole: &Option<Value>) -> Vec<Value> {
     args.push(array.clone());
   }
   args
+}
+
+/// `application/x-www-form-urlencoded` as `URLSearchParams` writes it: letters, digits and `*-._` as they are, a space as `+`, every other byte `%XX`.
+fn form_encode(s: &str) -> String {
+  let mut out = String::with_capacity(s.len());
+  for byte in s.bytes() {
+    match byte {
+      b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => out.push(byte as char),
+      b' ' => out.push('+'),
+      _ => out.push_str(&format!("%{byte:02X}")),
+    }
+  }
+  out
+}
+
+/// The inverse of [`form_encode`], a malformed escape kept as written.
+fn form_decode(s: &str) -> String {
+  let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+  let bytes = s.as_bytes();
+  let mut out = Vec::with_capacity(bytes.len());
+  let mut i = 0;
+  while i < bytes.len() {
+    match bytes[i] {
+      b'+' => out.push(b' '),
+      b'%' if i + 2 < bytes.len() && hex(bytes[i + 1]).is_some() && hex(bytes[i + 2]).is_some() => {
+        out.push(hex(bytes[i + 1]).unwrap_or(0) * 16 + hex(bytes[i + 2]).unwrap_or(0));
+        i += 2;
+      }
+      b => out.push(b),
+    }
+    i += 1;
+  }
+  String::from_utf8_lossy(&out).into_owned()
 }
 
 /// `a ** b` as JavaScript computes it: a base of 1 or -1 to an infinite power is NaN where `powf` answers 1.
@@ -2030,6 +2066,97 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         best = if n.is_nan() || best.is_nan() { f64::NAN } else if name == Builtin::MinOf { best.min(n) } else { best.max(n) };
       }
       whole(best)
+    }
+    Builtin::DateMs => {
+      let ms = match arg(0)? {
+        Value::Str(s) => crate::std::time::parse_iso(s).unwrap_or(f64::NAN),
+        Value::Null => f64::NAN,
+        other => number(name, other)?,
+      };
+      whole(if ms.abs() <= MAX_DATE_MS { ms.trunc() } else { f64::NAN })
+    }
+    Builtin::DatePart => {
+      let ms = number(name, arg(0)?)?;
+      if !(ms.abs() <= MAX_DATE_MS) {
+        return Ok(whole(f64::NAN));
+      }
+      let (y, m, d) = crate::std::time::civil_from_ms(ms);
+      let (hh, mm, ss, sss) = crate::std::time::clock_from_ms(ms);
+      let days = (ms / 86_400_000.0).floor();
+      whole(match text(name, arg(1)?)? {
+        "year" => y as f64,
+        "month" => (m - 1) as f64,
+        "date" => d as f64,
+        "day" => (days + 4.0).rem_euclid(7.0),
+        "hours" => hh as f64,
+        "minutes" => mm as f64,
+        "seconds" => ss as f64,
+        "milliseconds" => sss as f64,
+        other => return Err(Fail::internal(format!("{name:?}: `{other}` is not a part of a date"))),
+      })
+    }
+    Builtin::IsoString => {
+      let ms = number(name, arg(0)?)?;
+      if !(ms.abs() <= MAX_DATE_MS) {
+        return Err(Fail::internal("toISOString of an invalid date, which JavaScript throws on"));
+      }
+      Value::str(crate::std::time::format_utc(ms, "YYYY-MM-DDTHH:mm:ss.SSSZ"))
+    }
+    Builtin::FromEntries => match arg(0)? {
+      Value::Seq(pairs) => {
+        let mut out = ValueMap::default();
+        for pair in pairs.iter() {
+          let Value::Seq(kv) = pair else { return Err(type_error(&format!("{name:?}"), "an array of [key, value] pairs", pair)) };
+          let key = stringify(kv.get(0).unwrap_or(&Value::Null))?;
+          out.insert(key, kv.get(1).cloned().unwrap_or(Value::Null));
+        }
+        Value::Map(out)
+      }
+      Value::Map(map) => Value::Map(map.clone()),
+      Value::Null => Value::Map(ValueMap::default()),
+      other => return Err(type_error(&format!("{name:?}"), "an array of pairs", other)),
+    },
+    Builtin::Unique => match arg(0)? {
+      Value::Seq(items) => {
+        let mut out: Vec<Value> = Vec::with_capacity(items.len());
+        for item in items.iter() {
+          if !out.iter().any(|seen| strictly_equal(seen, item)) {
+            out.push(item.clone());
+          }
+        }
+        Value::seq(out)
+      }
+      Value::Null => Value::seq(Vec::<Value>::new()),
+      other => return Err(type_error(&format!("{name:?}"), "an array", other)),
+    },
+    Builtin::HasKey => match arg(0)? {
+      Value::Map(map) => Value::Bool(map.contains_key(stringify(arg(1)?)?.as_str())),
+      other => return Err(type_error(&format!("{name:?}"), "a map", other)),
+    },
+    Builtin::FormEncode => {
+      let pairs: Vec<(String, String)> = match arg(0)? {
+        Value::Map(map) => map.iter().map(|(k, v)| Ok((k.to_string(), stringify(v)?))).collect::<Result<_, Fail>>()?,
+        Value::Seq(items) => items
+          .iter()
+          .map(|pair| match pair {
+            Value::Seq(kv) => Ok((stringify(kv.get(0).unwrap_or(&Value::Null))?, stringify(kv.get(1).unwrap_or(&Value::Null))?)),
+            other => Err(type_error(&format!("{name:?}"), "an array of [key, value] pairs", other)),
+          })
+          .collect::<Result<_, Fail>>()?,
+        Value::Str(s) => s
+          .strip_prefix('?')
+          .unwrap_or(s)
+          .split('&')
+          .filter(|part| !part.is_empty())
+          .map(|part| {
+            let (k, v) = part.split_once('=').unwrap_or((part, ""));
+            (form_decode(k), form_decode(v))
+          })
+          .collect(),
+        Value::Null => Vec::new(),
+        other => return Err(type_error(&format!("{name:?}"), "an object, pairs or a query string", other)),
+      };
+      Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
     }
     Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
     Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),

@@ -700,13 +700,22 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) reach_violation: bool,
   /// How many temporaries a destructuring has bound, so each gets a name of its own.
   pub(crate) temps: usize,
+  /// Names bound to a `new Map(...)` or a `new Set(...)`, with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
+  pub(crate) kinds: Vec<(String, Expr, Collection)>,
+}
+
+/// What a `new Map` or a `new Set` lowered to: an object keyed by `String(key)` or an array without repeats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Collection {
+  Map,
+  Set,
 }
 
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0 }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -872,6 +881,33 @@ impl<'a> Lowerer<'a> {
     format!("$d{}", self.temps)
   }
 
+  /// The collection `e` holds: a `new Map(...)` or `new Set(...)` itself, or a name noted as bound to one.
+  pub(crate) fn collection_of(&self, e: &js::Expr) -> Option<Collection> {
+    match e {
+      js::Expr::Paren(p) => self.collection_of(&p.expr),
+      js::Expr::TsAs(a) => self.collection_of(&a.expr),
+      js::Expr::TsNonNull(a) => self.collection_of(&a.expr),
+      js::Expr::New(n) => match &*n.callee {
+        js::Expr::Ident(id) if id.sym.as_ref() == "Map" => Some(Collection::Map),
+        js::Expr::Ident(id) if id.sym.as_ref() == "Set" => Some(Collection::Set),
+        _ => None,
+      },
+      js::Expr::Ident(id) => {
+        let name = id.sym.as_ref();
+        let bound = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e)?;
+        self.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind)
+      }
+      _ => None,
+    }
+  }
+
+  /// Notes `name`, just bound to `init`, as a collection when `init` is one.
+  pub(crate) fn note_kind(&mut self, name: &str, init: &js::Expr) {
+    let Some(kind) = self.collection_of(init) else { return };
+    let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e.clone()) else { return };
+    self.kinds.push((name.to_owned(), bound, kind));
+  }
+
   /// One declarator as a `let`: a name binds the value; a pattern binds it under a temporary and each name it declares reads a part of that.
   fn declare(&mut self, decl: &js::VarDeclarator) -> Lowered<Stmt> {
     let Some(init) = &decl.init else {
@@ -882,6 +918,7 @@ impl<'a> Lowerer<'a> {
       js::Pat::Ident(name) => {
         let name = name.id.sym.to_string();
         self.scope.push((name.clone(), Expr::Var(name.clone())));
+        self.note_kind(&name, init);
         name
       }
       pattern => {
@@ -925,7 +962,10 @@ impl<'a> Lowerer<'a> {
         let Some(pattern) = decl.decls.first().map(|d| &d.name) else {
           return Err(self.residue(decl.span, "`for...of` must declare its variable"));
         };
-        let over = self.expr(&for_of.right)?;
+        let mut over = self.expr(&for_of.right)?;
+        if self.collection_of(&for_of.right) == Some(Collection::Map) {
+          over = Expr::Entries(Box::new(over));
+        }
         let depth = self.scope.len();
         let name = match pattern {
           js::Pat::Ident(name) => {
@@ -1000,6 +1040,21 @@ impl<'a> Lowerer<'a> {
         let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
         let expr = self.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
         Ok(Stmt::Set { name: id.sym.to_string(), expr })
+      }
+      js::Expr::Call(call) if self.local_collection_write(call).is_some() => {
+        let (name, kind, method) = self.local_collection_write(call).expect("checked");
+        let arg = |this: &mut Self, i: usize| -> Lowered<Expr> {
+          let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
+          this.expr(&a.expr)
+        };
+        let held = Expr::Var(name.clone());
+        let expr = match (kind, method.as_str()) {
+          (Collection::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
+          (Collection::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
+          (Collection::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
+          (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", if kind == Collection::Map { "Map" } else { "Set" }))),
+        };
+        Ok(Stmt::Set { name, expr })
       }
       js::Expr::Call(call) if self.local_push(call).is_some() => {
         let (name, method) = self.local_push(call).expect("checked");
@@ -1098,6 +1153,16 @@ impl<'a> Lowerer<'a> {
     };
     let expr = Expr::Object(vec![Entry::Spread(Expr::Var(name.clone())), Entry::Field(field, value)]);
     Ok(Stmt::Set { name, expr })
+  }
+
+  /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` a local collection: the local, which kind it is and the method.
+  fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Collection, String)> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = &**callee else { return None };
+    let js::Expr::Ident(obj) = &*member.obj else { return None };
+    let kind = self.collection_of(&member.obj)?;
+    let method = self.member_name(member)?;
+    (matches!(method.as_str(), "set" | "delete" | "add" | "clear") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), kind, method))
   }
 
   /// `x.push(...)` or `x.unshift(...)` with `x` a local: the local and the method.
@@ -1244,7 +1309,12 @@ impl<'a> Lowerer<'a> {
       js::Expr::Array(arr) => {
         let mut entries = Vec::new();
         for elem in arr.elems.iter().flatten() {
-          entries.push(if elem.spread.is_some() { Entry::Spread(self.expr(&elem.expr)?) } else { Entry::Item(self.expr(&elem.expr)?) });
+          let value = self.expr(&elem.expr)?;
+          entries.push(match elem.spread {
+            Some(_) if self.collection_of(&elem.expr) == Some(Collection::Map) => Entry::Spread(Expr::Entries(Box::new(value))),
+            Some(_) => Entry::Spread(value),
+            None => Entry::Item(value),
+          });
         }
         Ok(Expr::Array(entries))
       }
@@ -1297,7 +1367,7 @@ impl<'a> Lowerer<'a> {
         js::OptChainBase::Call(call) if o.optional => Err(self.residue_with(call.span, "an optional call of a function value", "the server holds no function values; call a builtin or a helper the build can follow")),
         js::OptChainBase::Call(call) => self.optional_call(call),
       },
-      js::Expr::New(n) => Err(self.residue(n.span, "`new`")),
+      js::Expr::New(n) => self.new_expr(n),
       js::Expr::Fn(f) => Err(self.residue(f.function.span, "a `function` expression")),
       js::Expr::Assign(a) => Err(self.residue(a.span, "an assignment inside an expression")),
       other => {
@@ -1444,9 +1514,11 @@ impl<'a> Lowerer<'a> {
       }
     }
 
+    let collection = self.collection_of(&member.obj);
     let target = self.expr(&member.obj)?;
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if name == "size" && collection.is_some() => Ok(Expr::Length(Box::new(target))),
       Ok(name) => Ok(Expr::Field(Box::new(target), name)),
       Err(key) => Ok(Expr::Index(Box::new(target), Box::new(key))),
     }
@@ -1558,6 +1630,7 @@ impl<'a> Lowerer<'a> {
             let target = Box::new(self.expr(&a.expr)?);
             return match method.as_str() {
               "entries" => Ok(Expr::Entries(target)),
+              "fromEntries" => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![*target] }),
               "keys" => Ok(Expr::Keys(target)),
               "values" => Ok(Expr::Values(target)),
               _ => Err(self.residue(member.span, format!("`Object.{method}`"))),
@@ -1605,6 +1678,33 @@ impl<'a> Lowerer<'a> {
             }
             return Ok(Expr::Builtin { name: Builtin::Json, args });
           }
+          "Array" if method == "from" && call.args.first().is_some_and(|a| !matches!(&*a.expr, js::Expr::Object(_))) => {
+            let source = &call.args[0].expr;
+            let mut items = self.expr(source)?;
+            items = match self.collection_of(source) {
+              Some(Collection::Map) => Expr::Entries(Box::new(items)),
+              _ => Expr::Builtin { name: Builtin::Slice, args: vec![items] },
+            };
+            return match call.args.get(1) {
+              None => Ok(items),
+              Some(f) => {
+                let js::Expr::Arrow(arrow) = &*f.expr else {
+                  return Err(self.residue(f.expr.span(), "`Array.from` takes an arrow function written in place"));
+                };
+                Ok(Expr::Map(Box::new(items), Box::new(self.lambda(arrow)?)))
+              }
+            };
+          }
+          "Date" => {
+            return match method.as_str() {
+              "now" => self.date_now(call.span),
+              "parse" => {
+                let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`Date.parse` without a string"))?;
+                Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![self.expr(&arg.expr)?] })
+              }
+              other => Err(self.residue(member.span, format!("`Date.{other}`"))),
+            };
+          }
           "Array" if method == "from" => {
             let (Some(shape), Some(f)) = (call.args.first(), call.args.get(1)) else {
               return Err(self.residue(call.span, "`Array.from` takes `{ length }` and a function"));
@@ -1644,6 +1744,47 @@ impl<'a> Lowerer<'a> {
       return Ok(Expr::NativeCall { module, method, args, sync: false });
     }
 
+    if method == "format" {
+      if let js::Expr::New(made) = strip_parens(&member.obj) {
+        if let Some(formatter) = intl_formatter(made) {
+          let value = call.args.first().ok_or_else(|| self.residue(call.span, "`format` without a value"))?;
+          let value = self.expr(&value.expr)?;
+          let made_args: Vec<js::ExprOrSpread> = made.args.clone().unwrap_or_default();
+          let expr = self.intl_format(formatter, &made_args, value, made.span)?;
+          return Ok(self.candidate(call.span, expr));
+        }
+      }
+    }
+    match self.collection_of(&member.obj) {
+      Some(Collection::Map) => {
+        let target = self.expr(&member.obj)?;
+        let key = |this: &mut Self| -> Lowered<Expr> {
+          let arg = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{method}` without a key")))?;
+          Ok(Expr::Str(Box::new(this.expr(&arg.expr)?)))
+        };
+        return match method.as_str() {
+          "get" => Ok(Expr::Index(Box::new(target), Box::new(key(self)?))),
+          "has" => Ok(Expr::Builtin { name: Builtin::HasKey, args: vec![target, key(self)?] }),
+          "keys" => Ok(Expr::Keys(Box::new(target))),
+          "values" => Ok(Expr::Values(Box::new(target))),
+          "entries" => Ok(Expr::Entries(Box::new(target))),
+          other => Err(self.residue(member.span, format!("`.{other}()` of a `Map`"))),
+        };
+      }
+      Some(Collection::Set) => {
+        let target = self.expr(&member.obj)?;
+        return match method.as_str() {
+          "has" => {
+            let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`has` without a value"))?;
+            Ok(Expr::Builtin { name: Builtin::Includes, args: vec![target, self.expr(&arg.expr)?] })
+          }
+          "values" | "keys" => Ok(target),
+          other => Err(self.residue(member.span, format!("`.{other}()` of a `Set`"))),
+        };
+      }
+      None => {}
+    }
+
     let target = Box::new(self.expr(&member.obj)?);
     let lambda = |this: &mut Self, i: usize| -> Lowered<Box<Expr>> {
       let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
@@ -1660,6 +1801,32 @@ impl<'a> Lowerer<'a> {
       "some" => Ok(Expr::Some(target, lambda(self, 0)?)),
       "every" => Ok(Expr::Every(target, lambda(self, 0)?)),
       "flatMap" => Ok(Expr::FlatMap(target, lambda(self, 0)?)),
+      "toString" if call.args.is_empty() => Ok(Expr::Str(target)),
+      "getTime" | "valueOf" => Ok(*target),
+      "toISOString" | "toJSON" => Ok(Expr::Builtin { name: Builtin::IsoString, args: vec![*target] }),
+      "getUTCFullYear" | "getUTCMonth" | "getUTCDate" | "getUTCDay" | "getUTCHours" | "getUTCMinutes" | "getUTCSeconds" | "getUTCMilliseconds" | "getMilliseconds" => {
+        let part = match method.as_str() {
+          "getUTCFullYear" => "year",
+          "getUTCMonth" => "month",
+          "getUTCDate" => "date",
+          "getUTCDay" => "day",
+          "getUTCHours" => "hours",
+          "getUTCMinutes" => "minutes",
+          "getUTCSeconds" => "seconds",
+          _ => "milliseconds",
+        };
+        Ok(Expr::Builtin { name: Builtin::DatePart, args: vec![*target, Expr::lit_str(part)] })
+      }
+      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
+        let utc = method.replacen("get", "getUTC", 1);
+        Err(self.residue_with(member.span, format!("`.{method}()`, which reads the viewer's time zone"), format!("the server has no viewer; `.{utc}()` and `toLocaleDateString(undefined, {{ dateStyle }})` read UTC, which the server and the browser agree on")))
+      }
+      "toLocaleDateString" => {
+        let mut made = call.args.clone();
+        made.truncate(2);
+        let expr = self.intl_format("DateTimeFormat", &made, *target, call.span)?;
+        Ok(self.candidate(call.span, expr))
+      }
       "toSorted" | "sort" | "toReversed" | "reverse" => {
         if matches!(method.as_str(), "sort" | "reverse") && !fresh_array(&member.obj) {
           return Err(self.residue_with(member.span, format!("`.{method}()` of an array something else holds, which it rewrites in place"), format!("`[...items].{method}()` or `items.slice().{method}()` gives the same order without the write")));
@@ -1825,6 +1992,98 @@ impl<'a> Lowerer<'a> {
   /// An arrow function applied by a builtin. Its body is one expression or a
   /// block that only returns one. Destructured parameters read as fields and
   /// indexes of the positional parameter.
+  /// `new Date(x)`, `new Map(pairs)`, `new Set(items)` and `new URLSearchParams(x)`; anything else made with `new` is residue.
+  fn new_expr(&mut self, n: &js::NewExpr) -> Lowered<Expr> {
+    let args: Vec<js::ExprOrSpread> = n.args.clone().unwrap_or_default();
+    if let Some(spread) = args.iter().find(|a| a.spread.is_some()) {
+      return Err(self.residue(spread.expr.span(), "a spread argument"));
+    }
+    let global = match &*n.callee {
+      js::Expr::Ident(id) if !self.scope.iter().any(|(name, _)| name == id.sym.as_ref()) && crate::component::find_import(self.parsed, id.sym.as_ref()).is_none() => id.sym.to_string(),
+      _ if intl_formatter(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
+      other => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`")),
+    };
+    let first = match args.first() {
+      Some(a) => Some(self.expr(&a.expr)?),
+      None => None,
+    };
+    match (global.as_str(), first) {
+      ("Date", None) => self.date_now(n.span),
+      ("Date", Some(x)) if args.len() == 1 => Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![x] }),
+      ("Date", Some(_)) => Err(self.residue_with(n.span, "`new Date(year, month, ...)`, which reads the viewer's time zone", "an ISO 8601 string ending in `Z` names the same instant everywhere, `new Date(\"2026-10-05T00:00:00Z\")`")),
+      ("Map", None) => Ok(Expr::Object(Vec::new())),
+      ("Map", Some(pairs)) => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![pairs] }),
+      ("Set", None) => Ok(Expr::Array(Vec::new())),
+      ("Set", Some(items)) => Ok(Expr::Builtin { name: Builtin::Unique, args: vec![items] }),
+      ("URLSearchParams", None) => Ok(Expr::lit_str("")),
+      ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
+      (other, _) => Err(self.residue(n.span, format!("`new {other}`"))),
+    }
+  }
+
+  /// `Date.now()` or `new Date()`: the request's clock in a body; on a render path the server and the browser would each read their own moment.
+  fn date_now(&mut self, span: Span) -> Lowered<Expr> {
+    if self.on_render_path() {
+      return Err(self.residue_with(span, "the current time on a render path, which the server and the browser read at different moments", "read `ctx.now` in the loader and pass it as a prop"));
+    }
+    Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "now".to_owned(), args: Vec::new() })))
+  }
+
+  /// `new Intl.NumberFormat(locale, options).format(value)` and `new Intl.DateTimeFormat(locale, options).format(value)` as the `intl` member that formats the same way under the request's locale.
+  fn intl_format(&mut self, formatter: &str, made: &[js::ExprOrSpread], value: Expr, span: Span) -> Lowered<Expr> {
+    if let Some(locale) = made.first() {
+      if !matches!(&*locale.expr, js::Expr::Ident(id) if id.sym.as_ref() == "undefined") {
+        return Err(self.residue_with(locale.expr.span(), "a locale named where it formats", "pass `undefined`: the request's locale formats it, on the server and in the browser alike"));
+      }
+    }
+    let mut options: Vec<(String, js::Expr)> = Vec::new();
+    if let Some(given) = made.get(1) {
+      let js::Expr::Object(obj) = &*given.expr else { return Err(self.residue(given.expr.span(), "formatting options that are not an object literal")) };
+      for prop in &obj.props {
+        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.residue(obj.span, "a spread in formatting options")) };
+        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.residue(obj.span, "a formatting option written other than `key: value`")) };
+        let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed formatting option"))?;
+        options.push((key, (*kv.value).clone()));
+      }
+    }
+    let literal = |options: &[(String, js::Expr)], key: &str| options.iter().find(|(k, _)| k == key).and_then(|(_, v)| match v {
+      js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
+      _ => None,
+    });
+    match formatter {
+      "NumberFormat" => {
+        if literal(&options, "style").as_deref() == Some("currency") {
+          if literal(&options, "currencyDisplay").as_deref() != Some("code") {
+            return Err(self.residue_with(span, "a currency formatted with a symbol", "`currencyDisplay: \"code\"` writes the ISO code, which the server and every browser agree on"));
+          }
+          let Some((_, code)) = options.iter().find(|(k, _)| k == "currency") else { return Err(self.residue(span, "a currency style with no `currency`")) };
+          let code = self.expr(&code.clone())?;
+          if let Some((other, _)) = options.iter().find(|(k, _)| !matches!(k.as_str(), "style" | "currency" | "currencyDisplay")) {
+            return Err(self.residue(span, format!("the formatting option `{other}` with a currency")));
+          }
+          return Ok(Expr::Ext { module: "intl".to_owned(), name: "currency".to_owned(), args: vec![value, code] });
+        }
+        let mut entries = Vec::new();
+        for (key, v) in &options {
+          if !matches!(key.as_str(), "minimumFractionDigits" | "maximumFractionDigits") {
+            return Err(self.residue(span, format!("the number formatting option `{key}`; `minimumFractionDigits`, `maximumFractionDigits` and a currency in code form are read")));
+          }
+          entries.push(Entry::Field(key.clone(), self.expr(v)?));
+        }
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "number".to_owned(), args: vec![value, Expr::Object(entries)] })
+      }
+      _ => {
+        let Some(style) = literal(&options, "dateStyle") else {
+          return Err(self.residue_with(span, "a date formatted without a `dateStyle`", "`{ dateStyle: \"medium\" }` names a format the server and the browser write the same way"));
+        };
+        if let Some((other, _)) = options.iter().find(|(k, _)| k != "dateStyle" && !(k == "timeZone" && literal(&options, "timeZone").as_deref() == Some("UTC"))) {
+          return Err(self.residue(span, format!("the date formatting option `{other}`; `dateStyle` and `timeZone: \"UTC\"` are read")));
+        }
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::lit_str(style)] })
+      }
+    }
+  }
+
   /// `a?.b.c(x)`: the call as written, `null` where an optional link's object is null or undefined.
   fn optional_call(&mut self, call: &js::OptCall) -> Lowered<Expr> {
     let mut guards = Vec::new();
@@ -1873,6 +2132,27 @@ fn strip_optional(e: &js::Expr, guards: &mut Vec<js::Expr>) -> js::Expr {
     js::Expr::Member(m) => js::Expr::Member(js::MemberExpr { span: m.span, obj: Box::new(strip_optional(&m.obj, guards)), prop: m.prop.clone() }),
     js::Expr::Paren(p) => strip_optional(&p.expr, guards),
     other => other.clone(),
+  }
+}
+
+fn strip_parens(e: &js::Expr) -> &js::Expr {
+  match e {
+    js::Expr::Paren(p) => strip_parens(&p.expr),
+    other => other,
+  }
+}
+
+/// `new Intl.NumberFormat(...)` or `new Intl.DateTimeFormat(...)`: which one.
+fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
+  let js::Expr::Member(m) = &*n.callee else { return None };
+  let (js::Expr::Ident(ns), js::MemberProp::Ident(name)) = (&*m.obj, &m.prop) else { return None };
+  if ns.sym.as_ref() != "Intl" {
+    return None;
+  }
+  match name.sym.as_ref() {
+    "NumberFormat" => Some("NumberFormat"),
+    "DateTimeFormat" => Some("DateTimeFormat"),
+    _ => None,
   }
 }
 

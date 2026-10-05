@@ -122,7 +122,7 @@ fn an_ext_module_lowers_every_export_or_fails_the_build() {
     "ext",
     &[
       ("ext/fmt.ts", "import { intl } from \"@snapfire/fsr-client/std\";\nexport const UNIT = \"kg\";\nexport function weight(grams: number): string {\n  return `${intl.number(grams / 1000)} ${UNIT}`;\n}\n"),
-      ("ext/bad.ts", "export function stamp(): string {\n  return new Date().toISOString();\n}\n"),
+      ("ext/bad.ts", "export function stamp(): string {\n  return String(new WeakMap());\n}\n"),
       ("routes/a/page.loader.ts", "import { weight } from \"@ext/fmt\";\nexport async function load() {\n  return { label: weight(1500) };\n}\n"),
       ("routes/a/page.tsx", "import { weight } from \"@ext/fmt\";\nexport default function A({ grams }: { grams: number }) {\n  return <p>{weight(grams)}</p>;\n}\n"),
     ],

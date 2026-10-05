@@ -394,7 +394,8 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       _ => residue,
     })?;
     self.lets.push(Stmt::Let { name: name.clone(), expr });
-    self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name));
+    self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name.clone()));
+    self.lowerer.note_kind(&name, init);
     Ok(())
   }
 
