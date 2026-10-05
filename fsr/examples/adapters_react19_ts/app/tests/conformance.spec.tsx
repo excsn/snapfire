@@ -1,4 +1,4 @@
-import { ctx, describe, expect, fireEvent, load, render, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, describe, expect, fireEvent, load, render, settle, test, waitFor } from "@snapfire/fsr-client/testing";
 
 import { tally } from "@src/probes";
 import ReactProbe from "@src/ui/ReactProbe";
@@ -67,7 +67,7 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }
     expect(counts().every((count) => count === "0"), counts().join()).toEqual(true);
     await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
-    expect(counts().length, "both probes and both nested probes").toEqual(4);
+    expect(counts().length, "both probes, both nested probes and the server island").toEqual(5);
     expect(counts().every((count) => count === "1"), counts().join()).toEqual(true);
   });
 
@@ -105,6 +105,24 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }
     expect(document.querySelector(".next-page")).toBeTruthy();
     expect(document.querySelector(".probe"), "no probe is left").toBeNull();
     expect(tally().unmounts[owner], "the island and the one nested in the other probe").toEqual(before + 2);
+  });
+});
+
+describe("a server island", () => {
+  test("renders the store's value and follows a write from another island", async () => {
+    await page();
+    expect(probe("server").querySelector(".count")?.textContent).toEqual("0");
+    await fireEvent.click(probe("react").querySelector(".add")!);
+    await settle();
+    await waitFor(() => expect(probe("server").querySelector(".count")?.textContent, "the write reached the server island, which stepped again").toEqual("1"));
+  });
+
+  test("writes the store, so every island shows its write", async () => {
+    await page();
+    await fireEvent.click(probe("server").querySelector(".add")!);
+    await settle();
+    await waitFor(() => expect(counts().every((count) => count === "1"), counts().join()).toEqual(true));
+    expect(counts().length).toEqual(5);
   });
 });
 
