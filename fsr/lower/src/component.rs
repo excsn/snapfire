@@ -1108,7 +1108,7 @@ fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (
 /// build generates: the property path is the id, `$root.blip` for
 /// `actions.$root.blip`. The generated module re-exports the client library's
 /// `action` under another name, so there is nothing here to follow by import.
-fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<String> {
+pub(crate) fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<String> {
   let mut path: Vec<String> = Vec::new();
   let mut cursor = callee;
   loop {
@@ -1134,7 +1134,7 @@ fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<String> {
 
 /// `const save = action("desk.save")` at module scope, `action` imported from
 /// the client library, when `name` is such a `save`: the action's id.
-fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
+pub(crate) fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
   let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
   if imported_callee(parsed, callee).filter(|(source, _)| source == CLIENT_SOURCE).map(|(_, name)| name).as_deref() != Some("action") {
@@ -1152,11 +1152,11 @@ enum Global<'a> {
   Function(Vec<js::Pat>, FunctionBody<'a>),
 }
 
-fn patterns(function: &js::Function) -> Vec<js::Pat> {
+pub(crate) fn patterns(function: &js::Function) -> Vec<js::Pat> {
   function.params.iter().map(|p| p.pat.clone()).collect()
 }
 
-fn arrow_body(arrow: &js::ArrowExpr) -> FunctionBody<'_> {
+pub(crate) fn arrow_body(arrow: &js::ArrowExpr) -> FunctionBody<'_> {
   match &*arrow.body {
     js::ArrowFunctionBody::FunctionBody(b) => FunctionBody::Block(&b.stmts),
     js::ArrowFunctionBody::Expr(e) => FunctionBody::Expr(e),
@@ -1569,15 +1569,15 @@ pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target
 /// are hoisted under a name of their own, since the patch is evaluated after
 /// every branch has bound.
 #[derive(Default)]
-struct HandlerWalk {
-  out: Vec<Stmt>,
-  patch: Vec<Entry>,
-  reach: Option<Expr>,
-  locals: usize,
+pub(crate) struct HandlerWalk {
+  pub(crate) out: Vec<Stmt>,
+  pub(crate) patch: Vec<Entry>,
+  pub(crate) reach: Option<Expr>,
+  pub(crate) locals: usize,
 }
 
 impl HandlerWalk {
-  fn set(&mut self, state: String, value: Expr) {
+  pub(crate) fn set(&mut self, state: String, value: Expr) {
     let value = match &self.reach {
       None => value,
       Some(reach) => {
@@ -1596,7 +1596,7 @@ impl HandlerWalk {
     self.patch.push(Entry::Field(state, value));
   }
 
-  fn act(&mut self, action: String, input: Expr) {
+  pub(crate) fn act(&mut self, action: String, input: Expr) {
     let act = Stmt::Act { action, input };
     match &self.reach {
       None => self.out.push(act),
@@ -1605,14 +1605,14 @@ impl HandlerWalk {
   }
 }
 
-fn reach_under(outer: &Option<Expr>, cond: Expr) -> Expr {
+pub(crate) fn reach_under(outer: &Option<Expr>, cond: Expr) -> Expr {
   match outer {
     None => cond,
     Some(outer) => Expr::Logic(LogicOp::And, Box::new(outer.clone()), Box::new(cond)),
   }
 }
 
-fn holds_act(stmts: &[Stmt]) -> bool {
+pub(crate) fn holds_act(stmts: &[Stmt]) -> bool {
   stmts.iter().any(|stmt| match stmt {
     Stmt::Act { .. } => true,
     Stmt::If { then, r#else, .. } => holds_act(then) || holds_act(r#else),

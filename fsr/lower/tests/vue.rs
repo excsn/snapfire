@@ -312,3 +312,89 @@ fn the_client_adapters_placements_lower_inside_a_vue_template_as_they_do_in_jsx(
   assert_eq!(html.matches("<sf-s data-sf-island=\"\"></sf-s>").count(), 2, "one empty region per mount, which the adapter fills: {html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_vue_components_handlers_lower_to_steps_that_write_its_refs_and_the_store() {
+  use snapfire_fsr_ir::render::{HandlerRef, HANDLER_ATTR, UNLOWERED_ATTR};
+  let source = r#"<script setup lang="ts">
+import { ref } from "vue";
+import { useStore } from "@snapfire/fsr-client/vue";
+
+const n = ref(0);
+const count = useStore("probe/count", 0);
+const emit = defineEmits<{ (e: "x"): void }>();
+function bump(by: number) {
+  n.value += by;
+  count.value = count.value + n.value;
+}
+const cap = () => {
+  if (n.value > 1) return;
+  count.value = 10;
+};
+</script>
+
+<template>
+  <div>
+    <p>{{ n }} {{ count.value }}</p>
+    <button class="inc" @click="n++">inc</button>
+    <button class="bump" @click="bump(2)">bump</button>
+    <button class="cap" @click.prevent="cap">cap</button>
+    <button class="arrow" @click="(e) => { n = 7; count.value = n * 2 }">arrow</button>
+    <input class="key" @keyup.enter="n = 0" />
+    <button class="emit" @click="emit('x')">emit</button>
+  </div>
+</template>
+"#;
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("handlers", &[]);
+  let set = lower(&compiler, &dir, "src/ui/Steps.vue", source).unwrap();
+  let module = "src/ui/Steps.vue#default";
+  let (_, component) = set.components.iter().find(|(m, _)| m == module).unwrap();
+  assert_eq!(component.handlers.len(), 4, "{:?}", component.handlers);
+  assert!(component.handlers.iter().all(|h| h.event == "click"));
+  let Tmpl::Element { children, .. } = &component.render else { panic!("{:?}", component.render) };
+  let unlowered: Vec<String> = children
+    .iter()
+    .filter_map(|c| match c {
+      Tmpl::Element { attrs, .. } => attrs.iter().find_map(|a| match a {
+        Entry::Field(name, Expr::Lit(snapfire_fsr_ir::ast::Lit::Str(why))) if name == UNLOWERED_ATTR => Some(why.clone()),
+        _ => None,
+      }),
+      _ => None,
+    })
+    .collect();
+  assert_eq!(unlowered.len(), 2, "{unlowered:?}");
+  assert!(unlowered[0].contains("`.enter` on `@keyup`"), "{unlowered:?}");
+  assert!(unlowered[1].contains("a call to `emit`"), "{unlowered:?}");
+  let bound = children.iter().filter(|c| matches!(c, Tmpl::Element { attrs, .. } if attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n.starts_with(HANDLER_ATTR))))).count();
+  assert_eq!(bound, 4);
+
+  let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
+  let interpreter = Interpreter::default().with_frameworks(Frameworks { react: None, vue: Some(VueMajor::V3) });
+  let step = |n: f64, count: f64, index: usize| {
+    let mut props = ValueMap::default();
+    props.insert("$store".to_owned(), Value::Map([("probe/count".to_owned(), Value::F64(count))].into_iter().collect()));
+    let state: ValueMap = [("n".to_owned(), Value::F64(n))].into_iter().collect();
+    interpreter.island_step(module, component, &props, &state, Some(HandlerRef::own(index)), &Value::Null, &library).unwrap()
+  };
+  let number = |v: Option<&Value>| match v {
+    Some(Value::Int(i)) => *i as f64,
+    Some(Value::F64(f)) => *f,
+    other => panic!("{other:?}"),
+  };
+  let inc = step(1.0, 5.0, 0);
+  assert_eq!(number(inc.state.get("n")), 2.0);
+  assert!(inc.store.is_empty(), "{:?}", inc.store);
+  let bump = step(1.0, 5.0, 1);
+  assert_eq!(number(bump.state.get("n")), 3.0);
+  assert_eq!(number(bump.store.get("probe/count")), 8.0, "the store write read `n` after the write before it");
+  assert!(bump.rendered.html.contains("<p>3 8</p>"), "{}", bump.rendered.html);
+  let capped = step(0.0, 5.0, 2);
+  assert_eq!(number(capped.store.get("probe/count")), 10.0);
+  let passed = step(2.0, 5.0, 2);
+  assert!(passed.store.get("probe/count").is_none_or(|v| number(Some(v)) == 5.0), "an early return leaves the store: {:?}", passed.store);
+  let arrow = step(0.0, 0.0, 3);
+  assert_eq!(number(arrow.state.get("n")), 7.0);
+  assert_eq!(number(arrow.store.get("probe/count")), 14.0);
+  std::fs::remove_dir_all(&dir).unwrap();
+}

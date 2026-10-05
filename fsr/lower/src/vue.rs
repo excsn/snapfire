@@ -2,23 +2,26 @@
 //! render tree, the way `component` reads a `.tsx` module. The `<script
 //! setup>` block is TypeScript and goes through the body lowerer: `ref` and
 //! `computed` bind the way `useState` and a `const` do, `defineProps` is
-//! `$props` and a function is the browser's. The template is Vue's own parse
-//! tree, its expressions parsed one at a time in the file's coordinates.
-//! Anything outside that is residue and the component stays foreign.
+//! `$props` and a function is a handler body an `@event` can name. The
+//! template is Vue's own parse tree, its expressions parsed one at a time in
+//! the file's coordinates. An `@event` lowers as a handler a server island
+//! steps or leaves its reason on the element. Anything else outside that is
+//! residue and the component stays foreign.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
-use snapfire_fsr_ir::ast::{CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
-use snapfire_fsr_ir::render::RAW_ATTR;
+use snapfire_fsr_ir::ast::{CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
+use snapfire_fsr_ir::render::{HANDLER_ATTR, RAW_ATTR, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
 
 use crate::assets::AssetResolver;
-use crate::component::{bind_object, block_to_expr, find_import, imported_as, is_template_source, HeadRow};
+use crate::component::{action_alias_of, arrow_body, bind_object, block_to_expr, find_import, generated_action_of, holds_act, imported_as, is_template_source, patterns, reach_under, FunctionBody, HandlerWalk, HeadRow};
 use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{Lowered, Lowerer, Residue};
 
@@ -113,6 +116,13 @@ pub(crate) struct VueLowerer<'a, 'p> {
   /// How the template reads each name the script bound: a `ref` unwrapped,
   /// a store holder through `.value`.
   template_scope: Vec<(String, Expr)>,
+  /// The scope at the end of `<script setup>`, which a setup function's body reads.
+  script_scope: Vec<(String, Expr)>,
+  /// Setup functions by name, which a template handler names or calls.
+  handler_fns: HashMap<String, (Vec<js::Pat>, FunctionBody<'p>)>,
+  handlers: Vec<Handler>,
+  /// The setup functions a handler is inside, outermost first.
+  calling: Vec<String>,
   assets: Rc<dyn AssetResolver>,
   /// The head rows the template asks for, a priority image's preload.
   pub(crate) heads: Vec<HeadRow>,
@@ -143,13 +153,13 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), assets, heads: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), assets, heads: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
     self.script()?;
     let render = self.template()?;
-    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: Vec::new(), owner: Owner::Vue, shadow: None })
+    Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: std::mem::take(&mut self.handlers), owner: Owner::Vue, shadow: None })
   }
 
   fn at(&self, line: usize, column: usize, message: impl Into<String>) -> Residue {
@@ -188,6 +198,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         js::ModuleItem::Stmt(stmt) => self.setup_stmt(stmt)?,
       }
     }
+    self.script_scope = self.lowerer.scope.clone();
     Ok(())
   }
 
@@ -199,7 +210,13 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         }
         Ok(())
       }
-      js::Stmt::Decl(js::Decl::Fn(_) | js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
+      js::Stmt::Decl(js::Decl::Fn(f)) => {
+        if let Some(body) = &f.function.body {
+          self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+        }
+        Ok(())
+      }
+      js::Stmt::Decl(js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
       js::Stmt::Decl(js::Decl::TsEnum(e)) => Err(self.lowerer.residue(e.span, "an enum in `<script setup>`")),
       js::Stmt::Decl(js::Decl::Class(c)) => Err(self.lowerer.residue(c.class.span, "a class in `<script setup>`")),
       js::Stmt::Expr(e) => {
@@ -360,8 +377,18 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         }
       }
     }
-    if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) {
-      return Ok(());
+    match init {
+      js::Expr::Arrow(arrow) => {
+        self.handler_fns.insert(name, (arrow.params.clone(), arrow_body(arrow)));
+        return Ok(());
+      }
+      js::Expr::Fn(f) => {
+        if let Some(body) = &f.function.body {
+          self.handler_fns.insert(name, (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+        }
+        return Ok(());
+      }
+      _ => {}
     }
     let expr = self.lowerer.expr(init).map_err(|residue| match residue.line {
       0 => self.lowerer.residue(span, residue.message),
@@ -602,7 +629,15 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         continue;
       }
       match prop.name.as_str() {
-        "if" | "else-if" | "else" | "for" | "on" | "once" | "memo" | "cloak" => {}
+        "if" | "else-if" | "else" | "for" | "once" | "memo" | "cloak" => {}
+        "on" => match self.on(prop) {
+          Ok((event, index)) => attrs.push(Entry::Field(format!("{HANDLER_ATTR}{event}"), Expr::Lit(Lit::Int(index as i128)))),
+          Err(residue) => {
+            if !attrs.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
+              attrs.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{}:{}: {}", residue.line, residue.column, residue.message))));
+            }
+          }
+        },
         "bind" => {
           if !prop.arg_static {
             return Err(self.at(prop.line, prop.column, "a bound attribute whose name is an expression"));
@@ -677,6 +712,300 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     };
     Ok(Tmpl::Element { tag: node.tag.clone(), attrs, children })
   }
+}
+
+/// A handler's walk: the patch and statements, plus each state name written so far with the `let` holding its latest value, which later reads see.
+#[derive(Default)]
+struct VueWalk {
+  walk: HandlerWalk,
+  written: Vec<(String, String)>,
+  values: usize,
+}
+
+impl VueLowerer<'_, '_> {
+  /// `@event` on an element as a lowered handler: its event and index. A handler is a setup function's name, an arrow or statements over `$event`; its statements are `const`s, branches, writes to a `ref` or a store, calls to setup functions and calls to actions.
+  fn on(&mut self, prop: &Prop) -> Lowered<(String, usize)> {
+    let event = match (&prop.arg, prop.arg_static) {
+      (Some(arg), true) => arg.to_ascii_lowercase(),
+      _ => return Err(self.at(prop.line, prop.column, "`v-on` without an event name written out")),
+    };
+    if let Some(modifier) = prop.modifiers.iter().find(|m| !matches!(m.as_str(), "prevent" | "stop")) {
+      return Err(self.at(prop.line, prop.column, format!("`.{modifier}` on `@{event}`, a modifier the build does not lower")));
+    }
+    let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, format!("`@{event}` without a handler"))) };
+    let expr = self.lowerer.parsed.parse_expr_at(exp, prop.exp_line, prop.exp_column).map_err(|message| self.at(prop.exp_line, prop.exp_column, format!("`{}`: {message}", exp.trim())))?;
+    let hoisting = self.lowerer.hoisting.take();
+    let was_handler = std::mem::replace(&mut self.lowerer.in_handler, true);
+    let depth = self.lowerer.scope.len();
+    let result = self.on_body(&expr);
+    self.lowerer.scope.truncate(depth);
+    self.lowerer.hoisting = hoisting;
+    self.lowerer.in_handler = was_handler;
+    let body = result?;
+    self.handlers.push(Handler { event: event.clone(), body });
+    Ok((event, self.handlers.len() - 1))
+  }
+
+  fn on_body(&mut self, expr: &js::Expr) -> Lowered<Vec<Stmt>> {
+    let mut walk = VueWalk::default();
+    let event = || vec![Expr::Var("$event".to_owned())];
+    match unwrap_types(expr) {
+      js::Expr::Arrow(arrow) => self.handler_fn(&arrow.params, arrow_body(arrow), event(), &mut walk)?,
+      js::Expr::Fn(f) => {
+        let Some(body) = &f.function.body else { return Err(self.lowerer.residue(f.function.span, "a handler without a body")) };
+        self.handler_fn(&patterns(&f.function), FunctionBody::Block(&body.stmts), event(), &mut walk)?
+      }
+      js::Expr::Ident(id) if self.handler_fns.contains_key(id.sym.as_ref()) => self.call_setup(id.sym.as_ref(), event(), id.span, &mut walk)?,
+      other => {
+        self.lowerer.scope.push(("$event".to_owned(), Expr::Var("$event".to_owned())));
+        self.handler_stmt(other, &mut walk)?;
+      }
+    }
+    if walk.walk.patch.is_empty() && !holds_act(&walk.walk.out) {
+      return Err(self.lowerer.residue(expr.span(), "a handler that sets no state and calls no action"));
+    }
+    walk.walk.out.push(Stmt::Return(Expr::Object(walk.walk.patch)));
+    Ok(walk.walk.out)
+  }
+
+  /// A function's body with its parameters bound to `args`, in the scope that holds it.
+  fn handler_fn(&mut self, params: &[js::Pat], body: FunctionBody<'_>, args: Vec<Expr>, walk: &mut VueWalk) -> Lowered<()> {
+    let depth = self.lowerer.scope.len();
+    for (param, arg) in params.iter().zip(args.into_iter().chain(std::iter::repeat(Expr::Lit(Lit::Null)))) {
+      let js::Pat::Ident(id) = param else { return Err(self.lowerer.residue(param.span(), "a handler parameter that is not a name")) };
+      self.lowerer.scope.push((id.id.sym.to_string(), arg));
+    }
+    let result = match body {
+      FunctionBody::Expr(e) => self.handler_stmt(e, walk),
+      FunctionBody::Block(stmts) => self.handler_block(stmts, walk).map(|_| ()),
+    };
+    self.lowerer.scope.truncate(depth);
+    self.rebind(walk);
+    result
+  }
+
+  /// A setup function inlined: its body reads the script's scope, with what the handler wrote so far.
+  fn call_setup(&mut self, name: &str, args: Vec<Expr>, span: swc_core::common::Span, walk: &mut VueWalk) -> Lowered<()> {
+    if self.calling.iter().any(|c| c == name) {
+      return Err(self.lowerer.residue(span, format!("`{name}` calls itself")));
+    }
+    let (params, body) = self.handler_fns.get(name).cloned().expect("a setup function");
+    let outer = std::mem::replace(&mut self.lowerer.scope, self.script_scope.clone());
+    self.rebind(walk);
+    self.calling.push(name.to_owned());
+    let result = self.handler_fn(&params, body, args, walk);
+    self.calling.pop();
+    self.lowerer.scope = outer;
+    self.rebind(walk);
+    result
+  }
+
+  /// Binds each written state name to its latest value, as a holder where the scope reads it through `.value`.
+  fn rebind(&mut self, walk: &VueWalk) {
+    for (state, value) in &walk.written {
+      let expr = match self.bound(state) {
+        Some(bound) if is_holder(bound) => Self::holder(value),
+        _ => Expr::Var(value.clone()),
+      };
+      self.lowerer.scope.push((state.clone(), expr));
+    }
+  }
+
+  fn bound(&self, name: &str) -> Option<&Expr> {
+    self.lowerer.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e)
+  }
+
+  /// The state an assignment target writes: a `ref` by its name where the scope unwraps it, `x.value` where the scope holds it.
+  fn target_state(&self, target: &js::Expr, walk: &VueWalk) -> Option<String> {
+    let (name, held) = match unwrap_types(target) {
+      js::Expr::Ident(id) => (id.sym.to_string(), false),
+      js::Expr::Member(m) => match (&*m.obj, &m.prop) {
+        (js::Expr::Ident(id), js::MemberProp::Ident(prop)) if prop.sym.as_ref() == "value" => (id.sym.to_string(), true),
+        _ => return None,
+      },
+      _ => return None,
+    };
+    if !self.state.contains(&name) {
+      return None;
+    }
+    let latest = walk.written.iter().find(|(s, _)| *s == name).map_or(name.as_str(), |(_, v)| v.as_str());
+    let reads = match self.bound(&name)? {
+      Expr::Object(entries) if held => match entries.as_slice() {
+        [Entry::Field(field, Expr::Var(v))] if field == "value" => v,
+        _ => return None,
+      },
+      Expr::Var(v) if !held => v,
+      _ => return None,
+    };
+    (reads == latest).then_some(name)
+  }
+
+  fn write(&mut self, state: String, value: Expr, walk: &mut VueWalk) {
+    walk.walk.set(state.clone(), value);
+    let Some(Entry::Field(_, held)) = walk.walk.patch.iter_mut().find(|e| matches!(e, Entry::Field(n, _) if *n == state)) else { return };
+    walk.values += 1;
+    let name = format!("{state}$v{}", walk.values);
+    let expr = std::mem::replace(held, Expr::Var(name.clone()));
+    walk.walk.out.push(Stmt::Let { name: name.clone(), expr });
+    let shape = self.bound(&state).is_some_and(is_holder);
+    walk.written.retain(|(s, _)| *s != state);
+    walk.written.push((state.clone(), name.clone()));
+    self.lowerer.scope.push((state, if shape { Self::holder(&name) } else { Expr::Var(name) }));
+  }
+
+  fn handler_block(&mut self, stmts: &[js::Stmt], walk: &mut VueWalk) -> Lowered<bool> {
+    for stmt in stmts {
+      match stmt {
+        js::Stmt::Expr(e) => self.handler_stmt(&e.expr, walk)?,
+        js::Stmt::Decl(js::Decl::Var(var)) => {
+          for decl in &var.decls {
+            let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
+            let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+            let expr = self.lowerer.expr(init)?;
+            let local = name.id.sym.to_string();
+            walk.walk.locals += 1;
+            let bound = format!("{local}${}", walk.walk.locals);
+            let expr = match &walk.walk.reach {
+              None => expr,
+              Some(reach) => Expr::Ternary(Box::new(reach.clone()), Box::new(expr), Box::new(Expr::Lit(Lit::Null))),
+            };
+            self.lowerer.scope.push((local, Expr::Var(bound.clone())));
+            walk.walk.out.push(Stmt::Let { name: bound, expr });
+          }
+        }
+        js::Stmt::Return(r) if r.arg.is_none() => return Ok(true),
+        js::Stmt::If(branch) => self.handler_if(branch, walk)?,
+        js::Stmt::Block(block) => {
+          let depth = self.lowerer.scope.len();
+          let returned = self.handler_block(&block.stmts, walk);
+          self.lowerer.scope.truncate(depth);
+          self.rebind(walk);
+          if returned? {
+            return Ok(true);
+          }
+        }
+        other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, writes to a `ref` or a store, calls to setup functions and calls to actions")),
+      }
+    }
+    Ok(false)
+  }
+
+  fn handler_if(&mut self, branch: &js::IfStmt, walk: &mut VueWalk) -> Lowered<()> {
+    let cond = self.lowerer.expr(&branch.test)?;
+    let outer = walk.walk.reach.clone();
+    let depth = self.lowerer.scope.len();
+    walk.walk.reach = Some(reach_under(&outer, cond.clone()));
+    let then_returned = self.handler_branch(&branch.cons, walk);
+    self.lowerer.scope.truncate(depth);
+    self.rebind(walk);
+    let then_returned = then_returned?;
+    let mut else_returned = false;
+    if let Some(alt) = &branch.alt {
+      walk.walk.reach = Some(reach_under(&outer, Expr::Not(Box::new(cond.clone()))));
+      let returned = self.handler_branch(alt, walk);
+      self.lowerer.scope.truncate(depth);
+      self.rebind(walk);
+      else_returned = returned?;
+    }
+    walk.walk.reach = match (then_returned, else_returned) {
+      (false, false) => outer,
+      (true, false) => Some(reach_under(&outer, Expr::Not(Box::new(cond)))),
+      (false, true) => Some(reach_under(&outer, cond)),
+      (true, true) => Some(Expr::Lit(Lit::Bool(false))),
+    };
+    Ok(())
+  }
+
+  fn handler_branch(&mut self, stmt: &js::Stmt, walk: &mut VueWalk) -> Lowered<bool> {
+    match stmt {
+      js::Stmt::Block(block) => self.handler_block(&block.stmts, walk),
+      other => self.handler_block(std::slice::from_ref(other), walk),
+    }
+  }
+
+  fn handler_stmt(&mut self, e: &js::Expr, walk: &mut VueWalk) -> Lowered<()> {
+    match e {
+      js::Expr::Paren(p) => self.handler_stmt(&p.expr, walk),
+      js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, walk),
+      js::Expr::Await(a) => self.handler_stmt(&a.arg, walk),
+      js::Expr::Seq(seq) => seq.exprs.iter().try_for_each(|e| self.handler_stmt(e, walk)),
+      js::Expr::Assign(assign) => {
+        let target = match &assign.left {
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => js::Expr::Ident(id.id.clone()),
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => js::Expr::Member(m.clone()),
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Paren(p)) => (*p.expr).clone(),
+          _ => return Err(self.lowerer.residue(assign.span, "an assignment a handler cannot make")),
+        };
+        let Some(state) = self.target_state(&target, walk) else {
+          return Err(self.lowerer.residue(assign.span, "an assignment to something other than a `ref` or a store this component holds"));
+        };
+        let value = match assign.op.to_update() {
+          None => self.lowerer.expr(&assign.right)?,
+          Some(op) => self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(target), right: assign.right.clone() }))?,
+        };
+        self.write(state, value, walk);
+        Ok(())
+      }
+      js::Expr::Update(update) => {
+        let Some(state) = self.target_state(&update.arg, walk) else {
+          return Err(self.lowerer.residue(update.span, "an update to something other than a `ref` or a store this component holds"));
+        };
+        let op = match update.op {
+          js::UpdateOp::PlusPlus => js::BinaryOp::Add,
+          js::UpdateOp::MinusMinus => js::BinaryOp::Sub,
+        };
+        let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
+        let value = self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
+        self.write(state, value, walk);
+        Ok(())
+      }
+      js::Expr::Call(call) => {
+        let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
+        match unwrap_types(callee) {
+          js::Expr::Ident(id) => {
+            let name = id.sym.to_string();
+            if self.handler_fns.contains_key(&name) {
+              let args = call.args.iter().map(|a| self.lowerer.expr(&a.expr)).collect::<Lowered<Vec<_>>>()?;
+              return self.call_setup(&name, args, call.span, walk);
+            }
+            if let Some(action) = action_alias_of(self.lowerer.parsed, &name) {
+              let input = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::Object(Vec::new()),
+              };
+              walk.walk.act(action, input);
+              return Ok(());
+            }
+            Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not an action or a function this component declares")))
+          }
+          js::Expr::Member(m) => {
+            let method = match &m.prop {
+              js::MemberProp::Ident(i) => i.sym.to_string(),
+              _ => String::new(),
+            };
+            if method == "preventDefault" || method == "stopPropagation" {
+              return Ok(());
+            }
+            if let Some(action) = generated_action_of(self.lowerer.parsed, callee) {
+              let input = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::Object(Vec::new()),
+              };
+              walk.walk.act(action, input);
+              return Ok(());
+            }
+            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, branches, writes to a `ref` or a store, calls to setup functions and calls to actions")))
+          }
+          other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
+        }
+      }
+      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, writes to a `ref` or a store, calls to setup functions and calls to actions")),
+    }
+  }
+}
+
+fn is_holder(expr: &Expr) -> bool {
+  matches!(expr, Expr::Object(entries) if matches!(entries.as_slice(), [Entry::Field(field, _)] if field == "value"))
 }
 
 enum Branch {

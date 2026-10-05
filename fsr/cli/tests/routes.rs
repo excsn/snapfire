@@ -859,6 +859,24 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
   std::fs::remove_dir_all(&fine).unwrap();
 }
 
+#[test]
+fn a_vue_island_in_server_mode_answers_its_handlers_or_is_refused_over_one_that_did_not_lower() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport Counter from \"../../src/Counter.vue\";\nexport default function Page() {\n  return <Island mode=\"server\"><Counter /></Island>;\n}\n";
+  let counter = |handler: &str| format!("<script setup lang=\"ts\">\nimport {{ ref }} from \"vue\";\nconst n = ref(0);\nfunction bump(by: number) {{\n  n.value += by;\n}}\n</script>\n\n<template>\n  <div><button class=\"one\" @click=\"n++\">{{{{ n }}}}</button><button class=\"two\" {handler}>more</button></div>\n</template>\n");
+  let answered = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page), ("src/Counter.vue", &counter("@click=\"bump(2)\""))]);
+  let built = build(&answered, &Options::default()).unwrap();
+  assert_eq!(built.report.islands, vec![("src/Counter.vue#default".to_owned(), 2)], "{}", built.report);
+  std::fs::remove_dir_all(&answered).unwrap();
+
+  let keyed = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page), ("src/Counter.vue", &counter("@keyup.enter=\"bump(2)\""))]);
+  let err = match build(&keyed, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(err.contains("`src/Counter.vue#default` cannot be an island in server mode") && err.contains("a handler did not lower") && err.contains("`.enter` on `@keyup`"), "{err}");
+  std::fs::remove_dir_all(&keyed).unwrap();
+}
+
 /// A step renders the island with nothing on the slot stack, so a slot in its
 /// markup comes back empty and the patch removes whatever filled it.
 #[test]
