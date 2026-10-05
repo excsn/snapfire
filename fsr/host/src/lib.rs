@@ -1700,21 +1700,23 @@ impl Host {
   }
 
   /// `render_to_string` with the status `handle` would answer: the page
-  /// loader's failure kind when it failed, `200` otherwise.
-  pub async fn render_with_status(&self, path: &str, mode: RenderMode, session: SessionCell) -> Result<(StatusCode, String), HostError> {
+  /// loader's failure kind when it failed, `200` otherwise. `locale` is the
+  /// request's `Accept-Language`, which a path prefix outranks.
+  pub async fn render_with_status(&self, path: &str, mode: RenderMode, session: SessionCell, locale: Option<&str>) -> Result<(StatusCode, String), HostError> {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = t.locales.resolve(bare, None, None);
+    let visit = t.locales.resolve(bare, None, locale);
     let rendered = self.render_in(&t, &visit, raw_query, mode, Incoming::anonymous(session)).await?;
     let chunks: Vec<String> = rendered.chunks.collect().await;
     Ok((status_of(rendered.failed), chunks.concat()))
   }
 
-  /// `render_navigation_to_string` with the status `handle` would answer.
-  pub async fn render_navigation_with_status(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell) -> Result<(StatusCode, String), HostError> {
+  /// `render_navigation_to_string` with the status `handle` would answer;
+  /// `locale` as `render_with_status` takes it.
+  pub async fn render_navigation_with_status(&self, path: &str, from: Option<&str>, into: Option<&str>, session: SessionCell, locale: Option<&str>) -> Result<(StatusCode, String), HostError> {
     let t = self.tables();
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
-    let visit = t.locales.resolve(bare, None, None);
+    let visit = t.locales.resolve(bare, None, locale);
     let rendered = self.render_navigation_in(&t, &visit, raw_query, from, into, Incoming::anonymous(session)).await?;
     let chunks: Vec<String> = rendered.chunks.collect().await;
     Ok((status_of(rendered.failed), chunks.concat()))

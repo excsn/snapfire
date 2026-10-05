@@ -1148,9 +1148,9 @@ impl FetchHooks {
     let header = |name: &str| headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
     let (from, into) = (header("x-sf-from"), header("x-sf-into"));
     let rendered = if mode == RenderMode::Payload && (from.is_some() || into.is_some()) {
-      host.render_navigation_with_status(&target, from, into, session.clone()).await
+      host.render_navigation_with_status(&target, from, into, session.clone(), Some(&mock.ctx.locale.tag)).await
     } else {
-      host.render_with_status(&target, mode.clone(), session.clone()).await
+      host.render_with_status(&target, mode.clone(), session.clone(), Some(&mock.ctx.locale.tag)).await
     };
     match rendered {
       Ok((status, body)) => FetchResponse::new(status.as_u16(), body),

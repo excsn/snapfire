@@ -12,8 +12,8 @@ const FRAMEWORKS = [
   { owner: "vue", module: VUE, other: REACT, Probe: VueProbe },
 ] as const;
 
-const page = async (path = "/") => {
-  await load(path, { ctx: ctx() });
+const page = async (path = "/", locale?: string) => {
+  await load(path, { ctx: ctx(locale === undefined ? {} : { locale }) });
   await settle();
 };
 
@@ -76,6 +76,8 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }
     expect(probe(owner).querySelector(".locale")?.textContent).toEqual("en");
     await page("/fr/");
     expect(probe(owner).querySelector(".locale")?.textContent).toEqual("fr");
+    await page("/", "fr");
+    expect(probe(owner).querySelector(".locale")?.textContent, "the ctx is the request the page loads under").toEqual("fr");
   });
 
   test("writes a Link the navigator reads", async () => {
