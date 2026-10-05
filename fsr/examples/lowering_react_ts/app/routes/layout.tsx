@@ -10,6 +10,7 @@ export default function Layout({ children }: { children: Children }) {
         <nav>
           <Link href="/methods">methods</Link>
           <Link href="/patterns">patterns</Link>
+          <Link href="/statements">statements</Link>
         </nav>
       </header>
       <main className="content">{children}</main>
