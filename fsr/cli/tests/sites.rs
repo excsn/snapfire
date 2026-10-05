@@ -136,7 +136,8 @@ fn unlinking_a_name_the_table_does_not_hold_says_what_it_holds() {
 /// A shell whose table mounts a versioned artifact in its own cache.
 fn pinnable() -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let root = std::env::temp_dir().join(format!("fsr-pin-{}-{nanos}", std::process::id()));
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let root = std::env::temp_dir().join(format!("fsr-pin-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
   std::fs::write(root.join("app.toml"), "[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[sites]\nroot = \"sites\"\n\n[sites.billing]\nartifact = \"billing@1.0.0\"\n").unwrap();
   std::fs::write(root.join("app/generated/plan.sexp"), "(plan 2)\n").unwrap();
