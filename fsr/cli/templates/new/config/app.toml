@@ -3,7 +3,7 @@ listen = "127.0.0.1:{{port}}"
 {{site}}
 [document]
 title = "{{name}}"
-
+{{csp}}
 [session]
 key = "{{name}}-development-key-not-a-secret"
 ttl = "24h"

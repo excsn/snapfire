@@ -138,6 +138,40 @@ fn a_site_scaffold_keeps_its_styles_and_links_inside_its_prefix() {
 }
 
 #[test]
+fn an_application_starts_on_a_report_only_policy_and_a_site_on_its_shell_s() {
+  let app = root("policy");
+  create(&app, offline()).unwrap();
+  let toml = std::fs::read_to_string(app.join("config/app.toml")).unwrap();
+  assert!(toml.contains("[document.csp_report_only]") && toml.contains("default-src = [\"'self'\"]"), "{toml}");
+  assert!(!toml.lines().any(|l| l.trim() == "[document.csp]"), "nothing is enforced until the table is renamed: {toml}");
+  let config = snapfire_fsr_host::config::Config::load(app.join("config")).unwrap();
+  assert!(config.document.csp_report_only.is_some() && config.document.csp.is_none());
+
+  let site = root("policy-site");
+  create(&site, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None }), ..offline() }).unwrap();
+  let toml = std::fs::read_to_string(site.join("config/app.toml")).unwrap();
+  assert!(!toml.contains("csp"), "a site's document is its shell's: {toml}");
+}
+
+#[test]
+fn a_build_names_a_policy_that_turns_every_inline_script_off() {
+  let app = root("trap");
+  create(&app, offline()).unwrap();
+  let config = app.join("config/app.toml");
+  let toml = std::fs::read_to_string(&config).unwrap();
+  let toml = toml.replace("[document.csp_report_only]", "[document.csp]").replace("script-src = [\"'self'\"]", "script-src = [\"'self'\", \"'unsafe-inline'\"]");
+  std::fs::write(&config, toml).unwrap();
+  let built = build(&app.join("app"), &Options::beside(&app.join("app"))).unwrap();
+  assert_eq!(built.report.csp.len(), 1, "{}", built.report);
+  assert!(built.report.to_string().contains("csp       `document.csp` names `'unsafe-inline'`"), "{}", built.report);
+
+  let quiet = root("no-trap");
+  create(&quiet, offline()).unwrap();
+  let built = build(&quiet.join("app"), &Options::beside(&quiet.join("app"))).unwrap();
+  assert!(built.report.csp.is_empty(), "the starting policy is not a trap: {}", built.report);
+}
+
+#[test]
 fn an_application_scaffold_keeps_the_page_wide_styles() {
   let root = root("whole");
   create(&root, offline()).unwrap();

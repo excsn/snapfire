@@ -653,7 +653,7 @@ fn tree(app: &Path, config: &Config) -> Vec<Finding> {
 /// same directive. The host always adds the inline import map's hash, so a
 /// policy written for inline third-party scripts loses them the moment it names
 /// `script-src` at all.
-fn csp(config: &Config) -> Vec<Finding> {
+pub(crate) fn csp(config: &Config) -> Vec<Finding> {
   // A site's document is its shell's.
   if config.site.is_some() {
     return Vec::new();

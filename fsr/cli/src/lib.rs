@@ -214,6 +214,8 @@ pub struct Report {
   pub extensions: Vec<(String, String)>,
   /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`, or a handler it runs as written, as `file:line:column: reason`.
   pub browser: Vec<(String, String)>,
+  /// A policy in the configuration that breaks the page outright, and what to do about it: the CSP findings `fsr doctor` reports.
+  pub csp: Vec<(String, String)>,
   pub services: Vec<(String, String)>,
   pub schemas: Vec<(String, String)>,
   pub types: Vec<(String, String)>,
@@ -301,6 +303,10 @@ impl fmt::Display for Report {
     for (i, (module, site)) in self.browser.iter().enumerate() {
       let label = if i == 0 { "browser" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {site}")?;
+    }
+    for (what, remedy) in &self.csp {
+      writeln!(f, "{:<9} {what}", "csp")?;
+      writeln!(f, "{:<9} {remedy}", "")?;
     }
     for (i, (module, values, chunks)) in self.hoisted.iter().enumerate() {
       let label = if i == 0 { "hoisted" } else { "" };
@@ -629,6 +635,9 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
 
   let mut report = Report::default();
+  if let Some(config) = config_beside(app) {
+    report.csp = doctor::csp(&config).into_iter().map(|f| (f.what, f.remedy)).collect();
+  }
   let mut contract = Contract::new();
   let mut contracts: Vec<(String, Contract)> = Vec::new();
   let mut session_import: Option<String> = None;

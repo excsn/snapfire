@@ -161,15 +161,15 @@ A policy that restricts styles, through `style-src` or `default-src`, gets `styl
 
 Two `script-src` sources break the page next to what the host adds: `'unsafe-inline'` and `'strict-dynamic'`.
 
-A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that same directive. The host always adds the import map's hash, so a policy written to keep inline third-party tags working loses every one of them the moment it names `script-src` at all. `fsr doctor` reports that pair.
+A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that same directive. The host always adds the import map's hash, so a policy written to keep inline third-party tags working loses every one of them the moment it names `script-src` at all. `fsr doctor` reports that pair. `fsr build` and `fsr dev` print it too, on a `csp` row of their report.
 
 `'strict-dynamic'` is the usual answer for a tag manager, because it trusts whatever a trusted script loads through `document.createElement` so the allowlist stops mattering. It does not work here: it also makes the browser ignore `'self'` and every host in that directive. The entry module is a `<script src>` in the markup carrying no hash or nonce, so the page loads nothing at all. `fsr doctor` reports that too.
 
-An allowlist covers analytics, whose origins are stable. It cannot cover an ad network, which injects scripts from origins that change per impression and often still uses inline script and `document.write`. For that, write the policy into `[document.csp_report_only]` first, which is the same shape sent as `Content-Security-Policy-Report-Only`. A browser reports against it and enforces nothing, so a deployment learns what would break before anything does. Both keys may be set at once.
+An allowlist covers analytics, whose origins are stable. It cannot cover an ad network, which injects scripts from origins that change per impression and often still uses inline script and `document.write`. For that, write the policy into `[document.csp_report_only]` first, which is the same shape sent as `Content-Security-Policy-Report-Only`. A browser reports against it and enforces nothing, so a deployment learns what would break before anything does. Both keys may be set at once. An application `fsr new` made already starts on a report-only policy. Under `fsr dev` each violation is listed in a panel on the page with the source that would admit it.
 
 ## What the build can check
 
-Every part of the arrangement is something the build reads. The head rows are data the report lists and a test asserts on. The vendor is a committed file with a recorded version. The id is a typed field, so a misspelt read is a build error and `fsr doctor` reports a loader reading a key no `[public]` declares. The consent decision is a function call in one module. The policy is a table `fsr doctor` reads, so the two traps above are caught before a deployment ships rather than by a blank page.
+Every part of the arrangement is something the build reads. The head rows are data the report lists and a test asserts on. The vendor is a committed file with a recorded version. The id is a typed field, so a misspelt read is a build error and `fsr doctor` reports a loader reading a key no `[public]` declares. The consent decision is a function call in one module. The policy is a table the build and `fsr doctor` read, so the two traps above are caught before a deployment ships rather than by a blank page.
 
 ## A script that reads the markup
 

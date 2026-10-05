@@ -26,6 +26,10 @@ const SITE_STYLES: &str = include_str!("../templates/new/app/styles/site.css");
 
 const CACHE: &str = "\n[cache]\ncapacity = 1000\nttl = \"1m\"\n";
 
+/// A strict policy the browser reports against and never enforces. A site's
+/// document is its shell's, so a site scaffold writes none.
+const CSP_REPORT_ONLY: &str = "\n# Reported, not enforced. Rename the table to [document.csp] to enforce it.\n[document.csp_report_only]\ndefault-src = [\"'self'\"]\nscript-src = [\"'self'\"]\nbase-uri = [\"'none'\"]\nobject-src = [\"'none'\"]\nframe-ancestors = [\"'self'\"]\n";
+
 pub struct NewOptions {
   /// Vendors what the directions pin and fetches editor types, both of which reach the network.
   pub fetch: bool,
@@ -129,6 +133,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
       .replace("{{port}}", port)
       .replace("{{cache}}", cache)
       .replace("{{site}}", &site_section)
+      .replace("{{csp}}", if site_scope.is_some() { "" } else { CSP_REPORT_ONLY })
       .replace("{{htmx_import}}", if htmx { "import htmx from \"htmx.org\";\n" } else { "" })
       .replace("{{htmx_bind_import}}", if htmx { "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";\n" } else { "" })
       .replace("{{htmx_bind}}", if htmx { "bindHtmx(htmx);\n" } else { "" });

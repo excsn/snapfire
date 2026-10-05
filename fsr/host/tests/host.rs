@@ -5148,6 +5148,18 @@ async fn a_development_host_nonces_its_own_refresh_script() {
   assert!(policy.contains(&format!("'nonce-{nonce}'")), "{policy} does not name {nonce}");
 }
 
+#[tokio::test]
+async fn a_development_document_lists_its_policy_violations_and_a_production_one_does_not() {
+  let dev = csp_host("[document.csp_report_only]\nscript-src = [\"'self'\"]", true);
+  let html = dev.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let script = html.split("<script nonce=\"").nth(1).expect("the development script carries the nonce");
+  assert!(script.contains("securitypolicyviolation") && script.contains("sf-dev-csp"), "{html}");
+  assert!(script.contains("[document.\"+table(e)+\"]"), "a violation names the table that would admit it: {html}");
+  let production = csp_host("[document.csp_report_only]\nscript-src = [\"'self'\"]", false);
+  let html = production.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("securitypolicyviolation"), "{html}");
+}
+
 /// An app.toml with `dev` pinned and extra `[server]` or `[document]` keys,
 /// so a test never depends on `RELEASE_ENV`.
 fn tuned_app(dev: bool, server: &str, document: &str) -> PathBuf {

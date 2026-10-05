@@ -556,7 +556,7 @@ The build reads the React version back from `vendor/.fsr-vendor.json` and writes
 
 ## Adopting a Direction
 
-`fsr new` writes a bare application: no framework is vendored, the import map names the client, its element builder `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
+`fsr new` writes a bare application: no framework is vendored, the import map names the client, its element builder `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. Its `config/app.toml` starts with a strict policy in `[document.csp_report_only]`, which the browser reports against and never enforces. Renaming the table to `[document.csp]` enforces it. A site scaffold writes none, since a mounted site's document is its shell's. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
 
 ```sh
 fsr new shop
@@ -630,7 +630,7 @@ canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so e
 doctor       1 of 14 checks found something
 ```
 
-Fourteen checks, each answering from something the build already computed, so none of them needs a server or a network:
+Fifteen checks, each answering from something the build already computed, so none of them needs a server or a network:
 
 | Check | Fires when |
 | --- | --- |
@@ -648,6 +648,9 @@ Fourteen checks, each answering from something the build already computed, so no
 | `links` | a literal internal link matches no route, static root or mounted site |
 | `tree` | a deploy tree would carry a file the project does not hold; a setting no tree can express |
 | `sites` | a mounted `name@version` site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
+| `csp` | a policy names `'unsafe-inline'` in `script-src` beside the import map's hash, which makes the browser ignore it; or it names `'strict-dynamic'`, which makes it ignore `'self'` and so the entry module |
+
+The `csp` check also runs on every `fsr build` and `fsr dev`, since either policy leaves the page with no working script: its findings print as `csp` rows of the build report.
 
 It reports and never fixes, since every remedy here is a judgement: whether a locale gains a catalog or leaves the table, whether an island is missing or the render mode is wrong. Nothing the host refuses to start over is moved here. There is no file for turning checks off either, because every check is a fact the application stated and then contradicted rather than a matter of taste.
 
@@ -1309,7 +1312,7 @@ extensions ext/labels.ts#count      lowered
 
 ## Reading the Report
 
-Eleven sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document, `grpc` for a `.proto` and `rust` for a `#[service]` block under the crate's `src/`, whose contract the build writes to `generated/contracts/rust.json`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
+Eleven sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. A `csp` row is a Content-Security-Policy in the configuration that breaks the page outright, the fact and then the remedy, the same finding `fsr doctor` reports. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document, `grpc` for a `.proto` and `rust` for a `#[service]` block under the crate's `src/`, whose contract the build writes to `generated/contracts/rust.json`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
 A `rendered` row says `lowered`, `client`, `foreign` or `template`; a lowered row says `static` in its detail column when nothing mounts the component: it is composition, a page, a layout or a template with no state and no handlers of its own; it says `vue` for a `.vue` component the build lowered. A `foreign` row is a `.vue` component the build could not lower, with the line of the residue, stated once more under `foreign` with the reason and the components that mount in the browser for it; a `plugins` row says a framework plugin was not on PATH and what that left foreign. A `client` row is a component that did not lower, with the `file:line:column` of the residue that decided it. It is a React island; an application without React refuses it, since FSR is no JSX framework. The page placing it lowers around it. The client rows travel in the plan file, so the host's boot report under `fsr serve` prints the same `rendered` rows and the same `client` causes without the chain. The `client` section states each cause once, whatever the number of pages that reach it:
 
