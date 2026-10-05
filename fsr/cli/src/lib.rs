@@ -430,7 +430,7 @@ pub fn unprefixed(service: &str) -> &str {
 }
 
 /// The configuration beside `app`, when it names this app directory.
-fn config_beside(app: &Path) -> Option<snapfire_fsr_host::config::Config> {
+pub(crate) fn config_beside(app: &Path) -> Option<snapfire_fsr_host::config::Config> {
   let root = serve::project_root(app);
   let config = snapfire_fsr_host::config::Config::load(&root).ok()?;
   let given = app.canonicalize().ok()?;

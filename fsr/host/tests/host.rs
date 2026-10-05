@@ -5129,6 +5129,25 @@ async fn the_document_carries_the_slot_order_the_store_merges_by() {
   assert!(err.contains("store.slot_order names `modal` twice"), "{err}");
 }
 
+#[test]
+fn the_build_section_reads_a_target_and_lib_and_refuses_what_tsc_or_snapfirec_cannot_use() {
+  let read = |toml: &str| snapfire_fsr_host::config::Config::load(tuned_app_with(false, "", "", toml).join("app.toml"));
+  let config = read("[build]\ntarget = \"es2023\"\nlib = [\"es2023\", \"dom\"]").unwrap();
+  let build = config.build.expect("the section is read");
+  assert_eq!(build.target.as_deref(), Some("es2023"));
+  assert_eq!(build.lib, Some(vec!["es2023".to_owned(), "dom".to_owned()]));
+  assert!(read("[build]\ntarget = \"ESNext\"").is_ok(), "case is tsc's to ignore");
+  for (toml, why) in [
+    ("[build]\ntarget = \"es2016\"", "build.target `es2016` is older than es2017"),
+    ("[build]\ntarget = \"es5\"", "build.target `es5` is not a target"),
+    ("[build]\ntarget = \"es2O23\"", "build.target `es2O23` is not a target"),
+    ("[build]\nlib = [\"es2023\", \" \"]", "build.lib names an empty library"),
+  ] {
+    let err = read(toml).err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(err.contains(why), "{toml}: {err}");
+  }
+}
+
 #[tokio::test]
 async fn no_csp_key_sends_no_policy() {
   let (host, _) = host();

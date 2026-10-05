@@ -237,7 +237,7 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 ### BuildSection
 
-* `pub struct config::BuildSection { pub strict: Option<bool> }`, the `[build]` section. The host reads none of it; `fsr` does. `strict` refuses a build that leaves a component to render in the browser alone, off when absent.
+* `pub struct config::BuildSection { pub strict: Option<bool>, pub target: Option<String>, pub lib: Option<Vec<String>> }`, the `[build]` section. The host reads none of it; `fsr` does. `strict` refuses a build that leaves a component to render in the browser alone, off when absent. `target` and `lib` are what every tsconfig the build writes carries, `config::DEFAULT_TARGET` (`es2022`) and the target's own library when absent. A target older than `es2017`, a name that is not `esnext` or `es` and a four-digit edition and an empty `lib` entry refuse the configuration.
 
 ### TraceSection
 

@@ -521,7 +521,8 @@ fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, speci
 /// `.fsr-test/tsconfig.json` and `.fsr-test/importmap.json`: the browser build plus the spec files and the testing module.
 fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[String], generated: &[String]) -> Result<(), BuildError> {
   let jsx = crate::types::jsx_source(app, layout)?;
-  let mut tsconfig = format!("{{\n  \"compilerOptions\": {{\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
+  let compile = crate::types::CompileOptions::of(app).lines();
+  let mut tsconfig = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
   let aliases: Vec<(String, String)> = snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("../{dir}*"))).collect();
   for (i, (from, to)) in aliases.iter().enumerate() {
     tsconfig.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i + 1 == aliases.len() { "" } else { "," }));

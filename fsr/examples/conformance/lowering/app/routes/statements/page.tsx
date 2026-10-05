@@ -31,6 +31,7 @@ export default function Statements({ total, low, kinds, note, items, pick }: { t
       <p className="headline">{headline}</p>
       <p className="tone">{tone}</p>
       <p className="kinds">{kinds.join(", ")}</p>
+      <p className="sorted">{kinds.toSorted().join(", ")}</p>
       <p className="chosen">{chosen.sku}</p>
       <ul className="badges">
         {items.map((item) => (

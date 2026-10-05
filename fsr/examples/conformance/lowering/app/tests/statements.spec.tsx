@@ -10,6 +10,7 @@ describe("the statements page", () => {
     expect(text(".headline")).toEqual("51 in stock, 2 low");
     expect(text(".tone")).toEqual("urgent");
     expect(text(".kinds")).toEqual("fresh pear, fresh fig, fresh leek, dry salt");
+    expect(text(".sorted")).toEqual("dry salt, fresh fig, fresh leek, fresh pear");
     expect(text(".chosen")).toEqual("pear");
   });
 

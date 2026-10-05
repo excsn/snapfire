@@ -786,6 +786,16 @@ enabled = true
 
 The first check with no `version` in the file records the one it resolved, so every later build asks for the same compiler; a version already written by hand is never rewritten. A version the checker carries no hash for records its integrity beside it as `sha512`.
 
+The language the check reads is the application's too. Every tsconfig the build writes, the spec runner's included, carries `target = "es2022"` unless `[build]` says otherwise, so an ES2023 method such as `toSorted` or `findLast` fails the check until the target moves:
+
+```toml
+[build]
+target = "es2023"
+lib = ["es2023", "dom", "dom.iterable"]
+```
+
+`lib` is optional and replaces the target's own library when given, so a list without `dom` loses the browser's types. snapfirec does not downlevel or polyfill: the target says what the application's browsers run. A target before `es2017` is refused since the modules the build emits need an ES2017 engine. The build rewrites both tsconfigs every time, so edit the configuration rather than the files.
+
 The flags override the file for one run: `--tsc-version <version>`, `--tsc <path>` for a compiler already on the machine, `--snapfiretc <path>` for the checker itself and `--no-typecheck` to skip it.
 
 ```sh

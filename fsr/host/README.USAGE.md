@@ -168,6 +168,8 @@ enabled = true                    # the default; false builds without checking t
 
 [build]                           # optional: read by fsr, not by the host
 strict = false                    # the default; true refuses a component that renders in the browser alone
+target = "es2022"                 # the default; the target every generated tsconfig carries, es2017 or later or esnext
+lib = ["es2023", "dom"]           # optional: the tsconfig lib; left to the target when absent
 
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/"]                    # path prefixes whose requests a page may read its own trace of

@@ -830,6 +830,35 @@ pub struct BuildSection {
   /// Refuses a component that renders in the browser alone; off when absent.
   #[serde(default)]
   pub strict: Option<bool>,
+  /// The `target` every generated tsconfig carries, `es2017` or later or `esnext`; `es2022` when absent.
+  #[serde(default)]
+  pub target: Option<String>,
+  /// The `lib` every generated tsconfig carries; left to the target when absent.
+  #[serde(default)]
+  pub lib: Option<Vec<String>>,
+}
+
+/// The target a build writes when `[build] target` is absent.
+pub const DEFAULT_TARGET: &str = "es2022";
+
+impl BuildSection {
+  /// Refuses a target snapfirec cannot deliver, a name tsc does not read as a target and an empty `lib` entry.
+  fn check(&self) -> Result<(), String> {
+    if let Some(target) = &self.target {
+      let lower = target.to_ascii_lowercase();
+      let year = lower.strip_prefix("es").filter(|y| y.len() == 4).and_then(|y| y.parse::<u32>().ok());
+      match (lower.as_str(), year) {
+        ("esnext", _) => {}
+        (_, Some(year)) if (2017..=2100).contains(&year) => {}
+        (_, Some(_)) => return Err(format!("build.target `{target}` is older than es2017; the modules the build emits need an ES2017 engine")),
+        _ => return Err(format!("build.target `{target}` is not a target; write `esnext` or an edition such as `es2023`")),
+      }
+    }
+    if self.lib.as_ref().is_some_and(|lib| lib.iter().any(|entry| entry.trim().is_empty())) {
+      return Err("build.lib names an empty library".to_owned());
+    }
+    Ok(())
+  }
 }
 
 /// The `[typecheck]` section, read by `fsr` rather than by the host: the
@@ -1465,12 +1494,14 @@ impl Config {
 
     let build: Option<BuildSection> = if store.path_exists("build") || !store.key_paths_with_prefix(Some("build")).is_empty() {
       let mut json = serde_json::Map::new();
-      for key in ["strict"] {
+      for key in ["strict", "target", "lib"] {
         if let Some(value) = store.get(&format!("build.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }
       }
-      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("build: {e}")))?)
+      let section: BuildSection = serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("build: {e}")))?;
+      section.check().map_err(|why| HostError::Config(at.clone(), why))?;
+      Some(section)
     } else {
       None
     };

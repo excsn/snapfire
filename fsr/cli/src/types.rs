@@ -587,6 +587,32 @@ pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
   Ok(rows)
 }
 
+/// What `[build] target` and `[build] lib` in the configuration beside an application ask every generated tsconfig to carry.
+pub(crate) struct CompileOptions {
+  target: String,
+  lib: Option<Vec<String>>,
+}
+
+impl CompileOptions {
+  /// The configuration's keys, `es2022` and the target's own library where it sets none.
+  pub(crate) fn of(app: &Path) -> Self {
+    let build = crate::config_beside(app).and_then(|config| config.build);
+    Self {
+      target: build.as_ref().and_then(|build| build.target.clone()).unwrap_or_else(|| snapfire_fsr_host::config::DEFAULT_TARGET.to_owned()),
+      lib: build.and_then(|build| build.lib),
+    }
+  }
+
+  /// The `target` line and the `lib` line when there is one, each indented as a compiler option.
+  pub(crate) fn lines(&self) -> String {
+    let mut out = format!("    \"target\": {},\n", serde_json::to_string(&self.target).expect("a string serializes"));
+    if let Some(lib) = &self.lib {
+      out.push_str(&format!("    \"lib\": {},\n", serde_json::to_string(lib).expect("strings serialize")));
+    }
+    out
+  }
+}
+
 /// `tsconfig.json` for the editor and `tsc --noEmit`: every package under
 /// `types/` path-mapped, ambient entries included, the generated context module
 /// under its package name. `generated` says the build's directory is or is
@@ -626,7 +652,8 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
     true => String::new(),
     false => "    \"jsxImportSource\": \"@snapfire/fsr-authoring\",\n".to_owned(),
   };
-  let mut out = format!("{{\n  \"compilerOptions\": {{\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"jsx\": \"react-jsx\",\n{jsx_source}    \"strict\": true,\n    \"noEmit\": true,\n    \"skipLibCheck\": true,\n    \"paths\": {{\n");
+  let compile = CompileOptions::of(app).lines();
+  let mut out = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"jsx\": \"react-jsx\",\n{jsx_source}    \"strict\": true,\n    \"noEmit\": true,\n    \"skipLibCheck\": true,\n    \"paths\": {{\n");
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
@@ -643,7 +670,8 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
 /// mounts is not compiled, so it never asks the import map for a framework.
 /// `jsx` is the runtime a file compiles against when no island's owner names one.
 pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String], jsx: &str) -> String {
-  let mut out = format!("{{\n  \"compilerOptions\": {{\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
+  let compile = CompileOptions::of(app).lines();
+  let mut out = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
   let paths = alias_paths();
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
