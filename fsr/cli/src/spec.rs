@@ -37,8 +37,10 @@ use crate::{BuildError, Built, dev, serve};
 
 pub const TEST_DIR: &str = ".fsr-test";
 const LINKEDOM: &str = "0.18.12";
-/// The React modules a spec loads as development builds, so React's own messages arrive in words.
-const DEV_BUILDS: &[&str] = &["react", "react/jsx-runtime", "react-dom/client"];
+/// The framework modules a spec loads as development builds when the
+/// application vendors them, so each framework's own messages arrive in words,
+/// one group per framework.
+const DEV_BUILDS: &[&[&str]] = &[&["react", "react/jsx-runtime", "react-dom/client"], &["vue"]];
 const TESTING_SPECIFIER: &str = "@snapfire/fsr-client/testing";
 const TESTING_URL: &str = "/static/js/fsr/testing.js";
 const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
@@ -398,6 +400,50 @@ struct TestVendor {
   entries: BTreeMap<String, (String, String)>,
 }
 
+/// The development build a spec loads for each framework module the
+/// application vendors or its shell serves, as specifier and URL.
+fn dev_builds(vendored: &VendorManifest, served: &serde_json::Map<String, serde_json::Value>, shell: Option<&crate::ShellContract>) -> Vec<(String, String)> {
+  let mut out = Vec::new();
+  for group in DEV_BUILDS {
+    for specifier in group.iter() {
+      let package = vendor::package_of(specifier);
+      let from_vendor = vendored
+        .packages
+        .get(&package)
+        .filter(|entry| entry.entries.contains_key(*specifier))
+        .map(|entry| (entry.version.clone(), entry.externals.clone()));
+      // A package of the same framework the map serves at its own root is
+      // external here, so React's three development builds share one React.
+      let from_shell = match shell {
+        Some(contract) if from_vendor.is_none() && served.contains_key(*specifier) => contract.frameworks.get(&package).map(|version| {
+          let mut externals: Vec<String> = group
+            .iter()
+            .map(|dev| vendor::package_of(dev))
+            .filter(|shared| served.contains_key(shared.as_str()) && !(shared == &package && *specifier == package))
+            .collect();
+          externals.sort();
+          externals.dedup();
+          (version.clone(), externals)
+        }),
+        _ => None,
+      };
+      let Some((version, externals)) = from_vendor.or(from_shell) else { continue };
+      let mut url = format!("{ESM_HOST}/{package}@{version}");
+      if let Some(sub) = specifier.strip_prefix(&format!("{package}/")) {
+        url.push('/');
+        url.push_str(sub);
+      }
+      url.push_str("?target=es2022&bundle&dev");
+      if !externals.is_empty() {
+        url.push_str("&external=");
+        url.push_str(&externals.join(","));
+      }
+      out.push((specifier.to_string(), url));
+    }
+  }
+  out
+}
+
 /// The development builds of linkedom and of the React modules the app vendors, fetched once from esm.sh into `.fsr-test/vendor`; by specifier.
 fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crate::ShellContract>) -> Result<HashMap<String, PathBuf>, BuildError> {
   let dir = test_dir.join("vendor");
@@ -409,41 +455,7 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crat
   let vendored = VendorManifest::read(app, layout)?;
   let served = imports_of(&vendor::read_import_map(app, layout)?);
   let mut wanted: Vec<(String, String)> = vec![("linkedom".to_owned(), format!("{ESM_HOST}/linkedom@{LINKEDOM}/worker?target=es2022&bundle&dev"))];
-  for specifier in DEV_BUILDS {
-    let package = vendor::package_of(specifier);
-    let from_vendor = vendored
-      .packages
-      .get(&package)
-      .filter(|entry| entry.entries.contains_key(*specifier))
-      .map(|entry| (entry.version.clone(), entry.externals.clone()));
-    // A package the map serves at its own root is external here, so the three
-    // development builds share one React rather than carrying a copy each.
-    let from_shell = match shell {
-      Some(contract) if from_vendor.is_none() && served.contains_key(*specifier) => contract.frameworks.get(&package).map(|version| {
-        let mut externals: Vec<String> = DEV_BUILDS
-          .iter()
-          .map(|dev| vendor::package_of(dev))
-          .filter(|shared| served.contains_key(shared.as_str()) && !(shared == &package && *specifier == package))
-          .collect();
-        externals.sort();
-        externals.dedup();
-        (version.clone(), externals)
-      }),
-      _ => None,
-    };
-    let Some((version, externals)) = from_vendor.or(from_shell) else { continue };
-    let mut url = format!("{ESM_HOST}/{package}@{version}");
-    if let Some(sub) = specifier.strip_prefix(&format!("{package}/")) {
-      url.push('/');
-      url.push_str(sub);
-    }
-    url.push_str("?target=es2022&bundle&dev");
-    if !externals.is_empty() {
-      url.push_str("&external=");
-      url.push_str(&externals.join(","));
-    }
-    wanted.push((specifier.to_string(), url));
-  }
+  wanted.extend(dev_builds(&vendored, &served, shell));
   let mut out = HashMap::new();
   let mut client = None;
   for (specifier, url) in wanted {
@@ -1158,4 +1170,38 @@ fn percent_decode(text: &str) -> String {
     i += 1;
   }
   String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod dev_build_tests {
+  use super::*;
+
+  #[test]
+  fn each_vendored_framework_gets_its_development_build() {
+    let vendored: VendorManifest = serde_json::from_str(r#"{"packages":{"vue":{"version":"3.5.13","entries":{"vue":"vue/vue.bundle.mjs"}},"react":{"version":"19.1.0","entries":{"react":"react/react.bundle.mjs","react/jsx-runtime":"react/jsx-runtime.bundle.mjs"}}}}"#).unwrap();
+    let builds = dev_builds(&vendored, &serde_json::Map::new(), None);
+    assert_eq!(
+      builds,
+      [
+        ("react".to_owned(), format!("{ESM_HOST}/react@19.1.0?target=es2022&bundle&dev")),
+        ("react/jsx-runtime".to_owned(), format!("{ESM_HOST}/react@19.1.0/jsx-runtime?target=es2022&bundle&dev")),
+        ("vue".to_owned(), format!("{ESM_HOST}/vue@3.5.13?target=es2022&bundle&dev")),
+      ]
+    );
+  }
+
+  #[test]
+  fn a_shell_served_framework_shares_its_own_packages_and_no_other_frameworks() {
+    let shell: crate::ShellContract = serde_json::from_str(r#"{"version":1,"frameworks":{"react":"19.1.0","react-dom":"19.1.0","vue":"3.5.13"}}"#).unwrap();
+    let served: serde_json::Map<String, serde_json::Value> = serde_json::from_str(r#"{"react":"/r","react-dom/client":"/d","vue":"/v"}"#).unwrap();
+    let builds = dev_builds(&VendorManifest::default(), &served, Some(&shell));
+    assert_eq!(
+      builds,
+      [
+        ("react".to_owned(), format!("{ESM_HOST}/react@19.1.0?target=es2022&bundle&dev")),
+        ("react-dom/client".to_owned(), format!("{ESM_HOST}/react-dom@19.1.0/client?target=es2022&bundle&dev&external=react")),
+        ("vue".to_owned(), format!("{ESM_HOST}/vue@3.5.13?target=es2022&bundle&dev")),
+      ]
+    );
+  }
 }
