@@ -288,7 +288,8 @@ impl<'a> Inferer<'a> {
         let elem = element(self.expr(over, env));
         Ts::List(Box::new(self.apply(f, vec![elem], env)))
       }
-      Expr::Filter(over, _) => non_null(self.expr(over, env)),
+      Expr::Filter(over, _) | Expr::Sort(over, _) => non_null(self.expr(over, env)),
+      Expr::FlatMap(..) => Ts::List(Box::new(Ts::Unknown)),
       Expr::Reduce(over, init, f) => {
         let elem = element(self.expr(over, env));
         let init = self.expr(init, env);
@@ -310,8 +311,14 @@ impl<'a> Inferer<'a> {
         let args = args.iter().map(|a| self.expr(a, env)).collect();
         self.apply(f, args, env)
       }
-      Expr::Builtin { name, .. } => match name {
-        Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max => Ts::Num,
+      Expr::Builtin { name, args } => match name {
+        Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max | Builtin::Pow | Builtin::Sqrt | Builtin::Trunc | Builtin::Sign | Builtin::IndexOf | Builtin::MinOf | Builtin::MaxOf => Ts::Num,
+        Builtin::Slice | Builtin::Concat | Builtin::Reverse => args.first().map(|a| non_null(self.expr(a, env))).unwrap_or(Ts::Unknown),
+        Builtin::At => match args.first().map(|a| non_null(self.expr(a, env))) {
+          Some(Ts::Str) => Ts::Str,
+          Some(list) => element(list),
+          None => Ts::Unknown,
+        },
         Builtin::Includes | Builtin::StartsWith | Builtin::EndsWith => Ts::Bool,
         Builtin::Range => Ts::List(Box::new(Ts::Big)),
         Builtin::Split => Ts::List(Box::new(Ts::Str)),

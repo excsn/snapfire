@@ -31,9 +31,9 @@ fn built(tag: &str, files: &[(&str, &str)]) -> Built {
   build(&app, &Options::beside(&app)).unwrap()
 }
 
-/// `.slice()` is outside the lowered subset, so it stands in for whatever the
+/// `.normalize()` is outside the lowered subset, so it stands in for whatever the
 /// subset does not hold yet.
-const STARS: &str = "export function Stars({ label }: { label: string }) {\n  return <span>{label.slice(0, 3)}</span>;\n}\n";
+const STARS: &str = "export function Stars({ label }: { label: string }) {\n  return <span>{label.normalize()}</span>;\n}\n";
 const HEADER: &str = "import { Stars } from \"@src/ui/Stars\";\n\nexport function Header() {\n  return (\n    <header>\n      <Stars label=\"aaaa\" />\n    </header>\n  );\n}\n";
 
 fn page(title: &str) -> String {
@@ -51,7 +51,7 @@ fn a_cause_names_the_leaf_and_where_it_is_placed_and_the_pages_lower_around_it()
   assert_eq!(report.causes.len(), 1, "one leaf, one cause\n{report}");
   let cause = &report.causes[0];
   assert_eq!(cause.at, "src/ui/Stars.tsx:2:17", "the cause is the leaf's line and column\n{report}");
-  assert!(cause.message.contains("`.slice()`"), "{}", cause.message);
+  assert!(cause.message.contains("`.normalize()`"), "{}", cause.message);
   assert!(cause.hint.as_ref().is_some_and(|h| h.contains("the builtins are")), "the hint survives into the report\n{report}");
 
   assert_eq!(cause.pages.len(), 1, "{report}");
@@ -87,5 +87,5 @@ fn two_pages_over_one_leaf_are_one_cause() {
 
   let printed = report.to_string();
   assert!(printed.contains("1 module renders in the browser for it"), "{printed}");
-  assert_eq!(printed.matches("`.slice()`").count(), 1, "the message is printed once, not once per page\n{printed}");
+  assert_eq!(printed.matches("`.normalize()`").count(), 1, "the message is printed once, not once per page\n{printed}");
 }

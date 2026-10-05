@@ -124,6 +124,8 @@ fn expr() -> BoxedStrategy<Expr> {
       (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::FindIndex(Box::new(a), Box::new(b))),
       (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::Some(Box::new(a), Box::new(b))),
       (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::Every(Box::new(a), Box::new(b))),
+      (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::Sort(Box::new(a), Box::new(b))),
+      (inner.clone(), inner.clone()).prop_map(|(a, b)| Expr::FlatMap(Box::new(a), Box::new(b))),
       inner.clone().prop_map(|e| Expr::Entries(Box::new(e))),
       inner.clone().prop_map(|e| Expr::Keys(Box::new(e))),
       inner.clone().prop_map(|e| Expr::Values(Box::new(e))),
@@ -148,7 +150,7 @@ fn entry_of(e: BoxedStrategy<Expr>) -> BoxedStrategy<Entry> {
 }
 
 fn arith() -> BoxedStrategy<ArithOp> {
-  prop_oneof![Just(ArithOp::Add), Just(ArithOp::Sub), Just(ArithOp::Mul), Just(ArithOp::Div), Just(ArithOp::Rem)]
+  prop_oneof![Just(ArithOp::Add), Just(ArithOp::Sub), Just(ArithOp::Mul), Just(ArithOp::Div), Just(ArithOp::Rem), Just(ArithOp::Pow)]
   .boxed()
 }
 
@@ -173,7 +175,10 @@ fn builtin() -> BoxedStrategy<Builtin> {
     Just(Builtin::Includes), Just(Builtin::StartsWith), Just(Builtin::EndsWith),
     Just(Builtin::Split), Just(Builtin::Replace),
     Just(Builtin::EncodeUriComponent), Just(Builtin::LocaleNumber),
-    Just(Builtin::Range), Just(Builtin::Omit)
+    Just(Builtin::Range), Just(Builtin::Omit),
+    Just(Builtin::Slice), Just(Builtin::At), Just(Builtin::IndexOf), Just(Builtin::Concat), Just(Builtin::Reverse),
+    Just(Builtin::PadStart), Just(Builtin::PadEnd), Just(Builtin::Substring), Just(Builtin::Json),
+    Just(Builtin::Pow), Just(Builtin::Sqrt), Just(Builtin::Trunc), Just(Builtin::Sign), Just(Builtin::MinOf), Just(Builtin::MaxOf)
   ]
   .boxed()
 }

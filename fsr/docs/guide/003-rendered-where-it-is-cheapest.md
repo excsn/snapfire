@@ -34,7 +34,7 @@ A component it could not read is marked `client`, pointing at the residue that d
 rendered  routes/page.tsx#default            lowered
           src/ui/Header.tsx#Header           lowered
           src/ui/Stars.tsx#Stars             client      src/ui/Stars.tsx:12:19
-client    src/ui/Stars.tsx:12:19             `.slice()`, which is not a builtin
+client    src/ui/Stars.tsx:12:19             `.normalize()`, which is not a builtin
           the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
           1 module renders in the browser for it
             src/ui/Stars.tsx#Stars           <Stars> src/ui/Header.tsx:8:5

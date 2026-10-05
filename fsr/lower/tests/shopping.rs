@@ -213,16 +213,23 @@ export async function load({ services }: Ctx) {
 }
 
 #[test]
-fn a_lambda_with_statements_is_residue() {
+fn a_lambda_with_consts_and_returns_lowers_and_one_with_another_statement_is_residue() {
   let src = r#"
 export async function load({ services }: Ctx) {
   const xs = await services.shopping.listProducts({});
   return { names: xs.map((p) => { const n = p.name; return n; }) };
 }
 "#;
+  lower_loader("page.loader.ts", src).expect("consts and a return lower");
+  let src = r#"
+export async function load({ services }: Ctx) {
+  const xs = await services.shopping.listProducts({});
+  return { names: xs.map((p) => { while (p.next) {} return p.name; }) };
+}
+"#;
   let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
   assert_eq!(r.line, 4);
-  assert!(r.message.contains("one expression"), "{r}");
+  assert!(r.message.contains("a statement a helper cannot hold"), "{r}");
 }
 
 #[test]

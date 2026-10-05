@@ -148,9 +148,45 @@ fn replace_over_a_regular_expression_is_still_residue() {
 
 #[test]
 fn the_residue_hint_names_the_four() {
-  let err = lowered("hint_four", "params.slug.padStart(3, \"0\")").unwrap_err();
-  assert!(err.contains("`.padStart()`, which is not a builtin"), "{err}");
-  for name in ["`split`", "`startsWith`", "`endsWith`", "`replace`"] {
+  let err = lowered("hint_four", "params.slug.normalize()").unwrap_err();
+  assert!(err.contains("`.normalize()`, which is not a builtin"), "{err}");
+  for name in ["`split`", "`startsWith`", "`endsWith`", "`replace`", "`toSorted`", "`slice`", "`padStart`"] {
     assert!(err.contains(name), "the hint names {name}: {err}");
   }
+}
+
+#[test]
+fn sort_and_reverse_lower_over_a_new_array_and_are_residue_over_one_another_holder_sees() {
+  let body = lowered("sort_copy", "[...params.tags].sort((a, b) => a.localeCompare === b ? 0 : 1)").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Sort(..), .. }), "{body:?}");
+  let body = lowered("sort_sliced", "params.tags.slice().reverse()").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::Reverse, .. }, .. }), "{body:?}");
+  let body = lowered("to_sorted", "params.tags.toSorted()").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Sort(_, f), .. } if matches!(**f, Expr::Lit(snapfire_fsr_ir::ast::Lit::Null))), "{body:?}");
+  let err = lowered("sort_held", "params.tags.sort()").unwrap_err();
+  assert!(err.contains("`.sort()` of an array something else holds") && err.contains("`[...items].sort()`"), "{err}");
+  let err = lowered("reverse_held", "params.tags.reverse()").unwrap_err();
+  assert!(err.contains("`items.slice().reverse()`"), "{err}");
+}
+
+#[test]
+fn an_optional_call_of_a_method_lowers_and_one_of_a_function_value_is_residue() {
+  let body = lowered("opt_method", "params.tags?.map((t) => t.length)").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Ternary(..), .. }), "{body:?}");
+  let err = lowered("opt_value", "params.done?.()").unwrap_err();
+  assert!(err.contains("an optional call of a function value"), "{err}");
+}
+
+#[test]
+fn a_lambda_with_a_block_body_lowers_through_its_consts_and_returns() {
+  let body = lowered("block_lambda", "params.tags.filter((t) => {\n    const n = t.length;\n    if (n > 3) return true;\n    return false;\n  })").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Filter(..), .. }), "{body:?}");
+}
+
+#[test]
+fn math_min_and_max_take_a_spread_and_other_calls_do_not() {
+  let body = lowered("max_spread", "Math.max(...params.sizes, 1)").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::MaxOf, .. }, .. }), "{body:?}");
+  let err = lowered("concat_spread", "params.tags.concat(...params.more)").unwrap_err();
+  assert!(err.contains("a spread argument"), "{err}");
 }

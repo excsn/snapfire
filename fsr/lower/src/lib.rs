@@ -1129,6 +1129,7 @@ impl<'a> Lowerer<'a> {
           js::BinaryOp::Mul => Expr::Arith(ArithOp::Mul, l, r),
           js::BinaryOp::Div => Expr::Arith(ArithOp::Div, l, r),
           js::BinaryOp::Mod => Expr::Arith(ArithOp::Rem, l, r),
+          js::BinaryOp::Exp => Expr::Arith(ArithOp::Pow, l, r),
           js::BinaryOp::EqEqEq | js::BinaryOp::EqEq => Expr::Compare(CompareOp::Eq, l, r),
           js::BinaryOp::NotEqEq | js::BinaryOp::NotEq => Expr::Compare(CompareOp::Ne, l, r),
           js::BinaryOp::Lt => Expr::Compare(CompareOp::Lt, l, r),
@@ -1155,7 +1156,8 @@ impl<'a> Lowerer<'a> {
       )),
       js::Expr::OptChain(o) => match &*o.base {
         js::OptChainBase::Member(member) => self.member(member),
-        js::OptChainBase::Call(call) => Err(self.residue(call.span, "an optional call")),
+        js::OptChainBase::Call(call) if o.optional => Err(self.residue_with(call.span, "an optional call of a function value", "the server holds no function values; call a builtin or a helper the build can follow")),
+        js::OptChainBase::Call(call) => self.optional_call(call),
       },
       js::Expr::New(n) => Err(self.residue(n.span, "`new`")),
       js::Expr::Fn(f) => Err(self.residue(f.function.span, "a `function` expression")),
@@ -1316,8 +1318,9 @@ impl<'a> Lowerer<'a> {
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));
     };
+    let math = matches!(&**callee, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Math"));
     for arg in &call.args {
-      if arg.spread.is_some() {
+      if arg.spread.is_some() && !math {
         return Err(self.residue(arg.expr.span(), "a spread argument"));
       }
     }
@@ -1430,13 +1433,39 @@ impl<'a> Lowerer<'a> {
               "abs" => Builtin::Abs,
               "min" => Builtin::Min,
               "max" => Builtin::Max,
+              "pow" => Builtin::Pow,
+              "sqrt" => Builtin::Sqrt,
+              "trunc" => Builtin::Trunc,
+              "sign" => Builtin::Sign,
               _ => return Err(self.residue(member.span, format!("`Math.{method}`"))),
             };
+            if matches!(name, Builtin::Min | Builtin::Max) && call.args.iter().any(|a| a.spread.is_some()) {
+              let mut entries = Vec::with_capacity(call.args.len());
+              for a in &call.args {
+                let value = self.expr(&a.expr)?;
+                entries.push(if a.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
+              }
+              let name = if name == Builtin::Min { Builtin::MinOf } else { Builtin::MaxOf };
+              return Ok(Expr::Builtin { name, args: vec![Expr::Array(entries)] });
+            }
+            let mut args = Vec::with_capacity(call.args.len());
+            for a in &call.args {
+              if a.spread.is_some() {
+                return Err(self.residue(a.expr.span(), "a spread argument"));
+              }
+              args.push(self.expr(&a.expr)?);
+            }
+            return Ok(Expr::Builtin { name, args });
+          }
+          "JSON" if method == "stringify" => {
+            if call.args.len() > 3 || call.args.get(1).is_some_and(|a| !matches!(&*a.expr, js::Expr::Lit(js::Lit::Null(_)))) {
+              return Err(self.residue(call.span, "`JSON.stringify` with a replacer; it takes a value, `null` and an indent"));
+            }
             let mut args = Vec::with_capacity(call.args.len());
             for a in &call.args {
               args.push(self.expr(&a.expr)?);
             }
-            return Ok(Expr::Builtin { name, args });
+            return Ok(Expr::Builtin { name: Builtin::Json, args });
           }
           "Array" if method == "from" => {
             let (Some(shape), Some(f)) = (call.args.first(), call.args.get(1)) else {
@@ -1492,6 +1521,39 @@ impl<'a> Lowerer<'a> {
       "findIndex" => Ok(Expr::FindIndex(target, lambda(self, 0)?)),
       "some" => Ok(Expr::Some(target, lambda(self, 0)?)),
       "every" => Ok(Expr::Every(target, lambda(self, 0)?)),
+      "flatMap" => Ok(Expr::FlatMap(target, lambda(self, 0)?)),
+      "toSorted" | "sort" | "toReversed" | "reverse" => {
+        if matches!(method.as_str(), "sort" | "reverse") && !fresh_array(&member.obj) {
+          return Err(self.residue_with(member.span, format!("`.{method}()` of an array something else holds, which it rewrites in place"), format!("`[...items].{method}()` or `items.slice().{method}()` gives the same order without the write")));
+        }
+        if method.contains("everse") {
+          return Ok(Expr::Builtin { name: Builtin::Reverse, args: vec![*target] });
+        }
+        let f = match call.args.first() {
+          None => Box::new(Expr::Lit(Lit::Null)),
+          Some(_) => lambda(self, 0)?,
+        };
+        Ok(Expr::Sort(target, f))
+      }
+      "slice" | "at" | "indexOf" | "concat" | "padStart" | "padEnd" | "substring" => {
+        let name = match method.as_str() {
+          "slice" => Builtin::Slice,
+          "at" => Builtin::At,
+          "indexOf" => Builtin::IndexOf,
+          "concat" => Builtin::Concat,
+          "padStart" => Builtin::PadStart,
+          "padEnd" => Builtin::PadEnd,
+          _ => Builtin::Substring,
+        };
+        let mut args = vec![*target];
+        for a in &call.args {
+          if a.spread.is_some() {
+            return Err(self.residue(a.expr.span(), "a spread argument"));
+          }
+          args.push(self.expr(&a.expr)?);
+        }
+        Ok(Expr::Builtin { name, args })
+      }
       "reduce" => {
         let f = lambda(self, 0)?;
         let init = call.args.get(1).ok_or_else(|| self.residue(call.span, "`reduce` needs an initial value"))?;
@@ -1556,7 +1618,7 @@ impl<'a> Lowerer<'a> {
       other => Err(self.residue_with(
         member.span,
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase`, `split`, `startsWith`, `endsWith`, `replace` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace` and `toLocaleString`; anything else goes in a module-level helper the build can read",
       )),
     }
   }
@@ -1625,6 +1687,20 @@ impl<'a> Lowerer<'a> {
   /// An arrow function applied by a builtin. Its body is one expression or a
   /// block that only returns one. Destructured parameters read as fields and
   /// indexes of the positional parameter.
+  /// `a?.b.c(x)`: the call as written, `null` where an optional link's object is null or undefined.
+  fn optional_call(&mut self, call: &js::OptCall) -> Lowered<Expr> {
+    let mut guards = Vec::new();
+    let callee = strip_optional(&call.callee, &mut guards);
+    let plain = js::CallExpr { span: call.span, ctxt: call.ctxt, callee: js::Callee::Expr(Box::new(callee)), args: call.args.clone(), type_args: None };
+    let mut out = self.call(&plain)?;
+    for guard in guards.iter().rev() {
+      let object = self.expr(guard)?;
+      let missing = Expr::Compare(CompareOp::Eq, Box::new(object), Box::new(Expr::Lit(Lit::Null)));
+      out = Expr::Ternary(Box::new(missing), Box::new(Expr::Lit(Lit::Null)), Box::new(out));
+    }
+    Ok(out)
+  }
+
   pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
     let depth = self.scope.len();
     let mut params = Vec::new();
@@ -1663,16 +1739,45 @@ impl<'a> Lowerer<'a> {
     }
     let body = match &*arrow.body {
       js::ArrowFunctionBody::Expr(e) => self.expr(e),
-      js::ArrowFunctionBody::FunctionBody(b) => match b.stmts.as_slice() {
-        [js::Stmt::Return(r)] => match &r.arg {
-          Some(arg) => self.expr(arg),
-          None => Ok(Expr::Lit(Lit::Null)),
-        },
-        _ => Err(self.residue(b.span, "a function body with statements; a lambda is one expression")),
-      },
+      js::ArrowFunctionBody::FunctionBody(b) => crate::component::block_to_expr(self, &b.stmts),
     };
     self.scope.truncate(depth);
     Ok(Expr::Lambda { params, body: Box::new(body?) })
+  }
+}
+
+/// `e` with each optional member link made plain, the object of each link pushed to `guards`, outermost first.
+fn strip_optional(e: &js::Expr, guards: &mut Vec<js::Expr>) -> js::Expr {
+  match e {
+    js::Expr::OptChain(o) => match &*o.base {
+      js::OptChainBase::Member(m) => {
+        let obj = strip_optional(&m.obj, guards);
+        if o.optional {
+          guards.push(obj.clone());
+        }
+        js::Expr::Member(js::MemberExpr { span: m.span, obj: Box::new(obj), prop: m.prop.clone() })
+      }
+      js::OptChainBase::Call(_) => e.clone(),
+    },
+    js::Expr::Member(m) => js::Expr::Member(js::MemberExpr { span: m.span, obj: Box::new(strip_optional(&m.obj, guards)), prop: m.prop.clone() }),
+    js::Expr::Paren(p) => strip_optional(&p.expr, guards),
+    other => other.clone(),
+  }
+}
+
+/// Whether `e` builds a new array, which `sort` and `reverse` may rewrite without another holder seeing it.
+fn fresh_array(e: &js::Expr) -> bool {
+  match e {
+    js::Expr::Array(_) => true,
+    js::Expr::Paren(p) => fresh_array(&p.expr),
+    js::Expr::Call(call) => match &call.callee {
+      js::Callee::Expr(callee) => match &**callee {
+        js::Expr::Member(m) => matches!(&m.prop, js::MemberProp::Ident(p) if matches!(p.sym.as_ref(), "slice" | "map" | "filter" | "concat" | "toSorted" | "toReversed" | "flatMap" | "split" | "keys" | "values" | "entries" | "from")),
+        _ => false,
+      },
+      _ => false,
+    },
+    _ => false,
   }
 }
 

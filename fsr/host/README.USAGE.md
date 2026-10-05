@@ -1163,7 +1163,7 @@ A page the build could not lower is still on the report at boot, since the plan 
 
 ```
 rendered  routes/page.tsx#default client      src/ui/Stars.tsx:2:17
-client    src/ui/Stars.tsx:2:17  `.slice()`, which is not a builtin
+client    src/ui/Stars.tsx:2:17  `.normalize()`, which is not a builtin
           the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
 ```
 

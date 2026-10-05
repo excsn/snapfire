@@ -92,7 +92,8 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `Arith(ArithOp, Box<Expr>, Box<Expr>)`, `Compare(CompareOp, Box<Expr>, Box<Expr>)`, `Logic(LogicOp, Box<Expr>, Box<Expr>)`, `Not(Box<Expr>)`, `Coalesce(Box<Expr>, Box<Expr>)`, `Ternary(Box<Expr>, Box<Expr>, Box<Expr>)`, `Template(Vec<Expr>)`.
 * `Call { service: String, method: String, args: Vec<(String, Expr)> }`; `args` defaults to empty in JSON.
 * `Lambda { params: Vec<String>, body: Box<Expr> }`; evaluating a lambda as a value is `Internal`.
-* `Map(over, f)`, `Filter(over, f)`, `Reduce(over, init, f)`, `Find(over, f)`, `Some(over, f)`, `Every(over, f)`, all `Box<Expr>`; `f` must be a `Lambda`.
+* `Map(over, f)`, `Filter(over, f)`, `Reduce(over, init, f)`, `Find(over, f)`, `FindIndex(over, f)`, `Some(over, f)`, `Every(over, f)`, `FlatMap(over, f)`, all `Box<Expr>`; `f` must be a `Lambda`. Each call passes the item and its index (`Reduce` the accumulator before them) plus the array last when the lambda names more than two parameters.
+* `Sort(over, f)`: a sorted copy, stable, by the comparator lambda `f` or, when `f` is `Lit::Null`, by `String(x)` in UTF-16 code units.
 * `Entries(Box<Expr>)`, `Keys(Box<Expr>)`, `Values(Box<Expr>)`, `Length(Box<Expr>)`.
 * `Str(Box<Expr>)`, `Num(Box<Expr>)`, `BigInt(Box<Expr>)`.
 * `Ext { module: String, name: String, args: Vec<Expr> }`: an extension call, `intl.number(n)`, answered by the interpreter's `Extensions` under `module.name` with the arguments evaluated and the request's locale and clock as `Ambient`. A name the registry lacks is `Internal`, ``extension `x.y` is not registered``. `has_call` is false for a standard member and true for any other, so an application's pair may sit on the async path. `Expr::ext(module, name, args)` builds one.
@@ -160,7 +161,7 @@ One member of an object or array literal.
 
 ### ArithOp
 
-* `Add`, `Sub`, `Mul`, `Div`, `Rem`.
+* `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Pow`.
 
 ### CompareOp
 
@@ -372,13 +373,17 @@ The frameworks an application vendors, each at the major whose server markup the
 
 ### Builtins
 
-* `Map`, `Filter`, `Find`, `Some`, `Every` apply a one-parameter lambda over a `Seq`; `Reduce` applies a two-parameter lambda `(acc, item)` from `init`. A non-`Seq` operand is `Internal`. `Find` yields `Value::Null` when nothing matches.
+* `Map`, `Filter`, `Find`, `FindIndex`, `Some`, `Every` and `FlatMap` apply a lambda `(item, index, array)` over a `Seq`; `Reduce` applies `(acc, item, index, array)` from `init`. The array is passed only to a lambda naming more than two parameters. A non-`Seq` operand is `Internal`. `Find` yields `Value::Null` when nothing matches. `FlatMap` spreads a `Seq` result one level and keeps any other.
+* `Sort` merges stably; a comparator's answer is read as a number, NaN and a non-number as 0. With no comparator each item is compared as `String(x)` by UTF-16 code units, so `[10, 9, 1]` sorts to `[1, 10, 9]` as it does in JavaScript.
 * `Entries` yields a `Seq` of two-element `Seq` pairs in insertion order; `Keys` and `Values` likewise; all three require a `Map`.
 * `Length` counts `Seq` items, `Str` characters or `Map` entries, as `F64`, since a TypeScript `number` is a float and a `bigint` is an `Int`.
 * `Builtin::Omit` takes a `Map` and string keys and yields the map without those keys, the rest of a destructuring; `Null` reads as an empty map and any other first argument is `Internal`.
 * `Builtin::StartsWith` and `Builtin::EndsWith` take two strings and yield a `Bool`. Every string starts with and ends with the empty one.
 * `Builtin::Split` takes a subject and a separator and yields a `Seq` of strings. A separator the subject does not hold gives one piece, a leading or trailing separator keeps its empty piece; an empty separator is `Internal`: JavaScript splits one into UTF-16 code units, which the value model holds no half of. It refuses to build more than a million pieces, for the same reason `Repeat` and `Range` have bounds.
 * `Builtin::Replace` takes a subject, a string pattern and a replacement, yielding the subject with the **first** occurrence replaced, as JavaScript's `String.prototype.replace` does with a string pattern. The replacement carries JavaScript's substitutions: `$$` is one dollar, `$&` the match, `` $` `` the text before it and `$'` the text after. A string pattern has no capture groups, so `$1` stays the two characters it is written as. A regular expression never reaches here, the lowerer refuses one.
+* `Builtin::Slice`, `At`, `IndexOf` and `Concat` take an array or a string; `Reverse` an array; `PadStart`, `PadEnd` and `Substring` a string. Indices follow JavaScript's `ToIntegerOrInfinity`, negative counting from the end where JavaScript's does. A string's indices count UTF-16 code units. A cut through a surrogate pair is `Internal`, since the value model holds no half of one. `IndexOf` over an array compares numbers by value whatever their width and anything else by equality. `PadStart` and `PadEnd` refuse to build more than `Repeat`'s bound.
+* `Builtin::Json` is `JSON.stringify(value, null, indent)`: maps in insertion order, a non-finite number as `null`, an `Int`, which only a `bigint` produces, `Internal` as JavaScript throws, an indent of a number capped at 10 spaces or a string's first 10 characters.
+* `Builtin::Pow`, `Sqrt`, `Trunc` and `Sign` are the `Math` functions; `ArithOp::Pow` is `**`, an `Int` power of two `Int`s as a `bigint` computes it. `MinOf` and `MaxOf` take one array, `Infinity` and `-Infinity` when it is empty.
 
 ### Calls
 

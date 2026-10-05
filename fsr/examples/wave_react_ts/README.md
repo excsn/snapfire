@@ -158,7 +158,7 @@ Only the query changes, so the navigator morphs the page rather than replacing i
 
 **Ghosts sit in their own element.** They used to be siblings of the composer and React reconciles children by position: someone else starting to type shifted the composer down a slot, React remounted it and the draft in it was lost. Wrapping them in one `<div className="ghosts">` keeps the composer's position fixed and a draft survives whatever anyone else is doing.
 
-**What the build refuses.** `.slice()`, `[...string]` and `Boolean()` each cost this page its server rendering while they were in it, one at a time, each named with its line by `fsr check`. None of them is an error; each is a component quietly moving to the browser. `Body` cost it once more, for a different reason: a component may hold no statement before its `return`, so the three states of a blip are one ternary rather than three early returns.
+**What the build refuses.** `[...string]` and `Boolean()` each cost this page its server rendering while they were in it, one at a time, each named with its line by `fsr check`. None of them is an error; each is a component quietly moving to the browser. `Body` cost it once more, for a different reason: a component may hold no statement before its `return`, so the three states of a blip are one ternary rather than three early returns.
 
 ## Tests
 

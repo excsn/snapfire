@@ -1315,7 +1315,7 @@ A `rendered` row says `lowered`, `client`, `foreign` or `template`; a lowered ro
 
 ```
 rendered  src/ui/Stars.tsx#Stars             client      src/ui/Stars.tsx:2:17
-client    src/ui/Stars.tsx:2:17              `.slice()`, which is not a builtin
+client    src/ui/Stars.tsx:2:17              `.normalize()`, which is not a builtin
           the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
           1 module renders in the browser for it
             src/ui/Stars.tsx#Stars           <Stars> src/ui/Header.tsx:6:7

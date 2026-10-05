@@ -35,6 +35,7 @@ pub(super) fn arith_sym(op: ArithOp) -> &'static str {
     ArithOp::Mul => "*",
     ArithOp::Div => "/",
     ArithOp::Rem => "%",
+    ArithOp::Pow => "**",
   }
 }
 
@@ -45,6 +46,7 @@ pub(super) fn arith_of(s: &str) -> Option<ArithOp> {
     "*" => ArithOp::Mul,
     "/" => ArithOp::Div,
     "%" => ArithOp::Rem,
+    "**" => ArithOp::Pow,
     _ => return None,
   })
 }
@@ -95,6 +97,21 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::LocaleNumber => "locale-number",
     Builtin::Range => "range",
     Builtin::Omit => "omit",
+    Builtin::Slice => "slice",
+    Builtin::At => "at",
+    Builtin::IndexOf => "index-of",
+    Builtin::Concat => "concat-items",
+    Builtin::Reverse => "reverse",
+    Builtin::PadStart => "pad-start",
+    Builtin::PadEnd => "pad-end",
+    Builtin::Substring => "substring",
+    Builtin::Json => "json",
+    Builtin::Pow => "pow",
+    Builtin::Sqrt => "sqrt",
+    Builtin::Trunc => "trunc",
+    Builtin::Sign => "sign",
+    Builtin::MinOf => "min-of",
+    Builtin::MaxOf => "max-of",
   }
 }
 
@@ -121,6 +138,21 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "locale-number" => Builtin::LocaleNumber,
     "range" => Builtin::Range,
     "omit" => Builtin::Omit,
+    "slice" => Builtin::Slice,
+    "at" => Builtin::At,
+    "index-of" => Builtin::IndexOf,
+    "concat-items" => Builtin::Concat,
+    "reverse" => Builtin::Reverse,
+    "pad-start" => Builtin::PadStart,
+    "pad-end" => Builtin::PadEnd,
+    "substring" => Builtin::Substring,
+    "json" => Builtin::Json,
+    "pow" => Builtin::Pow,
+    "sqrt" => Builtin::Sqrt,
+    "trunc" => Builtin::Trunc,
+    "sign" => Builtin::Sign,
+    "min-of" => Builtin::MinOf,
+    "max-of" => Builtin::MaxOf,
     _ => return None,
   })
 }

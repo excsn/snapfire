@@ -107,6 +107,11 @@ pub enum Expr {
   FindIndex(Box<Expr>, Box<Expr>),
   Some(Box<Expr>, Box<Expr>),
   Every(Box<Expr>, Box<Expr>),
+  /// A sorted copy, `toSorted(f)`: `f` is the comparator lambda; `null` is
+  /// JavaScript's default order by `String(x)` in UTF-16 code units. Stable.
+  Sort(Box<Expr>, Box<Expr>),
+  /// `flatMap(f)`: each result an array spread one level, anything else kept.
+  FlatMap(Box<Expr>, Box<Expr>),
   Entries(Box<Expr>),
   Keys(Box<Expr>),
   Values(Box<Expr>),
@@ -153,6 +158,36 @@ pub enum Builtin {
   Range,
   /// An object without the named keys: the rest of a destructuring.
   Omit,
+  /// `x.slice(start, end)` of an array or a string; a string's indices count UTF-16 code units.
+  Slice,
+  /// `x.at(i)`, a negative index counting from the end.
+  At,
+  /// `x.indexOf(v, from)` of an array by strict equality and of a string by its text.
+  IndexOf,
+  /// `a.concat(...items)`: an array item spread one level, anything else appended; for a string, the items as text.
+  Concat,
+  /// A reversed copy, `toReversed()`.
+  Reverse,
+  /// `s.padStart(length, fill)`.
+  PadStart,
+  /// `s.padEnd(length, fill)`.
+  PadEnd,
+  /// `s.substring(start, end)`.
+  Substring,
+  /// `JSON.stringify(v, null, indent)`.
+  Json,
+  /// `Math.pow(a, b)`.
+  Pow,
+  /// `Math.sqrt(n)`.
+  Sqrt,
+  /// `Math.trunc(n)`.
+  Trunc,
+  /// `Math.sign(n)`.
+  Sign,
+  /// `Math.min(...items)` over one array; `Infinity` when it is empty.
+  MinOf,
+  /// `Math.max(...items)` over one array; `-Infinity` when it is empty.
+  MaxOf,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is
@@ -507,6 +542,8 @@ pub enum ArithOp {
   Mul,
   Div,
   Rem,
+  /// `**`.
+  Pow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -614,7 +651,7 @@ impl Expr {
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.free_vars(out),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
       | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
-      | Expr::Some(a, b) | Expr::Every(a, b) => {
+      | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => {
         a.free_vars(out);
         b.free_vars(out);
       }
@@ -660,7 +697,7 @@ impl Expr {
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.visit(f),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
       | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
-      | Expr::Some(a, b) | Expr::Every(a, b) => {
+      | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => {
         a.visit(f);
         b.visit(f);
       }
@@ -699,7 +736,7 @@ impl Expr {
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.reads_request(),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
       | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
-      | Expr::Some(a, b) | Expr::Every(a, b) => a.reads_request() || b.reads_request(),
+      | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => a.reads_request() || b.reads_request(),
       Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.reads_request() || b.reads_request() || c.reads_request(),
       Expr::Template(parts) => parts.iter().any(Expr::reads_request),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::reads_request),
@@ -721,7 +758,7 @@ impl Expr {
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.has_call(),
       Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
       | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
-      | Expr::Some(a, b) | Expr::Every(a, b) => a.has_call() || b.has_call(),
+      | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => a.has_call() || b.has_call(),
       Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) => a.has_call() || b.has_call() || c.has_call(),
       Expr::Template(parts) => parts.iter().any(Expr::has_call),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::has_call),

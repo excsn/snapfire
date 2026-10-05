@@ -828,62 +828,105 @@ impl Env {
         self.extensions.call(&format!("{module}.{name}"), &self.ambient(), &values)
       }
       Expr::Map(over, f) => {
-        let items = self.seq_sync(over, "map")?;
+        let items = self.seq_sync(over, "map")?; let whole = array_arg(f, &items);
         let mut out = Vec::with_capacity(items.len());
         for (i, item) in items.into_iter().enumerate() {
-          out.push(self.apply_sync(f, vec![item, Value::F64(i as f64)])?);
+          out.push(self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?);
         }
         Ok(Value::seq(out))
       }
+      Expr::FlatMap(over, f) => {
+        let items = self.seq_sync(over, "flatMap")?; let whole = array_arg(f, &items);
+        let mut out = Vec::with_capacity(items.len());
+        for (i, item) in items.into_iter().enumerate() {
+          match self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))? {
+            Value::Seq(inner) => out.extend(inner.into_items()),
+            other => out.push(other),
+          }
+        }
+        Ok(Value::seq(out))
+      }
+      Expr::Sort(over, f) => {
+        let mut items = self.seq_sync(over, "toSorted")?;
+        let mut width = 1;
+        while width < items.len() {
+          let mut merged = Vec::with_capacity(items.len());
+          let mut start = 0;
+          while start < items.len() {
+            let mid = (start + width).min(items.len());
+            let end = (start + 2 * width).min(items.len());
+            let (mut a, mut b) = (start, mid);
+            while a < mid && b < end {
+              let order = match &**f {
+                Expr::Lit(Lit::Null) => default_order(&items[a], &items[b])?,
+                f => comparator_order(&self.apply_sync(f, vec![items[a].clone(), items[b].clone()])?),
+              };
+              if order > 0.0 {
+                merged.push(items[b].clone());
+                b += 1;
+              } else {
+                merged.push(items[a].clone());
+                a += 1;
+              }
+            }
+            merged.extend_from_slice(&items[a..mid]);
+            merged.extend_from_slice(&items[b..end]);
+            start = end;
+          }
+          items = merged;
+          width *= 2;
+        }
+        Ok(Value::seq(items))
+      }
       Expr::Filter(over, f) => {
-        let items = self.seq_sync(over, "filter")?;
+        let items = self.seq_sync(over, "filter")?; let whole = array_arg(f, &items);
         let mut out = Vec::new();
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, vec![item.clone(), Value::F64(i as f64)])?) {
+          if truthy(&self.apply_sync(f, with_array(vec![item.clone(), Value::F64(i as f64)], &whole))?) {
             out.push(item);
           }
         }
         Ok(Value::seq(out))
       }
       Expr::Reduce(over, init, f) => {
-        let items = self.seq_sync(over, "reduce")?;
+        let items = self.seq_sync(over, "reduce")?; let whole = array_arg(f, &items);
         let mut acc = self.eval_sync(init)?;
-        for item in items {
-          acc = self.apply_sync(f, vec![acc, item])?;
+        for (i, item) in items.into_iter().enumerate() {
+          acc = self.apply_sync(f, with_array(vec![acc, item, Value::F64(i as f64)], &whole))?;
         }
         Ok(acc)
       }
       Expr::Find(over, f) => {
-        let items = self.seq_sync(over, "find")?;
+        let items = self.seq_sync(over, "find")?; let whole = array_arg(f, &items);
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, vec![item.clone(), Value::F64(i as f64)])?) {
+          if truthy(&self.apply_sync(f, with_array(vec![item.clone(), Value::F64(i as f64)], &whole))?) {
             return Ok(item);
           }
         }
         Ok(Value::Null)
       }
       Expr::FindIndex(over, f) => {
-        let items = self.seq_sync(over, "findIndex")?;
+        let items = self.seq_sync(over, "findIndex")?; let whole = array_arg(f, &items);
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, vec![item, Value::F64(i as f64)])?) {
+          if truthy(&self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?) {
             return Ok(Value::F64(i as f64));
           }
         }
         Ok(Value::F64(-1.0))
       }
       Expr::Some(over, f) => {
-        let items = self.seq_sync(over, "some")?;
-        for item in items {
-          if truthy(&self.apply_sync(f, vec![item])?) {
+        let items = self.seq_sync(over, "some")?; let whole = array_arg(f, &items);
+        for (i, item) in items.into_iter().enumerate() {
+          if truthy(&self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?) {
             return Ok(Value::Bool(true));
           }
         }
         Ok(Value::Bool(false))
       }
       Expr::Every(over, f) => {
-        let items = self.seq_sync(over, "every")?;
-        for item in items {
-          if !truthy(&self.apply_sync(f, vec![item])?) {
+        let items = self.seq_sync(over, "every")?; let whole = array_arg(f, &items);
+        for (i, item) in items.into_iter().enumerate() {
+          if !truthy(&self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?) {
             return Ok(Value::Bool(false));
           }
         }
@@ -1138,62 +1181,105 @@ impl Env {
           self.extensions.call(&format!("{module}.{name}"), &self.ambient(), &values)
         }
         Expr::Map(over, f) => {
-          let items = self.seq(over, "map").await?;
+          let items = self.seq(over, "map").await?; let whole = array_arg(f, &items);
           let mut out = Vec::with_capacity(items.len());
           for (i, item) in items.into_iter().enumerate() {
-            out.push(self.apply(f, vec![item, Value::F64(i as f64)]).await?);
+            out.push(self.apply(f, with_array(vec![item, Value::F64(i as f64)], &whole)).await?);
           }
           Ok(Value::seq(out))
         }
+        Expr::FlatMap(over, f) => {
+          let items = self.seq(over, "flatMap").await?; let whole = array_arg(f, &items);
+          let mut out = Vec::with_capacity(items.len());
+          for (i, item) in items.into_iter().enumerate() {
+            match self.apply(f, with_array(vec![item, Value::F64(i as f64)], &whole)).await? {
+              Value::Seq(inner) => out.extend(inner.into_items()),
+              other => out.push(other),
+            }
+          }
+          Ok(Value::seq(out))
+        }
+        Expr::Sort(over, f) => {
+          let mut items = self.seq(over, "toSorted").await?;
+          let mut width = 1;
+          while width < items.len() {
+            let mut merged = Vec::with_capacity(items.len());
+            let mut start = 0;
+            while start < items.len() {
+              let mid = (start + width).min(items.len());
+              let end = (start + 2 * width).min(items.len());
+              let (mut a, mut b) = (start, mid);
+              while a < mid && b < end {
+                let order = match &**f {
+                  Expr::Lit(Lit::Null) => default_order(&items[a], &items[b])?,
+                  f => comparator_order(&self.apply(f, vec![items[a].clone(), items[b].clone()]).await?),
+                };
+                if order > 0.0 {
+                  merged.push(items[b].clone());
+                  b += 1;
+                } else {
+                  merged.push(items[a].clone());
+                  a += 1;
+                }
+              }
+              merged.extend_from_slice(&items[a..mid]);
+              merged.extend_from_slice(&items[b..end]);
+              start = end;
+            }
+            items = merged;
+            width *= 2;
+          }
+          Ok(Value::seq(items))
+        }
         Expr::Filter(over, f) => {
-          let items = self.seq(over, "filter").await?;
+          let items = self.seq(over, "filter").await?; let whole = array_arg(f, &items);
           let mut out = Vec::new();
           for (i, item) in items.into_iter().enumerate() {
-            if truthy(&self.apply(f, vec![item.clone(), Value::F64(i as f64)]).await?) {
+            if truthy(&self.apply(f, with_array(vec![item.clone(), Value::F64(i as f64)], &whole)).await?) {
               out.push(item);
             }
           }
           Ok(Value::seq(out))
         }
         Expr::Reduce(over, init, f) => {
-          let items = self.seq(over, "reduce").await?;
+          let items = self.seq(over, "reduce").await?; let whole = array_arg(f, &items);
           let mut acc = self.eval(init).await?;
-          for item in items {
-            acc = self.apply(f, vec![acc, item]).await?;
+          for (i, item) in items.into_iter().enumerate() {
+            acc = self.apply(f, with_array(vec![acc, item, Value::F64(i as f64)], &whole)).await?;
           }
           Ok(acc)
         }
         Expr::Find(over, f) => {
-          let items = self.seq(over, "find").await?;
+          let items = self.seq(over, "find").await?; let whole = array_arg(f, &items);
           for (i, item) in items.into_iter().enumerate() {
-            if truthy(&self.apply(f, vec![item.clone(), Value::F64(i as f64)]).await?) {
+            if truthy(&self.apply(f, with_array(vec![item.clone(), Value::F64(i as f64)], &whole)).await?) {
               return Ok(item);
             }
           }
           Ok(Value::Null)
         }
         Expr::FindIndex(over, f) => {
-          let items = self.seq(over, "findIndex").await?;
+          let items = self.seq(over, "findIndex").await?; let whole = array_arg(f, &items);
           for (i, item) in items.into_iter().enumerate() {
-            if truthy(&self.apply(f, vec![item, Value::F64(i as f64)]).await?) {
+            if truthy(&self.apply(f, with_array(vec![item, Value::F64(i as f64)], &whole)).await?) {
               return Ok(Value::F64(i as f64));
             }
           }
           Ok(Value::F64(-1.0))
         }
         Expr::Some(over, f) => {
-          let items = self.seq(over, "some").await?;
-          for item in items {
-            if truthy(&self.apply(f, vec![item]).await?) {
+          let items = self.seq(over, "some").await?; let whole = array_arg(f, &items);
+          for (i, item) in items.into_iter().enumerate() {
+            if truthy(&self.apply(f, with_array(vec![item, Value::F64(i as f64)], &whole)).await?) {
               return Ok(Value::Bool(true));
             }
           }
           Ok(Value::Bool(false))
         }
         Expr::Every(over, f) => {
-          let items = self.seq(over, "every").await?;
-          for item in items {
-            if !truthy(&self.apply(f, vec![item]).await?) {
+          let items = self.seq(over, "every").await?; let whole = array_arg(f, &items);
+          for (i, item) in items.into_iter().enumerate() {
+            if !truthy(&self.apply(f, with_array(vec![item, Value::F64(i as f64)], &whole)).await?) {
               return Ok(Value::Bool(false));
             }
           }
@@ -1354,6 +1440,7 @@ fn float(op: ArithOp, a: f64, b: f64) -> f64 {
     ArithOp::Mul => a * b,
     ArithOp::Div => a / b,
     ArithOp::Rem => a % b,
+    ArithOp::Pow => js_pow(a, b),
   }
 }
 
@@ -1365,6 +1452,7 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
       ArithOp::Mul => a.checked_mul(b).ok_or_else(|| Fail::internal("integer overflow"))?,
       ArithOp::Div => a.checked_div(b).ok_or_else(|| Fail::internal("division by zero"))?,
       ArithOp::Rem => a.checked_rem(b).ok_or_else(|| Fail::internal("division by zero"))?,
+      ArithOp::Pow => u32::try_from(b).ok().and_then(|b| a.checked_pow(b)).ok_or_else(|| Fail::internal("integer power out of range"))?,
     })),
     (Value::F64(a), Value::F64(b)) => Ok(Value::F64(float(op, a, b))),
     // A number literal lowers as a float and a record's width is an integer,
@@ -1417,6 +1505,183 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
     CompareOp::Gt => ordering == Ordering::Greater,
     CompareOp::Ge => ordering != Ordering::Less,
   })
+}
+
+/// The array a callback receives last, `(item, index, array)` or `(acc, item, index, array)`, when its lambda names more than two parameters; an argument past the last parameter is dropped.
+fn array_arg(f: &Expr, items: &[Value]) -> Option<Value> {
+  match f {
+    Expr::Lambda { params, .. } if params.len() > 2 => Some(Value::seq(items.to_vec())),
+    _ => None,
+  }
+}
+
+fn with_array(mut args: Vec<Value>, whole: &Option<Value>) -> Vec<Value> {
+  if let Some(array) = whole {
+    args.push(array.clone());
+  }
+  args
+}
+
+/// `a ** b` as JavaScript computes it: a base of 1 or -1 to an infinite power is NaN where `powf` answers 1.
+fn js_pow(a: f64, b: f64) -> f64 {
+  if b.is_infinite() && a.abs() == 1.0 {
+    return f64::NAN;
+  }
+  a.powf(b)
+}
+
+/// JavaScript's `ToIntegerOrInfinity` of an argument; absent is 0.
+fn integer(what: Builtin, value: Option<&Value>) -> Result<f64, Fail> {
+  match value {
+    None | Some(Value::Null) => Ok(0.0),
+    Some(Value::Bool(b)) => Ok(if *b { 1.0 } else { 0.0 }),
+    Some(v) => {
+      let n = number(what, v)?;
+      Ok(if n.is_nan() { 0.0 } else { n.trunc() })
+    }
+  }
+}
+
+/// A relative index as `slice` reads one: negative counts from the end, clamped to `0..=len`.
+fn relative(i: f64, len: usize) -> usize {
+  if i < 0.0 {
+    (len as f64 + i).max(0.0) as usize
+  } else {
+    i.min(len as f64) as usize
+  }
+}
+
+/// `slice`'s start and end over `len` items, from arguments 1 and 2.
+fn span_of(what: Builtin, args: &[Value], len: usize) -> Result<(usize, usize), Fail> {
+  let from = relative(integer(what, args.get(1))?, len);
+  let to = match args.get(2) {
+    None | Some(Value::Null) => len,
+    Some(v) => relative(integer(what, Some(v))?, len),
+  };
+  Ok((from, to))
+}
+
+/// UTF-16 code units back to a string; a cut through a surrogate pair leaves a half no Rust string holds.
+fn from_units(what: Builtin, units: &[u16]) -> Result<String, Fail> {
+  String::from_utf16(units).map_err(|_| Fail::internal(format!("{what:?} would split a surrogate pair, which the value model holds no half of")))
+}
+
+/// `===` over values: numbers by value whatever their width, objects and arrays by contents.
+fn strictly_equal(a: &Value, b: &Value) -> bool {
+  match (a, b) {
+    (Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => {
+      let n = |v: &Value| match v {
+        Value::Int(n) => *n as f64,
+        Value::UInt(n) => *n as f64,
+        Value::F32(f) => *f as f64,
+        Value::F64(f) => *f,
+        _ => f64::NAN,
+      };
+      n(a) == n(b)
+    }
+    _ => a == b,
+  }
+}
+
+/// A comparator's answer as a number, NaN and anything that is not one as 0.
+fn comparator_order(value: &Value) -> f64 {
+  let n = match value {
+    Value::Int(n) => *n as f64,
+    Value::UInt(n) => *n as f64,
+    Value::F32(f) => *f as f64,
+    Value::F64(f) => *f,
+    Value::Bool(b) => f64::from(u8::from(*b)),
+    _ => 0.0,
+  };
+  if n.is_nan() { 0.0 } else { n }
+}
+
+/// `sort`'s order without a comparator: `String(x)` compared in UTF-16 code units.
+fn default_order(a: &Value, b: &Value) -> Result<f64, Fail> {
+  let (a, b) = (stringify(a)?, stringify(b)?);
+  Ok(match a.encode_utf16().cmp(b.encode_utf16()) {
+    std::cmp::Ordering::Less => -1.0,
+    std::cmp::Ordering::Equal => 0.0,
+    std::cmp::Ordering::Greater => 1.0,
+  })
+}
+
+/// `JSON.stringify` of a value at `depth`, with `indent` per level.
+fn json_into(out: &mut String, value: &Value, indent: &str, depth: usize) -> Result<(), Fail> {
+  let newline = |out: &mut String, depth: usize| {
+    if !indent.is_empty() {
+      out.push('\n');
+      for _ in 0..depth {
+        out.push_str(indent);
+      }
+    }
+  };
+  match value {
+    Value::Null => out.push_str("null"),
+    Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+    Value::F64(f) if !f.is_finite() => out.push_str("null"),
+    Value::F32(f) if !f.is_finite() => out.push_str("null"),
+    Value::Int(_) | Value::UInt(_) => return Err(Fail::internal("JSON.stringify of a BigInt, which JavaScript throws on")),
+    Value::F64(_) | Value::F32(_) => out.push_str(&stringify(value)?),
+    Value::Str(s) => json_string(out, s),
+    Value::Seq(items) => {
+      if items.is_empty() {
+        out.push_str("[]");
+        return Ok(());
+      }
+      out.push('[');
+      for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+          out.push(',');
+        }
+        newline(out, depth + 1);
+        json_into(out, item, indent, depth + 1)?;
+      }
+      newline(out, depth);
+      out.push(']');
+    }
+    Value::Map(map) => {
+      if map.is_empty() {
+        out.push_str("{}");
+        return Ok(());
+      }
+      out.push('{');
+      for (i, (key, item)) in map.iter().enumerate() {
+        if i > 0 {
+          out.push(',');
+        }
+        newline(out, depth + 1);
+        json_string(out, key);
+        out.push(':');
+        if !indent.is_empty() {
+          out.push(' ');
+        }
+        json_into(out, item, indent, depth + 1)?;
+      }
+      newline(out, depth);
+      out.push('}');
+    }
+    other => return Err(type_error("JSON.stringify", "a JSON value", other)),
+  }
+  Ok(())
+}
+
+fn json_string(out: &mut String, s: &str) {
+  out.push('"');
+  for c in s.chars() {
+    match c {
+      '"' => out.push_str("\\\""),
+      '\\' => out.push_str("\\\\"),
+      '\u{8}' => out.push_str("\\b"),
+      '\u{c}' => out.push_str("\\f"),
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '\t' => out.push_str("\\t"),
+      c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+      c => out.push(c),
+    }
+  }
+  out.push('"');
 }
 
 /// JavaScript's `Number.MAX_SAFE_INTEGER`; a double past it has no exact
@@ -1633,6 +1898,135 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       let n = n as i64;
       Value::Seq((0..n).map(|i| Value::F64(i as f64)).collect())
+    }
+    Builtin::Slice => match arg(0)? {
+      Value::Seq(items) => {
+        let (from, to) = span_of(name, &args, items.len())?;
+        Value::seq(items.iter().skip(from).take(to.saturating_sub(from)).cloned().collect::<Vec<_>>())
+      }
+      Value::Str(s) => {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        let (from, to) = span_of(name, &args, units.len())?;
+        Value::str(from_units(name, &units[from..to.max(from)])?)
+      }
+      other => return Err(type_error(&format!("{name:?}"), "an array or a string", other)),
+    },
+    Builtin::At => {
+      let len = match arg(0)? {
+        Value::Seq(items) => items.len(),
+        Value::Str(s) => s.encode_utf16().count(),
+        other => return Err(type_error(&format!("{name:?}"), "an array or a string", other)),
+      };
+      let i = integer(name, args.get(1))?;
+      let i = if i < 0.0 { i + len as f64 } else { i };
+      if i < 0.0 || i >= len as f64 {
+        return Ok(Value::Null);
+      }
+      match arg(0)? {
+        Value::Seq(items) => items.get(i as usize).cloned().unwrap_or(Value::Null),
+        Value::Str(s) => {
+          let units: Vec<u16> = s.encode_utf16().collect();
+          Value::str(from_units(name, &units[i as usize..i as usize + 1])?)
+        }
+        _ => Value::Null,
+      }
+    }
+    Builtin::IndexOf => match arg(0)? {
+      Value::Seq(items) => {
+        let from = relative(integer(name, args.get(2))?, items.len());
+        let wanted = arg(1)?;
+        whole(items.iter().skip(from).position(|item| strictly_equal(item, wanted)).map_or(-1.0, |i| (i + from) as f64))
+      }
+      Value::Str(s) => {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        let wanted: Vec<u16> = stringify(arg(1)?)?.encode_utf16().collect();
+        let from = (integer(name, args.get(2))?.max(0.0) as usize).min(units.len());
+        let found = (from..=units.len()).find(|&at| units[at..].starts_with(&wanted));
+        whole(found.map_or(-1.0, |at| at as f64))
+      }
+      other => return Err(type_error(&format!("{name:?}"), "an array or a string", other)),
+    },
+    Builtin::Concat => match arg(0)? {
+      Value::Seq(items) => {
+        let mut out = items.iter().cloned().collect::<Vec<_>>();
+        for value in &args[1..] {
+          match value {
+            Value::Seq(more) => out.extend(more.iter().cloned()),
+            other => out.push(other.clone()),
+          }
+        }
+        Value::seq(out)
+      }
+      Value::Str(s) => {
+        let mut out = s.to_string();
+        for value in &args[1..] {
+          out.push_str(&stringify(value)?);
+        }
+        Value::str(out)
+      }
+      other => return Err(type_error(&format!("{name:?}"), "an array or a string", other)),
+    },
+    Builtin::Reverse => match arg(0)? {
+      Value::Seq(items) => Value::seq(items.iter().rev().cloned().collect::<Vec<_>>()),
+      other => return Err(type_error(&format!("{name:?}"), "an array", other)),
+    },
+    Builtin::PadStart | Builtin::PadEnd => {
+      let s = text(name, arg(0)?)?;
+      let length = integer(name, args.get(1))?;
+      let fill = match args.get(2) {
+        None | Some(Value::Null) => " ".to_owned(),
+        Some(v) => stringify(v)?,
+      };
+      let have = s.encode_utf16().count();
+      if length <= have as f64 || fill.is_empty() {
+        return Ok(Value::str(s));
+      }
+      if length > MAX_REPEAT as f64 {
+        return Err(Fail::internal(format!("{name:?} would build {length:.0} code units")));
+      }
+      let needed = length as usize - have;
+      let fill: Vec<u16> = fill.encode_utf16().collect();
+      let pad: Vec<u16> = fill.iter().copied().cycle().take(needed).collect();
+      let pad = from_units(name, &pad)?;
+      Value::str(if name == Builtin::PadStart { format!("{pad}{s}") } else { format!("{s}{pad}") })
+    }
+    Builtin::Substring => {
+      let s = text(name, arg(0)?)?;
+      let units: Vec<u16> = s.encode_utf16().collect();
+      let clamp = |v: f64| if v.is_nan() { 0 } else { v.clamp(0.0, units.len() as f64) as usize };
+      let start = clamp(integer(name, args.get(1))?);
+      let end = match args.get(2) {
+        None | Some(Value::Null) => units.len(),
+        Some(v) => clamp(integer(name, Some(v))?),
+      };
+      let (from, to) = (start.min(end), start.max(end));
+      Value::str(from_units(name, &units[from..to])?)
+    }
+    Builtin::Json => {
+      let indent = match args.get(2) {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::Str(s)) => s.chars().take(10).collect(),
+        Some(v) => " ".repeat(number(name, v)?.clamp(0.0, 10.0) as usize),
+      };
+      let mut out = String::new();
+      json_into(&mut out, arg(0)?, &indent, 0)?;
+      Value::str(out)
+    }
+    Builtin::MinOf | Builtin::MaxOf => {
+      let Value::Seq(items) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "an array", arg(0)?)) };
+      let mut best = if name == Builtin::MinOf { f64::INFINITY } else { f64::NEG_INFINITY };
+      for item in items.iter() {
+        let n = number(name, item)?;
+        best = if n.is_nan() || best.is_nan() { f64::NAN } else if name == Builtin::MinOf { best.min(n) } else { best.max(n) };
+      }
+      whole(best)
+    }
+    Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
+    Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),
+    Builtin::Trunc => whole(number(name, arg(0)?)?.trunc()),
+    Builtin::Sign => {
+      let n = number(name, arg(0)?)?;
+      whole(if n.is_nan() || n == 0.0 { n } else { n.signum() })
     }
     Builtin::Omit => {
       let mut map = match arg(0)? {

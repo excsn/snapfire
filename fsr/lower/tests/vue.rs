@@ -398,3 +398,49 @@ const cap = () => {
   assert_eq!(number(arrow.store.get("probe/count")), 14.0);
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const METHODS: &str = r#"<script setup lang="ts">
+const props = defineProps<{ items: { name: string; price: number }[]; nums: number[]; word: string; missing?: string[] }>();
+const byPrice = props.items.toSorted((a, b) => a.price - b.price).map((i) => i.name).join();
+const big = props.nums.filter((n) => {
+  const limit = 2;
+  return n > limit;
+});
+</script>
+
+<template>
+  <p>{{ nums.slice(1, 3).join() }} {{ nums.slice(-2).join() }} {{ word.slice(1, -1) }} {{ word.slice(-3) }} {{ word.slice(4, 2) }}</p>
+  <p>{{ nums.at(-1) }} {{ word.at(0) }} {{ nums.at(10) ?? "none" }} {{ word.at(-1) }}</p>
+  <p>{{ nums.indexOf(3) }} {{ nums.indexOf(99) }} {{ word.indexOf("l") }} {{ word.indexOf("l", 3) }} {{ word.indexOf("") }}</p>
+  <p>{{ nums.concat([7, 8], 9).join() }} {{ word.concat("!", 1) }}</p>
+  <p>{{ nums.toReversed().join() }} {{ [...nums].reverse().join() }} {{ nums.join() }}</p>
+  <p>{{ word.padStart(8, "*") }}|{{ word.padEnd(8) }}|{{ "5".padStart(3, "0") }}|{{ word.padStart(9, "ab") }}|{{ word.padStart(2) }}</p>
+  <p>{{ word.substring(3, 1) }} {{ word.substring(2) }} {{ word.substring(-4, 99) }}</p>
+  <p>{{ nums.toSorted().join() }} {{ byPrice }} {{ [...nums].sort((a, b) => b - a).join() }} {{ nums.slice().sort().join() }}</p>
+  <p>{{ items.flatMap((i) => [i.name, i.price]).join() }} {{ nums.flatMap((n) => (n > 3 ? [] : n)).join() }}</p>
+  <p>{{ 2 ** 10 }} {{ Math.pow(2, 0.5).toFixed(3) }} {{ Math.sqrt(16) }} {{ Math.trunc(-4.7) }} {{ Math.sign(-3) }} {{ Math.sign(0) }}</p>
+  <p>{{ Math.max(...nums) }} {{ Math.min(...nums, 0) }}</p>
+  <p>{{ JSON.stringify(items) }}</p>
+  <pre>{{ JSON.stringify(items[0], null, 2) }}</pre>
+  <p>{{ JSON.stringify({ a: 'q"\n', b: null, c: [1.5, true], d: [], e: {} }) }} {{ JSON.stringify(word) }} {{ JSON.stringify(nums, null, "--") }}</p>
+  <p>{{ missing?.join("-") ?? "none" }} {{ items?.map((i) => i.name).join() }}</p>
+  <p>{{ big.join() }}</p>
+  <p class="callbacks">{{ nums.concat(nums).filter((n, i, all) => all.indexOf(n) === i).join() }} {{ nums.reduce((acc, n, i) => acc + n * i, 0) }} {{ nums.some((n, i) => i === 3 && n === 3) }} {{ nums.every((n, i, all) => all.length === 4 && i < 4) }} {{ nums.map((n, i, all) => all[all.length - 1 - i]).join() }}</p>
+</template>
+"#;
+
+#[test]
+fn the_array_and_string_methods_render_what_javascript_computes() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("methods", &[]);
+  let item = |name: &str, price: f64| Value::Map(props(&[("name", Value::str(name)), ("price", Value::F64(price))]));
+  let given = props(&[
+    ("items", Value::seq(vec![item("pear", 3.0), item("fig", 1.5), item("kiwi", 3.0), item("plum", 0.5)])),
+    ("nums", Value::seq(vec![Value::F64(10.0), Value::F64(9.0), Value::F64(1.0), Value::F64(3.0)])),
+    ("word", Value::str("hello")),
+  ]);
+  let html = agree(&compiler, &dir, "src/ui/Methods.vue", METHODS, &given, "");
+  assert!(html.contains("<p>1,10,3,9 plum,fig,pear,kiwi 10,9,3,1 1,10,3,9</p>"), "the default order is by text and a comparator's sort is stable: {html}");
+  assert!(html.contains("<p class=\"callbacks\">10,9,1,3 20 true true 3,1,9,10</p>"), "a callback gets the index and the array: {html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

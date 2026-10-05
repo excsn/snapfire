@@ -77,6 +77,8 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::FindIndex(a, b) => two("find-index", a, b),
     Expr::Some(a, b) => two("some", a, b),
     Expr::Every(a, b) => two("every", a, b),
+    Expr::Sort(a, b) => two("sort", a, b),
+    Expr::FlatMap(a, b) => two("flat-map", a, b),
     Expr::Entries(e) => one("entries", e),
     Expr::Keys(e) => one("keys", e),
     Expr::Values(e) => one("values", e),
@@ -255,6 +257,14 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "every" => {
       let (a, b) = two(head)?;
       Expr::Every(a, b)
+    }
+    "sort" => {
+      let (a, b) = two(head)?;
+      Expr::Sort(a, b)
+    }
+    "flat-map" => {
+      let (a, b) = two(head)?;
+      Expr::FlatMap(a, b)
     }
     "entries" => Expr::Entries(one(head)?),
     "keys" => Expr::Keys(one(head)?),

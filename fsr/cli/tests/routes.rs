@@ -1095,7 +1095,7 @@ fn a_module_that_does_not_lower_travels_in_the_plan_with_its_cause() {
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <Stars />;\n}\n"),
     ("routes/other/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <div><Stars /></div>;\n}\n"),
-    ("src/ui/Stars.tsx", "export function Stars() {\n  return <p>{[1, 2, 3].slice(1).length}</p>;\n}\n"),
+    ("src/ui/Stars.tsx", "export function Stars() {\n  return <p>{\"a\".normalize().length}</p>;\n}\n"),
   ]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();

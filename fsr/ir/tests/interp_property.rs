@@ -56,7 +56,7 @@ fn pair(a: Value, b: Value) -> ValueMap {
 }
 
 fn arith_ops() -> BoxedStrategy<ArithOp> {
-  prop_oneof![Just(ArithOp::Add), Just(ArithOp::Sub), Just(ArithOp::Mul), Just(ArithOp::Div), Just(ArithOp::Rem)].boxed()
+  prop_oneof![Just(ArithOp::Add), Just(ArithOp::Sub), Just(ArithOp::Mul), Just(ArithOp::Div), Just(ArithOp::Rem), Just(ArithOp::Pow)].boxed()
 }
 
 fn compare_ops() -> BoxedStrategy<CompareOp> {
@@ -75,7 +75,10 @@ fn builtins() -> BoxedStrategy<Builtin> {
     Just(Builtin::Includes), Just(Builtin::StartsWith), Just(Builtin::EndsWith),
     Just(Builtin::Split), Just(Builtin::Replace),
     Just(Builtin::EncodeUriComponent), Just(Builtin::LocaleNumber),
-    Just(Builtin::Range), Just(Builtin::Omit)
+    Just(Builtin::Range), Just(Builtin::Omit),
+    Just(Builtin::Slice), Just(Builtin::At), Just(Builtin::IndexOf), Just(Builtin::Concat), Just(Builtin::Reverse),
+    Just(Builtin::PadStart), Just(Builtin::PadEnd), Just(Builtin::Substring), Just(Builtin::Json),
+    Just(Builtin::Pow), Just(Builtin::Sqrt), Just(Builtin::Trunc), Just(Builtin::Sign), Just(Builtin::MinOf), Just(Builtin::MaxOf)
   ]
   .boxed()
 }
