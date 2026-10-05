@@ -4979,6 +4979,13 @@ impl HostBuilder {
       if let Some(css) = &font_css {
         policy.widen("style-src", import_map_csp(css));
       }
+      // A rendered `style` attribute has no hash a boot-time policy can name,
+      // and a fragment swapped in by client navigation is checked against the
+      // first document's policy, so attributes are admitted on their own
+      // directive; `<style>` and `<script>` stay as declared.
+      if !policy.declares("style-src-attr") && (policy.declares("style-src") || policy.declares("default-src")) {
+        policy.add("style-src-attr", "'unsafe-inline'");
+      }
       if let Some(manifest) = &assets_manifest {
         for (directive, source) in asset_csp_sources(manifest) {
           policy.widen(directive, source);

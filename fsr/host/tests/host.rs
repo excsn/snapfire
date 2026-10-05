@@ -5096,6 +5096,27 @@ async fn a_document_carries_the_configured_csp_with_the_import_map_substituted()
 }
 
 #[tokio::test]
+async fn a_policy_restricting_styles_admits_style_attributes_on_their_own_directive() {
+  let host = csp_host("[document.csp]\nstyle-src = [\"'self'\"]", false);
+  let policy = csp_of(&host, "/").await.expect("a policy on the document");
+  assert!(policy.contains("style-src 'self'"), "{policy}");
+  assert!(policy.contains("style-src-attr 'unsafe-inline'"), "{policy}");
+  assert!(!policy.contains("style-src 'self' 'unsafe-inline'"), "{policy}");
+
+  let host = csp_host("[document.csp]\ndefault-src = [\"'self'\"]", false);
+  let policy = csp_of(&host, "/").await.expect("a policy on the document");
+  assert!(policy.contains("style-src-attr 'unsafe-inline'"), "default-src restricts attributes too: {policy}");
+
+  let host = csp_host("[document.csp]\nstyle-src = [\"'self'\"]\nstyle-src-attr = [\"'none'\"]", false);
+  let policy = csp_of(&host, "/").await.expect("a policy on the document");
+  assert!(policy.contains("style-src-attr 'none'") && !policy.contains("'unsafe-inline'"), "a declared style-src-attr is kept: {policy}");
+
+  let host = csp_host("[document.csp]\nscript-src = [\"'self'\"]", false);
+  let policy = csp_of(&host, "/").await.expect("a policy on the document");
+  assert!(!policy.contains("style-src-attr"), "a policy that leaves styles alone gains nothing: {policy}");
+}
+
+#[tokio::test]
 async fn no_csp_key_sends_no_policy() {
   let (host, _) = host();
   assert_eq!(csp_of(&host, "/").await, None);

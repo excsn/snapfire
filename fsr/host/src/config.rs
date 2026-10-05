@@ -488,6 +488,11 @@ impl Csp {
     self.add(directive, source);
   }
 
+  /// Whether the policy has `directive` at all.
+  pub fn declares(&self, directive: &str) -> bool {
+    self.0.contains_key(directive)
+  }
+
   /// Whether `directive` names `source` already.
   pub fn names(&self, directive: &str, source: &str) -> bool {
     self.0.get(directive).is_some_and(|s| s.iter().any(|v| v == source))

@@ -157,6 +157,8 @@ object-src = ["'none'"]
 
 The host merges in the sources only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Under `dev` a nonce for the refresh script goes in beside it, since that script carries the bundle id it was rendered against and has no stable hash. Nothing in the policy names either. A development host enforces what a production one does, so a missing origin shows up in development.
 
+A policy that restricts styles, through `style-src` or `default-src`, gets `style-src-attr 'unsafe-inline'` unless it declares `style-src-attr` itself. A lowered component's `style={{ width }}` is printed as a `style` attribute, which has no hash a policy written at boot can name, and a fragment client navigation swaps in is checked against the first document's policy. The directive admits attributes only: `<style>` elements and every script stay as the policy wrote them. A policy that wants attributes blocked declares `style-src-attr = ["'none'"]` and gives up server-rendered inline styles.
+
 Two `script-src` sources break the page next to what the host adds: `'unsafe-inline'` and `'strict-dynamic'`.
 
 A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that same directive. The host always adds the import map's hash, so a policy written to keep inline third-party tags working loses every one of them the moment it names `script-src` at all. `fsr doctor` reports that pair.
