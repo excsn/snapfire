@@ -12,5 +12,13 @@ ttl = "24h"
 capacity = 1000
 ttl = "1m"
 
+[[static]]
+route = "/pictures"
+dir = "pictures"
+
 [typecheck]
 version = "7.0.2"
+
+[locales]
+supported = ["en", "fr"]
+default = "en"

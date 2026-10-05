@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onUpdated } from "vue";
+import { onMounted, onUnmounted, onUpdated } from "vue";
 import { Link, Mount, Picture, useLocale, useStore } from "@snapfire/fsr-client/vue";
 
-import { rendered } from "@src/probes";
+import { rendered, unmounted } from "@src/probes";
 import { probeCount } from "@src/store";
 
 const props = defineProps<{ label: string; nest: string[] }>();
@@ -10,6 +10,7 @@ const count = useStore(probeCount, 0);
 const locale = useLocale();
 onMounted(() => rendered("vue"));
 onUpdated(() => rendered("vue"));
+onUnmounted(() => unmounted("vue"));
 </script>
 
 <template>

@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { Link, Mount, Picture, useLocale, useStore } from "@snapfire/fsr-client/react";
 
-import { rendered } from "@src/probes";
+import { rendered, unmounted } from "@src/probes";
 import { probeCount } from "@src/store";
 
 export default function ReactProbe({ label, nest, children }: { label: string; nest: string[]; children?: ReactNode }) {
@@ -10,6 +10,7 @@ export default function ReactProbe({ label, nest, children }: { label: string; n
   useEffect(() => {
     rendered("react");
   });
+  useEffect(() => () => unmounted("react"), []);
   return (
     <section className="probe" data-owner="react">
       <h3 className="label">{label}</h3>
