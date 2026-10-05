@@ -294,7 +294,7 @@ struct Slot<'a> {
 /// component as its `children` and never renders itself.
 pub const CHILDREN_OPEN: &str = "<sf-s data-sf-children>";
 
-/// Where a lowered Vue island's children go when its template did not place
+/// Where a lowered React or Vue island's children go when its render did not place
 /// its slot this render, a closed panel for one: an inert template after the
 /// island's markup, which the parser never shows, the scan never reaches and
 /// the mounter reads so the slot has its content when the template opens.
@@ -1075,9 +1075,14 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
   env.in_framework = outer_framework;
   let unrendered = std::mem::replace(&mut env.unrendered, outer_unrendered);
-  let held = result.is_ok() && !children.is_empty() && component.owner == crate::ast::Owner::Vue && slots.last().is_some_and(|slot| slot.island && !slot.placed);
+  let held = result.is_ok() && !children.is_empty() && component.owner.hydrates() && slots.last().is_some_and(|slot| slot.island && !slot.placed);
   let result = match held {
-    true => render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_HELD_OPEN, "template"),
+    true => {
+      let island_scope = std::mem::replace(&mut env.scope, (*outer).clone());
+      let rendered = render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_HELD_OPEN, "template");
+      env.scope = island_scope;
+      rendered
+    }
     false => result,
   };
   env.state = outer_state;

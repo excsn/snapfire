@@ -2,6 +2,7 @@ import { Island } from "@snapfire/fsr-authoring/template";
 
 import Badge from "@src/ui/Badge";
 import Chooser from "@src/ui/Chooser";
+import Fold from "@src/ui/Fold";
 import Shares from "@src/ui/Shares";
 
 interface Item {
@@ -45,6 +46,11 @@ export default function Statements({ total, low, kinds, note, items, pick }: { t
       </Island>
       <Island mode="server">
         <Chooser />
+      </Island>
+      <Island>
+        <Fold title="details">
+          <p className="folded">{headline}</p>
+        </Fold>
       </Island>
     </section>
   );

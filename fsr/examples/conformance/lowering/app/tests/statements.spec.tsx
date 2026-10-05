@@ -58,4 +58,14 @@ describe("the statements page", () => {
     await settle();
     expect(text(".picked")).toEqual("leek");
   });
+
+  test("a React island shows the children its first render held back once it opens", async () => {
+    await load("/statements");
+    expect(document.querySelector(".folded"), "the children are not shown closed").toBeNull();
+    await settle();
+    expect(document.querySelector(".fold template"), "the mounter took the held children").toBeNull();
+    await fireEvent.click(document.querySelector(".fold-toggle")!);
+    await settle();
+    expect(text(".fold-body .folded")).toEqual("51 in stock, 2 low");
+  });
 });

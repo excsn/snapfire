@@ -55,11 +55,27 @@ function IslandChildren({ root }: { root: Element }): ReactElement {
 /** The child element a layout or an island with children receives, created once per root. */
 const children = new WeakMap<Element, ReactElement>();
 
+/** The inert `<template data-sf-children>` the server writes after an island's markup when its first render did not place its children: under `el` and not inside a nested island. */
+function heldChildrenOf(el: Element): Element | null {
+  for (const held of Array.from(el.querySelectorAll(`template[${CHILDREN_ATTR}]`))) {
+    if (held.parentElement?.closest("sf-i") === el) return held;
+  }
+  return null;
+}
+
 function childrenFor(el: Element): ReactElement | undefined {
   const held = children.get(el);
   if (held) return held;
   const slot = slotOf(el);
-  if (!slot) return undefined;
+  if (!slot) {
+    const template = heldChildrenOf(el);
+    if (!template) return undefined;
+    childrenMarkup.set(el, template.innerHTML);
+    template.remove();
+    const element = createElement(IslandChildren, { root: el });
+    children.set(el, element);
+    return element;
+  }
   let element: ReactElement;
   if (slot.hasAttribute(CHILDREN_ATTR)) {
     childrenMarkup.set(el, slot.innerHTML);

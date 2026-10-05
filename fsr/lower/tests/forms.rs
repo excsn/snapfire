@@ -469,3 +469,14 @@ fn a_handler_prop_that_does_not_lower_leaves_its_reason_on_the_placement() {
   let Tmpl::Component { props, .. } = &children[0] else { panic!("{children:?}") };
   assert!(props.iter().any(|e| matches!(e, Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == snapfire_fsr_ir::render::UNLOWERED_ATTR && why.starts_with("3:"))), "{props:?}");
 }
+
+#[test]
+fn a_react_island_holds_the_children_its_first_render_did_not_place() {
+  let panel = "import { useState, type ReactNode } from \"react\";\nexport default function Panel({ children }: { children: ReactNode }) {\n  const [open, setOpen] = useState(false);\n  return (\n    <div>\n      <button onClick={() => setOpen(!open)}>more</button>\n      {open && children}\n    </div>\n  );\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Panel from \"@src/ui/Panel\";\nexport default function Page({ n }: { n: number }) {\n  let note = `n=${n}`;\n  if (n > 1) {\n    note += \" many\";\n  }\n  return <Island><Panel><p className=\"kept\">{note}</p></Panel></Island>;\n}\n";
+  let set = lower(&[("routes/page.tsx", page), ("src/ui/Panel.tsx", panel)], "routes/page.tsx#default");
+  let library = library(&set);
+  let props: ValueMap = [("n".to_owned(), Value::F64(2.0))].into_iter().collect();
+  let rendered = Interpreter::default().render_module("routes/page.tsx#default", &library["routes/page.tsx#default"], &props, &library).unwrap();
+  assert_eq!(rendered.islands[0].body.html, "<div><button>more</button></div><template data-sf-children><p class=\"kept\">n=2 many</p></template>", "the held children read the caller's locals");
+}
