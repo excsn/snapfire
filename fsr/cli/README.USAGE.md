@@ -536,8 +536,8 @@ A return the inference cannot settle prints as `unknown`. The file carries runti
 `fsr add` fetches a package from esm.sh as ES modules with its dependencies bundled in, writes each entry under `vendor/<package>/`, records the version in `vendor/.fsr-vendor.json` and points the import map at the file. Name a version always; name a subpath for an entry other than the package's main. `--external` lists the packages a bundle must import bare rather than carry, which is how two entries share one React.
 
 ```sh
-fsr add app react@18.3.1 sweetalert2@11.6.15
-fsr add app react@18.3.1/jsx-runtime react-dom@18.3.1/client --external react
+fsr add app react@19.1.0 sweetalert2@11.6.15
+fsr add app react@19.1.0/jsx-runtime react-dom@19.1.0/client --external react
 ```
 
 ```
@@ -551,7 +551,7 @@ A module that imports a package outside its bundle stops the command naming it; 
 
 A site is the exception: its tree is served under its own prefix, `/billing/static/js/vendor`, since a mount drops a static root outside it. `fsr add` rewrites every entry the vendor manifest records to the current prefix and prints `remapped` for each one it moved, so an application that becomes a site is migrated by its next add. The build refuses a map entry for a vendored package that points anywhere else, naming the URL it expects. A package the site's shell already serves is not vendored at all: `fsr add` writes the shell's URL into the map and prints `shell` for it, since the shell's map overrides the site's at mount.
 
-The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 18.3.1)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
+The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 19.1.0)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
 
 ## Adopting a Direction
 

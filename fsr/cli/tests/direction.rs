@@ -50,7 +50,7 @@ fn adopting_twice_changes_nothing() {
   let dir = bare(&[]);
   adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"},"htmx.org":{"version":"2.0.10"}}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"},"react-dom":{"version":"19.1.0"},"htmx.org":{"version":"2.0.10"}}}"#).unwrap();
   let before = std::fs::read(dir.join("importmap.json")).unwrap();
   let again = adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   assert!(again.mapped.is_empty(), "{:?}", again.mapped);
@@ -94,7 +94,7 @@ fn the_refusals_name_the_table_the_url_and_the_version() {
 
   std::fs::write(dir.join("importmap.json"), BARE_MAP).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"}}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"}}}"#).unwrap();
   let pinned = adopt(&dir, &["react".to_owned()], offline()).unwrap_err().to_string();
   assert!(pinned.contains("react@19.1.0") && pinned.contains("react@18.3.1") && pinned.contains("`react` pins"), "{pinned}");
   std::fs::remove_dir_all(&dir).unwrap();

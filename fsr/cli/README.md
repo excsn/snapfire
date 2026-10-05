@@ -25,7 +25,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | See what a build would emit without writing | `fsr check <app>` |
 | Check a deployment for what the host will not refuse to start over | `fsr doctor <app>` |
 | Write the deploy tree, checked first | `fsr bundle <app> [--out <dir>]` |
-| Vendor a package for the browser | `fsr add <app> react@18.3.1` |
+| Vendor a package for the browser | `fsr add <app> react@19.1.0` |
 | Fetch declarations for the editor and `tsc` | `fsr types <app>` |
 | Keep an xwpm application in step | an `xwpm.wmf` in the app; the same commands |
 | Name the document module or the slot pages land in | `--shell`, `--slot` |

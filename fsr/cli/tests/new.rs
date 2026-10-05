@@ -56,7 +56,7 @@ fn with_adopts_each_direction_after_the_template() {
   assert!(map["imports"].get("@snapfire/fsr-client/vue").is_none(), "{map}");
   assert!(!created.next.iter().any(|s| s.starts_with("fsr use")), "a scaffold with a direction is not told to add one: {:?}", created.next);
   let add = created.next.iter().find(|s| s.starts_with("fsr add")).expect("the vendoring step is named offline");
-  assert!(add.contains("react@18.3.1/jsx-runtime") && add.contains("react-dom@18.3.1/client") && add.contains("htmx.org@2.0.10"), "{add}");
+  assert!(add.contains("react@19.1.0/jsx-runtime") && add.contains("react-dom@19.1.0/client") && add.contains("htmx.org@2.0.10"), "{add}");
   let main = std::fs::read_to_string(root.join("app/src/main.ts")).unwrap();
   assert!(main.contains("import htmx from \"htmx.org\";") && main.ends_with("enableNavigation();\nbindHtmx(htmx);\n"), "{main}");
   let layout = std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap();
@@ -191,7 +191,7 @@ fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
   let site = base.join("blog");
   create(&shell, NewOptions { shell: true, ..offline() }).unwrap();
   std::fs::create_dir_all(shell.join("app/generated")).unwrap();
-  std::fs::write(shell.join("app/generated/shell.json"), r#"{"version":1,"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/static/js/vendor/react/jsx-runtime.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"},"frameworks":{"react":"18.3.1","react-dom":"18.3.1"}}"#).unwrap();
+  std::fs::write(shell.join("app/generated/shell.json"), r#"{"version":1,"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/static/js/vendor/react/jsx-runtime.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"},"frameworks":{"react":"19.1.0","react-dom":"19.1.0"}}"#).unwrap();
   let created = create(&site, NewOptions { with: vec!["react".to_owned()], site: Some(SiteScaffold { at: "/blog".to_owned(), name: Some("blog".to_owned()), into: Some(shell.clone()) }), ..offline() }).unwrap();
   assert!(created.linked.is_some());
   let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(site.join("app/importmap.json")).unwrap()).unwrap();

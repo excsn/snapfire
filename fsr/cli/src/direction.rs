@@ -10,7 +10,7 @@ use crate::xwpm::Layout;
 use crate::{types, Adapter, BuildError};
 
 /// The React runtime a direction vendors, pinned the way the examples pin it.
-pub const REACT: &str = "18.3.1";
+pub const REACT: &str = "19.1.0";
 pub const VUE: &str = "3.5.13";
 pub const HTMX: &str = "2.0.10";
 

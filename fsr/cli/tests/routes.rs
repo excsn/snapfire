@@ -68,7 +68,7 @@ fn a_map_serving_react_with_no_vendored_version_is_refused() {
     BuildError::FrameworkUnrecorded { package, manifest, version, .. } => {
       assert_eq!(package, "react");
       assert!(manifest.contains(".fsr-vendor.json"), "{manifest}");
-      assert_eq!(version, "18.3.1");
+      assert_eq!(version, "19.1.0");
     }
     other => panic!("{other}"),
   }
@@ -171,7 +171,7 @@ fn a_site_whose_shell_does_not_say_which_react_it_serves_is_refused() {
     Err(BuildError::FrameworkShellUnrecorded { package, contract, version, .. }) => {
       assert_eq!(package, "react");
       assert!(contract.contains("shell.json"), "{contract}");
-      assert_eq!(version, "18.3.1");
+      assert_eq!(version, "19.1.0");
     }
     Ok(_) => panic!("a site built against a contract naming no React version"),
     Err(other) => panic!("{other}"),
