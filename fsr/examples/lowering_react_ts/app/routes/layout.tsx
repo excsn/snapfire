@@ -14,6 +14,7 @@ export default function Layout({ children }: { children: Children }) {
           <Link href="/made">made</Link>
           <Link href="/regex">regex</Link>
           <Link href="/hooks">hooks</Link>
+          <Link href="/vue">vue</Link>
         </nav>
       </header>
       <main className="content">{children}</main>
