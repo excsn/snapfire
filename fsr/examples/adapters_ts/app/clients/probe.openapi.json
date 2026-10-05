@@ -1,0 +1,26 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Probe", "version": "1.0.0" },
+  "paths": {
+    "/stamp": {
+      "get": {
+        "operationId": "getStamp",
+        "responses": {
+          "200": {
+            "description": "a value the caller can recognise as this service's",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Stamp" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Stamp": {
+        "type": "object",
+        "required": ["stamp"],
+        "properties": { "stamp": { "type": "string" } }
+      }
+    }
+  }
+}

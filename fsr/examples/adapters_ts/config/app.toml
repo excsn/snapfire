@@ -22,3 +22,6 @@ version = "7.0.2"
 [locales]
 supported = ["en", "fr"]
 default = "en"
+
+[clients.probe]
+transport = "mock"
