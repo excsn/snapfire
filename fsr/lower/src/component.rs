@@ -2221,6 +2221,26 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     imported_as(self.lowerer.parsed, name, is_template_source)
   }
 
+  /// `<Mount module=… props=… />`: the empty region the adapter's `Mount`
+  /// renders and then fills in the browser, since the island it places is
+  /// named at run time and the server renders none of it.
+  fn mount_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+    let mut attrs = vec![Entry::Field("data-sf-island".to_owned(), Expr::lit_str(""))];
+    for attr in &el.opening.attrs {
+      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { return Err(self.lowerer.residue(el.span, "a spread on `<Mount>`")) };
+      match attr_name(&attr.name).as_str() {
+        "when" => {
+          let value = self.attr_value(attr)?;
+          let when = self.island_timing(value, attr.span)?;
+          attrs.push(Entry::Field("data-sf-when".to_owned(), Expr::lit_str(when)));
+        }
+        "module" | "props" | "key" => {}
+        _ => return Err(self.lowerer.residue(attr.span, "`<Mount>` takes `module`, `props` and `when` and nothing else")),
+      }
+    }
+    Ok(Tmpl::Element { tag: "sf-s".to_owned(), attrs, children: Vec::new() })
+  }
+
   /// `<Island when="visible"><Chart … /></Island>`: the one component child
   /// as an island with that timing.
   fn island_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
@@ -2935,6 +2955,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some("Slot") => return self.slot_element(el),
       Some("Link") => return self.link_element(el),
       Some("Picture") => return self.picture_element(el, false),
+      Some("Mount") => return self.mount_element(el),
       _ => {}
     }
     if let Some((target, when, mode)) = self.island_alias(name)? {

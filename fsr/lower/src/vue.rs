@@ -17,7 +17,7 @@ use swc_core::ecma::ast as js;
 use crate::component::{bind_object, block_to_expr, find_import};
 use crate::{Lowered, Lowerer, Residue};
 
-/// The client's Vue adapter, where `useStore` comes from.
+/// The client's Vue adapter, where `useStore` and `useLocale` come from.
 pub const VUE_CLIENT: &str = "@snapfire/fsr-client/vue";
 
 /// The template tree as the plugin's `describeNode` writes it.
@@ -311,6 +311,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Store(key)), Box::new(initial)) });
             self.state.push(name.clone());
             self.bind(name.clone(), Self::holder(&name), Self::holder(&name));
+            return Ok(());
+          }
+          "useLocale" if source.as_deref() == Some(VUE_CLIENT) => {
+            self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Locale });
+            self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
             return Ok(());
           }
           "defineEmits" => return Ok(()),
