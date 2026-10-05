@@ -575,7 +575,7 @@ Does nothing and returns a no-op where `topics` is empty or where `EventSource` 
 
 * `socket(topic: string, options?: SocketOptions): Socket`
 * `SocketOptions`: `{ onRow?: (key: string, value: unknown) => void; onOpen?: () => void; onClose?: () => void; path?: string; backoffMs?: number }`
-* `Socket`: `{ send(key: string, value: unknown): void; open(): boolean; close(): void }`
+* `Socket`: `{ send(key: string, value: SfValue): void; open(): boolean; close(): void }`
 
 Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it open: a drop calls `onClose` and is retried after `backoffMs`, doubling to a minute. Every connection calls `onOpen`. Rows the server sends are written into the store under their keys unless `onRow` says otherwise, so an island reading a key follows without being told.
 

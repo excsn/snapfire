@@ -75,7 +75,7 @@ const TYPED_ARRAYS: Record<string, new (buf: ArrayBuffer) => SfValue> = {
   f64: Float64Array,
 };
 
-function bytesFromBase64(b64: string): Uint8Array {
+function bytesFromBase64(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) {

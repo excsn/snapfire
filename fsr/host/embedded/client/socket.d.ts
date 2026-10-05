@@ -1,3 +1,4 @@
+import { type SfValue } from "./values.js";
 export interface SocketOptions {
 	/** What to do with a row that arrives. Defaults to writing it into the store under its key, so every island reading that key follows. */
 	onRow?: (key: string, value: unknown) => void;
@@ -12,7 +13,7 @@ export interface SocketOptions {
 }
 export interface Socket {
 	/** Sends one row. What the server makes of it is the application's and what comes back arrives as rows. */
-	send(key: string, value: unknown): void;
+	send(key: string, value: SfValue): void;
 	/** Whether a connection stands right now. */
 	open(): boolean;
 	close(): void;

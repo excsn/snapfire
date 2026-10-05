@@ -579,7 +579,9 @@ function writeHtml(container: HTMLElement, html: string): void {
 }
 
 function composedHtml(module: string, props: unknown): string {
-  return (JSON.parse(sf().render(module, JSON.stringify(encodeValue(props as SfValue)))) as { html: string }).html;
+  const rendered = sf().render(module, JSON.stringify(encodeValue(props as SfValue)));
+  if (rendered === null) throw new Error(`${module} has no lowered component, so the server has no markup to render for it`);
+  return (JSON.parse(rendered) as { html: string }).html;
 }
 
 async function renderComposed(module: string, element: Placed, container: HTMLElement): Promise<Rendered> {

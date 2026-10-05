@@ -1,0 +1,113 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "paths": {
+      "@babel/parser": [
+        "../examples/adapters_react18_ts/app/types/@babel/parser/typings/babel-parser.d.ts"
+      ],
+      "@babel/parser/*": [
+        "../examples/adapters_react18_ts/app/types/@babel/parser/*"
+      ],
+      "@vue/compiler-core": [
+        "../examples/adapters_react18_ts/app/types/@vue/compiler-core/dist/compiler-core.d.ts"
+      ],
+      "@vue/compiler-core/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/compiler-core/*"
+      ],
+      "@vue/compiler-dom": [
+        "../examples/adapters_react18_ts/app/types/@vue/compiler-dom/dist/compiler-dom.d.ts"
+      ],
+      "@vue/compiler-dom/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/compiler-dom/*"
+      ],
+      "@vue/compiler-sfc": [
+        "../examples/adapters_react18_ts/app/types/@vue/compiler-sfc/dist/compiler-sfc.d.ts"
+      ],
+      "@vue/compiler-sfc/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/compiler-sfc/*"
+      ],
+      "@vue/reactivity": [
+        "../examples/adapters_react18_ts/app/types/@vue/reactivity/dist/reactivity.d.ts"
+      ],
+      "@vue/reactivity/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/reactivity/*"
+      ],
+      "@vue/runtime-core": [
+        "../examples/adapters_react18_ts/app/types/@vue/runtime-core/dist/runtime-core.d.ts"
+      ],
+      "@vue/runtime-core/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/runtime-core/*"
+      ],
+      "@vue/runtime-dom": [
+        "../examples/adapters_react18_ts/app/types/@vue/runtime-dom/dist/runtime-dom.d.ts"
+      ],
+      "@vue/runtime-dom/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/runtime-dom/*"
+      ],
+      "@vue/server-renderer": [
+        "../examples/adapters_react18_ts/app/types/@vue/server-renderer/dist/server-renderer.d.ts"
+      ],
+      "@vue/server-renderer/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/server-renderer/*"
+      ],
+      "@vue/shared": [
+        "../examples/adapters_react18_ts/app/types/@vue/shared/dist/shared.d.ts"
+      ],
+      "@vue/shared/*": [
+        "../examples/adapters_react18_ts/app/types/@vue/shared/*"
+      ],
+      "csstype": [
+        "../examples/adapters_react18_ts/app/types/csstype/index.d.ts"
+      ],
+      "csstype/*": [
+        "../examples/adapters_react18_ts/app/types/csstype/*"
+      ],
+      "magic-string": [
+        "../examples/adapters_react18_ts/app/types/magic-string/dist/index.d.mts"
+      ],
+      "magic-string/*": [
+        "../examples/adapters_react18_ts/app/types/magic-string/*"
+      ],
+      "postcss": [
+        "../examples/adapters_react18_ts/app/types/postcss/lib/postcss.d.ts"
+      ],
+      "postcss/*": [
+        "../examples/adapters_react18_ts/app/types/postcss/*"
+      ],
+      "prop-types": [
+        "../examples/adapters_react18_ts/app/types/prop-types/index.d.ts"
+      ],
+      "prop-types/*": [
+        "../examples/adapters_react18_ts/app/types/prop-types/*"
+      ],
+      "react": [
+        "../examples/adapters_react18_ts/app/types/react/index.d.ts"
+      ],
+      "react/*": [
+        "../examples/adapters_react18_ts/app/types/react/*"
+      ],
+      "react-dom": [
+        "../examples/adapters_react18_ts/app/types/react-dom/index.d.ts"
+      ],
+      "react-dom/*": [
+        "../examples/adapters_react18_ts/app/types/react-dom/*"
+      ],
+      "source-map-js": [
+        "../examples/adapters_react18_ts/app/types/source-map-js/source-map.d.ts"
+      ],
+      "source-map-js/*": [
+        "../examples/adapters_react18_ts/app/types/source-map-js/*"
+      ],
+      "vue": [
+        "../examples/adapters_react18_ts/app/types/vue/dist/vue.d.ts"
+      ],
+      "vue/*": [
+        "../examples/adapters_react18_ts/app/types/vue/*"
+      ]
+    }
+  }
+}

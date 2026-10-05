@@ -433,7 +433,9 @@ function writeHtml(container, html) {
     else container.innerHTML = html;
 }
 function composedHtml(module, props) {
-    return JSON.parse(sf().render(module, JSON.stringify(encodeValue(props)))).html;
+    const rendered = sf().render(module, JSON.stringify(encodeValue(props)));
+    if (rendered === null) throw new Error(`${module} has no lowered component, so the server has no markup to render for it`);
+    return JSON.parse(rendered).html;
 }
 async function renderComposed(module, element, container) {
     writeHtml(container, composedHtml(module, element.props));

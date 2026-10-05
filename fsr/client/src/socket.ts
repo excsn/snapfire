@@ -16,7 +16,7 @@ export interface SocketOptions {
 
 export interface Socket {
   /** Sends one row. What the server makes of it is the application's and what comes back arrives as rows. */
-  send(key: string, value: unknown): void;
+  send(key: string, value: SfValue): void;
   /** Whether a connection stands right now. */
   open(): boolean;
   close(): void;
@@ -69,7 +69,7 @@ export function socket(topic: string, options: SocketOptions = {}): Socket {
   connect();
 
   return {
-    send(k: string, value: unknown): void {
+    send(k: string, value: SfValue): void {
       if (live?.readyState === WebSocket.OPEN) {
         live.send(JSON.stringify({ key: k, value: encodeValue(value) }));
       }
