@@ -47,3 +47,31 @@ code {
   border-radius: 4px;
   padding: 2px 5px;
 }
+
+.bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bars li {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.bar-name {
+  width: 4rem;
+}
+
+.bar-track {
+  flex: 1;
+}
+
+.bar-fill {
+  background: var(--ink);
+  border-radius: 3px;
+  display: block;
+  height: 12px;
+}

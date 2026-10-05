@@ -55,7 +55,7 @@ Three applications that pin down behaviour rather than show an application. Each
 | --- | --- |
 | [conformance/adapters_react18](conformance/adapters_react18/) | The client's React adapter on React 18, beside the Vue adapter and a custom element on one page: one store between them, nested islands across frameworks, the request context in specs and a server island reading the store. `fsr/client`'s type check reads its declarations |
 | [conformance/adapters_react19](conformance/adapters_react19/) | The same pages and specs on React 19 |
-| [conformance/lowering](conformance/lowering/) | What the build lowers, one route per kind: array and string methods, destructuring, statements, dates, `Intl`, `Map` and `Set`, regular expressions, hooks and Vue children, slots and models. It builds with `[build] strict`, so anything on it falling back to the browser stops the build |
+| [conformance/lowering](conformance/lowering/) | What the build lowers, one route per kind: array and string methods, destructuring, statements, dates, `Intl`, `Map` and `Set`, regular expressions, hooks, Vue children, slots and models and server-rendered `style` attributes under a `[document.csp]`. It builds with `[build] strict`, so anything on it falling back to the browser stops the build |
 
 ## Running one
 

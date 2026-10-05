@@ -15,6 +15,7 @@ export default function Layout({ children }: { children: Children }) {
           <Link href="/regex">regex</Link>
           <Link href="/hooks">hooks</Link>
           <Link href="/vue">vue</Link>
+          <Link href="/styles">styles</Link>
         </nav>
       </header>
       <main className="content">{children}</main>

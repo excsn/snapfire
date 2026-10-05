@@ -4,6 +4,12 @@ listen = "127.0.0.1:8230"
 [document]
 title = "lowering"
 
+[document.csp]
+default-src = ["'self'"]
+script-src = ["'self'"]
+object-src = ["'none'"]
+base-uri = ["'none'"]
+
 [session]
 key = "conformance-lowering-development-key-not-a-secret"
 ttl = "24h"
