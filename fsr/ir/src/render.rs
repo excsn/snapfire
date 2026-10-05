@@ -557,6 +557,7 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
 fn vue_root_fragment(render: &Tmpl) -> bool {
   match render {
     Tmpl::Fragment(children) => children.len() > 1 && children.iter().any(|c| !matches!(c, Tmpl::Text(_) | Tmpl::Expr(_))),
+    Tmpl::Let { name, then, .. } if name.starts_with(CONTEXT_PREFIX) => vue_root_fragment(then),
     _ => false,
   }
 }
@@ -564,7 +565,11 @@ fn vue_root_fragment(render: &Tmpl) -> bool {
 /// Whether Vue wraps a branch or a loop body in fragment anchors: anything
 /// other than exactly one element.
 fn vue_wraps(tmpl: &Tmpl) -> bool {
-  !matches!(tmpl, Tmpl::Element { .. } | Tmpl::Baked { .. } | Tmpl::For { .. } | Tmpl::If { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_))
+  match tmpl {
+    Tmpl::Let { name, .. } if name.starts_with(SLOT_OUT_PREFIX) => false,
+    Tmpl::Let { name, then, .. } if name.starts_with(CONTEXT_PREFIX) => vue_wraps(then),
+    other => !matches!(other, Tmpl::Element { .. } | Tmpl::Baked { .. } | Tmpl::For { .. } | Tmpl::If { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_)),
+  }
 }
 
 /// Renders `tmpl` inside fragment anchors when Vue's rules call for them.
@@ -706,6 +711,8 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       }
     }
     Tmpl::For { over, params, body } => render_for(env, over, params, body, library, slots, out)?,
+    Tmpl::Let { name, expr, then } if name.starts_with(SLOT_OUT_PREFIX) => render_vue_slot(env, &name[SLOT_OUT_PREFIX.len()..], expr, then, library, slots, out)?,
+    Tmpl::Let { name, .. } if name.starts_with(SLOT_CONTENT_PREFIX) => {}
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
       let depth = env.scope.len();
@@ -1091,6 +1098,72 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
   render_slot_content(env, slot, library, slots, out)
 }
 
+/// The caller's content for the slot `name` among a placement's children: the named `$slot:` wrapper's body, for `default` every child that is not a wrapper. `None` when the caller gave none.
+fn slot_content<'a>(children: &'a [Tmpl], name: &str) -> Option<(Option<&'a crate::ast::Expr>, Vec<&'a Tmpl>)> {
+  if let Some(found) = children.iter().find_map(|c| match c {
+    Tmpl::Let { name: wrapper, expr, then } if wrapper.strip_prefix(SLOT_CONTENT_PREFIX) == Some(name) => Some((Some(expr), &**then)),
+    _ => None,
+  }) {
+    return Some((found.0, vec![found.1]));
+  }
+  if name != "default" {
+    return None;
+  }
+  let plain: Vec<&Tmpl> = children.iter().filter(|c| !matches!(c, Tmpl::Let { name, .. } if name.starts_with(SLOT_CONTENT_PREFIX))).collect();
+  (!plain.is_empty()).then_some((None, plain))
+}
+
+/// A Vue `<slot>` that names itself, hands props or holds a fallback: the caller's content for it with its props bound under `SLOT_PROPS`, else the fallback, both inside Vue's fragment markers. An island's children keep their region.
+fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fallback: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  if slots.last().is_some_and(|frame| frame.island) {
+    return render_slot(env, "content", library, slots, out);
+  }
+  let given = env.eval_sync(props)?;
+  let content = slots.last().and_then(|frame| slot_content(frame.children, name));
+  out.markup(vue::FRAGMENT_OPEN);
+  let content = match content {
+    Some((Some(when), content)) => {
+      let caller = slots.last().map(|frame| (*frame.scope).clone()).unwrap_or_default();
+      let inner = std::mem::replace(&mut env.scope, caller);
+      let holds = env.eval_sync(when).map(|v| truthy(&v));
+      env.scope = inner;
+      holds?.then_some(content)
+    }
+    Some((None, content)) => Some(content),
+    None => None,
+  };
+  let result = match (content, slots.pop()) {
+    (Some(content), Some(mut slot)) => {
+      slot.placed = true;
+      let mut scope = (*slot.scope).clone();
+      scope.push((SLOT_PROPS.to_owned(), given));
+      let inner = std::mem::replace(&mut env.scope, scope);
+      let outer_framework = std::mem::replace(&mut env.in_framework, slot.framework);
+      let outer_path = std::mem::replace(&mut env.component_path, slot.owner_path.clone());
+      let mut result = Ok(());
+      for child in content {
+        result = render(env, child, library, slots, out);
+        if result.is_err() {
+          break;
+        }
+      }
+      env.scope = inner;
+      env.in_framework = outer_framework;
+      env.component_path = outer_path;
+      slots.push(slot);
+      result
+    }
+    (_, popped) => {
+      if let Some(slot) = popped {
+        slots.push(slot);
+      }
+      render(env, fallback, library, slots, out)
+    }
+  };
+  out.markup(vue::FRAGMENT_CLOSE);
+  result
+}
+
 fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   slot.placed = true;
   let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
@@ -1105,6 +1178,10 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
       };
       let mut result = Ok(());
       for child in slot.children {
+        let child = match child {
+          Tmpl::Let { name, then, .. } if name.strip_prefix(SLOT_CONTENT_PREFIX) == Some("default") => &**then,
+          other => other,
+        };
         result = render(env, child, library, slots, out);
         if result.is_err() {
           break;
@@ -1281,6 +1358,13 @@ pub const SHADOW_ATTR: &str = "$shadow";
 /// holding the handler's index. Printed as `data-sf-on="click:0"` in server
 /// mode and never otherwise.
 pub const HANDLER_ATTR: &str = "$on:";
+/// A `Tmpl::Let` among a Vue placement's children named with this prefix and a slot is the caller's content for that slot; `default` is the default slot's when it takes props.
+pub const SLOT_CONTENT_PREFIX: &str = "$slot:";
+/// A `Tmpl::Let` in a Vue template named with this prefix and a slot is that `<slot>`: its value the props it hands the caller's content, its body the fallback written when the caller gave none.
+pub const SLOT_OUT_PREFIX: &str = "$slotOut:";
+/// The name the caller's content reads a scoped slot's props under.
+pub const SLOT_PROPS: &str = "$slotProps";
+
 /// A `Tmpl::Let` named with this prefix and a context, `$ctx:file#name`, is a provider: what it binds is the value `Expr::Context` reads anywhere beneath it, inside nested components too.
 pub const CONTEXT_PREFIX: &str = "$ctx:";
 /// An element's React `key`, printed as `data-sf-key` in server mode so the

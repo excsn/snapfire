@@ -273,10 +273,10 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
     }
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
-  assert_eq!(refused("Named", "<template><div><slot name=\"aside\" /></div></template>\n"), "1:22: `<slot name=\"aside\">`, a named slot; an island's children fill the default slot alone");
+  assert_eq!(refused("Named", "<template><div><slot :[which]=\"1\" /></div></template>\n"), "1:22: a slot prop whose name is an expression");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
   assert!(refused("Options", "<script>\nexport default { data() { return {}; } };\n</script>\n<template><p /></template>\n").ends_with("a `<script>` without `setup`"));
-  assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\");\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:15: `inject`, which reads what a parent component provides; a lowered component has its props alone");
+  assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\", () => \"x\", true);\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:31: `inject` with a default factory");
   let bare = refused("Bare", "<template><p>{{ nowhere }}</p></template>\n");
   assert!(bare.starts_with("1:17: `nowhere` is not bound here"), "{bare}");
   std::fs::remove_dir_all(&dir).unwrap();
@@ -821,5 +821,108 @@ fn v_model_on_a_child_and_define_model_in_it_render_as_vue_does() {
     let html = agree_tree(&compiler, &dir, &files, "src/ui/Editor.vue", &given);
     assert!(html.contains("value=\"hello\""), "{html}");
   }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const SPREAD: &str = r#"<script setup lang="ts">
+const props = defineProps<{ extra: Record<string, unknown> }>();
+</script>
+
+<template>
+  <a href="/x" v-bind="extra" title="kept">link</a>
+  <input v-bind="{ type: 'checkbox', checked: true, disabled: false }" />
+</template>
+"#;
+
+#[test]
+fn v_bind_of_an_object_renders_its_attributes_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("spread", &[]);
+  let extra = Value::Map(props(&[("id", Value::str("go")), ("data-n", Value::F64(2.0)), ("title", Value::str("over")), ("hidden", Value::Bool(false)), ("aria-label", Value::str("a \"b\""))]));
+  agree(&compiler, &dir, "src/ui/Spread.vue", SPREAD, &props(&[("extra", extra)]), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const PANEL: &str = r#"<script setup lang="ts">
+const props = defineProps<{ rows: { name: string; n: number }[] }>();
+</script>
+
+<template>
+  <section class="panel">
+    <header><slot name="title">Untitled</slot></header>
+    <ul>
+      <li v-for="(row, i) in rows" :key="row.name"><slot name="row" :row="row" :index="i" label="r">{{ row.name }}</slot></li>
+    </ul>
+    <slot />
+    <footer><slot name="foot" :count="rows.length" /></footer>
+  </section>
+</template>
+"#;
+
+const USES_PANEL: &str = r#"<script setup lang="ts">
+import Panel from "./Panel.vue";
+const props = defineProps<{ rows: { name: string; n: number }[]; titled: boolean }>();
+</script>
+
+<template>
+  <div>
+    <Panel :rows="rows">
+      <template v-if="titled" #title><b>Shelf</b></template>
+      <template #row="{ row, index, label }"><i>{{ label }}{{ index }}:{{ row.name }}={{ row.n }}</i></template>
+      <p>body</p>
+      <template #foot="foot">{{ foot.count }} rows</template>
+    </Panel>
+    <Panel :rows="rows" />
+  </div>
+</template>
+"#;
+
+#[test]
+fn named_and_scoped_slots_render_as_vue_renders_them() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("slots", &[("src/ui/Uses.vue", USES_PANEL), ("src/ui/Panel.vue", PANEL)]);
+  let files = [("src/ui/Uses.vue", "", USES_PANEL), ("src/ui/Panel.vue", "Panel.vue", PANEL)];
+  let row = |name: &str, n: f64| Value::Map(props(&[("name", Value::str(name)), ("n", Value::F64(n))]));
+  for titled in [true, false] {
+    let given = props(&[("rows", Value::seq(vec![row("pear", 2.0), row("fig", 5.0)])), ("titled", Value::Bool(titled))]);
+    agree_tree(&compiler, &dir, &files, "src/ui/Uses.vue", &given);
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const BADGE: &str = r#"<script setup lang="ts">
+import { inject } from "vue";
+const theme = inject("theme", "light");
+const unit = inject("unit");
+const missing = inject("nobody", "fallback");
+</script>
+
+<template>
+  <span class="badge">{{ theme }} {{ unit }} {{ missing }}</span>
+</template>
+"#;
+
+const THEMED: &str = r#"<script setup lang="ts">
+import { provide, ref } from "vue";
+import Badge from "./Badge.vue";
+const props = defineProps<{ mode: string }>();
+const mode = ref(props.mode);
+provide("theme", mode);
+provide("unit", "kg");
+</script>
+
+<template>
+  <div><Badge /></div>
+  <p>second root</p>
+</template>
+"#;
+
+#[test]
+fn provide_and_inject_render_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("inject", &[("src/ui/Themed.vue", THEMED), ("src/ui/Badge.vue", BADGE)]);
+  let files = [("src/ui/Themed.vue", "", THEMED), ("src/ui/Badge.vue", "Badge.vue", BADGE)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Themed.vue", &props(&[("mode", Value::str("dark"))]));
+  assert!(html.contains("dark kg fallback"), "{html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }

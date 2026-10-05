@@ -15,7 +15,7 @@ use std::rc::Rc;
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, Stmt, Tmpl};
-use snapfire_fsr_ir::render::{HANDLER_ATTR, RAW_ATTR, UNLOWERED_ATTR};
+use snapfire_fsr_ir::render::{CONTEXT_PREFIX, HANDLER_ATTR, RAW_ATTR, SLOT_CONTENT_PREFIX, SLOT_OUT_PREFIX, SLOT_PROPS, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
@@ -35,7 +35,7 @@ pub struct Template {
   pub children: Vec<Node>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Node {
   pub node: String,
   #[serde(default)]
@@ -58,7 +58,7 @@ pub struct Node {
   pub column: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Prop {
   pub prop: String,
   pub name: String,
@@ -97,7 +97,7 @@ impl Prop {
 const BOOLEAN: &[&str] = &["itemscope", "allowfullscreen", "formnovalidate", "ismap", "nomodule", "novalidate", "readonly", "async", "autofocus", "autoplay", "controls", "default", "defer", "disabled", "hidden", "inert", "loop", "open", "required", "reversed", "scoped", "seamless", "checked", "muted", "multiple", "selected"];
 
 /// Calls at the top of `<script setup>` that are the browser's alone.
-const BROWSER_CALLS: &[&str] = &["onMounted", "onBeforeMount", "onUnmounted", "onBeforeUnmount", "onUpdated", "onBeforeUpdate", "onActivated", "onDeactivated", "onErrorCaptured", "onRenderTracked", "onRenderTriggered", "onServerPrefetch", "watch", "watchEffect", "watchPostEffect", "watchSyncEffect", "nextTick", "provide", "defineEmits", "defineExpose", "defineOptions", "defineSlots", "defineProps"];
+const BROWSER_CALLS: &[&str] = &["onMounted", "onBeforeMount", "onUnmounted", "onBeforeUnmount", "onUpdated", "onBeforeUpdate", "onActivated", "onDeactivated", "onErrorCaptured", "onRenderTracked", "onRenderTriggered", "onServerPrefetch", "watch", "watchEffect", "watchPostEffect", "watchSyncEffect", "nextTick", "defineEmits", "defineExpose", "defineOptions", "defineSlots", "defineProps"];
 
 /// An element placed among its siblings or a branch that joins the `v-if`
 /// before it.
@@ -192,6 +192,8 @@ pub(crate) struct VueLowerer<'a, 'p> {
   pub(crate) child_refs: Vec<ChildRef>,
   /// The model of the `<select v-model>` the options being lowered sit in.
   select_model: Option<Expr>,
+  /// What `provide` calls in `<script setup>` hand down, by context, in order.
+  provides: Vec<(String, Expr)>,
   assets: Rc<dyn AssetResolver>,
   /// The head rows the template asks for, a priority image's preload.
   pub(crate) heads: Vec<HeadRow>,
@@ -222,7 +224,7 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, assets, heads: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, provides: Vec::new(), assets, heads: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -290,6 +292,19 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       js::Stmt::Decl(js::Decl::Class(c)) => Err(self.lowerer.residue(c.class.span, "a class in `<script setup>`")),
       js::Stmt::Expr(e) => {
         if let js::Expr::Call(call) = &*e.expr {
+          if matches!(self.callee(call), Some((name, Some(source))) if name == "provide" && source == "vue") {
+            let (Some(key), Some(value)) = (call.args.first(), call.args.get(1)) else { return Err(self.lowerer.residue(call.span, "`provide` takes a key and a value")) };
+            let key = self.injection_key(&key.expr)?;
+            let value = match self.lowerer.expr(&value.expr)? {
+              Expr::Object(entries) if matches!(entries.as_slice(), [Entry::Field(field, _)] if field == "value") => match entries.into_iter().next() {
+                Some(Entry::Field(_, inner)) => inner,
+                _ => unreachable!("matched one field"),
+              },
+              other => other,
+            };
+            self.provides.push((key, value));
+            return Ok(());
+          }
           match self.callee(call) {
             Some((name, _)) if BROWSER_CALLS.contains(&name.as_str()) => return Ok(()),
             Some((name, _)) if name == "defineModel" => return Ok(()),
@@ -467,7 +482,21 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             return Ok(());
           }
           "toRef" | "toRefs" | "customRef" | "useTemplateRef" | "useId" if from_vue => return Err(self.lowerer.residue(call.span, format!("`{callee}`"))),
-          "inject" | "useAttrs" | "useSlots" if from_vue => return Err(self.lowerer.residue(call.span, format!("`{callee}`, which reads what a parent component provides; a lowered component has its props alone"))),
+          "inject" if from_vue => {
+            let key = match call.args.first() {
+              Some(arg) => self.injection_key(&arg.expr)?,
+              None => return Err(self.lowerer.residue(call.span, "`inject` without a key")),
+            };
+            let default = match call.args.get(1) {
+              Some(arg) if call.args.len() > 2 => return Err(self.lowerer.residue(arg.expr.span(), "`inject` with a default factory")),
+              Some(arg) => self.lowerer.expr(&arg.expr)?,
+              None => Expr::Lit(Lit::Null),
+            };
+            self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Context(key)), Box::new(default)) });
+            self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
+            return Ok(());
+          }
+          "useAttrs" | "useSlots" if from_vue => return Err(self.lowerer.residue(call.span, format!("`{callee}`, which reads what a parent component passes beyond its props"))),
           _ => {}
         }
       }
@@ -502,10 +531,23 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     scope.extend(std::mem::take(&mut self.template_scope));
     self.lowerer.scope = scope;
     let mut children = self.children(&template.children)?;
-    Ok(match children.len() {
+    let mut tree = match children.len() {
       1 => children.pop().expect("one child"),
       _ => Tmpl::Fragment(children),
-    })
+    };
+    for (key, value) in std::mem::take(&mut self.provides).into_iter().rev() {
+      tree = Tmpl::Let { name: format!("{CONTEXT_PREFIX}{key}"), expr: value, then: Box::new(tree) };
+    }
+    Ok(tree)
+  }
+
+  /// The context an `inject` or a `provide` key names: `vue:` and a string key, `vue:` and the name a key binding is declared under for a name, followed through its import.
+  fn injection_key(&self, key: &js::Expr) -> Lowered<String> {
+    match unwrap_types(key) {
+      js::Expr::Lit(js::Lit::Str(s)) => Ok(format!("vue:{}", s.value.to_atom_lossy())),
+      js::Expr::Ident(id) => Ok(format!("vue:{}", find_import(self.lowerer.parsed, id.sym.as_ref()).map(|(_, imported)| imported).unwrap_or_else(|| id.sym.to_string()))),
+      other => Err(self.lowerer.residue(other.span(), "an injection key that is not a string or a name")),
+    }
   }
 
   fn expr_at(&mut self, source: &str, line: usize, column: usize) -> Lowered<Expr> {
@@ -626,6 +668,64 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     }
   }
 
+  /// A child's slot contents: each `<template #name="params">` as a `SLOT_CONTENT_PREFIX` wrapper, the rest as the default slot, which a `v-slot` on the child itself gives params to.
+  fn slot_contents(&mut self, node: &Node) -> Lowered<Vec<Tmpl>> {
+    let mut defaults: Vec<&Node> = Vec::new();
+    let mut named = Vec::new();
+    for child in &node.children {
+      let slot = (child.node == "element" && child.kind == 3).then(|| child.props.iter().find(|p| p.is_directive("slot"))).flatten();
+      match slot {
+        Some(prop) => {
+          let name = match (&prop.arg, prop.arg_static) {
+            (None, _) => "default".to_owned(),
+            (Some(arg), true) => arg.clone(),
+            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a slot whose name is an expression")),
+          };
+          let mut when = Expr::Lit(Lit::Bool(true));
+          for other in child.props.iter().filter(|p| p.prop == "directive") {
+            match other.name.as_str() {
+              "slot" => {}
+              "if" => {
+                let Some(exp) = &other.exp else { return Err(self.at(other.line, other.column, "`v-if` without a condition")) };
+                when = self.expr_at(exp, other.exp_line, other.exp_column)?;
+              }
+              name => return Err(self.at(other.line, other.column, format!("`v-{name}` on a slot's `<template>`"))),
+            }
+          }
+          let content = self.slot_body(&child.children, prop)?;
+          named.push(Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}{name}"), expr: when, then: Box::new(Tmpl::Fragment(content)) });
+        }
+        None => defaults.push(child),
+      }
+    }
+    let own = node.props.iter().find(|p| p.is_directive("slot"));
+    let defaults: Vec<Node> = defaults.into_iter().cloned().collect();
+    let mut out = match own {
+      Some(prop) => {
+        let content = self.slot_body(&defaults, prop)?;
+        vec![Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}default"), expr: Expr::Lit(Lit::Bool(true)), then: Box::new(Tmpl::Fragment(content)) }]
+      }
+      None => self.children(&defaults)?,
+    };
+    out.extend(named);
+    Ok(out)
+  }
+
+  /// A slot's content with its params, `v-slot="{ item }"`, bound to the props the child hands it.
+  fn slot_body(&mut self, nodes: &[Node], prop: &Prop) -> Lowered<Vec<Tmpl>> {
+    let depth = self.lowerer.scope.len();
+    if let Some(exp) = prop.exp.as_deref().filter(|e| !e.trim().is_empty()) {
+      let arrow = self.lowerer.parsed.parse_expr_at(&format!("({exp}) => 0"), prop.exp_line, prop.exp_column.saturating_sub(1)).map_err(|message| self.at(prop.exp_line, prop.exp_column, format!("`{}`: {message}", exp.trim())))?;
+      let js::Expr::Arrow(arrow) = &*arrow else { return Err(self.at(prop.exp_line, prop.exp_column, "slot params that are not a pattern")) };
+      if let Some(param) = arrow.params.first() {
+        bind_pattern(&mut self.lowerer, param, Expr::Var(SLOT_PROPS.to_owned()))?;
+      }
+    }
+    let content = self.children(nodes);
+    self.lowerer.scope.truncate(depth);
+    content
+  }
+
   /// An element's own `value`: the static attribute as text or `:value` as its expression.
   fn own_value(&mut self, node: &Node) -> Lowered<Option<Expr>> {
     for prop in &node.props {
@@ -660,7 +760,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         continue;
       }
       match prop.name.as_str() {
-        "if" | "else-if" | "else" | "for" | "on" => {}
+        "if" | "else-if" | "else" | "for" | "on" | "slot" => {}
         "model" => {
           let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-model` without a binding")) };
           let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
@@ -692,7 +792,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     if let Some(scope) = &self.described.scope {
       props.push(Entry::Field(snapfire_fsr_ir::render::PARENT_SCOPE_PROP.to_owned(), Expr::lit_str(scope.clone())));
     }
-    let children = self.children(&node.children)?;
+    let children = self.slot_contents(node)?;
     self.child_refs.push(ChildRef { local: local.clone(), attrs: names, line: node.line, column: node.column });
     Ok(Tmpl::Component { module: local, props, children, id: 0, keyed: false })
   }
@@ -753,16 +853,35 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// since an island's children fill the default slot alone and carry no
   /// scope. The fallback is never written: the server always writes the
   /// children region, empty or not.
+  /// `<slot />` as the island's children; a named slot, one handing props or one with a fallback as a `SLOT_OUT_PREFIX` wrapper the renderer fills from the caller's content for it.
   fn slot(&mut self, node: &Node) -> Lowered<Tmpl> {
+    let mut name = "default".to_owned();
+    let mut props = Vec::new();
     for prop in &node.props {
       match (prop.prop.as_str(), prop.name.as_str()) {
-        ("attribute", "name") if prop.value.as_deref().unwrap_or("default") == "default" => {}
-        ("attribute", "name") => return Err(self.at(prop.line, prop.column, format!("`<slot name=\"{}\">`, a named slot; an island's children fill the default slot alone", prop.value.clone().unwrap_or_default()))),
-        ("directive", "bind") => return Err(self.at(prop.line, prop.column, "a scoped slot, which hands values to the caller; an island's children are markup the caller wrote")),
+        ("attribute", "name") => name = prop.value.clone().unwrap_or_else(|| "default".to_owned()),
+        ("attribute", other) => props.push(Entry::Field(camel(other), match &prop.value {
+          Some(value) => Expr::lit_str(value.clone()),
+          None => Expr::Lit(Lit::Bool(true)),
+        })),
+        ("directive", "bind") => {
+          let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without a value")) };
+          let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
+          match (&prop.arg, prop.arg_static) {
+            (Some(arg), true) if arg == "name" => return Err(self.at(prop.line, prop.column, "a slot whose name is an expression")),
+            (Some(arg), true) => props.push(Entry::Field(camel(arg), value)),
+            (None, _) => props.push(Entry::Spread(value)),
+            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a slot prop whose name is an expression")),
+          }
+        }
         (_, other) => return Err(self.at(prop.line, prop.column, format!("`{other}` on `<slot>`"))),
       }
     }
-    Ok(Tmpl::Slot("content".to_owned()))
+    let fallback = self.children(&node.children)?;
+    if name == "default" && props.is_empty() && fallback.is_empty() {
+      return Ok(Tmpl::Slot("content".to_owned()));
+    }
+    Ok(Tmpl::Let { name: format!("{SLOT_OUT_PREFIX}{name}"), expr: Expr::Object(props), then: Box::new(Tmpl::Fragment(fallback)) })
   }
 
   fn plain_element(&mut self, node: &Node) -> Lowered<Tmpl> {
@@ -815,7 +934,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           }
           let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without a value")) };
           let Some(arg) = &prop.arg else {
-            return Err(self.at_with(prop.line, prop.column, "`v-bind` of a whole object", "bind each attribute by name, so the build can see which are written"));
+            let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
+            attrs.push(Entry::Spread(value));
+            continue;
           };
           let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
           match arg.as_str() {
