@@ -141,6 +141,11 @@ impl ComponentSet {
     self.described.insert(file.into(), described);
   }
 
+  /// Every file the plugin described, with its description.
+  pub fn described(&self) -> impl Iterator<Item = (&str, &Described)> {
+    self.described.iter().map(|(file, described)| (file.as_str(), described))
+  }
+
   /// The plugin refused to describe `file` and said `why`: a placement of it
   /// stays foreign for that reason.
   pub fn undescribed(&mut self, file: impl Into<String>, why: impl Into<String>) {

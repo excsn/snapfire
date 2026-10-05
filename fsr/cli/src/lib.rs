@@ -1220,6 +1220,8 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   }
   report.components.sort();
   let layout = crate::xwpm::Layout::of_site(app, options.site.as_ref())?;
+  let mut vue_declarations: Vec<(String, String)> = set.described().filter_map(|(file, described)| snapfire_fsr_lower::vue::props_declaration(file, described).map(|declaration| (snapfire_fsr_lower::vue::props_declaration_path(file), declaration))).collect();
+  vue_declarations.sort();
   let shim = types::foreign_shim(app, &set.foreign);
   let mut browser_route_files: Vec<String> = report
     .components
@@ -1329,12 +1331,13 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     ("generated/islands.ts".to_owned(), registry),
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
-    ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some())?),
+    ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some(), !vue_declarations.is_empty())?),
     ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_route_files, &generated_files, types::jsx_source(app, &layout)?)),
   ]);
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
   }
+  files.extend(vue_declarations);
   let mut report = report;
   report.types = types::status(app)?;
   claimed(&report, &routes, &handler_routes, &layout_ids)?;

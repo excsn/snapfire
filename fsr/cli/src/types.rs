@@ -387,7 +387,8 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
   }
   let generated = app.join("generated").is_dir();
   let path = app.join("tsconfig.json");
-  std::fs::write(&path, tsconfig(app, generated, shim.is_some())?).map_err(|e| BuildError::Io(path, e))?;
+  let declared = app.join(snapfire_fsr_lower::vue::PROPS_DECLARATION_DIR).is_dir();
+  std::fs::write(&path, tsconfig(app, generated, shim.is_some(), declared)?).map_err(|e| BuildError::Io(path, e))?;
   report.written.push("tsconfig.json".to_owned());
   Ok(report)
 }
@@ -616,8 +617,12 @@ impl CompileOptions {
 /// `tsconfig.json` for the editor and `tsc --noEmit`: every package under
 /// `types/` path-mapped, ambient entries included, the generated context module
 /// under its package name. `generated` says the build's directory is or is
-/// about to be there, `shim` that `<types>/foreign.d.ts` is.
-pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, BuildError> {
+/// about to be there, `shim` that `<types>/foreign.d.ts` is, `declared` that
+/// the build writes a declaration of a `.vue` component's props under
+/// `generated/vue/`, which an import of the component then resolves to ahead of
+/// the shim, through `rootDirs` from a relative specifier and a second `paths`
+/// target from an alias.
+pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool) -> Result<String, BuildError> {
   let layout = Layout::of(app)?;
   let types = layout.types.trim_end_matches('/');
   let mut paths: Vec<(String, String)> = vec![
@@ -625,7 +630,10 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
     ("@snapfire/fsr/head".to_owned(), "./generated/head".to_owned()),
     ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned()),
   ];
-  paths.extend(alias_paths());
+  match declared {
+    true => paths.extend(snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("./{dir}*\", \"./{}/{dir}*", snapfire_fsr_lower::vue::PROPS_DECLARATION_DIR)))),
+    false => paths.extend(alias_paths()),
+  }
   let mut include: Vec<String> = source_dirs(app).iter().map(|dir| format!("{dir}/**/*")).collect();
   if generated {
     include.push("generated/**/*".to_owned());
@@ -652,7 +660,10 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
     true => String::new(),
     false => "    \"jsxImportSource\": \"@snapfire/fsr-authoring\",\n".to_owned(),
   };
-  let compile = CompileOptions::of(app).lines();
+  let mut compile = CompileOptions::of(app).lines();
+  if declared {
+    compile.push_str(&format!("    \"allowArbitraryExtensions\": true,\n    \"rootDirs\": [\".\", \"./{}\"],\n", snapfire_fsr_lower::vue::PROPS_DECLARATION_DIR));
+  }
   let mut out = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"jsx\": \"react-jsx\",\n{jsx_source}    \"strict\": true,\n    \"noEmit\": true,\n    \"skipLibCheck\": true,\n    \"paths\": {{\n");
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {

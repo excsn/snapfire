@@ -114,6 +114,102 @@ pub(crate) struct ChildRef {
   pub(crate) column: usize,
 }
 
+/// Where the declaration of a described component's props lives under `generated/`, which the editor tsconfig reaches through `rootDirs` and a second `paths` target: `src/ui/Card.vue` is `generated/vue/src/ui/Card.d.vue.ts`, the name TypeScript's `allowArbitraryExtensions` reads for an import of `Card.vue`.
+pub const PROPS_DECLARATION_DIR: &str = "generated/vue";
+
+/// The path, relative to the app, of the declaration [`props_declaration`] writes for `file`.
+pub fn props_declaration_path(file: &str) -> String {
+  let stem = file.strip_suffix(".vue").unwrap_or(file);
+  format!("{PROPS_DECLARATION_DIR}/{stem}.d.vue.ts")
+}
+
+/// A declaration module typing a described component as a function of the props its `<script setup lang="ts">` declares, so a TSX placement of it is checked. The props are `defineProps<T>()`'s `T`, with each key `withDefaults` gives a default made optional, plus the `children` a placement may pass. The script's interfaces, type aliases and type-only imports are copied beside it, since `T` may name them. `None` for a script that is not TypeScript or declares its props any other way, which leaves the component to the catch-all `*.vue` declaration.
+pub fn props_declaration(file: &str, described: &Described) -> Option<String> {
+  let script = described.script.as_ref()?;
+  if script.lang != snapfire_compiler_wire::Lang::Ts {
+    return None;
+  }
+  let parsed = crate::parse_with(file, &script.content, false).ok()?;
+  let text = |span: swc_core::common::Span| script.content[parsed.range(span)].to_owned();
+  let mut kept: Vec<String> = Vec::new();
+  let mut props: Option<String> = None;
+  for item in &parsed.module.body {
+    match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
+        let type_only = import.type_only || (!import.specifiers.is_empty() && import.specifiers.iter().all(|s| matches!(s, js::ImportSpecifier::Named(named) if named.is_type_only)));
+        if type_only {
+          kept.push(text(import.span));
+        }
+      }
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::TsInterface(decl))) => kept.push(text(decl.span)),
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::TsTypeAlias(decl))) => kept.push(text(decl.span)),
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) if matches!(export.decl, js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => kept.push(text(export.span)),
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) => {
+        for decl in &var.decls {
+          if let Some(found) = decl.init.as_deref().and_then(|init| declared_props(init, &text)) {
+            props = Some(found);
+          }
+        }
+      }
+      js::ModuleItem::Stmt(js::Stmt::Expr(stmt)) => {
+        if let Some(found) = declared_props(&stmt.expr, &text) {
+          props = Some(found);
+        }
+      }
+      _ => {}
+    }
+  }
+  let props = props?;
+  let mut out = String::new();
+  for declaration in kept {
+    out.push_str(&declaration);
+    out.push('\n');
+  }
+  out.push_str(&format!("declare const component: (props: {props} & {{ children?: unknown }}) => any;\nexport default component;\n"));
+  Some(out)
+}
+
+/// The props type of `defineProps<T>()` or of `withDefaults(defineProps<T>(), { ... })` with each defaulted key optional.
+fn declared_props(expr: &js::Expr, text: &dyn Fn(swc_core::common::Span) -> String) -> Option<String> {
+  let js::Expr::Call(call) = unwrap_types(expr) else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Ident(name) = &**callee else { return None };
+  match name.sym.as_ref() {
+    "defineProps" => {
+      let given = call.type_args.as_ref()?.params.first()?;
+      Some(format!("({})", text(given.span())))
+    }
+    "withDefaults" => {
+      let declared = declared_props(&call.args.first()?.expr, text)?;
+      let js::Expr::Object(defaults) = unwrap_types(&call.args.get(1)?.expr) else { return Some(declared) };
+      let mut keys = Vec::new();
+      for prop in &defaults.props {
+        let js::PropOrSpread::Prop(prop) = prop else { return None };
+        let key = match &**prop {
+          js::Prop::KeyValue(kv) => &kv.key,
+          js::Prop::Method(m) => &m.key,
+          js::Prop::Shorthand(id) => {
+            keys.push(serde_json::to_string(id.sym.as_ref()).expect("a string serializes"));
+            continue;
+          }
+          _ => return None,
+        };
+        match key {
+          js::PropName::Ident(id) => keys.push(serde_json::to_string(id.sym.as_ref()).expect("a string serializes")),
+          js::PropName::Str(s) => keys.push(serde_json::to_string(&s.value.to_atom_lossy().to_string()).expect("a string serializes")),
+          _ => return None,
+        }
+      }
+      if keys.is_empty() {
+        return Some(declared);
+      }
+      let keys = keys.join(" | ");
+      Some(format!("(Omit<{declared}, {keys}> & Partial<Pick<{declared}, {keys}>>)"))
+    }
+    _ => None,
+  }
+}
+
 /// The props a `<script setup>` declares through `defineModel`: its name, `modelValue` when it names none.
 pub(crate) fn model_props(parsed: &crate::Parsed) -> Vec<String> {
   let mut out = Vec::new();

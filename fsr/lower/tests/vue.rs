@@ -1058,3 +1058,16 @@ fn a_child_placed_in_a_scoped_owner_s_slot_content_takes_the_owner_s_scope_as_vu
   assert!(!html.contains("-s"), "no slotted rule, no slotted stamp: {html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_typed_script_declares_its_component_s_props_for_a_tsx_placement() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let declaration = |source: &str| snapfire_fsr_lower::vue::props_declaration("src/ui/Card.vue", &describe(&compiler, "src/ui/Card.vue", source));
+  let inline = declaration("<script setup lang=\"ts\">\ndefineProps<{ title: string; count?: number }>();\n</script>\n<template><p>{{ title }}</p></template>\n").expect("an inline literal");
+  assert_eq!(inline, "declare const component: (props: ({ title: string; count?: number }) & { children?: unknown }) => any;\nexport default component;\n");
+  let named = declaration("<script setup lang=\"ts\">\nimport type { Row } from \"./rows\";\nimport { ref } from \"vue\";\ninterface Props { rows: Row[]; label: string }\nconst props = withDefaults(defineProps<Props>(), { label: \"none\" });\nconst open = ref(false);\n</script>\n<template><p>{{ label }}</p></template>\n").expect("an interface the script declares");
+  assert_eq!(named, "import type { Row } from \"./rows\";\ninterface Props { rows: Row[]; label: string }\ndeclare const component: (props: (Omit<(Props), \"label\"> & Partial<Pick<(Props), \"label\">>) & { children?: unknown }) => any;\nexport default component;\n");
+  assert!(declaration("<script setup>\ndefineProps({ title: String });\n</script>\n<template><p /></template>\n").is_none(), "a JavaScript script stays on the catch-all");
+  assert!(declaration("<script setup lang=\"ts\">\ndefineProps({ title: String });\n</script>\n<template><p /></template>\n").is_none(), "runtime props are not a type");
+  assert_eq!(snapfire_fsr_lower::vue::props_declaration_path("src/ui/Card.vue"), "generated/vue/src/ui/Card.d.vue.ts");
+}

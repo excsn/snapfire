@@ -30,7 +30,7 @@ fn app() -> PathBuf {
 #[test]
 fn the_tsconfig_maps_every_typed_package_and_includes_ambient_entries() {
   let dir = app();
-  let ts = tsconfig(&dir, true, false).unwrap();
+  let ts = tsconfig(&dir, true, false, false).unwrap();
   assert!(ts.contains("\"@snapfire/fsr\": [\"./generated/fsr\"]"), "{ts}");
   assert!(ts.contains("\"react\": [\"./types/react/index.d.ts\"]"), "{ts}");
   assert!(ts.contains("\"react/*\": [\"./types/react/*\"]"), "a subpath such as react/jsx-runtime resolves under the package: {ts}");
@@ -67,7 +67,7 @@ fn the_foreign_shim_comes_from_the_sources_and_the_placements_and_lands_under_ty
   let written = write_foreign_shim(&dir, &Layout::default(), &[]).unwrap();
   assert_eq!(written.as_deref(), Some("types/foreign.d.ts"));
   assert!(dir.join("types/foreign.d.ts").is_file());
-  let ts = tsconfig(&dir, false, written.is_some()).unwrap();
+  let ts = tsconfig(&dir, false, written.is_some(), false).unwrap();
   assert!(ts.contains("\"include\": [\"src/**/*\", \"types/foreign.d.ts\", \"types/sweetalert2/sweetalert2.d.ts\"]"), "a Rust-hosted app: its sources, the shim, no generated: {ts}");
 
   std::fs::remove_file(dir.join("src/ui/Holdings.vue")).unwrap();
@@ -80,7 +80,7 @@ fn the_foreign_shim_comes_from_the_sources_and_the_placements_and_lands_under_ty
 fn without_react_the_dialect_types_its_own_module() {
   let dir = app();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/z"}}"#).unwrap();
-  let ts = tsconfig(&dir, true, false).unwrap();
+  let ts = tsconfig(&dir, true, false, false).unwrap();
   assert!(ts.contains("\"jsxImportSource\": \"@snapfire/fsr-authoring\""), "{ts}");
   assert!(!ts.contains("template.react"), "{ts}");
   std::fs::remove_dir_all(&dir).unwrap();

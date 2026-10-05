@@ -894,6 +894,27 @@ fn a_vue_island_in_server_mode_answers_its_handlers_or_is_refused_over_one_that_
   std::fs::remove_dir_all(&keyed).unwrap();
 }
 
+#[test]
+fn a_typed_vue_component_s_props_are_declared_where_the_editor_tsconfig_finds_them_first() {
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport Card from \"../../src/Card.vue\";\nexport default function Page() {\n  return <Island mode=\"server\"><Card title=\"t\" /></Island>;\n}\n";
+  let card = "<script setup lang=\"ts\">\ndefineProps<{ title: string }>();\n</script>\n\n<template>\n  <p>{{ title }}</p>\n</template>\n";
+  let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page), ("src/Card.vue", card)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let file = |name: &str| built.files.iter().find(|(path, _)| path == name).map(|(_, text)| text.clone());
+  let declared = file("generated/vue/src/Card.d.vue.ts").expect("the declaration is written");
+  assert!(declared.contains("(props: ({ title: string }) & { children?: unknown }) => any"), "{declared}");
+  let tsconfig = file("tsconfig.json").unwrap();
+  assert!(tsconfig.contains("\"allowArbitraryExtensions\": true") && tsconfig.contains("\"rootDirs\": [\".\", \"./generated/vue\"]") && tsconfig.contains("\"@src/*\": [\"./src/*\", \"./generated/vue/src/*\"]"), "{tsconfig}");
+  assert!(!file("tsconfig.build.json").unwrap().contains("rootDirs"), "the compile reads no declarations");
+  std::fs::remove_dir_all(&dir).unwrap();
+
+  let untyped = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page), ("src/Card.vue", "<script setup>\ndefineProps({ title: String });\n</script>\n\n<template>\n  <p>{{ title }}</p>\n</template>\n")]);
+  let built = build(&untyped, &Options::default()).unwrap();
+  assert!(!built.files.iter().any(|(path, _)| path.starts_with("generated/vue/")), "nothing to declare");
+  assert!(!built.files.iter().find(|(path, _)| path == "tsconfig.json").unwrap().1.contains("rootDirs"));
+  std::fs::remove_dir_all(&untyped).unwrap();
+}
+
 /// A step renders the island with nothing on the slot stack, so a slot in its
 /// markup comes back empty and the patch removes whatever filled it.
 #[test]
