@@ -1,5 +1,6 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
+import { type Props } from "./boot.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, restoreAllMocks, spyOn } from "./expect.js";
 import { type BoundQueries, type WaitForOptions } from "./queries.js";
 export { f64 } from "./values.js";
@@ -137,20 +138,25 @@ export interface Rendered extends BoundQueries {
 	container: HTMLElement;
 	baseElement: HTMLElement;
 	root: Root;
-	/** The module id the server rendered and React hydrated over; `null` when the component mounted fresh or is composition. */
+	/** The module id the server rendered and the island's adapter hydrated over; `null` when the component mounted fresh or is composition. */
 	hydrated: string | null;
 	/** The module id of a component composition renders: the server's markup is the whole of it and only the islands inside mount. */
 	composed: string | null;
 	unmount(): void;
 	/** Renders `element` into the same root and settles. */
-	rerender(element: ReactElement): Promise<void>;
+	rerender(element: Placed): Promise<void>;
 	asFragment(): DocumentFragment;
 	debug(element?: Element, maxLength?: number): void;
 }
 /** Names a page or layout composition renders, so `render` writes the server's markup for it and mounts only the islands inside. The spec runner's boot calls it for each one. */
 export declare function registerComposition(moduleId: string, loader: () => Promise<unknown>): void;
-/** Mounts `element` under a fresh container. A page the server renders is hydrated over its own markup, so a mismatch fails here the way it would in a browser; anything else mounts fresh. */
-export declare function render(element: ReactElement, options?: {
+/** What a spec's JSX builds, whichever runtime built it: React's element, FSR's or any value with a component `type` and its `props`. */
+export type Placed = ReactElement | {
+	type: unknown;
+	props: Record<string, unknown>;
+};
+/** Mounts `element` under a fresh container. A page or layout is composition: the server's markup is written and only the islands inside mount. A registered island of any framework mounts through its own adapter, hydrating over the server's markup when its module lowers, so a mismatch fails here the way it would in a browser. Any other React element mounts fresh in a React root. */
+export declare function render(element: Placed, options?: {
 	ctx?: TestCtx;
 	hydrate?: boolean;
 }): Promise<Rendered>;

@@ -1,4 +1,6 @@
-import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, render, screen, settle, test } from "@snapfire/fsr-client/testing";
+
+import LocalClock from "@src/ui/LocalClock";
 
 const talks = [
   { id: "1", title: "A plan is not a program", track: "Runtime", room: "Hall B", starts: "09:30", ends: "10:10", speaker: "Ada Okonjo", level: "intro", abstract: "" },
@@ -29,4 +31,11 @@ test("the venue page is composition with an island the browser renders alone and
   await fireEvent.click(screen.getByText("Room 2"));
   await settle();
   expect(document.querySelectorAll(".floors-talks li").length, "the island's own state").toEqual(2);
+});
+
+test("the clock renders on its own through FSR's runtime, with nothing from the server to hydrate", async () => {
+  const r = await render(<LocalClock />);
+  expect(r.hydrated, "a client island has no server markup").toBeNull();
+  expect(r.container.querySelector("sf-i")?.hasAttribute("data-sf-mounted"), "FSR's mounter ran").toEqual(true);
+  expect(r.getByText(/You are in/).textContent).toMatch(/Times are the venue's\. You are in .+\./);
 });

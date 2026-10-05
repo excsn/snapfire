@@ -95,6 +95,13 @@ pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], g
 
   let boot = test_dir.join("boot.js");
   let mut boot_source = String::new();
+  // Vue's development build reads the flags a bundler would define, so they
+  // are set in a module of their own that evaluates before anything imports Vue.
+  if resolution.overrides.contains_key("vue") {
+    let flags = test_dir.join("vue-flags.js");
+    std::fs::write(&flags, "globalThis.__VUE_OPTIONS_API__ = true;\nglobalThis.__VUE_PROD_DEVTOOLS__ = false;\nglobalThis.__VUE_PROD_HYDRATION_MISMATCH_DETAILS__ = true;\n").map_err(|e| BuildError::Io(flags.clone(), e))?;
+    boot_source.push_str("import \"./vue-flags.js\";\n");
+  }
   for file in crate::sorted_files(&app.join(snapfire_fsr_lower::EXT_DIR), ".ts")? {
     let name = file.file_name().unwrap_or_default().to_string_lossy().trim_end_matches(".ts").to_owned();
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));

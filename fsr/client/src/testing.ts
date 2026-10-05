@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
-import { boot, discard, registeredIslands, scan } from "./boot.js";
+import { boot, discard, patchIsland, registeredIslands, scan, type Props } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -537,13 +537,13 @@ export interface Rendered extends BoundQueries {
   container: HTMLElement;
   baseElement: HTMLElement;
   root: Root;
-  /** The module id the server rendered and React hydrated over; `null` when the component mounted fresh or is composition. */
+  /** The module id the server rendered and the island's adapter hydrated over; `null` when the component mounted fresh or is composition. */
   hydrated: string | null;
   /** The module id of a component composition renders: the server's markup is the whole of it and only the islands inside mount. */
   composed: string | null;
   unmount(): void;
   /** Renders `element` into the same root and settles. */
-  rerender(element: ReactElement): Promise<void>;
+  rerender(element: Placed): Promise<void>;
   asFragment(): DocumentFragment;
   debug(element?: Element, maxLength?: number): void;
 }
@@ -580,7 +580,7 @@ function composedHtml(module: string, props: unknown): string {
   return (JSON.parse(sf().render(module, JSON.stringify(encodeValue(props as SfValue)))) as { html: string }).html;
 }
 
-async function renderComposed(module: string, element: ReactElement, container: HTMLElement): Promise<Rendered> {
+async function renderComposed(module: string, element: Placed, container: HTMLElement): Promise<Rendered> {
   writeHtml(container, composedHtml(module, element.props));
   scan(container);
   await settle();
@@ -603,7 +603,7 @@ async function renderComposed(module: string, element: ReactElement, container: 
       discard(container);
       container.remove();
     },
-    async rerender(next: ReactElement) {
+    async rerender(next: Placed) {
       discard(container);
       writeHtml(container, composedHtml(module, next.props));
       scan(container);
@@ -620,15 +620,95 @@ async function renderComposed(module: string, element: ReactElement, container: 
   };
 }
 
-/** Mounts `element` under a fresh container. A page the server renders is hydrated over its own markup, so a mismatch fails here the way it would in a browser; anything else mounts fresh. */
-export async function render(element: ReactElement, options: { ctx?: TestCtx; hydrate?: boolean } = {}): Promise<Rendered> {
+/** What a spec's JSX builds, whichever runtime built it: React's element, FSR's or any value with a component `type` and its `props`. */
+export type Placed = ReactElement | { type: unknown; props: Record<string, unknown> };
+
+let placements = 0;
+
+/** A registered island placed the way a page places one and mounted by `scan` through its own adapter, so a React or Vue island renders here as it does in the document. The server's markup is written first when the module lowers, and the adapter hydrates over it. */
+async function renderIsland(module: string, element: Placed, container: HTMLElement): Promise<Rendered> {
+  const id = `sf-t${placements++}`;
+  const place = (props: Record<string, unknown>): Element => {
+    const rendered = sf().render(module, JSON.stringify(encodeValue(props as SfValue)));
+    const { html, hoisted } = rendered == null ? { html: "", hoisted: null } : (JSON.parse(rendered) as { html: string; hoisted: SfValue });
+    const encoded = encodeValue({ ...props, ...(hoisted === null ? {} : { $h: decodeValue(hoisted) }) } as SfValue);
+    writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`);
+    return container.querySelector(`sf-i#${id}`) as Element;
+  };
+  let marker = place(element.props as Record<string, unknown>);
+  const hydrated = marker.childNodes.length > 0 ? module : null;
+  scan(container);
+  await settle();
+  const root = {
+    render() {
+      throw new Error(`${module} is an island its adapter mounted, so rerender it instead`);
+    },
+    unmount() {
+      discard(container);
+    },
+  } as unknown as Root;
+  return {
+    ...within(container),
+    container,
+    baseElement: document.body,
+    root,
+    hydrated,
+    composed: null,
+    unmount() {
+      discard(container);
+      container.remove();
+    },
+    async rerender(next: Placed) {
+      if (!(await patchIsland(marker, next.props as Props))) {
+        discard(container);
+        marker = place(next.props as Record<string, unknown>);
+        scan(container);
+      }
+      await settle();
+    },
+    asFragment() {
+      const template = document.createElement("template");
+      template.innerHTML = container.innerHTML;
+      return template.content;
+    },
+    debug(target?: Element, maxLength?: number) {
+      console.log(prettyDOM(target ?? container, maxLength));
+    },
+  };
+}
+
+/** Mounts `element` under a fresh container. A page or layout is composition: the server's markup is written and only the islands inside mount. A registered island of any framework mounts through its own adapter, hydrating over the server's markup when its module lowers, so a mismatch fails here the way it would in a browser. Any other React element mounts fresh in a React root. */
+export async function render(element: Placed, options: { ctx?: TestCtx; hydrate?: boolean } = {}): Promise<Rendered> {
   sf().use(options.ctx?.id ?? 0);
   setLocale(options.ctx?.locale ?? sf().locale(0));
   const container = document.createElement("div");
   document.body.appendChild(container);
   const composed = options.hydrate === false ? null : await compositionOf(element.type);
   if (composed !== null) return renderComposed(composed, element, container);
-  const module = options.hydrate === false ? null : await moduleOf(element.type);
+  const module = await moduleOf(element.type);
+  if (module !== null && options.hydrate !== false && encodable(element.props)) return renderIsland(module, element, container);
+  if (!isReactElement(element)) {
+    container.remove();
+    throw new Error(module === null ? "render takes a page, a layout or a registered island; this component is none of them" : `${module} takes props that cannot be encoded, which only a React element can be mounted with`);
+  }
+  return renderReact(module === null || options.hydrate === false ? null : module, element, container);
+}
+
+function encodable(props: unknown): boolean {
+  try {
+    encodeValue(props as SfValue);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isReactElement(element: Placed): element is ReactElement {
+  return typeof (element as { $$typeof?: unknown }).$$typeof === "symbol";
+}
+
+/** The React element path: a component no registry knows, or one whose props carry what no marker can, such as children elements. */
+async function renderReact(module: string | null, element: ReactElement, container: HTMLElement): Promise<Rendered> {
   const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props as SfValue)));
   // React is reached only here, so a spec suite for an application with no
   // React in its import map never asks for it.
@@ -656,8 +736,8 @@ export async function render(element: ReactElement, options: { ctx?: TestCtx; hy
       root.unmount();
       container.remove();
     },
-    async rerender(next: ReactElement) {
-      root.render(next);
+    async rerender(next: Placed) {
+      root.render(next as ReactElement);
       await settle();
     },
     asFragment() {

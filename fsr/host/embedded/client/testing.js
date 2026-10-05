@@ -1,4 +1,4 @@
-import { boot, discard, registeredIslands, scan } from "./boot.js";
+import { boot, discard, patchIsland, registeredIslands, scan } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -472,6 +472,65 @@ async function renderComposed(module, element, container) {
         }
     };
 }
+let placements = 0;
+async function renderIsland(module, element, container) {
+    const id = `sf-t${placements++}`;
+    const place = (props)=>{
+        const rendered = sf().render(module, JSON.stringify(encodeValue(props)));
+        const { html, hoisted } = rendered == null ? {
+            html: "",
+            hoisted: null
+        } : JSON.parse(rendered);
+        const encoded = encodeValue({
+            ...props,
+            ...hoisted === null ? {} : {
+                $h: decodeValue(hoisted)
+            }
+        });
+        writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`);
+        return container.querySelector(`sf-i#${id}`);
+    };
+    let marker = place(element.props);
+    const hydrated = marker.childNodes.length > 0 ? module : null;
+    scan(container);
+    await settle();
+    const root = {
+        render () {
+            throw new Error(`${module} is an island its adapter mounted, so rerender it instead`);
+        },
+        unmount () {
+            discard(container);
+        }
+    };
+    return {
+        ...within(container),
+        container,
+        baseElement: document.body,
+        root,
+        hydrated,
+        composed: null,
+        unmount () {
+            discard(container);
+            container.remove();
+        },
+        async rerender (next) {
+            if (!await patchIsland(marker, next.props)) {
+                discard(container);
+                marker = place(next.props);
+                scan(container);
+            }
+            await settle();
+        },
+        asFragment () {
+            const template = document.createElement("template");
+            template.innerHTML = container.innerHTML;
+            return template.content;
+        },
+        debug (target, maxLength) {
+            console.log(prettyDOM(target ?? container, maxLength));
+        }
+    };
+}
 export async function render(element, options = {}) {
     sf().use(options.ctx?.id ?? 0);
     setLocale(options.ctx?.locale ?? sf().locale(0));
@@ -479,7 +538,26 @@ export async function render(element, options = {}) {
     document.body.appendChild(container);
     const composed = options.hydrate === false ? null : await compositionOf(element.type);
     if (composed !== null) return renderComposed(composed, element, container);
-    const module = options.hydrate === false ? null : await moduleOf(element.type);
+    const module = await moduleOf(element.type);
+    if (module !== null && options.hydrate !== false && encodable(element.props)) return renderIsland(module, element, container);
+    if (!isReactElement(element)) {
+        container.remove();
+        throw new Error(module === null ? "render takes a page, a layout or a registered island; this component is none of them" : `${module} takes props that cannot be encoded, which only a React element can be mounted with`);
+    }
+    return renderReact(module === null || options.hydrate === false ? null : module, element, container);
+}
+function encodable(props) {
+    try {
+        encodeValue(props);
+        return true;
+    } catch  {
+        return false;
+    }
+}
+function isReactElement(element) {
+    return typeof element.$$typeof === "symbol";
+}
+async function renderReact(module, element, container) {
     const rendered = module === null ? null : sf().render(module, JSON.stringify(encodeValue(element.props)));
     const [{ createRoot, hydrateRoot }, { withHoisted }] = await Promise.all([
         import("react-dom/client"),
