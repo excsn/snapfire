@@ -1,6 +1,7 @@
 import { Island } from "@snapfire/fsr-authoring/template";
 
 import Badge from "@src/ui/Badge";
+import Shares from "@src/ui/Shares";
 
 interface Item {
   sku: string;
@@ -38,6 +39,9 @@ export default function Statements({ total, low, kinds, note, items, pick }: { t
           </li>
         ))}
       </ul>
+      <Island>
+        <Shares items={items} />
+      </Island>
     </section>
   );
 }

@@ -8,7 +8,7 @@ The components in this chapter are React components, the storefront's, so they n
 
 ## What the build can read in a component
 
-The build reads a page as an exported function whose parameter is `props` or a destructuring of it, whose body is `const`s and `let`s, inner functions, writes to its own locals, `if` and `switch` and a `return` of JSX on each path. Most pages fit that shape. The storefront's catalog, cart and product pages, its error page and the four components under `src/ui/` all read this way; the report lists each under `rendered` as `lowered`.
+The build reads a page as an exported function whose parameter is `props` or a destructuring of it, whose body is `const`s and `let`s, inner functions, writes to its own locals, `if` and `switch` and a `return` of JSX on each path. An inner function that returns JSX can be called in the markup, as `{row(item)}`, and a `.map` callback can hold the same statements a body does. Most pages fit that shape. The storefront's catalog, cart and product pages, its error page and the four components under `src/ui/` all read this way; the report lists each under `rendered` as `lowered`.
 
 Inside the JSX, the build reads JSX's own constructs:
 

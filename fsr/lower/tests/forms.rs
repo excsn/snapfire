@@ -407,3 +407,29 @@ fn a_component_that_does_not_lower_is_placed_from_composition_and_hands_a_framew
   assert!(rendered.islands[1].body.html.is_empty(), "React renders the clock inside the panel, so the server cannot write the panel either");
   assert!(rendered.whole, "the page itself is whole: no framework renders it");
 }
+
+#[test]
+fn a_map_callback_writes_its_locals_before_it_returns_markup() {
+  let page = "export default function Page({ items }: { items: { sku: string; left: number }[] }) {\n  return (\n    <ul>\n      {items.map((item) => {\n        let label = item.sku;\n        if (item.left === 0) {\n          label = `${item.sku} (out)`;\n        } else if (item.left < 3) {\n          label += \" (low)\";\n        }\n        let n = 0;\n        n += item.left;\n        return <li key={item.sku}>{label} {n}</li>;\n      })}\n    </ul>\n  );\n}\n";
+  let set = lower(&[("routes/page.tsx", page)], "routes/page.tsx#default");
+  let item = |sku: &str, left: i64| Value::Map([("sku".to_owned(), Value::str(sku)), ("left".to_owned(), Value::F64(left as f64))].into_iter().collect());
+  let html = render(&library(&set), "routes/page.tsx#default", &[("items", Value::seq(vec![item("pear", 0), item("fig", 2), item("leek", 9)]))]).unwrap();
+  assert_eq!(html, "<ul><li>pear (out) 0</li><li>fig (low) 2</li><li>leek 9</li></ul>");
+}
+
+#[test]
+fn an_inner_function_returning_markup_renders_where_it_is_called() {
+  let page = "export default function Page({ rows, total }: { rows: { name: string; ms: number }[]; total: number }) {\n  const bar = (start: number, ms: number, hot: boolean) => (\n    <span className=\"track\">\n      <span className={hot ? \"bar hot\" : \"bar\"} data-at={start} data-w={Math.round((ms / total) * 100)} />\n    </span>\n  );\n  function label(name: string) {\n    if (name === \"\") return <i>none</i>;\n    const upper = name.toUpperCase();\n    return <b>{upper}</b>;\n  }\n  return (\n    <ol>\n      {bar(0, total, true)}\n      {rows.map((row, i) => (\n        <li key={i}>\n          {label(row.name)}\n          {bar(i, row.ms, false)}\n        </li>\n      ))}\n    </ol>\n  );\n}\n";
+  let set = lower(&[("routes/page.tsx", page)], "routes/page.tsx#default");
+  let row = |name: &str, ms: i64| Value::Map([("name".to_owned(), Value::str(name)), ("ms".to_owned(), Value::F64(ms as f64))].into_iter().collect());
+  let html = render(&library(&set), "routes/page.tsx#default", &[("rows", Value::seq(vec![row("load", 30), row("", 70)])), ("total", Value::F64(100.0))]).unwrap();
+  assert_eq!(html, "<ol><span class=\"track\"><span class=\"bar hot\" data-at=\"0\" data-w=\"100\"></span></span><li><b>LOAD</b><span class=\"track\"><span class=\"bar\" data-at=\"0\" data-w=\"30\"></span></span></li><li><i>none</i><span class=\"track\"><span class=\"bar\" data-at=\"1\" data-w=\"70\"></span></span></li></ol>");
+}
+
+#[test]
+fn a_function_returning_markup_by_calling_itself_is_residue_with_its_line() {
+  let page = "export default function Page({ depth }: { depth: number }) {\n  function nest(n: number) {\n    if (n === 0) return <i>end</i>;\n    return <b>{nest(n - 1)}</b>;\n  }\n  return <div>{nest(depth)}</div>;\n}\n";
+  let mut set = ComponentSet::new(&app(&[("routes/page.tsx", page)]));
+  let err = set.lower("routes/page.tsx#default").unwrap_err().to_string();
+  assert!(err.starts_with("routes/page.tsx:4:16: `nest` returns markup by calling itself"), "{err}");
+}

@@ -31,4 +31,17 @@ describe("the statements page", () => {
     await settle();
     expect(badges()).toEqual(["out", "out", "9 veg", "plenty"]);
   });
+
+  test("renders an island whose map callback writes its locals and whose markup comes from functions it declares", async () => {
+    await load("/statements");
+    const skus = () => [...document.querySelectorAll(".share .sku")].map((s) => `${s.tagName.toLowerCase()}:${s.textContent}`);
+    expect(skus()).toEqual(["span:pear", "span:fig", "span:leek", "span:salt"]);
+    expect([...document.querySelectorAll(".share .bar")].map((b) => b.getAttribute("data-share"))).toEqual(["0", "4", "18", "78"]);
+    expect([...document.querySelectorAll(".share .note")].map((n) => n.textContent)).toEqual(["out", "low"]);
+    await settle();
+    await fireEvent.click(document.querySelectorAll(".pick")[2]!);
+    await settle();
+    expect(skus()).toEqual(["span:pear", "span:fig", "b:LEEK", "span:salt"]);
+    expect(document.querySelectorAll(".share .bar.hot").length).toEqual(1);
+  });
 });

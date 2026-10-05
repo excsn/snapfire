@@ -547,7 +547,7 @@ impl ComponentSet {
         lowerer.hoisting = (!element_template).then(Candidates::default);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), contexts, hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), contexts, hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
         let result = cl.component(&function);
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
@@ -2464,6 +2464,8 @@ struct ComponentLowerer<'a, 'p> {
   hook_calls: usize,
   /// The file a name the lowerer could not bind was met in, when that is a hook's rather than the component's.
   unbound_in: Option<String>,
+  /// The functions returning markup being inlined, innermost last, so one that calls itself is refused rather than unrolled for ever.
+  inlining: Vec<String>,
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
   providers: Vec<(String, (usize, usize))>,
@@ -3055,7 +3057,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::JSXElement(el) => self.element(el, false),
       js::Expr::JSXFragment(frag) => Ok(Tmpl::Fragment(self.children(&frag.children)?)),
       js::Expr::Lit(js::Lit::Str(s)) => Ok(Tmpl::Text(s.value.to_atom_lossy().to_string())),
-      js::Expr::Cond(c) if holds_jsx(&c.cons) || holds_jsx(&c.alt) => {
+      js::Expr::Cond(c) if self.holds_markup(&c.cons) || self.holds_markup(&c.alt) => {
         let cond = self.lowerer.expr(&c.test)?;
         let then = Box::new(self.child_expr(&c.cons)?);
         let r#else = Some(Box::new(self.child_expr(&c.alt)?));
@@ -3066,7 +3068,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let fallback = self.child_expr(&bin.right)?;
         Ok(self.slot_with_fallback(&name, vec![fallback]))
       }
-      js::Expr::Bin(bin) if bin.op == js::BinaryOp::LogicalAnd && holds_jsx(&bin.right) => {
+      js::Expr::Bin(bin) if bin.op == js::BinaryOp::LogicalAnd && self.holds_markup(&bin.right) => {
         let cond = self.lowerer.expr(&bin.left)?;
         let then = Box::new(self.child_expr(&bin.right)?);
         Ok(Tmpl::If { cond, then, r#else: None })
@@ -3084,7 +3086,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         let body = match &*arrow.body {
           js::ArrowFunctionBody::Expr(e) => self.child_expr(e),
-          js::ArrowFunctionBody::FunctionBody(b) => self.block_tree(&b.stmts),
+          js::ArrowFunctionBody::FunctionBody(b) => self.tree_of(&b.stmts.iter().collect::<Vec<_>>(), depth),
         };
         if let Some(candidates) = &mut self.lowerer.hoisting {
           candidates.open_loops.pop();
@@ -3092,53 +3094,77 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.lowerer.scope.truncate(depth);
         Ok(Tmpl::For { over, params, body: Box::new(body?) })
       }
+      js::Expr::Call(_) if self.markup_call(expr).is_some() => {
+        let (call, name, params, body) = self.markup_call(expr).expect("checked by the guard");
+        self.inline_markup_fn(call, name, &params, body)
+      }
       js::Expr::Ident(id) if id.sym.as_ref() == "null" || id.sym.as_ref() == "undefined" => Ok(Tmpl::Fragment(Vec::new())),
       js::Expr::Lit(js::Lit::Null(_)) => Ok(Tmpl::Fragment(Vec::new())),
       other => Ok(Tmpl::Expr(self.lowerer.expr(other)?)),
     }
   }
 
-  /// A `.map` callback with statements: `const`s then a `return` of a tree.
-  fn block_tree(&mut self, stmts: &'p [js::Stmt]) -> Lowered<Tmpl> {
-    let Some((first, rest)) = stmts.split_first() else {
-      return Ok(Tmpl::Fragment(Vec::new()));
-    };
-    match first {
-      js::Stmt::Decl(js::Decl::Var(var)) => {
-        let depth = self.lowerer.scope.len();
-        let mut lets = Vec::new();
-        for decl in &var.decls {
-          let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
-          let expr = self.lowerer.expr(init)?;
-          let name = match &decl.name {
-            js::Pat::Ident(name) => {
-              let name = name.id.sym.to_string();
-              self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
-              self.lowerer.note_kind(&name, init);
-              name
-            }
-            pattern => {
-              let name = self.lowerer.temp();
-              bind_pattern(&mut self.lowerer, pattern, Expr::Var(name.clone()))?;
-              name
-            }
-          };
-          lets.push((name, expr));
-        }
-        let then = self.block_tree(rest);
-        self.lowerer.scope.truncate(depth);
-        let mut tree = then?;
-        for (name, expr) in lets.into_iter().rev() {
-          tree = Tmpl::Let { name, expr, then: Box::new(tree) };
-        }
-        Ok(tree)
-      }
-      js::Stmt::Return(ret) => match &ret.arg {
-        Some(arg) => self.child_expr(arg),
-        None => Ok(Tmpl::Fragment(Vec::new())),
-      },
-      other => Err(self.lowerer.residue(other.span(), "a statement in a `.map` callback other than `const` and `return`")),
+  /// Whether a child expression is markup: JSX or a call to a function the component declares that returns some, alone or inside a branch or `&&`.
+  fn holds_markup(&self, expr: &'p js::Expr) -> bool {
+    match expr {
+      js::Expr::Paren(p) => self.holds_markup(&p.expr),
+      js::Expr::Cond(c) => self.holds_markup(&c.cons) || self.holds_markup(&c.alt),
+      js::Expr::Bin(b) if b.op == js::BinaryOp::LogicalAnd => self.holds_markup(&b.right),
+      other => holds_jsx(other) || self.markup_call(other).is_some(),
     }
+  }
+
+  /// A call by name to a function the component declares, an arrow `const` or a `function`, whose body returns markup on some path.
+  fn markup_call(&self, expr: &'p js::Expr) -> Option<(&'p js::CallExpr, String, Vec<js::Pat>, FunctionBody<'p>)> {
+    let js::Expr::Call(call) = expr else { return None };
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Ident(id) = &**callee else { return None };
+    let name = id.sym.to_string();
+    let (params, body) = self.handler_fns.get(&name)?.clone();
+    let markup = match body {
+      FunctionBody::Expr(e) => holds_jsx(e),
+      FunctionBody::Block(stmts) => returns_jsx(stmts),
+    };
+    markup.then_some((call, name, params, body))
+  }
+
+  /// A function returning markup, inlined where it is called: each argument is lowered in the caller's scope and bound to its parameter by a `Tmpl::Let` around the function's tree.
+  fn inline_markup_fn(&mut self, call: &'p js::CallExpr, name: String, params: &[js::Pat], body: FunctionBody<'p>) -> Lowered<Tmpl> {
+    if self.inlining.contains(&name) {
+      return Err(self.lowerer.residue(call.span, format!("`{name}` returns markup by calling itself, which the build cannot unroll")));
+    }
+    if let Some(spread) = call.args.iter().find(|a| a.spread.is_some()) {
+      return Err(self.lowerer.residue(spread.expr.span(), format!("a spread argument to `{name}`, which returns markup")));
+    }
+    let mut args = Vec::with_capacity(params.len());
+    for i in 0..params.len() {
+      args.push(match call.args.get(i) {
+        Some(arg) => self.lowerer.expr(&arg.expr)?,
+        None => Expr::Lit(Lit::Null),
+      });
+    }
+    let depth = self.lowerer.scope.len();
+    let mut lets = Vec::with_capacity(params.len());
+    for (param, value) in params.iter().zip(args) {
+      let held = self.lowerer.temp();
+      if let Err(residue) = bind_pattern(&mut self.lowerer, param, Expr::Var(held.clone())) {
+        self.lowerer.scope.truncate(depth);
+        return Err(residue);
+      }
+      lets.push((held, value));
+    }
+    self.inlining.push(name);
+    let tree = match body {
+      FunctionBody::Expr(e) => self.child_expr(e),
+      FunctionBody::Block(stmts) => self.tree_of(&stmts.iter().collect::<Vec<_>>(), depth),
+    };
+    self.inlining.pop();
+    self.lowerer.scope.truncate(depth);
+    let mut tree = tree?;
+    for (held, value) in lets.into_iter().rev() {
+      tree = Tmpl::Let { name: held, expr: value, then: Box::new(tree) };
+    }
+    Ok(tree)
   }
 
   /// `as_child` says the element sits directly among JSX children, where a
@@ -3898,7 +3924,22 @@ fn map_with_jsx(call: &js::CallExpr) -> bool {
   let js::Expr::Arrow(arrow) = &*first.expr else { return false };
   match &*arrow.body {
     js::ArrowFunctionBody::Expr(e) => holds_jsx(e),
-    js::ArrowFunctionBody::FunctionBody(b) => b.stmts.iter().any(|s| matches!(s, js::Stmt::Return(r) if r.arg.as_deref().is_some_and(holds_jsx))),
+    js::ArrowFunctionBody::FunctionBody(b) => returns_jsx(&b.stmts),
+  }
+}
+
+/// Whether a function body returns JSX on some path, inside a branch, a block or a `switch` arm included.
+fn returns_jsx(stmts: &[js::Stmt]) -> bool {
+  stmts.iter().any(stmt_returns_jsx)
+}
+
+fn stmt_returns_jsx(stmt: &js::Stmt) -> bool {
+  match stmt {
+    js::Stmt::Return(r) => r.arg.as_deref().is_some_and(holds_jsx),
+    js::Stmt::Block(b) => returns_jsx(&b.stmts),
+    js::Stmt::If(branch) => stmt_returns_jsx(&branch.cons) || branch.alt.as_deref().is_some_and(stmt_returns_jsx),
+    js::Stmt::Switch(sw) => sw.cases.iter().any(|case| returns_jsx(&case.cons)),
+    _ => false,
   }
 }
 
