@@ -109,6 +109,11 @@ fn from_definitely_typed(package: &str) -> String {
 }
 
 pub fn is_ambient(entry: &str) -> bool {
+  // A file with a top-level import or export is a module, and a `declare
+  // module` in it augments another package, as Vue's runtime packages do.
+  if entry.lines().any(|line| line.starts_with("import ") || line.starts_with("export ")) {
+    return false;
+  }
   // At the start of a line: React's own declarations mention `declare module
   // "react"` inside a doc comment and a path-mapped package must stay mapped.
   entry.lines().map(str::trim_start).any(|line| line.starts_with("declare module \"") || line.starts_with("declare module '"))
@@ -295,7 +300,7 @@ fn fetch_npm(client: &reqwest::blocking::Client, app: &Path, layout: &Layout, pa
       continue;
     }
     let ambient = is_ambient(&std::fs::read_to_string(&entry_path).map_err(|e| BuildError::Io(entry_path.clone(), e))?);
-    let dependencies = if from_dt { doc.dependencies.keys().cloned().collect() } else { Vec::new() };
+    let dependencies = if from_dt { doc.dependencies.keys().cloned().collect() } else { imported_dependencies(&dir, doc.dependencies.keys()) };
     return Ok(Some(Fetched { from: name, version: doc.version, entry, ambient, dependencies }));
   }
   Ok(None)
@@ -341,10 +346,11 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
     };
     if dir.is_dir() && !refresh && embedded.is_none() {
       report.kept.push(package.clone());
-      if let Some(typed) = manifest.packages.get(&package) {
-        if typed.from.starts_with("@types/") {
-          queue.extend(dependencies_of(app, &layout, &package));
+      if let Some(typed) = manifest.packages.get_mut(&package) {
+        if let Ok(text) = std::fs::read_to_string(dir.join(&typed.entry)) {
+          typed.ambient = is_ambient(&text);
         }
+        queue.extend(dependencies_of(app, &layout, &package, typed.from.starts_with("@types/")));
       }
       continue;
     }
@@ -458,15 +464,58 @@ pub fn write_foreign_shim(app: &Path, layout: &Layout, placed: &[String]) -> Res
   }
 }
 
-fn dependencies_of(app: &Path, layout: &Layout, package: &str) -> Vec<String> {
-  let path = app.join(&layout.types).join(package).join("package.json");
-  let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+/// The packages a fetched package's declarations need beside it: every
+/// dependency of a DefinitelyTyped package, and of a package carrying its own
+/// declarations only those they import, `vue` re-exporting `@vue/runtime-dom`.
+fn dependencies_of(app: &Path, layout: &Layout, package: &str, definitely_typed: bool) -> Vec<String> {
+  let dir = app.join(&layout.types).join(package);
+  let Ok(text) = std::fs::read_to_string(dir.join("package.json")) else { return Vec::new() };
   let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { return Vec::new() };
-  value
-    .get("dependencies")
-    .and_then(|d| d.as_object())
-    .map(|d| d.keys().map(|k| from_definitely_typed(k)).collect())
-    .unwrap_or_default()
+  let Some(dependencies) = value.get("dependencies").and_then(|d| d.as_object()) else { return Vec::new() };
+  match definitely_typed {
+    true => dependencies.keys().map(|k| from_definitely_typed(k)).collect(),
+    false => imported_dependencies(&dir, dependencies.keys()),
+  }
+}
+
+/// The names among `dependencies` that a declaration file under `dir` imports,
+/// re-exports or references by a bare specifier.
+fn imported_dependencies<'a>(dir: &Path, dependencies: impl Iterator<Item = &'a String>) -> Vec<String> {
+  let mut imported = std::collections::BTreeSet::new();
+  let mut pending = vec![dir.to_path_buf()];
+  while let Some(at) = pending.pop() {
+    let Ok(entries) = std::fs::read_dir(&at) else { continue };
+    for entry in entries.flatten() {
+      let path = entry.path();
+      if path.is_dir() {
+        pending.push(path);
+      } else if [".d.ts", ".d.mts", ".d.cts"].iter().any(|ext| path.to_string_lossy().ends_with(ext)) {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+          imported.extend(bare_imports(&text));
+        }
+      }
+    }
+  }
+  dependencies.filter(|name| imported.contains(name.as_str())).cloned().collect()
+}
+
+/// The package each bare specifier in a declaration file names: `from`,
+/// `import(...)` and `/// <reference types>`, a scoped name kept whole.
+fn bare_imports(text: &str) -> Vec<String> {
+  static SPECIFIER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+  let specifier = SPECIFIER.get_or_init(|| regex::Regex::new(r#"(?:\bfrom\s*|\bimport\s*\(\s*|<reference\s+types\s*=\s*)["']([^"'./][^"']*)["']"#).expect("the pattern compiles"));
+  specifier
+    .captures_iter(text)
+    .map(|c| {
+      let spec = &c[1];
+      let mut parts = spec.split('/');
+      match (parts.next(), parts.next()) {
+        (Some(scope), Some(name)) if scope.starts_with('@') => format!("{scope}/{name}"),
+        (Some(name), _) => name.to_owned(),
+        _ => spec.to_owned(),
+      }
+    })
+    .collect()
 }
 
 /// Every package directory under the types directory, with what the manifest knows about it.
@@ -676,6 +725,16 @@ pub fn element_declarations(app: &Path, layout: &Layout, elements: &[(String, St
 
 #[cfg(test)]
 mod tests {
+  #[test]
+  fn a_package_with_its_own_declarations_brings_the_dependencies_they_import() {
+    let dir = std::env::temp_dir().join(format!("fsr-types-imports-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("dist")).unwrap();
+    std::fs::write(dir.join("dist/vue.d.ts"), "import { CompilerOptions } from '@vue/compiler-dom';\nexport * from '@vue/runtime-dom';\nexport type X = import(\"@vue/shared/dist\").Y;\nimport './local';\n").unwrap();
+    let dependencies = ["@vue/compiler-dom", "@vue/runtime-dom", "@vue/shared", "@vue/compiler-sfc", "@vue/server-renderer"].map(String::from);
+    assert_eq!(super::imported_dependencies(&dir, dependencies.iter()), ["@vue/compiler-dom", "@vue/runtime-dom", "@vue/shared"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+
   use super::*;
 
   #[test]
@@ -698,6 +757,7 @@ mod tests {
   fn ambient_entries_are_told_from_modules() {
     assert!(is_ambient("declare module 'sweetalert2' { const Swal: any; export default Swal }"));
     assert!(!is_ambient("export = React;\nexport as namespace React;"));
+    assert!(!is_ambient("import { App } from '@vue/runtime-core';\nexport * from '@vue/runtime-core';\ndeclare module '@vue/runtime-core' {\n  interface GlobalComponents {}\n}\n"), "an augmentation in a module leaves the package path-mapped");
     assert_eq!(semver("18.3.1"), Some((18, 3, 1)));
     assert_eq!(semver("19.0.0-rc.1"), None);
   }
