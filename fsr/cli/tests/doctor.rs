@@ -50,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 15, "{out}");
+  assert_eq!(out.clean.len(), 16, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -89,6 +89,15 @@ fn a_body_reading_the_host_against_an_empty_list_is_reported() {
 
   let listed = app("[server]\nhosts = [\"example.com\"]\n[document]\ntitle = \"t\"\norigin = \"https://example.com\"\n", &[("app/generated/plan.sexp", HOST_PLAN)]);
   assert!(doctor::run(&listed).unwrap().is_clean(), "{}", report(&listed));
+}
+
+#[test]
+fn a_site_setting_the_slot_order_is_reported() {
+  let site = app("[site]\nname = \"docs\"\nat = \"/docs\"\n[store]\nslot_order = [\"content\"]\n", &[]);
+  assert_eq!(findings(&site), vec!["store"]);
+  assert!(report(&site).contains("the shell's `[store] slot_order`"), "{}", report(&site));
+  let shell = app("[store]\nslot_order = [\"content\"]\n", &[]);
+  assert!(doctor::run(&shell).unwrap().is_clean(), "{}", report(&shell));
 }
 
 #[test]
@@ -167,7 +176,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 15 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 16 checks"), "{out}");
   assert!(!out.is_clean());
 }
 

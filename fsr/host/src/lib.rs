@@ -4866,7 +4866,8 @@ impl HostBuilder {
     };
 
     let shell_path = config.document.shell.split('#').next().unwrap_or("shell").to_owned();
-    let shell: Arc<dyn Evaluator> = self.shell.take().unwrap_or_else(|| Arc::new(shell::DocumentShell));
+    let shell: Arc<dyn Evaluator> = self.shell.take().unwrap_or_else(|| Arc::new(shell::DocumentShell { slot_order: config.store.slot_order.clone() }));
+    app = app.slot_order(config.store.slot_order.clone());
     if let Some(contract) = app_contract {
       app = app.contract(contract);
     }

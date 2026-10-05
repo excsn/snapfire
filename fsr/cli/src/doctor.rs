@@ -95,6 +95,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("tree", tree(app, &config)),
     ("sites", sites(&config)),
     ("csp", csp(&config)),
+    ("store", store(&config)),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -677,6 +678,20 @@ pub(crate) fn csp(config: &Config) -> Vec<Finding> {
     }
   }
   findings
+}
+
+/// One browser store, one merge rule: the shell's document carries it, so a
+/// site's own `[store]` would be rendered by on the server and ignored in the
+/// browser.
+fn store(config: &Config) -> Vec<Finding> {
+  if config.site.is_none() || config.store.slot_order.is_empty() {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "store",
+    "`[store] slot_order` is set on a site",
+    "the browser merges the store by the shell's `[store] slot_order`, which its document carries, so a site's own is ignored there while the site's segments render by it. Set it on the shell and drop it here",
+  )]
 }
 
 /// The mounted sites, which a shell serves and never builds, so nothing about

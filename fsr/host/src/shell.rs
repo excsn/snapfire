@@ -5,8 +5,13 @@ use snapfire_fsr_runtime::{Chunk, Evaluator, Head, NodeChunks};
 /// The document around a client-rendered route: doctype, the head slot, the
 /// mount point, the content slot. It emits no application markup. The
 /// `locale` prop the assembler injects becomes `lang`, in its BCP 47
-/// spelling and `data-sf-locale`, in the application's.
-pub struct DocumentShell;
+/// spelling and `data-sf-locale`, in the application's. `[store] slot_order`
+/// rides on the element as `data-sf-slot-order`, a JSON array, so the
+/// browser store merges by the rule the server rendered by.
+#[derive(Default)]
+pub struct DocumentShell {
+  pub slot_order: Vec<String>,
+}
 
 impl Evaluator for DocumentShell {
   fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
@@ -14,8 +19,12 @@ impl Evaluator for DocumentShell {
       Some(Value::Str(tag)) => tag.to_string(),
       _ => "en".to_owned(),
     };
+    let slot_order = match self.slot_order.is_empty() {
+      true => String::new(),
+      false => format!(" data-sf-slot-order=\"{}\"", escape(&serde_json::to_string(&self.slot_order).expect("strings serialize"))),
+    };
     let open = format!(
-      "<!doctype html><html lang=\"{}\" data-sf-locale=\"{}\"><head>",
+      "<!doctype html><html lang=\"{}\" data-sf-locale=\"{}\"{slot_order}><head>",
       escape(&tag.replace('_', "-")),
       escape(&tag)
     );

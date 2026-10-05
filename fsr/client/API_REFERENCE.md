@@ -615,7 +615,7 @@ Failures and `revalidate` behave as `action`'s do.
 
 One keyed map per document, outside every island root, so two islands can show the same value. Its own entry point, `@snapfire/fsr-client/store`, re-exported from the core entry. Module state: there is one store per document, not one per import.
 
-A route seeds it from its loaders, one contribution per segment. The store is the merge of the contributions it holds, a deeper segment winning a key an outer one also sets and, at one depth, the later slot name, so it comes out the same whatever order the segments arrived in; a segment's contribution leaves with the segment. Over the merge sit the writes islands make, each standing until a contribution names its key again. The contributions reach the browser as `script[data-sf-store]` in a document, as `T` rows in a payload and as `__sfStore(…)` calls in a streamed resolution, each ahead of the markup it rendered. An island's props carry the values its markup was rendered from as `$sv`, which the adapters hydrate against, so a key that moved in between never fails a hydration.
+A route seeds it from its loaders, one contribution per segment. The store is the merge of the contributions it holds, a deeper segment winning a key an outer one also sets and, at one depth, the slot the application's `[store] slot_order` ranks later, by name where it says nothing, so it comes out the same whatever order the segments arrived in; a segment's contribution leaves with the segment. Over the merge sit the writes islands make, each standing until a contribution names its key again. The contributions reach the browser as `script[data-sf-store]` in a document, as `T` rows in a payload and as `__sfStore(…)` calls in a streamed resolution, each ahead of the markup it rendered. An island's props carry the values its markup was rendered from as `$sv`, which the adapters hydrate against, so a key that moved in between never fails a hydration.
 
 ### Contribution
 
@@ -682,6 +682,12 @@ Sets the key to `guess`, awaits `remote` and returns its result. A rejection res
 * `contribute(list: Contribution[]): void`
 
 Takes what a response's segments seeded, each contribution replacing the one its segment held, in one transaction. A key a contribution names loses whatever an island wrote to it. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value.
+
+### setSlotOrder
+
+* `setSlotOrder(list: string[]): void`
+
+Sets the slot names the merge ranks parallel slots by at one depth: a name in the list comes after every name not in it and the later name wins; names left out stand in name order. Remerges and notifies every key that moved. `adopt` reads the list off the document's `data-sf-slot-order`, which the host writes from `[store] slot_order`, so an application never calls this; a test does.
 
 ### retain
 

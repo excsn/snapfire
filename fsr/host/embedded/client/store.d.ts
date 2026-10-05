@@ -14,6 +14,8 @@ export interface Contribution {
 		[key: string]: unknown;
 	};
 }
+/** Sets the slot order the merge uses and remerges, notifying every key that moved. `adopt` calls it with what the document carries; a test calls it directly. */
+export declare function setSlotOrder(list: string[]): void;
 /** What the key holds or undefined when nothing has set it. */
 export declare function get<T>(k: StoreKey<T>): T | undefined;
 /** Writes the key and notifies its listeners, unless the value is the one already held. The write stands until a segment seeds the key again. */

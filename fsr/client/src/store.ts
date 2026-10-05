@@ -75,13 +75,29 @@ function has(k: string): boolean {
   return writes.has(k) || derivedValues.has(k) || merged.has(k);
 }
 
-/** A deeper contribution is later; at one depth the slot names decide. The server merges by the same rule. */
+/** The application's `[store] slot_order`, read off the document as `data-sf-slot-order`: a slot named in it comes after every slot that is not and the later name wins; slots it leaves out stand in name order. */
+let slotOrder: string[] = [];
+
+/** A deeper contribution is later; at one depth the slot names decide, by `slotOrder` then by name. The server merges by the same rule. */
 function order(a: Contribution, b: Contribution): number {
   if (a.p.length !== b.p.length) return a.p.length - b.p.length;
   for (let i = 0; i < a.p.length; i++) {
-    if (a.p[i] !== b.p[i]) return a.p[i] < b.p[i] ? -1 : 1;
+    if (a.p[i] === b.p[i]) continue;
+    const [x, y] = [slotOrder.indexOf(a.p[i]), slotOrder.indexOf(b.p[i])];
+    if (x !== y) return x - y;
+    return a.p[i] < b.p[i] ? -1 : 1;
   }
   return 0;
+}
+
+/** Sets the slot order the merge uses and remerges, notifying every key that moved. `adopt` calls it with what the document carries; a test calls it directly. */
+export function setSlotOrder(list: string[]): void {
+  slotOrder = list.slice();
+  transaction(() => {
+    const touched = new Set<string>();
+    for (const c of contributions.values()) for (const k of Object.keys(c.v)) touched.add(k);
+    remerge(touched);
+  });
 }
 
 /** Recomputes the merge and notifies every key in `touched` whose effective value moved. */
@@ -251,6 +267,19 @@ export function decodeContributions(encoded: unknown): Contribution[] {
 /** Every seed script under `root`, the document by default, that nothing has read yet, each marked once it is; then any a streamed resolution left behind before this module loaded. From then on a resolution seeds the store as it arrives. Called on load and again by `boot`, since a document written after this module ran carries a seed nobody has read. Called again after a fragment is swapped in, since a fragment carries the route's seed too. */
 export function adopt(root?: ParentNode): void {
   if (typeof document !== "undefined") {
+    if (root === undefined) {
+      const carried = document.documentElement?.getAttribute("data-sf-slot-order") ?? null;
+      let list: string[] = [];
+      if (carried !== null) {
+        try {
+          const parsed = JSON.parse(carried) as unknown;
+          if (Array.isArray(parsed)) list = parsed.map(String);
+        } catch {
+          list = [];
+        }
+      }
+      if (list.length !== slotOrder.length || list.some((name, i) => name !== slotOrder[i])) setSlotOrder(list);
+    }
     for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))) {
       if (script.textContent) {
         contribute(decodeContributions(JSON.parse(script.textContent)));

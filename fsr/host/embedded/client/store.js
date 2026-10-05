@@ -42,12 +42,27 @@ function effective(k) {
 function has(k) {
     return writes.has(k) || derivedValues.has(k) || merged.has(k);
 }
+let slotOrder = [];
 function order(a, b) {
     if (a.p.length !== b.p.length) return a.p.length - b.p.length;
     for(let i = 0; i < a.p.length; i++){
-        if (a.p[i] !== b.p[i]) return a.p[i] < b.p[i] ? -1 : 1;
+        if (a.p[i] === b.p[i]) continue;
+        const [x, y] = [
+            slotOrder.indexOf(a.p[i]),
+            slotOrder.indexOf(b.p[i])
+        ];
+        if (x !== y) return x - y;
+        return a.p[i] < b.p[i] ? -1 : 1;
     }
     return 0;
+}
+export function setSlotOrder(list) {
+    slotOrder = list.slice();
+    transaction(()=>{
+        const touched = new Set();
+        for (const c of contributions.values())for (const k of Object.keys(c.v))touched.add(k);
+        remerge(touched);
+    });
 }
 function remerge(touched) {
     const before = new Map();
@@ -200,6 +215,19 @@ export function decodeContributions(encoded) {
 }
 export function adopt(root) {
     if (typeof document !== "undefined") {
+        if (root === undefined) {
+            const carried = document.documentElement?.getAttribute("data-sf-slot-order") ?? null;
+            let list = [];
+            if (carried !== null) {
+                try {
+                    const parsed = JSON.parse(carried);
+                    if (Array.isArray(parsed)) list = parsed.map(String);
+                } catch  {
+                    list = [];
+                }
+            }
+            if (list.length !== slotOrder.length || list.some((name, i)=>name !== slotOrder[i])) setSlotOrder(list);
+        }
         for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))){
             if (script.textContent) {
                 contribute(decodeContributions(JSON.parse(script.textContent)));

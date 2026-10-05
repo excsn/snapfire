@@ -627,10 +627,10 @@ Nothing found is exit 0, anything found is exit 1, so a deploy script stops on i
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 14 checks found something
+doctor       1 of 16 checks found something
 ```
 
-Fifteen checks, each answering from something the build already computed, so none of them needs a server or a network:
+Sixteen checks, each answering from something the build already computed, so none of them needs a server or a network:
 
 | Check | Fires when |
 | --- | --- |
@@ -649,6 +649,7 @@ Fifteen checks, each answering from something the build already computed, so non
 | `tree` | a deploy tree would carry a file the project does not hold; a setting no tree can express |
 | `sites` | a mounted `name@version` site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
 | `csp` | a policy names `'unsafe-inline'` in `script-src` beside the import map's hash, which makes the browser ignore it; or it names `'strict-dynamic'`, which makes it ignore `'self'` and so the entry module |
+| `store` | a site sets `[store] slot_order`, which the browser takes from the shell's document and so ignores |
 
 The `csp` check also runs on every `fsr build` and `fsr dev`, since either policy leaves the page with no working script: its findings print as `csp` rows of the build report.
 

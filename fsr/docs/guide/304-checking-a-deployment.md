@@ -57,7 +57,7 @@ A report names the check, the fact and the remedy:
 ```
 canonical    `document.origin` is unset while `server.hosts` names 2 hosts, so every canonical and alternate link is relative
              set `[document] origin` to the address this deployment is reached at, `https://example.com`
-doctor       1 of 14 checks found something
+doctor       1 of 16 checks found something
 ```
 
 ### Plan and configuration checks

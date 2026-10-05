@@ -5117,6 +5117,19 @@ async fn a_policy_restricting_styles_admits_style_attributes_on_their_own_direct
 }
 
 #[tokio::test]
+async fn the_document_carries_the_slot_order_the_store_merges_by() {
+  let host = tuned_host(&tuned_app_with(false, "", "", "[store]\nslot_order = [\"modal\", \"content\"]"));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("<html lang=\"en\" data-sf-locale=\"en\" data-sf-slot-order=\"[&quot;modal&quot;,&quot;content&quot;]\">"), "{html}");
+  let host = tuned_host(&tuned_app_with(false, "", "", ""));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("data-sf-slot-order"), "nothing configured, nothing carried: {html}");
+  let twice = tuned_app_with(false, "", "", "[store]\nslot_order = [\"modal\", \"modal\"]");
+  let err = Host::from(twice.join("app.toml")).err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(err.contains("store.slot_order names `modal` twice"), "{err}");
+}
+
+#[tokio::test]
 async fn no_csp_key_sends_no_policy() {
   let (host, _) = host();
   assert_eq!(csp_of(&host, "/").await, None);

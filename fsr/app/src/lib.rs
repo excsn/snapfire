@@ -340,6 +340,7 @@ pub struct AppBuilder {
   services: Option<Arc<Services>>,
   cache: Option<Arc<dyn NodeCache>>,
   loads: Option<Arc<dyn LoadCache>>,
+  slot_order: Vec<String>,
   extensions: Extensions,
   catalogs: Option<Arc<Catalogs>>,
   /// The plan's named constants, which `Expr::Const` reads.
@@ -401,6 +402,7 @@ impl App {
       services: None,
       cache: None,
       loads: None,
+      slot_order: Vec::new(),
       frameworks: snapfire_fsr_ir::Frameworks::default(),
     }
   }
@@ -643,6 +645,12 @@ impl AppBuilder {
 
   pub fn loads(mut self, loads: Arc<dyn LoadCache>) -> Self {
     self.loads = Some(loads);
+    self
+  }
+
+  /// The slot names that settle a store key two parallel slots both seed, the later winning; `[store] slot_order`.
+  pub fn slot_order(mut self, slot_order: Vec<String>) -> Self {
+    self.slot_order = slot_order;
     self
   }
 
@@ -1062,6 +1070,7 @@ impl AppBuilder {
       .reads(reads)
       .heads(heads)
       .keyer(Arc::new(ReadsKeyer { reads: params_read }))
+      .slot_order(self.slot_order.clone())
       .load_keyer(Arc::new(ClassKeyer {
         fixed: warm_fixed,
         anonymous: warm_anonymous,

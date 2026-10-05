@@ -30,12 +30,13 @@ describe("a streamed page that seeds a key its layout also seeds", () => {
     warnings.mockRestore();
   });
 
-  test("two streamed slots seeding one key settle it by position, whichever resolved first", async () => {
+  test("two streamed slots seeding one key settle it by the configured slot order, whichever resolved first", async () => {
     await load("/streamed");
     await settle();
     expect(document.querySelector(".slot-alpha")?.textContent).toEqual("alpha");
     expect(document.querySelector(".slot-beta")?.textContent).toEqual("beta");
-    expect(get(slotOwner), "the later slot name wins at one depth").toEqual("beta");
+    expect(document.documentElement.getAttribute("data-sf-slot-order"), "the document carries [store] slot_order").toEqual('["beta","alpha"]');
+    expect(get(slotOwner), "the later name in the order wins; by name alone beta would").toEqual("alpha");
   });
 
   test("a segment's seed leaves with the segment", async () => {

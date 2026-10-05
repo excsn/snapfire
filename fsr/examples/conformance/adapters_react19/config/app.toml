@@ -26,5 +26,8 @@ default = "en"
 [clients.probe]
 transport = "mock"
 
+[store]
+slot_order = ["beta", "alpha"]
+
 [build]
 strict = true

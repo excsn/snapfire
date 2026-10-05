@@ -90,6 +90,9 @@ pub struct Runtime {
   head_users: parking_lot::Mutex<std::collections::HashSet<u32>>,
   /// By data source id: how a segment describes the document from its data.
   pub metas: HashMap<String, Arc<dyn Metadata>>,
+  /// The application's say over which parallel slot wins a store key both
+  /// seed, as `contribution_order` reads it.
+  pub slot_order: Vec<String>,
   /// By module id: the head elements a page rendering that module carries,
   /// which the build settled, a priority image's preload among them.
   pub heads: HashMap<String, Vec<crate::meta::HeadEl>>,
@@ -111,9 +114,16 @@ pub struct RuntimeBuilder {
   heads: HashMap<String, Vec<crate::meta::HeadEl>>,
   stores: HashMap<String, Arc<dyn Seeds>>,
   reads: Reads,
+  slot_order: Vec<String>,
 }
 
 impl RuntimeBuilder {
+  /// The slot names that settle a store key two parallel slots both seed, the later winning; see `contribution_order`.
+  pub fn slot_order(mut self, slot_order: Vec<String>) -> Self {
+    self.slot_order = slot_order;
+    self
+  }
+
   pub fn sources(mut self, sources: DataSources) -> Self {
     self.sources = sources;
     self
@@ -180,6 +190,7 @@ impl RuntimeBuilder {
       heads: self.heads,
       stores: self.stores,
       reads: self.reads,
+      slot_order: self.slot_order,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
     })
   }
@@ -198,6 +209,7 @@ impl Runtime {
       heads: HashMap::new(),
       stores: HashMap::new(),
       reads: Reads::new(),
+      slot_order: Vec::new(),
     }
   }
 
@@ -406,8 +418,8 @@ struct Seeded {
 }
 
 impl Seeded {
-  fn new(contributions: Vec<Contribution>) -> Self {
-    let merged = merge_contributions(&contributions);
+  fn new(contributions: Vec<Contribution>, slot_order: &[String]) -> Self {
+    let merged = merge_contributions(&contributions, slot_order);
     Self { contributions, merged }
   }
 }
@@ -628,7 +640,7 @@ impl Session {
     let own = self.seed(plan, path.clone(), &loaded).await;
     let mut all = around;
     all.extend(own.iter().cloned());
-    let seeded = Seeded::new(all);
+    let seeded = Seeded::new(all, &self.runtime.slot_order);
     let mut pending = Vec::new();
     let (node, children, _used_head, digest) = self.build(plan, &path, &loaded, &mut pending, &meta, &seeded).await?;
     let failed = loaded.failed.get(&page_of(plan).id.0).map(|e| e.kind);
@@ -1101,7 +1113,7 @@ async fn assemble_in(
     next_slot: AtomicU32::new(1),
   });
   let (tree, pending, children, meta, contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
-  let store = merge_contributions(&contributions);
+  let store = merge_contributions(&contributions, &runtime.slot_order);
   let segments = SegmentInfo {
     key: session.segment_key(plan),
     digest,

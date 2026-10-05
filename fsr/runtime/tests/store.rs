@@ -204,11 +204,19 @@ fn contributions_merge_by_position_whatever_order_they_came_in() {
   let modal = at("modal", &["modal"], "owner", "modal");
   let inner = at("inner", &["content", "content"], "owner", "inner");
   for order in [vec![&layout, &page, &modal, &inner], vec![&inner, &modal, &page, &layout], vec![&modal, &layout, &inner, &page]] {
-    let merged = merge_contributions(&order.into_iter().cloned().collect::<Vec<_>>());
+    let merged = merge_contributions(&order.into_iter().cloned().collect::<Vec<_>>(), &[]);
     assert_eq!(merged.get("owner"), Some(&Value::str("inner")), "the deepest segment wins");
   }
-  let siblings = merge_contributions(&[modal.clone(), page.clone()]);
+  let siblings = merge_contributions(&[modal.clone(), page.clone()], &[]);
   assert_eq!(siblings.get("owner"), Some(&Value::str("modal")), "at one depth the later slot name wins, whichever resolved first");
-  let siblings = merge_contributions(&[page, modal]);
+  let siblings = merge_contributions(&[page.clone(), modal.clone()], &[]);
   assert_eq!(siblings.get("owner"), Some(&Value::str("modal")));
+
+  let page_last = ["content".to_owned()];
+  assert_eq!(merge_contributions(&[modal.clone(), page.clone()], &page_last).get("owner"), Some(&Value::str("page")), "a slot the order names beats one it leaves out");
+  let both = ["modal".to_owned(), "content".to_owned()];
+  assert_eq!(merge_contributions(&[page.clone(), modal.clone()], &both).get("owner"), Some(&Value::str("page")), "the later name in the order wins");
+  let other = at("promo", &["promo"], "owner", "promo");
+  assert_eq!(merge_contributions(&[other.clone(), modal.clone()], &["content".to_owned()]).get("owner"), Some(&Value::str("promo")), "slots the order leaves out stand in name order among themselves");
+  assert_eq!(merge_contributions(&[other, inner], &both).get("owner"), Some(&Value::str("inner")), "depth still comes first");
 }

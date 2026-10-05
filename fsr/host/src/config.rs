@@ -34,6 +34,8 @@ pub struct Config {
   pub session: SessionSection,
   /// The render memo; absent means nothing is cached.
   pub cache: Option<CacheSection>,
+  /// `[store]`: the application's say over the browser store's merge, defaults filled.
+  pub store: StoreSection,
   pub clients: BTreeMap<String, ClientConfig>,
   pub statics: Vec<StaticRoot>,
   /// The locales the application serves; absent means one, `en`, with no
@@ -717,6 +719,17 @@ pub struct CacheSection {
   pub data: Option<DataCacheSection>,
 }
 
+/// `[store]`: how the browser store settles a key two parallel slots both
+/// seed. `slot_order` lists slot names, the later winning, `content` for the
+/// page; a slot it leaves out loses to every slot it names and stands in name
+/// order among the others. Empty, name order decides throughout.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoreSection {
+  #[serde(default)]
+  pub slot_order: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataCacheSection {
@@ -1324,6 +1337,15 @@ impl Config {
     } else {
       None
     };
+    let store_section: StoreSection = if store.path_exists("store") { store.get_into_struct("store").map_err(fail)? } else { StoreSection::default() };
+    for (i, name) in store_section.slot_order.iter().enumerate() {
+      if name.is_empty() {
+        return Err(HostError::Config(at.clone(), "store.slot_order names an empty slot".to_owned()));
+      }
+      if store_section.slot_order[..i].contains(name) {
+        return Err(HostError::Config(at.clone(), format!("store.slot_order names `{name}` twice")));
+      }
+    }
 
     let mut clients = BTreeMap::new();
     let mut names: Vec<String> = store
@@ -1872,6 +1894,7 @@ impl Config {
       document,
       session,
       cache,
+      store: store_section,
       clients,
       statics,
       locales,

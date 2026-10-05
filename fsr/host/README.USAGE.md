@@ -146,6 +146,9 @@ store = "memory"                  # or "service", with client naming the [client
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
 
+[store]                           # optional: which parallel slot wins a store key two of them seed
+slot_order = ["modal", "content"] # later wins; `content` is the page; unlisted slots lose to listed ones and stand in name order
+
 [cache.data]                      # optional: answer cached methods from memory
 capacity = 500                    # entries per policy; cache.capacity when absent
 ttl = "1m"                        # the default
