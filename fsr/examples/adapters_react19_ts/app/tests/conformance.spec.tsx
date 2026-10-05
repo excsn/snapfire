@@ -67,7 +67,7 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }
     expect(counts().every((count) => count === "0"), counts().join()).toEqual(true);
     await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
-    expect(counts().length, "both probes, both nested probes and the server island").toEqual(5);
+    expect(counts().length, "both probes, both nested probes and both server islands").toEqual(6);
     expect(counts().every((count) => count === "1"), counts().join()).toEqual(true);
   });
 
@@ -108,21 +108,26 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }
   });
 });
 
-describe("a server island", () => {
+const SERVER = [
+  { owner: "server", written: "react" },
+  { owner: "server-vue", written: "vue" },
+] as const;
+
+describe.each(SERVER)("the $owner island", ({ owner, written }) => {
   test("renders the store's value and follows a write from another island", async () => {
     await page();
-    expect(probe("server").querySelector(".count")?.textContent).toEqual("0");
-    await fireEvent.click(probe("react").querySelector(".add")!);
+    expect(probe(owner).querySelector(".count")?.textContent).toEqual("0");
+    await fireEvent.click(probe(written).querySelector(".add")!);
     await settle();
-    await waitFor(() => expect(probe("server").querySelector(".count")?.textContent, "the write reached the server island, which stepped again").toEqual("1"));
+    await waitFor(() => expect(probe(owner).querySelector(".count")?.textContent, "the write reached the server island, which stepped again").toEqual("1"));
   });
 
   test("writes the store, so every island shows its write", async () => {
     await page();
-    await fireEvent.click(probe("server").querySelector(".add")!);
+    await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
     await waitFor(() => expect(counts().every((count) => count === "1"), counts().join()).toEqual(true));
-    expect(counts().length).toEqual(5);
+    expect(counts().length).toEqual(6);
   });
 });
 
