@@ -6,6 +6,9 @@
 //! tree, its expressions parsed one at a time in the file's coordinates.
 //! Anything outside that is residue and the component stays foreign.
 
+use std::borrow::Cow;
+use std::rc::Rc;
+
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
@@ -14,7 +17,9 @@ use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
 
-use crate::component::{bind_object, block_to_expr, find_import};
+use crate::assets::AssetResolver;
+use crate::component::{bind_object, block_to_expr, find_import, imported_as, is_template_source, HeadRow};
+use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{Lowered, Lowerer, Residue};
 
 /// The client's Vue adapter, where `useStore` and `useLocale` come from.
@@ -106,11 +111,37 @@ pub(crate) struct VueLowerer<'a, 'p> {
   /// How the template reads each name the script bound: a `ref` unwrapped,
   /// a store holder through `.value`.
   template_scope: Vec<(String, Expr)>,
+  assets: Rc<dyn AssetResolver>,
+  /// The head rows the template asks for, a priority image's preload.
+  pub(crate) heads: Vec<HeadRow>,
+}
+
+impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
+  fn lowerer(&mut self) -> &mut Lowerer<'p> {
+    &mut self.lowerer
+  }
+
+  fn residue_at(&self, at: At, message: String) -> Residue {
+    match at {
+      At::Span(span) => self.lowerer.residue(span, message),
+      At::Line(line, column) => self.at(line, column, message),
+    }
+  }
+
+  fn assets(&self) -> Rc<dyn AssetResolver> {
+    self.assets.clone()
+  }
+
+  fn head(&mut self, row: HeadRow) {
+    if !self.heads.contains(&row) {
+      self.heads.push(row);
+    }
+  }
 }
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
-  pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), template_scope: Vec::new() }
+  pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), template_scope: Vec::new(), assets, heads: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -430,7 +461,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     let body = match node.kind {
       3 => self.template_element(node),
       2 => self.slot(node),
-      1 => Err(self.at(node.line, node.column, format!("`<{}>`, a component placed inside a Vue template; the build lowers a file's own template and the browser mounts what it places", node.tag))),
+      1 => self.component_node(node),
       _ => self.plain_element(node),
     };
     self.lowerer.scope.truncate(depth);
@@ -445,6 +476,61 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       Some(Branch::ElseIf(cond)) => Placed::Else { cond: Some(cond), body },
       Some(Branch::Else) => Placed::Else { cond: None, body },
     })
+  }
+
+  /// A component in the template: a placement the client's adapters share,
+  /// lowered the way every front end lowers it, or any other component,
+  /// which the browser mounts.
+  fn component_node(&mut self, node: &Node) -> Lowered<Tmpl> {
+    match imported_as(self.lowerer.parsed, &node.tag, is_template_source).as_deref() {
+      Some("Link") => {
+        let attrs = self.placement_attrs(node)?;
+        let children = self.children(&node.children)?;
+        placements::link(self, &attrs, children)
+      }
+      Some("Picture") => {
+        let attrs = self.placement_attrs(node)?;
+        placements::picture(self, &attrs, At::Line(node.line, node.column), false)
+      }
+      Some("Mount") => {
+        let attrs = self.placement_attrs(node)?;
+        placements::mount(self, &attrs, At::Line(node.line, node.column))
+      }
+      _ => Err(self.at(node.line, node.column, format!("`<{}>`, a component placed inside a Vue template; the build lowers a file's own template and the browser mounts what it places", node.tag))),
+    }
+  }
+
+  /// A placement's props as the shared placements read them: a static
+  /// attribute as text, `:name` as its expression and `v-bind` as a spread.
+  /// Event handlers belong to the browser and the structural directives were
+  /// read by the element already.
+  fn placement_attrs(&mut self, node: &Node) -> Lowered<Vec<Attr<'static>>> {
+    let mut out = Vec::new();
+    for prop in &node.props {
+      let at = At::Line(prop.line, prop.column);
+      if prop.prop == "attribute" {
+        let value = match &prop.value {
+          Some(text) => Value::Text(text.clone()),
+          None => Value::Present,
+        };
+        out.push(Attr { name: prop.name.clone(), value, at });
+        continue;
+      }
+      match prop.name.as_str() {
+        "if" | "else-if" | "else" | "for" | "on" => {}
+        "bind" => {
+          let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without an expression")) };
+          let expr = self.lowerer.parsed.parse_expr_at(exp, prop.exp_line, prop.exp_column).map_err(|message| self.at(prop.exp_line, prop.exp_column, format!("`{}`: {message}", exp.trim())))?;
+          match (&prop.arg, prop.arg_static) {
+            (Some(name), true) => out.push(Attr { name: name.clone(), value: Value::Script(Cow::Owned(*expr)), at }),
+            (None, _) => out.push(Attr { name: String::new(), value: Value::Spread(Cow::Owned(*expr)), at }),
+            (Some(_), false) => return Err(self.at(prop.line, prop.column, "a bound attribute whose name is an expression")),
+          }
+        }
+        other => return Err(self.at(prop.line, prop.column, format!("`v-{other}` on `<{}>`", node.tag))),
+      }
+    }
+    Ok(out)
   }
 
   /// `<template v-if>` or `<template v-for>`: its children as one node when

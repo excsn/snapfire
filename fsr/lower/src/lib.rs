@@ -6,6 +6,7 @@ pub mod assets;
 pub mod component;
 pub mod extract;
 pub mod hoist;
+mod placements;
 pub mod schema;
 pub mod testing;
 pub mod vue;

@@ -297,3 +297,18 @@ fn a_page_placing_a_described_component_that_does_not_lower_keeps_it_foreign_and
   assert!(!set.components.iter().any(|(m, _)| m == "src/ui/Box.vue#default"));
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_client_adapters_placements_lower_inside_a_vue_template_as_they_do_in_jsx() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = "<script setup lang=\"ts\">\nimport { Link, Mount, Picture, useLocale } from \"@snapfire/fsr-client/vue\";\nconst props = defineProps<{ nest: string[] }>();\nconst locale = useLocale();\n</script>\n<template>\n  <section>\n    <p class=\"locale\">{{ locale }}</p>\n    <Link href=\"/next\" class=\"next\">next</Link>\n    <Picture src=\"/pictures/probe.png\" alt=\"probe\" :width=\"4\" :height=\"4\" />\n    <Mount v-for=\"module in props.nest\" :key=\"module\" :module=\"module\" :props=\"{ label: 'nested' }\" />\n  </section>\n</template>\n";
+  let dir = app("placements", &[]);
+  let set = lower(&compiler, &dir, "src/ui/Probe.vue", source).unwrap_or_else(|e| panic!("the placements lower: {e}"));
+  let (_, component) = set.components.iter().find(|(m, _)| m == "src/ui/Probe.vue#default").expect("lowered, not foreign");
+  assert_eq!(component.owner, Owner::Vue);
+  let html = render_rust(&set, "src/ui/Probe.vue#default", &props(&[("nest", Value::seq(vec![Value::str("a.tsx#default"), Value::str("b.vue#default")]))]), Vec::new());
+  assert!(html.contains("<a href=\"/next\" class=\"next\" data-sf-link=\"exact\">next</a>"), "a link carries the navigator's marks: {html}");
+  assert!(html.contains("<img src=\"/pictures/probe.png\" alt=\"probe\" width=\"4\" height=\"4\" loading=\"lazy\" decoding=\"async\">"), "a picture of a string source is an image: {html}");
+  assert_eq!(html.matches("<sf-s data-sf-island=\"\"></sf-s>").count(), 2, "one empty region per mount, which the adapter fills: {html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
