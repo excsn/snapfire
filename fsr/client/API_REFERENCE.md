@@ -103,10 +103,9 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [vueUnmounter](#vueunmounter)
   * [Mount (Vue)](#mount-vue)
   * [useStore (Vue)](#usestore-vue)
-* [12. The FSR JSX Runtime](#12-the-fsr-jsx-runtime)
+* [12. The JSX Element Builder](#12-the-jsx-element-builder)
   * [jsx and jsxs](#jsx-and-jsxs)
   * [Placements](#placements)
-  * [fsrMounter](#fsrmounter)
 * [13. Custom Elements and htmx](#13-custom-elements-and-htmx)
   * [shadowOf](#shadowof)
   * [HtmxProcessor](#htmxprocessor)
@@ -155,10 +154,10 @@ Eight ES module entry points, resolved through an import map. There is no packag
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
-| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `fsrMounter`, `fsrPatcher`, `fsrUnmounter`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
+| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
 | `@snapfire/fsr-authoring/template` | `dist/template.js` | `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
 
-The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is FSR's own runtime for the dialect's placements and loads no framework. The build rewrites a React or Vue island's import of the dialect to that framework's entry, so the template entry is what a client island reads. `Link` and `Picture` in the React, Vue and JSX runtime entries build their elements from the same attributes, computed in `dist/link.js` and `dist/picture.js`, which no specifier names.
+The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the dialect's placements as plain elements and loads no framework. The build rewrites a React or Vue island's import of the dialect to that framework's entry, so the template entry is reached only by a file nothing mounts. `Link` and `Picture` in the React, Vue and JSX runtime entries build their elements from the same attributes, computed in `dist/link.js` and `dist/picture.js`, which no specifier names.
 
 `dist/` is produced by `snapfirec` from `tsconfig.json` (`target: es2022`, `rootDir: src`, `outDir: dist`, `sourceMap`, `declaration`). `importmap.json` in the package root is the map `--import-map` checks the bare imports against.
 
@@ -899,9 +898,11 @@ The counterpart of the React `Mount` in a Vue tree: it writes the island marker 
 
 A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
 
-## 12. The FSR JSX Runtime
+## 12. The JSX Element Builder
 
-`@snapfire/fsr-client/jsx-runtime`, served at `/static/js/fsr/jsx-runtime.js`: the runtime a client island compiles against and the adapter that mounts it. A client island is a component the build could not lower whose file imports no framework. Its bundle copy starts with `/** @jsxImportSource @snapfire/fsr-client */`, which the build writes. It holds no state, so it renders when it mounts and again when a patch brings new props.
+`@snapfire/fsr-client/jsx-runtime`, served at `/static/js/fsr/jsx-runtime.js`: what TSX compiles against where no JSX framework is, which is a spec's JSX in an application without React and a template the browser never loads. FSR is no JSX framework, so nothing here mounts, renders or updates an element.
+
+* `namespace JSX { type Element = FsrElement; type ElementType = string | FsrComponent; interface IntrinsicElements { [tag: string]: Record<string, unknown> } }`, what TypeScript checks a file compiled against this entry by.
 
 ### jsx and jsxs
 
@@ -910,7 +911,7 @@ A store key as a Vue ref: reads the store's value (`initial` while nothing has s
 * `type FsrComponent = (props: Record<string, unknown>) => FsrNode`
 * `type FsrNode = FsrElement | string | number | bigint | boolean | null | undefined | FsrNode[]`
 
-An element is a description and nothing more. A function `type` is called with the props. `className` and `htmlFor` are written `class` and `for`; a `style` object is written property by property with camelCase hyphenated; a function prop whose name starts with `on` is an event listener; `dangerouslySetInnerHTML` sets the inner HTML; `false`, `null` and `undefined` write nothing and `true` writes the attribute empty. `children`, `key` and `ref` are not attributes. An `<svg>` and everything inside it outside a `<foreignObject>` is created in the SVG namespace.
+An element is a description and nothing more: `render` in a spec reads its `type` and `props` to place the island it names.
 
 ### Placements
 
@@ -920,15 +921,7 @@ An element is a description and nothing more. A function `type` is called with t
 * `function island<P>(component: (props: P) => FsrNode): (props: P) => FsrNode`
 * `function Slot(props: { children?: FsrNode }): FsrElement`
 
-The dialect's placements inside a client island. `Link` writes an anchor with the marks the navigator reads and `Picture` the `<picture>` or `<img>` the server writes for the same props. Everything in a client island renders in the browser already, so `Island` renders its child where it stands and `island` returns the component unchanged. `Slot` renders its fallback, since a slot belongs to a layout and composition renders layouts.
-
-### fsrMounter
-
-* `const fsrMounter: Mounter`
-* `const fsrPatcher: Patcher`
-* `const fsrUnmounter: Unmounter`
-
-`fsrMounter` calls the component with the island's props, leaving out every key that starts with `$`, builds the DOM from what it returns and replaces the marker's children with it. It never hydrates: the server writes nothing for a client island, so its region is empty until it mounts. `fsrPatcher` does the same again with the new props. `fsrUnmounter` empties the marker. `fsr build` registers a client island with these three.
+The dialect's placements as plain elements, which `@snapfire/fsr-authoring/template` resolves to in the browser. `Link` describes an anchor with the marks the navigator reads and `Picture` the `<picture>` or `<img>` the server writes for the same props. `Island` and `Slot` describe their child where it stands and `island` returns the component unchanged.
 
 ## 13. Custom Elements and htmx
 
@@ -1073,13 +1066,14 @@ The request an action runs under when a rendered page calls it or a route loads.
 
 ### render and renderHook
 
-* `render(element: ReactElement, options?: { ctx?: TestCtx; hydrate?: boolean }): Promise<Rendered>`
-* `interface Rendered extends BoundQueries { container: HTMLElement; baseElement: HTMLElement; root: Root; hydrated: string | null; composed: string | null; unmount(): void; rerender(element: ReactElement): Promise<void>; asFragment(): DocumentFragment; debug(element?: Element, maxLength?: number): void }`
+* `render(element: Placed, options?: { ctx?: TestCtx; hydrate?: boolean }): Promise<Rendered>`
+* `type Placed = ReactElement | { type: unknown; props: Record<string, unknown> }`
+* `interface Rendered extends BoundQueries { container: HTMLElement; baseElement: HTMLElement; root: Root; hydrated: string | null; composed: string | null; unmount(): void; rerender(element: Placed): Promise<void>; asFragment(): DocumentFragment; debug(element?: Element, maxLength?: number): void }`
 * `registerComposition(moduleId: string, loader: () => Promise<unknown>): void`
 * `renderHook(hook, options?: { initialProps?; ctx?; wrapper? }): Promise<{ result: { current: Result }; rerender(props?): Promise<void>; unmount(): void }>`
 * `act(body: () => T | Promise<T>): Promise<T>`; `cleanup(): void`
 
-`render` of a React component the build lowered hydrates React over the server's markup for those props, so a mismatch fails the test with React's message. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. Anything else mounts fresh, as does anything rendered with `hydrate: false`. `hydrated` names the module that hydrated. A page or a layout the build marked `static` is composition: `render` writes the server's markup for it, mounts the islands inside and names it in `composed`. No React root holds it, so `rerender` renders the server's markup again. The spec runner calls `registerComposition` for every composition route module a spec imports. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
+`render` takes the element a spec's JSX builds, React's or FSR's. A registered island of any framework is placed the way a page places one and mounted through its own adapter: the server's markup for those props is written first when the module lowers and the adapter hydrates over it, so a mismatch fails the test with the framework's message, while a React component the build could not lower mounts fresh. `rerender` patches the island in place and `root` throws, since no React root holds it. A React component no registry knows mounts in a React root, hydrating when the build lowered it. So does a registered one whose props cannot be encoded, such as children elements. Anything rendered with `hydrate: false` mounts fresh. Any other component is refused. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. `hydrated` names the module that hydrated. A page or a layout the build marked `static` is composition: `render` writes the server's markup for it, mounts the islands inside and names it in `composed`. No React root holds it, so `rerender` renders the server's markup again. The spec runner calls `registerComposition` for every composition route module a spec imports. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
 
 ### load
 

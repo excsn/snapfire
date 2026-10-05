@@ -237,7 +237,6 @@ impl ComponentSet {
     Ok(rows)
   }
 
-  /// Every file with a rewrite, with its rewritten source.
   /// Whether `module`'s file imports a value from `source`. A `file#export`
   /// module is asked about its file.
   pub fn imports_value_from(&self, module: &str, source: &str) -> bool {
@@ -247,6 +246,38 @@ impl ComponentSet {
       js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => !import.type_only && import.src.value.to_atom_lossy().as_ref() == source && import.specifiers.iter().any(|spec| !matches!(spec, js::ImportSpecifier::Named(named) if named.is_type_only)),
       _ => false,
     })
+  }
+
+  /// `file` and every local file it reaches through value imports and
+  /// re-exports, in the order first reached. A file that does not parse is
+  /// listed and not followed.
+  pub fn local_reach(&mut self, file: &str) -> Vec<String> {
+    let mut reached = vec![file.to_owned()];
+    let mut next = 0;
+    while next < reached.len() {
+      let from = reached[next].clone();
+      next += 1;
+      for target in self.local_imports(&from) {
+        if !reached.contains(&target) {
+          reached.push(target);
+        }
+      }
+    }
+    reached
+  }
+
+  /// The local script files `file` imports a value from or re-exports, in
+  /// source order; none when it does not parse. An imported asset is not a
+  /// script and is left out.
+  pub fn local_imports(&mut self, file: &str) -> Vec<String> {
+    if self.load(file).is_err() {
+      return Vec::new();
+    }
+    let parsed = self.parsed[file].clone();
+    value_sources(&parsed.module)
+      .filter_map(|src| self.resolve_import(file, src.value.to_atom_lossy().as_ref()))
+      .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)))
+      .collect()
   }
 
   /// Splits route module `module` into composition and an island module
@@ -1177,6 +1208,20 @@ fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
 /// binding of a named import or a member of a namespace import. The imported
 /// name is what the build recognises a call by, so `import { action as act }`
 /// and `import * as fsr` reach the same place as `import { action }`.
+/// The specifier string of every value import, `export * from` and
+/// `export { .. } from` in `module`.
+fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
+  module.body.iter().filter_map(|item| {
+    let js::ModuleItem::ModuleDecl(decl) = item else { return None };
+    match decl {
+      js::ModuleDecl::Import(import) if !import.type_only && (import.specifiers.is_empty() || import.specifiers.iter().any(|spec| !matches!(spec, js::ImportSpecifier::Named(named) if named.is_type_only))) => Some(&*import.src),
+      js::ModuleDecl::ExportAll(export) if !export.type_only => Some(&*export.src),
+      js::ModuleDecl::ExportNamed(js::NamedExport { src: Some(src), type_only: false, .. }) => Some(&**src),
+      _ => None,
+    }
+  })
+}
+
 pub(crate) fn imported_callee(parsed: &Parsed, expr: &js::Expr) -> Option<(String, String)> {
   match expr {
     js::Expr::Ident(id) => find_import(parsed, id.sym.as_ref()),

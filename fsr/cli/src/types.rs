@@ -592,8 +592,9 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool) -> Result<String, Build
 /// server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
 /// `route_files` are the route modules the browser mounts; a template nothing
 /// mounts is not compiled, so it never asks the import map for a framework.
-pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String]) -> String {
-  let mut out = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
+/// `jsx` is the runtime a file compiles against when no island's owner names one.
+pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String], jsx: &str) -> String {
+  let mut out = format!("{{\n  \"compilerOptions\": {{\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
   let paths = alias_paths();
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
@@ -620,6 +621,14 @@ pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String]) 
 /// The `paths` entries for `snapfire_fsr_lower::ALIASES`, the same in both tsconfigs.
 fn alias_paths() -> Vec<(String, String)> {
   snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("./{dir}*"))).collect()
+}
+
+/// The `jsxImportSource` TSX compiles against in the browser bundle and in
+/// specs: React's in an application that serves React, else FSR's element
+/// builder, which a spec's JSX and a template the browser never loads need
+/// and which mounts nothing.
+pub(crate) fn jsx_source(app: &Path, layout: &Layout) -> Result<&'static str, BuildError> {
+  Ok(if serves_react(app, layout)? { "react" } else { "@snapfire/fsr-client" })
 }
 
 /// Whether the import map serves React, whose declarations then type the templates' JSX.

@@ -1,8 +1,8 @@
 /**
-* FSR's JSX element builder: the dialect's placements as plain elements,
-* which the template entry serves to a file nothing mounts. An element is a
-* description; nothing here mounts or renders one, since FSR is no JSX
-* framework.
+* FSR's JSX element builder: what TSX compiles against where no JSX
+* framework is, a spec's JSX in an application without React and the
+* dialect's placements as plain elements. An element is a description;
+* nothing here mounts or renders one, since FSR is no JSX framework.
 */
 import { type LinkOptions } from "./link.js";
 import { type PictureOptions } from "./picture.js";
@@ -14,6 +14,20 @@ export interface FsrElement {
 	key?: unknown;
 }
 export type FsrNode = FsrElement | string | number | bigint | boolean | null | undefined | FsrNode[];
+/** The types TypeScript checks a file compiled with `@jsxImportSource @snapfire/fsr-client` against: an element is a description and any tag takes HTML attributes as they are written. */
+export declare namespace JSX {
+	type Element = FsrElement;
+	type ElementType = string | FsrComponent;
+	interface ElementChildrenAttribute {
+		children: {};
+	}
+	interface IntrinsicAttributes {
+		key?: string | number | bigint;
+	}
+	interface IntrinsicElements {
+		[tag: string]: Record<string, unknown>;
+	}
+}
 export declare function jsx(type: FsrElement["type"], props: Record<string, unknown> | null, key?: unknown): FsrElement;
 export declare const jsxs: typeof jsx;
 /** An anchor with the marks the navigator reads. */

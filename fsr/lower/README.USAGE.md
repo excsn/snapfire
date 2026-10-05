@@ -213,18 +213,18 @@ routes/talk/[id]/page.island0.tsx#default took clashes, setClashes
 
 `split.page` and `split.source` are the two files as the build writes them into its bundle overlay; neither is written to the app. A layout whose state reaches one of its slot props cannot be split and `Err` says so. `lower_route` handles residue in the module's own body the same way after a failed `lower`: the statement or element the lowerer stopped in moves into an island and the page lowers again.
 
-A component the page renders that does not lower does not fail the page either. The placement lands in `browser_only` and `framework_of` names the framework its file imports, which owns the island:
+A component the page renders that does not lower does not fail the page either. The placement lands in `browser_only` and `jsx_pragma` names the JSX runtime its file asks for, if any; without one the island is the application's JSX framework's:
 
 ```rust
 set.lower("routes/venue/page.tsx#default")?;
 for (module, residue) in &set.browser_only {
-  let owner = set.framework_of(module).unwrap_or("client");
-  println!("{module} is a {owner} island: {residue}");
+  let runtime = set.jsx_pragma(module).unwrap_or_else(|| "the application's".to_owned());
+  println!("{module} renders in the browser under {runtime} JSX runtime: {residue}");
 }
 ```
 
 ```text
-src/ui/LocalClock.tsx#default is a client island: src/ui/LocalClock.tsx:2:16: `Intl` is not bound here; an import the build cannot follow, or a name from outside the body
+src/ui/LocalClock.tsx#default renders in the browser under @snapfire/fsr-client JSX runtime: src/ui/LocalClock.tsx:3:16: `Intl` is not bound here; an import the build cannot follow, or a name from outside the body
 ```
 
 ## Lowering a Vue Component

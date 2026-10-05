@@ -504,6 +504,8 @@ pub struct Built {
   pub defaults: SessionDefaults,
   /// The route modules the browser mounts, as files, which is all of `routes/` a bundle compiles.
   pub browser_routes: Vec<String>,
+  /// Files the bundle overlay holds alone: islands split out of pages and the copies a second JSX runtime compiles.
+  pub added: Vec<String>,
   /// What the build derived from the images and fonts, written as `generated/assets.json`.
   pub assets: snapfire_fsr_host::assets::AssetsManifest,
   /// What answered the lowerer's asset questions and defines the map the bundle is compiled by;
@@ -1164,29 +1166,10 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     }
   }
   static_modules.retain(|module| !placed.contains(module));
-  // An island's bundle copy imports the dialect's placements from its own
-  // framework's adapter, so no island loads another framework's.
-  for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
-    let Some(file) = module.split_once('#').map(|(file, _)| file.to_owned()) else { continue };
-    if snapfire_fsr_lower::component::is_foreign(&file) {
-      continue;
-    }
-    let runtime = adapter_for(module, &owners)?.module;
-    let quoted = format!("\"{TEMPLATE_SPECIFIER}\"");
-    let source = match rewritten.iter().find(|(f, _)| *f == file) {
-      Some((_, source)) => source.clone(),
-      None => match generated.iter().find(|(f, _)| *f == file) {
-        Some((_, source)) => source.clone(),
-        None => std::fs::read_to_string(app.join(&file)).unwrap_or_default(),
-      },
-    };
-    if !source.contains(&quoted) {
-      continue;
-    }
-    let pointed = source.replace(&quoted, &format!("\"{runtime}\""));
+  for (file, text) in dialect_rewrites(app, &mut set, &islands, &static_modules, &defines, &owners, &rewritten)? {
     match rewritten.iter_mut().find(|(f, _)| *f == file) {
-      Some((_, held)) => *held = pointed,
-      None => rewritten.push((file, pointed)),
+      Some((_, held)) => *held = text,
+      None => rewritten.push((file, text)),
     }
   }
   for (module, _, detail) in &mut report.components {
@@ -1306,7 +1289,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some())?),
-    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_route_files, &generated_files)),
+    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_route_files, &generated_files, types::jsx_source(app, &layout)?)),
   ]);
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
@@ -1314,7 +1297,7 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
   let mut report = report;
   report.types = types::status(app)?;
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, assets: assets_manifest, resolver })
+  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, added: generated_files, assets: assets_manifest, resolver })
 }
 
 /// Writes every generated file under `<app>` and returns their paths. The
@@ -1917,6 +1900,38 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<Placement> {
   }
   walk(tmpl, &mut out);
   out
+}
+
+/// Every file an island reaches with the dialect's placements pointed at the
+/// island's adapter, by path in the bundle overlay.
+fn dialect_rewrites(app: &Path, set: &mut ComponentSet, islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, rewritten: &[(String, String)]) -> Result<Vec<(String, String)>, BuildError> {
+  let dialect = format!("\"{TEMPLATE_SPECIFIER}\"");
+  let mut out: Vec<(String, String)> = Vec::new();
+  let mut seen: Vec<String> = Vec::new();
+  for module in islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)) {
+    let Some(file) = module.split_once('#').map(|(file, _)| file) else { continue };
+    if snapfire_fsr_lower::component::is_foreign(file) {
+      continue;
+    }
+    let island = adapter_for(module, owners)?;
+    for reached in set.local_reach(file) {
+      if seen.contains(&reached) {
+        continue;
+      }
+      seen.push(reached.clone());
+      let source = match rewritten.iter().find(|(f, _)| *f == reached) {
+        Some((_, text)) => text.clone(),
+        None => {
+          let path = app.join(&reached);
+          std::fs::read_to_string(&path).map_err(|e| BuildError::Io(path, e))?
+        }
+      };
+      if source.contains(&dialect) {
+        out.push((reached, source.replace(&dialect, &format!("\"{}\"", island.module))));
+      }
+    }
+  }
+  Ok(out)
 }
 
 /// A client module that mounts one framework's components: the three exports

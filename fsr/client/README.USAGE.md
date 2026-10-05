@@ -19,7 +19,6 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Sharing State Between a Layout and Its Page](#sharing-state-between-a-layout-and-its-page)
-* [Mounting a Component No Framework Owns](#mounting-a-component-no-framework-owns)
 * [Mounting Vue Components](#mounting-vue-components)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
@@ -368,31 +367,6 @@ export function Abstract({ text }: { text: string }) {
 ```
 
 A navigation swaps the page's region and leaves the layout's DOM alone, so the switch keeps its state and the new page's islands read the store as it stands. A static layout whose own markup changed is morphed around the page after the page's region is settled, so `keep: false` still replaces the page. The conference example's two layouts are composition: a click from one talk to another renders the new talk under the same crumbs and the same masthead.
-
-## Mounting a Component No Framework Owns
-
-A component the build cannot lower whose file imports no framework is a client island. FSR's own JSX runtime renders it in the browser. The build writes `/** @jsxImportSource @snapfire/fsr-client */` into its bundle copy and registers it with the runtime's adapter:
-
-```tsx
-// src/ui/LocalClock.tsx
-export default function LocalClock() {
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return <p className="local-clock">You are in {zone}.</p>;
-}
-```
-
-```ts
-import { registerIsland } from "@snapfire/fsr-client";
-import { fsrMounter, fsrPatcher, fsrUnmounter } from "@snapfire/fsr-client/jsx-runtime";
-
-registerIsland("src/ui/LocalClock.tsx#default", { loader: () => import("../src/ui/LocalClock.js").then((m) => m.default), mount: fsrMounter, patch: fsrPatcher, unmount: fsrUnmounter });
-```
-
-The server writes nothing inside the island, so `fsrMounter` builds its DOM from scratch when it mounts and `fsrPatcher` builds it again from new props. It holds no state, so nothing else re-renders it. The import map needs the runtime's entry, which `fsr new` writes:
-
-```json
-{ "imports": { "@snapfire/fsr-client/jsx-runtime": "/static/js/fsr/jsx-runtime.js" } }
-```
 
 ## Mounting Vue Components
 

@@ -43,6 +43,9 @@ const TESTING_SPECIFIER: &str = "@snapfire/fsr-client/testing";
 const TESTING_URL: &str = "/static/js/fsr/testing.js";
 const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
 const STD_URL: &str = "/static/js/fsr/std.js";
+/// What a spec's JSX compiles against in an application without React.
+const JSX_SPECIFIER: &str = "@snapfire/fsr-client/jsx-runtime";
+const JSX_URL: &str = "/static/js/fsr/jsx-runtime.js";
 
 /// The app compiled for the engine: where the modules landed, how a specifier reaches a file and the DOM bundle.
 pub struct Prepared {
@@ -75,6 +78,7 @@ pub fn prepare(app: &Path, browser_routes: &[String], compositions: &[String], g
 
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
+  import_map.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| JSX_URL.to_owned());
   let dist = test_dir.join("dist");
   let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), (bundle.clone(), dist.clone())];
   roots.extend(static_roots(&app)?);
@@ -155,8 +159,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     specs.iter().any(|source| source.contains(&specifier))
   };
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/") && imported(&c.module)).map(|c| c.module.clone()).collect();
-  let generated: Vec<String> = built.report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file.to_owned())).collect();
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions, &generated)?;
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_routes, &compositions, &built.added)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
@@ -498,7 +501,8 @@ fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, speci
 
 /// `.fsr-test/tsconfig.json` and `.fsr-test/importmap.json`: the browser build plus the spec files and the testing module.
 fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[String], generated: &[String]) -> Result<(), BuildError> {
-  let mut tsconfig = String::from("{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"paths\": {\n");
+  let jsx = crate::types::jsx_source(app, layout)?;
+  let mut tsconfig = format!("{{\n  \"compilerOptions\": {{\n    \"target\": \"es2022\",\n    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
   let aliases: Vec<(String, String)> = snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("../{dir}*"))).collect();
   for (i, (from, to)) in aliases.iter().enumerate() {
     tsconfig.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i + 1 == aliases.len() { "" } else { "," }));
@@ -519,6 +523,7 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, browser_routes: &[
   let mut imports = imports_of(&map);
   imports.insert(TESTING_SPECIFIER.to_owned(), serde_json::Value::String(TESTING_URL.to_owned()));
   imports.entry(STD_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(STD_URL.to_owned()));
+  imports.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(JSX_URL.to_owned()));
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).expect("serialisable");
   let path = test_dir.join("importmap.json");

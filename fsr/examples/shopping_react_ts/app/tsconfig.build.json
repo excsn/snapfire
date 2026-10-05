@@ -5,6 +5,7 @@
     "rootDir": ".",
     "sourceMap": true,
     "jsx": "react-jsx",
+    "jsxImportSource": "react",
     "paths": {
       "@app/*": ["./*"],
       "@routes/*": ["./routes/*"],

@@ -1143,6 +1143,12 @@ fn a_routes_own_boundary_owns_every_kind() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
+const NO_REACT: &str = r#"{"imports":{"@snapfire/fsr-client/jsx-runtime":"/j"}}"#;
+
+fn generated(built: &snapfire_fsr_cli::Built, name: &str) -> Option<String> {
+  built.files.iter().find(|(file, _)| file == name).map(|(_, text)| text.clone())
+}
+
 #[test]
 fn a_component_that_does_not_lower_is_a_component_of_the_apps_jsx_framework() {
   let page = "import { Clock } from \"../src/ui/Clock\";\nimport { Ticker } from \"../src/ui/Ticker\";\nexport default function Page() {\n  return <main><Clock /><Ticker /></main>;\n}\n";
@@ -1153,9 +1159,10 @@ fn a_component_that_does_not_lower_is_a_component_of_the_apps_jsx_framework() {
   ]);
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "the page lowers around them: {}", built.report);
-  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  let islands = generated(&built, "generated/islands.ts").unwrap();
   assert!(islands.contains("registerIsland(\"src/ui/Clock.tsx#Clock\", { loader: () => import(\"../src/ui/Clock.js\").then((m) => m.Clock), mount: reactMounter"), "JSX that imports nothing is the app's framework's: {islands}");
   assert!(islands.contains("registerIsland(\"src/ui/Ticker.tsx#Ticker\", { loader: () => import(\"../src/ui/Ticker.js\").then((m) => m.Ticker), mount: reactMounter"), "{islands}");
+  assert!(generated(&built, "tsconfig.build.json").unwrap().contains("\"jsxImportSource\": \"react\""));
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1163,35 +1170,34 @@ fn a_component_that_does_not_lower_is_a_component_of_the_apps_jsx_framework() {
 fn an_application_without_a_jsx_framework_refuses_a_component_that_does_not_lower() {
   let page = "import { Clock } from \"../src/ui/Clock\";\nexport default function Page() {\n  return <main><Clock /></main>;\n}\n";
   let dir = app(&[("routes/page.tsx", page), ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n")]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), NO_REACT).unwrap();
   let error = fails(&dir).to_string();
   assert!(error.contains("`src/ui/Clock.tsx#Clock` does not lower (src/ui/Clock.tsx:2:14:") && error.contains("no JSX framework") && error.contains("Vue or Svelte component or a custom element"), "{error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
-fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_client_island() {
+fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_react_island_and_is_refused_without_react() {
   let page = "export default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone}</p></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", page)]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "{}", built.report);
   assert!(built.report.extracted.iter().any(|(module, island, _)| module == "routes/page.tsx#default" && island == "routes/page.island0.tsx#default"), "{}", built.report);
-  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), mount: fsrMounter"), "{islands}");
-  let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
-  assert!(island.starts_with("/** @jsxImportSource @snapfire/fsr-client */\n"), "{island}");
+  let islands = generated(&built, "generated/islands.ts").unwrap();
+  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), mount: reactMounter"), "{islands}");
+  std::fs::write(dir.join("importmap.json"), NO_REACT).unwrap();
+  std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
+  let error = fails(&dir).to_string();
+  assert!(error.contains("routes/page.island0.tsx#default") && error.contains("no JSX framework"), "{error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
-fn a_client_island_takes_the_dialects_placements_from_fsrs_runtime() {
+fn an_island_takes_the_dialects_placements_from_its_own_framework_wherever_it_reaches() {
   let page = "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", page)]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
-  let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
-  assert!(island.starts_with("/** @jsxImportSource @snapfire/fsr-client */\n"), "{island}");
-  assert!(island.contains("import { Link } from \"@snapfire/fsr-client/jsx-runtime\";"), "{island}");
+  let island = generated(&built, ".fsr-bundle/routes/page.island0.tsx").expect("the island's bundle copy");
+  assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }

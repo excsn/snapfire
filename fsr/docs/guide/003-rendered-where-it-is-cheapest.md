@@ -28,7 +28,7 @@ rendered  routes/page.tsx#default            lowered
           src/ui/Stars.tsx#Stars             lowered
 ```
 
-A component it could not read is marked `client`, pointing at the residue that decided it. The page placing it still lowers: the component becomes an island of the framework its file imports, else of FSR's own JSX runtime. A `client` section below states each such residue once, with the rewrite that does the same thing in the IR and the tag that places the component, so when the cause is three files below a page the report gives you the path to it:
+A component it could not read is marked `client`, pointing at the residue that decided it. The page placing it still lowers: the component becomes a React island. In an application without React nothing could run it, so the build stops and says to make it lower or to write it as a Vue or Svelte component or a custom element. A `client` section below states each such residue once, with the rewrite that does the same thing in the IR and the tag that places the component, so when the cause is three files below a page the report gives you the path to it:
 
 ```
 rendered  routes/page.tsx#default            lowered
@@ -91,4 +91,4 @@ Load the catalog and view the source. The product cards are there in the HTML, e
 
 Look at the props script that follows a card. Beside the product it carries `"$h"`, a table whose keys name `ProductCard` and `Stars` with an id and whose values are the price and the star string the card shows, plus the card's inner markup. That is what React read at hydration instead of calling `money` and `Math.round`.
 
-Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. `Stars` is now marked `client`; the `client` section names that one line in `Stars.tsx` once, with the tag that places it. The product page and its modal still lower around it. Open a product and view the source: the stars are missing from the HTML and present only as props. FSR's JSX runtime draws them once the page loads, since `Stars` imports no framework. Put `Math.round` back.
+Now open [`Stars.tsx`](../../examples/shopping_react_ts/app/src/ui/Stars.tsx) and change `Math.round(rating)` to `new Intl.NumberFormat().format(rating)`. Run `fsr check app`. `Stars` is now marked `client`; the `client` section names that one line in `Stars.tsx` once, with the tag that places it. The product page and its modal still lower around it. Open a product and view the source: the stars are missing from the HTML and present only as props. React draws them once the page loads, since a component that does not lower is a React island in a React application. Put `Math.round` back.
