@@ -5,6 +5,6 @@
     "@snapfire/fsr-client/htmx": "/static/js/fsr/htmx.js",
     "@snapfire/fsr-client/std": "/static/js/fsr/std.js",
     "@snapfire/fsr-client/store": "/static/js/fsr/store.js",
-    "htmx.org": "/static/js/vendor/htmx/htmx.esm.js"
+    "htmx.org": "/static/js/vendor/htmx.org/htmx.org.bundle.mjs"
   }
 }
