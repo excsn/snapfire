@@ -235,3 +235,19 @@ fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
   assert!(!created.next.iter().any(|s| s.starts_with("fsr add")), "nothing is left to fetch: {:?}", created.next);
 }
 
+
+#[test]
+fn a_scaffold_is_a_development_build_where_release_env_is_development_and_a_production_one_elsewhere() {
+  use snapfire_fsr_host::config::{Deployment, Loader};
+  for site in [None, Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None })] {
+    let root = root("development");
+    create(&root, NewOptions { site, ..offline() }).unwrap();
+    let dev = |release_env: &str| {
+      let deployment = Deployment { release_env: release_env.to_owned(), app_env: "local".to_owned(), region: None };
+      Loader::at(&root).deployment(deployment).config().unwrap().server.dev
+    };
+    assert_eq!(dev("development"), Some(true));
+    assert_eq!(dev("production"), None, "unwritten, so fsr build bundles for production");
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+}

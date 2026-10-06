@@ -56,7 +56,7 @@ client    /static/js/fsr         23 modules, minified, 156 KiB from the binary
 
 A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client it built itself.
 
-The binary carries two builds of those modules and the row says which one is being served. `document.client` decides: `auto`, the default, is the minified build unless `server.dev` is on; `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings by `.min.js`, which the host answers either way, so the setting picks the entry point's build and the rest of the module graph follows it. The application's own modules are served minified the same way once `fsr build` has minified them, which it does when the configuration writes `server.dev = false`: outside development the host names the entry, the preloads and the component stylesheets by their `.min` twins.
+The binary carries two builds of those modules and the row says which one is being served. `document.client` decides: `auto`, the default, is the minified build unless `server.dev` is on; `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings by `.min.js`, which the host answers either way, so the setting picks the entry point's build and the rest of the module graph follows it. The application's own modules are served minified the same way once `fsr build` has minified them, which it does unless the configuration writes `server.dev = true`: outside development the host names the entry, the preloads and the component stylesheets by their `.min` twins.
 
 ## The origin a canonical link points at
 

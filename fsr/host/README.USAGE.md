@@ -228,7 +228,7 @@ Anything written in the file wins over the inference. `[[static]]` entries add r
 
 The binary holds two builds of those modules and `document.client` says which one the prefix answers with: `auto`, the default, is the minified build unless `server.dev` is on and `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings as `./boot.min.js`, so those names are answered too and the graph a page loads follows its entry point. The `client` row names the build. Building `snapfire_fsr_host` with `default-features = false` drops the readable set, about 215 KiB, so every name answers minified.
 
-The application's own bundle follows the same rule when `fsr build` minified it, which a written `server.dev = false` does. A host outside development then names each module and component stylesheet of the bundle by its twin: the entry script, the preloads, an import map entry pointing into the bundle and a mounted site's entry and stylesheets become `main.min.js`, `islands.min.js` and `Card.vue.min.css`. A development host keeps the plain names, as does a bundle built without minifying.
+The application's own bundle follows the same rule when `fsr build` minified it, which it does unless the configuration writes `server.dev = true`. A host outside development then names each module and component stylesheet of the bundle by its twin: the entry script, the preloads, an import map entry pointing into the bundle and a mounted site's entry and stylesheets become `main.min.js`, `islands.min.js` and `Card.vue.min.css`. A development host keeps the plain names, as does a bundle built without minifying.
 
 `[document.csp]` is the `Content-Security-Policy` every document carries, written as directives and their sources:
 
@@ -1062,7 +1062,7 @@ host.failed("routes/page.loader.ts:7:17: an optional call");
 
 While a build is refused every document shows the reason in a panel over the page, a document opened in the meantime included. The next build that lands takes the panel away. Every event names the bundle the last build left, a hash over the modules `dist/.snapfire-build.json` lists, taken once per build rather than per request. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them. Outside development a file with no hash in its name carries `no-cache` unless `server.static_max_age` sets a lifetime. A hashed one is `immutable`.
 
-`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. `fsr build` reads the same key: a written `dev = false` bundles for production and anything else bundles for development. The boot report prints one `dev` row while it is on.
+`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. `fsr build` reads the same key: a written `dev = true` bundles for development and anything else bundles for production. The boot report prints one `dev` row while it is on.
 
 ## Watching What a Request Did
 

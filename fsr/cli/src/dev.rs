@@ -95,7 +95,7 @@ struct App {
   layout: Layout,
   snapfirec: PathBuf,
   options: DevOptions,
-  /// Minified, with plugins compiling for production. [`emit`] sets it from a written `server.dev = false`.
+  /// Minified, with plugins compiling for production. [`emit`] sets it unless the configuration writes `server.dev = true`.
   production: bool,
 }
 
@@ -732,17 +732,16 @@ pub struct Emitted {
 /// browser, read by snapfirec in place of the originals at the same path.
 pub const BUNDLE_OVERLAY: &str = ".fsr-bundle";
 
+/// Whether `emit` bundles for production: unless `app`'s configuration writes `server.dev = true`.
+fn production(app: &Path) -> bool {
+  crate::config_beside(app).is_none_or(|config| config.server.dev != Some(true))
+}
+
 /// Everything a host reads: the plan and the generated modules, then the
 /// browser bundle. `build` and `write` alone leave `dist/` at whatever the
 /// last bundle wrote, which a host cannot tell from a current one, so this
 /// is what a build script and `fsr build` call. A build script under `fsr dev`
 /// leaves it to the loop; see [`owns_build`].
-/// Whether `app`'s configuration writes `server.dev = false`. Unwritten, the host decides at serve
-/// time from `RELEASE_ENV`, which the build cannot know.
-fn production(app: &Path) -> bool {
-  crate::config_beside(app).is_some_and(|config| config.server.dev == Some(false))
-}
-
 pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
   let mut app = App::open(app, options)?;
   app.production = production(&app.dir);
@@ -1041,12 +1040,13 @@ mod tests {
     let config = root.join("config/app.toml");
     let text = std::fs::read_to_string(&config).unwrap().replacen("[server]\n", &format!("[server]\n{server}"), 1);
     std::fs::write(&config, text).unwrap();
+    std::fs::remove_file(root.join("config/development.toml")).unwrap();
     root
   }
 
   #[test]
-  fn only_a_written_server_dev_false_builds_for_production() {
-    for (tag, server, expected) in [("false", "dev = false\n", true), ("true", "dev = true\n", false), ("unwritten", "", false)] {
+  fn a_build_is_for_production_unless_server_dev_is_written_true() {
+    for (tag, server, expected) in [("false", "dev = false\n", true), ("true", "dev = true\n", false), ("unwritten", "", true)] {
       let root = scaffold(tag, server);
       assert_eq!(production(&root.join("app")), expected, "server.dev {tag}");
       std::fs::remove_dir_all(&root).unwrap();

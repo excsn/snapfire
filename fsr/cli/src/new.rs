@@ -10,6 +10,7 @@ use crate::{types, BuildError};
 const TEMPLATE: &[(&str, &str)] = &[
   (".gitignore", include_str!("../templates/new/gitignore")),
   ("config/app.toml", include_str!("../templates/new/config/app.toml")),
+  ("config/development.toml", include_str!("../templates/new/config/development.toml")),
   ("app/importmap.json", include_str!("../templates/new/app/importmap.json")),
   ("app/src/main.ts", include_str!("../templates/new/app/src/main.ts")),
   ("app/routes/layout.tsx", include_str!("../templates/new/app/routes/layout.tsx")),

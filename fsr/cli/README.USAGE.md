@@ -556,7 +556,7 @@ The build reads the React version back from `vendor/.fsr-vendor.json` and writes
 
 ## Adopting a Direction
 
-`fsr new` writes a bare application: no framework is vendored, the import map names the client, its element builder `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. Its `config/app.toml` starts with a strict policy in `[document.csp_report_only]`, which the browser reports against and never enforces. Renaming the table to `[document.csp]` enforces it. A site scaffold writes none, since a mounted site's document is its shell's. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
+`fsr new` writes a bare application: no framework is vendored, the import map names the client, its element builder `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. Its `config/app.toml` starts with a strict policy in `[document.csp_report_only]`, which the browser reports against and never enforces. Renaming the table to `[document.csp]` enforces it. A site scaffold writes none, since a mounted site's document is its shell's. Beside it, `config/development.toml` sets `server.dev = true`; the host reads it while `RELEASE_ENV` is `development`, its default, so `fsr build` on a developer's machine is readable and a deploy run with `RELEASE_ENV=production` bundles minified. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
 
 ```sh
 fsr new shop
@@ -738,14 +738,12 @@ fsr build app
 fsr check app
 ```
 
-`build` bundles for production when the configuration says so:
+`build` bundles for production: a minified `.min.js` beside each module, with framework plugins compiling for production, so a Vue component's props lose their runtime type checks. A host outside development serves the `.min` files. `fsr dev` always bundles readable output with development plugins. `build` does the same when the configuration asks for it:
 
 ```toml
 [server]
-dev = false
+dev = true
 ```
-
-The bundle then carries a minified `.min.js` beside each module and framework plugins compile for production, so a Vue component's props lose their runtime type checks. `dev = true` or no `dev` at all bundles readable output with development plugins, which is what `fsr dev` always does.
 
 ## Building Strictly
 

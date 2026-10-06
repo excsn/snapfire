@@ -206,7 +206,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError>`
 * `pub struct Emitted { pub built: Built, pub written: Vec<PathBuf>, pub checked: Option<typecheck::Checked> }`
 * `build`, then `write`, then `snapfirec` over `tsconfig.build.json` into `<app>/dist` with `options.public_path`, the layout's import map and `--overlay .fsr-bundle` when the build wrote one, so a rewritten source is compiled in place of its original at the same path. The order is load-bearing: the bundle compiles the island registry the generation writes.
-* A configuration writing `server.dev = false` adds `--minify compact`: a `.min.js` beside each module, `"minified": ".min"` in the build facts and plugins compiling for production. `server.dev = true` or unwritten bundles readable output with plugins in development mode.
+* Adds `--minify compact` unless the configuration writes `server.dev = true`: a `.min.js` beside each module, `"minified": ".min"` in the build facts and plugins compiling for production. `server.dev = true` bundles readable output with plugins in development mode.
 * The whole artifact a host reads and what a `build.rs` calls when `dev::owns_build()` is false. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.
 * The typecheck runs beside the bundle rather than after it, since neither reads the other's output and `Emitted::checked` carries what it found. `BuildError::Typecheck` when a diagnostic is an error, carrying the row and every diagnostic.
 * `Dev` naming the compiler when it cannot start or its exit status when it fails.
