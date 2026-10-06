@@ -6090,3 +6090,76 @@ fn a_trace_expose_entry_that_is_not_a_path_is_refused() {
   let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
   assert!(err.contains("trace.expose `docs` must be a path"), "{err}");
 }
+
+/// `preload_app` with a bundle the compiler built minified: every output has a `.min` twin but
+/// `src/ui/Late.js`. The import map names two of the bundle's modules by bare specifiers.
+fn minified_app(dev: bool, minified: bool) -> PathBuf {
+  let dir = preload_app(dev, "");
+  std::fs::write(
+    dir.join("importmap.json"),
+    r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js","@app/shared":"/static/js/app/src/shared.js","@app/late":"/static/js/app/src/ui/Late.js"}}"#,
+  )
+  .unwrap();
+  let suffix = if minified { r#""minified":".min","# } else { "" };
+  std::fs::write(
+    dir.join("dist/.snapfire-build.json"),
+    format!(
+      r#"{{"publicPath":"/static/js/app/","entries":["src/main.js"],{suffix}
+        "styles":["src/ui/Card.vue.css"],
+        "outputs":["generated/islands.js","generated/islands.min.js","src/main.js","src/main.min.js","src/shared.js","src/shared.min.js","src/ui/Card.vue.css","src/ui/Card.vue.min.css","src/ui/Late.js"],
+        "graph":{{"src/main.js":["generated/islands.js"]}},
+        "externals":["@snapfire/fsr-client"]}}"#
+    ),
+  )
+  .unwrap();
+  dir
+}
+
+/// A minified module imports its siblings by their `.min` names, so a page naming any module of a
+/// minified bundle by its plain name loads it twice.
+#[tokio::test]
+async fn a_host_outside_development_serves_the_application_s_minified_bundle() {
+  let host = tuned_host(&minified_app(false, true));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"src="/static/js/app/src/main.min.js""#), "the entry: {html}");
+  assert!(html.contains(r#"modulepreload" href="/static/js/app/generated/islands.min.js""#), "the preload: {html}");
+  assert!(html.contains(r#"href="/static/js/app/src/ui/Card.vue.min.css""#), "the component stylesheet: {html}");
+  assert!(html.contains(r#""@app/shared":"/static/js/app/src/shared.min.js""#), "the import map: {html}");
+  assert!(html.contains(r#""@app/late":"/static/js/app/src/ui/Late.js""#), "an output with no twin keeps its name: {html}");
+  assert!(!html.contains("/static/js/app/src/main.js"), "{html}");
+}
+
+#[tokio::test]
+async fn a_development_host_or_an_unminified_bundle_serves_the_readable_one() {
+  for (dev, minified) in [(true, true), (false, false)] {
+    let host = tuned_host(&minified_app(dev, minified));
+    let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+    assert!(html.contains(r#"src="/static/js/app/src/main.js""#), "dev {dev} minified {minified}: {html}");
+    assert!(!html.contains("/static/js/app/src/main.min.js") && !html.contains("islands.min.js") && !html.contains("Card.vue.min.css") && !html.contains("shared.min.js"), "dev {dev} minified {minified}: {html}");
+  }
+}
+
+#[tokio::test]
+async fn a_mounted_site_s_minified_bundle_is_served_by_a_shell_outside_development() {
+  let site = site_dir();
+  let toml = std::fs::read_to_string(site.join("app.toml")).unwrap();
+  std::fs::write(site.join("app.toml"), toml.replace("entry = \"/static/app.js\"", "entry = \"/shop/static/js/app/src/main.js\"")).unwrap();
+  std::fs::create_dir_all(site.join("dist")).unwrap();
+  std::fs::write(
+    site.join("dist/.snapfire-build.json"),
+    r#"{"publicPath":"/shop/static/js/app/","entries":["src/main.js"],"minified":".min",
+        "outputs":["src/main.js","src/main.min.js"],"graph":{"src/main.js":[]}}"#,
+  )
+  .unwrap();
+  let shell = shell_dir();
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  std::fs::write(shell.join("app.toml"), toml.replace("[server]\n", "[server]\ndev = false\n")).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop:shop.list", Value::seq(vec![Value::str("b")])));
+  let mount = snapfire_fsr_host::Mount::new("shop", "dev", "deadbeef", false, snapfire_fsr_host::Loader::at(&site).load().unwrap());
+  let host = Host::from(shell.join("app.toml")).unwrap().services_over(transport).mount(mount).build().unwrap();
+
+  let html = body_of(host.handle(Request::get("/shop").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains(r#"<script type="module" src="/shop/static/js/app/src/main.min.js"></script>"#), "{html}");
+  let payload = body_of(host.handle(Request::get("/shop?__payload").body(Bytes::new()).unwrap()).await).await;
+  assert!(payload.contains("E \"/shop/static/js/app/src/main.min.js\""), "{payload}");
+}

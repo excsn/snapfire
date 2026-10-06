@@ -228,6 +228,8 @@ Anything written in the file wins over the inference. `[[static]]` entries add r
 
 The binary holds two builds of those modules and `document.client` says which one the prefix answers with: `auto`, the default, is the minified build unless `server.dev` is on and `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings as `./boot.min.js`, so those names are answered too and the graph a page loads follows its entry point. The `client` row names the build. Building `snapfire_fsr_host` with `default-features = false` drops the readable set, about 215 KiB, so every name answers minified.
 
+The application's own bundle follows the same rule when `fsr build` minified it, which a written `server.dev = false` does. A host outside development then names each module and component stylesheet of the bundle by its twin: the entry script, the preloads, an import map entry pointing into the bundle and a mounted site's entry and stylesheets become `main.min.js`, `islands.min.js` and `Card.vue.min.css`. A development host keeps the plain names, as does a bundle built without minifying.
+
 `[document.csp]` is the `Content-Security-Policy` every document carries, written as directives and their sources:
 
 ```toml

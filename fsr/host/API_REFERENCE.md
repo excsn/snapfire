@@ -169,7 +169,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Bundle
 
-* `pub struct config::Bundle { pub route: String, pub graph: BTreeMap<String, Vec<String>>, pub externals: Vec<String> }`: the bundle's own terms, read from `dist/.snapfire-build.json` when it was found. `route` is the URL prefix it is served under with no trailing slash, `graph` each entry's transitive static imports in the output directory's own terms and `externals` the bare specifiers the bundle carries. `None` on `Config` when no facts file was read. The input to `document.module_preload`.
+* `pub struct config::Bundle { pub route: String, pub graph: BTreeMap<String, Vec<String>>, pub externals: Vec<String>, pub minified: Option<String>, pub outputs: BTreeSet<String> }`: the bundle's own terms, read from `dist/.snapfire-build.json` when it was found. `route` is the URL prefix it is served under with no trailing slash, `graph` each entry's transitive static imports in the output directory's own terms, `externals` the bare specifiers the bundle carries, `minified` the suffix of each output's minified twin when the bundle was built minified and `outputs` every file the compiler wrote. `None` on `Config` when no facts file was read. The input to `document.module_preload`.
+* `Bundle::minified_url(&self, url: &str) -> String`: `url`'s minified twin when `url` is under `route` and `outputs` holds the twin, `url` as given otherwise. A host outside development serves every URL of a minified bundle this way.
 
 ### PublicValue
 

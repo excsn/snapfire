@@ -4,7 +4,7 @@
 //! what the host infers from the app directory so the file only carries
 //! deployment facts. `Loader` is how one is read and what a reload rereads.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1672,6 +1672,8 @@ impl Config {
           route: route.clone(),
           graph: facts.graph.clone(),
           externals: facts.externals.clone(),
+          minified: facts.minified.clone(),
+          outputs: facts.outputs.iter().cloned().collect(),
         });
         if !statics.iter().any(|s| s.route == route) {
           statics.push(StaticRoot {
@@ -2025,6 +2027,11 @@ struct BuildFacts {
   /// resolves.
   #[serde(default)]
   externals: Vec<String>,
+  /// The suffix of the minified twin the compiler wrote beside each output, when it wrote one.
+  #[serde(default)]
+  minified: Option<String>,
+  #[serde(default)]
+  outputs: Vec<String>,
 }
 
 /// What the bundle's facts say about its module graph, kept for `server.preload`.
@@ -2034,6 +2041,41 @@ pub struct Bundle {
   pub route: String,
   pub graph: BTreeMap<String, Vec<String>>,
   pub externals: Vec<String>,
+  /// The suffix of each output's minified twin, `.min`, when the bundle was built minified.
+  pub minified: Option<String>,
+  /// Every file the compiler wrote, relative to the bundle's directory.
+  pub outputs: BTreeSet<String>,
+}
+
+impl Bundle {
+  /// `url`'s minified twin, `/static/js/app/src/main.min.js` for `/static/js/app/src/main.js`, when
+  /// `url` is under this bundle and the compiler wrote the twin; `url` as given otherwise. A
+  /// minified module imports its siblings by their twins' names, so a page that loads one module of
+  /// the bundle by its plain name holds that module twice.
+  pub fn minified_url(&self, url: &str) -> String {
+    let Some(suffix) = &self.minified else { return url.to_owned() };
+    let Some(relative) = url.strip_prefix(&format!("{}/", self.route)) else { return url.to_owned() };
+    let (path, rest) = match relative.find(['?', '#']) {
+      Some(at) => relative.split_at(at),
+      None => (relative, ""),
+    };
+    let (dir, file) = match path.rsplit_once('/') {
+      Some((dir, file)) => (Some(dir), file),
+      None => (None, path),
+    };
+    let Some((stem, ext)) = file.rsplit_once('.') else { return url.to_owned() };
+    if stem.ends_with(suffix.as_str()) {
+      return url.to_owned();
+    }
+    let twin = match dir {
+      Some(dir) => format!("{dir}/{stem}{suffix}.{ext}"),
+      None => format!("{stem}{suffix}.{ext}"),
+    };
+    match self.outputs.contains(&twin) {
+      true => format!("{}/{twin}{rest}", self.route),
+      false => url.to_owned(),
+    }
+  }
 }
 
 /// The compiler's facts file, from `dist/` or from whichever static root a

@@ -4683,12 +4683,12 @@ impl HostBuilder {
       Some(rel) => {
         let path = config.resolve(rel);
         let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
-        Some(client_urls(&text, serve_client && client_minified))
+        Some(bundle_urls(&client_urls(&text, serve_client && client_minified), minified_bundle(&config)))
       }
       None => None,
     };
     let preload = match config.document.module_preload {
-      true => preload_set(&config, import_map.as_deref()),
+      true => preload_set(&config, import_map.as_deref(), minified_bundle(&config)),
       false => Vec::new(),
     };
     for mount in std::mem::take(&mut self.mounts) {
@@ -4796,6 +4796,7 @@ impl HostBuilder {
         let path = mount.artifact.config.resolve(rel);
         let theirs = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
         let merged = merge_import_maps(import_map.as_deref(), &theirs);
+        let merged = bundle_urls(&merged, minified_under(mount.artifact.config.bundle.as_ref(), config.dev()));
         import_map = Some(client_urls(&merged, serve_client && client_minified));
       }
       site_reports.push(SiteReport {
@@ -4806,15 +4807,16 @@ impl HostBuilder {
         hash: mount.hash.clone(),
         ignored,
       });
+      let site_bundle = minified_under(mount.artifact.config.bundle.as_ref(), config.dev());
       sites.push(SiteTables {
         name: mount.name.clone(),
         at: site.at.clone(),
         middleware,
-        styles: mount.artifact.config.document.styles.clone().unwrap_or_default(),
-        entry: mount.artifact.config.document.entry.clone(),
+        styles: minified_urls(mount.artifact.config.document.styles.clone().unwrap_or_default(), site_bundle),
+        entry: mount.artifact.config.document.entry.as_deref().map(|entry| minified_url(entry, site_bundle)),
         preload: match config.document.module_preload {
           true => {
-            let mut theirs = preload_set(&mount.artifact.config, import_map.as_deref());
+            let mut theirs = preload_set(&mount.artifact.config, import_map.as_deref(), site_bundle);
             theirs.retain(|url| !preload.contains(url));
             theirs
           }
@@ -4941,13 +4943,14 @@ impl HostBuilder {
       templates_answered(plan, &app.runtime.evaluators, stock_templates.as_deref())?;
     }
 
-    let styles = config.document.styles.clone().unwrap_or_default();
+    let styles = minified_urls(config.document.styles.clone().unwrap_or_default(), minified_bundle(&config));
+    let entry = config.document.entry.as_deref().map(|entry| minified_url(entry, minified_bundle(&config)));
     let mut head = shell::head(
       &config.document.title,
       &styles,
       import_map.as_deref(),
       &preload,
-      config.document.entry.as_deref(),
+      entry.as_deref(),
     );
     head.head = config.document.head_meta()?.head;
     let font_css = assets_manifest.as_ref().map(|m| m.fonts.css.clone()).filter(|css| !css.is_empty());
@@ -5185,6 +5188,63 @@ impl HostBuilder {
 /// The import map names the build the host serves. A minified module imports its siblings by
 /// their `.min.js` names, so a specifier resolved to a plain name would be a second copy of that
 /// module, holding its own store.
+/// The application's bundle, when the facts say the compiler wrote its minified twins and the host
+/// is not a development one.
+fn minified_bundle(config: &Config) -> Option<&config::Bundle> {
+  minified_under(config.bundle.as_ref(), config.dev())
+}
+
+/// A bundle served minified under a host whose `dev` is given: a mounted site's follows the shell.
+fn minified_under(bundle: Option<&config::Bundle>, dev: bool) -> Option<&config::Bundle> {
+  bundle.filter(|bundle| bundle.minified.is_some() && !dev)
+}
+
+fn minified_url(url: &str, bundle: Option<&config::Bundle>) -> String {
+  bundle.map_or_else(|| url.to_owned(), |bundle| bundle.minified_url(url))
+}
+
+fn minified_urls(urls: Vec<String>, bundle: Option<&config::Bundle>) -> Vec<String> {
+  urls.into_iter().map(|url| minified_url(&url, bundle)).collect()
+}
+
+/// The import map with every URL under `bundle` naming its minified twin, for a specifier the
+/// application maps to one of its own modules.
+fn bundle_urls(text: &str, bundle: Option<&config::Bundle>) -> String {
+  let Some(bundle) = bundle else { return text.to_owned() };
+  let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else {
+    return text.to_owned();
+  };
+  let mut changed = false;
+  minify_bundle_urls(&mut value, bundle, &mut changed);
+  match changed {
+    true => serde_json::to_string(&value).unwrap_or_else(|_| text.to_owned()),
+    false => text.to_owned(),
+  }
+}
+
+fn minify_bundle_urls(value: &mut serde_json::Value, bundle: &config::Bundle, changed: &mut bool) {
+  match value {
+    serde_json::Value::Object(map) => {
+      for (_, held) in map.iter_mut() {
+        minify_bundle_urls(held, bundle, changed);
+      }
+    }
+    serde_json::Value::Array(items) => {
+      for held in items {
+        minify_bundle_urls(held, bundle, changed);
+      }
+    }
+    serde_json::Value::String(url) => {
+      let twin = bundle.minified_url(url);
+      if twin != *url {
+        *url = twin;
+        *changed = true;
+      }
+    }
+    _ => {}
+  }
+}
+
 fn client_urls(text: &str, minified: bool) -> String {
   if !minified {
     return text.to_owned();
@@ -5225,7 +5285,7 @@ fn minify_client_urls(value: &mut serde_json::Value, prefix: &str, changed: &mut
   }
 }
 
-fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
+fn preload_set(config: &Config, import_map: Option<&str>, twins: Option<&config::Bundle>) -> Vec<String> {
   let Some(bundle) = &config.bundle else { return Vec::new() };
   // A `[[static]]` root on the client prefix is an application serving its own
   // copy, which the host has not read, so the names the import map gives are
@@ -5250,7 +5310,7 @@ fn preload_set(config: &Config, import_map: Option<&str>) -> Vec<String> {
   };
 
   for module in bundle.graph.get(relative).into_iter().flatten() {
-    push(&mut urls, format!("{}/{module}", bundle.route));
+    push(&mut urls, minified_url(&format!("{}/{module}", bundle.route), twins));
   }
 
   let prefix = format!("{}/", client::ROUTE);
