@@ -4,6 +4,7 @@
 
 pub mod font;
 pub mod image;
+pub mod strip;
 
 pub use font::{Face, Fallback, Metrics, Style};
 pub use image::Header;
